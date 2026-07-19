@@ -1,0 +1,836 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: projects.triggers.gratefulagents.dev
+spec:
+  group: triggers.gratefulagents.dev
+  names:
+    kind: Project
+    listKind: ProjectList
+    plural: projects
+    singular: project
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.displayName
+      name: DisplayName
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Project is the Schema for the projects API. It holds defaults and source
+          configuration for AgentRuns created through the dashboard and triggers.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ProjectSpec defines the desired state of Project.
+            properties:
+              auth:
+                description: auth gates who can trigger AgentRun creation from this
+                  project.
+                properties:
+                  allowedUsers:
+                    description: |-
+                      allowedUsers restricts who can trigger runs. Each entry is a platform-specific
+                      identifier: Slack user ID, Discord user ID, GitHub username, or email.
+                      Empty means no restriction for list-only platforms such as Linear. For
+                      GitHub ingress, empty allowedUsers defaults to repository owners, members,
+                      and collaborators based on GitHub author_association.
+                    items:
+                      type: string
+                    type: array
+                  denyUsers:
+                    description: |-
+                      denyUsers explicitly blocks specific users from triggering runs.
+                      Deny list takes precedence over allow list.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              defaults:
+                description: defaults holds the fields used when creating AgentRuns
+                  from this project.
+                properties:
+                  additionalRepos:
+                    description: |-
+                      additionalRepos lists extra git repository URLs cloned into each run's
+                      sandbox at startup, under repos/<name> next to the primary repository.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  allowedModels:
+                    description: |-
+                      allowedModels optionally constrains which provider models may be surfaced
+                      for runs created from this source.
+                      When empty, all provider-returned models remain eligible for selection.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                  authMode:
+                    allOf:
+                    - enum:
+                      - api-key
+                      - oauth
+                    - enum:
+                      - api-key
+                      - oauth
+                    default: api-key
+                    description: |-
+                      authMode controls provider credential mode:
+                      - "api-key" (default): use defaults.secrets.claudeApiKey or providerKeys
+                      - "oauth": supported for provider "openai", "anthropic", and "copilot"; requires
+                        defaults.secrets.openaiOAuthSecret
+                    type: string
+                  baseBranch:
+                    default: main
+                    description: baseBranch is the branch to fork from.
+                    type: string
+                  customInstructions:
+                    description: |-
+                      customInstructions is operator-managed instructions injected into every
+                      task's CLAUDE.md for this repo. Prepended before the repo's own CLAUDE.md
+                      content so repo-specific rules can override platform defaults.
+                    type: string
+                  disableCommandSandbox:
+                    description: |-
+                      disableCommandSandbox completely disables the bubblewrap (bwrap)
+                      subprocess sandbox for runs created from this trigger: model-controlled
+                      commands and MCP stdio servers execute directly in the worker container
+                      instead of inside the enforcing bwrap boundary. The pod/container
+                      isolation still applies, but workspace write containment and read-only
+                      permission mode become advisory only. Admin-only escape hatch for
+                      toolchains that are incompatible with bubblewrap; it is intentionally
+                      not exposed through the dashboard API, so it can only be set directly
+                      on the trigger resource (kubectl/GitOps).
+                    type: boolean
+                  executionMode:
+                    description: |-
+                      executionMode controls the orchestration model for created AgentRuns.
+                      When omitted but team is configured, team mode is implied.
+                    enum:
+                    - linear
+                    - team
+                    type: string
+                  image:
+                    description: |-
+                      image is the worker pod image.
+                      When omitted, the controller uses its built-in default image.
+                    type: string
+                  kubernetesAdmin:
+                    description: |-
+                      kubernetesAdmin grants runs created from this trigger cluster-admin
+                      RBAC plus read-only platform introspection tools. Admin-only: it is
+                      intentionally not exposed through the dashboard trigger APIs, so it can
+                      only be set directly on the trigger resource (kubectl/GitOps). Projects
+                      additionally expose the admin-gated spec.kubernetesAdmin field for
+                      dashboard-created runs.
+                    type: boolean
+                  mcpPolicyRef:
+                    description: |-
+                      mcpPolicyRef references an MCPPolicy in the same namespace.
+                      The policy controls which MCP servers are allowed or denied.
+                      When omitted, the agent defaults to deny-all for MCP tools (zero trust).
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  mcpServerRefs:
+                    description: |-
+                      mcpServerRefs lists MCPServer resources in the same namespace to inject
+                      into created AgentRuns.
+                    items:
+                      description: NamedRef references another namespaced resource
+                        by name.
+                      properties:
+                        name:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  modeRef:
+                    description: |-
+                      modeRef selects a ModeTemplate for created AgentRuns.
+                      When set, the controller pins the resolved template snapshot on the run's status.
+                      When omitted, the mode is inferred from workflowMode + executionMode via the compat adapter.
+                    properties:
+                      channel:
+                        type: string
+                      name:
+                        type: string
+                      version:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  model:
+                    description: |-
+                      model is the model identifier for the selected provider.
+                      May include a provider prefix (e.g. "anthropic/claude-sonnet-4-6"),
+                      in which case the separate provider field is ignored.
+                    type: string
+                  openaiApi:
+                    default: responses
+                    description: |-
+                      openaiApi selects which OpenAI endpoint family to use when provider is
+                      OpenAI-compatible:
+                      - "responses": force /v1/responses (default)
+                      - "chat-completions": force /v1/chat/completions
+                      Copilot selects the supported endpoint per model in the SDK
+                      (/v1/messages, /responses, or /chat/completions).
+                    enum:
+                    - responses
+                    - chat-completions
+                    type: string
+                  openaiBaseURL:
+                    description: |-
+                      openaiBaseURL overrides the OpenAI-compatible API base URL used for
+                      created tasks.
+                      If omitted for an OpenAI-compatible provider, a provider-specific default
+                      URL is applied automatically.
+                    type: string
+                  provider:
+                    default: openai
+                    description: |-
+                      Deprecated: use a prefixed model value (e.g. "anthropic/claude-sonnet-4-6") instead.
+                      provider selects which LLM runtime provider to use.
+                      Supported values:
+                      - "anthropic" (Anthropic Messages API)
+                      - "openai" (OpenAI-compatible API with OpenAI default URL)
+                      - "gemini" (OpenAI-compatible API with Gemini default URL)
+                      - "openrouter" (OpenAI-compatible API with OpenRouter default URL)
+                      - "groq" (OpenAI-compatible API with Groq default URL)
+                      - "xai" (OpenAI-compatible API with xAI default URL)
+                      - "copilot" (GitHub OAuth provider)
+
+                      When omitted, "openai" is used.
+                    enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - openrouter
+                    - groq
+                    - xai
+                    - copilot
+                    type: string
+                  reasoningLevel:
+                    allOf:
+                    - enum:
+                      - none
+                      - low
+                      - medium
+                      - high
+                      - xhigh
+                      - max
+                    - enum:
+                      - none
+                      - low
+                      - medium
+                      - high
+                      - xhigh
+                      - max
+                    description: |-
+                      reasoningLevel optionally sets the default model reasoning effort for
+                      runs created from this source (one of: none, low, medium, high, xhigh, max).
+                      Empty uses the provider/model default. Individual runs may override it.
+                    type: string
+                  repoURL:
+                    description: |-
+                      repoURL is the git repository URL to clone. Optional: when empty, runs start
+                      without a repository (repoless) and repos can be cloned at runtime.
+                    type: string
+                  runtimeProfileRef:
+                    description: |-
+                      runtimeProfileRef references a RuntimeProfile in the same namespace.
+                      The profile controls permission mode, allowed tools, and other runtime policies.
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  secrets:
+                    description: secrets references K8s Secrets for credentials.
+                    properties:
+                      claudeApiKey:
+                        description: |-
+                          Deprecated: use providerKeys instead for explicit per-provider credential mapping.
+                          The field name is kept for backward compatibility.
+                        type: string
+                      githubToken:
+                        description: |-
+                          githubToken is the name of the K8s Secret containing the GitHub token.
+                          It is optional for GitHubRepository triggers that use GitHub App auth.
+                        type: string
+                      openaiOAuthSecret:
+                        description: |-
+                          openaiOAuthSecret is the name of the K8s Secret containing provider OAuth
+                          material for authMode=oauth. The field name is kept for backward
+                          compatibility; it is used by providers that support OAuth.
+                        type: string
+                      providerKeys:
+                        description: |-
+                          providerKeys is a list of per-provider API key secret references.
+                          Each entry is propagated to the AgentRun and mounted as the correct
+                          env var for the specified provider (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY).
+                        items:
+                          description: ProviderKeyRef references a K8s Secret holding
+                            an API key for a specific provider.
+                          properties:
+                            provider:
+                              description: provider is the provider name (e.g. "anthropic",
+                                "openai", "openrouter", "gemini", "groq", "xai", "copilot").
+                              type: string
+                            secretKey:
+                              description: 'secretKey is the key within the K8s Secret
+                                (default: "api-key").'
+                              type: string
+                            secretName:
+                              description: secretName is the name of the K8s Secret.
+                              type: string
+                          required:
+                          - provider
+                          - secretName
+                          type: object
+                        type: array
+                    type: object
+                  skillRefs:
+                    description: |-
+                      skillRefs lists Skill resources in the same namespace to inject into
+                      created AgentRuns (their required MCP servers are auto-attached).
+                    items:
+                      description: NamedRef references another namespaced resource
+                        by name.
+                      properties:
+                        name:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  team:
+                    description: |-
+                      team configures the predeclared team-mode orchestration contract for
+                      created AgentRuns.
+                    properties:
+                      completionPolicy:
+                        description: AgentRunCompletionPolicy defines the gates required
+                          before success.
+                        properties:
+                          requireApproval:
+                            type: boolean
+                        type: object
+                      delegationPolicy:
+                        description: AgentRunDelegationPolicy defines the parent's
+                          child-run limits.
+                        properties:
+                          maxChildren:
+                            format: int32
+                            type: integer
+                          maxDepth:
+                            format: int32
+                            type: integer
+                          parentOnly:
+                            type: boolean
+                        type: object
+                      steps:
+                        items:
+                          description: AgentRunTeamStep defines one orchestration
+                            step in team mode.
+                          properties:
+                            name:
+                              type: string
+                            tasks:
+                              items:
+                                description: AgentRunTeamTask defines one predeclared
+                                  worker assignment inside a TeamStep.
+                                properties:
+                                  artifactContract:
+                                    type: string
+                                  dependsOn:
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  maxRetries:
+                                    format: int32
+                                    type: integer
+                                  name:
+                                    type: string
+                                  objective:
+                                    type: string
+                                  role:
+                                    type: string
+                                  runtimeProfileRef:
+                                    description: NamedRef references another namespaced
+                                      resource by name.
+                                    properties:
+                                      name:
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                required:
+                                - name
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            type:
+                              description: AgentRunTeamStepType is the bounded phase-1
+                                team step contract.
+                              enum:
+                              - serial
+                              - parallel
+                              - approval_gate
+                              type: string
+                          required:
+                          - name
+                          - type
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                  timeout:
+                    default: 30m
+                    description: timeout is the maximum duration for created AgentRuns.
+                    type: string
+                  workflowMode:
+                    allOf:
+                    - enum:
+                      - chat
+                      - auto
+                    - enum:
+                      - auto
+                      - chat
+                    description: |-
+                      workflowMode is retained for compatibility. Created runs always use auto;
+                      legacy chat values are normalized to finish-gated autonomous pacing.
+                    type: string
+                required:
+                - secrets
+                type: object
+              displayName:
+                description: displayName is a human-readable name for this project.
+                minLength: 1
+                type: string
+              kubernetesAdmin:
+                description: |-
+                  kubernetesAdmin grants dashboard runs created from this project
+                  cluster-admin RBAC plus read-only platform introspection tools. This is
+                  admin-gated by the dashboard API. Trigger CRDs grant the same to their
+                  runs via the kubectl-only defaults.kubernetesAdmin field.
+                type: boolean
+              reviewLoop:
+                description: |-
+                  reviewLoop configures autonomous PR reviews for runs created from this
+                  project. The policy is copied onto each run so it also applies to pull
+                  requests opened in additional repositories. The loop is disabled when
+                  this field is omitted; set disabled to false to opt in.
+                properties:
+                  disabled:
+                    description: |-
+                      disabled turns off automatic reviewer runs for PRs opened by this
+                      project's runs.
+                    type: boolean
+                type: object
+              triggers:
+                description: triggers declares the named external entry points for
+                  this project.
+                items:
+                  description: ProjectTrigger is a named, source-specific Project
+                    entry point.
+                  properties:
+                    cron:
+                      description: CronProjectTriggerConfig configures scheduled ingress.
+                      properties:
+                        concurrencyPolicy:
+                          default: Forbid
+                          description: CronConcurrencyPolicy controls overlapping
+                            scheduled AgentRuns.
+                          enum:
+                          - Allow
+                          - Forbid
+                          type: string
+                        prompt:
+                          minLength: 1
+                          type: string
+                        schedule:
+                          minLength: 1
+                          type: string
+                        timeZone:
+                          default: UTC
+                          type: string
+                      required:
+                      - prompt
+                      - schedule
+                      type: object
+                    enabled:
+                      default: true
+                      type: boolean
+                    github:
+                      description: GitHubProjectTriggerConfig configures GitHub issue
+                        and comment ingress.
+                      properties:
+                        auth:
+                          description: auth restricts the GitHub actors that may create
+                            runs through this trigger.
+                          properties:
+                            allowedUsers:
+                              description: |-
+                                allowedUsers restricts who can trigger runs. Each entry is a platform-specific
+                                identifier: Slack user ID, Discord user ID, GitHub username, or email.
+                                Empty means no restriction for list-only platforms such as Linear. For
+                                GitHub ingress, empty allowedUsers defaults to repository owners, members,
+                                and collaborators based on GitHub author_association.
+                              items:
+                                type: string
+                              type: array
+                            denyUsers:
+                              description: |-
+                                denyUsers explicitly blocks specific users from triggering runs.
+                                Deny list takes precedence over allow list.
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                        comments:
+                          description: comments enables issue-comment events.
+                          type: boolean
+                        connectionRef:
+                          description: ConnectionRef references a Connection in the
+                            same namespace.
+                          properties:
+                            name:
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        issues:
+                          description: issues enables issue events.
+                          type: boolean
+                        owner:
+                          minLength: 1
+                          type: string
+                        pollInterval:
+                          default: 60s
+                          description: pollInterval is how often to poll GitHub for
+                            events.
+                          type: string
+                        repo:
+                          minLength: 1
+                          type: string
+                        triggerKeyword:
+                          default: '@agent'
+                          description: triggerKeyword is the bot mention keyword for
+                            comment-based triggering.
+                          type: string
+                      required:
+                      - connectionRef
+                      - owner
+                      - repo
+                      type: object
+                    linear:
+                      description: LinearProjectTriggerConfig configures Linear issue
+                        ingress.
+                      properties:
+                        approvedLabel:
+                          default: ai-approved
+                          type: string
+                        autoCreate:
+                          description: autoCreate controls whether approved Linear
+                            issues automatically create runs.
+                          type: boolean
+                        connectionRef:
+                          description: ConnectionRef references a Connection in the
+                            same namespace.
+                          properties:
+                            name:
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        pollInterval:
+                          default: 30s
+                          type: string
+                        projectId:
+                          minLength: 1
+                          type: string
+                        teamId:
+                          minLength: 1
+                          type: string
+                      required:
+                      - connectionRef
+                      - projectId
+                      - teamId
+                      type: object
+                    name:
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    slack:
+                      description: SlackProjectTriggerConfig configures Slack channel
+                        ingress.
+                      properties:
+                        channel:
+                          minLength: 1
+                          type: string
+                        channelReplyMode:
+                          default: require-approval
+                          description: channelReplyMode controls whether channel replies
+                            need approval.
+                          enum:
+                          - require-approval
+                          - auto
+                          type: string
+                        commanders:
+                          description: commanders lists additional Slack users allowed
+                            to command this trigger.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: set
+                        connectionRef:
+                          description: ConnectionRef references a Connection in the
+                            same namespace.
+                          properties:
+                            name:
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        sessionIdleMinutes:
+                          description: sessionIdleMinutes controls how long a Slack
+                            conversation reuses its run.
+                          format: int32
+                          type: integer
+                      required:
+                      - channel
+                      - connectionRef
+                      type: object
+                    type:
+                      description: ProjectTriggerType identifies a source that can
+                        create AgentRuns.
+                      enum:
+                      - github
+                      - slack
+                      - cron
+                      - linear
+                      type: string
+                  required:
+                  - name
+                  - type
+                  type: object
+                  x-kubernetes-validations:
+                  - message: name 'manual' is reserved
+                    rule: self.name != 'manual'
+                  - message: exactly one configuration matching type must be set
+                    rule: (self.type == 'github' && has(self.github) && !has(self.slack)
+                      && !has(self.cron) && !has(self.linear)) || (self.type == 'slack'
+                      && !has(self.github) && has(self.slack) && !has(self.cron) &&
+                      !has(self.linear)) || (self.type == 'cron' && !has(self.github)
+                      && !has(self.slack) && has(self.cron) && !has(self.linear))
+                      || (self.type == 'linear' && !has(self.github) && !has(self.slack)
+                      && !has(self.cron) && has(self.linear))
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            required:
+            - defaults
+            - displayName
+            type: object
+          status:
+            description: ProjectStatus defines the observed state of Project.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                type: integer
+              triggers:
+                items:
+                  description: ProjectTriggerStatus reports the normalized observed
+                    state of a trigger.
+                  properties:
+                    conditions:
+                      items:
+                        description: Condition contains details for one aspect of
+                          the current state of this API Resource.
+                        properties:
+                          lastTransitionTime:
+                            description: |-
+                              lastTransitionTime is the last time the condition transitioned from one status to another.
+                              This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                            format: date-time
+                            type: string
+                          message:
+                            description: |-
+                              message is a human readable message indicating details about the transition.
+                              This may be an empty string.
+                            maxLength: 32768
+                            type: string
+                          observedGeneration:
+                            description: |-
+                              observedGeneration represents the .metadata.generation that the condition was set based upon.
+                              For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                              with respect to the current state of the instance.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          reason:
+                            description: |-
+                              reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                              Producers of specific condition types may define expected values and meanings for this field,
+                              and whether the values are considered a guaranteed API.
+                              The value should be a CamelCase string.
+                              This field may not be empty.
+                            maxLength: 1024
+                            minLength: 1
+                            pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                            type: string
+                          status:
+                            description: status of the condition, one of True, False,
+                              Unknown.
+                            enum:
+                            - "True"
+                            - "False"
+                            - Unknown
+                            type: string
+                          type:
+                            description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                            maxLength: 316
+                            pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                            type: string
+                        required:
+                        - lastTransitionTime
+                        - message
+                        - reason
+                        - status
+                        - type
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - type
+                      x-kubernetes-list-type: map
+                    lastActivityTime:
+                      format: date-time
+                      type: string
+                    lastError:
+                      type: string
+                    name:
+                      type: string
+                    nextActivityTime:
+                      format: date-time
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      type: integer
+                    type:
+                      description: ProjectTriggerType identifies a source that can
+                        create AgentRuns.
+                      type: string
+                  required:
+                  - name
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

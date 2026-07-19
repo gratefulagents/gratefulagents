@@ -1,0 +1,166 @@
+---
+# GitHubRepository trigger sample for gratefulagents/gratefulagents.
+#
+# How it works:
+#   1. Polling (every 60s): scans open issues for labels matching a ModeTemplate
+#      name (e.g. "chat", "auto", "ultrawork"). Matching issues create an AgentRun
+#      with the issue title + body as the user request.
+#   2. Webhook (real-time): the GitHub App's single webhook URL points at
+#      POST /webhooks/github/app — deliveries are routed to matching
+#      GitHubRepository resources by repository.full_name (validated with the
+#      app secret from env GITHUB_APP_WEBHOOK_SECRET). Classic per-repo
+#      webhooks can instead target POST /webhooks/github/{namespace}/{name}.
+#      - issues/labeled  → mode-label added → AgentRun from issue title + body
+#      - issue_comment/created → "@agent" keyword → AgentRun from comment text
+#        (comments on loop-linked PRs wake the implementer run instead)
+#      - pull_request/opened → agent PR detected → reviewer AgentRun (PR loop)
+#      - pull_request_review/submitted → human feedback wakes the implementer
+#   3. Autonomous PR loop: agent PR opened → reviewer run posts findings and a
+#      verdict → request_changes wakes the original implementer run (it resumes
+#      its session on the same branch, fixes, resolves threads) → next review
+#      round → approve ends the loop. A human merges the approved PR.
+#
+# To enable webhooks, create the webhook-secret Secret and configure
+# a GitHub webhook pointing at the controller's ingress.
+---
+# Allow-all RuntimeProfile: full filesystem access, unrestricted egress.
+# AgentRuns are provisioned through agent-sandbox SandboxClaim objects and a
+# controller-managed per-run SandboxTemplate.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: RuntimeProfile
+metadata:
+  name: gh-open-runtime
+  namespace: gratefulagents-system
+spec:
+  sandbox:
+    commandSandbox:
+      # Go and Node resolve from the default sandbox PATH. Project-local npm
+      # binaries are appended so tsc and similar tools work after install.
+      pathAppend:
+        - /workspace/repo/node_modules/.bin
+        - /workspace/repo/web/node_modules/.bin
+        - /workspace/repo/tauri/node_modules/.bin
+  # Optional agent-sandbox overrides for clusters that provide them:
+  # sandbox:
+  #   sandboxTemplateRef:
+  #     name: gh-open-sandbox
+  #   runtimeClassName: gvisor
+  #   warmPoolRef:
+  #     name: gh-open-pool
+  # Warm pools are optional and work best when you intentionally target a shared
+  # SandboxTemplate-backed pool.
+  security:
+    permissionMode: danger-full-access
+    egressMode: unrestricted
+    defaultTimeout: 2h
+  resources:
+    requests:
+      cpu: 500m
+      memory: 4Gi
+    limits:
+      cpu: "2"
+      memory: 8Gi
+  admission:
+    maxConcurrentRuns: 10
+    perNamespaceMaxConcurrentRuns: 10
+    staleRunTimeout: 90m
+---
+# Allow-all MCPPolicy: every MCP server/tool is permitted.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPPolicy
+metadata:
+  name: gh-open-mcp
+  namespace: gratefulagents-system
+spec:
+  defaultAction: Allow
+---
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: GitHubRepository
+metadata:
+  name: gratefulagents
+  namespace: gratefulagents-system
+spec:
+  owner: gratefulagents
+  repo: gratefulagents
+
+  # Secret holding a GitHub PAT under key "token". PAT auth remains supported,
+  # but GitHub App auth is recommended for repository onboarding.
+  githubTokenSecret: github-token
+  # Or use a GitHub App installation instead of githubTokenSecret:
+  # githubApp:
+  #   appID: 123456
+  #   installationID: 987654
+  #   # Secret data key must be "private-key.pem".
+  #   privateKeySecret: github-app-private-key
+
+  # How often to poll open issues for mode labels (default: 60s).
+  pollInterval: 120s
+
+  # Bot mention keyword for comment-based triggering.
+  triggerKeyword: "@agents"
+
+  # Optional: webhook signature validation secret.
+  # Create a Secret with key "secret" containing the GitHub webhook secret.
+  # webhookSecret: github-webhook-secret
+
+  # Optional: without auth.allowedUsers, GitHub triggers are limited to repo
+  # owners, organization members, and collaborators by author_association.
+  # allowedUsers is an exact-login allowlist; denyUsers always wins.
+  auth:
+    allowedUsers:
+      - octocat
+
+  # Autonomous PR review loop (disabled by default for agent-created PRs).
+  # Uncomment this block to opt in.
+  # reviewLoop:
+  #   disabled: false
+  #   # Automatic review/resolve cycles per PR before blocking for a human.
+  #   maxRounds: 3
+  #   # Override the reviewer ModeTemplate (default: "review").
+  #   reviewerModeRef:
+  #     name: review
+
+  # Organization and workspace linkage (for multi-tenant setups).
+  # organizationRef:
+  #   name: my-org
+  # workspaceRef:
+  #   name: my-workspace
+
+  defaults:
+    model: "openai/gpt-5.5"
+    authMode: oauth
+    openaiApi: responses
+
+    # ModeTemplate used when no mode label is found on the issue.
+    # Issues with a label matching a ModeTemplate name override this.
+    modeRef:
+      name: auto
+
+    # Policy refs — zero trust: without these the agent denies MCP tools
+    # and runs with default-restrictive permissions.
+    runtimeProfileRef:
+      name: gh-open-runtime
+    mcpPolicyRef:
+      name: gh-open-mcp
+
+    # Admin-only escape hatch: completely disable the bubblewrap (bwrap)
+    # subprocess sandbox for runs created from this trigger. Commands and MCP
+    # servers then run directly in the worker container (pod isolation still
+    # applies, but workspace write containment and read-only permission mode
+    # become advisory). Only settable on the CRD via kubectl/GitOps — the
+    # dashboard API never exposes it.
+    # disableCommandSandbox: true
+
+    repoURL: "https://github.com/gratefulagents/gratefulagents.git"
+    baseBranch: "main"
+    timeout: 2h
+
+    secrets:
+      # Optional when spec.githubApp is set; App-mode runs receive a
+      # controller-managed per-run token Secret automatically.
+      githubToken: "github-token"
+      openaiOAuthSecret: "openai-oauth"
+      providerKeys:
+        - provider: openai-oauth
+          secretName: "openai-oauth"
+          secretKey: "auth.json"

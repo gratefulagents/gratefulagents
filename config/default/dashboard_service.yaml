@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: controller-manager-dashboard
+  namespace: system
+  labels:
+    app.kubernetes.io/name: gratefulagents
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    control-plane: controller-manager
+    app.kubernetes.io/name: gratefulagents
+  ports:
+    - name: dashboard
+      port: 8090
+      targetPort: dashboard
+      protocol: TCP

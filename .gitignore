@@ -1,0 +1,92 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/*
+Dockerfile.cross
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Go workspace file
+go.work
+
+# Kubernetes Generated files - skip generated files, except for vendored files
+!vendor/**/zz_generated.*
+
+# editor and IDE paraphernalia
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Ignore local runtime state while keeping repository-owned prompts, skills, and plans.
+.codex/*
+!.codex/agents/
+!.codex/agents/**
+!.codex/prompts/
+!.codex/prompts/**
+!.codex/skills/
+!.codex/skills/**
+
+.omx/
+
+# Kubeconfig might contain secrets
+*.kubeconfig
+.gstack/
+/agent
+/executor
+/plan-executor
+
+claude-source-code/
+apple/.visual-qa/**
+apple/build/
+*.DS_Store
+
+# Environment files with secrets
+.env*
+!.env.example
+!.env.*.example
+
+# Local credentials and private key material
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+.npmrc
+.pypirc
+.netrc
+credentials.json
+service-account*.json
+*.tfstate
+*.tfstate.*
+
+# Agent/client state may contain authentication material and shell snapshots.
+.agents/
+.claude/
+
+# Docusaurus docs outputs
+node_modules/
+.pnpm-store/
+build/
+.docusaurus/
+
+# Generated consolidated installer manifest (make build-installer)
+dist/install.yaml
+
+# Local application release artifacts.
+platform-app/release-dist/
+.release-work.*
+
+# Local agent tool spill files
+.gratefulagents-tool-output-*/
+
+marketing/

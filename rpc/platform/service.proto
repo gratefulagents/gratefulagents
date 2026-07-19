@@ -1,0 +1,3438 @@
+syntax = "proto3";
+
+package platform.v1;
+option go_package = "github.com/gratefulagents/gratefulagents/rpc/platform";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+service PlatformService {
+  rpc ListAgentRuns(ListAgentRunsRequest) returns (ListAgentRunsResponse);
+  rpc GetAgentRun(GetAgentRunRequest) returns (AgentRun);
+  rpc WatchAgentRuns(WatchAgentRunsRequest) returns (stream AgentRunEvent);
+  rpc WatchAgentRun(WatchAgentRunRequest) returns (stream AgentRun);
+  rpc GetActivityLog(GetActivityLogRequest) returns (GetActivityLogResponse);
+  rpc GetActivityEntryDetail(GetActivityEntryDetailRequest) returns (GetActivityEntryDetailResponse);
+  rpc WatchActivityLog(GetActivityLogRequest) returns (stream GetActivityLogResponse);
+  rpc GetAgentRunUsage(GetAgentRunUsageRequest) returns (AgentRunUsageResponse);
+  rpc GetObservabilityOverview(GetObservabilityOverviewRequest) returns (ObservabilityOverviewResponse);
+  // GetAgentRunPullRequests returns the pull requests a run created along with
+  // their CI checks and review threads, fetched live from GitHub.
+  rpc GetAgentRunPullRequests(GetAgentRunPullRequestsRequest) returns (GetAgentRunPullRequestsResponse);
+  rpc ListLinearProjects(ListLinearProjectsRequest) returns (ListLinearProjectsResponse);
+  rpc WatchLinearProjects(WatchLinearProjectsRequest) returns (stream LinearProjectEvent);
+  rpc SendAgentRunMessage(SendAgentRunMessageRequest) returns (SendAgentRunMessageResponse);
+  // CancelAgentRunMessage withdraws a pending (queued or steering) user
+  // message that the agent loop has not consumed yet. Fails with
+  // FAILED_PRECONDITION once the message has been delivered.
+  rpc CancelAgentRunMessage(CancelAgentRunMessageRequest) returns (CancelAgentRunMessageResponse);
+  rpc CreateAgentRun(CreateAgentRunRequest) returns (AgentRun);
+  rpc ListMyCredentials(ListMyCredentialsRequest) returns (MyCredentials);
+  rpc UpdateMyCredentials(UpdateMyCredentialsRequest) returns (MyCredentials);
+  // ShareMyCredentials copies some of the calling user's saved credentials to
+  // another user by duplicating the secret material into that user's personal
+  // namespace. It is a one-time copy: later edits by either user do not
+  // propagate to the other.
+  rpc ShareMyCredentials(ShareMyCredentialsRequest) returns (ShareMyCredentialsResponse);
+  rpc ListSlackAgents(ListSlackAgentsRequest) returns (ListSlackAgentsResponse);
+  rpc UpdateSlackAgent(UpdateSlackAgentRequest) returns (SlackAgent);
+  rpc DeleteSlackAgent(DeleteSlackAgentRequest) returns (google.protobuf.Empty);
+  rpc ListSlackWorkspaces(ListSlackWorkspacesRequest) returns (ListSlackWorkspacesResponse);
+  rpc UpdateSlackWorkspace(UpdateSlackWorkspaceRequest) returns (SlackWorkspace);
+  rpc DeleteSlackWorkspace(DeleteSlackWorkspaceRequest) returns (google.protobuf.Empty);
+  rpc ListSlackDrafts(ListSlackDraftsRequest) returns (ListSlackDraftsResponse);
+  // ListMCPServers lists the cluster-managed MCP server configs available in
+  // the caller's namespace, for attaching to agents.
+  rpc ListMCPServers(ListMCPServersRequest) returns (ListMCPServersResponse);
+  // UpsertMCPServer creates or updates an MCP server config in the caller's
+  // namespace from structured fields — no YAML required.
+  rpc UpsertMCPServer(UpsertMCPServerRequest) returns (MCPServerInfo);
+  // DeleteMCPServer removes an MCP server config from the caller's namespace.
+  rpc DeleteMCPServer(DeleteMCPServerRequest) returns (google.protobuf.Empty);
+  // ListSkills lists the skills (reusable agent instructions, inline or
+  // git-sourced SKILL.md folders) available in the caller's namespace.
+  rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
+  // ListSkillCatalog browses or searches the public skills.sh catalog.
+  rpc ListSkillCatalog(ListSkillCatalogRequest) returns (ListSkillCatalogResponse);
+  // InstallSkillFromCatalog resolves a skills.sh catalog entry and creates an
+  // inline Skill CRD in the caller's namespace.
+  rpc InstallSkillFromCatalog(InstallSkillFromCatalogRequest) returns (SkillInfo);
+  // UpsertSkill creates or updates a skill in the caller's namespace. Inline
+  // skills carry instructions directly; git skills reference a repository
+  // folder containing SKILL.md.
+  rpc UpsertSkill(UpsertSkillRequest) returns (SkillInfo);
+  // DeleteSkill removes a skill from the caller's namespace.
+  rpc DeleteSkill(DeleteSkillRequest) returns (google.protobuf.Empty);
+  // Namespaced dashboard resources always resolve to the verified caller's
+  // personal namespace. These requests intentionally carry no namespace.
+  rpc ListRuntimeProfiles(ListRuntimeProfilesRequest) returns (ListRuntimeProfilesResponse);
+  rpc CreateRuntimeProfile(CreateRuntimeProfileRequest) returns (RuntimeProfile);
+  rpc UpdateRuntimeProfile(UpdateRuntimeProfileRequest) returns (RuntimeProfile);
+  rpc DeleteRuntimeProfile(DeleteRuntimeProfileRequest) returns (google.protobuf.Empty);
+  rpc ListMCPPolicies(ListMCPPoliciesRequest) returns (ListMCPPoliciesResponse);
+  rpc CreateMCPPolicy(CreateMCPPolicyRequest) returns (MCPPolicy);
+  rpc UpdateMCPPolicy(UpdateMCPPolicyRequest) returns (MCPPolicy);
+  rpc DeleteMCPPolicy(DeleteMCPPolicyRequest) returns (google.protobuf.Empty);
+  rpc ListGuardrailPolicies(ListGuardrailPoliciesRequest) returns (ListGuardrailPoliciesResponse);
+  rpc CreateGuardrailPolicy(CreateGuardrailPolicyRequest) returns (GuardrailPolicy);
+  rpc UpdateGuardrailPolicy(UpdateGuardrailPolicyRequest) returns (GuardrailPolicy);
+  rpc DeleteGuardrailPolicy(DeleteGuardrailPolicyRequest) returns (google.protobuf.Empty);
+  // ModeTemplate and RoleInstruction are cluster-scoped catalogs. Every
+  // authenticated user may browse them; mutations require a verified admin.
+  rpc ListModeTemplates(ListModeTemplatesRequest) returns (ListModeTemplatesResponse);
+  rpc CreateModeTemplate(CreateModeTemplateRequest) returns (ModeTemplate);
+  rpc UpdateModeTemplate(UpdateModeTemplateRequest) returns (ModeTemplate);
+  rpc DeleteModeTemplate(DeleteModeTemplateRequest) returns (google.protobuf.Empty);
+  rpc ListRoleInstructions(ListRoleInstructionsRequest) returns (ListRoleInstructionsResponse);
+  rpc CreateRoleInstruction(CreateRoleInstructionRequest) returns (RoleInstruction);
+  rpc UpdateRoleInstruction(UpdateRoleInstructionRequest) returns (RoleInstruction);
+  rpc DeleteRoleInstruction(DeleteRoleInstructionRequest) returns (google.protobuf.Empty);
+  // ListRuntimeImages lists the curated worker image catalog (language →
+  // official image) offered when configuring projects, agents, and runs.
+  rpc ListRuntimeImages(ListRuntimeImagesRequest) returns (ListRuntimeImagesResponse);
+  rpc GetMySoul(GetMySoulRequest) returns (Soul);
+  rpc UpdateMySoul(UpdateMySoulRequest) returns (Soul);
+  // Personal role-model preferences override cluster RoleInstruction model
+  // defaults for runs created by the calling user.
+  rpc GetMyRoleModelPreferences(GetMyRoleModelPreferencesRequest) returns (RoleModelPreferences);
+  rpc UpdateMyRoleModelPreferences(UpdateMyRoleModelPreferencesRequest) returns (RoleModelPreferences);
+  // GetMyGitIdentity returns the calling user's git commit identity (empty
+  // when none is saved).
+  rpc GetMyGitIdentity(GetMyGitIdentityRequest) returns (GitIdentity);
+  // UpdateMyGitIdentity saves the calling user's git author identity. The
+  // gratefulagents GitHub App is always credited as a co-author.
+  rpc UpdateMyGitIdentity(UpdateMyGitIdentityRequest) returns (GitIdentity);
+  rpc DeleteAgentRun(DeleteAgentRunRequest) returns (google.protobuf.Empty);
+  rpc CancelAgentRun(CancelAgentRunRequest) returns (AgentRun);
+  // PromoteAgentRun marks a non-terminal run as Succeeded on the user's
+  // request, tearing down its runner the same way cancellation does.
+  rpc PromoteAgentRun(PromoteAgentRunRequest) returns (AgentRun);
+  // InterruptAgentRun stops the run's in-flight turn (current model call,
+  // running tools, and active sub-agents) without terminating the run; the
+  // session stays alive awaiting the next user message.
+  rpc InterruptAgentRun(InterruptAgentRunRequest) returns (InterruptAgentRunResponse);
+  rpc RetryAgentRun(RetryAgentRunRequest) returns (AgentRun);
+  rpc RenameAgentRun(RenameAgentRunRequest) returns (AgentRun);
+  rpc UpdateAgentRunRuntimeConfig(UpdateAgentRunRuntimeConfigRequest) returns (AgentRun);
+  // Overseers are attached per run. Mode/model are fixed for one attachment;
+  // authority, cadence, and intervention cap can be tuned live.
+  rpc AttachAgentRunOverseer(AttachAgentRunOverseerRequest) returns (AgentRun);
+  rpc UpdateAgentRunOverseer(UpdateAgentRunOverseerRequest) returns (AgentRun);
+  rpc DetachAgentRunOverseer(DetachAgentRunOverseerRequest) returns (AgentRun);
+  rpc ExtendAgentRunRuntime(ExtendAgentRunRuntimeRequest) returns (AgentRun);
+  rpc CreateTeamChildRun(CreateTeamChildRunRequest) returns (TeamChildRunStatus);
+  rpc ListTeamChildRuns(ListTeamChildRunsRequest) returns (ListTeamChildRunsResponse);
+  rpc GetTeamChildRunStatus(GetTeamChildRunStatusRequest) returns (TeamChildRunStatus);
+  rpc GetTeamChildRunLogs(GetTeamChildRunLogsRequest) returns (TeamChildRunLogs);
+  rpc GetTeamChildRunArtifact(GetTeamChildRunArtifactRequest) returns (TeamChildRunArtifact);
+  rpc SendTeamChildMessage(SendTeamChildMessageRequest) returns (TeamChildRunStatus);
+  rpc GetAgentRunTeamStatus(GetAgentRunTeamStatusRequest) returns (AgentRunTeamSummary);
+  rpc WaitForTeamRunChange(WaitForTeamRunChangeRequest) returns (WaitForTeamRunChangeResponse);
+  rpc CancelTeamChildRun(CancelTeamChildRunRequest) returns (TeamChildRunStatus);
+  rpc RetryTeamChildRun(RetryTeamChildRunRequest) returns (TeamChildRunStatus);
+  rpc GetTeamApprovalStatus(GetTeamApprovalStatusRequest) returns (TeamApprovalStatus);
+  rpc GetLinearProject(GetLinearProjectRequest) returns (LinearProject);
+  rpc GetTeamRuntime(GetTeamRuntimeRequest) returns (TeamRuntime);
+  rpc WatchTeamRuntime(WatchTeamRuntimeRequest) returns (stream TeamRuntime);
+  rpc ListAvailableModels(ListAvailableModelsRequest) returns (ListAvailableModelsResponse);
+  rpc GetDiff(GetDiffRequest) returns (GetDiffResponse);
+  rpc WatchDiff(GetDiffRequest) returns (stream GetDiffResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc ListWorkspaceFiles(ListWorkspaceFilesRequest) returns (ListWorkspaceFilesResponse);
+  rpc CloneRepository(CloneRepositoryRequest) returns (CloneRepositoryResponse);
+  rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse);
+  rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  rpc UpdateLinearProjectInstructions(UpdateLinearProjectInstructionsRequest) returns (UpdateLinearProjectInstructionsResponse);
+  rpc CreateLinearProject(CreateLinearProjectRequest) returns (LinearProject);
+  rpc UpdateLinearProject(UpdateLinearProjectRequest) returns (LinearProject);
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc GetProject(GetProjectRequest) returns (Project);
+  rpc WatchProjects(WatchProjectsRequest) returns (stream ProjectEvent);
+  rpc CreateProject(CreateProjectRequest) returns (Project);
+  rpc UpdateProject(UpdateProjectRequest) returns (Project);
+  rpc CreateProjectTrigger(CreateProjectTriggerRequest) returns (Project);
+  rpc UpdateProjectTrigger(UpdateProjectTriggerRequest) returns (Project);
+  rpc DeleteProjectTrigger(DeleteProjectTriggerRequest) returns (google.protobuf.Empty);
+  rpc SetProjectTriggerEnabled(SetProjectTriggerEnabledRequest) returns (Project);
+  rpc DeleteProject(DeleteProjectRequest) returns (google.protobuf.Empty);
+  rpc ListConnections(ListConnectionsRequest) returns (ListConnectionsResponse);
+  rpc CreateConnection(CreateConnectionRequest) returns (Connection);
+  rpc UpdateConnection(UpdateConnectionRequest) returns (Connection);
+  rpc DeleteConnection(DeleteConnectionRequest) returns (google.protobuf.Empty);
+  // Durable project content lives independently of any Git repository or run
+  // sandbox. Mutations require collaborator access; reads require viewer access.
+  rpc ListProjectContent(ListProjectContentRequest) returns (ListProjectContentResponse);
+  rpc GetProjectContent(GetProjectContentRequest) returns (GetProjectContentResponse);
+  rpc CreateProjectContent(CreateProjectContentRequest) returns (ProjectContent);
+  rpc UpdateProjectContent(UpdateProjectContentRequest) returns (ProjectContent);
+  rpc DuplicateProjectContent(DuplicateProjectContentRequest) returns (ProjectContent);
+  rpc ListProjectContentVersions(ListProjectContentVersionsRequest) returns (ListProjectContentVersionsResponse);
+  rpc RestoreProjectContentVersion(RestoreProjectContentVersionRequest) returns (ProjectContent);
+  rpc DeleteProjectContent(DeleteProjectContentRequest) returns (google.protobuf.Empty);
+  rpc ListGitHubRepositories(ListGitHubRepositoriesRequest) returns (ListGitHubRepositoriesResponse);
+  rpc GetGitHubRepository(GetGitHubRepositoryRequest) returns (GitHubRepository);
+  rpc WatchGitHubRepositories(WatchGitHubRepositoriesRequest) returns (stream GitHubRepositoryEvent);
+  rpc GetGitHubAppConfig(google.protobuf.Empty) returns (GitHubAppConfig);
+  rpc ListGitHubAppInstallations(google.protobuf.Empty) returns (ListGitHubAppInstallationsResponse);
+  rpc ListGitHubAppInstallationRepositories(ListGitHubAppInstallationRepositoriesRequest) returns (ListGitHubAppInstallationRepositoriesResponse);
+  rpc CreateGitHubRepositoryFromInstallation(CreateGitHubRepositoryFromInstallationRequest) returns (GitHubRepository);
+  rpc CreateGitHubRepositoryFromToken(CreateGitHubRepositoryFromTokenRequest) returns (GitHubRepository);
+  rpc UpdateGitHubRepository(UpdateGitHubRepositoryRequest) returns (GitHubRepository);
+  rpc ListCrons(ListCronsRequest) returns (ListCronsResponse);
+  rpc GetCron(GetCronRequest) returns (Cron);
+  rpc WatchCrons(WatchCronsRequest) returns (stream CronEvent);
+  rpc CreateCron(CreateCronRequest) returns (Cron);
+  rpc UpdateCron(UpdateCronRequest) returns (Cron);
+  rpc DeleteCron(DeleteCronRequest) returns (google.protobuf.Empty);
+  rpc ListAvailableModes(ListAvailableModesRequest) returns (ListAvailableModesResponse);
+  rpc GetModeTemplate(GetModeTemplateRequest) returns (ModeTemplate);
+  rpc SwitchAgentRunMode(SwitchAgentRunModeRequest) returns (SwitchAgentRunModeResponse);
+  rpc GetAgentTrace(GetAgentTraceRequest) returns (GetAgentTraceResponse);
+  rpc WatchAgentTrace(GetAgentTraceRequest) returns (stream GetAgentTraceResponse);
+  // Returns a bounded, error-only view of durable runtime events and current
+  // worker pod logs. Successful traces and ordinary stdout are never returned.
+  rpc GetAgentRunErrors(GetAgentRunErrorsRequest) returns (GetAgentRunErrorsResponse);
+  // Bundles the run metadata, activity log and OTel trace into a zip archive
+  // for download. Works for both live and terminal runs.
+  rpc ExportAgentRunArchive(ExportAgentRunArchiveRequest) returns (ExportAgentRunArchiveResponse);
+
+  // Collaboration: resource sharing
+  rpc ShareResource(ShareResourceRequest) returns (ShareResourceResponse);
+  rpc RevokeShare(RevokeShareRequest) returns (google.protobuf.Empty);
+  rpc UpdateSharePermission(UpdateSharePermissionRequest) returns (ResourceShareInfo);
+  rpc ListShares(ListSharesRequest) returns (ListSharesResponse);
+  rpc ListSharedWithMe(ListSharedWithMeRequest) returns (ListSharedWithMeResponse);
+
+  // Collaboration: notifications
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  rpc MarkNotificationRead(MarkNotificationReadRequest) returns (google.protobuf.Empty);
+
+  // Collaboration: presence
+  rpc SendPresenceHeartbeat(PresenceHeartbeatRequest) returns (google.protobuf.Empty);
+  rpc GetPresence(GetPresenceRequest) returns (GetPresenceResponse);
+}
+
+message ListAgentRunsRequest {
+  string namespace = 1; // Optional: filter by namespace (empty = all)
+  bool owned_by_me = 2; // If true, return only runs owned by the caller
+  bool shared_with_me = 3; // If true, return only runs shared with the caller
+}
+
+message ListAgentRunsResponse {
+  repeated AgentRun runs = 1;
+}
+
+message GetAgentRunRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message DeleteAgentRunRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CancelAgentRunRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message PromoteAgentRunRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message InterruptAgentRunRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message InterruptAgentRunResponse {}
+
+message RetryAgentRunRequest {
+  string namespace = 1;
+  string name = 2;
+  string message = 3;
+  // Stable client-generated key. Replaying the same retry request appends one
+  // resume message and applies one wake counter transition.
+  string idempotency_key = 4;
+}
+
+message RenameAgentRunRequest {
+  string namespace = 1;
+  string name = 2;
+  string display_name = 3;
+}
+
+message UpdateAgentRunRuntimeConfigRequest {
+  string namespace = 1;
+  string name = 2;
+  // provider optionally changes the active provider. Empty keeps the current
+  // provider inferred from the run model prefix.
+  string provider = 3;
+  // model optionally changes the active model. When provider is set, this must
+  // be either bare or prefixed with the same provider.
+  string model = 4;
+  // update_reasoning_level disambiguates proto3 empty string: when true,
+  // reasoning_level is applied and an empty value clears the run-level override.
+  bool update_reasoning_level = 5;
+  // reasoning_level is one of: none, low, medium, high, xhigh, max. Empty uses
+  // the provider/model default when update_reasoning_level is true.
+  string reasoning_level = 6;
+}
+
+message WatchAgentRunsRequest {
+  string namespace = 1; // Optional: filter by namespace (empty = all)
+}
+
+message WatchAgentRunRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message AgentRunEvent {
+  string type = 1; // "ADDED", "MODIFIED", "DELETED"
+  AgentRun run = 2;
+}
+
+message GetActivityLogRequest {
+  string namespace = 1;
+  string name = 2;
+  // Watch resume/delta cursor: only events with event_id > since_event_id are
+  // of interest. 0 means "from the beginning".
+  int64 since_event_id = 3;
+  // Watch: opt in to delta frames. The first frame is a full snapshot
+  // (reset=true); subsequent frames carry only appended entries. Servers that
+  // predate this field keep sending full snapshots (delta=false on frames).
+  bool delta = 4;
+  // When > 0, tool payloads (input_raw/output) larger than this many bytes are
+  // truncated in the response and flagged via input_truncated/output_truncated.
+  // Full payloads can be fetched lazily via GetActivityEntryDetail.
+  int32 payload_preview_bytes = 5;
+  // Unary pagination: return at most `limit` entries (the newest ones when
+  // before_event_id is 0, otherwise the newest ones older than it). 0 = all.
+  int32 limit = 6;
+  int64 before_event_id = 7;
+}
+
+message GetActivityEntryDetailRequest {
+  string namespace = 1;
+  string name = 2;
+  // Identifies the entry: event_id when known (Postgres-backed runs), falling
+  // back to tool_use_id lookup.
+  int64 event_id = 3;
+  string tool_use_id = 4;
+}
+
+message GetActivityEntryDetailResponse {
+  // Full, untruncated tool payloads for the requested entry.
+  string input_raw = 1;
+  string output = 2;
+}
+
+message GetAgentRunUsageRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message UsageTotals {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  int64 cache_read_input_tokens = 3;
+  int64 cache_creation_input_tokens = 4;
+  int64 total_tokens = 5;
+  bool tokens_known = 6;
+}
+
+message UsageAttempt {
+  string attempt_id = 1;
+  string agent_name = 2;
+  string task_id = 3;
+  reserved 4, 5;
+  string model = 6;
+  string provider = 7;
+  UsageTotals usage = 8;
+  int64 timestamp_unix = 9;
+  bool is_subagent = 10;
+  string phase = 11;
+  string step = 12;
+}
+
+message UsageTask {
+  string task_id = 1;
+  string agent_name = 2;
+  bool is_top_level = 3;
+  UsageTotals usage = 4;
+  repeated UsageAttempt attempts = 5;
+}
+
+message UsagePhase {
+  string phase = 1;
+  UsageTotals usage = 2;
+  repeated UsageTask tasks = 3;
+}
+
+message AgentRunUsageResponse {
+  UsageTotals summary = 1;
+  reserved 2;
+  repeated UsageTask top_level_tasks = 3;
+  repeated UsageTask subagent_tasks = 4;
+  bool is_complete = 5;
+  bool is_available = 6;
+  repeated UsagePhase phases = 7;
+}
+
+message GetObservabilityOverviewRequest {
+  string namespace = 1;
+  google.protobuf.Timestamp start = 2;
+  google.protobuf.Timestamp end = 3;
+  int64 bucket_seconds = 4;
+}
+
+message ObservabilityTotals {
+  int64 runs = 1;
+  double cost_usd = 2;
+  int64 input_tokens = 3;
+  int64 output_tokens = 4;
+  int64 tool_calls = 5;
+  int64 tool_errors = 6;
+  int64 subagents = 7;
+  int64 subagent_failures = 8;
+  int64 llm_attempts = 9;
+  int64 llm_failures = 10;
+  int64 compactions = 11;
+  int64 tokens_reclaimed = 12;
+  // Generation-attributed usage is derived from llm_attempt events in each
+  // bucket. It is kept separate from run snapshot totals to avoid double-counting.
+  double generation_cost_usd = 13;
+  int64 generation_input_tokens = 14;
+  int64 generation_output_tokens = 15;
+}
+
+message ObservabilityBucket {
+  google.protobuf.Timestamp start = 1;
+  ObservabilityTotals totals = 2;
+}
+
+message ObservabilityBreakdown {
+  string name = 1;
+  int64 count = 2;
+  int64 errors = 3;
+  double cost_usd = 4;
+  int64 input_tokens = 5;
+  int64 output_tokens = 6;
+  double average_duration_ms = 7;
+  double p95_duration_ms = 8;
+}
+
+message ObservabilityDataCompleteness {
+  int64 sessions = 1;
+  int64 sessions_with_metrics = 2;
+  int64 sessions_with_activity = 3;
+  bool metrics_complete = 4;
+  bool activity_complete = 5;
+  bool activity_truncated = 6;
+}
+
+message ObservabilityOverviewResponse {
+  ObservabilityTotals totals = 1;
+  repeated ObservabilityBucket buckets = 2;
+  repeated ObservabilityBreakdown tools = 3;
+  repeated ObservabilityBreakdown subagents = 4;
+  repeated ObservabilityBreakdown models = 5;
+  ObservabilityDataCompleteness data_completeness = 6;
+  repeated string coverage_warnings = 7;
+}
+
+message GetActivityLogResponse {
+  repeated ActivityEntry entries = 1;
+  bool is_complete = 2;
+  SubagentGraph subagent_graph = 3;
+  // Highest event_id contained in (or represented by) this response. Clients
+  // use it as the since_event_id cursor for watch resume.
+  int64 last_event_id = 4;
+  // True when this frame is a delta: `entries` contains only events appended
+  // since the previous frame (or since_event_id). subagent_graph is only set
+  // on delta frames when it changed.
+  bool delta = 5;
+  // True when the client must discard its buffer and replace it with
+  // `entries` (first frame of a delta watch, or source changed).
+  bool reset = 6;
+  // Pagination metadata for unary page loads.
+  int64 first_event_id = 7;
+  bool has_more_before = 8;
+}
+
+// Pre-built subagent topology graph. Backend constructs this from activity
+// entries so that frontends render it without custom grouping/status logic.
+message SubagentGraph {
+  string root_id = 1;
+  repeated SubagentGraphNode nodes = 2;
+  repeated SubagentGraphEdge edges = 3;
+  repeated string orphan_ids = 4;
+  bool has_subagents = 5;
+  reserved 6, 7;
+}
+
+message SubagentGraphNode {
+  string id = 1;
+  string kind = 2;               // root, subagent, inline-subagent
+  string parent_id = 3;
+  string edge_kind = 4;          // spawned, inline-child
+  string label = 5;
+  string subtitle = 6;
+  string description = 7;
+  string detail = 8;
+  string status = 9;
+  string lineage = 10;           // complete, partial
+  string lineage_reason = 11;
+  int64  timestamp_unix = 12;
+  int32  entry_count = 13;
+  string task_id = 14;
+  string tool_use_id = 15;
+  string parent_call_id = 16;
+  int32  tool_count = 17;
+  int64  total_tokens = 18;
+  int64  duration_ms = 19;
+  string model = 20;
+  double cost_usd = 21;
+  int32  num_turns = 22;
+  string stop_reason = 23;
+  reserved 24;
+  repeated string handoffs = 25;
+  // Entry indices into GetActivityLogResponse.entries for detail drill-down.
+  repeated int32 detail_entry_indices = 26;
+  repeated string depends_on = 27;
+  repeated string waiting_on = 28;
+  string current_step = 29;
+  string last_tool = 30;
+  int32 files_written = 31;
+  int32 messages_received = 32;
+  string last_parent_message = 33;
+  // Durable ActivityEntry.event_id references for detail drill-down. Unlike
+  // detail_entry_indices (positions in one specific response's entries),
+  // these stay valid for paginated/delta clients whose local entry buffer is
+  // a different slice of the run's history.
+  repeated int64 detail_entry_event_ids = 34;
+}
+
+message SubagentGraphEdge {
+  string id = 1;
+  string from = 2;
+  string to = 3;
+  string kind = 4;               // spawned, inline-child, depends-on
+  string lineage = 5;            // complete, partial
+}
+
+message SourceRef {
+  string kind = 1;
+  string name = 2;
+  string issue_id = 3;
+  string issue_identifier = 4;
+  string issue_url = 5;
+}
+
+message AgentRunTriggerRef {
+  // kind retains the concrete runtime adapter kind for operational compatibility.
+  string kind = 1;
+  // name is the Project-local trigger identity (or the reserved "manual" entry point).
+  string name = 2;
+  string external_id = 3;
+  string external_identifier = 4;
+  string external_url = 5;
+  // type is the concrete Project trigger provenance: manual, github, slack, cron, or linear.
+  string type = 6;
+}
+
+message AgentRunProjectRef {
+  string kind = 1;
+  string name = 2;
+}
+
+message AgentRunDelegationPolicy {
+  int32 max_children = 1;
+  int32 max_depth = 2;
+  bool parent_only = 3;
+}
+
+message AgentRunCompletionPolicy {
+  bool require_approval = 1;
+  reserved 2;
+  reserved "require_verification";
+}
+
+message AgentRunTeamTask {
+  string name = 1;
+  string role = 2;
+  string objective = 3;
+  string runtime_profile_ref = 4;
+  repeated string depends_on = 5;
+  int32 max_retries = 6;
+  string artifact_contract = 7;
+}
+
+message AgentRunTeamStep {
+  string name = 1;
+  string type = 2;
+  repeated AgentRunTeamTask tasks = 3;
+}
+
+message AgentRunTeamSpec {
+  repeated AgentRunTeamStep steps = 1;
+  AgentRunDelegationPolicy delegation_policy = 2;
+  reserved 3;
+  reserved "verification_policy";
+  AgentRunCompletionPolicy completion_policy = 4;
+}
+
+message AgentRunChildStatus {
+  string name = 1;
+  string namespace = 2;
+  string step = 3;
+  string role = 4;
+  string phase = 5;
+  string blocked_reason = 6;
+}
+
+message AgentRunTeamSummary {
+  int32 current_step_index = 1;
+  string current_step = 2;
+  string approval_state = 3;
+  reserved 4;
+  reserved "verification_state";
+  int32 total_children = 5;
+  int32 pending_children = 6;
+  int32 running_children = 7;
+  int32 succeeded_children = 8;
+  int32 failed_children = 9;
+  int32 cancelled_children = 10;
+  string blocked_reason = 11;
+}
+
+message PRLoopStatus {
+  string state = 1;
+  int32 pr_number = 2;
+  string pr_url = 3;
+  int32 review_round = 4;
+  int32 max_rounds = 5;
+  string role = 6;
+  string implementer_run_name = 7;
+  string review_verdict = 8;
+  string review_summary = 9;
+}
+
+message AgentRun {
+  string namespace = 1;
+  string name = 2;
+
+  // spec
+  AgentRunTriggerRef trigger = 3;
+  string repo_url = 4;
+  string base_branch = 5;
+  string branch_name = 6;
+  string revision = 7;
+  AgentRunProjectRef project = 8;
+  string workflow_mode = 9;
+  string model = 10;
+  reserved 11; // was: provider
+  string openai_base_url = 12;
+  string execution_mode = 13;
+  AgentRunTeamSpec team = 14;
+  string image = 15;
+  string intent_title = 16;
+  string spec_artifact_kind = 17;
+  string spec_artifact_name = 18;
+  string spec_artifact_key = 19;
+  string runtime_profile_ref = 20;
+  string mcp_policy_ref = 21;
+  reserved 22;
+  reserved "skill_package_refs";
+  // mcp_server_refs lists MCPServer names attached to this run; skill_refs
+  // lists Skill names (a skill's required servers are auto-attached).
+  repeated string mcp_server_refs = 139;
+  repeated string skill_refs = 140;
+  reserved 23, 24;
+  reserved "approval_mode", "required_approvers";
+  int32 max_turns = 25;
+  string max_runtime = 26;
+  int32 max_retries = 27;
+  string claude_api_key_secret = 28;
+  string github_token_secret = 29;
+  reserved 30, 31, 32; // was: organization_ref, workspace_ref, post_approval_mode
+  string auth_mode = 33;
+  string openai_oauth_secret = 34;
+  // additional_repo_urls are extra git repositories cloned into the run's
+  // sandbox at startup (under repos/<name> next to the primary repository).
+  repeated string additional_repo_urls = 35;
+
+  // status
+  string phase = 40;
+  reserved 41, 42;
+  string queue_state = 43;
+  string blocked_reason = 44;
+  int64 admitted_at_unix = 45;
+  string sandbox_provider = 46;
+  string sandbox_claim_ref = 47;
+  string sandbox_ref = 48;
+  string plan_artifact_kind = 49;
+  string plan_artifact_name = 50;
+  string plan_artifact_key = 51;
+  string review_artifact_kind = 52;
+  string review_artifact_name = 53;
+  string review_artifact_key = 54;
+  string activity_log_url = 55;
+  string diff_url = 56;
+  string resolved_permission_mode = 57;
+  repeated string resolved_agent_kinds = 58;
+  repeated string resolved_skills = 59;
+  repeated string resolved_mcp_servers = 60;
+  string cost_usd = 61;
+  int64 input_tokens = 62;
+  int64 output_tokens = 63;
+  int32 tool_call_count = 64;
+  int64 created_at_unix = 65;
+  string current_plan = 66;
+  reserved 67; // was: pending_question (now part of UserInputRequest)
+  repeated ChatMessage conversation = 68;
+  reserved 69, 70, 71, 72; // was: feasibility_verdict, feasibility_next_step, feasibility_impacted_areas, feasibility_caveats
+  string current_step = 73;
+  int32 session_number = 74;
+  int32 agent_count = 75;
+  int32 retry_count = 76;
+  string last_error = 77;
+  int64 started_at_unix = 78;
+  int64 completed_at_unix = 79;
+  repeated AgentActivity recent_activity = 80;
+  string spec_markdown = 81;
+  AgentRunTeamSummary team_summary = 82;
+  repeated AgentRunChildStatus children = 83;
+  bool send_ready = 85;
+  string send_readiness_reason = 86;
+  reserved 84, 87, 88; // was: session_mode, session_mode_source, session_mode_revision (plan is a ModeTemplate now — see mode_name)
+
+  // Mode system fields (90-100).
+  string mode_ref_name = 90;
+  string mode_ref_version = 91;
+  string mode_ref_channel = 92;
+  string mode_name = 93;
+  string mode_version = 94;
+  int64 mode_revision = 95;
+  reserved 96;
+  string mode_category = 97;
+  string mode_execution_strategy = 98;
+  reserved 99; // was mode_transition_count
+  repeated ModeTransitionEvent mode_transition_history = 100;
+
+  // Completion fields (101-110).
+  reserved 101, 102;
+  reserved "verification_result";
+  reserved 103;
+
+  // Mode instructions from the pinned snapshot (111-120).
+  string mode_instructions = 111;
+  reserved 112;
+  repeated EvidenceGateResult gate_results = 113;
+  int32 finish_attempts = 122;
+
+  // 123-126 were the flow-based phase machine (current_phase, defined_phases,
+  // pending_approval_phase, phase_artifact_content). Phases were removed in
+  // favor of chat-first modes; the numbers are reserved.
+  reserved 123, 124, 125, 126;
+  string resolved_model = 128; // effective top-level run model
+  string resolved_reasoning_level = 129; // effective run-level reasoning override, if any
+
+  // Collaboration (130+).
+  ResourceOwner owner = 130;
+  string my_permission = 131; // populated per-request: "owner", "collaborator", "viewer", "admin"
+  PRLoopStatus pr_loop = 132;
+
+  // PR/artifacts (114+).
+  string pull_request_url = 114;
+  string plan_summary = 115;
+  string plan_updated_at = 116;
+
+  // Interactivity (117+).
+  repeated QuickAction pending_actions = 117;
+  UserInputRequest user_input_request = 127;
+
+  // Observability (120+).
+  string trace_id = 120; // OTel trace ID for Jaeger lookup
+
+  // Provider keys (121+).
+  repeated ProviderKeyRef provider_keys = 121;
+
+  // Display name (133+).
+  string display_name = 133; // human-readable run title from status.displayName
+  // Context budget for the active model: history compaction triggers at
+  // context_trigger_tokens and shrinks the history to context_target_tokens.
+  // context_tokens is the current context size (prompt-side tokens of the main
+  // agent's latest generation), published by the agent. Zero when unknown.
+  int64 context_trigger_tokens = 134;
+  int64 context_target_tokens = 135;
+  int64 context_tokens = 136;
+
+  // All pull requests created during this run, in creation order.
+  // pull_request_url (114) stays the most recent one for compatibility.
+  repeated string pull_request_urls = 137;
+
+  // Additional per-provider OAuth secrets mounted on the run
+  // (spec.secrets.providerOAuthSecrets) so it can switch to these providers
+  // mid-run without a compute restart. secret_key is unused.
+  repeated ProviderKeyRef provider_oauth_secrets = 138;
+
+  // kubernetes_admin indicates the run has cluster-admin RBAC and platform
+  // introspection tools enabled.
+  bool kubernetes_admin = 141;
+
+  // Optional per-run trajectory supervision and its controller-owned status.
+  AgentRunOverseerConfig overseer = 142;
+  AgentRunOverseerSummary overseer_summary = 143;
+  bool overseer_detaching = 144;
+}
+
+// ProviderKeyRef references a K8s Secret holding an API key for a specific provider.
+message ProviderKeyRef {
+  string provider = 1;
+  string secret_name = 2;
+  string secret_key = 3; // key within the K8s Secret; defaults to "api-key"
+}
+
+// QuickAction represents a clickable button presented to the user by the agent.
+// Used for both AskUserQuestion choices and present_plan approval actions.
+message QuickAction {
+  string id = 1;
+  string label = 2;
+  // If set, clicking this action triggers a mode switch to this mode name.
+  string mode = 3;
+  // Visual style hint: "primary", "secondary", "destructive".
+  string style = 4;
+}
+
+// UserInputRequest is a unified signal that the agent needs user input.
+// Type determines how the UI renders the request (banner style, notification priority).
+// The message and actions are populated from Postgres by the dashboard enrichment layer.
+message UserInputRequest {
+  // Type classifies the request: question, approval, plan_review, turn_limit, idle, circuit_breaker, stopped.
+  string type = 1;
+  // Message is the human-readable prompt displayed to the user.
+  string message = 2;
+  // Actions are optional structured choices/buttons.
+  repeated QuickAction actions = 3;
+}
+
+message TokenUsage {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  int64 cache_read_input_tokens = 3;
+  int64 cache_creation_input_tokens = 4;
+}
+
+message ModelUsageEntry {
+  string model = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  int64 cache_read_input_tokens = 4;
+  int64 cache_creation_input_tokens = 5;
+}
+
+message AgentActivity {
+  int64 timestamp_unix = 1;
+  string event_type = 2;
+  string summary = 3;
+}
+
+message ListLinearProjectsRequest {
+  string namespace = 1; // Optional: filter by namespace (empty = all)
+}
+
+message ListLinearProjectsResponse {
+  repeated LinearProject projects = 1;
+}
+
+message WatchLinearProjectsRequest {
+  string namespace = 1; // Optional: filter by namespace (empty = all)
+}
+
+message LinearProjectEvent {
+  string type = 1; // "ADDED", "MODIFIED", "DELETED"
+  LinearProject project = 2;
+}
+
+message LinearProject {
+  string namespace = 1;
+  string name = 2;
+  string project_id = 3;
+  string poll_interval = 4;
+  string approved_label = 5;
+  string repo_url = 6;
+  reserved 7, 8; // was: organization_ref, workspace_ref
+  // status
+  int64 last_poll_time_unix = 10;
+  int32 issues_processed = 11;
+  string last_error = 12;
+  string condition_ready = 13; // "True" / "False" / "Unknown"
+  int64 created_at_unix = 14;
+  // defaults
+  string base_branch = 20;
+  string model = 21;
+  string image = 22;
+  string timeout = 23;
+  string claude_api_key_secret = 24;
+  string github_token_secret = 25;
+  bool auto_create_tasks = 26;
+  string custom_instructions = 27;
+  string provider = 28;
+  repeated string allowed_models = 29;
+  string auth_mode = 30;
+  string openai_oauth_secret = 31;
+  repeated ProviderKeyRef provider_keys = 32;
+  // aggregated metrics
+  ProjectMetrics metrics = 40;
+  // defaults is the canonical AgentRunDefaults view. The flattened fields
+  // above are kept for wire compat; new UI should read defaults.
+  AgentRunDefaults defaults = 41;
+  // Resolved runtime/MCP policy view (from the referenced RuntimeProfile and
+  // MCPPolicy), mirroring the Project read model.
+  string permission_mode = 42;
+  string egress_mode = 43;
+  string mcp_policy_default_action = 44;
+  repeated string mcp_policy_allowed_servers = 47;
+  // ownership / sharing
+  ResourceOwner owner = 45;
+  string my_permission = 46; // populated per-request: "owner", "collaborator", "viewer", "admin"
+}
+
+message GetLinearProjectRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message ListAvailableModelsRequest {
+  string namespace = 1;
+  SourceRef source = 2;
+  string provider = 3; // Optional provider override
+  // Optional run-scoped credential refs. When source is unset and these fields
+  // are present, the server lists models using the active run's mounted
+  // credentials instead of source defaults. No credentials are created.
+  string auth_mode = 4;
+  string claude_api_key_secret = 5;
+  string openai_oauth_secret = 6;
+  repeated ProviderKeyRef provider_keys = 7;
+  string openai_base_url = 8;
+  repeated string allowed_models = 9;
+}
+
+message ListAvailableModelsResponse {
+  string provider = 1;
+  string base_url = 2;
+  repeated string models = 3;
+}
+
+message ActivityEntry {
+  int64 timestamp_unix = 1;
+  string type = 2;
+  int32 session = 3;
+  string tool = 4;
+  string input = 5;
+  string step = 6;
+  string message = 7;
+  double cost_usd = 8;
+  bool cost_known = 79;
+  int32 turns = 9;
+  int64 input_tokens = 10;
+  int64 output_tokens = 11;
+  string subagent_type = 12;
+  string task_id = 13;
+  int64 cache_read_input_tokens = 14;
+  int64 cache_creation_input_tokens = 15;
+  repeated ModelUsageEntry model_usage = 16;
+  double elapsed_sec = 17;
+  string decision = 18;
+  string reason = 19;
+  string status_category = 20;
+
+  // Subagent metrics (populated for subagent_progress, subagent_notification).
+  int32  subagent_tool_count   = 21;
+  int64  subagent_total_tokens = 22;
+  int64  subagent_duration_ms  = 23;
+  string last_tool_name        = 24;
+  string subagent_status       = 25;
+  string subagent_description  = 26;
+
+  // Tool result data (populated for tool_result and tool_use entries).
+  string tool_use_id = 27;   // correlates tool_use ↔ tool_result
+  string output      = 28;   // tool result content (truncated)
+  bool   is_error    = 29;   // tool result was an error
+  string input_raw   = 30;   // full tool input JSON (truncated)
+
+  // system.init metadata.
+  string model           = 31;  // model name (e.g. "claude-sonnet-4-20250514")
+  string permission_mode = 32;  // permission mode (e.g. "default", "auto-accept")
+  string cwd             = 33;  // working directory
+  string version         = 34;  // Agent runtime version
+  int32  max_turns       = 35;  // max turns limit
+  repeated string tools  = 36;  // available tool names
+  repeated string mcp_servers = 37;  // connected MCP server names
+  string api_key_source  = 38;  // how the API key was provided
+
+  // result event fields.
+  int64  duration_ms  = 39;  // session duration in milliseconds
+  string stop_reason  = 40;  // why the session stopped
+  string result_text  = 41;  // result text from "result" field
+  int32  num_turns    = 42;  // number of turns
+
+  // post_turn_summary extra fields.
+  string summary_title   = 43;  // summary title
+  string recent_action   = 44;  // what was just done
+  bool   needs_action    = 45;  // whether user action is needed
+
+  // api_retry extra fields.
+  string error_code      = 46;  // API error code
+  int64  retry_after_ms  = 47;  // retry delay milliseconds
+  int32  attempt         = 48;  // current attempt number
+  int32  max_retries     = 49;  // max retry count
+  int32  error_status    = 50;  // HTTP status code
+
+  // hook_response extra fields.
+  string hook_id   = 51;  // hook identifier
+  string hook_name = 52;  // hook display name
+
+  // session state.
+  string session_state = 53;  // session state (idle, running, requires_action)
+
+  // Rich subagent tracking (native agent loop).
+  string subagent_model         = 54;  // model used by subagent
+  double subagent_cost_usd      = 55;  // subagent cost in USD
+  bool   subagent_cost_known    = 80;  // whether subagent cost is known
+  int32  subagent_num_turns      = 56;  // number of turns
+  string subagent_isolation      = 57;  // worktree isolation mode
+  string subagent_prompt         = 58;  // prompt sent (truncated)
+  string subagent_result_text    = 59;  // result text (truncated)
+  int64  subagent_input_tokens   = 60;  // input tokens used
+  int64  subagent_output_tokens  = 61;  // output tokens used
+  string subagent_stop_reason    = 62;  // why the subagent stopped
+
+  // Precise tracking fields (from native API loop).
+  int32  turn                    = 63;  // which turn in the agent loop
+  int64  tool_duration_ms        = 64;  // how long the tool took to execute
+  int32  tokens_before           = 65;  // estimated tokens before compaction
+  int32  tokens_after            = 66;  // estimated tokens after compaction
+
+  // Agent role tracking (which specialist agent ran this tool).
+  string agent_name              = 67;  // agent role name (e.g. "executor", "explore")
+  string parent_call_id          = 68;  // parent tool call ID for nested sub-agent events
+
+  reserved 69, 70;
+
+  // LLM attempt tracking.
+  string llm_attempt_id          = 71;
+  string llm_attempt_model       = 72;
+  string llm_attempt_provider    = 73;
+  int64  llm_attempt_input_tokens = 74;
+  int64  llm_attempt_output_tokens = 75;
+  int64  llm_attempt_cache_read_input_tokens = 76;
+  int64  llm_attempt_cache_creation_input_tokens = 77;
+  bool   llm_attempt_tokens_known = 78;
+  string phase                   = 81;  // current workflow phase label
+
+  // Live subagent DAG/progress snapshot fields from the SDK event stream.
+  repeated string subagent_depends_on = 82;
+  repeated string subagent_waiting_on = 83;
+  string subagent_current_step = 84;
+  string subagent_last_tool = 85;
+  int32 subagent_files_written = 86;
+  int32 subagent_messages_received = 87;
+  string subagent_last_parent_message = 88;
+
+  // Durable event id (Postgres activity_events.id, or a synthetic ordinal for
+  // S3/exec-sourced logs). Monotonically increasing within a run; used as the
+  // delta/pagination cursor and for lazy payload detail lookup.
+  int64 event_id = 89;
+  // Set when input_raw/output were truncated to payload_preview_bytes; the
+  // full payloads are available via GetActivityEntryDetail.
+  bool input_truncated = 90;
+  bool output_truncated = 91;
+}
+
+message ChatMessage {
+  string role = 1;
+  string content = 2;
+  int64 timestamp_unix = 3;
+  // image_data_urls carries any image attachments on this message, as data URLs
+  // (e.g. "data:image/png;base64,...").
+  repeated string image_data_urls = 4;
+  // queue_mode is the delivery mode chosen for a user message: "enqueue"
+  // (deliver at the next turn boundary) or "immediate" (steer the in-flight
+  // turn). Empty for assistant/system messages.
+  string queue_mode = 5;
+  // pending is true while a user message has been accepted but not yet
+  // delivered to the agent loop. Pending messages render as queued/steering
+  // rather than as part of the conversation transcript.
+  bool pending = 6;
+  // delivered_at_unix is when the agent loop actually consumed this user
+  // message (0 while pending, or for legacy messages that predate delivery
+  // tracking).
+  int64 delivered_at_unix = 7;
+  // id is the durable conversation message id. Pending user messages can be
+  // withdrawn by passing it to CancelAgentRunMessage. 0 for surfaces that
+  // don't track ids (e.g. team child transcripts).
+  int64 id = 8;
+  // delivery_sequence is assigned by PostgreSQL when a message becomes
+  // agent-visible. It is the authoritative causal tie-breaker across messages.
+  int64 delivery_sequence = 9;
+  // delivery_state is pending, claimed, completed, or cancelled.
+  string delivery_state = 10;
+}
+
+enum AgentRunMessageMode {
+  AGENT_RUN_MESSAGE_MODE_UNSPECIFIED = 0;
+  AGENT_RUN_MESSAGE_MODE_ENQUEUE = 1;
+  AGENT_RUN_MESSAGE_MODE_IMMEDIATE = 2;
+}
+
+message SendAgentRunMessageRequest {
+  string namespace = 1;
+  string name = 2;
+  string message = 3;
+  AgentRunMessageMode message_mode = 4;
+  // image_data_urls are optional image attachments for the message, as data URLs
+  // (e.g. "data:image/png;base64,..."). Supported by vision-capable models.
+  repeated string image_data_urls = 5;
+}
+
+message SendAgentRunMessageResponse {}
+
+message CancelAgentRunMessageRequest {
+  string namespace = 1;
+  string name = 2;
+  // message_id is the ChatMessage.id of the pending (undelivered) user
+  // message to withdraw.
+  int64 message_id = 3;
+}
+
+message CancelAgentRunMessageResponse {}
+
+message CreateAgentRunRequest {
+  string namespace = 1;
+  string name = 2;
+  string repo_url = 3;
+  string base_branch = 4;
+  string model = 5;
+  string image = 6;
+  string user_request = 7;
+  string claude_api_key_secret = 8;
+  string github_token_secret = 9;
+  SourceRef source = 10;
+  reserved 11, 12, 13, 14; // was: provider, (unused), require_approval, post_approval_mode
+  string auth_mode = 15;
+  string openai_oauth_secret = 16;
+  repeated ProviderKeyRef provider_keys = 17;
+  // reasoning_level optionally sets the model reasoning effort for this run
+  // (one of: none, low, medium, high, xhigh, max). Empty uses the provider/model default.
+  string reasoning_level = 18;
+  // image_data_urls are optional image attachments for the initial user request,
+  // as data URLs (e.g. "data:image/png;base64,..."). Supported by vision models.
+  repeated string image_data_urls = 19;
+  // additional_repo_urls are extra git repositories cloned into the run's
+  // sandbox at startup (under repos/<name> next to the primary repository).
+  // When empty, the source's default additional repositories apply.
+  repeated string additional_repo_urls = 20;
+  // Optional trajectory supervisor. Omit to create the run without an overseer.
+  AgentRunOverseerConfig overseer = 21;
+}
+
+// MyCredentials describes the calling user's saved provider credentials and the
+// personal namespace they are stored in. Presence flags are read-only and
+// populated by the server from the user's per-provider secrets.
+message MyCredentials {
+  // namespace is the user's personal namespace (firstname-lastname-<hash>) where
+  // their credential secrets and projects live.
+  string namespace = 1;
+  bool anthropic_api_key_present = 2;
+  bool openai_api_key_present = 3;
+  bool anthropic_oauth_present = 4;
+  bool openai_oauth_present = 5;
+  bool copilot_oauth_present = 6;
+  bool github_token_present = 7;
+  // integrations lists the user's free-form saved integration credentials
+  // (presence only — values are never returned).
+  repeated IntegrationCredentialState integrations = 8;
+  bool openrouter_api_key_present = 9;
+  bool xai_api_key_present = 10;
+  // secrets lists every Secret in the caller's personal namespace by name and
+  // key only. Secret values are never returned. Resource forms use this live
+  // inventory instead of offering cluster-wide or hard-coded secret names.
+  repeated UserSecretState secrets = 11;
+}
+
+// IntegrationCredentialState reports one saved integration credential: its name
+// and which keys exist. Values are write-only.
+message IntegrationCredentialState {
+  string name = 1;
+  repeated string keys = 2;
+}
+
+// IntegrationCredentialUpdate writes, partially clears, or deletes one free-form
+// integration credential (stored as the usercred-<name> Secret in the user's
+// namespace). Non-empty entry values are written; empty values are ignored;
+// clear_keys removes individual keys; delete removes the whole credential.
+// Names are DNS-safe lowercase and must not collide with the built-in
+// providers (anthropic, openai, copilot, github).
+message IntegrationCredentialUpdate {
+  string name = 1;
+  map<string, string> entries = 2;
+  repeated string clear_keys = 3;
+  bool delete = 4;
+}
+
+message ListMyCredentialsRequest {}
+
+// UpdateMyCredentialsRequest sets or clears the calling user's saved provider
+// credentials, stored privately in their personal namespace. Non-empty values are
+// written; empty values leave the existing value unchanged. Entries listed in
+// `clear` are removed. OAuth JSON fields accept the raw files written by the
+// local credential files (validated and normalized server-side). Recognized
+// clear keys: "anthropic-api-key", "openai-api-key",
+// "openrouter-api-key", "xai-api-key", "anthropic-oauth", "openai-oauth",
+// "copilot-oauth", "github-token".
+message UpdateMyCredentialsRequest {
+  string anthropic_api_key = 1;
+  string openai_api_key = 2;
+  string anthropic_oauth_json = 3;
+  string openai_oauth_json = 4;
+  string openai_account_id = 5;
+  string copilot_oauth_json = 6;
+  string github_token = 7;
+  repeated string clear = 8;
+  // integrations updates free-form named integration credentials (see
+  // IntegrationCredentialUpdate).
+  repeated IntegrationCredentialUpdate integrations = 9;
+  string openrouter_api_key = 10;
+  string xai_api_key = 11;
+}
+
+// ShareMyCredentialsRequest copies the calling user's saved credentials to the
+// user identified by target_email. Each requested credential replaces the
+// recipient's existing saved credential of the same name, and the recipient's
+// copy is thereafter independent of the sender's (OAuth material refreshes
+// separately in each namespace).
+message ShareMyCredentialsRequest {
+  // target_email identifies the recipient by exact email match.
+  string target_email = 1;
+  // credentials names the saved credentials to copy: "anthropic", "openai",
+  // "copilot", "github", or the name of a saved integration credential.
+  repeated string credentials = 2;
+}
+
+message ShareMyCredentialsResponse {
+  // shared echoes the credential names that were copied to the recipient.
+  repeated string shared = 1;
+}
+
+// SlackAgent describes one Slack agent configuration and status. Token fields
+// are never returned; only presence flags are.
+message SlackAgent {
+  // configured is true when a SlackAgent CR exists.
+  bool configured = 1;
+  // namespace is where the SlackAgent and its tokens secret live.
+  string namespace = 2;
+  string name = 3;
+  // Token presence (values are write-only and never returned).
+  bool bot_token_present = 4;
+  bool user_token_present = 5;
+  bool app_token_present = 6;
+  // Config echoed back for the form.
+  string slack_user_id = 7;
+  // Former inbox-monitoring controls (feature removed); numbers stay reserved.
+  reserved 8, 9;
+  reserved "monitoring_enabled", "monitoring_mode";
+  bool suspended = 10;
+  string model = 11;
+  string provider = 12;
+  // Resolved status from the controller/connector.
+  string team_id = 13;
+  string bot_user_id = 14;
+  bool ready = 15;
+  bool token_valid = 16;
+  bool connected = 17;
+  string last_error = 18;
+  // Runtime policy applied to runs the agent creates (via a per-user
+  // RuntimeProfile in the user's namespace). The dashboard only creates or
+  // updates the profile when the user explicitly enables runtime policy
+  // configuration.
+  string permission_mode = 19; // read-only | workspace-write | danger-full-access
+  string egress_mode = 20;     // unrestricted | restricted | disabled
+  string runtime_profile_ref = 21;
+  string mcp_policy_ref = 22;
+  string mcp_policy_default_action = 23; // Allow | Deny
+  repeated string mcp_policy_allowed_servers = 24;
+  // Former inbox-triage controls (monitoring removed); numbers stay reserved.
+  reserved 25, 26, 27, 28, 29;
+  reserved "allow_users", "deny_users", "quiet_hours_start", "quiet_hours_end", "quiet_hours_tz";
+  // session_idle_minutes: an incoming message reuses the conversation's run when
+  // the last activity was within this window, else starts fresh (0 = default).
+  int32 session_idle_minutes = 30;
+  // commanders lists who may command the agent via channel @mentions besides
+  // the owner. Fail-closed: empty = owner only.
+  repeated string commanders = 31;
+  reserved 32, 33;
+  reserved "persona", "skill_package_refs";
+  // mcp_server_refs / skill_refs list MCPServer and Skill names attached to
+  // runs this agent creates (echoed back for the form). A skill's required
+  // servers are auto-attached at run time.
+  repeated string mcp_server_refs = 40;
+  repeated string skill_refs = 41;
+  // Shared-workspace binding: when set, this agent has no dedicated Slack app;
+  // it is served by the referenced SlackWorkspace's connector.
+  string workspace_ref_name = 34;
+  string workspace_ref_namespace = 35;
+  // image is the worker image for the connector and the runs it creates
+  // (empty = operator default).
+  string image = 36;
+  // channel_reply_mode controls whether the agent's replies to public surfaces
+  // (channels, private channels, group DMs) require the owner's approval before
+  // they are posted: "require-approval" (default) or "auto".
+  string channel_reply_mode = 37;
+  // app_home_header / app_home_text override the static App Home tab copy (the
+  // header line and the short info line under it); empty uses the connector
+  // defaults. The Home tab is visible to any workspace member who opens the
+  // app and never shows live agent state.
+  string app_home_header = 38;
+  string app_home_text = 39;
+  // github_token_present is true when this agent has its own GitHub token (a
+  // per-agent Secret) overriding the owner's saved GitHub token for the runs
+  // it creates. Token values are write-only and never returned.
+  bool github_token_present = 42;
+  // reasoning_level is the default model reasoning effort for runs this agent
+  // creates (none|low|medium|high|xhigh|max; empty = provider/model default).
+  string reasoning_level = 43;
+  // additional_repo_urls are extra git repositories cloned into each run's
+  // sandbox at startup.
+  repeated string additional_repo_urls = 44;
+}
+
+// MCPServerInfo describes one cluster-managed MCP server config. The full
+// config is echoed so the settings form can edit servers in place (secret env
+// references carry no secret values).
+message MCPServerInfo {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  string command = 4;
+  repeated string args = 5;
+  map<string, string> env = 6;
+  repeated string allow_env = 7;
+  repeated MCPServerSecretEnv secret_env = 8;
+  bool trust_read_only_hint = 9;
+  // allow_network opts this cluster-managed server into the run pod's network
+  // namespace; the RuntimeProfile egress policy remains in force.
+  bool allow_network = 10;
+}
+
+// MCPServerSecretEnv is one environment variable a server sources from a
+// Secret key (e.g. an integration credential) in the run's namespace.
+message MCPServerSecretEnv {
+  string name = 1;
+  string secret_name = 2;
+  string secret_key = 3;
+  // required inverts the default (a missing Secret never blocks the run pod
+  // unless required is true).
+  bool required = 4;
+}
+
+message ListMCPServersRequest {}
+
+message ListMCPServersResponse {
+  string namespace = 1;
+  repeated MCPServerInfo servers = 2;
+}
+
+// UpsertMCPServerRequest creates or updates one MCP server config in the
+// caller's namespace. The whole spec is assigned on every save (the form owns
+// it). Name must be DNS-safe lowercase.
+message UpsertMCPServerRequest {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  string command = 4;
+  repeated string args = 5;
+  map<string, string> env = 6;
+  repeated string allow_env = 7;
+  repeated MCPServerSecretEnv secret_env = 8;
+  bool trust_read_only_hint = 9;
+  // allow_network is honored only for this cluster-managed MCPServer resource;
+  // repository .mcp.json configuration cannot request network access.
+  bool allow_network = 10;
+}
+
+message DeleteMCPServerRequest {
+  string name = 1;
+}
+
+// SkillInfo describes one skill: reusable agent instructions, either inline or
+// sourced from a git repository folder containing SKILL.md (Anthropic agent
+// skills format).
+message SkillInfo {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  // Inline source (empty when git-sourced).
+  string instructions = 4;
+  // Git source (empty when inline).
+  string git_url = 5;
+  string git_ref = 6;
+  string git_path = 7;
+  // mcp_server_refs lists MCPServer names this skill requires; attaching the
+  // skill to a run auto-attaches these servers.
+  repeated string mcp_server_refs = 8;
+  // Resolved state for git-sourced skills (from the Skill CR status).
+  string phase = 9;
+  string resolved_name = 10;
+  string resolved_description = 11;
+  string resolved_sha = 12;
+  // status_message carries the failure reason when phase is Error.
+  string status_message = 13;
+  // skills.sh provenance (empty for manually authored skills).
+  string catalog_source = 14;
+  string catalog_skill_id = 15;
+  string catalog_url = 16;
+  string catalog_hash = 17;
+}
+
+message ListSkillsRequest {}
+
+message ListSkillsResponse {
+  string namespace = 1;
+  repeated SkillInfo skills = 2;
+}
+
+// UpsertSkillRequest creates or updates one skill in the caller's namespace.
+// Exactly one of instructions (inline) or git_url (git source) must be set.
+// Name must be lowercase alphanumeric with single hyphen separators.
+message UpsertSkillRequest {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  string instructions = 4;
+  string git_url = 5;
+  string git_ref = 6;
+  string git_path = 7;
+  repeated string mcp_server_refs = 8;
+}
+
+message DeleteSkillRequest {
+  string name = 1;
+}
+
+message RuntimeResourceClaim {
+  string name = 1;
+  string request = 2;
+}
+
+// RuntimeProfile exposes every configurable RuntimeProfile spec field.
+message RuntimeProfile {
+  string namespace = 1;
+  string name = 2;
+  string permission_mode = 3; // read-only | workspace-write | danger-full-access
+  string egress_mode = 4; // unrestricted | restricted | disabled
+  string default_timeout = 5; // Go duration string; empty clears the value.
+  bool persist_workspace = 6;
+  string workspace_size = 7;
+  repeated string extra_writable_paths = 8;
+  bool enable_private_procfs = 9;
+  string sandbox_template_ref = 10;
+  string runtime_class_name = 11;
+  string warm_pool_ref = 12;
+  repeated string command_path = 13;
+  repeated string command_path_prepend = 14;
+  repeated string command_path_append = 15;
+  repeated string extra_read_only_paths = 16;
+  map<string, string> command_env = 17;
+  map<string, string> resource_requests = 18;
+  map<string, string> resource_limits = 19;
+  repeated RuntimeResourceClaim resource_claims = 20;
+  int32 max_concurrent_runs = 21;
+  int32 per_namespace_max_concurrent_runs = 22;
+  string stale_run_timeout = 23;
+  bool replace_spec = 24; // New clients set true; false preserves fields absent from the legacy RPC contract.
+}
+message ListRuntimeProfilesRequest {}
+message ListRuntimeProfilesResponse {
+  string namespace = 1;
+  repeated RuntimeProfile profiles = 2;
+}
+message CreateRuntimeProfileRequest { RuntimeProfile profile = 1; }
+message UpdateRuntimeProfileRequest { RuntimeProfile profile = 1; }
+message DeleteRuntimeProfileRequest { string name = 1; }
+
+message MCPAllowedServer {
+  string name = 1;
+  repeated string tools = 2;
+}
+message MCPBreakGlass {
+  bool enabled = 1;
+  bool require_audit_reason = 2;
+  bool admin_mediated = 3;
+}
+// MCPPolicy exposes every configurable MCPPolicy spec field.
+message MCPPolicy {
+  string namespace = 1;
+  string name = 2;
+  string default_action = 3; // Allow | Deny
+  repeated MCPAllowedServer allowed_servers = 4;
+  MCPBreakGlass break_glass = 5;
+  bool replace_spec = 6; // New clients set true; false preserves break-glass for legacy clients.
+}
+message ListMCPPoliciesRequest {}
+message ListMCPPoliciesResponse {
+  string namespace = 1;
+  repeated MCPPolicy policies = 2;
+}
+message CreateMCPPolicyRequest { MCPPolicy policy = 1; }
+message UpdateMCPPolicyRequest { MCPPolicy policy = 1; }
+message DeleteMCPPolicyRequest { string name = 1; }
+
+message GuardrailRule {
+  string name = 1;
+  string type = 2; // tool-input | tool-output
+  string tool_pattern = 3;
+  string regex = 4;
+  string action = 5; // block | warn | log
+  string message = 6;
+}
+message GuardrailPolicy {
+  string namespace = 1;
+  string name = 2;
+  repeated GuardrailRule rules = 3;
+}
+message ListGuardrailPoliciesRequest {}
+message ListGuardrailPoliciesResponse {
+  string namespace = 1;
+  repeated GuardrailPolicy policies = 2;
+}
+message CreateGuardrailPolicyRequest { GuardrailPolicy policy = 1; }
+message UpdateGuardrailPolicyRequest { GuardrailPolicy policy = 1; }
+message DeleteGuardrailPolicyRequest { string name = 1; }
+
+message ListModeTemplatesRequest {}
+message ListModeTemplatesResponse { repeated ModeTemplate templates = 1; }
+message CreateModeTemplateRequest { ModeTemplate template = 1; }
+message UpdateModeTemplateRequest { ModeTemplate template = 1; }
+message DeleteModeTemplateRequest { string name = 1; }
+
+message RoleInstruction {
+  string name = 1;
+  string description = 2;
+  string instructions = 3;
+  string tool_access = 4; // full | read-only | analysis | execution
+  string model = 5; // legacy provider-independent value; runtime routing ignores it
+  map<string, string> models_by_provider = 6; // active provider -> role model; missing provider inherits parent
+  string reasoning_level = 7; // empty inherits parent; none | low | medium | high | xhigh | max
+}
+message ListRoleInstructionsRequest {}
+message ListRoleInstructionsResponse { repeated RoleInstruction instructions = 1; }
+message CreateRoleInstructionRequest { RoleInstruction instruction = 1; }
+message UpdateRoleInstructionRequest { RoleInstruction instruction = 1; }
+message DeleteRoleInstructionRequest { string name = 1; }
+
+// RuntimeImageVersion is one selectable version of a catalog language.
+message RuntimeImageVersion {
+  string version = 1;   // display label, e.g. "3.4"
+  string image = 2;     // full image ref; empty only for the operator-default entry
+  bool is_default = 3;  // preselected version within its language
+}
+
+// RuntimeImageOption is one entry of the curated worker image catalog. The
+// catalog is admin-tunable via a ConfigMap in the operator namespace; entries
+// map a language to official glibc-based images (musl/alpine images are not
+// supported by the injected agent toolkit).
+message RuntimeImageOption {
+  string id = 1;          // stable key, e.g. "ruby", "go", "default"
+  string label = 2;       // display name, e.g. "Ruby"
+  string description = 3; // short human hint shown in pickers
+  bool is_default = 4;    // preselected language
+  repeated RuntimeImageVersion versions = 5; // at least one entry
+}
+
+message ListRuntimeImagesRequest {}
+
+message ListRuntimeImagesResponse {
+  repeated RuntimeImageOption images = 1;
+}
+
+message ListSlackAgentsRequest {}
+
+message ListSlackAgentsResponse {
+  string namespace = 1;
+  repeated SlackAgent agents = 2;
+}
+
+// UpdateSlackAgentRequest creates or updates a Slack agent.
+// Non-empty token values are written to the user's tokens secret; empty values
+// leave the existing value unchanged. The SlackAgent CR is created on first use
+// and updated thereafter. Recognized clear keys: "bot-token", "user-token",
+// "app-token".
+message UpdateSlackAgentRequest {
+  string bot_token = 1;
+  // user_token (xoxp-) is optional; it only powers the agent's slack_search
+  // read tool (Slack permits search.messages with user tokens only).
+  string user_token = 2;
+  string app_token = 3;
+  string slack_user_id = 4;
+  // Former inbox-monitoring controls (feature removed); numbers stay reserved.
+  reserved 5, 6;
+  reserved "monitoring_enabled", "monitoring_mode";
+  bool suspend = 7;
+  // Defaults for runs the connector creates. When use_saved_credentials is true,
+  // the user's saved provider credentials are referenced instead of inline keys.
+  string model = 8;
+  string provider = 9;
+  string auth_mode = 10;
+  bool use_saved_credentials = 11;
+  string anthropic_api_key = 12;
+  string openai_api_key = 13;
+  repeated string clear = 14;
+  // Runtime policy for runs the agent creates. The dashboard provisions a
+  // RuntimeProfile only when configure_runtime_profile is true. If false and
+  // runtime_profile_ref is non-empty, the SlackAgent references that existing
+  // profile without creating or updating it.
+  string permission_mode = 15; // read-only | workspace-write | danger-full-access
+  string egress_mode = 16;     // unrestricted | restricted | disabled
+  string runtime_profile_ref = 17;
+  bool configure_runtime_profile = 18;
+  // MCP policy for runs the agent creates. The dashboard provisions an MCPPolicy
+  // only when configure_mcp_policy is true. If false and mcp_policy_ref is
+  // non-empty, the SlackAgent references that existing policy.
+  string mcp_policy_ref = 19;
+  bool configure_mcp_policy = 20;
+  string mcp_policy_default_action = 21; // Allow | Deny
+  repeated string mcp_policy_allowed_servers = 22;
+  // Kubernetes-safe SlackAgent name.
+  string name = 23;
+  // Former inbox-triage controls (monitoring removed); numbers stay reserved.
+  reserved 24, 25, 26, 27, 28;
+  reserved "allow_users", "deny_users", "quiet_hours_start", "quiet_hours_end", "quiet_hours_tz";
+  // session_idle_minutes bounds conversation continuity: a follow-up reuses the
+  // conversation's AgentRun within this idle window, else a fresh run starts.
+  // 0 leaves the existing value unchanged (defaulting to 12h on first use).
+  int32 session_idle_minutes = 29;
+  // commanders lists who may command the agent via channel @mentions besides
+  // the owner. Fail-closed: empty = owner only.
+  repeated string commanders = 30;
+  reserved 31, 32;
+  reserved "persona", "skill_package_refs";
+  // mcp_server_refs / skill_refs list MCPServer and Skill names to attach to
+  // runs this agent creates (assigned as a whole on every save).
+  repeated string mcp_server_refs = 39;
+  repeated string skill_refs = 40;
+  // Shared-workspace binding: when workspace_name is set the agent joins that
+  // SlackWorkspace instead of using its own tokens (bot/user/app token fields
+  // are ignored, slack_user_id becomes required).
+  string workspace_name = 33;
+  string workspace_namespace = 34;
+  // image is the worker image for the connector and the runs this agent
+  // creates. Assigned as a whole on every save; empty = operator default.
+  string image = 35;
+  // channel_reply_mode controls whether the agent's replies to public surfaces
+  // (channels, private channels, group DMs) are held for the owner's approval:
+  // "require-approval" (default) or "auto" (post directly). Empty keeps
+  // require-approval.
+  string channel_reply_mode = 36;
+  // App Home tab copy overrides (empty = connector defaults): header renders
+  // as Slack plain text (max 150 chars), text as one short mrkdwn line (max
+  // 1000 chars).
+  string app_home_header = 37;
+  string app_home_text = 38;
+  // github_token optionally gives this agent its own GitHub token for the runs
+  // it creates, instead of the owner's saved GitHub token. Write-only: empty
+  // keeps the current value; clear with clear: ["github-token"] to fall back
+  // to the saved token.
+  string github_token = 41;
+  // reasoning_level sets the default model reasoning effort for runs this
+  // agent creates (one of: none, low, medium, high, xhigh, max). Assigned as a
+  // whole on every save; empty = provider/model default.
+  string reasoning_level = 42;
+  // additional_repo_urls are extra git repositories cloned into each run's
+  // sandbox at startup (assigned as a whole on every save).
+  repeated string additional_repo_urls = 43;
+}
+
+// SlackDraft is a reply the agent proposed (a held channel reply) awaiting the
+// owner's approval, surfaced in the dashboard.
+message SlackDraft {
+  string id = 1;
+  string channel_id = 2;
+  string target_user = 3;
+  string incoming_text = 4;
+  string draft_text = 5;
+  string status = 6; // pending | sent | dismissed
+  int64 created_at_unix = 7;
+  int64 decided_at_unix = 8; // 0 when undecided
+}
+
+// ListSlackDraftsRequest lists reply drafts for one Slack agent in the caller's
+// namespace. status optionally filters (pending | sent | dismissed).
+message ListSlackDraftsRequest {
+  string name = 1;
+  string status = 2;
+  int32 limit = 3;
+}
+
+message ListSlackDraftsResponse {
+  string namespace = 1;
+  repeated SlackDraft drafts = 2;
+}
+
+message DeleteSlackAgentRequest {
+  string name = 1;
+}
+
+// SlackWorkspace describes one shared Slack app serving many member agents.
+// Token values are write-only; only presence flags are returned.
+message SlackWorkspace {
+  string namespace = 1;
+  string name = 2;
+  bool bot_token_present = 3;
+  bool app_token_present = 4;
+  // team_id pins the Slack workspace; resolved_team_id is what the connector
+  // observed via auth.test.
+  string team_id = 5;
+  string resolved_team_id = 6;
+  string bot_user_id = 7;
+  bool suspended = 8;
+  bool ready = 9;
+  bool token_valid = 10;
+  int32 member_count = 11;
+  string last_error = 12;
+  // mine is true when the workspace lives in the caller's namespace (they can
+  // update/delete it, not just join it).
+  bool mine = 13;
+}
+
+// ListSlackWorkspacesRequest lists every SlackWorkspace visible to the caller —
+// all workspaces are joinable, so this is not scoped to the caller's namespace.
+message ListSlackWorkspacesRequest {}
+
+message ListSlackWorkspacesResponse {
+  repeated SlackWorkspace workspaces = 1;
+}
+
+// UpdateSlackWorkspaceRequest creates or updates a shared workspace app in the
+// caller's namespace. Non-empty token values are written to the workspace's
+// tokens secret; empty values leave the existing value unchanged. Recognized
+// clear keys: "bot-token", "app-token".
+message UpdateSlackWorkspaceRequest {
+  string name = 1;
+  string bot_token = 2;
+  string app_token = 3;
+  string team_id = 4;
+  bool suspend = 5;
+  repeated string clear = 6;
+}
+
+message DeleteSlackWorkspaceRequest {
+  string name = 1;
+}
+// own agent. Other users' agents can consult it (via the ask_teammate tool) to
+// get that teammate's likely perspective on a question, plan, or diff.
+message Soul {
+  string content = 1;
+  // updated_at is unset when the user has never saved a SOUL.
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message GetMySoulRequest {}
+
+// UpdateMySoulRequest sets the calling user's own SOUL content. The content is
+// stored verbatim (trimmed) and bounded by the server.
+message UpdateMySoulRequest {
+  string content = 1;
+}
+
+// RoleModelPreference is one personal provider-specific specialist model.
+// Missing rows inherit the cluster RoleInstruction default.
+message RoleModelPreference {
+  string role_name = 1;
+  string provider = 2;
+  string model = 3;
+}
+
+message RoleModelPreferences {
+  repeated RoleModelPreference preferences = 1;
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message GetMyRoleModelPreferencesRequest {}
+
+// UpdateMyRoleModelPreferencesRequest atomically replaces all preferences for
+// the calling user. Sending an empty list clears every personal override.
+message UpdateMyRoleModelPreferencesRequest {
+  repeated RoleModelPreference preferences = 1;
+}
+
+// GitIdentity contains a user's git commit settings. When set, AgentRuns the
+// user creates author their commits as this name/email (GIT_AUTHOR_* /
+// GIT_COMMITTER_*). The gratefulagents GitHub App is always credited as a
+// co-author.
+message GitIdentity {
+  string name = 1;
+  string email = 2;
+  // updated_at is unset when the user has never saved git settings.
+  google.protobuf.Timestamp updated_at = 3;
+  reserved 4;
+  reserved "disable_co_author_trailer";
+}
+
+message GetMyGitIdentityRequest {}
+
+// UpdateMyGitIdentityRequest sets the calling user's git commit identity.
+// Both fields must be set together; sending both empty clears the identity.
+message UpdateMyGitIdentityRequest {
+  string name = 1;
+  string email = 2;
+  reserved 3;
+  reserved "disable_co_author_trailer";
+}
+
+message TeamParentRef {
+  string namespace = 1;
+  string name = 2;
+}
+
+message TeamChildRef {
+  string namespace = 1;
+  string name = 2;
+}
+
+message TeamChildRunStatus {
+  string name = 1;
+  string namespace = 2;
+  string step = 3;
+  string role = 4;
+  string phase = 5;
+  string blocked_reason = 6;
+  string current_task = 7;
+  string current_worker = 8;
+}
+
+message CreateTeamChildRunRequest {
+  TeamParentRef parent = 1;
+  string step_name = 2;
+  string task_name = 3;
+}
+
+message ListTeamChildRunsRequest {
+  TeamParentRef parent = 1;
+  string step_name = 2;
+}
+
+message ListTeamChildRunsResponse {
+  repeated TeamChildRunStatus children = 1;
+}
+
+message GetTeamChildRunStatusRequest {
+  TeamParentRef parent = 1;
+  TeamChildRef child = 2;
+}
+
+message GetTeamChildRunLogsRequest {
+  TeamParentRef parent = 1;
+  TeamChildRef child = 2;
+}
+
+message TeamChildRunLogs {
+  TeamChildRunStatus status = 1;
+  string pending_question = 2;
+  string last_error = 3;
+  string activity_log_url = 4;
+  repeated AgentActivity recent_activity = 5;
+  repeated ChatMessage conversation_tail = 6;
+  bool can_unblock_with_retry = 7;
+  string suggested_unblock_action = 8;
+}
+
+message GetTeamChildRunArtifactRequest {
+  TeamParentRef parent = 1;
+  TeamChildRef child = 2;
+  string artifact = 3;
+}
+
+message TeamChildRunArtifact {
+  string artifact = 1;
+  string kind = 2;
+  string name = 3;
+  string key = 4;
+  string url = 5;
+  string content = 6;
+}
+
+message SendTeamChildMessageRequest {
+  TeamParentRef parent = 1;
+  TeamChildRef child = 2;
+  string message = 3;
+}
+
+message GetAgentRunTeamStatusRequest {
+  TeamParentRef parent = 1;
+}
+
+message WaitForTeamRunChangeRequest {
+  TeamParentRef parent = 1;
+  string scope = 2;
+  int64 timeout_ms = 3;
+  repeated string until_phases = 4;
+}
+
+message WaitForTeamRunChangeResponse {
+  bool changed = 1;
+  string run_name = 2;
+  string phase = 3;
+}
+
+message CancelTeamChildRunRequest {
+  TeamParentRef parent = 1;
+  TeamChildRef child = 2;
+}
+
+message RetryTeamChildRunRequest {
+  TeamParentRef parent = 1;
+  TeamChildRef child = 2;
+}
+
+message GetTeamApprovalStatusRequest {
+  TeamParentRef parent = 1;
+}
+
+message TeamApprovalStatus {
+  string state = 1;
+}
+
+// ---- Filesystem access messages ----
+
+message GetDiffRequest {
+  string namespace = 1;
+  string name = 2;
+  string resource_type = 3; // "AgentRun"
+  // repo_path selects which workspace repository to diff, using the path
+  // reported by ListRepositories (e.g. "/workspace/repo/repos/widgets").
+  // Empty means the run's primary repository.
+  string repo_path = 4;
+}
+
+message GetDiffResponse {
+  string diff = 1;
+  bool is_complete = 2;  // true if task is terminal (diff is final)
+  bool truncated = 3;
+  string source = 4;     // "pod", "s3", or "unavailable"
+  // Paths of untracked files. Content is intentionally omitted and fetched
+  // with ReadFile only when the user selects a path.
+  repeated string new_files = 5;
+  bool new_files_truncated = 6;
+}
+
+message ListFilesRequest {
+  string namespace = 1;
+  string name = 2;
+  string path = 3;           // relative to /workspace/repo, empty = root
+  string resource_type = 4;  // "AgentRun"
+}
+
+message ListFilesResponse {
+  repeated FileEntry files = 1;
+}
+
+message FileEntry {
+  string name = 1;
+  bool is_dir = 2;
+  int64 size_bytes = 3;
+}
+
+// ListWorkspaceFiles returns a flat, recursive list of file paths in the
+// workspace for fuzzy-finding (e.g. the chat composer "@" file picker).
+// Uses a filesystem walk (not git) so it works regardless of how many repos
+// are present, and prunes heavy directories (.git, node_modules, …).
+message ListWorkspaceFilesRequest {
+  string namespace = 1;
+  string name = 2;
+  string resource_type = 3;  // "AgentRun"
+  int32 limit = 4;           // 0 = default cap
+}
+
+message ListWorkspaceFilesResponse {
+  // file paths for the "@" picker: repo-relative for the primary repo
+  // (e.g. "src/main.go") and absolute for additional cloned repos
+  // (e.g. "/workspace/widgets/src/index.ts").
+  repeated string paths = 1;
+  bool truncated = 2;         // true when more files exist than the limit
+}
+
+// RepositoryInfo describes a git repository cloned into the run's sandbox.
+message RepositoryInfo {
+  string name = 1;        // directory name under /workspace
+  string path = 2;        // absolute path in the sandbox (e.g. /workspace/repo)
+  string remote_url = 3;  // origin remote URL, when available
+  string branch = 4;      // current checked-out branch, when available
+  bool is_primary = 5;    // true for the run's original repository (/workspace/repo)
+}
+
+// CloneRepository clones an additional git repository into a RUNNING run's
+// sandbox using the pod's existing git credentials. Not available for terminal
+// runs (the sandbox is gone).
+message CloneRepositoryRequest {
+  string namespace = 1;
+  string name = 2;
+  string resource_type = 3;  // "AgentRun"
+  string repo_url = 4;       // https or git@ URL to clone
+  string base_branch = 5;    // optional branch to clone (empty = remote default)
+}
+
+message CloneRepositoryResponse {
+  RepositoryInfo repository = 1;
+}
+
+// ListRepositories lists the git repositories present in a running run's
+// sandbox (the original repo plus any cloned at runtime).
+message ListRepositoriesRequest {
+  string namespace = 1;
+  string name = 2;
+  string resource_type = 3;  // "AgentRun"
+}
+
+message ListRepositoriesResponse {
+  repeated RepositoryInfo repositories = 1;
+}
+
+message ReadFileRequest {
+  string namespace = 1;
+  string name = 2;
+  string path = 3;           // relative to the selected repository
+  string resource_type = 4;  // "AgentRun"
+  int32 max_lines = 5;       // 0 = default (1000)
+  // Selects the repository using the same values as GetDiffRequest.repo_path.
+  // Empty means the run's primary repository.
+  string repo_path = 6;
+}
+
+message ReadFileResponse {
+  string content = 1;
+  bool truncated = 2;
+}
+
+message UpdateLinearProjectInstructionsRequest {
+  string namespace = 1;
+  string name = 2;
+  string custom_instructions = 3;
+}
+
+message UpdateLinearProjectInstructionsResponse {}
+
+// --- TeamRuntime messages ---
+
+message GetTeamRuntimeRequest {
+  string namespace = 1;
+  string parent_name = 2; // Name of the parent AgentRun
+}
+
+message WatchTeamRuntimeRequest {
+  string namespace = 1;
+  string parent_name = 2;
+}
+
+message TeamRuntime {
+  string namespace = 1;
+  string name = 2;
+
+  // spec
+  string parent_name = 3;
+  string parent_uid = 4;
+  int64 generation = 5;
+  repeated TeamRuntimeTask tasks = 6;
+  AgentRunDelegationPolicy delegation_policy = 7;
+
+  // status
+  string phase = 10;
+  int32 total_tasks = 11;
+  int32 ready_tasks = 12;
+  int32 running_tasks = 13;
+  int32 completed_tasks = 14;
+  int32 failed_tasks = 15;
+  int32 blocked_tasks = 16;
+  TeamRuntimeEventCheckpoint event_checkpoint = 17;
+
+  int64 created_at_unix = 20;
+}
+
+message TeamRuntimeTask {
+  string name = 1;
+  string step_name = 2;
+  string role = 3;
+  string state = 4;
+  int64 state_version = 5;
+  repeated string depends_on = 6;
+  string artifact_contract = 7;
+  bool artifact_satisfied = 8;
+  int32 max_retries = 9;
+  int32 attempt_count = 10;
+  string claim_owner = 11;
+  string lease_token = 12;
+  int64 lease_expires_at_unix = 13;
+  int64 last_heartbeat_at_unix = 14;
+  string diagnostic = 15;
+  string diagnostic_message = 16;
+  string suggested_action = 17;
+  int64 claimed_at_unix = 18;
+  int64 completed_at_unix = 19;
+}
+
+message TeamRuntimeEventCheckpoint {
+  string stream_id = 1;
+  int64 sequence = 2;
+  string runtime_state_version = 3;
+  string postgres_event_id = 4;
+}
+
+// --- Mode template messages ---
+
+message ModeTransitionEvent {
+  string from_mode = 1;
+  string to_mode = 2;
+  reserved 3;
+  reserved 4;
+  string result = 5; // applied, denied, noop, rolled_back
+  string reason = 6;
+  string actor = 7;
+  string source = 8;
+  int64 timestamp_unix = 9;
+}
+
+// Legacy graph messages were removed. Field numbers 925-938 remain reserved
+// for backward compatibility.
+
+message ModeConstraints {
+  int32 max_turns = 1;
+  int32 max_runtime_minutes = 2;
+  int32 max_retries = 3;
+  reserved 4;
+  reserved "max_concurrent_children";
+  int32 subagent_max_turns = 5;
+  int32 max_concurrent_subagents = 6;
+}
+
+message ModeTemplate {
+  string name = 1;
+  string version = 2;
+  string display_name = 3;
+  string description = 4;
+  string category = 5; // direct, orchestrated
+  reserved 6;
+  reserved 7;
+  // Field 8 reserved (was lanes, removed).
+  reserved 8;
+  reserved 9;
+  reserved "model_routing";
+  string execution_strategy = 10; // serial, parallel, pipeline
+  reserved 11;
+  reserved "verification";
+  ModeConstraints constraints = 12;
+  // Metadata from the CRD.
+  string k8s_name = 13;
+  string k8s_namespace = 14;
+  // Behavioral prompt loaded into the agent's system context.
+  string instructions = 15;
+  reserved 16;
+  bool autonomous = 17;
+  string permission_mode = 18;
+  repeated string allowed_mutating_tools = 19;
+  repeated string default_mcp_server_refs = 20;
+  repeated string default_skill_refs = 21;
+}
+
+message ListAvailableModesRequest {
+  string namespace = 1;
+}
+
+message ListAvailableModesResponse {
+  repeated ModeTemplate modes = 1;
+}
+
+message GetModeTemplateRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message SwitchAgentRunModeRequest {
+  string namespace = 1;
+  string name = 2;
+  string target_mode = 3;
+  string target_version = 4;
+  string reason = 5;
+  string source = 6; // chat-command, ui, system
+}
+
+message SwitchAgentRunModeResponse {
+  string result = 1; // applied, denied, noop, rolled_back
+  string previous_mode = 2;
+  string new_mode = 3;
+  int64 revision = 4;
+  string denial_reason = 5;
+}
+
+message EvidenceGateResult {
+  string gate = 1;
+  bool passed = 2;
+  bool skipped = 3;
+  string reason = 4;
+}
+
+// ---- Project messages ----
+
+message ListProjectsRequest {
+  string namespace = 1;
+  bool owned_by_me = 2;
+  bool shared_with_me = 3;
+}
+
+message ListProjectsResponse {
+  repeated Project projects = 1;
+}
+
+message GetProjectRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message WatchProjectsRequest {
+  string namespace = 1;
+}
+
+message ProjectEvent {
+  string type = 1; // "ADDED", "MODIFIED", "DELETED"
+  Project project = 2;
+}
+
+message ProjectCredentialStatus {
+  bool github_token_present = 1;
+  bool anthropic_api_key_present = 2;
+  bool openai_api_key_present = 3;
+}
+
+message CreateProjectRequest {
+  string namespace = 1;
+  string name = 2;
+  string display_name = 3;
+  reserved 4, 5; // was: organization_ref, workspace_ref
+  string repo_url = 6;
+  string base_branch = 7;
+  string model = 8;
+  string image = 9;
+  string timeout = 10;
+  string custom_instructions = 11;
+  string provider = 12;
+  repeated string allowed_models = 13;
+  string auth_mode = 14;
+  string openai_oauth_secret = 15;
+  string github_token = 16;
+  string anthropic_api_key = 17;
+  string openai_api_key = 18;
+  // use_saved_credentials wires the project to the caller's saved per-provider
+  // credentials (in their personal namespace) for the selected provider, plus
+  // their saved GitHub token, instead of the inline credential fields above.
+  bool use_saved_credentials = 19;
+  // Optional runtime policy. The dashboard provisions a RuntimeProfile only when
+  // configure_runtime_profile is true. If false and runtime_profile_ref is
+  // non-empty, the Project references that existing profile.
+  bool configure_runtime_profile = 20;
+  string runtime_profile_ref = 21;
+  string permission_mode = 22; // read-only | workspace-write | danger-full-access
+  string egress_mode = 23;     // unrestricted | restricted | disabled
+  // Optional MCP policy. The dashboard provisions an MCPPolicy only when
+  // configure_mcp_policy is true. If false and mcp_policy_ref is non-empty, the
+  // Project references that existing policy.
+  bool configure_mcp_policy = 24;
+  string mcp_policy_ref = 25;
+  string mcp_policy_default_action = 26; // Allow | Deny
+  repeated string mcp_policy_allowed_servers = 27;
+  reserved 28;
+  reserved "skill_package_refs";
+  // mcp_server_refs / skill_refs list MCPServer and Skill names attached to
+  // this project's runs (from the caller's namespace).
+  repeated string mcp_server_refs = 31;
+  repeated string skill_refs = 32;
+  // reasoning_level optionally sets the default model reasoning effort for runs
+  // created from this project (one of: none, low, medium, high, xhigh, max).
+  // Empty uses the provider/model default.
+  string reasoning_level = 29;
+  // additional_repo_urls are extra git repositories cloned into each run's
+  // sandbox at startup (under repos/<name> next to the primary repository).
+  repeated string additional_repo_urls = 30;
+  // kubernetes_admin grants runs created from this project cluster-admin RBAC
+  // plus read-only platform introspection tools. Setting it requires admin.
+  bool kubernetes_admin = 33;
+  // review_loop_disabled prevents autonomous reviewer runs for pull requests
+  // opened by runs created from this project, including additional repositories.
+  // Omission defaults to true; set false explicitly to opt in.
+  optional bool review_loop_disabled = 34;
+}
+
+message UpdateProjectRequest {
+  string namespace = 1;
+  string name = 2;
+  string display_name = 3;
+  string repo_url = 4;
+  string base_branch = 5;
+  string model = 6;
+  string image = 7;
+  string timeout = 8;
+  string custom_instructions = 9;
+  string provider = 10;
+  repeated string allowed_models = 11;
+  string auth_mode = 12;
+  // use_saved_credentials rewires the project to the caller's saved credentials
+  // for the selected provider/auth mode. When false, the explicit Secret refs
+  // below are stored as-is; no Secret is created by this RPC.
+  bool use_saved_credentials = 13;
+  string openai_oauth_secret = 14;
+  string github_token_secret = 15;
+  string claude_api_key_secret = 16;
+  repeated ProviderKeyRef provider_keys = 17;
+  bool configure_runtime_profile = 18;
+  string runtime_profile_ref = 19;
+  string permission_mode = 20;
+  string egress_mode = 21;
+  bool configure_mcp_policy = 22;
+  string mcp_policy_ref = 23;
+  string mcp_policy_default_action = 24;
+  repeated string mcp_policy_allowed_servers = 25;
+  reserved 26;
+  reserved "skill_package_refs";
+  // mcp_server_refs / skill_refs replace the project's attached MCPServer and
+  // Skill lists (assigned as a whole on every save).
+  repeated string mcp_server_refs = 29;
+  repeated string skill_refs = 30;
+  // reasoning_level sets the default model reasoning effort for runs created
+  // from this project (one of: none, low, medium, high, xhigh, max). Empty
+  // clears the default (provider/model default applies).
+  string reasoning_level = 27;
+  // additional_repo_urls replaces the project's extra git repositories cloned
+  // into each run's sandbox at startup (assigned as a whole on every save).
+  repeated string additional_repo_urls = 28;
+  // kubernetes_admin changes the project's admin-gated Kubernetes access when
+  // present. Omitted means preserve the current value.
+  optional bool kubernetes_admin = 31;
+  // review_loop_disabled changes whether runs created from this project receive
+  // autonomous PR reviews. Omitted means preserve the current value.
+  optional bool review_loop_disabled = 32;
+}
+
+message ProjectTriggerCondition {
+  string type = 1;
+  string status = 2;
+  string reason = 3;
+  string message = 4;
+  google.protobuf.Timestamp last_transition_time = 5;
+}
+
+message GitHubProjectTrigger {
+  string connection_ref = 1;
+  string owner = 2;
+  string repo = 3;
+  bool issues = 4;
+  bool comments = 5;
+  string trigger_keyword = 6;
+  string poll_interval = 7;
+  repeated string auth_allowed_users = 8;
+  repeated string auth_deny_users = 9;
+}
+
+message SlackProjectTrigger {
+  string connection_ref = 1;
+  string channel = 2;
+  string channel_reply_mode = 3; // require-approval | auto
+  repeated string commanders = 4;
+  optional int32 session_idle_minutes = 5;
+}
+
+message CronProjectTrigger {
+  string schedule = 1;
+  string time_zone = 2;
+  string concurrency_policy = 3; // Allow | Forbid
+  string prompt = 4;
+}
+
+message LinearProjectTrigger {
+  string connection_ref = 1;
+  string project_id = 2;
+  string team_id = 3;
+  string approved_label = 4;
+  string poll_interval = 5;
+  bool auto_create = 6;
+}
+
+// ProjectTrigger is a named, source-specific Project entry point. Exactly one
+// configuration matching type must be supplied for mutations.
+message ProjectTrigger {
+  string name = 1;
+  string type = 2; // github | slack | cron | linear
+  optional bool enabled = 3;
+  GitHubProjectTrigger github = 4;
+  SlackProjectTrigger slack = 5;
+  CronProjectTrigger cron = 6;
+  LinearProjectTrigger linear = 7;
+  // Normalized controller status. These fields are read-only.
+  int64 observed_generation = 8;
+  repeated ProjectTriggerCondition conditions = 9;
+  google.protobuf.Timestamp last_activity_time = 10;
+  google.protobuf.Timestamp next_activity_time = 11;
+  string last_error = 12;
+}
+
+message CreateProjectTriggerRequest {
+  string namespace = 1;
+  string project = 2;
+  string name = 3;
+  ProjectTrigger trigger = 4;
+}
+
+message UpdateProjectTriggerRequest {
+  string namespace = 1;
+  string project = 2;
+  string name = 3;
+  ProjectTrigger trigger = 4;
+}
+
+message DeleteProjectTriggerRequest {
+  string namespace = 1;
+  string project = 2;
+  string name = 3;
+}
+
+message SetProjectTriggerEnabledRequest {
+  string namespace = 1;
+  string project = 2;
+  string name = 3;
+  bool enabled = 4;
+}
+
+message DeleteProjectRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message GitHubConnection {
+  string token_secret = 1;
+  int64 app_id = 2;
+  int64 installation_id = 3;
+  string private_key_secret = 4;
+  // token is a write-only raw GitHub token (PAT or fine-grained token). When
+  // set on Create/UpdateConnection the server stores it in a platform-managed
+  // Secret and fills token_secret. Never echoed back in responses.
+  string token = 5;
+  // private_key is a write-only raw GitHub App private key (PEM). When set the
+  // server stores it in a platform-managed Secret and fills
+  // private_key_secret. Never echoed back in responses.
+  string private_key = 6;
+}
+
+message SlackConnection {
+  string tokens_secret = 1;
+  string team_id = 2;
+  // bot_token (xoxb-) and app_token (xapp-) are write-only raw Slack tokens.
+  // When set the server stores them in a platform-managed Secret and fills
+  // tokens_secret. Never echoed back in responses.
+  string bot_token = 3;
+  string app_token = 4;
+}
+
+message LinearConnection {
+  string api_key_secret = 1;
+  string workspace_id = 2;
+  // api_key is a write-only raw Linear API key. When set the server stores it
+  // in a platform-managed Secret and fills api_key_secret. Never echoed back
+  // in responses.
+  string api_key = 3;
+}
+
+message Connection {
+  string namespace = 1;
+  string name = 2;
+  string type = 3; // github | slack | linear
+  GitHubConnection github = 4;
+  SlackConnection slack = 5;
+  LinearConnection linear = 6;
+}
+
+message ListConnectionsRequest { string namespace = 1; }
+message ListConnectionsResponse { repeated Connection connections = 1; }
+message CreateConnectionRequest {
+  string namespace = 1;
+  string name = 2;
+  Connection connection = 3;
+}
+message UpdateConnectionRequest {
+  string namespace = 1;
+  string name = 2;
+  Connection connection = 3;
+}
+message DeleteConnectionRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message Project {
+  string namespace = 1;
+  string name = 2;
+  string display_name = 3;
+  string repo_url = 4;
+  reserved 5, 6, 10, 11, 12; // was: organization_ref, workspace_ref, removed status fields
+  int64 created_at_unix = 13;
+  // defaults
+  string base_branch = 20;
+  string model = 21;
+  string image = 22;
+  string timeout = 23;
+  string claude_api_key_secret = 24;
+  string github_token_secret = 25;
+  string custom_instructions = 26;
+  string provider = 27;
+  repeated string allowed_models = 28;
+  string auth_mode = 29;
+  string openai_oauth_secret = 30;
+  ProjectCredentialStatus credential_status = 31;
+  repeated ProviderKeyRef provider_keys = 32;
+  string runtime_profile_ref = 33;
+  string mcp_policy_ref = 34;
+  string permission_mode = 35;
+  string egress_mode = 36;
+  string mcp_policy_default_action = 37;
+  repeated string mcp_policy_allowed_servers = 38;
+  reserved 39;
+  reserved "skill_package_refs";
+  // mcp_server_refs / skill_refs list MCPServer and Skill names attached to
+  // this project's runs.
+  repeated string mcp_server_refs = 45;
+  repeated string skill_refs = 46;
+  // aggregated metrics
+  ProjectMetrics metrics = 40;
+  // collaboration
+  ResourceOwner owner = 41;
+  string my_permission = 42;
+  // reasoning_level is the default model reasoning effort for runs created from
+  // this project (one of: none, low, medium, high, xhigh, max). Empty means the
+  // provider/model default.
+  string reasoning_level = 43;
+  // additional_repo_urls are extra git repositories cloned into each run's
+  // sandbox at startup (under repos/<name> next to the primary repository).
+  repeated string additional_repo_urls = 44;
+  // kubernetes_admin grants runs created from this project cluster-admin RBAC
+  // plus read-only platform introspection tools.
+  bool kubernetes_admin = 47;
+  // review_loop_disabled prevents autonomous reviewer runs for pull requests
+  // opened by this project's runs.
+  bool review_loop_disabled = 48;
+  repeated ProjectTrigger triggers = 49;
+}
+
+message ProjectMetrics {
+  int32 total_runs = 1;
+  int32 successful_runs = 2;
+  int32 failed_runs = 3;
+  int32 running_runs = 4;
+  double total_cost_usd = 5;
+  double average_cost_per_run = 6;
+  int64 total_input_tokens = 7;
+  int64 total_output_tokens = 8;
+  int32 total_tool_calls = 9;
+  int64 last_run_at_unix = 10;
+}
+
+// ---- GitHubRepository messages ----
+
+message ListGitHubRepositoriesRequest {
+  string namespace = 1;
+}
+
+message ListGitHubRepositoriesResponse {
+  repeated GitHubRepository repositories = 1;
+}
+
+message GetGitHubRepositoryRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message WatchGitHubRepositoriesRequest {
+  string namespace = 1;
+}
+
+message GitHubRepositoryEvent {
+  string type = 1; // "ADDED", "MODIFIED", "DELETED"
+  GitHubRepository repository = 2;
+}
+
+// GitHubRepositoryTriggerSettings mirrors the user-configurable spec-level
+// fields on a GitHubRepository trigger. Auth wiring (github_token_secret /
+// github_app) and repository identity are intentionally not included: those
+// are fixed by onboarding.
+message GitHubRepositoryTriggerSettings {
+  string poll_interval = 1; // Go duration string, e.g. "60s"; empty = controller default.
+  string webhook_secret = 2; // Secret name for classic per-resource webhook HMAC validation.
+  string trigger_keyword = 3; // Bot mention keyword; empty = controller default "@agent".
+  bool cancel_runs_on_issue_close = 4;
+  repeated string auth_allowed_users = 5; // GitHub logins; empty = owners/members/collaborators.
+  repeated string auth_deny_users = 6;
+  // Omission means disabled by default; set false explicitly to enable.
+  optional bool review_loop_disabled = 7;
+  int32 review_loop_max_rounds = 8; // 0 = controller default (3).
+  string reviewer_mode_ref = 9; // ModeTemplate name; empty = default reviewer mode.
+  string reviewer_mode_version = 10;
+  string reviewer_mode_channel = 11;
+  // Maintainer (standing repository supervisor). Omission keeps the
+  // maintainer disabled; opt in explicitly per repository.
+  optional bool maintainer_enabled = 12;
+  int32 maintainer_max_concurrent_dispatches = 13; // 0 = controller default (2).
+  int32 maintainer_max_dispatches_per_day = 14; // 0 = controller default (10).
+  string maintainer_standup_interval = 15; // Go duration string; empty = controller default "12h".
+  string maintainer_mode_ref = 16; // ModeTemplate name; empty = default "maintainer".
+  string maintainer_model = 17; // Empty inherits the repository defaults' model.
+  // Dangerous: allows the maintainer to merge approved, non-draft PRs.
+  bool maintainer_allow_pr_merge = 18;
+}
+
+// GitHubRepositoryMaintainerStatus mirrors GitHubRepositoryStatus.maintainer.
+message GitHubRepositoryMaintainerStatus {
+  string run_name = 1;
+  int64 last_wake_unix = 2;
+  int32 dispatches_today = 3;
+  int64 last_report_time_unix = 4;
+  string last_report_state = 5; // healthy | needs_attention | blocked
+  string last_report_summary = 6;
+}
+
+message GitHubRepository {
+  string namespace = 1;
+  string name = 2;
+  string owner = 3;
+  string repo = 4;
+  string repo_url = 5;
+  string trigger_keyword = 6;
+  reserved 7, 8, 12; // was: organization_ref, workspace_ref, removed webhook_registered
+  // status
+  int64 last_poll_time_unix = 10;
+  int32 issues_processed = 11;
+  string last_error = 13;
+  string condition_ready = 14;
+  int64 created_at_unix = 15;
+  // defaults
+  string base_branch = 20;
+  string model = 21;
+  string image = 22;
+  string timeout = 23;
+  string claude_api_key_secret = 24;
+  string github_token_secret = 25;
+  string custom_instructions = 26;
+  string provider = 27;
+  repeated string allowed_models = 28;
+  string auth_mode = 29;
+  string openai_oauth_secret = 30;
+  // aggregated metrics
+  ProjectMetrics metrics = 40;
+  // defaults is the canonical AgentRunDefaults view. The flattened fields
+  // 20-30 above are kept for wire compat; new UI should read defaults.
+  AgentRunDefaults defaults = 41;
+  // Resolved runtime/MCP policy view (from the referenced RuntimeProfile and
+  // MCPPolicy), mirroring the Project read model.
+  string permission_mode = 42;
+  string egress_mode = 43;
+  string mcp_policy_default_action = 44;
+  repeated string mcp_policy_allowed_servers = 47;
+  // ownership / sharing (owner=3 is the GitHub org/user, so use resource_owner)
+  ResourceOwner resource_owner = 45;
+  string my_permission = 46; // populated per-request: "owner", "collaborator", "viewer", "admin"
+  // Spec-level trigger settings that are safe to edit after onboarding.
+  GitHubRepositoryTriggerSettings trigger_settings = 48;
+  // Optional reviewer-specific defaults. Empty means reviewers inherit
+  // defaults (fields 41-47) from the repository trigger.
+  AgentRunDefaults reviewer_defaults = 49;
+  // Resolved policy view for reviewer_defaults.
+  string reviewer_permission_mode = 50;
+  string reviewer_egress_mode = 51;
+  string reviewer_mcp_policy_default_action = 52;
+  repeated string reviewer_mcp_policy_allowed_servers = 53;
+  // Maintainer status (empty when the maintainer is disabled).
+  GitHubRepositoryMaintainerStatus maintainer_status = 54;
+}
+
+message GitHubAppConfig {
+  bool configured = 1;
+  string app_slug = 2;
+  string install_url = 3;
+}
+
+message GitHubAppInstallation {
+  int64 id = 1;
+  string account_login = 2;
+  string account_type = 3;
+}
+
+message ListGitHubAppInstallationsResponse {
+  repeated GitHubAppInstallation installations = 1;
+}
+
+message ListGitHubAppInstallationRepositoriesRequest {
+  int64 installation_id = 1;
+}
+
+message GitHubAppInstallationRepository {
+  string owner = 1;
+  string name = 2;
+  string full_name = 3;
+  string default_branch = 4;
+  bool private = 5;
+  bool already_onboarded = 6;
+}
+
+message ListGitHubAppInstallationRepositoriesResponse {
+  repeated GitHubAppInstallationRepository repositories = 1;
+}
+
+message CreateGitHubRepositoryFromInstallationRequest {
+  int64 installation_id = 1;
+  string owner = 2;
+  string repo = 3;
+  // namespace is optional: it defaults to the caller's personal namespace.
+  // Other namespaces are honored for admins and shared (non-personal)
+  // namespaces only.
+  string namespace = 4;
+  string name = 5;
+  string default_branch = 6;
+  string model = 7;
+  string image = 8;
+  string timeout = 9;
+  string provider = 10;
+  repeated string allowed_models = 11;
+  string auth_mode = 12;
+  string claude_api_key_secret = 13;
+  string openai_oauth_secret = 14;
+  repeated ProviderKeyRef provider_keys = 15;
+  string custom_instructions = 16;
+  // use_saved_credentials wires the trigger to the caller's saved per-provider
+  // credentials (and saved GitHub token) instead of the explicit secret fields
+  // above.
+  bool use_saved_credentials = 17;
+  // defaults, when set, carries the full run defaults for the trigger and
+  // takes precedence over the flattened legacy fields above (model, image,
+  // timeout, provider, allowed_models, auth_mode, secret refs,
+  // custom_instructions). The repository URL is still derived from owner/repo.
+  AgentRunDefaults defaults = 18;
+  // policies optionally provisions managed RuntimeProfile/MCPPolicy objects
+  // for this trigger (see TriggerPolicies).
+  TriggerPolicies policies = 19;
+}
+
+// CreateGitHubRepositoryFromTokenRequest onboards a repository with a GitHub
+// token instead of a GitHub App installation: the caller's saved GitHub token
+// (Settings) by default, or an explicit token provided in github_token.
+message CreateGitHubRepositoryFromTokenRequest {
+  string owner = 1;
+  string repo = 2;
+  // namespace is optional: it defaults to the caller's personal namespace.
+  // Other namespaces are honored for admins and shared (non-personal)
+  // namespaces only.
+  string namespace = 3;
+  string name = 4;
+  // default_branch is optional; when empty it is read from the GitHub API.
+  string default_branch = 5;
+  string model = 6;
+  string image = 7;
+  string timeout = 8;
+  string provider = 9;
+  repeated string allowed_models = 10;
+  string auth_mode = 11;
+  string claude_api_key_secret = 12;
+  string openai_oauth_secret = 13;
+  repeated ProviderKeyRef provider_keys = 14;
+  string custom_instructions = 15;
+  // use_saved_credentials wires the trigger to the caller's saved per-provider
+  // credentials instead of the explicit secret fields above.
+  bool use_saved_credentials = 16;
+  // github_token optionally provides a token stored in a Secret dedicated to
+  // this trigger. When empty, the caller's saved GitHub token is used.
+  string github_token = 17;
+  // defaults, when set, carries the full run defaults for the trigger and
+  // takes precedence over the flattened legacy fields above (model, image,
+  // timeout, provider, allowed_models, auth_mode, secret refs,
+  // custom_instructions). The repository URL is still derived from owner/repo.
+  AgentRunDefaults defaults = 18;
+  // policies optionally provisions managed RuntimeProfile/MCPPolicy objects
+  // for this trigger (see TriggerPolicies).
+  TriggerPolicies policies = 19;
+}
+
+// AgentRunDefaults mirrors the shared trigger defaults struct
+// (api/triggers/v1alpha1 AgentRunDefaults): the settings applied to AgentRuns
+// created by a trigger. Shared by trigger write RPCs (Cron today;
+// GitHubRepository/LinearProject/Project migrate to it incrementally).
+message AgentRunDefaults {
+  // repo_url is the git repository to clone; empty = repoless runs.
+  string repo_url = 1;
+  // additional_repo_urls are extra repositories cloned under repos/<name>.
+  repeated string additional_repo_urls = 2;
+  string base_branch = 3;
+  string image = 4;
+  // model may carry a provider prefix (e.g. "anthropic/claude-sonnet-4-6");
+  // when prefixed, provider is ignored.
+  string model = 5;
+  repeated string allowed_models = 6;
+  string provider = 7;
+  string auth_mode = 8;       // api-key | oauth
+  string reasoning_level = 9; // none|low|medium|high|xhigh|max; empty = provider default
+  string openai_base_url = 10;
+  string openai_api = 11; // responses | chat-completions
+  string timeout = 12;    // Go duration string, e.g. "30m"
+  string custom_instructions = 13;
+  // Secret names in the trigger's namespace.
+  string claude_api_key_secret = 14; // deprecated upstream; prefer provider_keys
+  string openai_oauth_secret = 15;   // required for auth_mode=oauth
+  string github_token_secret = 16;
+  repeated ProviderKeyRef provider_keys = 17;
+  // Policy/mode references (names in the same namespace unless cluster-scoped).
+  string runtime_profile_ref = 18;
+  string mcp_policy_ref = 19;
+  reserved 20;
+  reserved "skill_package_refs";
+  // mcp_server_refs / skill_refs list MCPServer and Skill names attached to
+  // runs this trigger creates (a skill's required servers are auto-attached).
+  repeated string mcp_server_refs = 24;
+  repeated string skill_refs = 25;
+  string workflow_mode = 21;  // auto | chat
+  string mode_ref = 22;       // ModeTemplate name
+  string execution_mode = 23; // linear | team
+}
+
+// TriggerPolicies carries the dashboard-managed runtime/MCP policy
+// provisioning options shared by trigger write RPCs (same semantics as the
+// flattened fields on Create/UpdateProjectRequest): when configure_* is true
+// the server provisions or updates the RuntimeProfile/MCPPolicy named by the
+// trigger defaults' runtime_profile_ref/mcp_policy_ref (deriving a managed
+// name when the ref is empty) and points the trigger at it. When configure_*
+// is false the refs in defaults are stored as-is.
+message TriggerPolicies {
+  bool configure_runtime_profile = 1;
+  string permission_mode = 2; // read-only | workspace-write | danger-full-access
+  string egress_mode = 3;     // unrestricted | restricted | disabled
+  bool configure_mcp_policy = 4;
+  string mcp_policy_default_action = 5; // Allow | Deny
+  repeated string mcp_policy_allowed_servers = 6;
+}
+
+// UpdateGitHubRepositoryRequest replaces the trigger's run defaults with the
+// request fields as a whole (same assign-on-save semantics as UpdateCron).
+// The repository identity (owner/repo/repo_url) and the GitHub auth wiring
+// (App installation or token secret) are not affected.
+message UpdateGitHubRepositoryRequest {
+  string namespace = 1;
+  string name = 2;
+  AgentRunDefaults defaults = 3;
+  TriggerPolicies policies = 4;
+  // use_saved_credentials rewires the trigger to the caller's saved
+  // per-provider credentials for the selected provider/auth mode instead of
+  // the explicit secret refs in defaults.
+  bool use_saved_credentials = 5;
+  // trigger_settings replaces the editable GitHubRepository spec-level trigger
+  // settings as a whole. Omit it to preserve the current settings (for legacy
+  // clients that only update run defaults).
+  GitHubRepositoryTriggerSettings trigger_settings = 6;
+  // use_reviewer_defaults controls the optional reviewer-specific settings.
+  // Omit to preserve the stored value; false clears it and restores inheritance.
+  optional bool use_reviewer_defaults = 7;
+  AgentRunDefaults reviewer_defaults = 8;
+  TriggerPolicies reviewer_policies = 9;
+  bool use_saved_reviewer_credentials = 10;
+}
+
+// CreateLinearProject creates a Linear trigger in the verified caller's
+// personal namespace. linear_api_key is write-only: the server stores it in a
+// dedicated Secret and rolls that Secret (and managed policies) back if the
+// trigger or ownership write fails.
+message CreateLinearProjectRequest {
+  string name = 1;
+  string linear_api_key = 2;
+  string project_id = 3;
+  string team_id = 4;
+  string poll_interval = 5; // positive Go duration; empty uses the CRD default.
+  string approved_label = 6; // empty uses the CRD default.
+  bool auto_create_tasks = 7;
+  AgentRunDefaults defaults = 8;
+  TriggerPolicies policies = 9;
+  bool use_saved_credentials = 10;
+}
+
+// UpdateLinearProjectRequest replaces the trigger's run defaults with the
+// request fields as a whole (same assign-on-save semantics as UpdateCron).
+// The Linear wiring (API key secret, project/team ids) is not affected.
+message UpdateLinearProjectRequest {
+  string namespace = 1;
+  string name = 2;
+  AgentRunDefaults defaults = 3;
+  TriggerPolicies policies = 4;
+  bool use_saved_credentials = 5;
+}
+
+// ---- Cron messages ----
+
+message ListCronsRequest {
+  string namespace = 1;
+}
+
+message ListCronsResponse {
+  repeated Cron crons = 1;
+}
+
+message GetCronRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message WatchCronsRequest {
+  string namespace = 1;
+}
+
+message CronEvent {
+  string type = 1; // "ADDED", "MODIFIED", "DELETED"
+  Cron cron = 2;
+}
+
+message CreateCronRequest {
+  string namespace = 1;
+  // name is optional; when empty the server derives one from the schedule.
+  string name = 2;
+  string schedule = 3;  // 5-field cron expression or robfig descriptor (@hourly)
+  string time_zone = 4; // IANA zone; empty = UTC
+  bool suspend = 5;
+  string concurrency_policy = 6; // Allow | Forbid; empty = Forbid
+  string prompt = 7;
+  AgentRunDefaults defaults = 8;
+  // use_saved_credentials wires the cron to the caller's saved per-provider
+  // credentials (plus saved GitHub token) for the selected provider/auth mode,
+  // instead of the explicit secret refs in defaults.
+  bool use_saved_credentials = 9;
+  // policies optionally provisions managed RuntimeProfile/MCPPolicy objects
+  // for this trigger (see TriggerPolicies).
+  TriggerPolicies policies = 10;
+}
+
+// UpdateCron replaces the Cron spec with the request fields as a whole
+// (same assign-on-save semantics as UpdateProject).
+message UpdateCronRequest {
+  string namespace = 1;
+  string name = 2;
+  string schedule = 3;
+  string time_zone = 4;
+  bool suspend = 5;
+  string concurrency_policy = 6; // Allow | Forbid; empty = Forbid
+  string prompt = 7;
+  AgentRunDefaults defaults = 8;
+  bool use_saved_credentials = 9;
+  // policies optionally provisions managed RuntimeProfile/MCPPolicy objects
+  // for this trigger (see TriggerPolicies).
+  TriggerPolicies policies = 10;
+}
+
+message DeleteCronRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message Cron {
+  string namespace = 1;
+  string name = 2;
+  string schedule = 3;
+  string time_zone = 4;
+  bool suspend = 5;
+  string prompt = 6;
+  string repo_url = 7;
+  string concurrency_policy = 8; // Allow | Forbid; empty = Forbid
+  // status
+  int64 last_schedule_time_unix = 10;
+  int64 next_schedule_time_unix = 11;
+  int32 runs_created = 12;
+  string last_run_name = 13;
+  string last_error = 14;
+  string condition_ready = 15;
+  int64 created_at_unix = 16;
+  // defaults
+  string base_branch = 20;
+  string model = 21;
+  string image = 22;
+  string timeout = 23;
+  string claude_api_key_secret = 24;
+  string github_token_secret = 25;
+  string custom_instructions = 26;
+  string provider = 27;
+  repeated string allowed_models = 28;
+  string auth_mode = 29;
+  string openai_oauth_secret = 30;
+  repeated ProviderKeyRef provider_keys = 31;
+  // aggregated metrics
+  ProjectMetrics metrics = 40;
+  // defaults is the canonical AgentRunDefaults view. The flattened fields
+  // 20-31 above are kept for wire compat; new UI should read defaults.
+  AgentRunDefaults defaults = 41;
+  // Resolved runtime/MCP policy view (from the referenced RuntimeProfile and
+  // MCPPolicy), mirroring the Project read model.
+  string permission_mode = 42;
+  string egress_mode = 43;
+  string mcp_policy_default_action = 44;
+  repeated string mcp_policy_allowed_servers = 47;
+  // ownership / sharing
+  ResourceOwner owner = 45;
+  string my_permission = 46; // populated per-request: "owner", "collaborator", "viewer", "admin"
+}
+
+// --- Trace waterfall ---
+
+message GetAgentTraceRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message GetAgentTraceResponse {
+  string trace_id = 1;
+  repeated TraceSpan spans = 2;
+  int64 duration_ms = 3;
+  string service_name = 4;
+  bool is_complete = 5;  // true when the agent run has reached a terminal phase
+}
+
+message GetAgentRunErrorsRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message AgentRunError {
+  int64 timestamp_unix = 1;
+  string message = 2;
+  string source = 3; // activity, pod, or status
+  string kind = 4;   // event/tool type when known
+}
+
+message GetAgentRunErrorsResponse {
+  repeated AgentRunError errors = 1;
+  bool is_complete = 2;
+  bool truncated = 3;
+}
+
+message TraceSpan {
+  string span_id = 1;
+  string parent_span_id = 2;
+  string operation_name = 3;
+  int64 start_time_unix_us = 4;  // microseconds since epoch
+  int64 duration_us = 5;         // microseconds
+  string kind = 6;               // agent, llm.generation, tool.*, handoff, phase.*, etc.
+  repeated TraceSpanTag tags = 7;
+  bool is_error = 8;
+  int32 child_count = 9;
+}
+
+message TraceSpanTag {
+  string key = 1;
+  string value = 2;
+}
+
+// --- Run export ---
+
+message ExportAgentRunArchiveRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message ExportAgentRunArchiveResponse {
+  // Zip archive containing README.txt, run.json, activity.jsonl and
+  // trace.json (when a trace is available).
+  bytes archive = 1;
+  // Suggested download filename, e.g. "my-run-export-20260705T120301Z.zip".
+  string filename = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Collaboration messages
+// ---------------------------------------------------------------------------
+
+// ResourceOwner is a minimal user profile attached to owned/shared resources.
+message ResourceOwner {
+  string user_id = 1;
+  string email = 2;
+  string name = 3;
+  string picture = 4;
+}
+
+// --- Sharing ---
+
+message ShareResourceRequest {
+  string resource_type = 1;       // "agent_run" or "project"
+  string resource_id = 2;         // Resource name
+  string resource_namespace = 3;
+  string shared_with_email = 4;   // Look up user by email within org
+  string permission = 5;          // "viewer" or "collaborator"
+}
+
+message ShareResourceResponse {
+  ResourceShareInfo share = 1;
+}
+
+message RevokeShareRequest {
+  string share_id = 1;
+}
+
+message UpdateSharePermissionRequest {
+  string share_id = 1;
+  string permission = 2;          // "viewer" or "collaborator"
+}
+
+message ListSharesRequest {
+  string resource_type = 1;
+  string resource_id = 2;
+  string resource_namespace = 3;
+}
+
+message ListSharesResponse {
+  repeated ResourceShareInfo shares = 1;
+}
+
+message ListSharedWithMeRequest {
+  string resource_type = 1;       // Optional filter
+}
+
+message ListSharedWithMeResponse {
+  repeated SharedResource resources = 1;
+}
+
+message ResourceShareInfo {
+  string id = 1;
+  string resource_type = 2;
+  string resource_id = 3;
+  string resource_namespace = 4;
+  ResourceOwner shared_with = 5;
+  ResourceOwner shared_by = 6;
+  string permission = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message SharedResource {
+  ResourceShareInfo share = 1;
+  string display_name = 2;
+  string status = 3;
+}
+
+// --- Notifications ---
+
+message ListNotificationsRequest {
+  bool unread_only = 1;
+  int32 limit = 2;
+}
+
+message ListNotificationsResponse {
+  repeated NotificationInfo notifications = 1;
+  int32 unread_count = 2;
+}
+
+message MarkNotificationReadRequest {
+  string notification_id = 1;     // Empty = mark all read
+}
+
+message NotificationInfo {
+  string id = 1;
+  string type = 2;
+  string title = 3;
+  string body = 4;
+  string resource_type = 5;
+  string resource_id = 6;
+  string resource_namespace = 7;
+  ResourceOwner actor = 8;
+  bool read = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+// --- Presence ---
+
+message PresenceHeartbeatRequest {
+  string resource_type = 1;
+  string resource_id = 2;
+  string resource_namespace = 3;
+}
+
+message GetPresenceRequest {
+  string resource_type = 1;
+  string resource_id = 2;
+  string resource_namespace = 3;
+}
+
+message GetPresenceResponse {
+  repeated ResourceOwner viewers = 1;
+}
+
+message ExtendAgentRunRuntimeRequest {
+  string namespace = 1;
+  string name = 2;
+  string additional_runtime = 3;
+}
+
+// --- Agent run pull requests ---
+
+message GetAgentRunPullRequestsRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message GetAgentRunPullRequestsResponse {
+  repeated PullRequestDetails pull_requests = 1;
+}
+
+message PullRequestDetails {
+  string url = 1;
+  string repository = 2;  // owner/repo
+  int32 number = 3;
+  string title = 4;
+  string state = 5;
+  string head_ref = 6;
+  string base_ref = 7;
+  string review_decision = 8;
+  string head_sha = 9;
+  repeated PullRequestCheck checks = 10;
+  repeated PullRequestReviewThread review_threads = 11;
+  string error = 12;  // partial-data marker when GitHub fetch failed
+}
+
+message PullRequestCheck {
+  string name = 1;
+  string status = 2;
+  string conclusion = 3;
+  string details_url = 4;
+  string started_at = 5;
+  string completed_at = 6;
+}
+
+message PullRequestReviewThread {
+  string id = 1;
+  bool resolved = 2;
+  bool outdated = 3;
+  string path = 4;
+  int32 line = 5;
+  repeated PullRequestReviewComment comments = 6;
+}
+
+message PullRequestReviewComment {
+  string author = 1;
+  string body = 2;
+  string created_at = 3;
+  string url = 4;
+}
+
+// --- Agent run overseer ---
+
+// AgentRunOverseerConfig mirrors AgentRun spec.overseer. Scalar presence is
+// retained for cadence/cap so an omitted default differs from the valid cap 0.
+message AgentRunOverseerConfig {
+  string mode_ref_name = 1;    // Empty uses the default "overseer" ModeTemplate.
+  string mode_ref_version = 2;
+  string mode_ref_channel = 3;
+  string model = 4;            // Empty uses the platform default, then the supervised run's model.
+  string authority = 5;        // observe | advise | enforce; empty defaults to advise.
+  optional int32 interval_minutes = 6;   // Absent defaults to 10; otherwise 1..1440.
+  optional int32 max_interventions = 7;  // Absent defaults to 5; otherwise 0..100.
+}
+
+message AgentRunOverseerSummary {
+  string run_name = 1;
+  string state = 2;
+  int64 checkpoints_handled = 3;
+  int32 interventions_used = 4;
+  int32 completion_rejections_used = 5;
+  string last_verdict = 6;
+  string last_summary = 7;
+  int64 last_verdict_at_unix = 8;
+}
+
+message AttachAgentRunOverseerRequest {
+  string namespace = 1;
+  string name = 2;
+  AgentRunOverseerConfig overseer = 3;
+}
+
+message UpdateAgentRunOverseerRequest {
+  string namespace = 1;
+  string name = 2;
+  optional string authority = 3;
+  optional int32 interval_minutes = 4;
+  optional int32 max_interventions = 5;
+}
+
+message DetachAgentRunOverseerRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// --- skills.sh catalog ---
+
+// SkillCatalogEntry is one installable entry returned by skills.sh.
+message SkillCatalogEntry {
+  string source = 1;
+  string skill_id = 2;
+  string name = 3;
+  int64 installs = 4;
+  bool is_official = 5;
+  string catalog_url = 6;
+}
+
+// ListSkillCatalogRequest browses the all-time catalog when query is empty.
+// The skills.sh catalog uses zero-based pages of 200 entries. Search results
+// are capped by skills.sh and ignore page.
+message ListSkillCatalogRequest {
+  string query = 1;
+  int32 page = 2;
+}
+
+message ListSkillCatalogResponse {
+  repeated SkillCatalogEntry skills = 1;
+  int64 total = 2;
+  bool has_more = 3;
+  int32 page = 4;
+}
+
+message InstallSkillFromCatalogRequest {
+  string source = 1;
+  string skill_id = 2;
+}
+
+// UserSecretState reports a Secret owned by the calling user's namespace.
+// Only metadata needed by reference pickers is exposed; values remain private.
+message UserSecretState {
+  string name = 1;
+  repeated string keys = 2;
+}
+
+// ProjectContent is a durable file, folder, or editable professional artifact.
+// File bytes and office formats are preserved exactly in immutable versions;
+// previews/editors may interpret supported textual media types without rewriting
+// the original upload.
+message ProjectContent {
+  string id = 1;
+  string project_namespace = 2;
+  string project_name = 3;
+  string kind = 4; // file | folder | document | workbook | presentation | html
+  string path = 5;
+  string media_type = 6;
+  int32 current_version = 7;
+  int64 size_bytes = 8;
+  string content_hash = 9;
+  // pending | clean | rejected. "clean" currently reflects the built-in
+  // synchronous policy scan (extension allow-list + EICAR signature);
+  // deployments adding asynchronous scanners should write "pending" first.
+  string scan_status = 10;
+  string metadata_json = 11;
+  string provenance_json = 12;
+  string created_by = 13;
+  int64 created_at_unix = 14;
+  int64 updated_at_unix = 15;
+  int64 deleted_at_unix = 16;
+}
+
+message ProjectContentVersion {
+  int32 version = 1;
+  int64 size_bytes = 2;
+  string content_hash = 3;
+  string created_by = 4;
+  int64 created_at_unix = 5;
+  string metadata_json = 6;
+}
+
+message ListProjectContentRequest {
+  string namespace = 1;
+  string project_name = 2;
+  bool include_deleted = 3;
+  // Optional cap on returned items; zero returns everything. Reserved so
+  // token-based pagination can be added without an API break.
+  int32 page_size = 4;
+  string page_token = 5;
+}
+message ListProjectContentResponse {
+  repeated ProjectContent items = 1;
+  // Empty until token-based pagination is implemented.
+  string next_page_token = 2;
+}
+
+message GetProjectContentRequest {
+  string namespace = 1;
+  string project_name = 2;
+  string id = 3;
+  int32 version = 4; // zero selects the current version
+}
+message GetProjectContentResponse {
+  ProjectContent item = 1;
+  bytes content = 2;
+  int32 version = 3;
+}
+
+message CreateProjectContentRequest {
+  string namespace = 1;
+  string project_name = 2;
+  string kind = 3;
+  string path = 4;
+  string media_type = 5;
+  bytes content = 6;
+  string metadata_json = 7;
+  string provenance_json = 8;
+}
+
+message UpdateProjectContentRequest {
+  string namespace = 1;
+  string project_name = 2;
+  string id = 3;
+  string path = 4;
+  string media_type = 5;
+  optional bytes content = 6;
+  string metadata_json = 7;
+  string provenance_json = 8;
+  int32 expected_version = 9;
+  // Required when replacing bytes. Renames and metadata-only edits are safe.
+  bool confirm_overwrite = 10;
+}
+
+message DuplicateProjectContentRequest {
+  string namespace = 1;
+  string project_name = 2;
+  string id = 3;
+  string destination_path = 4;
+}
+
+message ListProjectContentVersionsRequest {
+  string namespace = 1;
+  string project_name = 2;
+  string id = 3;
+  // Optional cap on returned versions; zero returns everything. Reserved so
+  // token-based pagination can be added without an API break.
+  int32 page_size = 4;
+  string page_token = 5;
+}
+message ListProjectContentVersionsResponse {
+  repeated ProjectContentVersion versions = 1;
+  // Empty until token-based pagination is implemented.
+  string next_page_token = 2;
+}
+
+message RestoreProjectContentVersionRequest {
+  string namespace = 1;
+  string project_name = 2;
+  string id = 3;
+  int32 version = 4;
+  int32 expected_version = 5;
+}
+
+message DeleteProjectContentRequest {
+  string namespace = 1;
+  string project_name = 2;
+  string id = 3;
+  // Callers must explicitly acknowledge permanent removal: deletion hides the
+  // item and purges its stored version bytes so project quota is recovered.
+  bool confirm = 4;
+}

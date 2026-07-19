@@ -1,0 +1,12 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: linear-mcp
+spec:
+  version: "0.1.0"
+  mcpServerConfig:
+    type: stdio
+    command: npx
+    args: ["-y", "@linear/mcp-server"]
+    env:
+      LINEAR_API_KEY: "${LINEAR_API_KEY}"

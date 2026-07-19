@@ -1,0 +1,64 @@
+[package]
+name = "gratefulagents"
+version = "0.1.0"
+license = "GPL-3.0-only"
+description = "gratefulagents — premium AI engineering cockpit"
+authors = ["gratefulagents"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "gratefulagents_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-shell = "2"
+tauri-plugin-os = "2"
+tauri-plugin-store = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-log = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-google-oauth = { path = "plugins/google-oauth" }
+tauri-plugin-mobile-navigation = { path = "plugins/mobile-navigation" }
+url = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+tauri-plugin-http = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+sha2 = "0.10"
+getrandom = "0.3"
+humantime = "2"
+
+# Desktop-only plugins
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2.9"
+tauri-plugin-window-state = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
+# macOS-only: translucent window background
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSTextCheckingClient"] }
+window-vibrancy = "0.6"
+
+[features]
+# default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+# Official Tauri release-size recommendations
+# (https://v2.tauri.app/concept/size/).
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

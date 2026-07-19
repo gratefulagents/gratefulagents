@@ -1,0 +1,10 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: filesystem
+spec:
+  version: "0.1.0"
+  mcpServerConfig:
+    type: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]

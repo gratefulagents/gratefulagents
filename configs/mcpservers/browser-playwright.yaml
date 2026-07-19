@@ -1,0 +1,10 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: browser-playwright
+spec:
+  version: "0.1.0"
+  mcpServerConfig:
+    type: stdio
+    command: npx
+    args: ["-y", "@anthropic/mcp-server-playwright"]

@@ -1,0 +1,74 @@
+name: Helm Chart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dist/chart/**"
+      - "configs/modetemplates/**"
+      - "configs/roleinstructions/**"
+      - ".github/workflows/test-chart.yml"
+  pull_request:
+    paths:
+      - "dist/chart/**"
+      - "configs/modetemplates/**"
+      - "configs/roleinstructions/**"
+      - ".github/workflows/test-chart.yml"
+
+jobs:
+  validate-chart:
+    name: Lint and render
+    if: ${{ vars.ENABLE_GITHUB_ACTIONS == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Check chart bootstrap files are in sync with configs/
+        run: |
+          make helm-sync-bootstrap
+          git diff --exit-code dist/chart/files/bootstrap \
+            || { echo "::error::dist/chart/files/bootstrap is out of sync; run 'make helm-sync-bootstrap' and commit."; exit 1; }
+
+      - name: Lint Helm chart
+        run: helm lint ./dist/chart
+
+      - name: Render with default values (all bundled dependencies)
+        run: |
+          rendered="$(mktemp)"
+          helm template test ./dist/chart --namespace gratefulagents-system > "$rendered"
+          grep -q -- '- --enable-agentrun-overseer' "$rendered"
+          grep -q -- '- --enable-repo-maintainer' "$rendered"
+          grep -A1 -- 'name: ENABLE_BROWSER_TOOLS' "$rendered" | grep -q 'value: "true"'
+
+      - name: Render with browser tools disabled
+        run: |
+          rendered="$(mktemp)"
+          helm template test ./dist/chart --namespace gratefulagents-system \
+            --set features.browserTools=false > "$rendered"
+          grep -A1 -- 'name: ENABLE_BROWSER_TOOLS' "$rendered" | grep -q 'value: "false"'
+
+      - name: Render barebones (external dependencies)
+        run: |
+          helm template test ./dist/chart --namespace gratefulagents-system \
+            --set postgres.enabled=false \
+            --set minio.enabled=false \
+            --set jaeger.enabled=false \
+            --set bootstrapDefaults.enabled=false \
+            --set database.url='postgres://user:pass@db.example.com:5432/app' \
+            --set dashboard.service.type=LoadBalancer \
+            --set auth.google.clientID='x.apps.googleusercontent.com' \
+            --set githubApp.appID='1' > /dev/null
+
+      - name: Render pull-only PR reconciliation
+        run: |
+          rendered="$(mktemp)"
+          helm template test ./dist/chart --namespace gratefulagents-system \
+            --set githubWebhook.enabled=false > "$rendered"
+          grep -q -- '- --github-webhook-addr=' "$rendered"
+          ! grep -q 'controller-manager-github-webhooks' "$rendered"
+          ! grep -q 'name: gh-webhooks' "$rendered"

@@ -1,0 +1,21 @@
+{{- if .Values.githubWebhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+    labels:
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    name: {{ include "gratefulagents.resourceName" (dict "suffix" "controller-manager-github-webhooks" "context" $) }}
+    namespace: {{ .Release.Namespace }}
+spec:
+    ports:
+        - name: gh-webhooks
+          port: 8091
+          protocol: TCP
+          targetPort: gh-webhooks
+    selector:
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        control-plane: controller-manager
+{{- end }}

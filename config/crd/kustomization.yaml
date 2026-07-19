@@ -1,0 +1,36 @@
+# This kustomization.yaml is not intended to be run by itself,
+# since it depends on service name and namespace that are out of this kustomize package.
+# It should be run by config/default
+resources:
+- bases/triggers.gratefulagents.dev_connections.yaml
+# Standalone trigger CRDs remain installed as internal runtime adapter objects.
+# Users author only Project.spec.triggers; ProjectReconciler owns these children.
+- bases/triggers.gratefulagents.dev_crons.yaml
+- bases/triggers.gratefulagents.dev_linearprojects.yaml
+- bases/platform.gratefulagents.dev_agentruns.yaml
+- bases/platform.gratefulagents.dev_agentrunteamruntimes.yaml
+- bases/platform.gratefulagents.dev_guardrailpolicies.yaml
+- bases/platform.gratefulagents.dev_mcppolicies.yaml
+- bases/platform.gratefulagents.dev_modetemplates.yaml
+- bases/platform.gratefulagents.dev_roleinstructions.yaml
+- bases/platform.gratefulagents.dev_runtimeprofiles.yaml
+- bases/platform.gratefulagents.dev_mcpservers.yaml
+- bases/platform.gratefulagents.dev_skills.yaml
+
+- bases/triggers.gratefulagents.dev_githubrepositories.yaml
+- bases/triggers.gratefulagents.dev_pullrequestmonitors.yaml
+- bases/triggers.gratefulagents.dev_projects.yaml
+- bases/triggers.gratefulagents.dev_slackagents.yaml
+- bases/triggers.gratefulagents.dev_slackworkspaces.yaml
+
+# +kubebuilder:scaffold:crdkustomizeresource
+
+patches:
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.
+# patches here are for enabling the conversion webhook for each CRD
+# +kubebuilder:scaffold:crdkustomizewebhookpatch
+
+# [WEBHOOK] To enable webhook, uncomment the following section
+# the following config is for teaching kustomize how to do kustomization for CRDs.
+#configurations:
+#- kustomizeconfig.yaml

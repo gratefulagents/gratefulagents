@@ -1,0 +1,74 @@
+{{- if .Values.jaeger.enabled }}
+{{- $name := include "gratefulagents.resourceName" (dict "suffix" "jaeger" "context" $) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        app.kubernetes.io/component: jaeger
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+            app.kubernetes.io/component: jaeger
+    template:
+        metadata:
+            labels:
+                app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+                app.kubernetes.io/component: jaeger
+                app.kubernetes.io/instance: {{ .Release.Name }}
+        spec:
+            containers:
+                - name: jaeger
+                  image: {{ .Values.jaeger.image }}
+                  env:
+                    - name: COLLECTOR_OTLP_ENABLED
+                      value: "true"
+                    # all-in-one uses in-memory storage (traces lost on restart);
+                    # bound the number of retained traces to cap memory usage.
+                    - name: MEMORY_MAX_TRACES
+                      value: {{ .Values.jaeger.maxTraces | quote }}
+                  ports:
+                    - containerPort: 4317
+                      name: otlp-grpc
+                    - containerPort: 16686
+                      name: ui
+                  readinessProbe:
+                    httpGet:
+                        path: /
+                        port: 16686
+                    initialDelaySeconds: 5
+                    periodSeconds: 5
+                  {{- with .Values.jaeger.resources }}
+                  resources: {{ toYaml . | nindent 20 }}
+                  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        app.kubernetes.io/component: jaeger
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+    selector:
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        app.kubernetes.io/component: jaeger
+    ports:
+        - name: otlp-grpc
+          port: 4317
+          targetPort: 4317
+        - name: ui
+          port: 16686
+          targetPort: 16686
+{{- end }}

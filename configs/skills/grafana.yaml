@@ -1,0 +1,44 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: grafana
+spec:
+  version: "0.1.0"
+  description: >-
+    How to use the Grafana MCP tools well: datasource discovery, PromQL and
+    LogQL query discipline, dashboards, alerting, and incident triage.
+  # Attaching this skill to a run auto-attaches the grafana MCP server.
+  requires:
+    mcpServers:
+      - name: grafana
+  source:
+    inline:
+      instructions: |
+
+        General discipline:
+        - Resolve datasource UIDs first (list datasources) instead of guessing.
+        - Always bound queries to the smallest useful time range; default to the
+          last 1h unless the user implies otherwise.
+        - Prefer metadata/summary tools before heavy queries; never fetch a full
+          dashboard JSON when the summary or a JSONPath property suffices.
+
+        PromQL:
+        - Discover metric and label names via the metadata tools before writing
+          queries; don't invent metric names.
+        - Counters: always rate() or increase() over a window at least 4x the
+          scrape interval (rate(x_total[5m])) — never use raw counter values.
+        - Latency percentiles: histogram_quantile(0.95, sum by (le) (rate(x_bucket[5m]))).
+        - Prefer instant queries for "current value" questions and range queries
+          for trends; aggregate (sum/avg by) to keep result sets small.
+
+        LogQL:
+        - Start from label values to pick the right selector; keep selectors as
+          narrow as possible ({app="x", env="prod"}).
+        - Use the patterns tool to scan for anomalies before pulling raw logs.
+        - Error rates as metric queries: sum(rate({app="x"} |= "error" [5m])).
+        - Cap raw log pulls (limit) and summarize; never dump hundreds of lines.
+
+        Alerts & incidents:
+        - "What's firing?" → list alert rules filtered to firing state, then, for
+          context, query the underlying metric around the alert window.
+        - Read incidents/Sift freely, but never create, update, or resolve

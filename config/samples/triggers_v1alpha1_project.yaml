@@ -1,0 +1,321 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-token
+  namespace: gratefulagents-system
+type: Opaque
+stringData:
+  token: "sample-github-token"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: linear-api-key
+  namespace: gratefulagents-system
+type: Opaque
+stringData:
+  api-key: "sample-linear-api-key"
+---
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: RuntimeProfile
+metadata:
+  name: linear-open-runtime
+  namespace: gratefulagents-system
+spec:
+  # AgentRuns are provisioned through agent-sandbox. commandSandbox only tunes
+  # the same-pod subprocess PATH inside the managed per-run sandbox.
+  sandbox:
+    # Opt in when Chromium or other tools require a private /proc. This needs
+    # pod-user-namespace support and a policy that permits procMount: Unmasked.
+    # enablePrivateProcfs: true
+    commandSandbox:
+      # Go and Node resolve from the default sandbox PATH. Project-local npm
+      # binaries are appended so tsc and similar tools work after install.
+      pathAppend:
+        - /workspace/repo/node_modules/.bin
+        - /workspace/repo/web/node_modules/.bin
+        - /workspace/repo/tauri/node_modules/.bin
+  # Optional: layer a base agent-sandbox template or a hardened RuntimeClass onto
+  # the managed per-run sandbox.
+  # sandbox:
+  #   sandboxTemplateRef:
+  #     name: linear-open-sandbox
+  #   runtimeClassName: gvisor
+  #   warmPoolRef:
+  #     name: linear-open-pool
+  # Warm pools are optional and work best when you intentionally target a shared
+  # SandboxTemplate-backed pool.
+  security:
+    permissionMode: danger-full-access
+    egressMode: unrestricted
+    defaultTimeout: 2h
+  admission:
+    maxConcurrentRuns: 10
+    perNamespaceMaxConcurrentRuns: 10
+    staleRunTimeout: 90m
+---
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPPolicy
+metadata:
+  name: linear-open-mcp
+  namespace: gratefulagents-system
+spec:
+  # Empty allowlist + Allow default action means all MCP servers/tools are allowed.
+  defaultAction: Allow
+---
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: project-fetch-web
+  namespace: gratefulagents-system
+spec:
+  version: "v1"
+  # The command must exist in the worker image.
+  mcpServerConfig:
+    type: stdio
+    command: npx
+    args:
+      - -y
+      - "@modelcontextprotocol/server-fetch"
+---
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: Project
+metadata:
+  name: graefulagents
+  namespace: gratefulagents-system
+  annotations:
+    # These defaults are consumed when chat-first runs are created from the dashboard.
+    platform.gratefulagents.dev/runtime-profile-ref: "linear-open-runtime"
+    platform.gratefulagents.dev/mcp-policy-ref: "linear-open-mcp"
+spec:
+  # Human-readable name shown in the dashboard
+  displayName: "Grateful Agents"
+
+  # Disable autonomous reviewer runs for PRs opened by this project's runs,
+  # including PRs in additional repositories.
+  reviewLoop:
+    disabled: true
+
+  # Named entry points. Each trigger inherits the Project defaults below and
+  # contains only source-specific ingress behavior. Connections are reusable
+  # resources and are not deleted with this Project.
+  triggers:
+    - name: github-issues
+      type: github
+      enabled: true
+      github:
+        connectionRef:
+          name: acme-github
+        owner: gratefulagents
+        repo: gratefulagents
+        issues: true
+        comments: true
+        triggerKeyword: "@agent"
+    - name: nightly-maintenance
+      type: cron
+      enabled: true
+      cron:
+        schedule: "0 2 * * *"
+        timeZone: UTC
+        concurrencyPolicy: Forbid
+        prompt: Review dependencies and open a small update pull request.
+
+  # Defaults applied to every AgentRun created from this project, regardless of
+  # whether work entered through dashboard chat, GitHub, Slack, cron, or Linear.
+  defaults:
+    # Model supports "provider/model" prefix routing (e.g. "anthropic/claude-sonnet-4-6").
+    # When a prefix is present, the separate provider field is not needed.
+    model: "openai/gpt-5.5"
+    # provider is deprecated — use the prefixed model name instead.
+    # provider: openai
+    # Credential mode:
+    # - api-key: use secrets.claudeApiKey (default, backward-compatible)
+    # - oauth: supported only for provider=openai; use secrets.openaiOAuthSecret
+    authMode: oauth
+    # Choose OpenAI endpoint family:
+    # - responses (default recommended for OpenAI OAuth)
+    # - chat-completions
+    openaiApi: responses
+
+    # ModeTemplate reference: pins a configurable execution mode for all runs.
+    # The controller resolves the template and snapshots it on each AgentRun's status.
+    # When omitted, the mode is inferred from workflowMode + executionMode via compat adapter.
+    # Available system templates: chat-v1, auto-v1, eco-v1, plan-v1, tdd-v1, review-v1,
+    # research-v1, debug-v1, interactive-v1, autopilot-v1, ultrawork-v1, team-chat-v1, pipeline-v1, ralph-v1.
+    # Custom templates: apply ModeTemplate CRDs (see platform_v1alpha1_modetemplate.yaml).
+    modeRef:
+      name: interactive
+      # version: v1    # optional: pin a specific version
+      # channel: stable # optional: stable or canary
+
+    # Policy refs — zero trust: without these the agent defaults to read-only
+    # and denies all MCP tools.
+    runtimeProfileRef:
+      name: linear-open-runtime
+    mcpPolicyRef:
+      name: linear-open-mcp
+    # Every run created from this project gets the fetch MCP server.
+    mcpServerRefs:
+      - name: project-fetch-web
+
+    # Team orchestration (used when modeRef is an orchestrated mode like team-chat-v1).
+    # These settings are also enforced by the mode template's constraints as a fallback.
+    executionMode: team
+    team:
+      delegationPolicy:
+        maxChildren: 2
+        maxDepth: 1
+        parentOnly: true
+
+    # Optional OpenAI-compatible endpoint override.
+    # If omitted, a default URL is selected automatically from the model prefix + `authMode`.
+    # openai + api-key -> https://api.openai.com/v1
+    # OpenAI OAuth selects its endpoint automatically.
+    # gemini -> https://generativelanguage.googleapis.com/v1beta/openai
+    # openrouter -> https://openrouter.ai/api/v1/chat/completions
+    # groq -> https://api.groq.com/openai/v1
+    # openaiBaseURL: "https://api.example.invalid/v1"
+    repoURL: "https://github.com/gratefulagents/gratefulagents.git"
+    baseBranch: "main"
+    timeout: 30m
+    secrets:
+      # Legacy field (deprecated) — used when authMode=api-key:
+      # claudeApiKey: "openai-api-key"
+      # Used when authMode=oauth
+      openaiOAuthSecret: "openai-oauth"
+      githubToken: "github-token"
+      # Per-provider API key secrets — mount all providers simultaneously.
+      providerKeys:
+        - provider: openai-oauth
+          secretName: "openai-oauth"
+          secretKey: "auth.json"
+          # secretKey defaults to "api-key"
+    #customInstructions: |
+    #  Keep runtime, MCP, and workflow capabilities enabled by default.
+    #  Use the project defaults unless a task explicitly requests stricter constraints.
+    #
+    #
+---
+# Dedicated RuntimeProfile for the "empty" burn project. Kept separate from
+# linear-open-runtime so its per-agent resource sizing and raised concurrency do
+# not affect other projects. Tuned to pack many tiny, parallel agents on one box.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: RuntimeProfile
+metadata:
+  name: empty-runtime
+  namespace: gratefulagents-system
+spec:
+  security:
+    permissionMode: danger-full-access
+    egressMode: unrestricted
+    defaultTimeout: 2h
+  # Per-agent pod resources live HERE (on the RuntimeProfile), not on the Project.
+  # Packing density is driven by REQUESTS: the scheduler sums pod requests against
+  # node allocatable, so smaller requests fit more agents per node. The memory
+  # LIMIT is the OOM ceiling. We set memory request == limit so each agent gets a
+  # predictable slice and is NOT OOM-killed under node pressure (a killed agent
+  # burns fewer tokens). CPU is compressible, so we only request a small slice and
+  # leave it unlimited. Token throughput is bound by the provider rate limit, not
+  # local CPU/RAM — so give each agent the smallest slice it can run in and pack
+  # many. Rule of thumb on a 48 GB node (~44 Gi allocatable): max agents ≈
+  # 44Gi / memory-request, also capped by kubelet --max-pods (default 110) and the
+  # admission limits below. MEASURE one run's steady-state RSS first, then set the
+  # memory request just above its p95 (start ~384Mi; lower if runs stay leaner).
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "384Mi"
+    limits:
+      memory: "384Mi"
+  admission:
+    # Concurrency caps. Raise high (or delete both lines to disable the cap) to
+    # run as many agents at once as --max-pods and resources allow.
+    maxConcurrentRuns: 200
+    perNamespaceMaxConcurrentRuns: 200
+    staleRunTimeout: 90m
+---
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: Project
+metadata:
+  name: empty
+  namespace: gratefulagents-system
+  annotations:
+    # These defaults are consumed when chat-first runs are created from the dashboard.
+    platform.gratefulagents.dev/runtime-profile-ref: "empty-runtime"
+    platform.gratefulagents.dev/mcp-policy-ref: "linear-open-mcp"
+spec:
+  # Human-readable name shown in the dashboard
+  displayName: "Empty"
+
+  # Defaults applied to every AgentRun created from this project
+  defaults:
+    # Model supports "provider/model" prefix routing (e.g. "anthropic/claude-sonnet-4-6").
+    # When a prefix is present, the separate provider field is not needed.
+    model: "openai/gpt-5.5"
+    # provider is deprecated — use the prefixed model name instead.
+    # provider: openai
+    # Credential mode:
+    # - api-key: use secrets.claudeApiKey (default, backward-compatible)
+    # - oauth: supported only for provider=openai; use secrets.openaiOAuthSecret
+    authMode: oauth
+    # Choose OpenAI endpoint family:
+    # - responses (default recommended for OpenAI OAuth)
+    # - chat-completions
+    openaiApi: responses
+
+    # ModeTemplate reference: pins a configurable execution mode for all runs.
+    # The controller resolves the template and snapshots it on each AgentRun's status.
+    # When omitted, the mode is inferred from workflowMode + executionMode via compat adapter.
+    # Available system templates: chat-v1, auto-v1, eco-v1, plan-v1, tdd-v1, review-v1,
+    # research-v1, debug-v1, interactive-v1, autopilot-v1, ultrawork-v1, team-chat-v1, pipeline-v1, ralph-v1.
+    # Custom templates: apply ModeTemplate CRDs (see platform_v1alpha1_modetemplate.yaml).
+    modeRef:
+      name: autopilot
+      # version: v1    # optional: pin a specific version
+      # channel: stable # optional: stable or canary
+
+    # Policy refs — zero trust: without these the agent defaults to read-only
+    # and denies all MCP tools. The dashboard reads this defaults.runtimeProfileRef
+    # when creating runs, so it must point at the dedicated empty-runtime profile.
+    runtimeProfileRef:
+      name: empty-runtime
+    mcpPolicyRef:
+      name: linear-open-mcp
+    # Every run created from this project gets the fetch MCP server.
+    mcpServerRefs:
+      - name: project-fetch-web
+
+    # Team orchestration (used when modeRef is an orchestrated mode like team-chat-v1).
+    # These settings are also enforced by the mode template's constraints as a fallback.
+    executionMode: team
+    team:
+      delegationPolicy:
+        maxChildren: 2
+        maxDepth: 1
+        parentOnly: true
+
+    # Optional OpenAI-compatible endpoint override.
+    # If omitted, a default URL is selected automatically from the model prefix + `authMode`.
+    # openai + api-key -> https://api.openai.com/v1
+    # OpenAI OAuth selects its endpoint automatically.
+    # gemini -> https://generativelanguage.googleapis.com/v1beta/openai
+    # openrouter -> https://openrouter.ai/api/v1/chat/completions
+    # groq -> https://api.groq.com/openai/v1
+    # openaiBaseURL: "https://api.example.invalid/v1"
+    timeout: 30m
+    secrets:
+      # Legacy field (deprecated) — used when authMode=api-key:
+      # claudeApiKey: "openai-api-key"
+      # Used when authMode=oauth
+      openaiOAuthSecret: "openai-oauth"
+      githubToken: "github-token"
+      # Per-provider API key secrets — mount all providers simultaneously.
+      providerKeys:
+        - provider: openai-oauth
+          secretName: "openai-oauth"
+          secretKey: "auth.json"
+          # secretKey defaults to "api-key"
+    #customInstructions: |
+    #  Keep runtime, MCP, and workflow capabilities enabled by default.
+    #  Use the project defaults unless a task explicitly requests stricter constraints.

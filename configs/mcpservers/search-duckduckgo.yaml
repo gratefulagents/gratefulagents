@@ -1,0 +1,10 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: search-duckduckgo
+spec:
+  version: "0.1.0"
+  mcpServerConfig:
+    type: stdio
+    command: uvx
+    args: ["duckduckgo-mcp-server"]

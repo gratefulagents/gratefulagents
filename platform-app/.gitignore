@@ -1,0 +1,18 @@
+# Dependencies / build output (pnpm workspace: root + frontend/ + web/ + tauri/)
+node_modules/
+.pnpm-store/
+dist/
+.vite/
+
+# editor and IDE paraphernalia
+.idea
+.vscode
+*.swp
+*.swo
+*~
+*.DS_Store
+
+# Environment files with secrets
+.env
+.env.local
+.env.*.local

@@ -1,0 +1,32 @@
+{
+  "name": "engg-operator-tauri",
+  "private": true,
+  "version": "0.1.0",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "description": "Tauri desktop/iOS build target for gratefulagents. Source lives in the shared `@operator/frontend` package; this app only carries the native shell and Tauri-specific build config.",
+  "scripts": {
+    "dev": "vite --port 1420 --strictPort",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "pnpm --filter @operator/frontend lint",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "ios:init": "tauri ios init",
+    "ios:dev": "tauri ios dev"
+  },
+  "dependencies": {
+    "@operator/frontend": "workspace:*"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^24.12.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "esbuild": "^0.28.0",
+    "tailwindcss": "^4.2.2",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1"
+  }
+}

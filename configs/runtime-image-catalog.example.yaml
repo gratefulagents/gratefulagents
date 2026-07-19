@@ -1,0 +1,109 @@
+# Optional override for the worker image catalog served by the dashboard's
+# ListRuntimeImages RPC (language pickers in project/agent/run forms).
+#
+# Apply it to the manager namespace (POD_NAMESPACE of the controller). The
+# ConfigMap name can be changed via the RUNTIME_IMAGE_CATALOG_CONFIGMAP env var
+# on the controller Deployment. When this ConfigMap is absent or invalid, the
+# dashboard falls back to its built-in catalog.
+#
+# Rules:
+# - Each entry needs at least one version; `image: ""` means the operator's
+#   default worker image (WORKER_IMAGE).
+# - Use glibc-based images only (Debian/Ubuntu/Fedora); musl/alpine variants
+#   are not supported by the injected agent toolkit.
+# - `default: true` on an entry preselects the language; on a version it
+#   preselects that version within its language (first flagged wins).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: runtime-image-catalog
+  namespace: gratefulagents-system
+data:
+  catalog.yaml: |
+    images:
+      - id: default
+        label: Default (multi-language)
+        description: Operator's batteries-included worker image
+        default: true
+        versions:
+          - version: latest
+            image: ""
+      - id: ruby
+        label: Ruby
+        description: Official Ruby image (Debian)
+        versions:
+          - version: "3.4"
+            image: docker.io/library/ruby:3.4
+            default: true
+          - version: "3.3"
+            image: docker.io/library/ruby:3.3
+          - version: "3.2"
+            image: docker.io/library/ruby:3.2
+      - id: go
+        label: Go
+        description: Official Go image (Debian)
+        versions:
+          - version: "1.26"
+            image: docker.io/library/golang:1.26
+            default: true
+          - version: "1.25"
+            image: docker.io/library/golang:1.25
+      - id: node
+        label: Node.js
+        description: Official Node.js image (Debian)
+        versions:
+          - version: "24"
+            image: docker.io/library/node:24
+            default: true
+          - version: "22"
+            image: docker.io/library/node:22
+          - version: "20"
+            image: docker.io/library/node:20
+      - id: python
+        label: Python
+        description: Official Python image (Debian)
+        versions:
+          - version: "3.14"
+            image: docker.io/library/python:3.14
+            default: true
+          - version: "3.13"
+            image: docker.io/library/python:3.13
+          - version: "3.12"
+            image: docker.io/library/python:3.12
+      - id: java
+        label: Java
+        description: Eclipse Temurin JDK image (Ubuntu)
+        versions:
+          - version: "25"
+            image: docker.io/library/eclipse-temurin:25
+            default: true
+          - version: "21"
+            image: docker.io/library/eclipse-temurin:21
+          - version: "17"
+            image: docker.io/library/eclipse-temurin:17
+      - id: rust
+        label: Rust
+        description: Official Rust image (Debian)
+        versions:
+          - version: "1"
+            image: docker.io/library/rust:1
+      - id: php
+        label: PHP
+        description: Official PHP CLI image (Debian)
+        versions:
+          - version: "8.4"
+            image: docker.io/library/php:8.4-cli
+            default: true
+          - version: "8.3"
+            image: docker.io/library/php:8.3-cli
+          - version: "8.2"
+            image: docker.io/library/php:8.2-cli
+      - id: elixir
+        label: Elixir
+        description: Official Elixir image (Debian)
+        versions:
+          - version: "1.18"
+            image: docker.io/library/elixir:1.18
+            default: true
+          - version: "1.17"
+            image: docker.io/library/elixir:1.17

@@ -1,0 +1,22 @@
+{
+  "name": "gratefulagents-website",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "gratefulagents.dev website: landing page + user guide rendered from ../user-docs/docs (single source of truth).",
+  "packageManager": "pnpm@10.25.0",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro build && node scripts/check-links.mjs",
+    "shots": "node scripts/prepare-shots.mjs"
+  },
+  "dependencies": {
+    "astro": "^5.0.0"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.3",
+    "simple-icons": "^16.27.0"
+  }
+}

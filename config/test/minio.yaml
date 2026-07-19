@@ -1,0 +1,65 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-minio
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-minio
+  namespace: sample-minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-minio
+  template:
+    metadata:
+      labels:
+        app: sample-minio
+    spec:
+      containers:
+        - name: sample-minio
+          image: minio/minio:latest
+          args: ["server", "/data"]
+          env:
+            - name: MINIO_ROOT_USER
+              value: sample-user
+            - name: MINIO_ROOT_PASSWORD
+              value: sample-password
+          ports:
+            - containerPort: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-minio
+  namespace: sample-minio
+spec:
+  selector:
+    app: sample-minio
+  ports:
+    - port: 9000
+      targetPort: 9000
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-minio-create-bucket
+  namespace: sample-minio
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until mc alias set sample-minio http://sample-minio:9000 sample-user sample-password; do
+                sleep 2
+              done
+              mc mb --ignore-existing sample-minio/sample-activity-logs
+  backoffLimit: 3

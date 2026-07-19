@@ -1,0 +1,13 @@
+# Tauri build artifacts
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+.DS_Store
+
+# Tauri signing private keys (never commit!)
+*.key
+
+# Local configuration
+.env.local
+.env.*.local

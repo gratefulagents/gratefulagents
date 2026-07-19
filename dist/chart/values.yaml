@@ -1,0 +1,252 @@
+## Default values for the gratefulagents chart.
+##
+## This chart is generic: it carries no environment-specific values. Everything
+## that identifies a particular installation (images, database, GitHub App,
+## SSO, object storage, tracing) is configured here.
+
+## String to partially override chart.fullname template (will maintain the release name)
+##
+# nameOverride: ""
+
+## String to fully override chart.fullname template
+##
+# fullnameOverride: ""
+
+## Optional inbound GitHub webhook acceleration. Pull-request discovery and
+## human PR feedback polling work when disabled; issue-comment triggers still
+## need webhooks. Disabling omits the Service/port and passes an empty listener.
+##
+githubWebhook:
+  enabled: true
+
+## Configure the controller manager deployment
+##
+manager:
+  replicas: 1
+
+  image:
+    repository: ghcr.io/gratefulagents/controller
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  ## Arguments
+  ##
+  args:
+    - --leader-elect
+    - --enable-dashboard
+    - --dashboard-addr=:8090
+    - --enable-agentrun-team-mode
+    - --enable-agentrun-overseer
+    - --enable-repo-maintainer
+
+  ## Extra environment variables appended verbatim to the manager container
+  ## (list of corev1.EnvVar). Core platform env (database, storage, tracing,
+  ## auth, GitHub App, agent images) is wired from the sections below instead.
+  ##
+  extraEnv: []
+
+  ## Image pull secrets
+  ##
+  imagePullSecrets: []
+
+  ## Pod-level security settings
+  ##
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+        type: RuntimeDefault
+
+  ## Container-level security settings
+  ##
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+        drop:
+            - ALL
+    readOnlyRootFilesystem: true
+
+  ## Resource limits and requests
+  ##
+  resources:
+    limits:
+        cpu: "2"
+        memory: 2Gi
+    requests:
+        cpu: 10m
+        memory: 64Mi
+
+  ## Manager pod's affinity
+  ##
+  affinity: {}
+
+  ## Manager pod's node selector
+  ##
+  nodeSelector: {}
+
+  ## Manager pod's tolerations
+  ##
+  tolerations: []
+
+## Images injected into agent run pods created by the controller.
+##
+agentImages:
+  worker: ghcr.io/gratefulagents/worker:latest
+  injector: ghcr.io/gratefulagents/injector:latest
+
+## PostgreSQL connection.
+## Leave url empty to use the bundled Postgres (postgres.enabled below).
+## Set url to point at an external database instead, e.g.
+##   postgres://user:pass@host:5432/dbname?sslmode=require
+## The database needs the pgvector extension for the durable-memory features.
+##
+database:
+  url: ""
+
+## Authentication.
+## Username/password auth is always on; an admin account is created on first
+## startup (secret gratefulagents-admin-credentials in the release namespace).
+## Google SSO is enabled by setting google.clientID.
+##
+auth:
+  google:
+    ## Google OAuth client ID. Empty disables Google sign-in.
+    clientID: ""
+    ## Comma-separated emails granted the admin role when signing in via Google.
+    adminEmails: ""
+    ## When true, Google users not in adminEmails get the read-only viewer role.
+    ssoDefaultReadonly: false
+
+## GitHub App used for repository onboarding, trigger auth, and webhooks.
+## Optional: without it, users authenticate to GitHub with personal tokens.
+##
+githubApp:
+  ## Numeric GitHub App ID. Empty disables GitHub App integration.
+  appID: ""
+  ## GitHub App slug (the name in the app's public URL).
+  slug: ""
+  ## Name of a Secret (release namespace) holding the app's PEM private key.
+  privateKeySecret: ""
+  ## Name of a Secret (release namespace) holding the webhook shared secret.
+  webhookSecret: ""
+
+## S3-compatible object storage for activity logs and artifacts.
+## Leave endpoint empty to use the bundled MinIO (minio.enabled below).
+##
+objectStorage:
+  endpoint: ""
+  bucket: ""
+  region: ""
+  accessKeyID: ""
+  secretAccessKey: ""
+
+## OpenTelemetry tracing.
+## Leave otlpEndpoint empty to use the bundled Jaeger (jaeger.enabled below).
+## Format: host:port (OTLP gRPC, schemeless).
+##
+tracing:
+  otlpEndpoint: ""
+
+## Optional feature toggles.
+##
+features:
+  ## Durable agent memory (requires pgvector; the bundled Postgres ships it).
+  memory: true
+  ## Headless Chromium navigation, text extraction, and screenshots for agent runs.
+  ## Set false to remove the built-in Browser tool from new run pods.
+  browserTools: true
+  ## Meta-harness surface for platform self-development. Off for normal installs.
+  metaharness: false
+
+## Dashboard service (ConnectRPC API + web UI on port 8090).
+## Set type to LoadBalancer (k3s ships a built-in load balancer) or NodePort
+## to reach the dashboard from outside the cluster without port-forwarding.
+##
+dashboard:
+  service:
+    type: ClusterIP
+    # nodePort: 30090
+
+## ---------------------------------------------------------------------------
+## Bundled dependencies. Each can be disabled and replaced with external
+## infrastructure via the connection settings above. All enabled by default so
+## a bare `helm install` yields a fully working platform.
+## ---------------------------------------------------------------------------
+
+## Bundled PostgreSQL (with pgvector).
+##
+postgres:
+  enabled: true
+  image: pgvector/pgvector:pg17
+  auth:
+    username: sample-user
+    password: sample-password
+    database: sample-database
+  persistence:
+    size: 5Gi
+    ## Empty uses the cluster's default StorageClass (k3s: local-path).
+    storageClassName: ""
+  resources: {}
+
+## Bundled MinIO (S3-compatible activity log/artifact storage).
+##
+minio:
+  enabled: true
+  image: minio/minio:latest
+  mcImage: minio/mc:latest
+  rootUser: sample-user
+  rootPassword: sample-password
+  bucket: sample-activity-logs
+  region: us-east-1
+  persistence:
+    size: 10Gi
+    storageClassName: ""
+  resources: {}
+
+## Bundled Jaeger all-in-one (trace collection + UI, in-memory storage).
+##
+jaeger:
+  enabled: true
+  image: jaegertracing/all-in-one:1.57
+  maxTraces: "50000"
+  resources: {}
+
+## Default platform configuration applied after install/upgrade:
+## ModeTemplates (interactive/plan/autopilot/review/slack) and RoleInstructions for the
+## specialist sub-agents. Disable if you manage these yourself.
+##
+bootstrapDefaults:
+  enabled: true
+
+## Helper RBAC roles for managing custom resources
+##
+rbacHelpers:
+  # Install convenience admin/editor/viewer roles for CRDs
+  enable: false
+
+## Custom Resource Definitions
+##
+crd:
+  # Install CRDs with the chart
+  enable: true
+  # Keep CRDs when uninstalling
+  keep: true
+
+## Controller metrics endpoint.
+## Enable to expose /metrics endpoint with RBAC protection.
+##
+metrics:
+  enable: true
+  # Metrics server port
+  port: 8443
+
+## Cert-manager integration for TLS certificates.
+## Required for webhook certificates and metrics endpoint certificates.
+##
+certManager:
+  enable: false
+
+## Prometheus ServiceMonitor for metrics scraping.
+## Requires prometheus-operator to be installed in the cluster.
+##
+prometheus:
+  enable: false

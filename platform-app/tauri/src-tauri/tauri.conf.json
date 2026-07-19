@@ -1,0 +1,97 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "gratefulagents",
+  "version": "0.1.0",
+  "identifier": "dev.gratefulagents.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "gratefulagents",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 560,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "transparent": false,
+        "shadow": true,
+        "skipTaskbar": false,
+        "trafficLightPosition": { "x": 18, "y": 20 },
+        "dragDropEnabled": true,
+        "acceptFirstMouse": false,
+        "backgroundColor": "#0b0c0f"
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self' tauri: http://ipc.localhost",
+        "img-src": "'self' data: blob: https: http:",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "connect-src": "'self' tauri: http://ipc.localhost ipc: https: http: ws: wss:",
+        "script-src": "'self' 'wasm-unsafe-eval'",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-src": "'none'",
+        "form-action": "'self'"
+      },
+      "capabilities": ["default", "desktop-global-shortcuts"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "deb", "rpm"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "copyright": "© 2026 gratefulagents",
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "entitlements": null,
+      "exceptionDomain": "",
+      "signingIdentity": null,
+      "providerShortName": null
+    },
+    "iOS": {
+      "minimumSystemVersion": "15.0",
+      "developmentTeam": "72L2P6497M"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libayatana-appindicator3-1"]
+      },
+      "rpm": {
+        "depends": ["webkit2gtk4.1", "gtk3", "libayatana-appindicator-gtk3"]
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["gratefulagents"]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRFMTdFQ0U1MkJDQTZBMkIKUldRcmFzb3I1ZXdYVGxKZzgrcEc1VUFFZFhRR1dhYjRuUlduL0tSMUpmV2tiRkRiY291Q1RxaFYK"
+    }
+  }
+}

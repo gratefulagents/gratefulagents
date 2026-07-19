@@ -1,0 +1,26 @@
+{
+  "name": "web",
+  "private": true,
+  "version": "0.0.0",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "description": "Browser build target for gratefulagents served by the Go backend (embedded as internal/dashboard/web_dist). Source lives in the shared `@operator/frontend` package.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "pnpm --filter @operator/frontend lint",
+    "test": "pnpm --filter @operator/frontend test"
+  },
+  "dependencies": {
+    "@operator/frontend": "workspace:*"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^24.12.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "tailwindcss": "^4.2.2",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1"
+  }
+}

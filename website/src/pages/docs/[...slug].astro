@@ -1,0 +1,102 @@
+---
+import {getCollection, render} from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import {sections, orderedIds, docPath, sectionOf, repositoryUrl} from '../../data/sidebar';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('docs');
+  return entries.map((entry) => ({
+    params: {slug: entry.id === 'intro' ? undefined : entry.id},
+    props: {entry},
+  }));
+}
+
+const {entry} = Astro.props;
+const {Content} = await render(entry);
+
+const all = await getCollection('docs');
+const titles = new Map(
+  all.map((e) => [e.id, e.data.title ?? e.body?.match(/^#\s+(.+)$/m)?.[1] ?? e.id]),
+);
+
+const idx = orderedIds.indexOf(entry.id);
+const prevId = idx > 0 ? orderedIds[idx - 1] : undefined;
+const nextId = idx >= 0 && idx < orderedIds.length - 1 ? orderedIds[idx + 1] : undefined;
+const section = sectionOf(entry.id);
+const title = titles.get(entry.id) ?? entry.id;
+---
+
+<Base title={`${title} · gratefulagents docs`} description={`gratefulagents user guide: ${title}`} bodyClass="is-docs">
+  <button class="menu-toggle" aria-expanded="false" data-menu-toggle>kind: Navigation ▾</button>
+  <div class="docs-layout" data-docs-layout>
+    <nav class="sidebar" aria-label="User guide">
+      {sections.map((s) => (
+        <section class="nav-group">
+          <h2 class="nav-key">kind: <b>{s.kind}</b></h2>
+          <ul>
+            {s.items.map((id) => (
+              <li>
+                <a href={docPath(id)} aria-current={id === entry.id ? 'page' : undefined}>
+                  {titles.get(id)}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </nav>
+    <main class="doc" id="main">
+      {section && <p class="doc-eyebrow">{section.label}</p>}
+      {entry.data.agentPrompt && (
+        <aside class="agent-prompt" aria-label="Prompt for your coding agent">
+          <div class="agent-prompt-head">
+            <span class="agent-prompt-key">your-agent · paste this prompt</span>
+            <button type="button" class="agent-prompt-copy" data-copy-prompt>Copy prompt</button>
+          </div>
+          <p class="agent-prompt-text" data-prompt-text>{entry.data.agentPrompt}</p>
+          <p class="agent-prompt-note">Your agent reads this page and does the rest with you.</p>
+        </aside>
+      )}
+      <article class="prose">
+        <Content />
+      </article>
+      <nav class="pager" aria-label="Adjacent pages">
+        {prevId ? (
+          <a class="pager-prev" href={docPath(prevId)}><span>Previous</span>{titles.get(prevId)}</a>
+        ) : (
+          <span />
+        )}
+        {nextId ? (
+          <a class="pager-next" href={docPath(nextId)}><span>Next</span>{titles.get(nextId)}</a>
+        ) : (
+          <span />
+        )}
+      </nav>
+      <footer class="doc-foot">
+        <a href={`${repositoryUrl}/edit/main/user-docs/docs/${entry.id}.md`}>Edit this page on GitHub</a>
+      </footer>
+    </main>
+  </div>
+</Base>
+
+<script>
+  const toggle = document.querySelector('[data-menu-toggle]');
+  const layout = document.querySelector('[data-docs-layout]');
+  toggle?.addEventListener('click', () => {
+    const open = layout?.classList.toggle('nav-open');
+    toggle.setAttribute('aria-expanded', String(Boolean(open)));
+  });
+
+  const copyBtn = document.querySelector('[data-copy-prompt]');
+  copyBtn?.addEventListener('click', async () => {
+    const text = document.querySelector('[data-prompt-text]')?.textContent?.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = 'Copied';
+      setTimeout(() => { copyBtn.textContent = 'Copy prompt'; }, 1800);
+    } catch {
+      copyBtn.textContent = 'Select & copy manually';
+    }
+  });
+</script>

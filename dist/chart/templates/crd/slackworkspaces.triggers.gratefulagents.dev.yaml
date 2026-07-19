@@ -1,0 +1,181 @@
+{{- if .Values.crd.enable }}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+    annotations:
+        controller-gen.kubebuilder.io/version: v0.20.0
+    name: slackworkspaces.triggers.gratefulagents.dev
+spec:
+    group: triggers.gratefulagents.dev
+    names:
+        kind: SlackWorkspace
+        listKind: SlackWorkspaceList
+        plural: slackworkspaces
+        singular: slackworkspace
+    scope: Namespaced
+    versions:
+        - additionalPrinterColumns:
+            - jsonPath: .status.teamId
+              name: Team
+              type: string
+            - jsonPath: .status.memberCount
+              name: Members
+              type: integer
+            - jsonPath: .spec.suspend
+              name: Suspended
+              type: boolean
+            - jsonPath: .metadata.creationTimestamp
+              name: Age
+              type: date
+          name: v1alpha1
+          schema:
+            openAPIV3Schema:
+                description: |-
+                    SlackWorkspace is the Schema for the slackworkspaces API. It represents one
+                    shared Slack app (installed in a single Slack workspace) whose connector
+                    serves every SlackAgent that references it via spec.workspaceRef, routing
+                    events to the sending user's agent. This is the multi-user alternative to
+                    each user creating a dedicated Slack app.
+                properties:
+                    apiVersion:
+                        description: |-
+                            APIVersion defines the versioned schema of this representation of an object.
+                            Servers should convert recognized schemas to the latest internal value, and
+                            may reject unrecognized values.
+                            More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+                        type: string
+                    kind:
+                        description: |-
+                            Kind is a string value representing the REST resource this object represents.
+                            Servers may infer this from the endpoint the client submits requests to.
+                            Cannot be updated.
+                            In CamelCase.
+                            More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                        type: string
+                    metadata:
+                        type: object
+                    spec:
+                        description: |-
+                            SlackWorkspaceSpec defines the desired state of SlackWorkspace: one shared
+                            Slack app installed in a single Slack workspace, served by exactly one
+                            connector Deployment. Socket Mode load-balances events across an app's open
+                            sockets, so a shared app's events must be consumed by a single process that
+                            routes them to member SlackAgents.
+                        properties:
+                            image:
+                                description: |-
+                                    image overrides the connector pod image. When omitted, the controller uses
+                                    its built-in default worker image.
+                                type: string
+                            suspend:
+                                description: |-
+                                    suspend pauses the connector (scales the Deployment to zero) while keeping
+                                    status readable. Member SlackAgents become unavailable while suspended.
+                                type: boolean
+                            teamId:
+                                description: |-
+                                    teamId optionally pins the Slack workspace (team) this app may serve.
+                                    When set, the connector drops events from any other team and refuses to
+                                    start if auth.test resolves a different team. When empty, the team
+                                    resolved on first connect is recorded in status and enforced thereafter.
+                                type: string
+                            tokensSecret:
+                                description: |-
+                                    tokensSecret is the name of a K8s Secret in the same namespace holding the
+                                    shared app's tokens. Expected keys: bot-token (xoxb-) and app-token
+                                    (xapp-, required for Socket Mode). No user token: a shared app has no
+                                    per-user OAuth material.
+                                minLength: 1
+                                type: string
+                        required:
+                            - tokensSecret
+                        type: object
+                    status:
+                        description: SlackWorkspaceStatus defines the observed state of SlackWorkspace.
+                        properties:
+                            botUserId:
+                                description: botUserId is the resolved Slack user ID of the shared bot (from auth.test).
+                                type: string
+                            conditions:
+                                description: conditions represent the current state of the SlackWorkspace.
+                                items:
+                                    description: Condition contains details for one aspect of the current state of this API Resource.
+                                    properties:
+                                        lastTransitionTime:
+                                            description: |-
+                                                lastTransitionTime is the last time the condition transitioned from one status to another.
+                                                This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                                            format: date-time
+                                            type: string
+                                        message:
+                                            description: |-
+                                                message is a human readable message indicating details about the transition.
+                                                This may be an empty string.
+                                            maxLength: 32768
+                                            type: string
+                                        observedGeneration:
+                                            description: |-
+                                                observedGeneration represents the .metadata.generation that the condition was set based upon.
+                                                For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                                                with respect to the current state of the instance.
+                                            format: int64
+                                            minimum: 0
+                                            type: integer
+                                        reason:
+                                            description: |-
+                                                reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                                                Producers of specific condition types may define expected values and meanings for this field,
+                                                and whether the values are considered a guaranteed API.
+                                                The value should be a CamelCase string.
+                                                This field may not be empty.
+                                            maxLength: 1024
+                                            minLength: 1
+                                            pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                                            type: string
+                                        status:
+                                            description: status of the condition, one of True, False, Unknown.
+                                            enum:
+                                                - "True"
+                                                - "False"
+                                                - Unknown
+                                            type: string
+                                        type:
+                                            description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                                            maxLength: 316
+                                            pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                                            type: string
+                                    required:
+                                        - lastTransitionTime
+                                        - message
+                                        - reason
+                                        - status
+                                        - type
+                                    type: object
+                                type: array
+                                x-kubernetes-list-map-keys:
+                                    - type
+                                x-kubernetes-list-type: map
+                            deploymentName:
+                                description: deploymentName is the connector Deployment managed by this SlackWorkspace.
+                                type: string
+                            lastError:
+                                description: lastError contains the message from the most recent failed operation.
+                                type: string
+                            memberCount:
+                                description: |-
+                                    memberCount is the number of SlackAgents currently bound to this
+                                    workspace via spec.workspaceRef.
+                                format: int32
+                                type: integer
+                            teamId:
+                                description: teamId is the resolved Slack workspace/team ID (from auth.test).
+                                type: string
+                        type: object
+                required:
+                    - spec
+                type: object
+          served: true
+          storage: true
+          subresources:
+            status: {}
+{{- end }}

@@ -1,0 +1,412 @@
+{{- if .Values.crd.enable }}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+    annotations:
+        controller-gen.kubebuilder.io/version: v0.20.0
+    name: agentrunteamruntimes.platform.gratefulagents.dev
+spec:
+    group: platform.gratefulagents.dev
+    names:
+        kind: AgentRunTeamRuntime
+        listKind: AgentRunTeamRuntimeList
+        plural: agentrunteamruntimes
+        singular: agentrunteamruntime
+    scope: Namespaced
+    versions:
+        - additionalPrinterColumns:
+            - jsonPath: .spec.parentRef.name
+              name: Parent
+              type: string
+            - jsonPath: .status.phase
+              name: Phase
+              type: string
+            - jsonPath: .status.totalTasks
+              name: Tasks
+              type: integer
+            - jsonPath: .status.runningTasks
+              name: Running
+              type: integer
+            - jsonPath: .status.completedTasks
+              name: Completed
+              type: integer
+            - jsonPath: .metadata.creationTimestamp
+              name: Age
+              type: date
+          name: v1alpha1
+          schema:
+            openAPIV3Schema:
+                description: |-
+                    AgentRunTeamRuntime is the internal runtime substrate for team-mode orchestration.
+                    It owns executable task instances, claim/lease state, dependency readiness,
+                    retry history, and event stream cursors. It is NOT a user-facing product surface —
+                    parent AgentRun remains the product anchor with projected summary/children.
+                properties:
+                    apiVersion:
+                        description: |-
+                            APIVersion defines the versioned schema of this representation of an object.
+                            Servers should convert recognized schemas to the latest internal value, and
+                            may reject unrecognized values.
+                            More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+                        type: string
+                    kind:
+                        description: |-
+                            Kind is a string value representing the REST resource this object represents.
+                            Servers may infer this from the endpoint the client submits requests to.
+                            Cannot be updated.
+                            In CamelCase.
+                            More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                        type: string
+                    metadata:
+                        type: object
+                    spec:
+                        description: AgentRunTeamRuntimeSpec defines the desired state of the team runtime substrate.
+                        properties:
+                            delegationPolicy:
+                                description: DelegationPolicy is copied from the parent team spec for local enforcement.
+                                properties:
+                                    maxChildren:
+                                        format: int32
+                                        type: integer
+                                    maxDepth:
+                                        format: int32
+                                        type: integer
+                                    parentOnly:
+                                        type: boolean
+                                type: object
+                            generation:
+                                description: Generation ties this runtime to a specific parent spec generation.
+                                format: int64
+                                type: integer
+                            parentRef:
+                                description: ParentRef identifies the parent AgentRun that owns this runtime.
+                                properties:
+                                    name:
+                                        type: string
+                                    namespace:
+                                        type: string
+                                    uid:
+                                        description: UID of the parent AgentRun for ownership validation.
+                                        type: string
+                                required:
+                                    - name
+                                    - namespace
+                                type: object
+                            tasks:
+                                description: Tasks are the executable task instances derived from the parent's team spec.
+                                items:
+                                    description: TeamRuntimeTaskInstance represents one executable task derived from spec.team.steps[].tasks[].
+                                    properties:
+                                        artifactContract:
+                                            description: ArtifactContract declares the artifact the task must produce.
+                                            type: string
+                                        artifactSatisfied:
+                                            description: ArtifactSatisfied indicates the artifact contract has been verified.
+                                            type: boolean
+                                        attemptCount:
+                                            description: AttemptCount tracks how many times this task has been attempted.
+                                            format: int32
+                                            type: integer
+                                        claimOwner:
+                                            description: ClaimOwner is the namespace/name of the child AgentRun that owns this task.
+                                            type: string
+                                        claimedAt:
+                                            description: ClaimedAt records when the task was first claimed.
+                                            format: date-time
+                                            type: string
+                                        completedAt:
+                                            description: CompletedAt records when the task reached a terminal state.
+                                            format: date-time
+                                            type: string
+                                        dependsOn:
+                                            description: DependsOn lists task names that must complete before this task becomes ready.
+                                            items:
+                                                type: string
+                                            type: array
+                                            x-kubernetes-list-type: atomic
+                                        diagnostic:
+                                            description: Diagnostic classifies the current non-healthy state, if any.
+                                            enum:
+                                                - none
+                                                - stale_heartbeat
+                                                - blocked_without_update
+                                                - lease_expired
+                                                - retry_exhausted
+                                                - dependency_stalled
+                                                - artifact_missing
+                                            type: string
+                                        diagnosticMessage:
+                                            description: DiagnosticMessage is a human-readable explanation of the diagnostic.
+                                            type: string
+                                        lastHeartbeatAt:
+                                            description: LastHeartbeatAt is when the owner last signaled liveness.
+                                            format: date-time
+                                            type: string
+                                        leaseExpiresAt:
+                                            description: LeaseExpiresAt is when the current lease expires if not refreshed.
+                                            format: date-time
+                                            type: string
+                                        leaseToken:
+                                            description: LeaseToken is an opaque token proving ownership of the current lease.
+                                            type: string
+                                        maxRetries:
+                                            description: MaxRetries is the retry budget for this task.
+                                            format: int32
+                                            type: integer
+                                        name:
+                                            description: Name of the task (matches AgentRunTeamTask.Name).
+                                            type: string
+                                        role:
+                                            description: Role from the task spec (e.g., "executor", "code-reviewer").
+                                            type: string
+                                        state:
+                                            description: State is the current lifecycle state of this task instance.
+                                            enum:
+                                                - declared
+                                                - ready
+                                                - claimed
+                                                - running
+                                                - blocked
+                                                - completed
+                                                - failed
+                                                - cancelled
+                                                - retry_pending
+                                                - expired
+                                                - reassigned
+                                            type: string
+                                        stateVersion:
+                                            description: StateVersion is a monotonic counter incremented on every state transition (CAS boundary).
+                                            format: int64
+                                            type: integer
+                                        stepName:
+                                            description: StepName is the parent step this task belongs to.
+                                            type: string
+                                        suggestedAction:
+                                            description: SuggestedAction is the recommended operator action for the current diagnostic.
+                                            type: string
+                                    required:
+                                        - name
+                                        - stepName
+                                    type: object
+                                type: array
+                                x-kubernetes-list-map-keys:
+                                    - name
+                                x-kubernetes-list-type: map
+                        required:
+                            - parentRef
+                        type: object
+                    status:
+                        description: AgentRunTeamRuntimeStatus defines the observed state of the team runtime substrate.
+                        properties:
+                            blockedTasks:
+                                format: int32
+                                type: integer
+                            completedTasks:
+                                format: int32
+                                type: integer
+                            conditions:
+                                items:
+                                    description: Condition contains details for one aspect of the current state of this API Resource.
+                                    properties:
+                                        lastTransitionTime:
+                                            description: |-
+                                                lastTransitionTime is the last time the condition transitioned from one status to another.
+                                                This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                                            format: date-time
+                                            type: string
+                                        message:
+                                            description: |-
+                                                message is a human readable message indicating details about the transition.
+                                                This may be an empty string.
+                                            maxLength: 32768
+                                            type: string
+                                        observedGeneration:
+                                            description: |-
+                                                observedGeneration represents the .metadata.generation that the condition was set based upon.
+                                                For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                                                with respect to the current state of the instance.
+                                            format: int64
+                                            minimum: 0
+                                            type: integer
+                                        reason:
+                                            description: |-
+                                                reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                                                Producers of specific condition types may define expected values and meanings for this field,
+                                                and whether the values are considered a guaranteed API.
+                                                The value should be a CamelCase string.
+                                                This field may not be empty.
+                                            maxLength: 1024
+                                            minLength: 1
+                                            pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                                            type: string
+                                        status:
+                                            description: status of the condition, one of True, False, Unknown.
+                                            enum:
+                                                - "True"
+                                                - "False"
+                                                - Unknown
+                                            type: string
+                                        type:
+                                            description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                                            maxLength: 316
+                                            pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                                            type: string
+                                    required:
+                                        - lastTransitionTime
+                                        - message
+                                        - reason
+                                        - status
+                                        - type
+                                    type: object
+                                type: array
+                                x-kubernetes-list-map-keys:
+                                    - type
+                                x-kubernetes-list-type: map
+                            eventCheckpoint:
+                                description: EventCheckpoint is the latest cursor position in the event stream.
+                                properties:
+                                    postgresEventID:
+                                        description: PostgresEventID is the corresponding durable event ID in Postgres.
+                                        type: string
+                                    runtimeStateVersion:
+                                        description: RuntimeStateVersion is the substrate resourceVersion at the time of this checkpoint.
+                                        type: string
+                                    sequence:
+                                        description: Sequence is the monotonic event sequence number.
+                                        format: int64
+                                        type: integer
+                                    streamID:
+                                        description: StreamID identifies the event stream (e.g., "team/<namespace>/<name>").
+                                        type: string
+                                type: object
+                            failedTasks:
+                                format: int32
+                                type: integer
+                            phase:
+                                description: Phase is the overall lifecycle phase of this runtime.
+                                enum:
+                                    - BootstrapPending
+                                    - BootstrapReady
+                                    - Running
+                                    - Completed
+                                    - Failed
+                                    - Cancelled
+                                type: string
+                            readyTasks:
+                                format: int32
+                                type: integer
+                            runningTasks:
+                                format: int32
+                                type: integer
+                            tasks:
+                                description: Tasks mirrors spec.tasks with authoritative runtime state.
+                                items:
+                                    description: TeamRuntimeTaskInstance represents one executable task derived from spec.team.steps[].tasks[].
+                                    properties:
+                                        artifactContract:
+                                            description: ArtifactContract declares the artifact the task must produce.
+                                            type: string
+                                        artifactSatisfied:
+                                            description: ArtifactSatisfied indicates the artifact contract has been verified.
+                                            type: boolean
+                                        attemptCount:
+                                            description: AttemptCount tracks how many times this task has been attempted.
+                                            format: int32
+                                            type: integer
+                                        claimOwner:
+                                            description: ClaimOwner is the namespace/name of the child AgentRun that owns this task.
+                                            type: string
+                                        claimedAt:
+                                            description: ClaimedAt records when the task was first claimed.
+                                            format: date-time
+                                            type: string
+                                        completedAt:
+                                            description: CompletedAt records when the task reached a terminal state.
+                                            format: date-time
+                                            type: string
+                                        dependsOn:
+                                            description: DependsOn lists task names that must complete before this task becomes ready.
+                                            items:
+                                                type: string
+                                            type: array
+                                            x-kubernetes-list-type: atomic
+                                        diagnostic:
+                                            description: Diagnostic classifies the current non-healthy state, if any.
+                                            enum:
+                                                - none
+                                                - stale_heartbeat
+                                                - blocked_without_update
+                                                - lease_expired
+                                                - retry_exhausted
+                                                - dependency_stalled
+                                                - artifact_missing
+                                            type: string
+                                        diagnosticMessage:
+                                            description: DiagnosticMessage is a human-readable explanation of the diagnostic.
+                                            type: string
+                                        lastHeartbeatAt:
+                                            description: LastHeartbeatAt is when the owner last signaled liveness.
+                                            format: date-time
+                                            type: string
+                                        leaseExpiresAt:
+                                            description: LeaseExpiresAt is when the current lease expires if not refreshed.
+                                            format: date-time
+                                            type: string
+                                        leaseToken:
+                                            description: LeaseToken is an opaque token proving ownership of the current lease.
+                                            type: string
+                                        maxRetries:
+                                            description: MaxRetries is the retry budget for this task.
+                                            format: int32
+                                            type: integer
+                                        name:
+                                            description: Name of the task (matches AgentRunTeamTask.Name).
+                                            type: string
+                                        role:
+                                            description: Role from the task spec (e.g., "executor", "code-reviewer").
+                                            type: string
+                                        state:
+                                            description: State is the current lifecycle state of this task instance.
+                                            enum:
+                                                - declared
+                                                - ready
+                                                - claimed
+                                                - running
+                                                - blocked
+                                                - completed
+                                                - failed
+                                                - cancelled
+                                                - retry_pending
+                                                - expired
+                                                - reassigned
+                                            type: string
+                                        stateVersion:
+                                            description: StateVersion is a monotonic counter incremented on every state transition (CAS boundary).
+                                            format: int64
+                                            type: integer
+                                        stepName:
+                                            description: StepName is the parent step this task belongs to.
+                                            type: string
+                                        suggestedAction:
+                                            description: SuggestedAction is the recommended operator action for the current diagnostic.
+                                            type: string
+                                    required:
+                                        - name
+                                        - stepName
+                                    type: object
+                                type: array
+                                x-kubernetes-list-map-keys:
+                                    - name
+                                x-kubernetes-list-type: map
+                            totalTasks:
+                                format: int32
+                                type: integer
+                        type: object
+                required:
+                    - spec
+                type: object
+          served: true
+          storage: true
+          subresources:
+            status: {}
+{{- end }}

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: gratefulagents
+description: >-
+  gratefulagents — a Kubernetes-native control plane for running AI agent
+  workflows against repositories. Installs the controller manager, CRDs,
+  dashboard, and (optionally) bundled Postgres, MinIO, and Jaeger.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

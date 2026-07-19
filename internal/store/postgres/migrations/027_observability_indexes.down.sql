@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_agent_sessions_namespace_created;
+DROP INDEX IF EXISTS idx_activity_events_observability_range;

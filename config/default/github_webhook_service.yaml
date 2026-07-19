@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: controller-manager-github-webhooks
+  namespace: system
+  labels:
+    app.kubernetes.io/name: gratefulagents
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    control-plane: controller-manager
+    app.kubernetes.io/name: gratefulagents
+  ports:
+    # GitHub webhook ingress. Expose only this Service externally (Ingress or
+    # LoadBalancer) — GitHub must reach it — while the dashboard Service stays
+    # internal. Deliveries authenticate via HMAC webhook secrets.
+    - name: gh-webhooks
+      port: 8091
+      targetPort: gh-webhooks
+      protocol: TCP

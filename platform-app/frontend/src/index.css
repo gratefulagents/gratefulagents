@@ -1,0 +1,538 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/jetbrains-mono";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ───────────────────────────────────────────────────────────────
+   Operator design system
+   Dark-first, graphite base, restrained indigo accent.
+   Dark-first editorial product interface.
+   ─────────────────────────────────────────────────────────────── */
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace;
+
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+
+    /* Denser radius scale than the default shadcn — operator-grade */
+    --radius: 0.5rem;
+    --radius-sm: calc(var(--radius) * 0.55);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.3);
+    --radius-2xl: calc(var(--radius) * 1.7);
+    --radius-3xl: calc(var(--radius) * 2.1);
+
+    /* Motion tokens */
+    --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+    --ease-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-slow: 260ms;
+
+    /* Focus + muted-accent aliases — used by shell chrome and form fields. */
+    --focus-ring: var(--ring);
+    --accent-muted: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
+/* ─── Dark mode (default) — graphite ─── */
+:root.dark {
+    --background: oklch(0.155 0.008 265);
+    --foreground: oklch(0.94 0.006 265);
+
+    --card: oklch(0.185 0.01 265);
+    --card-foreground: oklch(0.94 0.006 265);
+    --popover: oklch(0.18 0.012 265 / 0.92);
+    --popover-foreground: oklch(0.94 0.006 265);
+
+    /* Restrained indigo accent */
+    --primary: oklch(0.68 0.14 262);
+    --primary-foreground: oklch(0.14 0.008 265);
+
+    --secondary: oklch(0.22 0.012 265);
+    --secondary-foreground: oklch(0.9 0.006 265);
+
+    --muted: oklch(0.21 0.012 265);
+    --muted-foreground: oklch(0.62 0.012 265);
+
+    --accent: oklch(0.25 0.014 265);
+    --accent-foreground: oklch(0.94 0.006 265);
+
+    --destructive: oklch(0.66 0.18 22);
+
+    /* Hairline borders — 1px @ 0.06 opacity feel */
+    --border: oklch(1 0 0 / 0.065);
+    --input: oklch(1 0 0 / 0.08);
+    --ring: oklch(0.68 0.14 262 / 0.5);
+
+    --chart-1: oklch(0.68 0.14 262);
+    --chart-2: oklch(0.7 0.13 200);
+    --chart-3: oklch(0.72 0.12 160);
+    --chart-4: oklch(0.72 0.14 90);
+    --chart-5: oklch(0.7 0.16 350);
+
+    /* Sidebar — slightly darker than content, translucent on macOS */
+    --sidebar: oklch(0.14 0.008 265 / 0.72);
+    --sidebar-foreground: oklch(0.9 0.006 265);
+    --sidebar-primary: oklch(0.68 0.14 262);
+    --sidebar-primary-foreground: oklch(0.14 0.008 265);
+    --sidebar-accent: oklch(1 0 0 / 0.04);
+    --sidebar-accent-foreground: oklch(0.96 0.006 265);
+    --sidebar-border: oklch(1 0 0 / 0.055);
+    --sidebar-ring: oklch(0.68 0.14 262 / 0.5);
+
+    /* Elevation — used by cards, popovers, palette */
+    --elevation-low: 0 1px 0 oklch(1 0 0 / 0.04) inset,
+                     0 0 0 1px oklch(1 0 0 / 0.04);
+    --elevation-mid: 0 1px 0 oklch(1 0 0 / 0.05) inset,
+                     0 0 0 1px oklch(1 0 0 / 0.06),
+                     0 10px 32px -12px oklch(0 0 0 / 0.55);
+    --elevation-high: 0 1px 0 oklch(1 0 0 / 0.06) inset,
+                      0 0 0 1px oklch(1 0 0 / 0.08),
+                      0 24px 64px -16px oklch(0 0 0 / 0.7);
+
+    /* Semantic status tones (see lib/status.ts).
+       --tone-X is the hue anchor (dots, solid chips, rings, tinted bgs);
+       --tone-X-fg is readable text for soft pills / bare labels. */
+    --tone-info: oklch(0.7 0.13 220);
+    --tone-info-fg: oklch(0.82 0.11 220);
+    --tone-running: oklch(0.68 0.14 262);
+    --tone-running-fg: oklch(0.8 0.12 262);
+    --tone-success: oklch(0.7 0.14 160);
+    --tone-success-fg: oklch(0.82 0.12 160);
+    --tone-warning: oklch(0.68 0.14 75);
+    --tone-warning-fg: oklch(0.82 0.12 75);
+    --tone-danger: oklch(0.66 0.18 22);
+    --tone-danger-fg: oklch(0.8 0.14 22);
+    --tone-purple: oklch(0.7 0.16 300);
+    --tone-purple-fg: oklch(0.82 0.13 300);
+}
+
+/* ─── Light mode (supported, not default) ─── */
+:root {
+    --background: oklch(0.985 0.003 265);
+    --foreground: oklch(0.18 0.012 265);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.18 0.012 265);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.18 0.012 265);
+    --primary: oklch(0.55 0.15 262);
+    --primary-foreground: oklch(0.98 0.002 265);
+    --secondary: oklch(0.95 0.006 265);
+    --secondary-foreground: oklch(0.22 0.012 265);
+    --muted: oklch(0.95 0.006 265);
+    --muted-foreground: oklch(0.48 0.012 265);
+    --accent: oklch(0.94 0.008 265);
+    --accent-foreground: oklch(0.22 0.012 265);
+    --destructive: oklch(0.58 0.2 25);
+    --border: oklch(0.2 0.01 265 / 0.1);
+    --input: oklch(0.2 0.01 265 / 0.14);
+    --ring: oklch(0.55 0.15 262 / 0.5);
+    --chart-1: oklch(0.55 0.15 262);
+    --chart-2: oklch(0.58 0.14 200);
+    --chart-3: oklch(0.6 0.12 160);
+    --chart-4: oklch(0.6 0.14 90);
+    --chart-5: oklch(0.58 0.16 350);
+    --radius: 0.5rem;
+    --sidebar: oklch(0.975 0.005 265 / 0.85);
+    --sidebar-foreground: oklch(0.2 0.012 265);
+    --sidebar-primary: oklch(0.55 0.15 262);
+    --sidebar-primary-foreground: oklch(0.98 0.002 265);
+    --sidebar-accent: oklch(0.92 0.008 265);
+    --sidebar-accent-foreground: oklch(0.22 0.012 265);
+    --sidebar-border: oklch(0.2 0.01 265 / 0.1);
+    --sidebar-ring: oklch(0.55 0.15 262 / 0.5);
+    --elevation-low: 0 1px 2px -1px oklch(0 0 0 / 0.08);
+    --elevation-mid: 0 4px 16px -4px oklch(0 0 0 / 0.1),
+                     0 0 0 1px oklch(0 0 0 / 0.04);
+    --elevation-high: 0 16px 48px -12px oklch(0 0 0 / 0.18),
+                      0 0 0 1px oklch(0 0 0 / 0.06);
+
+    /* Semantic status tones — darker anchors + text that passes AA on white. */
+    --tone-info: oklch(0.58 0.12 220);
+    --tone-info-fg: oklch(0.44 0.11 220);
+    --tone-running: oklch(0.55 0.15 262);
+    --tone-running-fg: oklch(0.45 0.14 262);
+    --tone-success: oklch(0.56 0.13 160);
+    --tone-success-fg: oklch(0.42 0.12 160);
+    --tone-warning: oklch(0.62 0.14 75);
+    --tone-warning-fg: oklch(0.46 0.12 75);
+    --tone-danger: oklch(0.58 0.2 22);
+    --tone-danger-fg: oklch(0.49 0.18 22);
+    --tone-purple: oklch(0.58 0.15 300);
+    --tone-purple-fg: oklch(0.45 0.14 300);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html {
+    @apply font-sans antialiased;
+    font-feature-settings: "cv11", "ss01", "ss03";
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Thin inner vignette to marry webview with macOS vibrancy behind it */
+    background:
+      radial-gradient(
+        1200px 600px at 50% -10%,
+        color-mix(in oklch, var(--color-primary) 22%, transparent),
+        transparent 60%
+      ),
+      var(--color-background);
+    overflow: hidden;
+    /* iOS safe-area padding is applied per-component */
+  }
+  /* App-shell height comes from this definite percentage chain, NOT dvh/svh:
+     WebKitGTK (Linux desktop) mis-resolves dynamic viewport units under
+     Wayland/fractional scaling, which silently removed the shell's height cap
+     — nothing overflowed, so no view could scroll (tauri-apps/tauri#14427). */
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  /* Shell chrome (titlebar, sidebar, menu items) gets select-none via .select-none class.
+     Keep the body selectable by default so WKWebView allows text input focus correctly. */
+  ::selection {
+    background: oklch(0.68 0.14 262 / 0.32);
+    color: var(--color-foreground);
+  }
+  /* Tight, editor-like scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--color-foreground) 14%, transparent);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklch, var(--color-foreground) 22%, transparent);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+  }
+
+  /* Focus ring: restrained, 1.5px, accent */
+  :focus-visible {
+    outline: 1.5px solid var(--focus-ring, var(--color-ring));
+    outline-offset: 1px;
+    border-radius: calc(var(--radius-sm));
+  }
+
+  /* Typography rhythm */
+  h1 { @apply text-[22px] font-semibold tracking-[-0.015em] leading-tight; }
+  h2 { @apply text-[17px] font-semibold tracking-[-0.01em]; }
+  h3 { @apply text-[14px] font-medium tracking-[-0.005em]; }
+  p, li { @apply text-[13.5px] leading-[1.55]; }
+  kbd {
+    @apply font-mono text-[10.5px] px-1.5 py-px rounded-[5px]
+           bg-muted/70 text-muted-foreground border border-border/60
+           shadow-[0_1px_0_0_oklch(0_0_0_/_0.35)];
+    font-variant-numeric: tabular-nums;
+  }
+  code { font-variant-ligatures: none; }
+}
+
+/* ───────────────────────────────────────────────
+   Utility classes used throughout the shell
+   ─────────────────────────────────────────────── */
+
+/* Native drag region for the macOS titlebar */
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Translucent surface — popovers, palette, sidebar on macOS vibrancy */
+.surface-glass {
+  background: color-mix(in oklch, var(--color-popover) 78%, transparent);
+  backdrop-filter: saturate(160%) blur(22px);
+  -webkit-backdrop-filter: saturate(160%) blur(22px);
+  box-shadow: var(--elevation-mid);
+}
+.surface-card {
+  background: var(--color-card);
+  box-shadow: var(--elevation-low);
+  border-radius: var(--radius-lg);
+}
+.surface-elevated {
+  background: color-mix(in oklch, var(--color-popover) 92%, transparent);
+  backdrop-filter: saturate(180%) blur(30px);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  box-shadow: var(--elevation-high);
+  border-radius: var(--radius-xl);
+}
+
+/* Hairline divider — sharper than border-border alone; theme-aware */
+.hairline {
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in oklch, var(--color-foreground) 12%, transparent) 12%,
+    color-mix(in oklch, var(--color-foreground) 12%, transparent) 88%,
+    transparent
+  );
+  height: 1px;
+}
+
+/* Subtle noise for premium feel on large flat surfaces */
+.noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/></svg>");
+}
+
+/* Press state for touch (iPad) */
+@media (hover: none) {
+  .press\:scale:active { transform: scale(0.985); transition: transform 80ms var(--ease-out-quart); }
+}
+
+/* Prefers-reduced-motion respect */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* iOS / iPadOS: honor safe-area insets */
+@supports (padding: max(env(safe-area-inset-top), 0px)) {
+  .pt-safe { padding-top: max(env(safe-area-inset-top), 0px); }
+  .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+  .pl-safe { padding-left: max(env(safe-area-inset-left), 0px); }
+  .pr-safe { padding-right: max(env(safe-area-inset-right), 0px); }
+}
+
+/* Prevent iOS auto-zoom on input focus (fires when font-size < 16px) */
+@media (pointer: coarse) {
+  textarea,
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="password"],
+  input[type="url"],
+  input:not([type]) {
+    font-size: 16px !important;
+  }
+}
+
+/* Running subagent bar shimmer */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Active overseer: compact header control ─── */
+.overseer-presence-control {
+  --overseer-color: #0864b8;
+}
+
+.overseer-presence-control {
+  border-color: color-mix(in oklch, var(--overseer-color) 32%, var(--color-border));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--overseer-color) 10%, transparent),
+    0 0 18px -13px color-mix(in oklch, var(--overseer-color) 70%, transparent);
+}
+
+.overseer-presence-control[data-state="checking"],
+.overseer-presence-control[data-state="observing"] {
+  --overseer-color: var(--tone-info);
+}
+
+.overseer-presence-control[data-state="capped"],
+.overseer-presence-control[data-state="degraded"] {
+  --overseer-color: var(--tone-warning);
+}
+
+.overseer-presence-control[data-state="escalated"] {
+  --overseer-color: var(--tone-danger);
+}
+
+.overseer-presence-control[data-feedback="success"] { --overseer-color: var(--tone-success); }
+.overseer-presence-control[data-feedback="warning"] { --overseer-color: var(--tone-warning); }
+.overseer-presence-control[data-feedback="danger"] { --overseer-color: var(--tone-danger); }
+
+.overseer-check-focus {
+  opacity: 0;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--overseer-color) 24%, transparent),
+    color-mix(in oklch, var(--overseer-color) 7%, transparent) 48%,
+    transparent 72%
+  );
+}
+
+.overseer-presence-control[data-state="checking"][data-motion="playing"] .overseer-check-focus {
+  animation: overseer-check-focus 900ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.overseer-verdict-ripple {
+  border: 1px solid color-mix(in oklch, var(--overseer-color) 78%, transparent);
+  opacity: 0;
+  transform: scale(0.65);
+}
+
+.overseer-presence-control:not([data-feedback="none"])[data-motion="playing"] .overseer-verdict-ripple {
+  animation: overseer-verdict-ripple 900ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.overseer-presence-control[data-state="checking"][data-motion="playing"] .overseer-iris-shell {
+  animation: overseer-iris-focus 900ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* Iris motion. Sustained lid aperture lives in the SVG geometry (per state);
+   CSS adds life: a settle beat on state change, a slow ambient blink while
+   guarding, a scanning pupil during checkpoint review, and an alarm pulse on
+   escalation. Everything is transform/opacity only. */
+.overseer-iris-eye,
+.overseer-iris-pupil {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.overseer-presence-control[data-motion="playing"] .overseer-iris {
+  animation: overseer-iris-settle 300ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.overseer-presence-control[data-state="active"][data-motion="playing"] .overseer-iris-eye {
+  animation: overseer-iris-blink 7s cubic-bezier(0.4, 0, 0.2, 1) infinite 1.2s;
+}
+
+.overseer-presence-control[data-state="observing"][data-motion="playing"] .overseer-iris-eye {
+  animation: overseer-iris-blink 9.5s cubic-bezier(0.4, 0, 0.2, 1) infinite 2s;
+}
+
+.overseer-presence-control[data-state="degraded"][data-motion="playing"] .overseer-iris-eye {
+  animation: overseer-iris-blink 8s cubic-bezier(0.4, 0, 0.2, 1) infinite 1.6s;
+}
+
+.overseer-presence-control[data-state="checking"][data-motion="playing"] .overseer-iris-pupil {
+  animation: overseer-iris-scan 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.overseer-presence-control[data-state="escalated"][data-motion="playing"] .overseer-iris-halo {
+  animation: overseer-iris-alarm 2s ease-in-out infinite;
+}
+
+@keyframes overseer-iris-settle {
+  0%   { transform: scale(0.9); opacity: 0.4; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* One ~420ms blink per cycle: lids drop for ~3% of the loop and reopen. */
+@keyframes overseer-iris-blink {
+  0%, 93%, 100% { transform: scaleY(1); }
+  96%           { transform: scaleY(0.1); }
+}
+
+@keyframes overseer-iris-scan {
+  0%, 100% { transform: translateX(0); }
+  30%      { transform: translateX(3.6px); }
+  70%      { transform: translateX(-3.6px); }
+}
+
+@keyframes overseer-iris-alarm {
+  0%, 100% { opacity: 0.15; }
+  50%      { opacity: 0.42; }
+}
+
+@keyframes overseer-check-focus {
+  0%   { opacity: 0; transform: scale(0.72); }
+  45%  { opacity: 0.82; transform: scale(1.08); }
+  100% { opacity: 0; transform: scale(1.28); }
+}
+
+@keyframes overseer-verdict-ripple {
+  0%   { opacity: 0; transform: scale(0.65); }
+  22%  { opacity: 0.82; }
+  100% { opacity: 0; transform: scale(2.35); }
+}
+
+@keyframes overseer-iris-focus {
+  0%   { transform: scale(0.96); }
+  45%  { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overseer-check-focus,
+  .overseer-verdict-ripple,
+  .overseer-iris-shell,
+  .overseer-iris,
+  .overseer-iris-eye,
+  .overseer-iris-pupil,
+  .overseer-iris-halo {
+    animation: none !important;
+    transform: none !important;
+  }
+  .overseer-check-focus,
+  .overseer-verdict-ripple {
+    opacity: 0;
+  }
+}
+
+/* ───────────────────────────────────────────────
+   Code highlighting (rehype-highlight) — theme-aware token palette
+   replacing the dark-only github-dark stylesheet.
+   ─────────────────────────────────────────────── */
+.hljs { color: var(--color-foreground); background: transparent; }
+.hljs-comment, .hljs-quote { color: var(--color-muted-foreground); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-template-tag, .hljs-meta { color: var(--tone-purple-fg); }
+.hljs-string, .hljs-template-variable, .hljs-addition, .hljs-regexp { color: var(--tone-success-fg); }
+.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet { color: var(--tone-warning-fg); }
+.hljs-title, .hljs-section, .hljs-function, .hljs-name { color: var(--tone-info-fg); }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id { color: var(--tone-running-fg); }
+.hljs-built_in, .hljs-type, .hljs-class { color: var(--tone-warning-fg); }
+.hljs-deletion { color: var(--tone-danger-fg); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }

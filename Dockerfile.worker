@@ -1,0 +1,140 @@
+# Default user runtime image.
+#
+# This image includes all toolchain dependencies needed to build and develop
+# the gratefulagents repo. Operator-controlled tools (the agent binary plus
+# static fallback copies of git, gh, rg, fd, jq, curl, and bwrap) are injected
+# at runtime via the injector init container.
+#
+# Users can build their own runtime image with any glibc-based Linux distro
+# and their project's toolchain. Requirements:
+#   - glibc-based Linux (Ubuntu, Debian, Fedora, Amazon Linux) on amd64/arm64
+#   - a shell (bash)
+# Everything else (git, gh, curl, jq, rg, fd, bubblewrap, CA bundle) is
+# injected as a PATH-last fallback — the image's own tools win when present.
+FROM golang:1.26
+
+# ── System packages ──────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    wget \
+    ca-certificates \
+    bubblewrap \
+    make \
+    jq \
+    unzip \
+    chromium \
+    python3 \
+    python3-pip \
+    ripgrep \
+    fd-find \
+    bat \
+    tree \
+    less \
+    sed \
+    gawk \
+    diffutils \
+    patch \
+    file \
+    build-essential \
+    autoconf \
+    m4 \
+    libncurses-dev \
+    inotify-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── CLI tool symlinks (Debian renames some binaries) ─────────────────────────
+RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true \
+    && ln -sf /usr/bin/batcat /usr/local/bin/bat 2>/dev/null || true
+
+# ── uv (Python package runner, provides uvx for MCP servers) ─────────────────
+# Install directly into /usr/local/bin. The installer's default drops the
+# binaries under /root/.local/bin, and /root is 0700 — run pods execute as a
+# non-root uid (see runAsUser below), so symlinks into /root resolve to
+# "permission denied" and every uvx-based MCP server fails to spawn.
+RUN curl -fsSL https://astral.sh/uv/install.sh \
+    | env UV_INSTALL_DIR="/usr/local/bin" INSTALLER_NO_MODIFY_PATH=1 sh \
+    && uv --version && uvx --version
+
+# ── GitHub CLI ───────────────────────────────────────────────────────────────
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── kubectl ──────────────────────────────────────────────────────────────────
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://dl.k8s.io/release/v1.34.3/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl
+
+# ── protoc (Protocol Buffers compiler) ───────────────────────────────────────
+RUN ARCH="$(uname -m)" \
+    && if [ "$ARCH" = "x86_64" ]; then PB_ARCH="x86_64"; elif [ "$ARCH" = "aarch64" ]; then PB_ARCH="aarch_64"; fi \
+    && curl -fsSL "https://github.com/protocolbuffers/protobuf/releases/download/v33.4/protoc-33.4-linux-${PB_ARCH}.zip" -o /tmp/protoc.zip \
+    && unzip -q /tmp/protoc.zip -d /usr/local \
+    && rm /tmp/protoc.zip
+
+# ── buf (protobuf toolchain) ─────────────────────────────────────────────────
+# Build buf from the Go module instead of downloading the prebuilt GitHub
+# release binary. This avoids transient GitHub release CDN failures during
+# worker image builds.
+RUN GOBIN=/usr/local/bin go install github.com/bufbuild/buf/cmd/buf@v1.61.0 \
+    && /usr/local/bin/buf --version
+
+# ── gopls (Go language server) ───────────────────────────────────────────────
+RUN GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@latest \
+    && /usr/local/bin/gopls version
+
+# ── Node.js + pnpm (for web/ frontend) ──────────────────────────────────────
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable && corepack prepare pnpm@10.25.0 --activate
+
+# ── Erlang + Elixir (from GitHub releases) ───────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gnupg \
+    curl \
+    wget \
+    locales \
+    && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
+    && locale-gen \
+    && wget -qO- https://packages.erlang-solutions.com/ubuntu/erlang_solutions.asc 2>/dev/null | gpg --dearmor -o /etc/apt/trusted.gpg.d/erlang.gpg 2>/dev/null || true \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/trusted.gpg.d/erlang.gpg] https://packages.erlang-solutions.com/debian bookworm contrib" > /etc/apt/sources.list.d/erlang.list || true \
+    && apt-get update || true \
+    && apt-get install -y --no-install-recommends \
+    erlang-base \
+    erlang-crypto \
+    erlang-public-key \
+    erlang-ssl \
+    erlang-inets \
+    erlang-dev \
+    erlang-parsetools \
+    erlang-syntax-tools \
+    erlang-xmerl \
+    || true \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Elixir 1.19 from hex.pm builds (matching OTP 27)
+RUN ELIXIR_VERSION="1.19" \
+    && wget -q "https://builds.hex.pm/builds/elixir/v${ELIXIR_VERSION}-otp-27.zip" -O /tmp/elixir.zip \
+    && unzip -q /tmp/elixir.zip -d /usr/local \
+    && rm /tmp/elixir.zip
+
+# ── Elixir locale (must be set globally so the BEAM VM uses UTF-8) ────────────
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV ELIXIR_ERL_OPTIONS="+fnu"
+
+# ── Phoenix dependencies (as worker user) ─────────────────────────────────────
+RUN useradd -m -s /bin/bash -u 1100 worker \
+    && mkdir -p /workspace \
+    && chown worker:worker /workspace \
+    && su worker -c "git config --global user.name 'gratefulagents[bot]' && git config --global user.email '292420648+gratefulagents[bot]@users.noreply.github.com'" \
+    && su worker -c "mix local.hex --force && mix local.rebar --force && mix archive.install hex phx_new --force"
+
+USER worker
+WORKDIR /workspace

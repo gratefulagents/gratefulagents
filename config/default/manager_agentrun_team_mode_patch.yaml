@@ -1,0 +1,4 @@
+# This patch opts the dashboard/API surface into the experimental AgentRun team-mode control plane.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --enable-agentrun-team-mode

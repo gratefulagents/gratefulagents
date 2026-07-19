@@ -1,0 +1,36 @@
+gratefulagents {{ .Chart.AppVersion }} installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+1. Wait for everything to become ready:
+
+     kubectl -n {{ .Release.Namespace }} get pods -w
+
+2. Retrieve the auto-generated admin password (user: admin):
+
+     kubectl -n {{ .Release.Namespace }} get secret gratefulagents-admin-credentials \
+       -o jsonpath='{.data.password}' | base64 -d; echo
+
+3. Open the dashboard (ConnectRPC API + web UI, port 8090):
+{{- if eq .Values.dashboard.service.type "ClusterIP" }}
+
+     kubectl -n {{ .Release.Namespace }} port-forward \
+       svc/{{ include "gratefulagents.resourceName" (dict "suffix" "controller-manager-dashboard" "context" $) }} 8090:8090
+
+   then browse to http://localhost:8090 and sign in as admin.
+{{- else }}
+
+     kubectl -n {{ .Release.Namespace }} get svc \
+       {{ include "gratefulagents.resourceName" (dict "suffix" "controller-manager-dashboard" "context" $) }}
+
+   and browse to port 8090 on the address shown, then sign in as admin.
+{{- end }}
+{{- if .Values.jaeger.enabled }}
+
+4. Traces (Jaeger UI):
+
+     kubectl -n {{ .Release.Namespace }} port-forward \
+       svc/{{ include "gratefulagents.resourceName" (dict "suffix" "jaeger" "context" $) }} 16686:16686
+{{- end }}
+
+NOTE: agent runs additionally require the agent-sandbox controller
+(https://github.com/kubernetes-sigs/agent-sandbox) — see the deployment guide
+in the gratefulagents README if you have not installed it yet.

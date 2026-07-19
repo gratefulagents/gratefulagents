@@ -1,0 +1,12 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: slack-mcp
+spec:
+  version: "0.1.0"
+  mcpServerConfig:
+    type: stdio
+    command: npx
+    args: ["-y", "slack-mcp-server"]
+    env:
+      SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"

@@ -1,0 +1,20 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: Cron
+metadata:
+  name: nightly-maintenance
+spec:
+  schedule: "0 2 * * *"
+  timeZone: "UTC"
+  prompt: |
+    Review the repository for routine maintenance work and open a concise plan.
+  defaults:
+    repoURL: https://github.com/example/repo.git
+    baseBranch: main
+    model: gpt-5.4
+    provider: openai
+    secrets:
+      githubToken: github-token
+      providerKeys:
+        - provider: openai
+          secretName: openai-api-key
+          secretKey: api-key

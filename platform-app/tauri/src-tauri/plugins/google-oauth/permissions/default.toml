@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Allows starting the in-app Google OAuth flow"
+permissions = ["allow-start-google-oauth"]

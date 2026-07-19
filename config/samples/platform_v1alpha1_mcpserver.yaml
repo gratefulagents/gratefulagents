@@ -1,0 +1,19 @@
+# MCPServer is a named, cluster-managed MCP server config.
+# Attach it to runs via spec.mcpServerRefs (or let a Skill require it).
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: fetch-web
+spec:
+  version: "0.1.0"
+  description: >-
+    Fetch and convert web content for LLM consumption (official MCP reference
+    server).
+  mcpServerConfig:
+    type: stdio
+    # The command must exist in the worker image.
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-fetch"]
+    # Explicit opt-in for servers that need outbound access. The run's
+    # RuntimeProfile egress policy still applies.
+    allowNetwork: true

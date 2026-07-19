@@ -1,0 +1,72 @@
+# More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
+# Ignore everything by default and re-include only needed files
+**
+
+# Re-include Go source files (but not *_test.go)
+!**/*.go
+**/*_test.go
+
+# Re-include Go module and release version files
+!go.mod
+!go.sum
+!version.txt
+
+# Re-include embedded prompt templates
+!**/*.md
+
+# Re-include SQL migration files (embedded by go:embed in store/postgres)
+!**/*.sql
+
+# Re-include embedded JSON files (skill catalog, MCP configs)
+!**/*.json
+
+# Re-include the in-repo platform-app workspace (feeds the web-builder stage),
+# but never local dependency/build output. These exclusions are last so they
+# also win over the blanket *.md / *.json re-includes above.
+!platform-app
+!platform-app/**
+platform-app/**/node_modules
+platform-app/**/.pnpm-store
+platform-app/**/dist
+platform-app/**/.vite
+platform-app/tauri/src-tauri/target
+platform-app/tauri/src-tauri/gen
+platform-app/selfdev/out
+
+# Never re-include local credentials or agent/client state through the broad
+# Markdown and JSON exceptions above.
+**/.env*
+**/*.kubeconfig
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/.npmrc
+**/.pypirc
+**/.netrc
+**/credentials.json
+**/service-account*.json
+**/*.tfstate
+**/*.tfstate.*
+**/.agents
+**/.claude
+**/.codex
+**/.gstack
+**/.omx
+
+# Local outputs outside the platform-app workspace.
+node_modules
+.pnpm-store
+bin
+cover.out
+.release-work.*
+marketing
+user-docs/node_modules
+user-docs/build
+user-docs/.docusaurus
+website/node_modules
+website/dist
+website/.astro
+website/raw-shots

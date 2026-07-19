@@ -1,0 +1,72 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-postgres
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sample-postgres-data
+  namespace: sample-postgres
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-postgres
+  namespace: sample-postgres
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-postgres
+  template:
+    metadata:
+      labels:
+        app: sample-postgres
+    spec:
+      containers:
+        - name: sample-postgres
+          image: pgvector/pgvector:pg17
+          env:
+            - name: POSTGRES_USER
+              value: sample-user
+            - name: POSTGRES_PASSWORD
+              value: sample-password
+            - name: POSTGRES_DB
+              value: sample-database
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "sample-user", "-d", "sample-database"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: sample-postgres-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: sample-postgres-data
+          persistentVolumeClaim:
+            claimName: sample-postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-postgres
+  namespace: sample-postgres
+spec:
+  selector:
+    app: sample-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

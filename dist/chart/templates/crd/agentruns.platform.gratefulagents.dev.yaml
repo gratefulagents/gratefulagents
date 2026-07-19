@@ -1,0 +1,1032 @@
+{{- if .Values.crd.enable }}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: agentruns.platform.gratefulagents.dev
+spec:
+  group: platform.gratefulagents.dev
+  names:
+    kind: AgentRun
+    listKind: AgentRunList
+    plural: agentruns
+    singular: agentrun
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.workflowMode
+      name: Workflow
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.currentStep
+      name: Step
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: AgentRun is the Schema for the agentruns API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AgentRunSpec defines the desired state of AgentRun.
+            properties:
+              authMode:
+                description: AgentRunAuthMode controls provider credential mode.
+                enum:
+                - api-key
+                - oauth
+                type: string
+              context:
+                description: AgentRunContext carries non-repository scoped context.
+                properties:
+                  projectRef:
+                    description: ProjectRef carries app/project-level context for
+                      chat-first requests.
+                    properties:
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                type: object
+              debug:
+                description: Debug enables verbose agent pod logging (full instructions,
+                  tool I/O, conversation items).
+                type: boolean
+              disableCommandSandbox:
+                description: |-
+                  DisableCommandSandbox completely disables the bubblewrap (bwrap)
+                  subprocess sandbox for this run: model-controlled commands and MCP
+                  stdio servers execute directly in the worker container instead of
+                  inside the enforcing bwrap boundary. The pod/container isolation still
+                  applies, but workspace write containment and read-only permission mode
+                  become advisory only. Admin-only escape hatch for toolchains that are
+                  incompatible with bubblewrap; it is intentionally not exposed through
+                  the dashboard API and is inherited from trigger defaults
+                  (spec.defaults.disableCommandSandbox).
+                type: boolean
+              executionMode:
+                description: AgentRunExecutionMode controls how a run is orchestrated
+                  internally.
+                enum:
+                - linear
+                - team
+                type: string
+              guardrailPolicyRef:
+                description: NamedRef references another namespaced resource by name.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              image:
+                type: string
+              kubernetesAdmin:
+                description: |-
+                  KubernetesAdmin grants this run's worker service account cluster-admin
+                  RBAC and exposes read-only platform introspection tools. This is inherited
+                  from an admin-gated Project option.
+                type: boolean
+              limits:
+                description: AgentRunLimits defines bounded runtime limits.
+                properties:
+                  maxCostUsd:
+                    description: |-
+                      maxCostUsd is a decimal USD ceiling (e.g. "5" or "2.50") on LLM spend
+                      for one provisioning session of this run. When the tracked cost reaches
+                      the cap the agent pauses the run before the next turn; raise the cap to
+                      resume. Empty or invalid values disable the ceiling.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
+                    type: string
+                  maxRetries:
+                    format: int32
+                    type: integer
+                  maxRuntime:
+                    type: string
+                  maxTurns:
+                    format: int32
+                    type: integer
+                type: object
+              mcpPolicyRef:
+                description: NamedRef references another namespaced resource by name.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              mcpServerRefs:
+                description: |-
+                  MCPServerRefs lists MCPServer resources (same namespace) whose MCP
+                  server configs are attached to this run.
+                items:
+                  description: NamedRef references another namespaced resource by
+                    name.
+                  properties:
+                    name:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              modeRef:
+                description: ModeRef references a ModeTemplate by name, version, and
+                  channel.
+                properties:
+                  channel:
+                    type: string
+                  name:
+                    type: string
+                  version:
+                    type: string
+                required:
+                - name
+                type: object
+              model:
+                type: string
+              openaiBaseURL:
+                type: string
+              overseer:
+                description: AgentRunOverseerSpec configures oversight for a run.
+                properties:
+                  authority:
+                    default: advise
+                    description: AgentRunOverseerAuthority controls how an overseer
+                      may affect its target run.
+                    enum:
+                    - observe
+                    - advise
+                    - enforce
+                    type: string
+                  intervalMinutes:
+                    default: 10
+                    format: int32
+                    maximum: 1440
+                    minimum: 1
+                    type: integer
+                  maxInterventions:
+                    default: 5
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  modeRef:
+                    description: |-
+                      ModeRef selects an admin-managed, overseer-safe ModeTemplate. Change it
+                      by detaching and reattaching the overseer so the durable standing run can
+                      be recreated with a fresh immutable mode snapshot.
+                    properties:
+                      channel:
+                        type: string
+                      name:
+                        type: string
+                      version:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  model:
+                    description: |-
+                      Model overrides the primary run's model. Change it by detaching and
+                      reattaching the overseer; authority, cadence, and caps remain live-tunable.
+                    type: string
+                type: object
+              reasoningLevel:
+                default: max
+                description: |-
+                  ReasoningLevel sets the main agent's model reasoning effort. It defaults
+                  to max; individual roles may override it in their RoleInstruction.
+                enum:
+                - none
+                - low
+                - medium
+                - high
+                - xhigh
+                - max
+                type: string
+              repository:
+                description: RepositoryContext identifies the target repo state.
+                properties:
+                  additionalRepos:
+                    description: |-
+                      AdditionalRepos lists extra git repository URLs cloned into the run's
+                      sandbox at startup, under repos/<name> next to the primary repository.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  baseBranch:
+                    type: string
+                  branchName:
+                    type: string
+                  revision:
+                    type: string
+                  url:
+                    type: string
+                required:
+                - url
+                type: object
+              restartRequests:
+                description: |-
+                  RestartRequests is a monotonic counter incremented to restart a
+                  non-terminal run's compute so spec changes that need a fresh pod (e.g.
+                  switched provider credentials) take effect. Session state lives in the
+                  store, so the re-provisioned pod resumes the run. The controller
+                  handles values greater than status.restartRequestsHandled.
+                format: int64
+                type: integer
+              roleModelOverrides:
+                description: |-
+                  RoleModelOverrides snapshots the creating user's personal specialist-model
+                  preferences. Missing roles/providers inherit cluster RoleInstruction defaults.
+                items:
+                  description: |-
+                    AgentRunRoleModelOverride snapshots one user's provider-specific model
+                    preferences for a specialist role onto a run. Platform RoleInstruction
+                    defaults remain authoritative for providers not present in this map.
+                  properties:
+                    modelsByProvider:
+                      additionalProperties:
+                        type: string
+                      description: ModelsByProvider maps normalized provider names
+                        to model identifiers.
+                      maxProperties: 6
+                      type: object
+                    role:
+                      description: Role is the RoleInstruction name.
+                      maxLength: 253
+                      type: string
+                  required:
+                  - role
+                  type: object
+                maxItems: 100
+                type: array
+                x-kubernetes-list-map-keys:
+                - role
+                x-kubernetes-list-type: map
+              runtimeProfileRef:
+                description: NamedRef references another namespaced resource by name.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              secrets:
+                description: AgentRunSecrets holds credential secret references needed
+                  by execution.
+                properties:
+                  claudeApiKeySecret:
+                    description: 'Deprecated: use providerKeys instead for explicit
+                      per-provider credential mapping.'
+                    type: string
+                  githubTokenSecret:
+                    type: string
+                  openaiOAuthSecret:
+                    type: string
+                  providerKeys:
+                    description: |-
+                      providerKeys is a list of per-provider API key secret references.
+                      Each entry mounts the referenced secret as the correct env var for
+                      the specified provider (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY).
+                    items:
+                      description: ProviderKeyRef references a K8s Secret holding
+                        an API key for a specific provider.
+                      properties:
+                        provider:
+                          description: provider is the provider name (e.g. "anthropic",
+                            "openai", "openrouter", "gemini", "groq", "xai", "copilot").
+                          type: string
+                        secretKey:
+                          description: 'secretKey is the key within the K8s Secret
+                            (default: "api-key").'
+                          type: string
+                        secretName:
+                          description: secretName is the name of the K8s Secret.
+                          type: string
+                      required:
+                      - provider
+                      - secretName
+                      type: object
+                    type: array
+                  providerOAuthSecrets:
+                    description: |-
+                      providerOAuthSecrets lists additional per-provider OAuth secret
+                      references mounted into the run pod (alongside the run's own
+                      openaiOAuthSecret) so the run can switch to these providers mid-run
+                      without a compute restart.
+                    items:
+                      description: |-
+                        ProviderOAuthSecretRef references a K8s Secret holding OAuth material
+                        (auth.json, optionally account-id) for a specific OAuth-capable provider.
+                      properties:
+                        provider:
+                          description: provider is the OAuth-capable provider name
+                            ("openai", "anthropic", "copilot").
+                          type: string
+                        secretName:
+                          description: secretName is the name of the K8s Secret.
+                          type: string
+                      required:
+                      - provider
+                      - secretName
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  slackTokensSecret:
+                    description: |-
+                      slackTokensSecret optionally names a Secret holding Slack tokens
+                      (bot-token, user-token). When set, the run pod receives read-only Slack
+                      credentials (SLACK_BOT_TOKEN / SLACK_USER_TOKEN) so the agent can use
+                      Slack read tools (threads, history, search). Sends still go through the
+                      connector's approval flow.
+                    type: string
+                type: object
+              skillRefs:
+                description: |-
+                  SkillRefs lists Skill resources (same namespace) whose instructions ride
+                  with the run's system prompt. A skill's required MCP servers are
+                  auto-attached to the run.
+                items:
+                  description: NamedRef references another namespaced resource by
+                    name.
+                  properties:
+                    name:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              specArtifactRef:
+                description: ArtifactRef references a keyed object-backed artifact.
+                properties:
+                  key:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+              team:
+                description: AgentRunTeamSpec defines the predeclared team-mode orchestration
+                  contract.
+                properties:
+                  completionPolicy:
+                    description: AgentRunCompletionPolicy defines the gates required
+                      before success.
+                    properties:
+                      requireApproval:
+                        type: boolean
+                    type: object
+                  delegationPolicy:
+                    description: AgentRunDelegationPolicy defines the parent's child-run
+                      limits.
+                    properties:
+                      maxChildren:
+                        format: int32
+                        type: integer
+                      maxDepth:
+                        format: int32
+                        type: integer
+                      parentOnly:
+                        type: boolean
+                    type: object
+                  steps:
+                    items:
+                      description: AgentRunTeamStep defines one orchestration step
+                        in team mode.
+                      properties:
+                        name:
+                          type: string
+                        tasks:
+                          items:
+                            description: AgentRunTeamTask defines one predeclared
+                              worker assignment inside a TeamStep.
+                            properties:
+                              artifactContract:
+                                type: string
+                              dependsOn:
+                                items:
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              maxRetries:
+                                format: int32
+                                type: integer
+                              name:
+                                type: string
+                              objective:
+                                type: string
+                              role:
+                                type: string
+                              runtimeProfileRef:
+                                description: NamedRef references another namespaced
+                                  resource by name.
+                                properties:
+                                  name:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - name
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        type:
+                          description: AgentRunTeamStepType is the bounded phase-1
+                            team step contract.
+                          enum:
+                          - serial
+                          - parallel
+                          - approval_gate
+                          type: string
+                      required:
+                      - name
+                      - type
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                type: object
+              trigger:
+                description: TriggerRef describes the source that created the run.
+                properties:
+                  externalRef:
+                    description: ExternalRef carries source-system identity for a
+                      run trigger.
+                    properties:
+                      id:
+                        type: string
+                      identifier:
+                        type: string
+                      url:
+                        type: string
+                    type: object
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+              wakeRequests:
+                description: |-
+                  WakeRequests is a monotonic counter incremented to wake a completed run.
+                  The controller handles values greater than status.wakeRequestsHandled.
+                format: int64
+                type: integer
+              workflowMode:
+                description: |-
+                  WorkflowMode is retained for compatibility. New runs use auto and legacy
+                  chat values resolve to the same autonomous, finish-gated pacing.
+                enum:
+                - chat
+                - auto
+                type: string
+            required:
+            - repository
+            - trigger
+            type: object
+          status:
+            description: |-
+              AgentRunStatus defines the cluster-visible execution state of AgentRun.
+              Durable session data such as conversation, pending questions, recent
+              activity, and session mode live in Postgres instead of CRD status.
+            properties:
+              agentCount:
+                format: int32
+                type: integer
+              artifacts:
+                description: AgentRunArtifacts contains durable output references.
+                properties:
+                  activityLogURL:
+                    type: string
+                  diffURL:
+                    type: string
+                  eventsLogURL:
+                    description: |-
+                      EventsLogURL is the S3 URL of the thin event stream (events.jsonl).
+                      Preferred over ActivityLogURL when present. Structural observability
+                      data lives in OTel spans, not in this file.
+                    type: string
+                  issueURL:
+                    type: string
+                  metaHarnessTraceRef:
+                    description: |-
+                      MetaHarnessTraceRef references the encrypted Meta-Harness execution
+                      trace archive uploaded to the workspace object store when the run
+                      finalizes (Kind "S3Object", Name the bucket, Key the object key). The
+                      archive is encrypted with the run's workspace snapshot key and is only
+                      present when Meta-Harness capture was enabled for the run.
+                    properties:
+                      key:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                  planRef:
+                    description: ArtifactRef references a keyed object-backed artifact.
+                    properties:
+                      key:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                  pullRequestURL:
+                    type: string
+                  pullRequestURLs:
+                    description: |-
+                      PullRequestURLs lists every pull request created during the run, in
+                      creation order (runs may open one PR per workspace repository).
+                      PullRequestURL stays the most recent one for compatibility.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  reviewSummaryRef:
+                    description: ArtifactRef references a keyed object-backed artifact.
+                    properties:
+                      key:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                  traceID:
+                    description: TraceID is the OTel trace ID for Jaeger/Tempo lookup.
+                    type: string
+                type: object
+              children:
+                items:
+                  description: AgentRunChildStatus summarizes one child run in team
+                    mode.
+                  properties:
+                    blockedReason:
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    phase:
+                      description: AgentRunPhase is the observed lifecycle of an AgentRun.
+                      enum:
+                      - Pending
+                      - Admitted
+                      - WaitingApproval
+                      - Provisioning
+                      - Running
+                      - Question
+                      - Blocked
+                      - Paused
+                      - Succeeded
+                      - Failed
+                      - Cancelled
+                      type: string
+                    role:
+                      type: string
+                    step:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              completedAt:
+                format: date-time
+                type: string
+              completionRequested:
+                description: |-
+                  Completion fields.
+                  CompletionRequested is set to true by the finish tool when the agent
+                  signals it has finished work. Used by the runner to detect completion.
+                type: boolean
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              currentStep:
+                type: string
+              displayName:
+                description: |-
+                  DisplayName is a short human-readable label for the run, shown in the UI
+                  instead of the generated resource name. It is set by the agent (via the
+                  set_display_name tool) or by the user (via the RenameAgentRun RPC).
+                type: string
+              lastError:
+                type: string
+              lastWakeReason:
+                description: LastWakeReason records why the run was most recently
+                  woken.
+                type: string
+              lastWakeTime:
+                description: LastWakeTime records when the controller last accepted
+                  a wake request.
+                format: date-time
+                type: string
+              metrics:
+                description: AgentRunMetrics holds lightweight run counters.
+                properties:
+                  costUsd:
+                    type: string
+                  inputTokens:
+                    format: int64
+                    type: integer
+                  outputTokens:
+                    format: int64
+                    type: integer
+                  toolCallCount:
+                    format: int32
+                    type: integer
+                type: object
+              modeDeniedCount:
+                format: int32
+                type: integer
+              modeName:
+                type: string
+              modeNoopCount:
+                format: int32
+                type: integer
+              modeRevision:
+                format: int64
+                type: integer
+              modeSnapshot:
+                description: Mode system fields — populated by controller from resolved
+                  ModeTemplate.
+                properties:
+                  allowedMutatingTools:
+                    description: |-
+                      AllowedMutatingTools lists mutating tool names that stay registered
+                      even when the effective permission mode is read-only (for example the
+                      GitHub review tools a read-only reviewer still needs).
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  autonomous:
+                    description: |-
+                      Autonomous indicates the mode runs without user interaction.
+                      When true, the agent never asks clarifying questions and completes work end-to-end.
+                    type: boolean
+                  category:
+                    description: ModeCategory classifies execution complexity.
+                    enum:
+                    - direct
+                    - orchestrated
+                    type: string
+                  constraints:
+                    description: ModeConstraints defines runtime limits for a mode.
+                    properties:
+                      maxConcurrentSubAgents:
+                        description: |-
+                          MaxConcurrentSubAgents limits parallel in-process sub-agent tasks.
+                          When 0, no limit is enforced.
+                        format: int32
+                        type: integer
+                      maxRetries:
+                        format: int32
+                        type: integer
+                      maxRuntimeMinutes:
+                        format: int32
+                        type: integer
+                      maxTurns:
+                        format: int32
+                        type: integer
+                      subAgentMaxTurns:
+                        description: |-
+                          SubAgentMaxTurns limits how many turns each specialist sub-agent can spend.
+                          When 0, sub-agents use the platform default.
+                        format: int32
+                        type: integer
+                    type: object
+                  defaultMCPServerRefs:
+                    description: |-
+                      DefaultMCPServerRefs lists MCPServer names that are automatically
+                      attached to any AgentRun using this mode. The agent pipeline resolves
+                      these into MCP tools without requiring per-repo or per-run configuration.
+                    items:
+                      description: NamedRef references another namespaced resource
+                        by name.
+                      properties:
+                        name:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  defaultSkillRefs:
+                    description: |-
+                      DefaultSkillRefs lists Skill names that are automatically attached to
+                      any AgentRun using this mode (their required MCP servers come along).
+                    items:
+                      description: NamedRef references another namespaced resource
+                        by name.
+                      properties:
+                        name:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  description:
+                    type: string
+                  displayName:
+                    type: string
+                  executionStrategy:
+                    description: ModeExecutionStrategy controls how work is distributed.
+                    enum:
+                    - serial
+                    - parallel
+                    - pipeline
+                    type: string
+                  instructions:
+                    description: |-
+                      Instructions is a rich behavioral prompt loaded into the agent's system context.
+                      Defines mode philosophy, workflow, constraints, and behavioral rules.
+                    type: string
+                  name:
+                    type: string
+                  permissionMode:
+                    description: |-
+                      PermissionMode optionally clamps the run's effective permission mode.
+                      The effective mode is the most restrictive of this value and the
+                      RuntimeProfile's security.permissionMode: a mode template can restrict
+                      but never grant. The review mode sets read-only so reviewers cannot
+                      edit code regardless of the repository's RuntimeProfile.
+                    enum:
+                    - read-only
+                    - workspace-write
+                    - danger-full-access
+                    type: string
+                  version:
+                    type: string
+                required:
+                - category
+                - name
+                - version
+                type: object
+              modeVersion:
+                type: string
+              overseerSummary:
+                description: AgentRunOverseerStatus captures the latest oversight
+                  state for a run.
+                properties:
+                  checkpointsHandled:
+                    format: int64
+                    type: integer
+                  completionRejectionsUsed:
+                    format: int32
+                    type: integer
+                  interventionsUsed:
+                    format: int32
+                    type: integer
+                  lastSummary:
+                    type: string
+                  lastVerdict:
+                    type: string
+                  lastVerdictTime:
+                    format: date-time
+                    type: string
+                  runName:
+                    type: string
+                  state:
+                    type: string
+                type: object
+              phase:
+                description: AgentRunPhase is the observed lifecycle of an AgentRun.
+                enum:
+                - Pending
+                - Admitted
+                - WaitingApproval
+                - Provisioning
+                - Running
+                - Question
+                - Blocked
+                - Paused
+                - Succeeded
+                - Failed
+                - Cancelled
+                type: string
+              policy:
+                description: AgentRunResolvedPolicy reports the effective governance
+                  applied to the run.
+                properties:
+                  resolvedAgentKinds:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  resolvedMcpServers:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  resolvedPermissionMode:
+                    type: string
+                  resolvedSkills:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                type: object
+              queue:
+                description: AgentRunQueueStatus exposes admission/blocked state.
+                properties:
+                  admittedAt:
+                    format: date-time
+                    type: string
+                  blockedReason:
+                    type: string
+                  state:
+                    type: string
+                type: object
+              restartRequestsHandled:
+                description: RestartRequestsHandled is the latest spec.restartRequests
+                  value consumed by the controller.
+                format: int64
+                type: integer
+              retryCount:
+                format: int32
+                type: integer
+              sandbox:
+                description: AgentRunSandboxStatus links the run to provisioned execution
+                  resources.
+                properties:
+                  claimRef:
+                    description: NamedRef references another namespaced resource by
+                      name.
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  provider:
+                    type: string
+                  sandboxRef:
+                    description: NamedRef references another namespaced resource by
+                      name.
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+              sessionNumber:
+                format: int32
+                type: integer
+              startedAt:
+                format: date-time
+                type: string
+              teamSummary:
+                description: AgentRunTeamSummary captures the parent-visible team
+                  orchestration state.
+                properties:
+                  approvalState:
+                    type: string
+                  blockedReason:
+                    type: string
+                  cancelledChildren:
+                    format: int32
+                    type: integer
+                  currentStep:
+                    type: string
+                  currentStepIndex:
+                    format: int32
+                    type: integer
+                  failedChildren:
+                    format: int32
+                    type: integer
+                  pausedChildren:
+                    format: int32
+                    type: integer
+                  pendingChildren:
+                    format: int32
+                    type: integer
+                  runningChildren:
+                    format: int32
+                    type: integer
+                  succeededChildren:
+                    format: int32
+                    type: integer
+                  totalChildren:
+                    format: int32
+                    type: integer
+                type: object
+              wakeRequestsHandled:
+                description: WakeRequestsHandled is the latest spec.wakeRequests value
+                  consumed by the controller.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+{{- end }}

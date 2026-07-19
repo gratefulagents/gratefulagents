@@ -1,0 +1,187 @@
+# syntax=docker/dockerfile:1
+
+# Toolkit image — contains the operator-controlled tools that get injected into
+# the user's runtime container via an init container + shared emptyDir volume.
+#
+# The injected toolkit is self-sufficient: every binary is statically linked so
+# it runs on any glibc-based Linux distro (Debian, Ubuntu, Fedora, Amazon
+# Linux) on both amd64 and arm64. The user's runtime image only needs a shell
+# (bash) — everything else the agent depends on is injected:
+#
+#   bin/           — PATH-first: agent (+ executor/plan-executor symlinks)
+#   fallback/bin/  — PATH-last gap fillers: git, gh, rg, fd, jq, curl, bwrap
+#                    (the image's own tools win when present)
+#   fallback/libexec/git-core/, fallback/share/git-core/
+#                  — relocatable git support files (RUNTIME_PREFIX build)
+#   etc/ca-certificates.crt
+#                  — CA bundle for images without ca-certificates installed
+#
+# Build multi-arch with: docker buildx build --platform linux/amd64,linux/arm64
+
+ARG GH_VERSION=2.96.0
+ARG RG_VERSION=15.1.0
+ARG FD_VERSION=10.4.2
+ARG JQ_VERSION=1.8.2
+ARG CURL_VERSION=8.21.0
+ARG BWRAP_VERSION=0.11.2
+ARG GIT_VERSION=2.55.0
+
+# ── Agent binary (cross-compiled on the build platform — no emulation) ───────
+FROM --platform=$BUILDPLATFORM golang:1.26 AS agent-builder
+ARG TARGETARCH
+WORKDIR /build
+ENV GOTOOLCHAIN=local
+
+# Download modules first for better layer caching.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
+    go build -trimpath -o agent ./cmd/agent/
+
+# ── Prebuilt static tools (downloaded on the build platform) ─────────────────
+FROM --platform=$BUILDPLATFORM alpine:3.22 AS fetch
+ARG TARGETARCH
+ARG GH_VERSION
+ARG RG_VERSION
+ARG FD_VERSION
+ARG JQ_VERSION
+ARG CURL_VERSION
+RUN apk add --no-cache ca-certificates curl tar xz gzip
+
+RUN mkdir -p /out/fallback/bin /out/etc
+
+# GitHub CLI (static Go binary; release assets use amd64/arm64 directly).
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" \
+      | tar -xz -C /tmp \
+    && mv "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /out/fallback/bin/gh
+
+# ripgrep (musl-static on amd64; upstream ships only a glibc build for arm64,
+# which is fine for the supported glibc-distro floor).
+RUN case "$TARGETARCH" in \
+      amd64) RG_TRIPLE="x86_64-unknown-linux-musl" ;; \
+      arm64) RG_TRIPLE="aarch64-unknown-linux-gnu" ;; \
+      *) echo "unsupported TARGETARCH=$TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-${RG_TRIPLE}.tar.gz" \
+      | tar -xz -C /tmp \
+    && mv "/tmp/ripgrep-${RG_VERSION}-${RG_TRIPLE}/rg" /out/fallback/bin/rg
+
+# fd (musl-static on both arches).
+RUN case "$TARGETARCH" in \
+      amd64) FD_TRIPLE="x86_64-unknown-linux-musl" ;; \
+      arm64) FD_TRIPLE="aarch64-unknown-linux-musl" ;; \
+    esac \
+    && curl -fsSL "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-${FD_TRIPLE}.tar.gz" \
+      | tar -xz -C /tmp \
+    && mv "/tmp/fd-v${FD_VERSION}-${FD_TRIPLE}/fd" /out/fallback/bin/fd
+
+# jq (official static builds; assets use amd64/arm64 directly).
+RUN curl -fsSL "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${TARGETARCH}" \
+      -o /out/fallback/bin/jq \
+    && chmod +x /out/fallback/bin/jq
+
+# curl (musl-static builds from stunnel/static-curl).
+RUN case "$TARGETARCH" in \
+      amd64) CURL_ARCH="x86_64" ;; \
+      arm64) CURL_ARCH="aarch64" ;; \
+    esac \
+    && curl -fsSL "https://github.com/stunnel/static-curl/releases/download/${CURL_VERSION}/curl-linux-${CURL_ARCH}-musl-${CURL_VERSION}.tar.xz" \
+      | tar -xJ -C /tmp \
+    && mv /tmp/curl /out/fallback/bin/curl
+
+# CA bundle for runtime images that lack ca-certificates. The agent points
+# SSL_CERT_FILE/GIT_SSL_CAINFO/CURL_CA_BUNDLE here when the image has none.
+RUN cp /etc/ssl/certs/ca-certificates.crt /out/etc/ca-certificates.crt
+
+# ── bubblewrap (static musl build; no prebuilt binaries upstream) ────────────
+FROM alpine:3.22 AS bwrap-builder
+ARG BWRAP_VERSION
+RUN apk add --no-cache build-base meson libcap-dev libcap-static linux-headers curl
+RUN curl -fsSL "https://github.com/containers/bubblewrap/releases/download/v${BWRAP_VERSION}/bubblewrap-${BWRAP_VERSION}.tar.xz" \
+      | tar -xJ -C /tmp
+RUN cd "/tmp/bubblewrap-${BWRAP_VERSION}" \
+    && LDFLAGS=-static meson setup build \
+         --prefer-static \
+         -Dman=disabled \
+         -Dselinux=disabled \
+         -Dbash_completion=disabled \
+         -Dzsh_completion=disabled \
+         -Dtests=false \
+    && meson compile -C build \
+    && strip build/bwrap \
+    && ./build/bwrap --version
+
+# ── git (static musl build, relocatable via RUNTIME_PREFIX) ──────────────────
+FROM alpine:3.22 AS git-builder
+ARG GIT_VERSION
+ARG CURL_VERSION
+RUN apk add --no-cache build-base curl linux-headers \
+      zlib-dev zlib-static \
+      openssl-dev openssl-libs-static \
+      expat-dev expat-static
+# Build a minimal static libcurl (HTTPS only: OpenSSL + zlib) instead of using
+# Alpine's curl-static: the distro build drags in libidn2/libpsl/brotli/... and
+# libidn2's bundled gnulib defines error(), colliding with git's own error()
+# at static link time. git only needs plain HTTP(S) from libcurl.
+RUN curl -fsSL "https://curl.se/download/curl-${CURL_VERSION}.tar.xz" \
+      | tar -xJ -C /tmp \
+    && cd "/tmp/curl-${CURL_VERSION}" \
+    && ./configure --prefix=/usr/local \
+         --disable-shared --enable-static \
+         --with-openssl --with-zlib \
+         --without-libpsl --without-libidn2 --without-brotli --without-zstd \
+         --without-nghttp2 --without-libssh2 \
+         --disable-ldap --disable-ldaps --disable-rtsp --disable-dict \
+         --disable-telnet --disable-tftp --disable-pop3 --disable-imap \
+         --disable-smtp --disable-gopher --disable-mqtt --disable-ftp \
+         --disable-file --disable-smb --disable-manual --disable-docs \
+    && make -j"$(nproc)" install \
+    && /usr/local/bin/curl-config --static-libs
+RUN curl -fsSL "https://github.com/git/git/archive/refs/tags/v${GIT_VERSION}.tar.gz" \
+      | tar -xz -C /tmp
+# RUNTIME_PREFIX + relative dirs make the install relocatable: git resolves
+# libexec/share relative to the location of the `git` binary, so the whole
+# tree works from /opt/gratefulagents/fallback/ regardless of build prefix.
+RUN cd "/tmp/git-${GIT_VERSION}" \
+    && make -j"$(nproc)" \
+         prefix=/ \
+         RUNTIME_PREFIX=YesPlease \
+         gitexecdir=libexec/git-core \
+         template_dir=share/git-core/templates \
+         sysconfdir=etc \
+         NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1 \
+         NO_REGEX=YesPlease \
+         NO_RUST=YesPlease \
+         ICONV_OMITS_BOM=Yes \
+         INSTALL_SYMLINKS=1 \
+         CFLAGS="-O2" \
+         LDFLAGS="-static" \
+         CURL_LDFLAGS="$(/usr/local/bin/curl-config --static-libs)" \
+         DESTDIR=/out \
+         strip install \
+    && rm -rf /out/share/gitweb /out/share/perl5 \
+    && /out/bin/git --version
+
+# ── Final toolkit layout ──────────────────────────────────────────────────────
+FROM alpine:3.22
+ARG BWRAP_VERSION
+
+RUN mkdir -p /opt/gratefulagents/bin /opt/gratefulagents/fallback/bin /opt/gratefulagents/etc
+
+# Agent binary (statically linked — works on any Linux distro and libc).
+COPY --from=agent-builder /build/agent /opt/gratefulagents/bin/agent
+# Backward-compat symlinks.
+RUN ln -s agent /opt/gratefulagents/bin/executor && \
+    ln -s agent /opt/gratefulagents/bin/plan-executor
+
+# Static fallback tools (PATH-last; the user image's own tools win).
+COPY --from=fetch /out/ /opt/gratefulagents/
+COPY --from=bwrap-builder /tmp/bubblewrap-${BWRAP_VERSION}/build/bwrap /opt/gratefulagents/fallback/bin/bwrap
+COPY --from=git-builder /out/ /opt/gratefulagents/fallback/
+
+# Default entrypoint copies the toolkit into the shared volume.
+ENTRYPOINT ["cp", "-a", "/opt/gratefulagents", "/shared/gratefulagents"]

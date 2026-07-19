@@ -1,0 +1,117 @@
+{{- if .Values.postgres.enabled }}
+{{- $name := include "gratefulagents.resourceName" (dict "suffix" "postgres" "context" $) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: {{ $name }}-init
+    namespace: {{ .Release.Namespace }}
+    labels:
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        app.kubernetes.io/component: postgres
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+    01-pgvector.sql: |
+        CREATE EXTENSION IF NOT EXISTS vector;
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: {{ $name }}-data
+    namespace: {{ .Release.Namespace }}
+    labels:
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        app.kubernetes.io/component: postgres
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+    accessModes: [ReadWriteOnce]
+    {{- with .Values.postgres.persistence.storageClassName }}
+    storageClassName: {{ . }}
+    {{- end }}
+    resources:
+        requests:
+            storage: {{ .Values.postgres.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        app.kubernetes.io/component: postgres
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+    strategy:
+        type: Recreate
+    replicas: 1
+    selector:
+        matchLabels:
+            app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+            app.kubernetes.io/component: postgres
+    template:
+        metadata:
+            labels:
+                app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+                app.kubernetes.io/component: postgres
+                app.kubernetes.io/instance: {{ .Release.Name }}
+        spec:
+            containers:
+                - name: postgres
+                  image: {{ .Values.postgres.image }}
+                  env:
+                    - name: POSTGRES_USER
+                      value: {{ .Values.postgres.auth.username | quote }}
+                    - name: POSTGRES_PASSWORD
+                      value: {{ .Values.postgres.auth.password | quote }}
+                    - name: POSTGRES_DB
+                      value: {{ .Values.postgres.auth.database | quote }}
+                    - name: PGDATA
+                      value: /var/lib/postgresql/data/pgdata
+                  ports:
+                    - containerPort: 5432
+                  readinessProbe:
+                    exec:
+                        command: ["pg_isready", "-U", {{ .Values.postgres.auth.username | quote }}, "-d", {{ .Values.postgres.auth.database | quote }}]
+                    initialDelaySeconds: 5
+                    periodSeconds: 5
+                  {{- with .Values.postgres.resources }}
+                  resources: {{ toYaml . | nindent 20 }}
+                  {{- end }}
+                  volumeMounts:
+                    - name: data
+                      mountPath: /var/lib/postgresql/data
+                    - name: initdb
+                      mountPath: /docker-entrypoint-initdb.d
+            volumes:
+                - name: data
+                  persistentVolumeClaim:
+                    claimName: {{ $name }}-data
+                - name: initdb
+                  configMap:
+                    name: {{ $name }}-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        app.kubernetes.io/component: postgres
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+    selector:
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        app.kubernetes.io/component: postgres
+    ports:
+        - port: 5432
+          targetPort: 5432
+{{- end }}

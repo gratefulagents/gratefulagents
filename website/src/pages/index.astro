@@ -1,0 +1,405 @@
+---
+import Base from '../layouts/Base.astro';
+import Mark from '../components/Mark.astro';
+import {repositoryUrl} from '../data/sidebar';
+import type {MarkName} from '../data/marks';
+
+const triggers: {mark: MarkName; name: string; href: string}[] = [
+  {mark: 'github', name: 'GitHub', href: '/docs/integrations/github/'},
+  {mark: 'linear', name: 'Linear', href: '/docs/integrations/linear/'},
+  {mark: 'slack', name: 'Slack', href: '/docs/integrations/slack/'},
+  {mark: 'cron', name: 'Cron', href: '/docs/projects/cron/'},
+];
+
+const providers: {mark: MarkName; name: string}[] = [
+  {mark: 'anthropic', name: 'Claude'},
+  {mark: 'openai', name: 'OpenAI'},
+  {mark: 'openrouter', name: 'OpenRouter'},
+  {mark: 'xai', name: 'Grok'},
+  {mark: 'copilot', name: 'Copilot'},
+];
+
+const slides = [
+  {
+    kind: 'Sheet 02 · Operate',
+    title: 'Every run on one board',
+    desc: 'See live work, blockers, cost, and recent outcomes across the workspace. Step in only when a run needs you.',
+    href: '/docs/runs/review-activity/',
+    shot: '/screens/agent-ops.webp?v=4',
+    alt: 'Agent Ops board listing live runs with state, mode, latest activity, cost, and age columns',
+  },
+  {
+    kind: 'Sheet 03 · Inspect',
+    title: 'Every turn has a trace',
+    desc: 'Open timing, tool calls, token usage, cost, and errors for any run. The harness never becomes a black box.',
+    href: '/docs/runs/meta-harness-traces/',
+    shot: '/screens/trace.webp?v=4',
+    alt: 'Trace timeline of a run showing per-turn LLM calls, WebFetch tool spans, durations, and costs',
+  },
+  {
+    kind: 'Sheet 04 · Orchestrate',
+    title: 'Fan out, stay in control',
+    desc: 'Delegate to specialist subagents and watch the dependency graph run — every node inspectable while it works.',
+    href: '/docs/runs/review-activity/',
+    shot: '/screens/graph.webp?v=4',
+    alt: 'Subagent graph view showing a root run spawning writer and explore subagents with live status',
+  },
+  {
+    kind: 'Sheet 05 · Measure',
+    title: 'Reliability across runs',
+    desc: 'Compare cost, tokens, tools, subagents, compactions, and errors across models and time.',
+    href: '/docs/results/observability/',
+    shot: '/screens/observability.webp?v=4',
+    alt: 'Observability dashboard with charts for cost, tokens, tools, subagents, compactions, errors, and model breakdowns',
+  },
+  {
+    kind: 'Sheet 06 · Move',
+    title: 'The run stays with you',
+    desc: 'Follow, steer, and review from iOS or Android while the compute keeps running in your cluster.',
+    href: '/docs/getting-started/web-desktop-workspaces/',
+    shots: ['/screens/tablet-1.webp?v=5', '/screens/tablet-2.webp?v=5'],
+    alt: 'iPad views of the gratefulagents app following and steering a live agent run',
+  },
+];
+
+const stations = [
+  {kind: 'Start', title: 'Getting started', desc: 'Deploy, secure, sign in, and connect a workspace.', href: '/docs/getting-started/quick-start/'},
+  {kind: 'Run', title: 'Agent runs', desc: 'Start work, steer mid-flight, change modes, and review traces.', href: '/docs/runs/start-a-run/'},
+  {kind: 'Automate', title: 'Projects & schedules', desc: 'Save run defaults per repository and launch on a schedule.', href: '/docs/projects/projects/'},
+  {kind: 'Connect', title: 'Integrations', desc: 'Create and steer runs from GitHub, Linear, and Slack.', href: '/docs/integrations/github/'},
+  {kind: 'Control', title: 'Resources', desc: 'Skills, MCP servers, runtime profiles, policies, modes, and roles.', href: '/docs/settings/resources/'},
+  {kind: 'Configure', title: 'Settings', desc: 'Credentials, model preferences, personas, and Git identity.', href: '/docs/settings/account-appearance/'},
+  {kind: 'Share', title: 'Collaboration', desc: 'Give teammates the right access to projects and runs.', href: '/docs/collaboration/sharing-and-permissions/'},
+  {kind: 'Recover', title: 'Troubleshooting', desc: 'Resolve credential, integration, and workspace problems.', href: '/docs/troubleshooting/common-issues/'},
+];
+---
+
+<Base
+  title="gratefulagents — coding agents that show their work"
+  description="GratefulAgents is an open-source, self-hosted coding agent harness. Trigger work from your tools, run it on your Kubernetes cluster, and inspect every turn."
+  bodyClass="is-home"
+>
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-main">
+        <div class="hero-copy">
+          <img class="hero-logo" src="/logo.png" alt="" width="72" height="72" loading="eager" decoding="async" />
+          <p class="eyebrow"><span class="signal"></span> Open source · self-hosted · Kubernetes native</p>
+          <h1 id="hero-title">Self-hosted, cloud-based <span>agent harness.</span></h1>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="/docs/getting-started/quick-start/">Start with the quick start <span aria-hidden="true">→</span></a>
+            <a class="btn btn-quiet" href={repositoryUrl}>View source <span aria-hidden="true">↗</span></a>
+          </div>
+          <dl class="hero-facts" aria-label="Product facts">
+            <div><dt>License</dt><dd>GPL-3.0</dd></div>
+            <div><dt>Runtime</dt><dd>Your cluster</dd></div>
+            <div><dt>Clients</dt><dd>Web · Desktop · iOS · Android</dd></div>
+          </dl>
+        </div>
+
+        <figure class="plate hero-plate" data-hero>
+          <div class="plate-nav" role="group" aria-label="Hero screenshots">
+            <button type="button" data-hero-prev aria-label="Previous screenshot">‹</button>
+            <span data-hero-count aria-hidden="true">01 / 03</span>
+            <button type="button" data-hero-next aria-label="Next screenshot">›</button>
+          </div>
+          <div class="hero-slide" data-hero-slide>
+            <div class="plate-stage">
+              <img
+                src="/screens/run-chat.webp?v=4"
+                alt="Desktop run view with chat, steering, and a subagent dependency graph"
+                width="3024"
+                height="1898"
+                loading="eager"
+                decoding="async"
+              />
+            </div>
+            <div class="title-block">
+              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01a — Desktop</span></div>
+              <div><span class="tb-key">Title</span><span class="tb-val">Run view — chat, steering, subagent graph</span></div>
+              <div class="tb-scale"><span class="tb-key">Drawn by</span><span class="tb-val">your agents</span></div>
+            </div>
+          </div>
+          <div class="hero-slide" data-hero-slide hidden>
+            <div class="plate-stage">
+              <img
+                class="hero-tablet-shot"
+                src="/screens/tablet-1.webp?v=5"
+                alt="iPad view of a live agent run delegating work to a subagent graph"
+                width="2752"
+                height="2064"
+                loading="eager"
+                decoding="async"
+              />
+            </div>
+            <div class="title-block">
+              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01b — iPad</span></div>
+              <div><span class="tb-key">Title</span><span class="tb-val">The same run, followed live from your iPad</span></div>
+              <div class="tb-scale"><span class="tb-key">Status</span><span class="tb-val">compute stays in your cluster</span></div>
+            </div>
+          </div>
+          <div class="hero-slide" data-hero-slide hidden>
+            <div class="plate-stage">
+              <img
+                class="hero-tablet-shot"
+                src="/screens/tablet-2.webp?v=5"
+                alt="iPad view of the delegated task list for a live agent run"
+                width="2752"
+                height="2064"
+                loading="eager"
+                decoding="async"
+              />
+            </div>
+            <div class="title-block">
+              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01c — iPad</span></div>
+              <div><span class="tb-key">Title</span><span class="tb-val">Six delegated tasks, steered from anywhere</span></div>
+              <div class="tb-scale"><span class="tb-key">Status</span><span class="tb-val">compute stays in your cluster</span></div>
+            </div>
+          </div>
+        </figure>
+      </div>
+
+      <div class="legend" role="group" aria-label="Supported triggers and model providers">
+        <div class="legend-row" aria-label="Supported triggers">
+          <span class="legend-key">Triggers <small>work enters here</small></span>
+          {triggers.map((trigger) => (
+            <a class="legend-chip" href={trigger.href}>
+              <span class="chip-tile"><Mark name={trigger.mark} size={19} /></span>
+              <span>{trigger.name}</span>
+            </a>
+          ))}
+        </div>
+        <div class="legend-row" aria-label="Supported model providers">
+          <span class="legend-key">Models <small>bring your own</small></span>
+          {providers.map((provider) => (
+            <a class="legend-chip" href="/docs/settings/credentials/">
+              <span class="chip-tile"><Mark name={provider.mark} size={19} /></span>
+              <span>{provider.name}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section class="story-section" aria-label="Product views">
+      <div class="product-gallery" data-slides>
+        <div class="gallery-tabs" role="tablist" aria-label="Product views">
+          {slides.map((slide, index) => (
+            <button
+              class="gallery-tab"
+              role="tab"
+              id={`tab-${index}`}
+              aria-controls={`slide-${index}`}
+              aria-selected={index === 0 ? 'true' : 'false'}
+              tabindex={index === 0 ? 0 : -1}
+            >
+              <span>{slide.kind}</span>
+              <b>{slide.title}</b>
+            </button>
+          ))}
+        </div>
+        <div class="gallery-stage">
+          {slides.map((slide, index) => (
+            <article class="gallery-slide" role="tabpanel" id={`slide-${index}`} aria-labelledby={`tab-${index}`} hidden={index !== 0}>
+              {'shots' in slide ? (
+                <div class="mobile-pair">
+                  {slide.shots.map((shot) => (
+                    <img src={shot} alt={slide.alt} width="2752" height="2064" loading="lazy" decoding="async" />
+                  ))}
+                </div>
+              ) : (
+                <img src={slide.shot} alt={slide.alt} width="3024" height="1898" loading="lazy" decoding="async" />
+              )}
+              <footer>
+                <p>{slide.desc}</p>
+                <a href={slide.href}>Open the guide <span aria-hidden="true">→</span></a>
+              </footer>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section class="install-section" aria-labelledby="install-title">
+      <p class="section-kicker">The install is a prompt</p>
+      <h2 id="install-title">Self-host it tonight.</h2>
+      <p class="install-sub">
+        Paste one prompt into the coding agent you already run. It reads the guide,
+        installs gratefulagents on your laptop, and hands you the keys.
+      </p>
+      <aside class="agent-prompt" aria-label="Prompt for your coding agent">
+        <div class="agent-prompt-head">
+          <span class="agent-prompt-key">your-agent · paste this prompt</span>
+          <button type="button" class="agent-prompt-copy" data-copy-prompt>Copy prompt</button>
+        </div>
+        <p class="agent-prompt-text" data-prompt-text>Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install gratefulagents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.</p>
+      </aside>
+      <p class="install-alt">
+        Every docs page ships a prompt like this. Prefer your own hands?
+        <a href="/docs/getting-started/self-hosting-kind/">Kind guide</a> ·
+        <a href="/docs/getting-started/self-hosting-k3s/">k3s guide</a>
+      </p>
+    </section>
+
+    <section class="guide-section" aria-labelledby="guide-title">
+      <header class="section-heading compact">
+        <p class="section-kicker">Index of sheets · the field manual</p>
+        <h2 id="guide-title">Go from first run to full control.</h2>
+        <p>The docs ship from the same repository as the platform. Read them here; improve them on GitHub.</p>
+      </header>
+      <div class="station-grid">
+        {stations.map((station) => (
+          <a class="station" href={station.href}>
+            <span>{station.kind}</span>
+            <h3>{station.title}</h3>
+            <p>{station.desc}</p>
+            <i aria-hidden="true">→</i>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section class="closing-cta" aria-label="Get started">
+      <div class="closing-main">
+        <div>
+          <p class="stamp">Issued for construction</p>
+          <h2>Your agents.<br /><span>Your compute.</span></h2>
+        </div>
+        <div class="closing-side">
+          <p>Own the runtime, choose the models, and see the work. Start with the local quick start.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="/docs/getting-started/quick-start/">Deploy gratefulagents <span aria-hidden="true">→</span></a>
+            <a class="btn btn-quiet" href={repositoryUrl}>Star on GitHub <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+      </div>
+      <div class="title-block closing-block">
+        <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">07 — closeout</span></div>
+        <div><span class="tb-key">Project</span><span class="tb-val">gratefulagents</span></div>
+        <div><span class="tb-key">License</span><span class="tb-val">GPL-3.0</span></div>
+        <div><span class="tb-key">Runtime</span><span class="tb-val">your cluster</span></div>
+        <div><span class="tb-key">Clients</span><span class="tb-val">Web · Desktop · iOS · Android</span></div>
+        <div><span class="tb-key">Drawn by</span><span class="tb-val">your agents</span></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="lightbox" data-lightbox hidden>
+    <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close full screen image">Close ✕</button>
+    <img src="" alt="" data-lightbox-img />
+  </div>
+</Base>
+
+<script>
+  const copyBtn = document.querySelector('[data-copy-prompt]');
+  copyBtn?.addEventListener('click', async () => {
+    const text = document.querySelector('[data-prompt-text]')?.textContent?.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = 'Copied';
+      setTimeout(() => { copyBtn.textContent = 'Copy prompt'; }, 1800);
+    } catch {
+      copyBtn.textContent = 'Select & copy manually';
+    }
+  });
+
+  // Lightbox: click any product screenshot to view it full screen.
+  const lightbox = document.querySelector('[data-lightbox]');
+  if (lightbox instanceof HTMLElement) {
+    const lightboxImg = lightbox.querySelector('[data-lightbox-img]');
+    let lastFocus = null;
+
+    const close = () => {
+      lightbox.hidden = true;
+      document.body.style.overflow = '';
+      if (lastFocus instanceof HTMLElement) lastFocus.focus();
+    };
+    const open = (img) => {
+      lastFocus = document.activeElement;
+      lightboxImg.src = img.currentSrc || img.src;
+      lightboxImg.alt = img.alt;
+      lightbox.hidden = false;
+      document.body.style.overflow = 'hidden';
+      lightbox.querySelector('[data-lightbox-close]')?.focus();
+    };
+
+    document.querySelectorAll('main img[src^="/screens/"]').forEach((img) => {
+      img.classList.add('zoomable');
+      img.setAttribute('tabindex', '0');
+      img.setAttribute('role', 'button');
+      img.setAttribute('aria-label', `View full screen: ${img.alt}`);
+      img.addEventListener('click', () => open(img));
+      img.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          open(img);
+        }
+      });
+    });
+
+    lightbox.addEventListener('click', close);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !lightbox.hidden) close();
+    });
+  }
+
+  const hero = document.querySelector('[data-hero]');
+  if (hero) {
+    const slides = [...hero.querySelectorAll('[data-hero-slide]')];
+    const count = hero.querySelector('[data-hero-count]');
+    let current = 0;
+    let timer;
+
+    const show = (index) => {
+      current = (index + slides.length) % slides.length;
+      slides.forEach((slide, i) => { slide.hidden = i !== current; });
+      if (count) count.textContent = `0${current + 1} / 0${slides.length}`;
+    };
+    const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
+    const autoplay = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const start = () => { if (autoplay && !manual && !timer) timer = setInterval(() => show(current + 1), 5000); };
+    let manual = false;
+
+    hero.querySelector('[data-hero-prev]')?.addEventListener('click', () => { manual = true; stop(); show(current - 1); });
+    hero.querySelector('[data-hero-next]')?.addEventListener('click', () => { manual = true; stop(); show(current + 1); });
+    hero.addEventListener('pointerenter', stop);
+    hero.addEventListener('pointerleave', start);
+
+    start();
+  }
+
+  const gallery = document.querySelector('[data-slides]');
+  if (gallery) {
+    const tabs = [...gallery.querySelectorAll('.gallery-tab')];
+    const slides = [...gallery.querySelectorAll('.gallery-slide')];
+    let current = 0;
+
+    const show = (index) => {
+      current = (index + tabs.length) % tabs.length;
+      tabs.forEach((tab, tabIndex) => {
+        tab.setAttribute('aria-selected', String(tabIndex === current));
+        tab.tabIndex = tabIndex === current ? 0 : -1;
+      });
+      slides.forEach((slide, slideIndex) => {
+        slide.hidden = slideIndex !== current;
+      });
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => show(index));
+      tab.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowRight') {
+          event.preventDefault();
+          show(current + 1);
+          tabs[current].focus();
+        }
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          show(current - 1);
+          tabs[current].focus();
+        }
+      });
+    });
+  }
+</script>

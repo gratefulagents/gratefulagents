@@ -1,0 +1,9 @@
+{
+  "app": {
+    "security": {
+      "csp": {
+        "script-src": "'self' 'unsafe-eval'"
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+# Enables the opt-in per-GitHubRepository maintainer reconciler. Repositories
+# are maintained only when their spec.maintainer field is present.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --enable-repo-maintainer

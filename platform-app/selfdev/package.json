@@ -1,0 +1,30 @@
+{
+  "name": "selfdev",
+  "private": true,
+  "version": "0.1.0",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "description": "Self-dev harness for the gratefulagents UI: a fake ConnectRPC backend with scenario fixtures plus a Playwright screenshot CLI, so agents (and humans) can run, drive, and screenshot the app without a cluster.",
+  "scripts": {
+    "cli": "tsx src/cli.ts",
+    "fake-server": "tsx src/cli.ts fake-server",
+    "serve": "tsx src/cli.ts serve",
+    "screenshot": "tsx src/cli.ts screenshot",
+    "snap-all": "tsx src/cli.ts snap-all",
+    "doctor": "tsx src/cli.ts doctor",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.11.0",
+    "@connectrpc/connect": "^2.1.1",
+    "@connectrpc/connect-node": "^2.1.1",
+    "playwright-core": "^1.56.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.2"
+  }
+}

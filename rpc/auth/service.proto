@@ -1,0 +1,145 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/gratefulagents/gratefulagents/rpc/auth";
+
+// AuthService handles authentication and identity management.
+service AuthService {
+  // Login authenticates via Google OAuth ID token or username/password.
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // RefreshToken exchanges a valid refresh token for a new access + refresh pair.
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+
+  // Logout invalidates the given refresh token.
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  // GetCurrentUser returns the authenticated user's profile.
+  rpc GetCurrentUser(GetCurrentUserRequest) returns (User);
+
+  // SearchUsers finds users by username or name substring.
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
+
+  // ListUsers returns all registered users. Admin only.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+
+  // UpdateUserRole changes a user's role (admin/member/viewer). Admin only.
+  rpc UpdateUserRole(UpdateUserRoleRequest) returns (User);
+
+  // DeleteUser permanently removes a user account. Admin only.
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+
+  // GetJWKS returns the JSON Web Key Set used to verify access tokens.
+  rpc GetJWKS(GetJWKSRequest) returns (GetJWKSResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Authentication messages
+// ---------------------------------------------------------------------------
+
+message LoginRequest {
+  // Google OAuth ID token (for SSO login).
+  string google_id_token = 1;
+  // Username for local account login.
+  string username = 3;
+  // Password for local account login.
+  string password = 4;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_at = 3;
+  User user = 4;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_at = 3;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {}
+
+message GetCurrentUserRequest {}
+
+// ---------------------------------------------------------------------------
+// Identity messages
+// ---------------------------------------------------------------------------
+
+message User {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  string picture = 4;
+  string username = 6;
+  string role = 7;
+  // Unix seconds when the account was created.
+  int64 created_at = 8;
+  // Unix seconds of the user's most recent login; 0 if they never logged in.
+  int64 last_login_at = 9;
+}
+
+// ---------------------------------------------------------------------------
+// User search messages
+// ---------------------------------------------------------------------------
+
+message SearchUsersRequest {
+  // Username or name substring to search for.
+  string query = 2;
+  // Maximum number of results to return. Defaults to 10.
+  int32 limit = 3;
+}
+
+message SearchUsersResponse {
+  repeated UserSummary users = 1;
+}
+
+message UserSummary {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  string picture = 4;
+  string username = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Admin user management messages
+// ---------------------------------------------------------------------------
+
+message ListUsersRequest {}
+
+message ListUsersResponse {
+  repeated User users = 1;
+}
+
+message UpdateUserRoleRequest {
+  string user_id = 1;
+  // New role: "admin", "member", or "viewer".
+  string role = 2;
+}
+
+message DeleteUserRequest {
+  string user_id = 1;
+}
+
+message DeleteUserResponse {}
+
+// ---------------------------------------------------------------------------
+// JWKS messages
+// ---------------------------------------------------------------------------
+
+message GetJWKSRequest {}
+
+message GetJWKSResponse {
+  string keys_json = 1;
+}

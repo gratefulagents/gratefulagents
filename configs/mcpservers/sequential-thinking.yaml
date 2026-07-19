@@ -1,0 +1,10 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: sequential-thinking
+spec:
+  version: "0.1.0"
+  mcpServerConfig:
+    type: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-sequential-thinking"]

@@ -1,0 +1,9 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: Connection
+metadata:
+  name: acme-github
+  namespace: gratefulagents-system
+spec:
+  type: github
+  github:
+    tokenSecret: github-token

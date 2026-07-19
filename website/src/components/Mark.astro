@@ -1,0 +1,20 @@
+---
+import {marks, type MarkName} from '../data/marks';
+
+interface Props {
+  name: MarkName;
+  size?: number;
+}
+
+const {name, size = 18} = Astro.props;
+const mark = marks[name];
+---
+
+<svg
+  width={size}
+  height={size}
+  viewBox="0 0 24 24"
+  fill="currentColor"
+  role="img"
+  aria-label={mark.title}
+><path d={mark.path}></path></svg>

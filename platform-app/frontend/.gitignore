@@ -1,0 +1,8 @@
+# Dependencies & build artifacts
+node_modules/
+dist/
+
+# TS incremental build info
+node_modules/.tmp/
+
+.DS_Store

@@ -1,0 +1,31 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SlackAgent
+metadata:
+  name: sample-agent
+spec:
+  # Secret holding the user's own Slack app tokens. Keys:
+  #   bot-token   (xoxb-)  bot identity, used for the owner<->agent control DM
+  #   user-token  (xoxp-)  optional; only powers the agent's slack_search tool
+  #                        (Slack permits search.messages with user tokens only)
+  #   app-token   (xapp-)  app-level token (connections:write) for Socket Mode
+  tokensSecret: sample-slack-tokens
+  # Owner's Slack user ID. When omitted the connector resolves it via auth.test
+  # (requires a user token).
+  slackUserId: U0123SAMPLE
+  # Slack app setup (bring-your-own): enable Socket Mode + an app-level token
+  # (xapp-, connections:write); turn on Agents & AI Apps; bot scopes
+  # assistant:write, chat:write, app_mentions:read, im:history, reactions:write;
+  # subscribe to bot events assistant_thread_started, message.im, app_mention.
+  # Inbound transport is Socket Mode — no request URLs / webhooks.
+  # Who may command the agent via channel @mentions besides the owner.
+  # Fail-closed: when empty, only the owner can command it.
+  # commanders:
+  #   - U0456SAMPLE
+  defaults:
+    model: claude-sonnet-4-6
+    provider: anthropic
+    secrets:
+      providerKeys:
+        - provider: anthropic
+          secretName: anthropic-api-key
+          secretKey: api-key

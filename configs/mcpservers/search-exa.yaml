@@ -1,0 +1,12 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: search-exa
+spec:
+  version: "0.1.0"
+  mcpServerConfig:
+    type: stdio
+    command: npx
+    args: ["-y", "exa-mcp-server"]
+    env:
+      EXA_API_KEY: "${EXA_API_KEY}"

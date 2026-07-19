@@ -1,0 +1,168 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    labels:
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        control-plane: controller-manager
+    name: {{ include "gratefulagents.resourceName" (dict "suffix" "controller-manager" "context" $) }}
+    namespace: {{ .Release.Namespace }}
+spec:
+    replicas: {{ .Values.manager.replicas }}
+    selector:
+        matchLabels:
+            app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+            control-plane: controller-manager
+    template:
+        metadata:
+            annotations:
+                kubectl.kubernetes.io/default-container: manager
+            labels:
+                app.kubernetes.io/name: {{ include "gratefulagents.name" . }}
+                helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+                app.kubernetes.io/instance: {{ .Release.Name }}
+                app.kubernetes.io/managed-by: {{ .Release.Service }}
+                control-plane: controller-manager
+        spec:
+            {{- with .Values.manager.tolerations }}
+            tolerations: {{ toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with .Values.manager.affinity }}
+            affinity: {{ toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with .Values.manager.nodeSelector }}
+            nodeSelector: {{ toYaml . | nindent 16 }}
+            {{- end }}
+            containers:
+                - args:
+                    {{- if .Values.metrics.enable }}
+                    - --metrics-bind-address=:{{ .Values.metrics.port }}
+                    {{- else }}
+                    # Bind to :0 to disable the controller-runtime managed metrics server
+                    - --metrics-bind-address=0
+                    {{- end }}
+                    - --health-probe-bind-address=:8081
+                    {{- if .Values.githubWebhook.enabled }}
+                    - --github-webhook-addr=:8091
+                    {{- else }}
+                    - --github-webhook-addr=
+                    {{- end }}
+                    {{- range .Values.manager.args }}
+                    - {{ . }}
+                    {{- end }}
+                  command:
+                    - /manager
+                  env:
+                    - name: POD_NAMESPACE
+                      valueFrom:
+                        fieldRef:
+                            fieldPath: metadata.namespace
+                    - name: DATABASE_URL
+                      value: {{ include "gratefulagents.databaseURL" . | quote }}
+                    - name: WORKER_IMAGE
+                      value: {{ .Values.agentImages.worker | quote }}
+                    - name: INJECTOR_IMAGE
+                      value: {{ .Values.agentImages.injector | quote }}
+                    {{- if include "gratefulagents.otlpEndpoint" . }}
+                    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                      value: {{ include "gratefulagents.otlpEndpoint" . | quote }}
+                    {{- end }}
+                    {{- if include "gratefulagents.s3Endpoint" . }}
+                    - name: S3_ENDPOINT
+                      value: {{ include "gratefulagents.s3Endpoint" . | quote }}
+                    - name: S3_BUCKET
+                      value: {{ include "gratefulagents.s3Bucket" . | quote }}
+                    - name: S3_REGION
+                      value: {{ include "gratefulagents.s3Region" . | quote }}
+                    - name: AWS_ACCESS_KEY_ID
+                      value: {{ include "gratefulagents.s3AccessKeyID" . | quote }}
+                    - name: AWS_SECRET_ACCESS_KEY
+                      value: {{ include "gratefulagents.s3SecretAccessKey" . | quote }}
+                    {{- end }}
+                    {{- if .Values.features.memory }}
+                    - name: ENABLE_MEMORY
+                      value: "true"
+                    {{- end }}
+                    - name: ENABLE_BROWSER_TOOLS
+                      value: {{ .Values.features.browserTools | quote }}
+                    {{- if .Values.features.metaharness }}
+                    - name: ENABLE_METAHARNESS
+                      value: "true"
+                    {{- end }}
+                    {{- with .Values.auth.google }}
+                    {{- if .clientID }}
+                    - name: GOOGLE_CLIENT_ID
+                      value: {{ .clientID | quote }}
+                    {{- with .adminEmails }}
+                    - name: ADMIN_EMAILS
+                      value: {{ . | quote }}
+                    {{- end }}
+                    {{- if .ssoDefaultReadonly }}
+                    - name: SSO_DEFAULT_READONLY
+                      value: "true"
+                    {{- end }}
+                    {{- end }}
+                    {{- end }}
+                    {{- with .Values.githubApp }}
+                    {{- if .appID }}
+                    - name: GITHUB_APP_ID
+                      value: {{ .appID | quote }}
+                    - name: GITHUB_APP_SLUG
+                      value: {{ .slug | quote }}
+                    - name: GITHUB_APP_PRIVATE_KEY_SECRET
+                      value: {{ .privateKeySecret | quote }}
+                    - name: GITHUB_APP_WEBHOOK_SECRET
+                      value: {{ .webhookSecret | quote }}
+                    {{- end }}
+                    {{- end }}
+                    {{- with .Values.manager.extraEnv }}
+                    {{- toYaml . | nindent 20 }}
+                    {{- end }}
+                  image: "{{ .Values.manager.image.repository }}:{{ .Values.manager.image.tag }}"
+                  imagePullPolicy: {{ .Values.manager.image.pullPolicy }}
+                  livenessProbe:
+                    httpGet:
+                        path: /healthz
+                        port: 8081
+                    initialDelaySeconds: 15
+                    periodSeconds: 20
+                  name: manager
+                  ports:
+                    - containerPort: 8090
+                      name: dashboard
+                      protocol: TCP
+                    {{- if .Values.githubWebhook.enabled }}
+                    - containerPort: 8091
+                      name: gh-webhooks
+                      protocol: TCP
+                    {{- end }}
+                  readinessProbe:
+                    httpGet:
+                        path: /readyz
+                        port: 8081
+                    initialDelaySeconds: 5
+                    periodSeconds: 10
+                  resources:
+                    {{- if .Values.manager.resources }}
+                    {{- toYaml .Values.manager.resources | nindent 20 }}
+                    {{- else }}
+                    {}
+                    {{- end }}
+                  securityContext:
+                    {{- if .Values.manager.securityContext }}
+                    {{- toYaml .Values.manager.securityContext | nindent 20 }}
+                    {{- else }}
+                    {}
+                    {{- end }}
+                  volumeMounts: []
+            securityContext:
+              {{- if .Values.manager.podSecurityContext }}
+              {{- toYaml .Values.manager.podSecurityContext | nindent 14 }}
+              {{- else }}
+              {}
+              {{- end }}
+            serviceAccountName: {{ include "gratefulagents.resourceName" (dict "suffix" "controller-manager" "context" $) }}
+            terminationGracePeriodSeconds: 10
+            volumes: []

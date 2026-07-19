@@ -1,0 +1,24 @@
+[package]
+name = "tauri-plugin-google-oauth"
+version = "0.1.0"
+license = "GPL-3.0-only"
+authors = [ "gratefulagents" ]
+description = "Google OAuth bridge using secure system-browser authentication flows"
+edition = "2021"
+rust-version = "1.77.2"
+exclude = ["/examples", "/dist-js", "/guest-js", "/node_modules"]
+links = "tauri-plugin-google-oauth"
+
+[dependencies]
+tauri = { version = "2.11.2" }
+serde = "1.0"
+thiserror = "2"
+tokio = { version = "1", features = ["time", "net", "io-util", "macros", "sync"] }
+url = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-opener = "2"
+getrandom = "0.3"
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.2", features = ["build"] }

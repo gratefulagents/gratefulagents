@@ -1,0 +1,12 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: github-mcp
+spec:
+  version: "0.1.0"
+  mcpServerConfig:
+    type: stdio
+    command: npx
+    args: ["-y", "@github/mcp-server"]
+    env:
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"

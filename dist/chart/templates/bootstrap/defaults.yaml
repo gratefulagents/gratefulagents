@@ -1,0 +1,23 @@
+{{- /*
+Default platform configuration: ModeTemplates (interactive/plan/autopilot/review/slack) and
+RoleInstructions for the specialist sub-agents. Synced from configs/ in the
+source repo via `make helm-sync-bootstrap`.
+
+Applied as post-install/post-upgrade hooks so the CRDs installed by this chart
+are established before these custom resources are created.
+*/ -}}
+{{- if .Values.bootstrapDefaults.enabled }}
+{{- range $path, $_ := .Files.Glob "files/bootstrap/**.yaml" }}
+{{- $doc := $.Files.Get $path | fromYaml }}
+{{- $meta := get $doc "metadata" | default dict }}
+{{- $annotations := get $meta "annotations" | default dict }}
+{{- $_ := set $annotations "helm.sh/hook" "post-install,post-upgrade" }}
+{{- $_ := set $annotations "helm.sh/hook-weight" "1" }}
+{{- $_ := set $annotations "helm.sh/hook-delete-policy" "before-hook-creation" }}
+{{- $_ := set $meta "annotations" $annotations }}
+{{- $_ := set $meta "namespace" $.Release.Namespace }}
+{{- $_ := set $doc "metadata" $meta }}
+---
+{{ toYaml $doc }}
+{{- end }}
+{{- end }}

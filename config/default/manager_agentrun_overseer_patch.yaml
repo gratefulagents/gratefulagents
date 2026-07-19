@@ -1,0 +1,5 @@
+# Enables the opt-in per-AgentRun overseer reconciler. Runs are supervised only
+# when their spec.overseer field is present.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --enable-agentrun-overseer

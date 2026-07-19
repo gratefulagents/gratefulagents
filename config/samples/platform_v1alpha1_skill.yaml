@@ -1,0 +1,37 @@
+# Skills are reusable agent instructions, attached to runs via spec.skillRefs.
+# A skill may require MCP servers; attaching the skill auto-attaches them.
+---
+# Inline skill: instructions live in the spec.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: web-research
+spec:
+  version: "0.1.0"
+  description: Disciplined web research with the fetch tool.
+  requires:
+    mcpServers:
+      - name: fetch-web
+  source:
+    inline:
+      instructions: |
+        When researching on the web:
+        - Prefer primary sources (official docs, specs, release notes).
+        - Fetch the smallest useful page; avoid crawling whole sites.
+        - Quote sources with their URLs in your final answer.
+---
+# Git-sourced skill: the controller fetches SKILL.md from a public GitHub
+# repository folder (Anthropic agent-skills format) and materializes the
+# resolved instructions into status. Re-fetch by changing the
+# platform.gratefulagents.dev/refresh annotation.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: pdf
+spec:
+  description: Process and generate PDF documents.
+  source:
+    git:
+      url: https://github.com/anthropics/skills
+      ref: main
+      path: document-skills/pdf

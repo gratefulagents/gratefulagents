@@ -1,0 +1,210 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "gratefulagents.resourceName" (dict "suffix" "manager-role" "context" $) }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - serviceaccounts
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - agents.x-k8s.io
+  resources:
+  - sandboxes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - extensions.agents.x-k8s.io
+  resources:
+  - sandboxclaims
+  - sandboxtemplates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.gratefulagents.dev
+  resources:
+  - agentruns
+  - agentrunteamruntimes
+  - guardrailpolicies
+  - mcppolicies
+  - mcpservers
+  - modetemplates
+  - roleinstructions
+  - runtimeprofiles
+  - skills
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.gratefulagents.dev
+  resources:
+  - agentruns/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - platform.gratefulagents.dev
+  resources:
+  - agentruns/status
+  - agentrunteamruntimes/status
+  - mcpservers/status
+  - runtimeprofiles/status
+  - skills/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings
+  - clusterroles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resourceNames:
+  - cluster-admin
+  resources:
+  - clusterroles
+  verbs:
+  - bind
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - triggers.gratefulagents.dev
+  resources:
+  - connections
+  - crons
+  - githubrepositories
+  - linearprojects
+  - projects
+  - slackagents
+  - slackworkspaces
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - triggers.gratefulagents.dev
+  resources:
+  - crons/status
+  - githubrepositories/status
+  - linearprojects/status
+  - projects/status
+  - pullrequestmonitors/status
+  - slackagents/status
+  - slackworkspaces/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - triggers.gratefulagents.dev
+  resources:
+  - pullrequestmonitors
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
