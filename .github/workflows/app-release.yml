@@ -13,7 +13,7 @@ concurrency:
 jobs:
   release:
     name: Version and release
-    if: github.ref == 'refs/heads/main' }}
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -36,7 +36,7 @@ jobs:
   images:
     name: ${{ matrix.image }} image
     needs: release
-    if: github.ref == 'refs/heads/main' }}
+    if: github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +79,7 @@ jobs:
   website:
     name: GitHub Pages website
     needs: release
-    if: github.ref == 'refs/heads/main' }}
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
