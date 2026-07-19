@@ -1,5 +1,6 @@
 import path from "path";
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -9,10 +10,16 @@ import tailwindcss from "@tailwindcss/vite";
 // internal/dashboard/web_dist).
 const frontendRoot = path.resolve(__dirname, "../frontend");
 
-// Stamp the bundle with the commit it was built from (shown in the app
-// sidebar; see frontend/src/lib/build-info.ts). Release builds pass
-// VITE_BUILD_COMMIT explicitly; local dev servers and builds fall back to the
-// checked-out git commit so the build line is always populated.
+if (!process.env.VITE_APP_VERSION) {
+  const packageJson = JSON.parse(
+    readFileSync(path.resolve(frontendRoot, "package.json"), "utf8"),
+  ) as { version?: string };
+  process.env.VITE_APP_VERSION = process.env.APP_VERSION || packageJson.version || "dev";
+}
+
+// Keep the source commit as internal release metadata. Release builds pass
+// VITE_BUILD_COMMIT explicitly; local builds fall back to the checked-out
+// commit so commit-dependent behavior and diagnostics remain available.
 if (!process.env.VITE_BUILD_COMMIT) {
   try {
     process.env.VITE_BUILD_COMMIT = execSync("git rev-parse HEAD", {

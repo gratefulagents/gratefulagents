@@ -77,7 +77,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { isTauri, platform } from "@/lib/platform";
-import { BUILD_COMMIT, BUILD_COMMIT_SHORT } from "@/lib/build-info";
+import { APP_VERSION } from "@/lib/build-info";
 
 // Settings sub-pages are code-split so /settings stays light: each section's
 // data is fetched only when its route mounts.
@@ -122,9 +122,9 @@ function AppSidebar({
                 "mt-1 px-2 truncate font-mono text-[10px] text-muted-foreground/60",
                 "group-data-[collapsible=icon]:hidden",
               )}
-              title={`Build commit ${BUILD_COMMIT}`}
+              title={`App version ${APP_VERSION}`}
             >
-              build {BUILD_COMMIT_SHORT}
+              build v{APP_VERSION}
             </div>
           </SidebarGroupContent>
         </SidebarGroup>

@@ -5,7 +5,6 @@ import { SettingsSection } from "@/components/settings-section";
 import { SettingsSubPage } from "@/components/settings/SettingsSubPage";
 import { SegmentedControl } from "@/components/shell/SegmentedControl";
 import { Button } from "@/components/ui/button";
-import { BUILD_COMMIT, BUILD_COMMIT_SHORT } from "@/lib/build-info";
 import {
   checkForDesktopUpdate,
   DEFAULT_UPDATE_CHECK_INTERVAL_HOURS,
@@ -102,9 +101,6 @@ function UpdateSettings() {
       aside={
         <span className="font-mono text-[11px] text-muted-foreground">
           v{appVersion ?? "…"}
-          {BUILD_COMMIT_SHORT && (
-            <span title={`Build commit ${BUILD_COMMIT ?? ""}`}> · build {BUILD_COMMIT_SHORT}</span>
-          )}
         </span>
       }
     >
