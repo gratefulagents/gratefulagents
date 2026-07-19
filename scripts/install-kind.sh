@@ -7,9 +7,10 @@ CHART_DIR="${CHART_DIR:-}"
 CLUSTER_NAME="${CLUSTER_NAME:-gratefulagents}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-8090}"
 GRATEFULAGENTS_REPOSITORY_URL="${GRATEFULAGENTS_REPOSITORY_URL:-https://github.com/gratefulagents/gratefulagents.git}"
+GRATEFULAGENTS_REPOSITORY="${GRATEFULAGENTS_REPOSITORY:-gratefulagents/gratefulagents}"
 HELM_VERSION="${HELM_VERSION:-v3.18.6}"
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/gratefulagents}"
-IMAGE_TAG="${IMAGE_TAG:-main}"
+IMAGE_TAG="${IMAGE_TAG:-}"
 GRATEFULAGENTS_REF="${GRATEFULAGENTS_REF:-main}"
 KIND_NODE_IMAGE="${KIND_NODE_IMAGE:-kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f}"
 KIND_VERSION="${KIND_VERSION:-v0.29.0}"
@@ -35,9 +36,13 @@ Environment overrides:
   CLUSTER_NAME          Kind cluster name (default: gratefulagents)
   DASHBOARD_PORT        localhost dashboard port (default: 8090)
   GRATEFULAGENTS_REF    chart source ref if no local chart exists (default: main)
+  GRATEFULAGENTS_REPOSITORY
+                       GitHub owner/repository used to find the latest release
   HELM_VERSION          Helm version (default: v3.18.6)
   IMAGE_REGISTRY        image registry/namespace (default: ghcr.io/gratefulagents)
-  IMAGE_TAG             controller, worker, and injector tag (default: main)
+  IMAGE_TAG             controller, worker, and injector tag
+                        (default: latest published GitHub release)
+  GITHUB_TOKEN          optional token for GitHub API rate limits
   KIND_NODE_IMAGE       pinned Kind node image
   KIND_VERSION          Kind version (default: v0.29.0)
   KUBECONFIG_FILE       dedicated kubeconfig path (default: under STATE_DIR)
@@ -75,7 +80,6 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 (( ${#DASHBOARD_PORT} <= 5 )) || die "DASHBOARD_PORT must be between 1 and 65535"
 DASHBOARD_PORT="$((10#$DASHBOARD_PORT))"
 (( DASHBOARD_PORT >= 1 && DASHBOARD_PORT <= 65535 )) || die "DASHBOARD_PORT must be between 1 and 65535"
-[[ "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || die "IMAGE_TAG is not a valid container image tag"
 IMAGE_REGISTRY="${IMAGE_REGISTRY%/}"
 [[ -n "$IMAGE_REGISTRY" ]] || die "IMAGE_REGISTRY must not be empty"
 
@@ -108,6 +112,15 @@ command -v openssl >/dev/null 2>&1 || die "openssl is required"
 command -v tar >/dev/null 2>&1 || die "tar is required"
 command -v docker >/dev/null 2>&1 || die "Docker is required; install Docker Desktop, OrbStack, Colima, or Docker Engine"
 docker info >/dev/null 2>&1 || die "Docker is not running or the current user cannot access it"
+
+script_path="${BASH_SOURCE[0]:-$0}"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
+if [[ -z "$IMAGE_TAG" ]]; then
+  log "Finding the latest gratefulagents release"
+  IMAGE_TAG="$(GRATEFULAGENTS_REPOSITORY="$GRATEFULAGENTS_REPOSITORY" \
+    "$script_dir/latest-release-tag.sh")" || die "could not resolve the latest gratefulagents image tag"
+fi
+[[ "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || die "IMAGE_TAG is not a valid container image tag"
 
 docker_resources="$(docker info --format '{{.NCPU}} {{.MemTotal}}' 2>/dev/null || true)"
 if [[ "$docker_resources" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
@@ -174,8 +187,6 @@ if [[ "$helm_version" != "$HELM_VERSION" ]]; then
 fi
 [[ "$(helm version --template '{{.Version}}')" == v3.* ]] || die "Helm 3 is required"
 
-script_path="${BASH_SOURCE[0]:-$0}"
-script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
 if [[ -z "$CHART_DIR" && -f "$script_dir/../dist/chart/Chart.yaml" ]]; then
   CHART_DIR="$(cd "$script_dir/../dist/chart" && pwd)"
 fi

@@ -6,9 +6,9 @@ agentPrompt: >-
 
 # Self-host on k3s
 
-Use this guide to install the current GratefulAgents source checkout on a fresh, single-node Debian or Ubuntu server. The supported installer builds the controller, worker, and injector from that checkout, pushes them to a registry at `127.0.0.1:5000`, installs agent-sandbox, and upgrades the chart with those image references.
+Use this guide to install the latest published GratefulAgents release on a fresh, single-node Debian or Ubuntu server. The supported installer resolves the latest GitHub release tag, pulls the matching public controller, worker, and injector images from `ghcr.io/gratefulagents`, installs agent-sandbox, and upgrades the chart with those versioned image references.
 
-It also installs or configures Git, Docker, k3s, kubectl, Helm, the node-local registry, PostgreSQL with pgvector, MinIO, and Jaeger. It is not a published-image installer.
+It also installs or configures Git, k3s, kubectl, Helm, PostgreSQL with pgvector, MinIO, and Jaeger. It does not install Docker or a node-local image registry.
 
 :::warning Before exposing the dashboard
 The default `LoadBalancer` service makes the dashboard available over plain HTTP on port `8090`. Restrict that port to trusted addresses during setup. For Internet-facing use, put TLS and authentication at an HTTPS ingress or reverse proxy on port `443`, then remove public access to `8090`. Do not expose the Kubernetes API (`6443`) or the GitHub webhook listener (`8091`) to the public Internet.
@@ -26,9 +26,9 @@ Use a dedicated server or VM with:
 
 The default bundled PostgreSQL and MinIO use k3s's node-local `local-path` StorageClass. A single node has no node-level high availability. Plan encrypted backups before putting data on the server.
 
-## Install from a source checkout
+## Install from a checkout
 
-Connect as the normal administrative user. Clone the source you want to build, review the installer, and run it without a `sudo` prefix:
+Connect as the normal administrative user. Clone the repository, review the installer, and run it without a `sudo` prefix:
 
 ```bash
 git clone https://github.com/gratefulagents/gratefulagents.git
@@ -36,16 +36,18 @@ cd gratefulagents
 ./scripts/install-k3s.sh
 ```
 
-The script requests sudo only for host-level changes. A root login also works. From a checkout, `make k3s-install` and `make k3s-upgrade` run the same installer; both rebuild the current checkout and apply it:
+The script requests sudo only for host-level changes. A root login also works. From a checkout, `make k3s-install` and `make k3s-upgrade` run the same installer; both resolve and apply the latest published release:
 
 ```bash
 make k3s-upgrade
 ```
 
-The installer preserves an existing k3s installation and node-local registry, builds Git-commit-tagged images, reapplies agent-sandbox, and runs `helm upgrade --install --atomic`. It disables active swap and saves the original `/etc/fstab` as `/etc/fstab.gratefulagents-backup` before its first swap change. It creates the login user's kubeconfig at `~/.kube/config`.
+The installer preserves an existing k3s installation, selects the latest release tag for all three GHCR images, reapplies agent-sandbox, and runs `helm upgrade --install --atomic`. It disables active swap and saves the original `/etc/fstab` as `/etc/fstab.gratefulagents-backup` before its first swap change. It creates the login user's kubeconfig at `~/.kube/config`.
+
+Older versions of this installer created a registry in the `gratefulagents-registry` namespace and configured `127.0.0.1:5000` in k3s. The current installer does not use or remove those older resources automatically.
 
 :::warning Do not install the chart with bare defaults
-The chart's default bundled PostgreSQL and MinIO credentials are sample values, and its application images use `latest`. A production installation must provide persistent non-sample values and explicit image references. The k3s installer does both for its source-build path. Do not replace it with a bare `helm install` command.
+The chart's default bundled PostgreSQL and MinIO credentials are sample values, and its application images use `latest`. A production installation must provide persistent non-sample values and explicit image references. The k3s installer supplies generated persistent credentials and versioned GHCR references. Do not replace it with a bare `helm install` command.
 :::
 
 ## Persistent installer state and upgrades
@@ -92,22 +94,25 @@ Set overrides before running the installer.
 | `CLOUDFLARE_TUNNEL_TOKEN` | empty | Remotely managed tunnel token; required on first connector deployment. |
 | `DASHBOARD_SERVICE_TYPE` | `LoadBalancer` | `LoadBalancer`, `ClusterIP`, or `NodePort`. |
 | `GRATEFULAGENTS_REF` | `main` | Branch or tag cloned only when a source checkout is not available. |
+| `GRATEFULAGENTS_REPOSITORY` | `gratefulagents/gratefulagents` | GitHub repository queried for the latest release. |
 | `GRATEFULAGENTS_REPOSITORY_URL` | project GitHub URL | Repository cloned when no source checkout is available. |
+| `GITHUB_TOKEN` | empty | Optional GitHub token used when the unauthenticated API rate limit is insufficient. |
 | `HELM_VERSION` | `v3.18.6` | Helm version installed only when Helm is absent. |
-| `IMAGE_TAG` | source Git commit | Tag for the locally built images. |
+| `IMAGE_REGISTRY` | `ghcr.io/gratefulagents` | Registry and namespace for controller, worker, and injector. |
+| `IMAGE_TAG` | latest published release tag | Tag for all three published application images; set it to pin a release. |
 | `INSTALL_CLOUDFLARE_WARP` | `0` | Set to `1` to deploy the Cloudflare Tunnel/WARP connector. |
 | `K3S_CHANNEL` | `stable` | k3s channel when `K3S_VERSION` is empty. |
 | `K3S_VERSION` | empty | Exact k3s release; takes precedence over the channel. |
 | `NAMESPACE` | `gratefulagents-system` | Release namespace. |
 | `RELEASE_NAME` | `gratefulagents` | Helm release name. |
 | `SKIP_RESOURCE_CHECK` | `0` | Set to `1` to suppress minimum-resource warnings. |
-| `SOURCE_DIR` | auto-detected | Source checkout used for image builds. |
+| `SOURCE_DIR` | auto-detected | Source checkout used for chart and optional connector configuration. |
 | `SERVER_IP` | node internal IP | Address printed in the dashboard URL for `LoadBalancer` or `NodePort`. |
 | `STATE_DIR` | `<login-home>/.config/gratefulagents` | Private installer state directory. |
 | `TIMEOUT` | `15m` | Kubernetes and Helm readiness timeout. |
 | `VALUES_FILE` | `<state-dir>/<release>-<namespace>-values.yaml` | Private persistent values file. |
 
-To reproduce a particular source version, check out that revision before installing. Pin `K3S_VERSION` only after validating that Kubernetes version with the selected checkout.
+To reproduce a particular application release, set `IMAGE_TAG` to its version tag and use the matching chart revision. Pin `K3S_VERSION` only after validating that Kubernetes version with the selected release.
 
 ## Cloudflare and network exposure
 
@@ -144,7 +149,7 @@ The installer does not change host or provider firewalls. Allow inbound traffic 
 | `8091/TCP` | Do not expose directly | GitHub webhook service. Route only the required webhook path through public HTTPS and validate GitHub signatures with the webhook secret. Do not put an interactive login gate in front of GitHub's callback. |
 | `8472/UDP`, `10250/TCP` | Trusted cluster nodes only | Multi-node k3s traffic; not required for one node. |
 
-PostgreSQL (`5432`), MinIO (`9000`), Jaeger (`4317`/`16686`), and the node-local registry must not be publicly exposed. If using a provider firewall and a host firewall, configure both. Cloudflare Tunnel does not remove the need to restrict direct origin access.
+PostgreSQL (`5432`), MinIO (`9000`), and Jaeger (`4317`/`16686`) must not be publicly exposed. If using a provider firewall and a host firewall, configure both. Cloudflare Tunnel does not remove the need to restrict direct origin access.
 
 ## Status, credentials, and logs
 

@@ -19,17 +19,12 @@ case "${ID:-}" in
   debian|ubuntu) ;;
   *) die "supported operating systems are Debian and Ubuntu (found: ${ID:-unknown})" ;;
 esac
-[[ -n "${VERSION_CODENAME:-}" ]] || die "VERSION_CODENAME is required to configure Docker's APT repository"
-
 log "Installing host prerequisites from APT"
 "${ROOT[@]}" env DEBIAN_FRONTEND=noninteractive apt-get update
 "${ROOT[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ca-certificates \
   curl \
   git \
-  gnupg \
   make \
   openssl \
   util-linux
-
-"$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/install-docker-engine.sh"

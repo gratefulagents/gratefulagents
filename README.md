@@ -23,17 +23,17 @@ This project is in early development, and bugs are expected. If you find one, he
 
 | Path | Intended environment | What it installs | Image source | Notes |
 | --- | --- | --- | --- | --- |
-| [Kind](user-docs/docs/getting-started/self-hosting-kind.md) | macOS or Linux laptop with a Docker-compatible runtime | Single-node Kind cluster | Published `ghcr.io/gratefulagents/{controller,worker,injector}:main` | Local evaluation path; dashboard binds to `127.0.0.1`. |
-| [k3s](user-docs/docs/getting-started/self-hosting-k3s.md) | Fresh Debian/Ubuntu single-node server | k3s, loopback registry, chart, and dependencies | Images built from the checkout and pushed to `127.0.0.1:5000` | Source-build path; the installer changes the host and needs sudo. |
+| [Kind](user-docs/docs/getting-started/self-hosting-kind.md) | macOS or Linux laptop with a Docker-compatible runtime | Single-node Kind cluster | Latest published `ghcr.io/gratefulagents/{controller,worker,injector}:<release-tag>` | Local evaluation path; dashboard binds to `127.0.0.1`. |
+| [k3s](user-docs/docs/getting-started/self-hosting-k3s.md) | Fresh Debian/Ubuntu single-node server | k3s, chart, and dependencies | Latest published `ghcr.io/gratefulagents/{controller,worker,injector}:<release-tag>` | Self-hosting path; the installer changes the host and needs sudo. |
 | Desktop app | Apple Silicon macOS; AMD64 or ARM64 Linux | Desktop client | GitHub release artifacts | Use only an artifact you can verify. The current convenience installer is not recommended for security-sensitive devices; review the [workspace guide](user-docs/docs/getting-started/web-desktop-workspaces.md). |
 
 The project does not document high availability, managed-hosting, a production support SLA, or a supported k3s removal workflow at this release.
 
 ## Quick starts
 
-### Run the published main images locally
+### Run the latest published release locally
 
-Use Kind when you want the published `main` controller, worker, and injector images without building them locally:
+Use Kind when you want the newest released controller, worker, and injector images without building them locally:
 
 ```sh
 git clone --branch main --depth 1 https://github.com/gratefulagents/gratefulagents.git
@@ -43,9 +43,9 @@ make kind-install
 
 The installer uses a dedicated kubeconfig and stores credentials and state below `~/.config/gratefulagents/kind` by default. It prints the local dashboard URL and the command to retrieve the generated `admin` password. See the [Kind guide](user-docs/docs/getting-started/self-hosting-kind.md) for requirements, overrides, state locations, and deletion.
 
-### Build and run the current checkout on k3s
+### Run the latest published release on k3s
 
-Use a fresh Debian or Ubuntu server for the supported source-build path:
+Use a fresh Debian or Ubuntu server for the supported self-hosting path:
 
 ```sh
 git clone https://github.com/gratefulagents/gratefulagents.git
@@ -53,7 +53,7 @@ cd gratefulagents
 make k3s-install
 ```
 
-The k3s installer builds the controller, worker, and injector from that checkout, pushes them to its node-local registry, and installs the chart with a private persistent values file. It is not equivalent to `helm install` with chart defaults: the defaults contain sample bundled-service credentials. Follow the [k3s guide](user-docs/docs/getting-started/self-hosting-k3s.md) for network exposure, upgrades, backups, and removal/data-retention warnings.
+The k3s installer resolves the latest GitHub release tag, deploys the matching public GHCR images, and installs the chart with a private persistent values file. It does not build images or create a node-local registry. It is not equivalent to `helm install` with chart defaults: the defaults contain sample bundled-service credentials. Follow the [k3s guide](user-docs/docs/getting-started/self-hosting-k3s.md) for network exposure, upgrades, backups, and removal/data-retention warnings.
 
 ## Develop from source
 

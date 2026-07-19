@@ -7,8 +7,10 @@ AGENT_SANDBOX_VERSION="${AGENT_SANDBOX_VERSION:-v0.3.10}"
 CLOUDFLARE_TUNNEL_TOKEN="${CLOUDFLARE_TUNNEL_TOKEN:-}"
 DASHBOARD_SERVICE_TYPE="${DASHBOARD_SERVICE_TYPE:-LoadBalancer}"
 GRATEFULAGENTS_REF="${GRATEFULAGENTS_REF:-main}"
+GRATEFULAGENTS_REPOSITORY="${GRATEFULAGENTS_REPOSITORY:-gratefulagents/gratefulagents}"
 GRATEFULAGENTS_REPOSITORY_URL="${GRATEFULAGENTS_REPOSITORY_URL:-https://github.com/gratefulagents/gratefulagents.git}"
 HELM_VERSION="${HELM_VERSION:-v3.18.6}"
+IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/gratefulagents}"
 IMAGE_TAG="${IMAGE_TAG:-}"
 INSTALL_CLOUDFLARE_WARP="${INSTALL_CLOUDFLARE_WARP:-0}"
 K3S_CHANNEL="${K3S_CHANNEL:-stable}"
@@ -19,7 +21,6 @@ SOURCE_DIR="${SOURCE_DIR:-}"
 TIMEOUT="${TIMEOUT:-15m}"
 CHART_DIR="${CHART_DIR:-}"
 SKIP_RESOURCE_CHECK="${SKIP_RESOURCE_CHECK:-0}"
-LOCAL_REGISTRY="127.0.0.1:5000"
 
 usage() {
   cat <<'EOF'
@@ -29,8 +30,8 @@ Usage:
   ./scripts/install-k3s.sh
 
 Run this as the login user; the script asks for sudo when needed. It is safe to
-run again: k3s and the local image registry are kept, all application images are
-rebuilt, PostgreSQL/MinIO credentials are reused, and Helm upgrades the release.
+run again: k3s is kept, the latest published application release is selected,
+PostgreSQL/MinIO credentials are reused, and Helm upgrades the release.
 
 Environment overrides:
   AGENT_SANDBOX_VERSION   agent-sandbox release (default: v0.3.10)
@@ -40,14 +41,19 @@ Environment overrides:
   DASHBOARD_SERVICE_TYPE  LoadBalancer, ClusterIP, or NodePort
                           (default: LoadBalancer)
   GRATEFULAGENTS_REF      branch/tag cloned if no local chart exists (default: main)
+  GRATEFULAGENTS_REPOSITORY
+                          GitHub owner/repository used to find the latest release
   HELM_VERSION            Helm version (default: v3.18.6)
-  IMAGE_TAG               local registry image tag (default: source Git commit)
+  IMAGE_REGISTRY          image registry/namespace (default: ghcr.io/gratefulagents)
+  IMAGE_TAG               controller, worker, and injector tag
+                          (default: latest published GitHub release)
+  GITHUB_TOKEN            optional token for GitHub API rate limits
   INSTALL_CLOUDFLARE_WARP deploy a cloudflared Tunnel/WARP connector when set to 1
   K3S_CHANNEL             k3s channel when K3S_VERSION is empty (default: stable)
   K3S_VERSION             exact k3s release, for example v1.33.5+k3s1
   NAMESPACE               release namespace (default: gratefulagents-system)
   RELEASE_NAME            Helm release name (default: gratefulagents)
-  SOURCE_DIR              source checkout used to build images (auto-detected)
+  SOURCE_DIR              source checkout used for chart/config files (auto-detected)
   TIMEOUT                 Kubernetes/Helm timeout (default: 15m)
   SKIP_RESOURCE_CHECK=1   suppress minimum-resource warnings
 
@@ -105,6 +111,8 @@ case "${ID:-}" in
   *) die "supported operating systems are Debian and Ubuntu (found: ${ID:-unknown})" ;;
 esac
 command -v systemctl >/dev/null 2>&1 || die "systemd is required"
+IMAGE_REGISTRY="${IMAGE_REGISTRY%/}"
+[[ -n "$IMAGE_REGISTRY" ]] || die "IMAGE_REGISTRY must not be empty"
 
 case "$(uname -m)" in
   x86_64) HELM_ARCH="amd64" ;;
@@ -138,13 +146,6 @@ fi
 "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/install-k3s-dependencies.sh"
 
 command -v git >/dev/null 2>&1 || die "git installation failed"
-if docker info >/dev/null 2>&1; then
-  CONTAINER_TOOL="env DOCKER_BUILDKIT=1 docker"
-elif "${ROOT[@]}" docker info >/dev/null 2>&1; then
-  CONTAINER_TOOL="${ROOT[*]} env DOCKER_BUILDKIT=1 docker"
-else
-  die "Docker is required to build the controller, worker, and injector images"
-fi
 
 # Kubernetes rejects active swap with its default kubelet configuration. Keep a
 # one-time backup before making the standard persistent change.
@@ -178,61 +179,6 @@ if ! command -v kubectl >/dev/null 2>&1; then
 fi
 command -v kubectl >/dev/null 2>&1 || die "kubectl installation failed"
 
-# k3s/containerd defaults to HTTPS for explicit registries. Add the local
-# loopback registry as an HTTP mirror while preserving any existing mirrors or
-# authentication configuration in registries.yaml.
-registry_config=/etc/rancher/k3s/registries.yaml
-registry_config_copy="$TMP_DIR/registries.yaml.current"
-registry_config_next="$TMP_DIR/registries.yaml.next"
-registry_config_changed=0
-if "${ROOT[@]}" test -f "$registry_config"; then
-  "${ROOT[@]}" cat "$registry_config" >"$registry_config_copy"
-else
-  : >"$registry_config_copy"
-fi
-
-if grep -Fq "$LOCAL_REGISTRY" "$registry_config_copy"; then
-  grep -Fq "http://$LOCAL_REGISTRY" "$registry_config_copy" || \
-    die "$registry_config already configures $LOCAL_REGISTRY without its required HTTP endpoint"
-elif [[ -s "$registry_config_copy" ]]; then
-  if grep -Eq '^mirrors:[[:space:]]*$' "$registry_config_copy"; then
-    awk -v registry="$LOCAL_REGISTRY" '
-      { print }
-      !added && /^mirrors:[[:space:]]*$/ {
-        printf "  \"%s\":\n    endpoint:\n      - \"http://%s\"\n", registry, registry
-        added = 1
-      }
-    ' "$registry_config_copy" >"$registry_config_next"
-  elif grep -Eq '^mirrors:' "$registry_config_copy"; then
-    die "$registry_config uses an inline mirrors value; add an HTTP endpoint for $LOCAL_REGISTRY manually"
-  else
-    cp "$registry_config_copy" "$registry_config_next"
-    cat >>"$registry_config_next" <<EOF
-
-mirrors:
-  "$LOCAL_REGISTRY":
-    endpoint:
-      - "http://$LOCAL_REGISTRY"
-EOF
-  fi
-  registry_config_changed=1
-else
-  cat >"$registry_config_next" <<EOF
-# Managed by the gratefulagents k3s installer.
-mirrors:
-  "$LOCAL_REGISTRY":
-    endpoint:
-      - "http://$LOCAL_REGISTRY"
-EOF
-  registry_config_changed=1
-fi
-
-if [[ "$registry_config_changed" == "1" ]]; then
-  log "Configuring k3s to pull from the local registry"
-  "${ROOT[@]}" install -D -m 0600 "$registry_config_next" "$registry_config"
-  "${ROOT[@]}" systemctl restart k3s
-fi
-
 log "Configuring kubectl for $INSTALL_USER"
 "${ROOT[@]}" mkdir -p "$INSTALL_HOME/.kube"
 "${ROOT[@]}" cp /etc/rancher/k3s/k3s.yaml "$INSTALL_HOME/.kube/config"
@@ -262,12 +208,12 @@ helm_version="$(helm version --template '{{.Version}}')"
 [[ "$helm_version" == v3.* ]] || die "Helm 3 is required (found $helm_version)"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -z "$SOURCE_DIR" && -f "$script_dir/../Makefile" && -f "$script_dir/../Dockerfile.worker" ]]; then
+if [[ -z "$SOURCE_DIR" && -f "$script_dir/../dist/chart/Chart.yaml" ]]; then
   SOURCE_DIR="$(cd "$script_dir/.." && pwd)"
 fi
 if [[ -z "$SOURCE_DIR" && -n "$CHART_DIR" ]]; then
   source_candidate="$(cd "$CHART_DIR/../.." 2>/dev/null && pwd || true)"
-  if [[ -f "$source_candidate/Makefile" && -f "$source_candidate/Dockerfile.worker" ]]; then
+  if [[ -f "$source_candidate/dist/chart/Chart.yaml" ]]; then
     SOURCE_DIR="$source_candidate"
   fi
 fi
@@ -282,28 +228,20 @@ if [[ -z "$CHART_DIR" ]]; then
 else
   CHART_DIR="$(cd "$CHART_DIR" && pwd)"
 fi
-[[ -f "$SOURCE_DIR/Makefile" ]] || die "Makefile not found in source directory $SOURCE_DIR"
-[[ -f "$SOURCE_DIR/Dockerfile" ]] || die "manager Dockerfile not found in $SOURCE_DIR"
-[[ -f "$SOURCE_DIR/Dockerfile.worker" ]] || die "worker Dockerfile not found in $SOURCE_DIR"
-[[ -f "$SOURCE_DIR/Dockerfile.injector" ]] || die "injector Dockerfile not found in $SOURCE_DIR"
 [[ -f "$CHART_DIR/Chart.yaml" ]] || die "Helm chart not found at $CHART_DIR"
 
 if [[ -z "$IMAGE_TAG" ]]; then
-  IMAGE_TAG="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+  log "Finding the latest gratefulagents release"
+  IMAGE_TAG="$(GRATEFULAGENTS_REPOSITORY="$GRATEFULAGENTS_REPOSITORY" \
+    "$script_dir/latest-release-tag.sh")" || die "could not resolve the latest gratefulagents image tag"
 fi
 [[ "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || die "IMAGE_TAG is not a valid container image tag"
-manager_image_repository="$LOCAL_REGISTRY/gratefulagents/controller"
+manager_image_repository="$IMAGE_REGISTRY/controller"
 manager_image="$manager_image_repository:$IMAGE_TAG"
-worker_image="$LOCAL_REGISTRY/gratefulagents/worker:$IMAGE_TAG"
-injector_image="$LOCAL_REGISTRY/gratefulagents/injector:$IMAGE_TAG"
+worker_image="$IMAGE_REGISTRY/worker:$IMAGE_TAG"
+injector_image="$IMAGE_REGISTRY/injector:$IMAGE_TAG"
 
-log "Deploying the in-cluster registry and building all images"
-make -C "$SOURCE_DIR" local-build-push \
-  CONTAINER_TOOL="$CONTAINER_TOOL" \
-  IMAGE_TAG="$IMAGE_TAG" \
-  LOCAL_REGISTRY="$LOCAL_REGISTRY"
-curl --fail --silent --show-error "http://$LOCAL_REGISTRY/v2/" >/dev/null || \
-  die "the local image registry is not reachable at http://$LOCAL_REGISTRY"
+log "Using gratefulagents $IMAGE_TAG from $IMAGE_REGISTRY"
 
 log "Installing agent-sandbox $AGENT_SANDBOX_VERSION"
 manifest_base="https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}"
@@ -346,6 +284,7 @@ helm lint "$CHART_DIR" --values "$VALUES_FILE" \
   --set "dashboard.service.type=$DASHBOARD_SERVICE_TYPE" \
   --set-string "manager.image.repository=$manager_image_repository" \
   --set-string "manager.image.tag=$IMAGE_TAG" \
+  --set manager.image.pullPolicy=IfNotPresent \
   --set-string "agentImages.worker=$worker_image" \
   --set-string "agentImages.injector=$injector_image"
 helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
@@ -354,6 +293,7 @@ helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --set "dashboard.service.type=$DASHBOARD_SERVICE_TYPE" \
   --set-string "manager.image.repository=$manager_image_repository" \
   --set-string "manager.image.tag=$IMAGE_TAG" \
+  --set manager.image.pullPolicy=IfNotPresent \
   --set-string "agentImages.worker=$worker_image" \
   --set-string "agentImages.injector=$injector_image" \
   --atomic --wait --wait-for-jobs --timeout "$TIMEOUT" --history-max 10
@@ -415,8 +355,7 @@ Password:  kubectl -n $NAMESPACE get secret gratefulagents-admin-credentials \\
 Installer values (contains database/storage credentials):
   $VALUES_FILE
 
-Images:    $LOCAL_REGISTRY/gratefulagents/*:$IMAGE_TAG
-Registry:  http://$LOCAL_REGISTRY (node loopback only)
+Images:    $IMAGE_REGISTRY/{controller,worker,injector}:$IMAGE_TAG
 Cloudflare Tunnel/WARP connector: $cloudflare_status
 
 Next:

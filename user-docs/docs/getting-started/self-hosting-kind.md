@@ -6,12 +6,12 @@ agentPrompt: >-
 
 # Run locally with Kind
 
-Use the Kind installer to evaluate the latest GratefulAgents `main` build on a macOS or Linux laptop. It creates a single-node Kubernetes cluster in Docker, installs agent-sandbox and the bundled PostgreSQL, MinIO, and Jaeger services, and deploys these public images without a local image build or registry:
+Use the Kind installer to evaluate the latest published GratefulAgents release on a macOS or Linux laptop. It creates a single-node Kubernetes cluster in Docker, installs agent-sandbox and the bundled PostgreSQL, MinIO, and Jaeger services, resolves the latest GitHub release tag, and deploys the matching public images without a local image build or registry:
 
 ```text
-ghcr.io/gratefulagents/controller:main
-ghcr.io/gratefulagents/worker:main
-ghcr.io/gratefulagents/injector:main
+ghcr.io/gratefulagents/controller:<release-tag>
+ghcr.io/gratefulagents/worker:<release-tag>
+ghcr.io/gratefulagents/injector:<release-tag>
 ```
 
 This is a local evaluation path, not a production hosting guide.
@@ -25,7 +25,7 @@ Before installing, provide a running Docker-compatible runtime:
 
 Use an `x86_64`/AMD64 or `arm64`/AArch64 host. Allocate Docker at least 4 CPUs, 8 GiB of memory, and about 20 GiB of free disk. The installer requires `curl`, `openssl`, and `tar`; it downloads pinned Kind, kubectl, and Helm binaries when needed. It does not use sudo or modify your default kubeconfig.
 
-## Install from main
+## Install the latest release
 
 Clone the `main` branch and run the supported Make target:
 
@@ -41,7 +41,7 @@ When installation completes, open the printed `http://127.0.0.1:8090` dashboard 
 The installer is safe to rerun. It preserves the cluster and persistent volumes, reapplies agent-sandbox, reuses its private Helm values, and performs a Helm upgrade. It refuses to upgrade an existing release when the values file is missing, because replacement bundled-service credentials would not match existing data.
 
 :::warning Do not use a bare chart install for this path
-The chart defaults include sample PostgreSQL and MinIO credentials and `latest` image tags. The Kind installer supplies the published `main` image references and generates private bundled-service credentials. Do not substitute `helm install` with default values for a real deployment.
+The chart defaults include sample PostgreSQL and MinIO credentials and `latest` image tags. The Kind installer supplies explicit versioned release image references and generates private bundled-service credentials. Do not substitute `helm install` with default values for a real deployment.
 :::
 
 ## State and configuration
@@ -64,10 +64,12 @@ Set an override before the installer command. These are all installer configurat
 | `CLUSTER_NAME` | `gratefulagents` | Kind cluster name. |
 | `DASHBOARD_PORT` | `8090` | Localhost dashboard port. |
 | `GRATEFULAGENTS_REF` | `main` | Chart ref cloned only when no local chart is found. |
+| `GRATEFULAGENTS_REPOSITORY` | `gratefulagents/gratefulagents` | GitHub repository queried for the latest release. |
 | `GRATEFULAGENTS_REPOSITORY_URL` | project GitHub URL | Repository used when the chart must be cloned. |
+| `GITHUB_TOKEN` | empty | Optional GitHub token used when the unauthenticated API rate limit is insufficient. |
 | `HELM_VERSION` | `v3.18.6` | Installer-managed Helm version. |
 | `IMAGE_REGISTRY` | `ghcr.io/gratefulagents` | Registry and namespace for controller, worker, and injector. |
-| `IMAGE_TAG` | `main` | Tag for all three published application images. |
+| `IMAGE_TAG` | latest published release tag | Tag for all three published application images; set it to pin a release. |
 | `KIND_NODE_IMAGE` | pinned Kubernetes v1.33.1 Kind node image | Kind control-plane image. |
 | `KIND_VERSION` | `v0.29.0` | Installer-managed Kind version. |
 | `KUBECONFIG_FILE` | `<state-dir>/<cluster-name>-kubeconfig` | Dedicated kubeconfig location. |

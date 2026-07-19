@@ -1,15 +1,8 @@
-# Local Kind and self-hosted k3s workflows.
-#
-# Use `make k3s-install` for first-time setup and `make k3s-upgrade` to rebuild
-# the local images and apply the current checkout. The installer supplies the
-# registry address to `local-build-push`; this Makefile intentionally contains
-# no host address, remote-server, cloud-registry, or credential configuration.
+# Local Kind and self-hosted k3s workflows. Both installers deploy the latest
+# published release images from GHCR unless IMAGE_TAG is explicitly set.
 
 CONTAINER_TOOL ?= docker
 KUBECTL ?= kubectl
-REGISTRY_NAMESPACE ?= gratefulagents-registry
-LOCAL_REGISTRY ?=
-IMAGE_TAG ?= $(shell git rev-parse HEAD)
 
 .DEFAULT_GOAL := help
 
@@ -26,11 +19,11 @@ kind-install: ## Install or update the main build in a local Kind cluster.
 	./scripts/install-kind.sh
 
 .PHONY: k3s-install
-k3s-install: ## Install or update this checkout on a self-hosted k3s server.
+k3s-install: ## Install or update the latest release on a self-hosted k3s server.
 	./scripts/install-k3s.sh
 
 .PHONY: k3s-upgrade
-k3s-upgrade: ## Rebuild images and apply the current checkout to k3s.
+k3s-upgrade: ## Fetch the latest published release and apply it to k3s.
 	./scripts/install-k3s.sh
 
 .PHONY: k3s-status
@@ -39,19 +32,9 @@ k3s-status: ## Show Kubernetes nodes, the application namespace, and workloads.
 	$(KUBECTL) get namespaces
 	$(KUBECTL) get deployments --all-namespaces
 
-.PHONY: local-build-push
-local-build-push: ## Build and push images to the installer-provided local registry.
-	@test -n "$(LOCAL_REGISTRY)" || { echo "LOCAL_REGISTRY is required" >&2; exit 2; }
-	$(KUBECTL) apply -f config/registry/registry.yaml
-	$(KUBECTL) -n $(REGISTRY_NAMESPACE) rollout status deployment/registry --timeout=180s
-	$(MAKE) docker-build-all \
-		IMG="$(LOCAL_REGISTRY)/gratefulagents/controller:$(IMAGE_TAG)" \
-		WORKER_IMG="$(LOCAL_REGISTRY)/gratefulagents/worker:$(IMAGE_TAG)" \
-		INJECTOR_IMG="$(LOCAL_REGISTRY)/gratefulagents/injector:$(IMAGE_TAG)"
-	$(MAKE) docker-push-all \
-		IMG="$(LOCAL_REGISTRY)/gratefulagents/controller:$(IMAGE_TAG)" \
-		WORKER_IMG="$(LOCAL_REGISTRY)/gratefulagents/worker:$(IMAGE_TAG)" \
-		INJECTOR_IMG="$(LOCAL_REGISTRY)/gratefulagents/injector:$(IMAGE_TAG)"
+.PHONY: test-installers
+test-installers: ## Run installer helper tests.
+	./scripts/latest-release-tag_test.sh
 
 .PHONY: docker-build-all docker-build docker-build-worker docker-build-injector
 docker-build-all: docker-build docker-build-worker docker-build-injector
