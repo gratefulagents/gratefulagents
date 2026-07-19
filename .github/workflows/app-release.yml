@@ -208,6 +208,7 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_APP_VERSION: ${{ needs.release.outputs.version }}
           VITE_BUILD_COMMIT: ${{ needs.release.outputs.release_sha }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -298,6 +299,7 @@ jobs:
         working-directory: platform-app/tauri
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          VITE_APP_VERSION: ${{ needs.release.outputs.version }}
           VITE_BUILD_COMMIT: ${{ needs.release.outputs.release_sha }}
         run: pnpm tauri android build --debug --apk --target aarch64 --config "${RUNNER_TEMP}/tauri-android.conf.json" --ci
 
@@ -365,6 +367,7 @@ jobs:
       - name: Build unsigned iOS IPA
         working-directory: platform-app/tauri
         env:
+          VITE_APP_VERSION: ${{ needs.release.outputs.version }}
           VITE_BUILD_COMMIT: ${{ needs.release.outputs.release_sha }}
         run: pnpm tauri ios build --target aarch64 --no-sign --config "${RUNNER_TEMP}/tauri-ios.conf.json" --ci
 

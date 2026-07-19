@@ -19,7 +19,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     && pnpm install --frozen-lockfile --filter web...
 
 COPY platform-app/ ./
+ARG APP_VERSION=dev
 ARG VITE_BUILD_COMMIT=unknown
+ENV VITE_APP_VERSION=$APP_VERSION
 ENV VITE_BUILD_COMMIT=$VITE_BUILD_COMMIT
 RUN pnpm --filter web build
 

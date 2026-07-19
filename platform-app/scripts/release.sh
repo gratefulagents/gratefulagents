@@ -208,6 +208,7 @@ build_linux() {
   docker run --rm \
     --platform linux/amd64 \
     --env CI=true \
+    --env VITE_APP_VERSION="${APP_VERSION}" \
     --env VITE_BUILD_COMMIT="${COMMIT_SHA}" \
     --env TAURI_SIGNING_PRIVATE_KEY \
     --env TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
@@ -240,6 +241,7 @@ build_macos() {
   (
     cd "${tauri_dir}"
     CI=true \
+    VITE_APP_VERSION="${APP_VERSION}" \
     VITE_BUILD_COMMIT="${COMMIT_SHA}" \
     APPLE_SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:--}" \
     pnpm tauri build \
