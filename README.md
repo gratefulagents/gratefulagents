@@ -23,7 +23,7 @@ This project is in early development, and bugs are expected. If you find one, he
 
 | Path | Intended environment | What it installs | Image source | Notes |
 | --- | --- | --- | --- | --- |
-| [Kind](user-docs/docs/getting-started/self-hosting-kind.md) | macOS or Linux laptop with a Docker-compatible runtime | Single-node Kind cluster | Published `ghcr.io/gratefulagents/{controller,worker,injector}:v0.1.0` | Local evaluation path; dashboard binds to `127.0.0.1`. |
+| [Kind](user-docs/docs/getting-started/self-hosting-kind.md) | macOS or Linux laptop with a Docker-compatible runtime | Single-node Kind cluster | Published `ghcr.io/gratefulagents/{controller,worker,injector}:main` | Local evaluation path; dashboard binds to `127.0.0.1`. |
 | [k3s](user-docs/docs/getting-started/self-hosting-k3s.md) | Fresh Debian/Ubuntu single-node server | k3s, loopback registry, chart, and dependencies | Images built from the checkout and pushed to `127.0.0.1:5000` | Source-build path; the installer changes the host and needs sudo. |
 | Desktop app | Apple Silicon macOS; AMD64 or ARM64 Linux | Desktop client | GitHub release artifacts | Use only an artifact you can verify. The current convenience installer is not recommended for security-sensitive devices; review the [workspace guide](user-docs/docs/getting-started/web-desktop-workspaces.md). |
 
@@ -31,12 +31,12 @@ The project does not document high availability, managed-hosting, a production s
 
 ## Quick starts
 
-### Run the published v0.1.0 image locally
+### Run the published main images locally
 
-Use Kind when you want the published v0.1.0 controller, worker, and injector images without building them locally:
+Use Kind when you want the published `main` controller, worker, and injector images without building them locally:
 
 ```sh
-git clone --branch v0.1.0 --depth 1 https://github.com/gratefulagents/gratefulagents.git
+git clone --branch main --depth 1 https://github.com/gratefulagents/gratefulagents.git
 cd gratefulagents
 make kind-install
 ```

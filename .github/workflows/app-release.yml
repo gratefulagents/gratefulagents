@@ -362,36 +362,25 @@ jobs:
         working-directory: platform-app/tauri
         run: pnpm tauri icon app-icon.png
 
-      - name: Build unsigned iOS archive
-        working-directory: platform-app/tauri/src-tauri/gen/apple
+      - name: Build unsigned iOS IPA
+        working-directory: platform-app/tauri
         env:
           VITE_BUILD_COMMIT: ${{ needs.release.outputs.release_sha }}
-        run: |
-          PROJECT="$(find . -maxdepth 1 -type d -name '*.xcodeproj' -print -quit)"
-          SCHEME="$(xcodebuild -project "${PROJECT}" -list -json | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')"
-          xcodebuild \
-            -project "${PROJECT}" \
-            -scheme "${SCHEME}" \
-            -configuration release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -archivePath build/gratefulagents.xcarchive \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            archive
+        run: pnpm tauri ios build --target aarch64 --no-sign --config "${RUNNER_TEMP}/tauri-ios.conf.json" --ci
 
       - name: Package and upload unsigned IPA
-        working-directory: platform-app/tauri/src-tauri/gen/apple
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ needs.release.outputs.tag_name }}
         run: |
-          mkdir -p build/Payload
-          cp -R build/gratefulagents.xcarchive/Products/Applications/*.app build/Payload/
+          IPA="platform-app/tauri/src-tauri/gen/apple/build/arm64/gratefulagents.ipa"
+          if [ ! -f "${IPA}" ]; then
+            echo "::error::Tauri iOS build completed without producing ${IPA}"
+            exit 1
+          fi
           ASSET="gratefulagents-${TAG_NAME}-ios-arm64-unsigned.ipa"
-          (cd build && zip -qry "${ASSET}" Payload)
-          gh release upload "${TAG_NAME}" "build/${ASSET}" --repo "${GITHUB_REPOSITORY}" --clobber
+          cp "${IPA}" "${ASSET}"
+          gh release upload "${TAG_NAME}" "${ASSET}" --repo "${GITHUB_REPOSITORY}" --clobber
 
   publish-release:
     name: Finalize release

@@ -18,7 +18,7 @@ If the private reporting form returns an error or is unavailable, open a public 
 
 ## Supported versions
 
-The project is currently at `v0.1.0` and does not publish a formal security-support window or response-time commitment. Reports are assessed against the current development branch and the latest published release where applicable. Older releases may not receive fixes; do not infer a support guarantee from this policy.
+The project is in early development and does not publish a formal security-support window or response-time commitment. Reports are assessed against the current development branch and the latest published release where applicable. Older releases may not receive fixes; do not infer a support guarantee from this policy.
 
 ## Disclosure
 

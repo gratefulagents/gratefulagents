@@ -22,7 +22,7 @@ k3s-prereqs: ## Install Debian/Ubuntu prerequisites for k3s management.
 	./scripts/install-k3s-dependencies.sh
 
 .PHONY: kind-install
-kind-install: ## Install or update the v0.1.0 release in a local Kind cluster.
+kind-install: ## Install or update the main build in a local Kind cluster.
 	./scripts/install-kind.sh
 
 .PHONY: k3s-install

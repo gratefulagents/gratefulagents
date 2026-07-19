@@ -9,8 +9,8 @@ DASHBOARD_PORT="${DASHBOARD_PORT:-8090}"
 GRATEFULAGENTS_REPOSITORY_URL="${GRATEFULAGENTS_REPOSITORY_URL:-https://github.com/gratefulagents/gratefulagents.git}"
 HELM_VERSION="${HELM_VERSION:-v3.18.6}"
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/gratefulagents}"
-IMAGE_TAG="${IMAGE_TAG:-v0.1.0}"
-GRATEFULAGENTS_REF="${GRATEFULAGENTS_REF:-$IMAGE_TAG}"
+IMAGE_TAG="${IMAGE_TAG:-main}"
+GRATEFULAGENTS_REF="${GRATEFULAGENTS_REF:-main}"
 KIND_NODE_IMAGE="${KIND_NODE_IMAGE:-kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f}"
 KIND_VERSION="${KIND_VERSION:-v0.29.0}"
 KUBECTL_VERSION="${KUBECTL_VERSION:-v1.33.1}"
@@ -34,10 +34,10 @@ Environment overrides:
   CHART_DIR             local Helm chart (auto-detected in a checkout)
   CLUSTER_NAME          Kind cluster name (default: gratefulagents)
   DASHBOARD_PORT        localhost dashboard port (default: 8090)
-  GRATEFULAGENTS_REF    chart source ref if no local chart exists (default: v0.1.0)
+  GRATEFULAGENTS_REF    chart source ref if no local chart exists (default: main)
   HELM_VERSION          Helm version (default: v3.18.6)
   IMAGE_REGISTRY        image registry/namespace (default: ghcr.io/gratefulagents)
-  IMAGE_TAG             controller, worker, and injector tag (default: v0.1.0)
+  IMAGE_TAG             controller, worker, and injector tag (default: main)
   KIND_NODE_IMAGE       pinned Kind node image
   KIND_VERSION          Kind version (default: v0.29.0)
   KUBECONFIG_FILE       dedicated kubeconfig path (default: under STATE_DIR)

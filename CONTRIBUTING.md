@@ -63,7 +63,7 @@ Use the route and scenario that exercise the changed UI. Review the generated sc
 Releases are automated from Conventional Commit messages on `main`. A `fix:`
 commit creates a patch release, `feat:` creates a minor release, and a commit
 with a `BREAKING CHANGE:` footer creates a major release. Other commit types do
-not publish a release by default. The first development release is `v0.1.0`.
+not publish a release by default.
 
 The release workflow calculates the next version, creates the Git tag and
 GitHub Release, stamps the version into the controller and native apps, and
