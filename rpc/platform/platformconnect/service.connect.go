@@ -85,6 +85,15 @@ const (
 	// PlatformServiceUpdateMyCredentialsProcedure is the fully-qualified name of the PlatformService's
 	// UpdateMyCredentials RPC.
 	PlatformServiceUpdateMyCredentialsProcedure = "/platform.v1.PlatformService/UpdateMyCredentials"
+	// PlatformServiceStartProviderOAuthProcedure is the fully-qualified name of the PlatformService's
+	// StartProviderOAuth RPC.
+	PlatformServiceStartProviderOAuthProcedure = "/platform.v1.PlatformService/StartProviderOAuth"
+	// PlatformServiceCompleteProviderOAuthProcedure is the fully-qualified name of the
+	// PlatformService's CompleteProviderOAuth RPC.
+	PlatformServiceCompleteProviderOAuthProcedure = "/platform.v1.PlatformService/CompleteProviderOAuth"
+	// PlatformServicePollProviderOAuthProcedure is the fully-qualified name of the PlatformService's
+	// PollProviderOAuth RPC.
+	PlatformServicePollProviderOAuthProcedure = "/platform.v1.PlatformService/PollProviderOAuth"
 	// PlatformServiceShareMyCredentialsProcedure is the fully-qualified name of the PlatformService's
 	// ShareMyCredentials RPC.
 	PlatformServiceShareMyCredentialsProcedure = "/platform.v1.PlatformService/ShareMyCredentials"
@@ -505,6 +514,16 @@ type PlatformServiceClient interface {
 	CreateAgentRun(context.Context, *connect.Request[platform.CreateAgentRunRequest]) (*connect.Response[platform.AgentRun], error)
 	ListMyCredentials(context.Context, *connect.Request[platform.ListMyCredentialsRequest]) (*connect.Response[platform.MyCredentials], error)
 	UpdateMyCredentials(context.Context, *connect.Request[platform.UpdateMyCredentialsRequest]) (*connect.Response[platform.MyCredentials], error)
+	// StartProviderOAuth starts a server-held OAuth session for browser clients.
+	// Anthropic returns a manual-code authorization URL; OpenAI returns a device
+	// code and verification URL. Provider tokens never pass through the browser.
+	StartProviderOAuth(context.Context, *connect.Request[platform.StartProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthStart], error)
+	// CompleteProviderOAuth completes Anthropic's manual-code flow and stores the
+	// resulting credentials in the calling user's namespace.
+	CompleteProviderOAuth(context.Context, *connect.Request[platform.CompleteProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error)
+	// PollProviderOAuth advances OpenAI's device-code flow and stores credentials
+	// after approval.
+	PollProviderOAuth(context.Context, *connect.Request[platform.PollProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error)
 	// ShareMyCredentials copies some of the calling user's saved credentials to
 	// another user by duplicating the secret material into that user's personal
 	// namespace. It is a one-time copy: later edits by either user do not
@@ -796,6 +815,24 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+PlatformServiceUpdateMyCredentialsProcedure,
 			connect.WithSchema(platformServiceMethods.ByName("UpdateMyCredentials")),
+			connect.WithClientOptions(opts...),
+		),
+		startProviderOAuth: connect.NewClient[platform.StartProviderOAuthRequest, platform.ProviderOAuthStart](
+			httpClient,
+			baseURL+PlatformServiceStartProviderOAuthProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("StartProviderOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		completeProviderOAuth: connect.NewClient[platform.CompleteProviderOAuthRequest, platform.ProviderOAuthResult](
+			httpClient,
+			baseURL+PlatformServiceCompleteProviderOAuthProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CompleteProviderOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		pollProviderOAuth: connect.NewClient[platform.PollProviderOAuthRequest, platform.ProviderOAuthResult](
+			httpClient,
+			baseURL+PlatformServicePollProviderOAuthProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("PollProviderOAuth")),
 			connect.WithClientOptions(opts...),
 		),
 		shareMyCredentials: connect.NewClient[platform.ShareMyCredentialsRequest, platform.ShareMyCredentialsResponse](
@@ -1612,6 +1649,9 @@ type platformServiceClient struct {
 	createAgentRun                         *connect.Client[platform.CreateAgentRunRequest, platform.AgentRun]
 	listMyCredentials                      *connect.Client[platform.ListMyCredentialsRequest, platform.MyCredentials]
 	updateMyCredentials                    *connect.Client[platform.UpdateMyCredentialsRequest, platform.MyCredentials]
+	startProviderOAuth                     *connect.Client[platform.StartProviderOAuthRequest, platform.ProviderOAuthStart]
+	completeProviderOAuth                  *connect.Client[platform.CompleteProviderOAuthRequest, platform.ProviderOAuthResult]
+	pollProviderOAuth                      *connect.Client[platform.PollProviderOAuthRequest, platform.ProviderOAuthResult]
 	shareMyCredentials                     *connect.Client[platform.ShareMyCredentialsRequest, platform.ShareMyCredentialsResponse]
 	listSlackAgents                        *connect.Client[platform.ListSlackAgentsRequest, platform.ListSlackAgentsResponse]
 	updateSlackAgent                       *connect.Client[platform.UpdateSlackAgentRequest, platform.SlackAgent]
@@ -1829,6 +1869,21 @@ func (c *platformServiceClient) ListMyCredentials(ctx context.Context, req *conn
 // UpdateMyCredentials calls platform.v1.PlatformService.UpdateMyCredentials.
 func (c *platformServiceClient) UpdateMyCredentials(ctx context.Context, req *connect.Request[platform.UpdateMyCredentialsRequest]) (*connect.Response[platform.MyCredentials], error) {
 	return c.updateMyCredentials.CallUnary(ctx, req)
+}
+
+// StartProviderOAuth calls platform.v1.PlatformService.StartProviderOAuth.
+func (c *platformServiceClient) StartProviderOAuth(ctx context.Context, req *connect.Request[platform.StartProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthStart], error) {
+	return c.startProviderOAuth.CallUnary(ctx, req)
+}
+
+// CompleteProviderOAuth calls platform.v1.PlatformService.CompleteProviderOAuth.
+func (c *platformServiceClient) CompleteProviderOAuth(ctx context.Context, req *connect.Request[platform.CompleteProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error) {
+	return c.completeProviderOAuth.CallUnary(ctx, req)
+}
+
+// PollProviderOAuth calls platform.v1.PlatformService.PollProviderOAuth.
+func (c *platformServiceClient) PollProviderOAuth(ctx context.Context, req *connect.Request[platform.PollProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error) {
+	return c.pollProviderOAuth.CallUnary(ctx, req)
 }
 
 // ShareMyCredentials calls platform.v1.PlatformService.ShareMyCredentials.
@@ -2519,6 +2574,16 @@ type PlatformServiceHandler interface {
 	CreateAgentRun(context.Context, *connect.Request[platform.CreateAgentRunRequest]) (*connect.Response[platform.AgentRun], error)
 	ListMyCredentials(context.Context, *connect.Request[platform.ListMyCredentialsRequest]) (*connect.Response[platform.MyCredentials], error)
 	UpdateMyCredentials(context.Context, *connect.Request[platform.UpdateMyCredentialsRequest]) (*connect.Response[platform.MyCredentials], error)
+	// StartProviderOAuth starts a server-held OAuth session for browser clients.
+	// Anthropic returns a manual-code authorization URL; OpenAI returns a device
+	// code and verification URL. Provider tokens never pass through the browser.
+	StartProviderOAuth(context.Context, *connect.Request[platform.StartProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthStart], error)
+	// CompleteProviderOAuth completes Anthropic's manual-code flow and stores the
+	// resulting credentials in the calling user's namespace.
+	CompleteProviderOAuth(context.Context, *connect.Request[platform.CompleteProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error)
+	// PollProviderOAuth advances OpenAI's device-code flow and stores credentials
+	// after approval.
+	PollProviderOAuth(context.Context, *connect.Request[platform.PollProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error)
 	// ShareMyCredentials copies some of the calling user's saved credentials to
 	// another user by duplicating the secret material into that user's personal
 	// namespace. It is a one-time copy: later edits by either user do not
@@ -2806,6 +2871,24 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		PlatformServiceUpdateMyCredentialsProcedure,
 		svc.UpdateMyCredentials,
 		connect.WithSchema(platformServiceMethods.ByName("UpdateMyCredentials")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceStartProviderOAuthHandler := connect.NewUnaryHandler(
+		PlatformServiceStartProviderOAuthProcedure,
+		svc.StartProviderOAuth,
+		connect.WithSchema(platformServiceMethods.ByName("StartProviderOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCompleteProviderOAuthHandler := connect.NewUnaryHandler(
+		PlatformServiceCompleteProviderOAuthProcedure,
+		svc.CompleteProviderOAuth,
+		connect.WithSchema(platformServiceMethods.ByName("CompleteProviderOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServicePollProviderOAuthHandler := connect.NewUnaryHandler(
+		PlatformServicePollProviderOAuthProcedure,
+		svc.PollProviderOAuth,
+		connect.WithSchema(platformServiceMethods.ByName("PollProviderOAuth")),
 		connect.WithHandlerOptions(opts...),
 	)
 	platformServiceShareMyCredentialsHandler := connect.NewUnaryHandler(
@@ -3636,6 +3719,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceListMyCredentialsHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateMyCredentialsProcedure:
 			platformServiceUpdateMyCredentialsHandler.ServeHTTP(w, r)
+		case PlatformServiceStartProviderOAuthProcedure:
+			platformServiceStartProviderOAuthHandler.ServeHTTP(w, r)
+		case PlatformServiceCompleteProviderOAuthProcedure:
+			platformServiceCompleteProviderOAuthHandler.ServeHTTP(w, r)
+		case PlatformServicePollProviderOAuthProcedure:
+			platformServicePollProviderOAuthHandler.ServeHTTP(w, r)
 		case PlatformServiceShareMyCredentialsProcedure:
 			platformServiceShareMyCredentialsHandler.ServeHTTP(w, r)
 		case PlatformServiceListSlackAgentsProcedure:
@@ -3975,6 +4064,18 @@ func (UnimplementedPlatformServiceHandler) ListMyCredentials(context.Context, *c
 
 func (UnimplementedPlatformServiceHandler) UpdateMyCredentials(context.Context, *connect.Request[platform.UpdateMyCredentialsRequest]) (*connect.Response[platform.MyCredentials], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateMyCredentials is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) StartProviderOAuth(context.Context, *connect.Request[platform.StartProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthStart], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.StartProviderOAuth is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CompleteProviderOAuth(context.Context, *connect.Request[platform.CompleteProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CompleteProviderOAuth is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) PollProviderOAuth(context.Context, *connect.Request[platform.PollProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.PollProviderOAuth is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ShareMyCredentials(context.Context, *connect.Request[platform.ShareMyCredentialsRequest]) (*connect.Response[platform.ShareMyCredentialsResponse], error) {

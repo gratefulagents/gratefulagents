@@ -155,6 +155,30 @@ func (h *PlatformServiceConnectHandler) UpdateMyCredentials(ctx context.Context,
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) StartProviderOAuth(ctx context.Context, req *connect.Request[platform.StartProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthStart], error) {
+	resp, err := h.srv.StartProviderOAuth(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) CompleteProviderOAuth(ctx context.Context, req *connect.Request[platform.CompleteProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error) {
+	resp, err := h.srv.CompleteProviderOAuth(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) PollProviderOAuth(ctx context.Context, req *connect.Request[platform.PollProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthResult], error) {
+	resp, err := h.srv.PollProviderOAuth(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) ShareMyCredentials(ctx context.Context, req *connect.Request[platform.ShareMyCredentialsRequest]) (*connect.Response[platform.ShareMyCredentialsResponse], error) {
 	resp, err := h.srv.ShareMyCredentials(ctx, req.Msg)
 	if err != nil {

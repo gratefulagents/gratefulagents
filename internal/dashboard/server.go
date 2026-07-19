@@ -28,24 +28,31 @@ import (
 // Server implements the PlatformService business logic.
 // It reads from the controller-runtime cache (zero extra K8s API load).
 type Server struct {
-	k8sClient        client.Client
-	scheme           *runtime.Scheme
-	s3Reader         *s3ActivityReader
-	s3Diff           *s3DiffReader
-	clientset        *kubernetes.Clientset // for pod exec (activity log streaming)
-	restConfig       *rest.Config          // for pod exec SPDY transport
-	teamService      agentrun.TeamService
-	teamModeEnabled  bool
-	stateStore       store.StateStore // optional Postgres state backend
-	jaeger           *jaegerClient    // optional Jaeger query client
-	presence         *PresenceTracker // in-memory presence tracker
-	authStore        auth.Store       // integrated auth store (user search)
-	githubApp        GitHubAppConfig  // platform GitHub App onboarding config
-	githubAppMinter  *githubapp.KeyedMinter
-	githubHTTP       *http.Client
-	githubAPIBase    string
-	skillsHTTP       *http.Client
-	skillsCatalogURL string
+	k8sClient         client.Client
+	scheme            *runtime.Scheme
+	s3Reader          *s3ActivityReader
+	s3Diff            *s3DiffReader
+	clientset         *kubernetes.Clientset // for pod exec (activity log streaming)
+	restConfig        *rest.Config          // for pod exec SPDY transport
+	teamService       agentrun.TeamService
+	teamModeEnabled   bool
+	stateStore        store.StateStore // optional Postgres state backend
+	jaeger            *jaegerClient    // optional Jaeger query client
+	presence          *PresenceTracker // in-memory presence tracker
+	authStore         auth.Store       // integrated auth store (user search)
+	githubApp         GitHubAppConfig  // platform GitHub App onboarding config
+	githubAppMinter   *githubapp.KeyedMinter
+	githubHTTP        *http.Client
+	githubAPIBase     string
+	skillsHTTP        *http.Client
+	skillsCatalogURL  string
+	providerOAuthHTTP *http.Client
+
+	// providerOAuthSessions holds short-lived PKCE/device sessions keyed by the
+	// verified user subject. Provider tokens are exchanged and stored server-side
+	// so browser clients never receive refresh credentials.
+	providerOAuthMu       sync.Mutex
+	providerOAuthSessions map[string]providerOAuthSession
 
 	// metricsCache caches aggregated resource metrics per namespace for a
 	// short TTL: every project/cron/repo get/list/watch tick otherwise lists
@@ -101,16 +108,18 @@ func boolPtr(v bool) *bool { return &v }
 func NewServer(c client.Client, scheme *runtime.Scheme, clientset *kubernetes.Clientset, restConfig *rest.Config, teamModeEnabled bool, opts ...ServerOption) *Server {
 	ar := newS3ActivityReader()
 	s := &Server{
-		k8sClient:       c,
-		scheme:          scheme,
-		s3Reader:        ar,
-		s3Diff:          newS3DiffReader(ar),
-		clientset:       clientset,
-		restConfig:      restConfig,
-		teamModeEnabled: teamModeEnabled,
-		jaeger:          newJaegerClient(),
-		presence:        NewPresenceTracker(),
-		githubAppMinter: githubapp.NewKeyedMinter(),
+		k8sClient:             c,
+		scheme:                scheme,
+		s3Reader:              ar,
+		s3Diff:                newS3DiffReader(ar),
+		clientset:             clientset,
+		restConfig:            restConfig,
+		teamModeEnabled:       teamModeEnabled,
+		jaeger:                newJaegerClient(),
+		presence:              NewPresenceTracker(),
+		githubAppMinter:       githubapp.NewKeyedMinter(),
+		providerOAuthHTTP:     &http.Client{Timeout: 20 * time.Second},
+		providerOAuthSessions: make(map[string]providerOAuthSession),
 	}
 	for _, opt := range opts {
 		opt(s)

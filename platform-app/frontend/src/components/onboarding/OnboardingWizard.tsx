@@ -443,7 +443,7 @@ function ProviderStep({
         → Credentials.
       </StepIntro>
 
-      {/* Desktop-only helpers: CLI import + OAuth sign-in. They render nothing on the web. */}
+      {/* Local import and Copilot are desktop-only; Claude and OpenAI OAuth also work on web. */}
       <ImportLocalCredentials onImported={onImported} />
       <AnthropicOAuthConnect onSaved={apply} />
       <OpenAIOAuthConnect onSaved={apply} />
@@ -513,12 +513,11 @@ function ProviderStep({
       </div>
 
       <p className="text-[11.5px] text-muted-foreground/80">
-        Have Claude Pro/Max, ChatGPT, or Copilot OAuth instead? Sign in from the desktop app, or
-        paste the CLI's credential JSON in{" "}
+        Prefer existing CLI credentials? You can also paste credential JSON in{" "}
         <Link to="/settings/credentials" className="underline underline-offset-2 hover:text-foreground">
           Settings → Credentials
         </Link>
-        .
+        . GitHub Copilot sign-in and local credential import require the desktop app.
       </p>
     </div>
   );

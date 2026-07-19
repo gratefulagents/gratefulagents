@@ -29,6 +29,16 @@ service PlatformService {
   rpc CreateAgentRun(CreateAgentRunRequest) returns (AgentRun);
   rpc ListMyCredentials(ListMyCredentialsRequest) returns (MyCredentials);
   rpc UpdateMyCredentials(UpdateMyCredentialsRequest) returns (MyCredentials);
+  // StartProviderOAuth starts a server-held OAuth session for browser clients.
+  // Anthropic returns a manual-code authorization URL; OpenAI returns a device
+  // code and verification URL. Provider tokens never pass through the browser.
+  rpc StartProviderOAuth(StartProviderOAuthRequest) returns (ProviderOAuthStart);
+  // CompleteProviderOAuth completes Anthropic's manual-code flow and stores the
+  // resulting credentials in the calling user's namespace.
+  rpc CompleteProviderOAuth(CompleteProviderOAuthRequest) returns (ProviderOAuthResult);
+  // PollProviderOAuth advances OpenAI's device-code flow and stores credentials
+  // after approval.
+  rpc PollProviderOAuth(PollProviderOAuthRequest) returns (ProviderOAuthResult);
   // ShareMyCredentials copies some of the calling user's saved credentials to
   // another user by duplicating the secret material into that user's personal
   // namespace. It is a one-time copy: later edits by either user do not
@@ -3435,4 +3445,45 @@ message DeleteProjectContentRequest {
   // Callers must explicitly acknowledge permanent removal: deletion hides the
   // item and purges its stored version bytes so project quota is recovered.
   bool confirm = 4;
+}
+
+// Browser-safe provider OAuth messages live at the end of this file so adding
+// the feature does not renumber existing generated message metadata.
+message StartProviderOAuthRequest {
+  // Supported values: "anthropic", "openai".
+  string provider = 1;
+}
+
+message ProviderOAuthStart {
+  string provider = 1;
+  // "manual-code" for Anthropic, "device" for OpenAI.
+  string mode = 2;
+  string authorize_url = 3;
+  string user_code = 4;
+  uint32 interval_seconds = 5;
+  // Opaque per-attempt identifier required by Complete/Poll.
+  string session_id = 6;
+}
+
+message CompleteProviderOAuthRequest {
+  string provider = 1;
+  // Anthropic's callback page displays code#state for the user to paste.
+  string code = 2;
+  string session_id = 3;
+}
+
+message PollProviderOAuthRequest {
+  string provider = 1;
+  string session_id = 2;
+}
+
+message ProviderOAuthResult {
+  // pending | completed | expired | error
+  string status = 1;
+  string provider = 2;
+  string email = 3;
+  string error = 4;
+  // Populated after completion so the UI can update credential presence
+  // without receiving any provider token material.
+  MyCredentials credentials = 5;
 }
