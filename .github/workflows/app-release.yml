@@ -1,7 +1,5 @@
 name: Release
 
-# Disabled by default. Set the repository variable ENABLE_GITHUB_ACTIONS=true
-# when this pipeline is ready to create release PRs, images, and app bundles.
 on:
   push:
     branches:
@@ -15,7 +13,7 @@ concurrency:
 jobs:
   release:
     name: Version and release
-    if: ${{ vars.ENABLE_GITHUB_ACTIONS == 'true' && github.ref == 'refs/heads/main' }}
+    if: github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -38,7 +36,7 @@ jobs:
   images:
     name: ${{ matrix.image }} image
     needs: release
-    if: ${{ vars.ENABLE_GITHUB_ACTIONS == 'true' && github.ref == 'refs/heads/main' }}
+    if: github.ref == 'refs/heads/main' }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,7 +79,7 @@ jobs:
   website:
     name: GitHub Pages website
     needs: release
-    if: ${{ vars.ENABLE_GITHUB_ACTIONS == 'true' && github.ref == 'refs/heads/main' }}
+    if: github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -126,7 +124,7 @@ jobs:
   desktop:
     name: Tauri ${{ matrix.name }}
     needs: release
-    if: ${{ vars.ENABLE_GITHUB_ACTIONS == 'true' && needs.release.outputs.release_created == 'true' }}
+    if: ${{ needs.release.outputs.release_created == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -225,7 +223,7 @@ jobs:
   android:
     name: Tauri Android ARM64
     needs: release
-    if: ${{ vars.ENABLE_GITHUB_ACTIONS == 'true' && needs.release.outputs.release_created == 'true' }}
+    if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -318,7 +316,7 @@ jobs:
   ios:
     name: Tauri iOS ARM64
     needs: release
-    if: ${{ vars.ENABLE_GITHUB_ACTIONS == 'true' && needs.release.outputs.release_created == 'true' }}
+    if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: macos-latest
     permissions:
       contents: write
@@ -402,7 +400,7 @@ jobs:
       - desktop
       - android
       - ios
-    if: ${{ vars.ENABLE_GITHUB_ACTIONS == 'true' && needs.release.outputs.release_created == 'true' }}
+    if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
