@@ -1,3 +1,4 @@
 # Changelog
 
-Release Please maintains this file from Conventional Commit messages.
+Release notes are generated from Conventional Commit messages and published
+with each GitHub Release.

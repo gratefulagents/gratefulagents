@@ -17,21 +17,22 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      issues: write
-      pull-requests: write
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_created: ${{ steps.release.outputs.version != '' }}
+      tag_name: ${{ format('v{0}', steps.release.outputs.version) }}
       version: ${{ steps.release.outputs.version }}
-      release_sha: ${{ steps.release.outputs.sha }}
+      release_sha: ${{ github.sha }}
     steps:
-      - name: Create or update the Conventional Commit release
-        id: release
-        uses: googleapis/release-please-action@v5
+      - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          fetch-depth: 0
+
+      - name: Create the semantic version tag and GitHub release
+        id: release
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          allow-initial-development-versions: true
 
   images:
     name: ${{ matrix.image }} image
@@ -59,6 +60,7 @@ jobs:
       file: ${{ matrix.dockerfile }}
       build-args: |
         VITE_BUILD_COMMIT=${{ github.sha }}
+        APP_VERSION=${{ needs.release.outputs.version || 'dev' }}
       platforms: linux/amd64,linux/arm64
       cache: true
       cache-scope: gratefulagents-${{ matrix.image }}
@@ -215,7 +217,7 @@ jobs:
           tauriScript: pnpm tauri
           args: ${{ matrix.args }} --config ${{ runner.temp }}/tauri-release.conf.json --ci
           tagName: ${{ needs.release.outputs.tag_name }}
-          releaseDraft: true
+          releaseDraft: false
           uploadUpdaterJson: false
           uploadUpdaterSignatures: true
           retryAttempts: 2
@@ -392,7 +394,7 @@ jobs:
           gh release upload "${TAG_NAME}" "build/${ASSET}" --repo "${GITHUB_REPOSITORY}" --clobber
 
   publish-release:
-    name: Publish release
+    name: Finalize release
     needs:
       - release
       - images
@@ -468,9 +470,3 @@ jobs:
             '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms[0]}' \
             > latest.json
           gh release upload "${TAG_NAME}" latest.json --repo "${GITHUB_REPOSITORY}" --clobber
-
-      - name: Publish the completed draft
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ needs.release.outputs.tag_name }}
-        run: gh release edit "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest

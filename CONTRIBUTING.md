@@ -58,6 +58,18 @@ Use the route and scenario that exercise the changed UI. Review the generated sc
 4. Run the relevant available validation for the files you changed. Do not claim commands that you did not run.
 5. Use a short imperative commit subject. Recent history commonly uses conventional prefixes such as `fix:`, `feat:`, `test:`, or `chore:`.
 
+## Releases
+
+Releases are automated from Conventional Commit messages on `main`. A `fix:`
+commit creates a patch release, `feat:` creates a minor release, and a commit
+with a `BREAKING CHANGE:` footer creates a major release. Other commit types do
+not publish a release by default. The first development release is `v0.1.0`.
+
+The release workflow calculates the next version, creates the Git tag and
+GitHub Release, stamps the version into the controller and native apps, and
+uploads the release artifacts. No release pull request or checked-in version
+file is used.
+
 ## Open a pull request
 
 Describe:

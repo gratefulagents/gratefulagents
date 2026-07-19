@@ -6,10 +6,9 @@
 !**/*.go
 **/*_test.go
 
-# Re-include Go module and release version files
+# Re-include Go module files
 !go.mod
 !go.sum
-!version.txt
 
 # Re-include embedded prompt templates
 !**/*.md

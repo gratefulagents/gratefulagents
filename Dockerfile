@@ -29,6 +29,7 @@ RUN pnpm --filter web build
 FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
 ARG TARGETOS
 ARG TARGETARCH
+ARG APP_VERSION=dev
 
 WORKDIR /workspace
 ENV GOTOOLCHAIN=local
@@ -47,7 +48,6 @@ COPY . .
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    APP_VERSION="$(cat version.txt)" && \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath \
       -ldflags="-X github.com/gratefulagents/gratefulagents/internal/buildinfo.Version=${APP_VERSION}" \
