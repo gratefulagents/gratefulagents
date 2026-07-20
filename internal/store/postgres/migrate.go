@@ -129,10 +129,12 @@ var noTxMigrations = map[int]bool{40: true}
 
 // applyNoTxMigration executes each semicolon-terminated statement of a
 // migration directly on the connection (no surrounding transaction), then
-// records the version.
+// records the version. Line comments are stripped before splitting so a
+// semicolon inside a comment cannot corrupt statement boundaries.
 func applyNoTxMigration(ctx context.Context, conn *pgxpool.Conn, version int, sql string) error {
-	for _, stmt := range strings.Split(sql, ";") {
-		if strings.TrimLeft(stripSQLLineComments(stmt), " \t\r\n") == "" {
+	for _, stmt := range strings.Split(stripSQLLineComments(sql), ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
 			continue
 		}
 		if _, err := conn.Exec(ctx, stmt); err != nil {
