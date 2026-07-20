@@ -245,10 +245,9 @@ img { max-width: 100%; height: auto; }
 .hero-facts dt { color: var(--faded-dim); font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; }
 .hero-facts dd { margin: 0.12rem 0 0; color: var(--chalk); font-size: 0.78rem; }
 
-/* A compact tear-off instruction beneath the product facts puts the local
-   evaluation path on the first screen without competing with the main plate. */
+/* A quiet instruction row beneath the product facts puts the local evaluation
+   path on the first screen without competing with the primary actions. */
 .hero-install {
-  position: relative;
   width: 100%;
   max-width: 34rem;
   display: flex;
@@ -256,17 +255,9 @@ img { max-width: 100%; height: auto; }
   justify-content: space-between;
   gap: 0.9rem;
   margin-top: clamp(1rem, 2vh, 1.4rem);
-  padding: 0.72rem 0.75rem 0.72rem 0.9rem;
-  border: 1px dashed var(--line-strong);
-  background: rgba(232, 232, 234, 0.025);
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
   text-align: left;
-}
-.hero-install::before {
-  position: absolute;
-  inset: -1px auto -1px -1px;
-  width: 2px;
-  content: '';
-  background: var(--redline);
 }
 .hero-install > div { min-width: 0; }
 .hero-install-key {
@@ -289,19 +280,19 @@ img { max-width: 100%; height: auto; }
 .hero-install-copy {
   min-height: 38px;
   flex: none;
-  padding: 0.5rem 0.68rem;
-  border: 1px solid var(--line-strong);
-  background: var(--blue-panel);
+  padding: 0.5rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  background: transparent;
   color: var(--chalk-bright);
   font-family: var(--font-mono);
   font-size: 0.62rem;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+  transition: border-color 160ms ease, color 160ms ease;
 }
 .hero-install-copy:hover {
   border-color: var(--redline-soft);
-  background: var(--redline-wash);
   color: var(--redline-soft);
 }
 
@@ -788,8 +779,8 @@ img { max-width: 100%; height: auto; }
   .hero .btn { min-height: 40px; padding: 0.55rem 0.85rem; font-size: 0.76rem; }
   .hero-facts { gap: 1rem; }
   .hero-facts dd { font-size: 0.7rem; }
-  .hero-install { display: block; max-width: 25rem; padding: 0.75rem; }
-  .hero-install-copy { width: 100%; margin-top: 0.65rem; }
+  .hero-install { display: block; max-width: 25rem; padding-top: 0.75rem; }
+  .hero-install-copy { margin-top: 0.5rem; }
   .plate-stage { margin: 10px 10px 0; }
   .title-block { margin: 10px; font-size: 0.56rem; }
   .title-block > div { padding: 0.4rem 0.5rem; }
