@@ -234,6 +234,13 @@ img { max-width: 100%; height: auto; }
 .btn-primary:hover { background: var(--redline); border-color: var(--redline); color: var(--chalk-bright); }
 .btn-quiet { border-color: var(--line-strong); background: rgba(232, 232, 234, 0.04); color: var(--chalk); }
 .btn-quiet:hover { border-color: var(--chalk); color: var(--chalk-bright); }
+.btn-clients {
+  padding-inline: 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
 
 /* A quiet instruction row beneath the actions keeps the local evaluation path
    on the first screen without competing with those primary controls. */
@@ -349,6 +356,7 @@ img { max-width: 100%; height: auto; }
    no letterboxing at any monitor size. 1.5936 = 2000/1255. */
 .hero-plate {
   --stage-h: clamp(20rem, min(calc(100svh - 18rem), calc((min(100vw - 3rem, var(--shell)) - 36rem) / 1.5936)), 56rem);
+  align-self: start;
   display: flex;
   flex-direction: column;
   width: calc(var(--stage-h) * 1.5936 + 30px);
@@ -447,7 +455,7 @@ img { max-width: 100%; height: auto; }
   align-items: center;
   justify-content: space-between;
   gap: 1rem 2.5rem;
-  margin-top: clamp(1.4rem, 3vh, 2.2rem);
+  margin-top: 0;
   padding: 1.1rem 1.2rem;
   border: 1px solid var(--line-strong);
   background: rgba(18, 18, 20, 0.7);
