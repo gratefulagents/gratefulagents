@@ -39,6 +39,8 @@ export function ListState({
   emptyAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const refresh = onRetry ?? (() => window.location.reload());
+
   if (loading) {
     return <div role="status" aria-live="polite">{skeleton ?? <ListRowSkeleton />}</div>;
   }
@@ -50,15 +52,13 @@ export function ListState({
       >
         <p className="font-medium">Couldn't load</p>
         <p className="text-muted-foreground">{error}</p>
-        {onRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="rounded-[5px] border border-border/70 bg-background px-2.5 py-1 text-[11.5px] hover:bg-muted"
-          >
-            Try again
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={refresh}
+          className="rounded-[5px] border border-border/70 bg-background px-2.5 py-1 text-[11.5px] hover:bg-muted"
+        >
+          Refresh
+        </button>
       </div>
     );
   }
@@ -99,15 +99,13 @@ export function ListState({
           <span className="min-w-0 flex-1 basis-48 truncate text-muted-foreground" title={error}>
             {error}
           </span>
-          {onRetry && (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="rounded-[5px] border border-border/70 bg-background px-2 py-0.5 text-[11.5px] hover:bg-muted"
-            >
-              Retry now
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={refresh}
+            className="rounded-[5px] border border-border/70 bg-background px-2 py-0.5 text-[11.5px] hover:bg-muted"
+          >
+            Refresh
+          </button>
         </div>
       ) : null}
       {children}

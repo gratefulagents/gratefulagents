@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 
 import { ListState } from "@/components/ui/list-state";
@@ -38,6 +38,7 @@ describe("ListState", () => {
     // remounting destroys open dialogs, form edits, and scroll position.
     rerender(view("stream AgentRuns: connection lost"));
     expect(screen.getByRole("alert").textContent).toContain("Connection trouble");
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
     expect(screen.getByTestId("content")).toBeTruthy();
     expect(counter.mounts).toBe(1);
 
@@ -46,6 +47,23 @@ describe("ListState", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByTestId("content")).toBeTruthy();
     expect(counter.mounts).toBe(1);
+  });
+
+  it("calls the supplied refresh action from the connection banner", () => {
+    let refreshes = 0;
+    render(
+      <ListState
+        loading={false}
+        error="[unknown] error decoding response body"
+        empty={false}
+        onRetry={() => { refreshes += 1; }}
+      >
+        <div>content</div>
+      </ListState>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(refreshes).toBe(1);
   });
 
   it("shows the full error card only when there is no data", () => {
