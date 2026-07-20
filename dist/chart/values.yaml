@@ -211,8 +211,8 @@ jaeger:
   resources: {}
 
 ## Default platform configuration applied after install/upgrade:
-## ModeTemplates (interactive/plan/autopilot/review/slack) and RoleInstructions for the
-## specialist sub-agents. Disable if you manage these yourself.
+## ModeTemplates and RoleInstructions for the specialist sub-agents. Disable if you
+## manage these yourself.
 ##
 bootstrapDefaults:
   enabled: true

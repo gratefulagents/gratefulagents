@@ -16,6 +16,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	gratefulAgentsProjectName = "gratefulagents"
+	gratefulAgentsRepoURL     = "https://github.com/gratefulagents/gratefulagents.git"
+	gratefulAgentsSDKRepoURL  = "https://github.com/gratefulagents/sdk.git"
+	gratefulAgentsModeName    = "gratefulagents"
+)
+
 func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectRequest) (*platform.Project, error) {
 	// Projects always live in the caller's personal namespace; the client-supplied
 	// namespace (if any) is ignored.
@@ -217,6 +224,9 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 			},
 		},
 	}
+	if isGratefulAgentsBootstrapProject(name, repoURL, additionalRepos) {
+		project.Spec.Defaults.ModeRef = &platformv1alpha1.ModeRef{Name: gratefulAgentsModeName}
+	}
 
 	if err := s.k8sClient.Create(ctx, project); err != nil {
 		if runtimeProfileCreated {
@@ -238,26 +248,29 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 	// treated as system-created and becomes visible to every authenticated
 	// user, so a silently dropped ownership record would leak the project's
 	// configuration.
-	if s.stateStore != nil {
-		actor := requestActorFromContext(ctx)
-		if actor.Subject != "" {
-			if err := s.stateStore.SetResourceOwner(ctx, projectResourceType, project.Name, project.Namespace, actor.Subject); err != nil {
-				_ = s.k8sClient.Delete(ctx, project)
-				if runtimeProfileCreated {
-					s.cleanupRuntimeProfile(ctx, namespace, runtimeProfileRef.Name)
-				}
-				if mcpPolicyCreated {
-					s.cleanupMCPPolicy(ctx, namespace, mcpPolicyRef.Name)
-				}
-				if secret != nil {
-					s.cleanupProjectCredentialSecret(ctx, namespace, secretName)
-				}
-				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("record ownership for Project %s/%s: %w", project.Namespace, project.Name, err))
+	if s.stateStore != nil && actor.Subject != "" {
+		if err := s.stateStore.SetResourceOwner(ctx, projectResourceType, project.Name, project.Namespace, actor.Subject); err != nil {
+			_ = s.k8sClient.Delete(ctx, project)
+			if runtimeProfileCreated {
+				s.cleanupRuntimeProfile(ctx, namespace, runtimeProfileRef.Name)
 			}
+			if mcpPolicyCreated {
+				s.cleanupMCPPolicy(ctx, namespace, mcpPolicyRef.Name)
+			}
+			if secret != nil {
+				s.cleanupProjectCredentialSecret(ctx, namespace, secretName)
+			}
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("record ownership for Project %s/%s: %w", project.Namespace, project.Name, err))
 		}
 	}
 
 	return s.enrichProjectProto(ctx, k8sProjectToProto(project)), nil
+}
+
+func isGratefulAgentsBootstrapProject(name, repoURL string, additionalRepos []string) bool {
+	return name == gratefulAgentsProjectName &&
+		repoURL == gratefulAgentsRepoURL &&
+		len(additionalRepos) == 1 && additionalRepos[0] == gratefulAgentsSDKRepoURL
 }
 
 func (s *Server) cleanupProjectCredentialSecret(ctx context.Context, namespace, secretName string) {

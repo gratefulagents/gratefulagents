@@ -4,6 +4,7 @@ import { Code } from "@connectrpc/connect";
 import { ArrowUp, ChevronDown, FolderKanban, SlidersHorizontal } from "lucide-react";
 
 import { client } from "@/lib/client";
+import { useMyCredentials } from "@/hooks/useMyCredentials";
 import { useProjects } from "@/hooks/useWatchedList";
 import { readLastProject, writeLastProject } from "@/lib/lastProject";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,11 @@ interface PersonalWorkspaceDefaults {
   authMode: string;
   model: string;
 }
+
+const personalWorkspaceProjectName = "personal-workspace";
+const gratefulAgentsProjectName = "gratefulagents";
+const gratefulAgentsRepoUrl = "https://github.com/gratefulagents/gratefulagents.git";
+const gratefulAgentsSdkRepoUrl = "https://github.com/gratefulagents/sdk.git";
 
 async function personalWorkspaceDefaults(
   credentials: MyCredentials,
@@ -85,6 +91,29 @@ async function personalWorkspaceDefaults(
   throw new Error("Connect a model provider in Settings to start chatting.");
 }
 
+async function ensureGratefulAgentsProject(
+  defaults: PersonalWorkspaceDefaults,
+  runtimeProfileRef: string,
+): Promise<void> {
+  try {
+    await client.createProject({
+      name: gratefulAgentsProjectName,
+      displayName: "Grateful Agents",
+      repoUrl: gratefulAgentsRepoUrl,
+      additionalRepoUrls: [gratefulAgentsSdkRepoUrl],
+      baseBranch: "main",
+      provider: defaults.provider,
+      model: defaults.model,
+      authMode: defaults.authMode,
+      useSavedCredentials: true,
+      runtimeProfileRef,
+      reviewLoopDisabled: true,
+    });
+  } catch (err) {
+    if (connectCodeOf(err) !== Code.AlreadyExists) throw err;
+  }
+}
+
 export interface NewChatComposerProps {
   /** Pin the chat to a specific project; hides the picker. */
   fixedNamespace?: string;
@@ -110,6 +139,8 @@ export function NewChatComposer({
 }: NewChatComposerProps) {
   const navigate = useNavigate();
   const { projects, loading: projectsLoading, error: projectsError } = useProjects();
+  const { presence: credentialPresence, loading: credentialsLoading } = useMyCredentials();
+  const personalNamespace = credentialPresence?.namespace ?? "";
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,8 +170,13 @@ export function NewChatComposer({
       const m = projects.find((p) => p.name === last.name && p.namespace === last.namespace);
       if (m) return m;
     }
-    return projects[0];
-  }, [projects, picked, fixedProject, fixedNamespace]);
+    const personalWorkspace = projects.find(
+      (candidate) =>
+        candidate.namespace === personalNamespace &&
+        candidate.name === personalWorkspaceProjectName,
+    );
+    return personalWorkspace ?? projects[0];
+  }, [projects, picked, fixedProject, fixedNamespace, personalNamespace]);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -151,17 +187,30 @@ export function NewChatComposer({
 
   async function submit() {
     const request = text.trim();
-    if (!request || projectsLoading || projectsError || submitting) return;
+    if (!request || projectsLoading || credentialsLoading || projectsError || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
       let chatProject = project;
+      let defaults: PersonalWorkspaceDefaults | undefined;
+      let personalWorkspace = projects.find(
+        (candidate) =>
+          candidate.namespace === personalNamespace &&
+          candidate.name === personalWorkspaceProjectName,
+      );
+      const loadDefaults = async () => {
+        if (defaults) return defaults;
+        const credentials = await client.listMyCredentials({});
+        defaults = await personalWorkspaceDefaults(credentials, model.trim());
+        return defaults;
+      };
+
       if (!chatProject) {
         const credentials = await client.listMyCredentials({});
-        const defaults = await personalWorkspaceDefaults(credentials, model.trim());
+        defaults = await personalWorkspaceDefaults(credentials, model.trim());
         try {
-          chatProject = await client.createProject({
-            name: "personal-workspace",
+          const createdPersonalWorkspace = await client.createProject({
+            name: personalWorkspaceProjectName,
             displayName: "Personal workspace",
             provider: defaults.provider,
             model: defaults.model,
@@ -172,16 +221,33 @@ export function NewChatComposer({
             egressMode: "unrestricted",
             reviewLoopDisabled: true,
           });
+          chatProject = createdPersonalWorkspace;
+          personalWorkspace = createdPersonalWorkspace;
         } catch (err) {
           if (connectCodeOf(err) !== Code.AlreadyExists) throw err;
           const existing = await client.listProjects({ namespace: credentials.namespace });
-          const personalWorkspace = existing.projects.find(
-            (candidate) => candidate.name === "personal-workspace",
+          personalWorkspace = existing.projects.find(
+            (candidate) => candidate.name === personalWorkspaceProjectName,
           );
           if (!personalWorkspace) throw err;
           chatProject = personalWorkspace;
         }
       }
+
+      if (
+        personalWorkspace &&
+        !projects.some(
+          (candidate) =>
+            candidate.namespace === personalWorkspace?.namespace &&
+            candidate.name === gratefulAgentsProjectName,
+        )
+      ) {
+        await ensureGratefulAgentsProject(
+          await loadDefaults(),
+          personalWorkspace.runtimeProfileRef,
+        );
+      }
+
       const res = await client.createAgentRun({
         namespace: chatProject.namespace,
         userRequest: request,
@@ -196,7 +262,8 @@ export function NewChatComposer({
     }
   }
 
-  const canSubmit = Boolean(text.trim()) && !projectsLoading && !projectsError && !submitting;
+  const canSubmit =
+    Boolean(text.trim()) && !projectsLoading && !credentialsLoading && !projectsError && !submitting;
 
   return (
     <div className="flex flex-col gap-2">
@@ -214,7 +281,7 @@ export function NewChatComposer({
             }
           }}
           placeholder={placeholder}
-          disabled={projectsLoading || Boolean(projectsError) || submitting}
+          disabled={projectsLoading || credentialsLoading || Boolean(projectsError) || submitting}
           className={cn(
             "px-4 pt-3.5 leading-relaxed",
             variant === "hero" ? "min-h-16" : "min-h-10",

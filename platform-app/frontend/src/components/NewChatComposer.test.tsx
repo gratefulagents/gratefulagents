@@ -8,10 +8,16 @@ import { client } from "@/lib/client";
 
 const navigate = vi.fn();
 const watched = vi.hoisted(() => ({
-  projects: [] as Array<{ namespace: string; name: string; displayName: string }>,
+  projects: [] as Array<{
+    namespace: string;
+    name: string;
+    displayName: string;
+    runtimeProfileRef?: string;
+  }>,
   loading: false,
   error: null as string | null,
 }));
+const credentialHook = vi.hoisted(() => ({ namespace: "alice-123", loading: false }));
 
 vi.mock("react-router-dom", async (load) => {
   const actual = await load<typeof import("react-router-dom")>();
@@ -19,6 +25,13 @@ vi.mock("react-router-dom", async (load) => {
 });
 vi.mock("@/hooks/useWatchedList", () => ({
   useProjects: () => watched,
+}));
+vi.mock("@/hooks/useMyCredentials", () => ({
+  useMyCredentials: () => ({
+    presence: { namespace: credentialHook.namespace },
+    loading: credentialHook.loading,
+    error: null,
+  }),
 }));
 vi.mock("@/lib/client", () => ({
   client: {
@@ -37,6 +50,8 @@ afterEach(() => {
   watched.projects = [];
   watched.loading = false;
   watched.error = null;
+  credentialHook.namespace = "alice-123";
+  credentialHook.loading = false;
 });
 
 describe("NewChatComposer", () => {
@@ -69,6 +84,7 @@ describe("NewChatComposer", () => {
       namespace: "alice-123",
       name: "personal-workspace",
       displayName: "Personal workspace",
+      runtimeProfileRef: "personal-workspace-runtime",
     } as never);
     vi.mocked(client.createAgentRun).mockResolvedValue({ namespace: "alice-123", name: "run-1" } as never);
 
@@ -86,6 +102,18 @@ describe("NewChatComposer", () => {
       useSavedCredentials: true,
     })));
     expect(vi.mocked(client.createProject).mock.calls[0][0].repoUrl ?? "").toBe("");
+    expect(client.createProject).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      name: "gratefulagents",
+      displayName: "Grateful Agents",
+      repoUrl: "https://github.com/gratefulagents/gratefulagents.git",
+      additionalRepoUrls: ["https://github.com/gratefulagents/sdk.git"],
+      baseBranch: "main",
+      provider: "anthropic",
+      authMode: "api-key",
+      useSavedCredentials: true,
+      runtimeProfileRef: "personal-workspace-runtime",
+      reviewLoopDisabled: true,
+    }));
     expect(client.createAgentRun).toHaveBeenCalledWith({
       namespace: "alice-123",
       userRequest: "Draft a client update",
@@ -93,6 +121,93 @@ describe("NewChatComposer", () => {
       source: { kind: "Project", name: "personal-workspace" },
     });
     expect(navigate).toHaveBeenCalledWith("/runs/alice-123/run-1");
+  });
+
+  it("backfills the Grateful Agents project beside an existing personal workspace", async () => {
+    watched.projects = [{
+      namespace: "alice-123",
+      name: "personal-workspace",
+      displayName: "Personal workspace",
+      runtimeProfileRef: "personal-workspace-runtime",
+    }];
+    vi.mocked(client.listMyCredentials).mockResolvedValue({
+      namespace: "alice-123",
+      openaiOauthPresent: true,
+    } as never);
+    vi.mocked(client.createProject).mockResolvedValue({
+      namespace: "alice-123",
+      name: "gratefulagents",
+    } as never);
+    vi.mocked(client.createAgentRun).mockResolvedValue({ namespace: "alice-123", name: "run-1" } as never);
+
+    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
+    fireEvent.change(screen.getByPlaceholderText("Describe a task, or ask anything…"), {
+      target: { value: "The install button is broken" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(client.createProject).toHaveBeenCalledTimes(1));
+    expect(client.createProject).toHaveBeenCalledWith(expect.objectContaining({
+      name: "gratefulagents",
+      repoUrl: "https://github.com/gratefulagents/gratefulagents.git",
+      additionalRepoUrls: ["https://github.com/gratefulagents/sdk.git"],
+      provider: "openai",
+      authMode: "oauth",
+      runtimeProfileRef: "personal-workspace-runtime",
+    }));
+    const bootstrapRequest = vi.mocked(client.createProject).mock.calls[0][0];
+    expect(bootstrapRequest.configureRuntimeProfile).toBeUndefined();
+    expect(bootstrapRequest.permissionMode).toBeUndefined();
+    expect(bootstrapRequest.egressMode).toBeUndefined();
+    expect(client.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({
+      source: { kind: "Project", name: "personal-workspace" },
+    }));
+  });
+
+  it("does not bootstrap from a personal workspace in another namespace", async () => {
+    watched.projects = [{
+      namespace: "shared-team",
+      name: "personal-workspace",
+      displayName: "Shared personal workspace",
+      runtimeProfileRef: "shared-runtime",
+    }];
+    vi.mocked(client.createAgentRun).mockResolvedValue({ namespace: "shared-team", name: "run-1" } as never);
+
+    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
+    fireEvent.change(screen.getByPlaceholderText("Describe a task, or ask anything…"), {
+      target: { value: "Summarize this shared project" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(client.createAgentRun).toHaveBeenCalled());
+    expect(client.createProject).not.toHaveBeenCalled();
+    expect(client.listMyCredentials).not.toHaveBeenCalled();
+  });
+
+  it("does not recreate an existing Grateful Agents project", async () => {
+    watched.projects = [
+      { namespace: "alice-123", name: "gratefulagents", displayName: "Grateful Agents" },
+      {
+        namespace: "alice-123",
+        name: "personal-workspace",
+        displayName: "Personal workspace",
+        runtimeProfileRef: "personal-workspace-runtime",
+      },
+    ];
+    vi.mocked(client.createAgentRun).mockResolvedValue({ namespace: "alice-123", name: "run-1" } as never);
+
+    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
+    fireEvent.change(screen.getByPlaceholderText("Describe a task, or ask anything…"), {
+      target: { value: "Continue working" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(client.createAgentRun).toHaveBeenCalled());
+    expect(client.createProject).not.toHaveBeenCalled();
+    expect(client.listMyCredentials).not.toHaveBeenCalled();
+    expect(client.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({
+      source: { kind: "Project", name: "personal-workspace" },
+    }));
   });
 
   it("selects a model before provisioning providers without platform defaults", async () => {
