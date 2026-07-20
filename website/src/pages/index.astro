@@ -19,6 +19,9 @@ const providers: {mark: MarkName; name: string}[] = [
   {mark: 'copilot', name: 'Copilot'},
 ];
 
+const kindGuidePath = '/docs/getting-started/self-hosting-kind/';
+const kindInstallPrompt = 'Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install gratefulagents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.';
+
 const slides = [
   {
     kind: 'Sheet 02 · Operate',
@@ -87,7 +90,7 @@ const stations = [
           <p class="eyebrow"><span class="signal"></span> Open source · self-hosted · Kubernetes native</p>
           <h1 id="hero-title">Self-hosted, cloud-based <span>agent harness.</span></h1>
           <div class="cta-row">
-            <a class="btn btn-primary" href="/docs/getting-started/quick-start/">Start with the quick start <span aria-hidden="true">→</span></a>
+            <a class="btn btn-primary" href={kindGuidePath}>Run the Kind demo <span aria-hidden="true">→</span></a>
             <a class="btn btn-quiet" href={repositoryUrl}>View source <span aria-hidden="true">↗</span></a>
           </div>
           <dl class="hero-facts" aria-label="Product facts">
@@ -95,6 +98,21 @@ const stations = [
             <div><dt>Runtime</dt><dd>Your cluster</dd></div>
             <div><dt>Clients</dt><dd>Web · Desktop · iOS · Android</dd></div>
           </dl>
+          <aside class="hero-install" aria-labelledby="hero-install-title">
+            <div>
+              <span class="hero-install-key">Kind demo · macOS or Linux</span>
+              <strong id="hero-install-title">Have your coding agent install it.</strong>
+            </div>
+            <button
+              type="button"
+              class="hero-install-copy"
+              data-copy-prompt
+              data-prompt={kindInstallPrompt}
+              aria-live="polite"
+            >
+              Copy install prompt <span aria-hidden="true">↗</span>
+            </button>
+          </aside>
         </div>
 
         <figure class="plate hero-plate" data-hero>
@@ -241,27 +259,6 @@ const stations = [
       </div>
     </section>
 
-    <section class="install-section" aria-labelledby="install-title">
-      <p class="section-kicker">The install is a prompt</p>
-      <h2 id="install-title">Self-host it tonight.</h2>
-      <p class="install-sub">
-        Paste one prompt into the coding agent you already run. It reads the guide,
-        installs gratefulagents on your laptop, and hands you the keys.
-      </p>
-      <aside class="agent-prompt" aria-label="Prompt for your coding agent">
-        <div class="agent-prompt-head">
-          <span class="agent-prompt-key">your-agent · paste this prompt</span>
-          <button type="button" class="agent-prompt-copy" data-copy-prompt>Copy prompt</button>
-        </div>
-        <p class="agent-prompt-text" data-prompt-text>Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install gratefulagents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.</p>
-      </aside>
-      <p class="install-alt">
-        Every docs page ships a prompt like this. Prefer your own hands?
-        <a href="/docs/getting-started/self-hosting-kind/">Kind guide</a> ·
-        <a href="/docs/getting-started/self-hosting-k3s/">k3s guide</a>
-      </p>
-    </section>
-
     <section class="guide-section" aria-labelledby="guide-title">
       <header class="section-heading compact">
         <p class="section-kicker">Index of sheets · the field manual</p>
@@ -287,9 +284,9 @@ const stations = [
           <h2>Your agents.<br /><span>Your compute.</span></h2>
         </div>
         <div class="closing-side">
-          <p>Own the runtime, choose the models, and see the work. Start with the local quick start.</p>
+          <p>Own the runtime, choose the models, and see the work. Start with the local Kind demo.</p>
           <div class="cta-row">
-            <a class="btn btn-primary" href="/docs/getting-started/quick-start/">Deploy gratefulagents <span aria-hidden="true">→</span></a>
+            <a class="btn btn-primary" href={kindGuidePath}>Run the Kind demo <span aria-hidden="true">→</span></a>
             <a class="btn btn-quiet" href={repositoryUrl}>Star on GitHub <span aria-hidden="true">↗</span></a>
           </div>
         </div>
@@ -314,14 +311,14 @@ const stations = [
 <script>
   const copyBtn = document.querySelector('[data-copy-prompt]');
   copyBtn?.addEventListener('click', async () => {
-    const text = document.querySelector('[data-prompt-text]')?.textContent?.trim();
+    const text = copyBtn instanceof HTMLElement ? copyBtn.dataset.prompt?.trim() : undefined;
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      copyBtn.textContent = 'Copied';
-      setTimeout(() => { copyBtn.textContent = 'Copy prompt'; }, 1800);
+      copyBtn.textContent = 'Prompt copied ✓';
+      setTimeout(() => { copyBtn.innerHTML = 'Copy install prompt <span aria-hidden="true">↗</span>'; }, 1800);
     } catch {
-      copyBtn.textContent = 'Select & copy manually';
+      copyBtn.textContent = 'Copy unavailable — open the guide';
     }
   });
 
