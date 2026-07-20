@@ -31,6 +31,12 @@ type observabilityEvent struct {
 
 const observabilityMaxEvents = 50_000
 
+// observabilityEventTypes are the only event types the aggregation reads.
+// Filtering in SQL keeps chatty event types (assistant text, thinking deltas,
+// tool output) from consuming the bounded event budget and silently dropping
+// older metric events in busy ranges.
+var observabilityEventTypes = []string{"tool_end", "subagent_status", "llm_attempt", "compact_boundary"}
+
 type breakdownAccumulator struct {
 	value     store.ObservabilityBreakdown
 	durations []float64
@@ -68,8 +74,9 @@ FROM activity_events e JOIN agent_sessions s ON s.id = e.session_id
 WHERE s.agentrun_ns = $1
   AND e.created_at >= $2 AND e.created_at < $3
   AND s.agentrun_name = ANY($4::text[])
+  AND (e.event_type = ANY($5::text[]) OR e.detail->>'type' = ANY($5::text[]))
 ORDER BY e.created_at DESC, e.id DESC
-LIMIT $5`, q.Namespace, q.Start, q.End, q.AgentRunNames, observabilityMaxEvents+1)
+LIMIT $6`, q.Namespace, q.Start, q.End, q.AgentRunNames, observabilityEventTypes, observabilityMaxEvents+1)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +100,22 @@ LIMIT $5`, q.Namespace, q.Start, q.End, q.AgentRunNames, observabilityMaxEvents+
 	if truncated {
 		overview.Completeness.ActivityComplete = false
 	}
+	// The event query above is filtered to metric-relevant types, so derive
+	// activity coverage from any event kind: a session that only produced
+	// chatty events still has activity.
+	var withActivity int64
+	if err := s.pool.QueryRow(ctx, `
+SELECT count(*) FROM agent_sessions s
+WHERE s.agentrun_ns = $1 AND s.created_at >= $2 AND s.created_at < $3
+  AND s.agentrun_name = ANY($4::text[])
+  AND EXISTS (
+    SELECT 1 FROM activity_events e
+    WHERE e.session_id = s.id AND e.created_at >= $2 AND e.created_at < $3
+  )`, q.Namespace, q.Start, q.End, q.AgentRunNames).Scan(&withActivity); err != nil {
+		return nil, err
+	}
+	overview.Completeness.SessionsWithActivity = withActivity
+	overview.Completeness.ActivityComplete = overview.Completeness.Sessions == withActivity && !truncated
 	return overview, nil
 }
 
