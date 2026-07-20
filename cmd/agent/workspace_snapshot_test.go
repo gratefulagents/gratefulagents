@@ -522,3 +522,25 @@ func TestWorkspaceCheckpointCleanupDeletesLatestOnlyWhenDurable(t *testing.T) {
 		t.Fatal("dirty workspace did not retain a checkpoint")
 	}
 }
+
+func TestDiscoverWorkspaceRootReposExcludesScratchGitCheckout(t *testing.T) {
+	root := t.TempDir()
+	repoDir := filepath.Join(root, "repo")
+	for _, dir := range []string{
+		repoDir,
+		filepath.Join(root, filepath.Base(workspaceScratchDir), ".git"),
+		filepath.Join(root, "widgets", ".git"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	repos, err := discoverWorkspaceRootReposStrict(repoDir)
+	if err != nil {
+		t.Fatalf("discoverWorkspaceRootReposStrict() error = %v", err)
+	}
+	if len(repos) != 1 || repos[0].alias != "widgets" {
+		t.Fatalf("repositories = %#v, want only widgets (scratch must never be checkpointed)", repos)
+	}
+}

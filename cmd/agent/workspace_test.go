@@ -151,6 +151,49 @@ func TestCloneAdditionalReposRepoless(t *testing.T) {
 	}
 }
 
+func TestSetupWorkspaceAdvertisesEphemeralScratch(t *testing.T) {
+	requireGit(t)
+	cfg := runConfig{
+		RepoURL:    newBareOrigin(t, "scratch-prompt"),
+		RepoDir:    filepath.Join(t.TempDir(), "repo"),
+		BaseBranch: "main",
+		TaskName:   "repo-chat",
+	}
+	if err := setupWorkspace(&cfg); err != nil {
+		t.Fatalf("setupWorkspace() error = %v", err)
+	}
+	for _, want := range []string{
+		"Ephemeral scratch directory: " + workspaceScratchDir,
+		"separately mounted, writable, non-checkpointed",
+		"Never place source code or required deliverables there",
+	} {
+		if !strings.Contains(cfg.TaskContext, want) {
+			t.Fatalf("TaskContext missing %q:\n%s", want, cfg.TaskContext)
+		}
+	}
+}
+
+func TestSetupRepolessWorkspaceAdvertisesEphemeralScratch(t *testing.T) {
+	cfg := runConfig{
+		RepoDir:  filepath.Join(t.TempDir(), "repo"),
+		Repoless: true,
+		TaskName: "plain-chat",
+	}
+	if err := setupRepolessWorkspace(&cfg); err != nil {
+		t.Fatalf("setupRepolessWorkspace() error = %v", err)
+	}
+	for _, want := range []string{
+		"Ephemeral scratch directory: " + workspaceScratchDir,
+		"not checkpointed",
+		"cleared when the pod is recreated",
+		"Never place required\ndeliverables there",
+	} {
+		if !strings.Contains(cfg.TaskContext, want) {
+			t.Fatalf("TaskContext missing %q:\n%s", want, cfg.TaskContext)
+		}
+	}
+}
+
 func TestAdditionalRepoContextLine(t *testing.T) {
 	if got := additionalRepoContextLine(nil); got != "" {
 		t.Fatalf("additionalRepoContextLine(nil) = %q, want empty", got)

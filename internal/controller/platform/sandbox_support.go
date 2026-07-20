@@ -204,6 +204,11 @@ func applyRuntimeProfileSandboxOverrides(podSpec *corev1.PodSpec, runtimeProfile
 		podSpec.Containers[0].Resources = *runtimeProfile.Spec.Resources.DeepCopy()
 	}
 	applyRuntimeProfileCommandSandboxConfig(podSpec, runtimeProfile)
+	if len(podSpec.Containers) > 0 {
+		// RuntimeProfile values may replace the default writable-path env; the
+		// platform scratch mount is mandatory and must survive that override.
+		ensureWorkspaceScratchSandboxConfig(&podSpec.Containers[0])
+	}
 	if workspacePVCName != "" {
 		for i, v := range podSpec.Volumes {
 			if v.Name == "workspace" {

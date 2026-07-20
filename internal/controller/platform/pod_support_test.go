@@ -776,7 +776,43 @@ func TestBuildCommonPodSpecRequiresSubprocessSandbox(t *testing.T) {
 	assertEnvValue(t, envValueMap(envByName), "GRATEFULAGENTS_COMMAND_SANDBOX", "required")
 	assertEnvValue(t, envValueMap(envByName), sandbox.SandboxPathPrependEnv, "/opt/conda/bin")
 	assertEnvValue(t, envValueMap(envByName), sandbox.SandboxExtraReadOnlyPathsEnv, "/opt/conda")
-	assertEnvValue(t, envValueMap(envByName), sandbox.SandboxExtraEnvEnv, "JAVA_HOME=/opt/java")
+	assertEnvValue(t, envValueMap(envByName), sandbox.SandboxExtraWritablePathsEnv, workspaceScratchPath)
+	assertEnvValue(t, envValueMap(envByName), sandbox.SandboxExtraEnvEnv,
+		"JAVA_HOME=/opt/java\nGOPATH="+workspaceScratchPath+"/go\n"+
+			"GOMODCACHE="+workspaceScratchPath+"/go/pkg/mod\nGOCACHE="+workspaceScratchPath+"/go-build")
+	assertEnvValue(t, envValueMap(envByName), "GOPATH", workspaceScratchPath+"/go")
+	assertEnvValue(t, envValueMap(envByName), "GOMODCACHE", workspaceScratchPath+"/go/pkg/mod")
+	assertEnvValue(t, envValueMap(envByName), "GOCACHE", workspaceScratchPath+"/go-build")
+
+	// Verify the SDK boundary consumes the exact controller-rendered contract.
+	t.Setenv(sandbox.SandboxExtraWritablePathsEnv, envByName[sandbox.SandboxExtraWritablePathsEnv].Value)
+	t.Setenv(sandbox.SandboxExtraEnvEnv, envByName[sandbox.SandboxExtraEnvEnv].Value)
+	sandboxConfig := sandbox.ConfigFromEnv()
+	if len(sandboxConfig.ExtraWritablePaths) != 1 || sandboxConfig.ExtraWritablePaths[0] != workspaceScratchPath {
+		t.Fatalf("sandbox writable paths = %#v, want only %q", sandboxConfig.ExtraWritablePaths, workspaceScratchPath)
+	}
+	for key, want := range map[string]string{
+		"GOPATH":     workspaceScratchPath + "/go",
+		"GOMODCACHE": workspaceScratchPath + "/go/pkg/mod",
+		"GOCACHE":    workspaceScratchPath + "/go-build",
+	} {
+		if got := sandboxConfig.ExtraEnv[key]; got != want {
+			t.Fatalf("sandbox extra env %s = %q, want %q", key, got, want)
+		}
+	}
+	if !hasVolumeMount(spec.Containers[0].VolumeMounts, workspaceScratchVolumeName, workspaceScratchPath) {
+		t.Fatalf("expected scratch volume mount %q at %q", workspaceScratchVolumeName, workspaceScratchPath)
+	}
+	scratchVolumeFound := false
+	for _, volume := range spec.Volumes {
+		if volume.Name == workspaceScratchVolumeName && volume.EmptyDir != nil {
+			scratchVolumeFound = true
+			break
+		}
+	}
+	if !scratchVolumeFound {
+		t.Fatalf("expected scratch EmptyDir volume %q", workspaceScratchVolumeName)
+	}
 	if spec.ShareProcessNamespace == nil || *spec.ShareProcessNamespace {
 		t.Fatalf("ShareProcessNamespace = %#v, want explicit false", spec.ShareProcessNamespace)
 	}
@@ -784,6 +820,33 @@ func TestBuildCommonPodSpecRequiresSubprocessSandbox(t *testing.T) {
 	// snapshot when the pause/wake flow deletes the pod.
 	if spec.TerminationGracePeriodSeconds == nil || *spec.TerminationGracePeriodSeconds != 60 {
 		t.Fatalf("TerminationGracePeriodSeconds = %#v, want 60", spec.TerminationGracePeriodSeconds)
+	}
+}
+
+func TestApplyRuntimeProfileSandboxOverridesPreservesScratchWithWorkspacePVC(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			Repository: platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git"},
+			Model:      "gpt-5.4",
+		},
+	}
+	podSpec := buildCommonPodSpec(run, "sa", []string{"agent", "run"}, nil, nil, nil)
+	profile := &platformv1alpha1.RuntimeProfile{
+		Spec: platformv1alpha1.RuntimeProfileSpec{Sandbox: &platformv1alpha1.RuntimeProfileSandbox{}},
+	}
+	applyRuntimeProfileSandboxOverrides(&podSpec, profile, "workspace-pvc")
+
+	var workspacePVC, scratchEmptyDir bool
+	for _, volume := range podSpec.Volumes {
+		switch volume.Name {
+		case "workspace":
+			workspacePVC = volume.PersistentVolumeClaim != nil && volume.PersistentVolumeClaim.ClaimName == "workspace-pvc"
+		case workspaceScratchVolumeName:
+			scratchEmptyDir = volume.EmptyDir != nil
+		}
+	}
+	if !workspacePVC || !scratchEmptyDir {
+		t.Fatalf("workspacePVC = %v, scratchEmptyDir = %v; want both true", workspacePVC, scratchEmptyDir)
 	}
 }
 
@@ -833,8 +896,9 @@ func TestRuntimeProfileCommandSandboxConfigOverridesOperatorEnv(t *testing.T) {
 			Sandbox: &platformv1alpha1.RuntimeProfileSandbox{
 				CommandSandbox: &platformv1alpha1.RuntimeProfileCommandSandbox{
 					PathPrepend:        []string{"/profile/bin", "relative", "/profile/bin", "/workspace/bin", "/tmp/bin"},
-					PathAppend:         []string{"/tail/bin", "/workspace/repo/node_modules/.bin", "/workspace/repo/bin", "/tmp/bin"},
+					PathAppend:         []string{"/tail/bin", "/workspace/repo/node_modules/.bin", workspaceScratchPath + "/go/bin", "/workspace/repo/bin", "/tmp/bin"},
 					ExtraReadOnlyPaths: []string{"/opt/profile-toolchain", "/var/run/secrets/kubernetes.io/serviceaccount"},
+					ExtraWritablePaths: []string{"/cache/go"},
 					Env: map[string]string{
 						"BAD-NAME":       "ignored",
 						"JAVA_HOME":      "/opt/jdk",
@@ -853,9 +917,14 @@ func TestRuntimeProfileCommandSandboxConfigOverridesOperatorEnv(t *testing.T) {
 	}
 	values := envValueMap(envByName)
 	assertEnvValue(t, values, sandbox.SandboxPathPrependEnv, "/profile/bin")
-	assertEnvValue(t, values, sandbox.SandboxPathAppendEnv, "/tail/bin:/workspace/repo/node_modules/.bin")
+	assertEnvValue(t, values, sandbox.SandboxPathAppendEnv,
+		"/tail/bin:/workspace/repo/node_modules/.bin:"+workspaceScratchPath+"/go/bin")
 	assertEnvValue(t, values, sandbox.SandboxExtraReadOnlyPathsEnv, "/opt/profile-toolchain")
-	assertEnvValue(t, values, sandbox.SandboxExtraEnvEnv, "JAVA_HOME=/opt/jdk\nTOOL_PATH=$PATH:/extra INJECTED=value")
+	assertEnvValue(t, values, sandbox.SandboxExtraWritablePathsEnv, workspaceScratchPath+":/cache/go")
+	assertEnvValue(t, values, sandbox.SandboxExtraEnvEnv,
+		"JAVA_HOME=/opt/jdk\nTOOL_PATH=$PATH:/extra INJECTED=value\n"+
+			"GOPATH="+workspaceScratchPath+"/go\nGOMODCACHE="+workspaceScratchPath+"/go/pkg/mod\n"+
+			"GOCACHE="+workspaceScratchPath+"/go-build")
 }
 
 func TestRuntimeProfileCommandSandboxExtraWritablePathsPropagates(t *testing.T) {

@@ -39,6 +39,11 @@ const (
 	// providerOAuthMountRoot is the base directory for the additional
 	// per-provider OAuth mounts from spec.secrets.providerOAuthSecrets.
 	providerOAuthMountRoot = "/var/run/gratefulagents/oauth"
+	// workspaceScratchPath is a separate EmptyDir mount for large, disposable
+	// toolchains and build caches. It deliberately sits outside the repository
+	// checkout so workspace checkpoints never try to archive its contents.
+	workspaceScratchVolumeName = "workspace-scratch"
+	workspaceScratchPath       = "/workspace/scratch"
 )
 
 var errRunPodReplaced = errors.New("stale run pod replaced")
@@ -958,6 +963,59 @@ func commandSandboxConfigEnvs(run *platformv1alpha1.AgentRun) []corev1.EnvVar {
 	return envs
 }
 
+// ensureWorkspaceScratchSandboxConfig grants the dedicated scratch mount to
+// write-capable subprocess sandboxes and routes Go caches there without
+// discarding operator- or RuntimeProfile-provided configuration.
+func ensureWorkspaceScratchSandboxConfig(container *corev1.Container) {
+	if container == nil {
+		return
+	}
+	paths := []string{workspaceScratchPath}
+	var extraEnvValue string
+	for _, env := range container.Env {
+		switch env.Name {
+		case sandbox.SandboxExtraWritablePathsEnv:
+			for _, path := range filepath.SplitList(env.Value) {
+				path = strings.TrimSpace(path)
+				if path != "" && path != workspaceScratchPath {
+					paths = append(paths, path)
+				}
+			}
+		case sandbox.SandboxExtraEnvEnv:
+			extraEnvValue = env.Value
+		}
+	}
+	upsertContainerEnv(container, corev1.EnvVar{
+		Name:  sandbox.SandboxExtraWritablePathsEnv,
+		Value: strings.Join(paths, string(os.PathListSeparator)),
+	})
+
+	// ConfigFromEnv only forwards explicitly granted variables into bwrap.
+	// Normalize the legacy comma-separated form and remove stale cache entries
+	// before appending the platform-owned values, making this merge idempotent.
+	if !strings.Contains(extraEnvValue, "\n") {
+		extraEnvValue = strings.ReplaceAll(extraEnvValue, ",", "\n")
+	}
+	var extraEnv []string
+	for _, pair := range strings.Split(extraEnvValue, "\n") {
+		pair = strings.TrimSpace(pair)
+		key, _, ok := strings.Cut(pair, "=")
+		if pair == "" || !ok || key == "GOPATH" || key == "GOMODCACHE" || key == "GOCACHE" {
+			continue
+		}
+		extraEnv = append(extraEnv, pair)
+	}
+	extraEnv = append(extraEnv,
+		"GOPATH="+workspaceScratchPath+"/go",
+		"GOMODCACHE="+workspaceScratchPath+"/go/pkg/mod",
+		"GOCACHE="+workspaceScratchPath+"/go-build",
+	)
+	upsertContainerEnv(container, corev1.EnvVar{
+		Name:  sandbox.SandboxExtraEnvEnv,
+		Value: strings.Join(extraEnv, "\n"),
+	})
+}
+
 func runDisablesCommandSandbox(run *platformv1alpha1.AgentRun) bool {
 	return run != nil && run.Spec.DisableCommandSandbox
 }
@@ -1073,7 +1131,7 @@ func isForbiddenRuntimeProfileCommandSandboxPath(path string, allowWorkspace, fo
 }
 
 func isAllowedRuntimeProfileWorkspacePath(path string) bool {
-	if path == "/workspace/.cache/go/bin" {
+	if path == workspaceScratchPath+"/go/bin" {
 		return true
 	}
 	return strings.HasPrefix(path, "/workspace/repo/") && strings.HasSuffix(path, "/node_modules/.bin")
@@ -1139,9 +1197,9 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 		// PATH is intentionally NOT set here: the agent assembles it at startup
 		// (toolkit bin first, the image's own PATH, injected fallback tools
 		// last) so arbitrary user images keep their PATH customizations.
-		{Name: "GOPATH", Value: "/workspace/.cache/go"},
-		{Name: "GOMODCACHE", Value: "/workspace/.cache/go/pkg/mod"},
-		{Name: "GOCACHE", Value: "/workspace/.cache/go-build"},
+		{Name: "GOPATH", Value: workspaceScratchPath + "/go"},
+		{Name: "GOMODCACHE", Value: workspaceScratchPath + "/go/pkg/mod"},
+		{Name: "GOCACHE", Value: workspaceScratchPath + "/go-build"},
 		{Name: "REPO_URL", Value: run.Spec.Repository.URL},
 		{Name: "ADDITIONAL_REPO_URLS", Value: strings.Join(run.Spec.Repository.AdditionalRepos, ",")},
 		{Name: "BASE_BRANCH", Value: firstNonEmpty(run.Spec.Repository.BaseBranch, "main")},
@@ -1182,6 +1240,7 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 	volumeMounts := []corev1.VolumeMount{
 		{Name: "gratefulagents-toolkit", MountPath: "/opt/gratefulagents", SubPath: "gratefulagents", ReadOnly: true},
 		{Name: "workspace", MountPath: "/workspace"},
+		{Name: workspaceScratchVolumeName, MountPath: workspaceScratchPath},
 	}
 	volumeMounts = maybeAppendVolumeMount(volumeMounts, openAIOAuthVolumeMount(run))
 	volumeMounts = append(volumeMounts, providerOAuthVolumeMounts(run)...)
@@ -1189,6 +1248,7 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 	volumes := []corev1.Volume{
 		{Name: "gratefulagents-toolkit", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: workspaceScratchVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
 	volumes = maybeAppendVolume(volumes, openAIOAuthVolume(run))
 	volumes = append(volumes, providerOAuthVolumes(run)...)
@@ -1203,7 +1263,7 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{Name: "operator-instructions", MountPath: "/etc/operator-instructions", ReadOnly: true})
 	}
 
-	return corev1.PodSpec{
+	podSpec := corev1.PodSpec{
 		RestartPolicy:      corev1.RestartPolicyNever,
 		ServiceAccountName: saName,
 		// Give the agent time to publish a final encrypted workspace checkpoint
@@ -1233,6 +1293,8 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 		}},
 		Volumes: volumes,
 	}
+	ensureWorkspaceScratchSandboxConfig(&podSpec.Containers[0])
+	return podSpec
 }
 
 func createPlanPod(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) (string, error) {
