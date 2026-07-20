@@ -8,7 +8,7 @@ import { DISTRIBUTION_RELEASES_URL } from "@/lib/desktop-updater";
 import { openExternal } from "@/lib/native";
 import { platform } from "@/lib/platform";
 
-/** Prompts packaged desktop and iOS clients when their server release differs. */
+/** Prompts packaged desktop and iOS clients when their server requires a newer app release. */
 export function AppVersionPrompt() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();

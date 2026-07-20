@@ -11,15 +11,37 @@ describe("native app version compatibility", () => {
     expect(findVersionMismatch("1.2.3", "v1.2.3")).toBeNull();
   });
 
-  it("reports any release mismatch", () => {
+  it("reports when the server is newer than the app", () => {
     expect(findVersionMismatch("1.2.2", "1.2.3")).toEqual({
       appVersion: "1.2.2",
       serverVersion: "1.2.3",
     });
   });
 
-  it("ignores development and malformed server versions", () => {
+  it("does not prompt when the server is older than the app", () => {
+    expect(findVersionMismatch("0.3.0", "0.1.3")).toBeNull();
+  });
+
+  it("compares numeric version parts rather than sorting them as text", () => {
+    expect(findVersionMismatch("0.9.0", "0.10.0")).toEqual({
+      appVersion: "0.9.0",
+      serverVersion: "0.10.0",
+    });
+    expect(findVersionMismatch("0.10.0", "0.9.0")).toBeNull();
+  });
+
+  it("handles prerelease precedence", () => {
+    expect(findVersionMismatch("1.2.3-beta.1", "1.2.3")).toEqual({
+      appVersion: "1.2.3-beta.1",
+      serverVersion: "1.2.3",
+    });
+    expect(findVersionMismatch("1.2.3", "1.2.3-beta.1")).toBeNull();
+  });
+
+  it("ignores development and malformed versions", () => {
     expect(findVersionMismatch("1.2.3", "dev")).toBeNull();
     expect(findVersionMismatch("1.2.3", "  ")).toBeNull();
+    expect(findVersionMismatch("1.2.3", "next")).toBeNull();
+    expect(findVersionMismatch("unknown", "1.2.3")).toBeNull();
   });
 });
