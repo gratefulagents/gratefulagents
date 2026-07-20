@@ -13,6 +13,53 @@ export function normalizeAppVersion(version: string): string {
   return version.trim().replace(/^v/i, "");
 }
 
+interface SemanticVersion {
+  core: number[];
+  prerelease: string[];
+}
+
+function parseSemanticVersion(version: string): SemanticVersion | null {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+    version,
+  );
+  if (!match) return null;
+
+  return {
+    core: match.slice(1, 4).map(Number),
+    prerelease: match[4]?.split(".") ?? [],
+  };
+}
+
+function compareSemanticVersions(left: SemanticVersion, right: SemanticVersion): number {
+  for (let index = 0; index < left.core.length; index += 1) {
+    if (left.core[index] !== right.core[index]) {
+      return left.core[index] - right.core[index];
+    }
+  }
+
+  if (left.prerelease.length === 0 || right.prerelease.length === 0) {
+    return right.prerelease.length - left.prerelease.length;
+  }
+
+  const length = Math.max(left.prerelease.length, right.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = left.prerelease[index];
+    const rightPart = right.prerelease[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    if (leftPart === rightPart) continue;
+
+    const leftNumber = /^\d+$/.test(leftPart) ? Number(leftPart) : null;
+    const rightNumber = /^\d+$/.test(rightPart) ? Number(rightPart) : null;
+    if (leftNumber !== null && rightNumber !== null) return leftNumber - rightNumber;
+    if (leftNumber !== null) return -1;
+    if (rightNumber !== null) return 1;
+    return leftPart.localeCompare(rightPart);
+  }
+
+  return 0;
+}
+
 export function findVersionMismatch(
   appVersion: string,
   serverVersion: string,
@@ -20,6 +67,11 @@ export function findVersionMismatch(
   const app = normalizeAppVersion(appVersion);
   const server = normalizeAppVersion(serverVersion);
   if (!app || !server || server === "dev" || app === server) return null;
+
+  const parsedApp = parseSemanticVersion(app);
+  const parsedServer = parseSemanticVersion(server);
+  if (!parsedApp || !parsedServer || compareSemanticVersions(parsedApp, parsedServer) >= 0) return null;
+
   return { appVersion: app, serverVersion: server };
 }
 
