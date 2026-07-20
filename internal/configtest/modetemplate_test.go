@@ -153,14 +153,22 @@ func TestGratefulAgentsModeTemplateTargetsPlatformAndSDK(t *testing.T) {
 	if template.Spec.Name != "gratefulagents" {
 		t.Fatalf("mode name = %q, want gratefulagents", template.Spec.Name)
 	}
+	if template.Spec.PermissionMode != platformv1alpha1.PermissionModeReadOnly {
+		t.Fatalf("permission mode = %q, want read-only", template.Spec.PermissionMode)
+	}
+	if !reflect.DeepEqual(template.Spec.AllowedMutatingTools, []string{"create_github_issue"}) {
+		t.Fatalf("allowed mutating tools = %#v, want only create_github_issue", template.Spec.AllowedMutatingTools)
+	}
 	instructions := strings.Join(strings.Fields(template.Spec.Instructions), " ")
 	for _, want := range []string{
 		"gratefulagents/gratefulagents",
 		"gratefulagents/sdk",
 		"repos/sdk",
-		"change the repository where the root cause lives",
-		"keep their commits, pushes, and pull requests separate",
-		"Do not make the platform depend on an unreleased SDK commit",
+		"This is an intake mode, not an implementation mode",
+		"Never edit source files, create commits, push branches, or open pull requests",
+		"Search existing open and closed issues and pull requests before creating anything",
+		"Create an issue only when the request is credible, actionable, not a duplicate, not already fixed",
+		"concrete acceptance criteria",
 	} {
 		if !strings.Contains(instructions, want) {
 			t.Errorf("%s instructions do not contain %q", sourcePath, want)
