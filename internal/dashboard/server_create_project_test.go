@@ -190,6 +190,70 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 	}
 }
 
+func TestCreateGratefulAgentsBootstrapShapePinsIssueMode(t *testing.T) {
+	scheme := testProjectScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	stateStore := newMockStateStore()
+	srv := &Server{k8sClient: c, scheme: scheme, stateStore: stateStore}
+	ns := testUserNS()
+
+	_, err := srv.CreateProject(projectActorCtx(), &platform.CreateProjectRequest{
+		Name:                    gratefulAgentsProjectName,
+		DisplayName:             "Grateful Agents",
+		RepoUrl:                 gratefulAgentsRepoURL,
+		AdditionalRepoUrls:      []string{gratefulAgentsSDKRepoURL},
+		BaseBranch:              "main",
+		Provider:                "openai",
+		AuthMode:                "api-key",
+		OpenaiApiKey:            "test-provider-key",
+		GithubToken:             "test-github-token",
+		ConfigureRuntimeProfile: true,
+		PermissionMode:          "workspace-write",
+		EgressMode:              "unrestricted",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	project := &triggersv1alpha1.Project{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: gratefulAgentsProjectName}, project); err != nil {
+		t.Fatalf("Get(Grateful Agents project) error = %v", err)
+	}
+	if project.Spec.Defaults.ModeRef == nil || project.Spec.Defaults.ModeRef.Name != gratefulAgentsModeName {
+		t.Fatalf("ModeRef = %#v, want %q", project.Spec.Defaults.ModeRef, gratefulAgentsModeName)
+	}
+	ownership, err := stateStore.GetResourceOwner(context.Background(), projectResourceType, gratefulAgentsProjectName, ns)
+	if err != nil {
+		t.Fatalf("GetResourceOwner(Grateful Agents project) error = %v", err)
+	}
+	if ownership == nil || ownership.OwnerID != testProjectSubject {
+		t.Fatalf("Grateful Agents project ownership = %#v, want owner %q", ownership, testProjectSubject)
+	}
+}
+
+func TestGratefulAgentsBootstrapShapeRequiresCanonicalRepositories(t *testing.T) {
+	tests := []struct {
+		name       string
+		project    string
+		repoURL    string
+		additional []string
+		want       bool
+	}{
+		{name: "canonical", project: gratefulAgentsProjectName, repoURL: gratefulAgentsRepoURL, additional: []string{gratefulAgentsSDKRepoURL}, want: true},
+		{name: "different name", project: "support", repoURL: gratefulAgentsRepoURL, additional: []string{gratefulAgentsSDKRepoURL}},
+		{name: "different primary", project: gratefulAgentsProjectName, repoURL: "https://example.com/core.git", additional: []string{gratefulAgentsSDKRepoURL}},
+		{name: "missing SDK", project: gratefulAgentsProjectName, repoURL: gratefulAgentsRepoURL},
+		{name: "extra repository", project: gratefulAgentsProjectName, repoURL: gratefulAgentsRepoURL, additional: []string{gratefulAgentsSDKRepoURL, "https://example.com/extra.git"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isGratefulAgentsBootstrapProject(tc.project, tc.repoURL, tc.additional); got != tc.want {
+				t.Fatalf("isGratefulAgentsBootstrapProject() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCreateProjectKubernetesAdminRequiresAdmin(t *testing.T) {
 	scheme := testProjectScheme(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
