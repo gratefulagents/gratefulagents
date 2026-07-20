@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +16,28 @@ func TestNewestObservabilityEventsBoundsAndRestoresChronology(t *testing.T) {
 	got, truncated := newestObservabilityEvents(events, 2)
 	if !truncated || len(got) != 2 || got[0].id != 4 || got[1].id != 5 {
 		t.Fatalf("newestObservabilityEvents() = %+v, truncated=%v", got, truncated)
+	}
+}
+
+// The metric-event predicate must stay textually equivalent to migration
+// 040's partial index predicate; otherwise the planner falls back to scanning
+// every chatty activity row in the range before applying LIMIT.
+func TestObservabilityEventTypeListMatchesPartialIndex(t *testing.T) {
+	list := observabilityEventTypeList()
+	if list != "'tool_end', 'subagent_status', 'llm_attempt', 'compact_boundary'" {
+		t.Fatalf("observabilityEventTypeList() = %q; update migration 040's partial index predicate together with this list", list)
+	}
+	migration, err := os.ReadFile("migrations/040_observability_metric_events_index.up.sql")
+	if err != nil {
+		t.Fatalf("reading migration 040: %v", err)
+	}
+	for _, clause := range []string{
+		"event_type IN (" + list + ")",
+		"detail->>'type' IN (" + list + ")",
+	} {
+		if !strings.Contains(string(migration), clause) {
+			t.Fatalf("migration 040 predicate missing %q; it must match the query literal exactly", clause)
+		}
 	}
 }
 

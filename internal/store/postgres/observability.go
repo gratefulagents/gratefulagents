@@ -37,6 +37,18 @@ const observabilityMaxEvents = 50_000
 // older metric events in busy ranges.
 var observabilityEventTypes = []string{"tool_end", "subagent_status", "llm_attempt", "compact_boundary"}
 
+// observabilityEventTypeList renders the metric event types as a SQL literal
+// list. The predicate must be literal (not a bind parameter) and textually
+// equivalent to migration 040's partial index predicate so the planner can
+// use the index instead of scanning every chatty activity row in the window.
+func observabilityEventTypeList() string {
+	quoted := make([]string, len(observabilityEventTypes))
+	for i, t := range observabilityEventTypes {
+		quoted[i] = "'" + t + "'"
+	}
+	return strings.Join(quoted, ", ")
+}
+
 type breakdownAccumulator struct {
 	value     store.ObservabilityBreakdown
 	durations []float64
@@ -67,6 +79,7 @@ ORDER BY created_at, id`, q.Namespace, q.Start, q.End, q.AgentRunNames)
 	}
 	rows.Close()
 
+	types := observabilityEventTypeList()
 	eventRows, err := s.pool.Query(ctx, `
 SELECT e.id, e.session_id, e.event_type, e.created_at,
        e.detail - ARRAY['input_raw', 'output', 'message', 'subagent_prompt', 'subagent_result_text']::text[]
@@ -74,9 +87,9 @@ FROM activity_events e JOIN agent_sessions s ON s.id = e.session_id
 WHERE s.agentrun_ns = $1
   AND e.created_at >= $2 AND e.created_at < $3
   AND s.agentrun_name = ANY($4::text[])
-  AND (e.event_type = ANY($5::text[]) OR e.detail->>'type' = ANY($5::text[]))
+  AND (e.event_type IN (`+types+`) OR e.detail->>'type' IN (`+types+`))
 ORDER BY e.created_at DESC, e.id DESC
-LIMIT $6`, q.Namespace, q.Start, q.End, q.AgentRunNames, observabilityEventTypes, observabilityMaxEvents+1)
+LIMIT $5`, q.Namespace, q.Start, q.End, q.AgentRunNames, observabilityMaxEvents+1)
 	if err != nil {
 		return nil, err
 	}

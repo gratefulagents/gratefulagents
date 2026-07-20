@@ -115,6 +115,9 @@ var migration038Up string
 //go:embed migrations/039_project_content_s3.up.sql
 var migration039Up string
 
+//go:embed migrations/040_observability_metric_events_index.up.sql
+var migration040Up string
+
 // Migrate applies all pending migrations.
 // Uses a simple version table to track applied migrations.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
@@ -183,6 +186,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		{37, migration037Up, false},
 		{38, migration038Up, false},
 		{39, migration039Up, false},
+		{40, migration040Up, false},
 	}
 
 	for _, m := range migrations {
