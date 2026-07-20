@@ -23,7 +23,7 @@ Before installing, provide a running Docker-compatible runtime:
 - Docker Desktop, OrbStack, or Colima on macOS; or
 - Docker Engine or Docker Desktop on Linux.
 
-Use an `x86_64`/AMD64 or `arm64`/AArch64 host. Allocate Docker at least 4 CPUs, 8 GiB of memory, and about 20 GiB of free disk. The installer requires `curl`, `openssl`, and `tar`; it downloads pinned Kind, kubectl, and Helm binaries when needed. It does not use sudo or modify your default kubeconfig.
+Use an `x86_64`/AMD64 or `arm64`/AArch64 host. The installer requires `curl`, `openssl`, and `tar`; it downloads pinned Kind, kubectl, and Helm binaries when needed. It does not use sudo or modify your default kubeconfig.
 
 ## Install the latest release
 

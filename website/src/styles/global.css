@@ -235,18 +235,8 @@ img { max-width: 100%; height: auto; }
 .btn-quiet { border-color: var(--line-strong); background: rgba(232, 232, 234, 0.04); color: var(--chalk); }
 .btn-quiet:hover { border-color: var(--chalk); color: var(--chalk-bright); }
 
-.hero-facts {
-  display: flex;
-  gap: 1.5rem;
-  margin: clamp(1.2rem, 2.6vh, 2rem) 0 0;
-  padding: 0;
-}
-.hero-facts div { padding-left: 0.75rem; border-left: 1px solid var(--line-strong); }
-.hero-facts dt { color: var(--faded-dim); font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; }
-.hero-facts dd { margin: 0.12rem 0 0; color: var(--chalk); font-size: 0.78rem; }
-
-/* A quiet instruction row beneath the product facts puts the local evaluation
-   path on the first screen without competing with the primary actions. */
+/* A quiet instruction row beneath the actions keeps the local evaluation path
+   on the first screen without competing with those primary controls. */
 .hero-install {
   width: 100%;
   max-width: 34rem;
@@ -738,7 +728,7 @@ img { max-width: 100%; height: auto; }
   .hero-copy { display: block; text-align: center; }
   .hero h1 { font-size: clamp(2.4rem, 7vw, 3.4rem); }
   .hero-logo { margin-inline: auto; }
-  .eyebrow, .hero .cta-row, .hero-facts { justify-content: center; }
+  .eyebrow, .hero .cta-row { justify-content: center; }
   .hero-sub { margin-inline: auto; }
   .hero-install { margin-inline: auto; }
   .hero-plate { width: min(100%, 44rem); margin: 0 auto; }
@@ -777,8 +767,6 @@ img { max-width: 100%; height: auto; }
   .hero h1 { font-size: clamp(2.3rem, 10.5vw, 3.1rem); }
   .hero-sub { margin-block: 0.85rem 1rem; font-size: 0.88rem; line-height: 1.48; }
   .hero .btn { min-height: 40px; padding: 0.55rem 0.85rem; font-size: 0.76rem; }
-  .hero-facts { gap: 1rem; }
-  .hero-facts dd { font-size: 0.7rem; }
   .hero-install { display: block; max-width: 25rem; padding-top: 0.75rem; }
   .hero-install-copy { margin-top: 0.5rem; }
   .plate-stage { margin: 10px 10px 0; }
