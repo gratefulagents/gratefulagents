@@ -234,13 +234,35 @@ img { max-width: 100%; height: auto; }
 .btn-primary:hover { background: var(--redline); border-color: var(--redline); color: var(--chalk-bright); }
 .btn-quiet { border-color: var(--line-strong); background: rgba(232, 232, 234, 0.04); color: var(--chalk); }
 .btn-quiet:hover { border-color: var(--chalk); color: var(--chalk-bright); }
-.btn-clients {
-  padding-inline: 0.7rem;
+.hero-clients {
+  align-self: stretch;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--line-strong);
+  color: var(--chalk);
+  text-decoration: none;
+}
+.hero-clients > span {
+  color: var(--faded-dim);
   font-family: var(--font-mono);
   font-size: 0.58rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.07em;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
+.hero-clients > strong {
+  margin-top: 0.2rem;
+  color: var(--chalk);
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.hero-clients:hover > span,
+.hero-clients:hover > strong { color: var(--redline-soft); }
 
 /* A quiet instruction row beneath the actions keeps the local evaluation path
    on the first screen without competing with those primary controls. */
