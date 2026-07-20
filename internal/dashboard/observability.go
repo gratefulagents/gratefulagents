@@ -68,10 +68,11 @@ func observabilityOverviewProto(in *store.ObservabilityOverview) *platform.Obser
 			"Only currently visible AgentRuns are included; deleted historical runs are excluded.",
 			"Run snapshot totals include runs created in the selected range; generation series show when model usage was recorded.",
 			"Run metadata totals may overlap when parent and child AgentRuns both contain rolled-up usage.",
+			"Model usage recorded outside generation attempts (for example compaction summarization) appears in run snapshot totals but not in generation series.",
 		},
 	}
 	if in.Completeness.ActivityTruncated {
-		out.CoverageWarnings = append(out.CoverageWarnings, "Activity exceeded the per-query event limit; charts use the most recent 50,000 matching events.")
+		out.CoverageWarnings = append(out.CoverageWarnings, "Metric activity exceeded the per-query event limit; charts use the most recent 50,000 metric events.")
 	}
 	for _, b := range in.Buckets {
 		out.Buckets = append(out.Buckets, &platform.ObservabilityBucket{Start: timestamppb.New(b.Start), Totals: observabilityTotalsProto(b.Totals)})
