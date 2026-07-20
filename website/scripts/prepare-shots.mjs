@@ -14,12 +14,13 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'public', 'screens');
 mkdirSync(outDir, {recursive: true});
 
-// name → source screenshot in raw-shots/
+// name → source screenshot in raw-shots/. `crop: null` publishes the raw
+// capture as-is (for clean window captures without the baked-in top band).
 const shots = [
   {out: 'agent-ops', src: 'agent-ops.png'},
   {out: 'run-chat', src: 'run-chat.png'},
   {out: 'trace', src: 'trace.png'},
-  {out: 'observability', src: 'observability.png'},
+  {out: 'observability', src: 'observability.png', crop: null},
   {out: 'graph', src: 'graph.png'},
 ];
 
@@ -48,15 +49,18 @@ for (const {out, src} of TABLET) {
 // these near full-width on retina screens, so do not downscale.
 const DESKTOP_CROP = {left: 0, top: 66, width: 3024, height: 1964 - 66};
 
-for (const {out, src} of shots) {
+for (const shot of shots) {
+  const {out, src} = shot;
   const srcPath = join(root, 'raw-shots', src);
   if (!existsSync(srcPath)) {
     console.error(`missing ${src}`);
     process.exitCode = 1;
     continue;
   }
-  await sharp(srcPath)
-    .extract(DESKTOP_CROP)
+  const crop = 'crop' in shot ? shot.crop : DESKTOP_CROP;
+  let img = sharp(srcPath);
+  if (crop) img = img.extract(crop);
+  await img
     .webp({quality: 84})
     .toFile(join(outDir, `${out}.webp`));
   console.log(`wrote public/screens/${out}.webp`);
