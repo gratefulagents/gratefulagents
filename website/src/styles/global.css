@@ -765,8 +765,10 @@ img { max-width: 100%; height: auto; }
   .hero-plate .plate-stage { height: clamp(14rem, 56vw, 28rem); }
   .hero-plate .plate-stage > img,
   .hero-plate .plate-stage > video { height: auto; width: auto; max-width: 100%; max-height: 100%; }
-  .legend { flex-direction: column; align-items: flex-start; gap: 1rem; }
-  .legend-row { flex-wrap: wrap; }
+  .legend { flex-direction: column; align-items: stretch; gap: 1.25rem; }
+  /* Grid keeps wrapped chips in tidy columns; the key gets its own line. */
+  .legend-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.85rem 1rem; }
+  .legend-key { grid-column: 1 / -1; margin-right: 0; }
   .section-heading, .section-heading.compact { grid-template-columns: 1fr; gap: 1rem; }
   .product-gallery { grid-template-columns: 1fr; }
   .gallery-tabs { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line-strong); }
@@ -797,7 +799,7 @@ img { max-width: 100%; height: auto; }
   .hero h1 { font-size: clamp(2.3rem, 10.5vw, 3.1rem); }
   .hero-sub { margin-block: 0.85rem 1rem; font-size: 0.88rem; line-height: 1.48; }
   .hero .btn { min-height: 40px; padding: 0.55rem 0.85rem; font-size: 0.76rem; }
-  .hero-install { display: block; max-width: 25rem; padding-top: 0.75rem; }
+  .hero-install { display: block; max-width: 25rem; padding-top: 0.75rem; text-align: center; }
   .hero-install-copy { margin-top: 0.5rem; }
   .plate-stage { margin: 10px 10px 0; }
   .title-block { margin: 10px; font-size: 0.56rem; }
