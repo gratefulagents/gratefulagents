@@ -7,7 +7,6 @@ import {
   startAnthropicOAuth,
 } from "@/lib/anthropic-oauth";
 import { copyText, openExternal } from "@/lib/native";
-import { isTauri } from "@/lib/platform";
 import { toneSoft, toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -34,12 +33,13 @@ type Phase = "idle" | "starting" | "awaiting-code" | "exchanging" | "done";
 
 // AnthropicOAuthConnect signs in to a Claude (Pro/Max) account with OAuth.
 // Anthropic's flow has no localhost redirect: the user opens the displayed
-// sign-in link themselves (never auto-opened), approves in the browser, and
-// the callback page displays a code they paste back here; the Rust side
-// exchanges it (PKCE) and returns refreshable credentials to store.
+// sign-in link, approves in the browser, and pastes back the callback code.
+// Desktop exchanges it in Rust; web exchanges and stores it on the platform
+// server so refresh tokens never pass through browser JavaScript.
 export function AnthropicOAuthConnect({ onSaved, className }: AnthropicOAuthConnectProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [authorizeUrl, setAuthorizeUrl] = useState("");
+  const [sessionId, setSessionId] = useState<string | undefined>();
   const [code, setCode] = useState("");
   const [email, setEmail] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -47,6 +47,7 @@ export function AnthropicOAuthConnect({ onSaved, className }: AnthropicOAuthConn
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
@@ -62,6 +63,7 @@ export function AnthropicOAuthConnect({ onSaved, className }: AnthropicOAuthConn
       const next = await startAnthropicOAuth();
       if (!mountedRef.current) return;
       setAuthorizeUrl(next.authorizeUrl);
+      setSessionId(next.sessionId);
       setPhase("awaiting-code");
     } catch (err) {
       if (!mountedRef.current) return;
@@ -86,10 +88,14 @@ export function AnthropicOAuthConnect({ onSaved, className }: AnthropicOAuthConn
     setPhase("exchanging");
     setError(null);
     try {
-      const result = await completeAnthropicOAuth(pasted);
-      const updated = await client.updateMyCredentials({
-        anthropicOauthJson: result.anthropicOauthJson,
-      });
+      const result = await completeAnthropicOAuth(pasted, sessionId);
+      let updated = result.credentials;
+      if (!updated) {
+        if (!result.anthropicOauthJson) throw new Error("Claude sign-in completed without credentials");
+        updated = await client.updateMyCredentials({
+          anthropicOauthJson: result.anthropicOauthJson,
+        });
+      }
       if (!mountedRef.current) return;
       setEmail(result.email ?? null);
       onSaved(updated);
@@ -100,9 +106,7 @@ export function AnthropicOAuthConnect({ onSaved, className }: AnthropicOAuthConn
       setPhase("awaiting-code");
       setError(err instanceof Error ? err.message : "Failed to complete Claude sign-in");
     }
-  }, [code, onSaved]);
-
-  if (!isTauri) return null;
+  }, [code, onSaved, sessionId]);
 
   const busy = phase === "starting" || phase === "exchanging";
 

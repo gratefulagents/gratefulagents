@@ -50,6 +50,8 @@ import {
   ListWorkspaceFilesResponseSchema,
   PlatformService,
   ProjectEventSchema,
+  ProviderOAuthResultSchema,
+  ProviderOAuthStartSchema,
   ReadFileResponseSchema,
   SwitchAgentRunModeResponseSchema,
   type AgentRun,
@@ -350,6 +352,40 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     // ---- Settings ----------------------------------------------------------
     listMyCredentials: async () => s.credentials,
     updateMyCredentials: async () => s.credentials,
+    startProviderOAuth: async (req: { provider: string }) =>
+      req.provider === "openai"
+        ? create(ProviderOAuthStartSchema, {
+            provider: "openai",
+            mode: "device",
+            authorizeUrl: "https://auth.openai.com/device",
+            userCode: "SELFDEV-OPENAI",
+            intervalSeconds: 1,
+            sessionId: "selfdev-openai-oauth",
+          })
+        : create(ProviderOAuthStartSchema, {
+            provider: "anthropic",
+            mode: "manual-code",
+            authorizeUrl: "https://console.anthropic.com/oauth/authorize?selfdev=true",
+            sessionId: "selfdev-anthropic-oauth",
+          }),
+    completeProviderOAuth: async () => {
+      s.credentials.anthropicOauthPresent = true;
+      return create(ProviderOAuthResultSchema, {
+        status: "completed",
+        provider: "anthropic",
+        email: s.user.email,
+        credentials: s.credentials,
+      });
+    },
+    pollProviderOAuth: async () => {
+      s.credentials.openaiOauthPresent = true;
+      return create(ProviderOAuthResultSchema, {
+        status: "completed",
+        provider: "openai",
+        email: s.user.email,
+        credentials: s.credentials,
+      });
+    },
     getMySoul: async () => s.soul,
     updateMySoul: async (req: { content: string }) => {
       s.soul.content = req.content;

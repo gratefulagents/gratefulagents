@@ -98,6 +98,9 @@ describe("OnboardingWizard", () => {
 
     renderWizard();
     await screen.findByText("Connect a model provider");
+    // Browser onboarding offers server-held OAuth flows as well as API keys.
+    expect(screen.getByRole("button", { name: "Connect Claude" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in with ChatGPT" })).toBeTruthy();
     // Nothing connected yet: the primary action offers skipping.
     expect(screen.getByRole("button", { name: /Skip for now/ })).toBeTruthy();
 

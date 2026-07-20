@@ -10,7 +10,6 @@ import {
   type OpenAIOAuthStart,
 } from "@/lib/openai-oauth";
 import { copyText, openExternal } from "@/lib/native";
-import { isTauri } from "@/lib/platform";
 import { toneSoft, toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -34,9 +33,9 @@ interface OpenAIOAuthConnectProps {
 
 type Phase = "idle" | "starting" | "pending" | "saving" | "done";
 
-// OpenAIOAuthConnect signs in with a browser PKCE flow that redirects to a
-// local callback (one click, no copy/paste), with a device-code fallback.
-// Completed logins are stored as refreshable OAuth credentials.
+// Desktop uses a browser PKCE flow with a local callback and device fallback.
+// Web uses the no-port device flow; the platform server performs the token
+// exchange and stores refreshable credentials in the user's namespace.
 export function OpenAIOAuthConnect({ onSaved, className }: OpenAIOAuthConnectProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [session, setSession] = useState<OpenAIOAuthStart | null>(null);
@@ -48,6 +47,7 @@ export function OpenAIOAuthConnect({ onSaved, className }: OpenAIOAuthConnectPro
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       void cancelOpenAIOAuth();
@@ -86,24 +86,26 @@ export function OpenAIOAuthConnect({ onSaved, className }: OpenAIOAuthConnectPro
   useEffect(() => {
     if (phase !== "pending" || !session) return;
 
+    const activeSession = session;
     let cancelled = false;
     let timeout: number | undefined;
 
     async function tick() {
       try {
-        const result = await pollOpenAIOAuth();
+        const result = await pollOpenAIOAuth(activeSession.sessionId);
         if (cancelled) return;
 
         if (result.status === "completed") {
-          if (!result.openaiOauthJson) {
-            throw new Error("ChatGPT sign-in completed without credentials");
-          }
           setPhase("saving");
           setEmail(result.email ?? null);
-          const updated = await client.updateMyCredentials({
-            openaiOauthJson: result.openaiOauthJson,
-            openaiAccountId: result.accountId ?? "",
-          });
+          let updated = result.credentials;
+          if (!updated) {
+            if (!result.openaiOauthJson) throw new Error("ChatGPT sign-in completed without credentials");
+            updated = await client.updateMyCredentials({
+              openaiOauthJson: result.openaiOauthJson,
+              openaiAccountId: result.accountId ?? "",
+            });
+          }
           if (!mountedRef.current) return;
           onSaved(updated);
           setPhase("done");
@@ -137,8 +139,6 @@ export function OpenAIOAuthConnect({ onSaved, className }: OpenAIOAuthConnectPro
     setCopied(ok);
     if (ok) window.setTimeout(() => setCopied(false), 1800);
   }, [session]);
-
-  if (!isTauri) return null;
 
   const busy = phase === "starting" || phase === "pending" || phase === "saving";
 
