@@ -100,10 +100,31 @@ const stations = [
         <figure class="plate hero-plate" data-hero>
           <div class="plate-nav" role="group" aria-label="Hero screenshots">
             <button type="button" data-hero-prev aria-label="Previous screenshot">‹</button>
-            <span data-hero-count aria-hidden="true">01 / 03</span>
+            <span data-hero-count aria-hidden="true">01 / 04</span>
             <button type="button" data-hero-next aria-label="Next screenshot">›</button>
           </div>
           <div class="hero-slide" data-hero-slide>
+            <div class="plate-stage">
+              <video
+                data-hero-video
+                src="/screens/run-recording.mp4?v=1"
+                poster="/screens/run-recording-poster.webp?v=1"
+                width="2400"
+                height="1506"
+                muted
+                playsinline
+                preload="auto"
+                aria-label="Screen recording of one agent run: a prompt fans out to a subagent DAG, then the finished trace, replayed at 4x speed"
+              ></video>
+              <span class="video-progress" data-hero-progress aria-hidden="true"></span>
+            </div>
+            <div class="title-block">
+              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01a — Recorded run</span></div>
+              <div><span class="tb-key">Title</span><span class="tb-val">One run from prompt to trace</span></div>
+              <div class="tb-scale"><span class="tb-key">Scale</span><span class="tb-val">4:1 — 2½ min of work in 39 s</span></div>
+            </div>
+          </div>
+          <div class="hero-slide" data-hero-slide hidden>
             <div class="plate-stage">
               <img
                 src="/screens/run-chat.webp?v=4"
@@ -115,7 +136,7 @@ const stations = [
               />
             </div>
             <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01a — Desktop</span></div>
+              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01b — Desktop</span></div>
               <div><span class="tb-key">Title</span><span class="tb-val">Run view — chat, steering, subagent graph</span></div>
               <div class="tb-scale"><span class="tb-key">Drawn by</span><span class="tb-val">your agents</span></div>
             </div>
@@ -133,7 +154,7 @@ const stations = [
               />
             </div>
             <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01b — iPad</span></div>
+              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01c — iPad</span></div>
               <div><span class="tb-key">Title</span><span class="tb-val">The same run, followed live from your iPad</span></div>
               <div class="tb-scale"><span class="tb-key">Status</span><span class="tb-val">compute stays in your cluster</span></div>
             </div>
@@ -151,7 +172,7 @@ const stations = [
               />
             </div>
             <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01c — iPad</span></div>
+              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01d — iPad</span></div>
               <div><span class="tb-key">Title</span><span class="tb-val">Six delegated tasks, steered from anywhere</span></div>
               <div class="tb-scale"><span class="tb-key">Status</span><span class="tb-val">compute stays in your cluster</span></div>
             </div>
@@ -348,25 +369,65 @@ const stations = [
   if (hero) {
     const slides = [...hero.querySelectorAll('[data-hero-slide]')];
     const count = hero.querySelector('[data-hero-count]');
+    const video = hero.querySelector('[data-hero-video]');
+    const progress = hero.querySelector('[data-hero-progress]');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let current = 0;
     let timer;
+    let manual = false;
+    let hovered = false;
+
+    // Reduced motion: no autoplay, no rotation — hand the recording over
+    // to the native controls instead.
+    if (video && reduceMotion) video.controls = true;
+
+    const onVideoSlide = () => Boolean(video && slides[current].contains(video));
+    const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
+    const start = () => {
+      // The video slide advances itself when playback ends.
+      if (reduceMotion || manual || hovered || timer || onVideoSlide()) return;
+      timer = setInterval(() => show(current + 1), 5000);
+    };
 
     const show = (index) => {
       current = (index + slides.length) % slides.length;
       slides.forEach((slide, i) => { slide.hidden = i !== current; });
       if (count) count.textContent = `0${current + 1} / 0${slides.length}`;
+      stop();
+      if (video) {
+        if (onVideoSlide() && !reduceMotion) {
+          video.currentTime = 0;
+          video.play().catch(() => {});
+        } else if (!onVideoSlide()) {
+          video.pause();
+        }
+      }
+      start();
     };
-    const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
-    const autoplay = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const start = () => { if (autoplay && !manual && !timer) timer = setInterval(() => show(current + 1), 5000); };
-    let manual = false;
 
-    hero.querySelector('[data-hero-prev]')?.addEventListener('click', () => { manual = true; stop(); show(current - 1); });
-    hero.querySelector('[data-hero-next]')?.addEventListener('click', () => { manual = true; stop(); show(current + 1); });
-    hero.addEventListener('pointerenter', stop);
-    hero.addEventListener('pointerleave', start);
+    if (video) {
+      video.addEventListener('ended', () => {
+        if (!manual && !hovered && onVideoSlide()) show(current + 1);
+      });
+      video.addEventListener('timeupdate', () => {
+        if (progress && video.duration) {
+          progress.style.transform = `scaleX(${video.currentTime / video.duration})`;
+        }
+      });
+      if (!reduceMotion) {
+        video.addEventListener('click', () => {
+          if (video.paused) video.play().catch(() => {});
+          else video.pause();
+        });
+      }
+    }
 
-    start();
+    hero.querySelector('[data-hero-prev]')?.addEventListener('click', () => { manual = true; show(current - 1); });
+    hero.querySelector('[data-hero-next]')?.addEventListener('click', () => { manual = true; show(current + 1); });
+    hero.addEventListener('pointerenter', () => { hovered = true; stop(); });
+    hero.addEventListener('pointerleave', () => { hovered = false; start(); });
+
+    show(0);
   }
 
   const gallery = document.querySelector('[data-slides]');

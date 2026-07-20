@@ -266,6 +266,24 @@ img { max-width: 100%; height: auto; }
 }
 .plate-stage { position: relative; margin: 14px 14px 0; }
 .plate-stage > img { display: block; width: 100%; height: auto; border: 1px solid var(--line); }
+.plate-stage > video { display: block; width: 100%; height: auto; border: 1px solid var(--line); background: var(--blue-deep); }
+.plate-stage > video:not([controls]) { cursor: pointer; }
+
+/* Playback redline: the one live signal on the recorded sheet. */
+.video-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--redline);
+  transform: scaleX(0);
+  transform-origin: left;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .video-progress { transition: transform 0.25s linear; }
+}
 
 .title-block {
   display: grid;
@@ -298,7 +316,8 @@ img { max-width: 100%; height: auto; }
 /* Explicit stage height: percentage-height children resolve reliably in
    every browser (aspect-ratio/flex-derived heights do not). */
 .hero-plate .plate-stage { height: var(--stage-h); display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.hero-plate .plate-stage > img { height: 100%; width: auto; max-width: 100%; object-fit: contain; }
+.hero-plate .plate-stage > img,
+.hero-plate .plate-stage > video { height: 100%; width: auto; max-width: 100%; object-fit: contain; }
 .hero-plate .plate-stage > img.hero-tablet-shot {
   width: 100%;
   height: 100%;
@@ -702,7 +721,8 @@ img { max-width: 100%; height: auto; }
   .hero-sub { margin-inline: auto; }
   .hero-plate { width: min(100%, 44rem); margin: 0 auto; }
   .hero-plate .plate-stage { height: clamp(14rem, 56vw, 28rem); }
-  .hero-plate .plate-stage > img { height: auto; width: auto; max-width: 100%; max-height: 100%; }
+  .hero-plate .plate-stage > img,
+  .hero-plate .plate-stage > video { height: auto; width: auto; max-width: 100%; max-height: 100%; }
   .legend { flex-direction: column; align-items: flex-start; gap: 1rem; }
   .legend-row { flex-wrap: wrap; }
   .section-heading, .section-heading.compact { grid-template-columns: 1fr; gap: 1rem; }

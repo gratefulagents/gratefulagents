@@ -10,7 +10,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "check": "astro build && node scripts/check-links.mjs",
-    "shots": "node scripts/prepare-shots.mjs"
+    "shots": "node scripts/prepare-shots.mjs",
+    "video": "node scripts/prepare-video.mjs"
   },
   "dependencies": {
     "astro": "^5.0.0"
