@@ -12,6 +12,8 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/agentinfra"
 )
 
+const workspaceScratchDir = "/workspace/scratch"
+
 // setupWorkspace clones the repo and builds the task context.
 func setupWorkspace(cfg *runConfig) error {
 	log.Println("Setting up workspace...")
@@ -66,12 +68,15 @@ func setupWorkspace(cfg *runConfig) error {
 - Workflow mode: %s
 - Parent AgentRun: %s
 - Working directory: %s%s
+- Ephemeral scratch directory: %s
 - %s
 
 ## Workspace Rules
 All tools (bash, file read/write/edit, grep, glob) execute inside the workspace at %s.
-Do NOT cd outside this directory or use absolute paths to other locations.
-All file paths are relative to the workspace root.
+Keep project work inside this directory and use relative file paths. The sole exception is
+%s, a separately mounted, writable, non-checkpointed directory for large disposable
+toolchains, dependency caches, downloaded archives, and build outputs. Its contents are
+cleared when the pod is recreated. Never place source code or required deliverables there.
 
 Repositories: the workspace holds a list of repositories, all equal peers.
 The repository this run was launched with is checked out at the workspace
@@ -96,8 +101,8 @@ with its base branch, use git_merge with the base branch, resolve the conflict
 markers in the reported files, then git_commit and git_push (git_merge_abort
 abandons a conflicted merge; git_status shows sync/conflict state).%s`,
 		cfg.BaseBranch, branchName, sessionModeNotes, mode, parentRefJSON, cfg.RepoDir,
-		additionalRepoContextLine(cfg.AdditionalRepoURLs), parallelToolCallingOneLiner,
-		cfg.RepoDir, branchName, kubernetesAdminPromptSection(cfg.KubernetesAdmin))
+		additionalRepoContextLine(cfg.AdditionalRepoURLs), workspaceScratchDir, parallelToolCallingOneLiner,
+		cfg.RepoDir, workspaceScratchDir, branchName, kubernetesAdminPromptSection(cfg.KubernetesAdmin))
 
 	log.Println("Setup complete.")
 	return nil
@@ -163,14 +168,18 @@ func setupRepolessWorkspace(cfg *runConfig) error {
 - Workflow mode: %s
 - Parent AgentRun: %s
 - Working directory: %s%s
+- Ephemeral scratch directory: %s
 - %s
 
 ## Workspace Rules
-This is a plain chat with no repository. You have an empty scratch workspace at %s
-where all tools (bash, file read/write/edit, grep, glob) execute. You may create
-files and run code there, but there is no checked-out git repository and no working
-branch, so do not attempt to push branches or open pull requests unless the user
-first attaches a repository.
+This is a plain chat with no repository. You have an empty project workspace at %s
+where all tools (bash, file read/write/edit, grep, glob) execute. Keep project files
+there. Use %s only for large disposable toolchains, dependency caches, downloaded
+archives, and build outputs; it is a separately mounted writable directory that is
+not checkpointed and is cleared when the pod is recreated. Never place required
+deliverables there. There is no checked-out git repository and no working branch,
+so do not attempt to push branches or open pull requests unless the user first
+attaches a repository.
 If the user asks you to work in a repository or gives you a GitHub repo URL/name,
 use attach_repository. Attached repositories are cloned under repos/<alias> and
 form the workspace repository list; use that path with file tools and pass
@@ -181,8 +190,8 @@ update_github_issue_labels, add_github_issue_comment, get_pull_request, and the
 PR review tools) to select the repository it acts
 on. Do NOT use the gh CLI — the built-in tools enforce the platform guardrails.%s`,
 		sessionModeNotes, mode, parentRefJSON, cfg.RepoDir,
-		additionalRepoContextLine(cfg.AdditionalRepoURLs), parallelToolCallingOneLiner,
-		cfg.RepoDir, kubernetesAdminPromptSection(cfg.KubernetesAdmin))
+		additionalRepoContextLine(cfg.AdditionalRepoURLs), workspaceScratchDir, parallelToolCallingOneLiner,
+		cfg.RepoDir, workspaceScratchDir, kubernetesAdminPromptSection(cfg.KubernetesAdmin))
 
 	log.Println("Setup complete.")
 	return nil

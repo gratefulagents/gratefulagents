@@ -1025,6 +1025,11 @@ func discoverWorkspaceRootReposStrict(repoDir string) ([]extraRepo, error) {
 		if !entry.IsDir() || name == self || strings.HasPrefix(name, ".") {
 			continue
 		}
+		// Scratch may contain disposable Git checkouts, but it is an EmptyDir
+		// rather than an attached repository and must never enter checkpoints.
+		if name == filepath.Base(workspaceScratchDir) {
+			continue
+		}
 		dir := filepath.Join(root, name)
 		info, err := os.Stat(filepath.Join(dir, ".git"))
 		if os.IsNotExist(err) {

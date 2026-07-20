@@ -98,7 +98,7 @@ type RuntimeProfileCommandSandbox struct {
 	// +optional
 	PathPrepend []string `json:"pathPrepend,omitempty"`
 	// PathAppend adds absolute paths after the default subprocess PATH.
-	// Sensitive paths are ignored; project-local node_modules/.bin and Go cache bin paths are allowed here so project tools resolve after system tools.
+	// Sensitive paths are ignored; project-local node_modules/.bin and the dedicated scratch Go bin path are allowed here so project tools resolve after system tools.
 	// +listType=set
 	// +optional
 	PathAppend []string `json:"pathAppend,omitempty"`
