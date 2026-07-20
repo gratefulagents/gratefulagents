@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -61,7 +62,8 @@ func TestAnthropicWebOAuthStoresCredentialsServerSide(t *testing.T) {
 	if start.Mode != "manual-code" || !strings.HasPrefix(start.AuthorizeUrl, "https://claude.ai/oauth/authorize?") {
 		t.Fatalf("start = %#v", start)
 	}
-	session := srv.providerOAuthSessions["oauth-user"]
+	namespace := deriveUserNamespaceName("OAuth User", "oauth-user")
+	session := srv.providerOAuthSessions[namespace]
 	result, err := srv.CompleteProviderOAuth(ctx, &platform.CompleteProviderOAuthRequest{
 		Provider:  "anthropic",
 		Code:      "authorization-code#" + session.state,
@@ -76,7 +78,7 @@ func TestAnthropicWebOAuthStoresCredentialsServerSide(t *testing.T) {
 	if tokenRequest["code"] != "authorization-code" || tokenRequest["code_verifier"] != session.verifier {
 		t.Fatalf("token request = %#v", tokenRequest)
 	}
-	if _, ok := srv.providerOAuthSessions["oauth-user"]; ok {
+	if _, ok := srv.providerOAuthSessions[namespace]; ok {
 		t.Fatal("completed session was not removed")
 	}
 }
@@ -126,9 +128,10 @@ func TestOpenAIWebOAuthDeviceFlowStoresCredentialsServerSide(t *testing.T) {
 	}
 	// Advance the server-side cadence without sleeping.
 	srv.providerOAuthMu.Lock()
-	session := srv.providerOAuthSessions["oauth-user"]
+	namespace := deriveUserNamespaceName("OAuth User", "oauth-user")
+	session := srv.providerOAuthSessions[namespace]
 	session.nextPollAt = time.Time{}
-	srv.providerOAuthSessions["oauth-user"] = session
+	srv.providerOAuthSessions[namespace] = session
 	srv.providerOAuthMu.Unlock()
 	result, err := srv.PollProviderOAuth(ctx, pollRequest)
 	if err != nil {
@@ -137,9 +140,36 @@ func TestOpenAIWebOAuthDeviceFlowStoresCredentialsServerSide(t *testing.T) {
 	if result.Status != "completed" || result.Email != "chatgpt@example.com" || result.Credentials == nil || !result.Credentials.OpenaiOauthPresent {
 		t.Fatalf("result = %#v", result)
 	}
-	if _, ok := srv.providerOAuthSessions["oauth-user"]; ok {
+	if _, ok := srv.providerOAuthSessions[namespace]; ok {
 		t.Fatal("completed session was not removed")
 	}
+}
+
+func TestProviderOAuthSessionIsSharedAcrossReplicas(t *testing.T) {
+	transport := providerOAuthRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("Anthropic start should not call the provider")
+		return nil, nil
+	})
+	sharedKube := kubefake.NewSimpleClientset()
+	first := newProviderOAuthTestServer(t, transport)
+	second := newProviderOAuthTestServer(t, transport)
+	first.providerOAuthKube = sharedKube
+	second.providerOAuthKube = sharedKube
+	ctx := credActorCtx("oauth-user", "OAuth User")
+
+	start, err := first.StartProviderOAuth(ctx, &platform.StartProviderOAuthRequest{Provider: "anthropic"})
+	if err != nil {
+		t.Fatalf("first replica start error = %v", err)
+	}
+	namespace := deriveUserNamespaceName("OAuth User", "oauth-user")
+	session, err := second.acquireProviderOAuthSession(ctx, namespace, "anthropic", start.SessionId, false)
+	if err != nil {
+		t.Fatalf("second replica acquire error = %v", err)
+	}
+	if session.id != start.SessionId || session.verifier == "" || session.state == "" {
+		t.Fatalf("shared session = %#v", session)
+	}
+	second.releaseProviderOAuthSession(ctx, namespace, session.id)
 }
 
 func TestProviderOAuthSerializesConcurrentStarts(t *testing.T) {
@@ -191,7 +221,8 @@ func TestProviderOAuthRejectsMismatchedActorAndState(t *testing.T) {
 	if _, err := srv.CompleteProviderOAuth(ctx, &platform.CompleteProviderOAuthRequest{Provider: "anthropic", Code: "code#wrong-state", SessionId: start.SessionId}); err == nil {
 		t.Fatal("mismatched state was accepted")
 	}
-	if session, ok := srv.providerOAuthSessions["oauth-user"]; !ok || session.inFlight {
+	namespace := deriveUserNamespaceName("OAuth User", "oauth-user")
+	if session, ok := srv.providerOAuthSessions[namespace]; !ok || session.inFlight {
 		t.Fatalf("mismatched state should preserve a retryable session: %#v", session)
 	}
 }

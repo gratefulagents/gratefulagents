@@ -47,10 +47,12 @@ type Server struct {
 	skillsHTTP        *http.Client
 	skillsCatalogURL  string
 	providerOAuthHTTP *http.Client
+	// providerOAuthKube stores browser OAuth sessions in per-user Kubernetes
+	// Secrets so Start and Complete/Poll can land on different manager replicas.
+	providerOAuthKube kubernetes.Interface
 
-	// providerOAuthSessions holds short-lived PKCE/device sessions keyed by the
-	// verified user subject. Provider tokens are exchanged and stored server-side
-	// so browser clients never receive refresh credentials.
+	// providerOAuthSessions is the in-memory fallback used by unit tests that do
+	// not configure a Kubernetes clientset.
 	providerOAuthMu       sync.Mutex
 	providerOAuthSessions map[string]providerOAuthSession
 
@@ -119,6 +121,7 @@ func NewServer(c client.Client, scheme *runtime.Scheme, clientset *kubernetes.Cl
 		presence:              NewPresenceTracker(),
 		githubAppMinter:       githubapp.NewKeyedMinter(),
 		providerOAuthHTTP:     &http.Client{Timeout: 20 * time.Second},
+		providerOAuthKube:     clientset,
 		providerOAuthSessions: make(map[string]providerOAuthSession),
 	}
 	for _, opt := range opts {

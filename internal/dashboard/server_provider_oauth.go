@@ -44,9 +44,13 @@ type providerOAuthSession struct {
 
 // StartProviderOAuth starts a browser-safe OAuth flow whose verifier and token
 // exchange remain on the platform server. A user can have one active provider
-// login; starting another replaces it.
+// login; a restart replaces an idle attempt after a short rate-limit window.
 func (s *Server) StartProviderOAuth(ctx context.Context, req *platform.StartProviderOAuthRequest) (*platform.ProviderOAuthStart, error) {
 	actor, err := providerOAuthActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -58,13 +62,13 @@ func (s *Server) StartProviderOAuth(ctx context.Context, req *platform.StartProv
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("generate OAuth session ID: %w", err))
 	}
-	if err := s.reserveProviderOAuthStart(actor.Subject, provider, sessionID); err != nil {
+	if err := s.reserveProviderOAuthStart(ctx, namespace, provider, sessionID); err != nil {
 		return nil, err
 	}
 	published := false
 	defer func() {
 		if !published {
-			s.deleteProviderOAuthSession(actor.Subject, sessionID)
+			s.deleteProviderOAuthSession(context.WithoutCancel(ctx), namespace, sessionID)
 		}
 	}()
 
@@ -123,10 +127,13 @@ func (s *Server) StartProviderOAuth(ctx context.Context, req *platform.StartProv
 
 	}
 
-	if !s.publishProviderOAuthStart(actor.Subject, sessionID, session) {
+	published, err = s.publishProviderOAuthStart(ctx, namespace, sessionID, session)
+	if err != nil {
+		return nil, err
+	}
+	if !published {
 		return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("provider sign-in was replaced by a newer attempt"))
 	}
-	published = true
 	return start, nil
 }
 
@@ -134,6 +141,10 @@ func (s *Server) StartProviderOAuth(ctx context.Context, req *platform.StartProv
 // resulting refreshable credential directly to the caller's namespace.
 func (s *Server) CompleteProviderOAuth(ctx context.Context, req *platform.CompleteProviderOAuthRequest) (*platform.ProviderOAuthResult, error) {
 	actor, err := providerOAuthActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -148,20 +159,21 @@ func (s *Server) CompleteProviderOAuth(ctx context.Context, req *platform.Comple
 	if returnedState == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("pasted value is missing the OAuth state; copy the complete code#state value"))
 	}
-	session, err := s.acquireProviderOAuthSession(actor.Subject, provider, req.GetSessionId(), false)
+	session, err := s.acquireProviderOAuthSession(ctx, namespace, provider, req.GetSessionId(), false)
 	if err != nil {
 		return nil, err
 	}
 	if returnedState != session.state {
-		s.releaseProviderOAuthSession(actor.Subject, session.id)
+		s.releaseProviderOAuthSession(context.WithoutCancel(ctx), namespace, session.id)
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("pasted code does not match this sign-in attempt; start again"))
 	}
 	completed := false
 	defer func() {
+		cleanupCtx := context.WithoutCancel(ctx)
 		if completed {
-			s.deleteProviderOAuthSession(actor.Subject, session.id)
+			s.deleteProviderOAuthSession(cleanupCtx, namespace, session.id)
 		} else {
-			s.releaseProviderOAuthSession(actor.Subject, session.id)
+			s.releaseProviderOAuthSession(cleanupCtx, namespace, session.id)
 		}
 	}()
 	state := returnedState
@@ -192,7 +204,11 @@ func (s *Server) CompleteProviderOAuth(ctx context.Context, req *platform.Comple
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("serialize Claude credentials: %w", err))
 	}
-	if !s.providerOAuthSessionIsCurrent(actor.Subject, session.id) {
+	current, err := s.providerOAuthSessionIsCurrent(ctx, namespace, session.id)
+	if err != nil {
+		return nil, err
+	}
+	if !current {
 		return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("this Claude sign-in was replaced by a newer attempt"))
 	}
 	credentials, err := s.storeProviderOAuth(ctx, actor, provider, authJSON, "")
@@ -210,11 +226,15 @@ func (s *Server) PollProviderOAuth(ctx context.Context, req *platform.PollProvid
 	if err != nil {
 		return nil, err
 	}
+	namespace, err := s.ensureUserNamespace(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
 	provider := strings.ToLower(strings.TrimSpace(req.GetProvider()))
 	if provider != triggersv1alpha1.ProviderOpenAI {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("only openai uses device polling"))
 	}
-	session, err := s.acquireProviderOAuthSession(actor.Subject, provider, req.GetSessionId(), true)
+	session, err := s.acquireProviderOAuthSession(ctx, namespace, provider, req.GetSessionId(), true)
 	if err != nil {
 		return nil, err
 	}
@@ -224,10 +244,11 @@ func (s *Server) PollProviderOAuth(ctx context.Context, req *platform.PollProvid
 	}
 	terminal := false
 	defer func() {
+		cleanupCtx := context.WithoutCancel(ctx)
 		if terminal {
-			s.deleteProviderOAuthSession(actor.Subject, session.id)
+			s.deleteProviderOAuthSession(cleanupCtx, namespace, session.id)
 		} else {
-			s.releaseProviderOAuthSession(actor.Subject, session.id)
+			s.releaseProviderOAuthSession(cleanupCtx, namespace, session.id)
 		}
 	}()
 
@@ -305,7 +326,11 @@ func (s *Server) PollProviderOAuth(ctx context.Context, req *platform.PollProvid
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("serialize ChatGPT credentials: %w", err))
 	}
-	if !s.providerOAuthSessionIsCurrent(actor.Subject, session.id) {
+	current, err := s.providerOAuthSessionIsCurrent(ctx, namespace, session.id)
+	if err != nil {
+		return nil, err
+	}
+	if !current {
 		return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("this ChatGPT sign-in was replaced by a newer attempt"))
 	}
 	credentials, err := s.storeProviderOAuth(ctx, actor, provider, authJSON, accountID)
@@ -344,7 +369,7 @@ func (s *Server) storeProviderOAuth(ctx context.Context, actor requestActor, pro
 	return credentials, nil
 }
 
-func (s *Server) reserveProviderOAuthStart(subject, provider, sessionID string) error {
+func (s *Server) reserveProviderOAuthStartMemory(subject, provider, sessionID string) error {
 	s.providerOAuthMu.Lock()
 	defer s.providerOAuthMu.Unlock()
 	if s.providerOAuthSessions == nil {
@@ -370,7 +395,7 @@ func (s *Server) reserveProviderOAuthStart(subject, provider, sessionID string) 
 	return nil
 }
 
-func (s *Server) publishProviderOAuthStart(subject, sessionID string, session providerOAuthSession) bool {
+func (s *Server) publishProviderOAuthStartMemory(subject, sessionID string, session providerOAuthSession) bool {
 	s.providerOAuthMu.Lock()
 	defer s.providerOAuthMu.Unlock()
 	reservation, ok := s.providerOAuthSessions[subject]
@@ -385,7 +410,7 @@ func (s *Server) publishProviderOAuthStart(subject, sessionID string, session pr
 // acquireProviderOAuthSession validates the per-attempt ID and atomically
 // serializes provider calls. For rate-limited or concurrent polls it returns an
 // empty session, which callers translate to a normal pending response.
-func (s *Server) acquireProviderOAuthSession(subject, provider, sessionID string, poll bool) (providerOAuthSession, error) {
+func (s *Server) acquireProviderOAuthSessionMemory(subject, provider, sessionID string, poll bool) (providerOAuthSession, error) {
 	s.providerOAuthMu.Lock()
 	defer s.providerOAuthMu.Unlock()
 	session, ok := s.providerOAuthSessions[subject]
@@ -414,14 +439,14 @@ func (s *Server) acquireProviderOAuthSession(subject, provider, sessionID string
 	return session, nil
 }
 
-func (s *Server) providerOAuthSessionIsCurrent(subject, sessionID string) bool {
+func (s *Server) providerOAuthSessionIsCurrentMemory(subject, sessionID string) bool {
 	s.providerOAuthMu.Lock()
 	defer s.providerOAuthMu.Unlock()
 	session, ok := s.providerOAuthSessions[subject]
 	return ok && session.id == sessionID && session.inFlight
 }
 
-func (s *Server) releaseProviderOAuthSession(subject, sessionID string) {
+func (s *Server) releaseProviderOAuthSessionMemory(subject, sessionID string) {
 	s.providerOAuthMu.Lock()
 	defer s.providerOAuthMu.Unlock()
 	if session, ok := s.providerOAuthSessions[subject]; ok && session.id == sessionID {
@@ -430,7 +455,7 @@ func (s *Server) releaseProviderOAuthSession(subject, sessionID string) {
 	}
 }
 
-func (s *Server) deleteProviderOAuthSession(subject, sessionID string) {
+func (s *Server) deleteProviderOAuthSessionMemory(subject, sessionID string) {
 	s.providerOAuthMu.Lock()
 	defer s.providerOAuthMu.Unlock()
 	if session, ok := s.providerOAuthSessions[subject]; ok && session.id == sessionID {
