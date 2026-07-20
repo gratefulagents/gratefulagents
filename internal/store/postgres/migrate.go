@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -115,6 +116,51 @@ var migration038Up string
 //go:embed migrations/039_project_content_s3.up.sql
 var migration039Up string
 
+//go:embed migrations/040_observability_metric_events_index.up.sql
+var migration040Up string
+
+// noTxMigrations run statement-by-statement outside a transaction so they can
+// use commands PostgreSQL forbids in transaction blocks, such as
+// CREATE INDEX CONCURRENTLY (which avoids blocking writers during the build).
+// If a statement fails, the version is not recorded and the migration is
+// retried on the next startup — such migrations must be written idempotently
+// (IF EXISTS / IF NOT EXISTS, plus cleanup of invalid leftover indexes).
+var noTxMigrations = map[int]bool{40: true}
+
+// applyNoTxMigration executes each semicolon-terminated statement of a
+// migration directly on the connection (no surrounding transaction), then
+// records the version. Line comments are stripped before splitting so a
+// semicolon inside a comment cannot corrupt statement boundaries.
+func applyNoTxMigration(ctx context.Context, conn *pgxpool.Conn, version int, sql string) error {
+	for _, stmt := range strings.Split(stripSQLLineComments(sql), ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+		if _, err := conn.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("applying migration %d: %w", version, err)
+		}
+	}
+	if _, err := conn.Exec(ctx, "INSERT INTO schema_migrations (version) VALUES ($1)", version); err != nil {
+		return fmt.Errorf("recording migration %d: %w", version, err)
+	}
+	return nil
+}
+
+// stripSQLLineComments removes "--" line comments so blank statement chunks
+// (for example a trailing comment block) are not sent to the server.
+func stripSQLLineComments(sql string) string {
+	lines := strings.Split(sql, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "--") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
 // Migrate applies all pending migrations.
 // Uses a simple version table to track applied migrations.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
@@ -183,6 +229,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		{37, migration037Up, false},
 		{38, migration038Up, false},
 		{39, migration039Up, false},
+		{40, migration040Up, false},
 	}
 
 	for _, m := range migrations {
@@ -191,6 +238,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			return fmt.Errorf("checking migration %d: %w", m.version, err)
 		}
 		if exists {
+			continue
+		}
+
+		if noTxMigrations[m.version] {
+			if err := applyNoTxMigration(ctx, conn, m.version, m.sql); err != nil {
+				if m.optional {
+					log.Printf("WARN: skipping optional migration %d: %v", m.version, err)
+					continue
+				}
+				return err
+			}
 			continue
 		}
 
