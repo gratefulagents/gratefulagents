@@ -97,4 +97,4 @@ For non-security bugs and feature requests, use the [GitHub issue tracker](https
 
 ## License
 
-[GNU General Public License v3.0](LICENSE).
+[GNU Affero General Public License v3.0](LICENSE).

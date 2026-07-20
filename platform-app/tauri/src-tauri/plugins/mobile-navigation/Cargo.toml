@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-mobile-navigation"
 version = "0.1.0"
-license = "GPL-3.0-only"
+license = "AGPL-3.0-only"
 authors = ["gratefulagents"]
 description = "Native mobile navigation integration for the gratefulagents WebView"
 edition = "2021"

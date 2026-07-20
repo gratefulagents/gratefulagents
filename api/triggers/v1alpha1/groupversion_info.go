@@ -1,7 +1,7 @@
 /*
 Copyright 2026.
 
-SPDX-License-Identifier: GPL-3.0-only
+SPDX-License-Identifier: AGPL-3.0-only
 */
 
 // Package v1alpha1 contains API Schema definitions for the triggers v1alpha1 API group.

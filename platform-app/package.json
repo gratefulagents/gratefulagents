@@ -2,7 +2,7 @@
   "name": "platform-app",
   "private": true,
   "version": "0.0.0",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "packageManager": "pnpm@10.25.0",
   "description": "pnpm workspace for the Operator platform frontends. The single React source of truth lives in `frontend/`; `web/` and `tauri/` are thin build targets that both consume it. The RPC API contract (*.proto) lives in `rpc/` at the repo root.",
