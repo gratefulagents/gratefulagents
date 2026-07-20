@@ -1,6 +1,6 @@
 {{- /*
-Default platform configuration: ModeTemplates (interactive/plan/autopilot/review/slack) and
-RoleInstructions for the specialist sub-agents. Synced from configs/ in the
+Default platform configuration: ModeTemplates and RoleInstructions for the specialist
+sub-agents. Synced from configs/ in the
 source repo via `make helm-sync-bootstrap`.
 
 Applied as post-install/post-upgrade hooks so the CRDs installed by this chart

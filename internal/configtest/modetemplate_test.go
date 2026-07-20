@@ -92,7 +92,7 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 }
 
 func TestGeneralModeTemplatesAdvertiseDynamicCapabilities(t *testing.T) {
-	for _, mode := range []string{"autopilot", "interactive", "slack"} {
+	for _, mode := range []string{"autopilot", "gratefulagents", "interactive", "slack"} {
 		t.Run(mode, func(t *testing.T) {
 			sourcePath := filepath.Join("..", "..", "configs", "modetemplates", mode+".yaml")
 			mirrorPath := filepath.Join("..", "..", "dist", "chart", "files", "bootstrap", "modetemplates", mode+".yaml")
@@ -125,6 +125,46 @@ func TestGeneralModeTemplatesAdvertiseDynamicCapabilities(t *testing.T) {
 				t.Errorf("%s advertises the unregistered Terminal tool", sourcePath)
 			}
 		})
+	}
+}
+
+func TestGratefulAgentsModeTemplateTargetsPlatformAndSDK(t *testing.T) {
+	sourcePath := filepath.Join("..", "..", "configs", "modetemplates", "gratefulagents.yaml")
+	mirrorPath := filepath.Join("..", "..", "dist", "chart", "files", "bootstrap", "modetemplates", "gratefulagents.yaml")
+
+	source, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mirror, err := os.ReadFile(mirrorPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(source, mirror) {
+		t.Fatalf("%s and %s differ", sourcePath, mirrorPath)
+	}
+
+	var template struct {
+		Spec platformv1alpha1.ModeTemplateSpec `json:"spec"`
+	}
+	if err := yaml.Unmarshal(source, &template); err != nil {
+		t.Fatalf("parse %s: %v", sourcePath, err)
+	}
+	if template.Spec.Name != "gratefulagents" {
+		t.Fatalf("mode name = %q, want gratefulagents", template.Spec.Name)
+	}
+	instructions := strings.Join(strings.Fields(template.Spec.Instructions), " ")
+	for _, want := range []string{
+		"gratefulagents/gratefulagents",
+		"gratefulagents/sdk",
+		"repos/sdk",
+		"change the repository where the root cause lives",
+		"keep their commits, pushes, and pull requests separate",
+		"Do not make the platform depend on an unreleased SDK commit",
+	} {
+		if !strings.Contains(instructions, want) {
+			t.Errorf("%s instructions do not contain %q", sourcePath, want)
+		}
 	}
 }
 
