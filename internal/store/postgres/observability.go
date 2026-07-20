@@ -234,7 +234,10 @@ func aggregateObservability(q store.ObservabilityQuery, sessions []observability
 			status = stringValue(d["status"])
 		}
 		status = strings.ToLower(status)
-		failed := stringValue(d["failure_kind"]) != "" || (status != "" && status != "started" && status != "completed")
+		// A model failure is a provider/model error (failure_kind is set on
+		// retrying/fallback/failed attempts) or an explicit failed status.
+		// User-initiated interruptions ("interrupted") are not failures.
+		failed := stringValue(d["failure_kind"]) != "" || status == "failed" || status == "retrying" || status == "fallback"
 		if failed {
 			out.Totals.LLMFailures++
 			b.Totals.LLMFailures++
@@ -254,6 +257,15 @@ func aggregateObservability(q store.ObservabilityQuery, sessions []observability
 		}
 		cost := numberValue(d["cost_usd"])
 		inputTokens := int64(numberValue(firstValue(d, "input_tokens", "prompt_tokens")))
+		// Providers differ on whether input_tokens already include cached
+		// prompt tokens (OpenAI-style: yes, Anthropic-style: no). When the
+		// event explicitly says they are excluded, add them so generation
+		// input tokens reflect the full processed prompt instead of
+		// undercounting. Events without the accounting flags are left as-is
+		// to avoid double counting.
+		if boolValue(d["input_tokens_include_cache_known"]) && !boolValue(d["input_tokens_include_cache"]) {
+			inputTokens += int64(numberValue(d["cache_read_input_tokens"])) + int64(numberValue(d["cache_creation_input_tokens"]))
+		}
 		outputTokens := int64(numberValue(firstValue(d, "output_tokens", "completion_tokens")))
 		out.Totals.GenerationCostUSD += cost
 		out.Totals.GenerationInputTokens += inputTokens
@@ -283,7 +295,9 @@ func aggregateObservability(q store.ObservabilityQuery, sessions []observability
 		a.value.Count++
 		out.Totals.Subagents++
 		bucket(terminal.event.created).Totals.Subagents++
-		if status := strings.ToLower(stringValue(d["status"])); status == "failed" || status == "cancelled" {
+		// Only genuine failures count against reliability; cancelled/stopped
+		// tasks are user-initiated terminations, not subagent errors.
+		if status := strings.ToLower(stringValue(d["status"])); status == "failed" {
 			a.value.Errors++
 			out.Totals.SubagentFailures++
 			bucket(terminal.event.created).Totals.SubagentFailures++

@@ -48,6 +48,11 @@ import {
   ListSlackDraftsResponseSchema,
   ListSlackWorkspacesResponseSchema,
   ListWorkspaceFilesResponseSchema,
+  ObservabilityBreakdownSchema,
+  ObservabilityBucketSchema,
+  ObservabilityDataCompletenessSchema,
+  ObservabilityOverviewResponseSchema,
+  ObservabilityTotalsSchema,
   PlatformService,
   ProjectEventSchema,
   ProviderOAuthResultSchema,
@@ -112,6 +117,30 @@ function withDefaults(service: DescService, impl: AnyImpl): AnyImpl {
     }
   }
   return out;
+}
+
+// Converts the integer counters of a synthetic observability totals record to
+// the bigint fields ObservabilityTotals expects (cost fields stay numbers).
+function bigintTotals(v: {
+  runs: number; inputTokens: number; outputTokens: number; toolCalls: number; toolErrors: number;
+  subagents: number; subagentFailures: number; llmAttempts: number; llmFailures: number;
+  compactions: number; tokensReclaimed: number; generationInputTokens: number; generationOutputTokens: number;
+}) {
+  return {
+    runs: BigInt(v.runs),
+    inputTokens: BigInt(v.inputTokens),
+    outputTokens: BigInt(v.outputTokens),
+    toolCalls: BigInt(v.toolCalls),
+    toolErrors: BigInt(v.toolErrors),
+    subagents: BigInt(v.subagents),
+    subagentFailures: BigInt(v.subagentFailures),
+    llmAttempts: BigInt(v.llmAttempts),
+    llmFailures: BigInt(v.llmFailures),
+    compactions: BigInt(v.compactions),
+    tokensReclaimed: BigInt(v.tokensReclaimed),
+    generationInputTokens: BigInt(v.generationInputTokens),
+    generationOutputTokens: BigInt(v.generationOutputTokens),
+  };
 }
 
 function buildPlatformImpl(s: Scenario): AnyImpl {
@@ -414,6 +443,107 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     },
     getPresence: async () => create(GetPresenceResponseSchema, { viewers: s.presenceViewers }),
     sendPresenceHeartbeat: async () => ({}),
+
+    // ---- Observability ------------------------------------------------------
+    getObservabilityOverview: async (req: {
+      start?: { seconds: bigint };
+      end?: { seconds: bigint };
+      bucketSeconds: bigint;
+    }) => {
+      if (s.runs.length === 0) return create(ObservabilityOverviewResponseSchema, {});
+      const startSec = Number(req.start?.seconds ?? 0n);
+      const endSec = Number(req.end?.seconds ?? 0n);
+      const step = Number(req.bucketSeconds || 3600n) || 3600;
+      const count = Math.max(1, Math.min(2000, Math.ceil((endSec - startSec) / step)));
+      // Deterministic pseudo-daily wave so screenshots are diffable.
+      const wave = (i: number, base: number, swing: number) =>
+        Math.max(0, base + swing * Math.sin(i / 2.1) + swing * 0.5 * Math.sin(i / 5.3 + 1.7));
+      const totals = {
+        runs: 0, costUsd: 0, inputTokens: 0, outputTokens: 0, toolCalls: 0, toolErrors: 0,
+        subagents: 0, subagentFailures: 0, llmAttempts: 0, llmFailures: 0, compactions: 0,
+        tokensReclaimed: 0, generationCostUsd: 0, generationInputTokens: 0, generationOutputTokens: 0,
+      };
+      const buckets = Array.from({ length: count }, (_, i) => {
+        const b = {
+          runs: Math.round(wave(i, 3, 2.4)),
+          costUsd: wave(i, 1.9, 1.4),
+          inputTokens: Math.round(wave(i, 900_000, 700_000)),
+          outputTokens: Math.round(wave(i, 60_000, 45_000)),
+          toolCalls: Math.round(wave(i, 340, 260)),
+          toolErrors: Math.round(wave(i, 7, 6)),
+          subagents: Math.round(wave(i, 22, 16)),
+          subagentFailures: i % 9 === 4 ? 1 : 0,
+          llmAttempts: Math.round(wave(i, 120, 90)),
+          llmFailures: Math.round(wave(i, 2.2, 2)),
+          compactions: Math.round(wave(i, 4, 3.4)),
+          tokensReclaimed: Math.round(wave(i, 240_000, 180_000)),
+          generationCostUsd: wave(i, 1.7, 1.3),
+          generationInputTokens: Math.round(wave(i, 820_000, 640_000)),
+          generationOutputTokens: Math.round(wave(i, 52_000, 40_000)),
+        };
+        for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += b[key];
+        return create(ObservabilityBucketSchema, {
+          start: { seconds: BigInt(startSec + i * step) },
+          totals: create(ObservabilityTotalsSchema, {
+            ...bigintTotals(b),
+            costUsd: b.costUsd,
+            generationCostUsd: b.generationCostUsd,
+          }),
+        });
+      });
+      const breakdown = (
+        name: string,
+        count_: number,
+        errors: number,
+        costUsd: number,
+        inputTokens: number,
+        outputTokens: number,
+        p95: number,
+      ) =>
+        create(ObservabilityBreakdownSchema, {
+          name, count: BigInt(count_), errors: BigInt(errors), costUsd,
+          inputTokens: BigInt(inputTokens), outputTokens: BigInt(outputTokens),
+          averageDurationMs: p95 * 0.4, p95DurationMs: p95,
+        });
+      return create(ObservabilityOverviewResponseSchema, {
+        totals: create(ObservabilityTotalsSchema, {
+          ...bigintTotals(totals),
+          costUsd: totals.costUsd,
+          generationCostUsd: totals.generationCostUsd,
+        }),
+        buckets,
+        tools: [
+          breakdown("Bash", Math.round(totals.toolCalls * 0.34), Math.round(totals.toolErrors * 0.5), 0, 0, 0, 3_400),
+          breakdown("read_file", Math.round(totals.toolCalls * 0.22), 0, 0, 0, 0, 180),
+          breakdown("Edit", Math.round(totals.toolCalls * 0.16), Math.round(totals.toolErrors * 0.3), 0, 0, 0, 240),
+          breakdown("grep", Math.round(totals.toolCalls * 0.12), 0, 0, 0, 0, 320),
+          breakdown("subagent", Math.round(totals.toolCalls * 0.06), Math.round(totals.toolErrors * 0.2), 0, 0, 0, 210_000),
+          breakdown("WebFetch", Math.round(totals.toolCalls * 0.04), 0, 0, 0, 0, 2_900),
+        ],
+        subagents: [
+          breakdown("executor", Math.round(totals.subagents * 0.4), totals.subagentFailures, totals.generationCostUsd * 0.22, 0, 0, 260_000),
+          breakdown("explore", Math.round(totals.subagents * 0.3), 0, totals.generationCostUsd * 0.08, 0, 0, 90_000),
+          breakdown("code-reviewer", Math.round(totals.subagents * 0.2), 0, totals.generationCostUsd * 0.1, 0, 0, 150_000),
+          breakdown("planner", Math.round(totals.subagents * 0.1), 0, totals.generationCostUsd * 0.05, 0, 0, 120_000),
+        ],
+        models: [
+          breakdown("anthropic/claude-opus-4.6", Math.round(totals.llmAttempts * 0.52), Math.round(totals.llmFailures * 0.4), totals.generationCostUsd * 0.68, Math.round(totals.generationInputTokens * 0.6), Math.round(totals.generationOutputTokens * 0.55), 21_000),
+          breakdown("openai/gpt-5.6", Math.round(totals.llmAttempts * 0.31), Math.round(totals.llmFailures * 0.35), totals.generationCostUsd * 0.24, Math.round(totals.generationInputTokens * 0.28), Math.round(totals.generationOutputTokens * 0.3), 17_000),
+          breakdown("google/gemini-3-pro", Math.round(totals.llmAttempts * 0.17), Math.round(totals.llmFailures * 0.25), totals.generationCostUsd * 0.08, Math.round(totals.generationInputTokens * 0.12), Math.round(totals.generationOutputTokens * 0.15), 12_000),
+        ],
+        dataCompleteness: create(ObservabilityDataCompletenessSchema, {
+          sessions: BigInt(s.runs.length),
+          sessionsWithMetrics: BigInt(s.runs.length),
+          sessionsWithActivity: BigInt(Math.max(0, s.runs.length - 1)),
+          metricsComplete: true,
+          activityComplete: false,
+        }),
+        coverageWarnings: [
+          "Activity-derived counts and generation-attributed usage are best-effort because the Postgres event tee may omit events.",
+          "Only currently visible AgentRuns are included; deleted historical runs are excluded.",
+        ],
+      });
+    },
 
     // ---- Workspace filesystem ----------------------------------------------
     listWorkspaceFiles: async () =>
