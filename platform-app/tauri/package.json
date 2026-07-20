@@ -2,7 +2,7 @@
   "name": "engg-operator-tauri",
   "private": true,
   "version": "0.1.0",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "description": "Tauri desktop/iOS build target for gratefulagents. Source lives in the shared `@operator/frontend` package; this app only carries the native shell and Tauri-specific build config.",
   "scripts": {

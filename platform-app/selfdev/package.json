@@ -2,7 +2,7 @@
   "name": "selfdev",
   "private": true,
   "version": "0.1.0",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "description": "Self-dev harness for the gratefulagents UI: a fake ConnectRPC backend with scenario fixtures plus a Playwright screenshot CLI, so agents (and humans) can run, drive, and screenshot the app without a cluster.",
   "scripts": {

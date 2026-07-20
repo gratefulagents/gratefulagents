@@ -2,7 +2,7 @@
   "name": "web",
   "private": true,
   "version": "0.0.0",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "description": "Browser build target for gratefulagents served by the Go backend (embedded as internal/dashboard/web_dist). Source lives in the shared `@operator/frontend` package.",
   "scripts": {

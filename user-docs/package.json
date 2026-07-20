@@ -1,7 +1,7 @@
 {
   "name": "gratefulagents-user-docs",
   "version": "0.0.0",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "private": true,
   "description": "User documentation for the gratefulagents platform app.",
   "scripts": {
