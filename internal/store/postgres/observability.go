@@ -235,9 +235,15 @@ func aggregateObservability(q store.ObservabilityQuery, sessions []observability
 		}
 		status = strings.ToLower(status)
 		// A model failure is a provider/model error (failure_kind is set on
-		// retrying/fallback/failed attempts) or an explicit failed status.
-		// User-initiated interruptions ("interrupted") are not failures.
-		failed := stringValue(d["failure_kind"]) != "" || status == "failed" || status == "retrying" || status == "fallback"
+		// retrying/fallback/failed attempts) or an explicit error status,
+		// matching the aliases GetRecentErrorActivity and isErrorContentEvent
+		// recognize. User-initiated interruptions ("interrupted") are not
+		// failures.
+		failed := stringValue(d["failure_kind"]) != ""
+		switch status {
+		case "failed", "retrying", "fallback", "error", "failure", "fatal":
+			failed = true
+		}
 		if failed {
 			out.Totals.LLMFailures++
 			b.Totals.LLMFailures++

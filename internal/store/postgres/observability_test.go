@@ -42,6 +42,8 @@ func TestAggregateObservabilityAvoidsDoubleCounting(t *testing.T) {
 		event(12, 12*time.Minute, "llm_attempt", `{"tool_use_id":"attempt-4","provider":"openai","resolved_model":"model-a","attempt_status":"retrying","failure_kind":"rate_limited"}`),
 		// Cancelled subagent: terminal, but user-initiated — not a failure.
 		event(13, 13*time.Minute, "subagent_status", `{"task_id":"task-2","subagent_type":"reviewer","status":"cancelled"}`),
+		// Error-status alias without a failure_kind: still a model failure.
+		event(14, 14*time.Minute, "llm_attempt", `{"tool_use_id":"attempt-5","provider":"openai","resolved_model":"model-a","attempt_status":"error"}`),
 	}
 	got := aggregateObservability(store.ObservabilityQuery{Start: start, End: start.Add(time.Hour), BucketSeconds: 300}, sessions, events)
 	if got.Totals.CostUSD != 2.5 || got.Totals.InputTokens != 100 || got.Totals.OutputTokens != 20 {
@@ -56,8 +58,8 @@ func TestAggregateObservabilityAvoidsDoubleCounting(t *testing.T) {
 	if got.Totals.Compactions != 2 || got.Totals.TokensReclaimed != 30 {
 		t.Fatalf("compaction aggregation failed: %+v", got.Totals)
 	}
-	if got.Totals.LLMAttempts != 4 || got.Totals.LLMFailures != 1 {
-		t.Fatalf("LLM attempt reduction failed (interrupted must not be a failure, retrying must be): %+v", got.Totals)
+	if got.Totals.LLMAttempts != 5 || got.Totals.LLMFailures != 2 {
+		t.Fatalf("LLM attempt reduction failed (interrupted must not be a failure; retrying and error statuses must be): %+v", got.Totals)
 	}
 	if got.Totals.GenerationCostUSD != 2.0 || got.Totals.GenerationInputTokens != 170 || got.Totals.GenerationOutputTokens != 13 {
 		t.Fatalf("generation attribution failed (cache-excluded input tokens must be added): %+v", got.Totals)
@@ -66,7 +68,7 @@ func TestAggregateObservabilityAvoidsDoubleCounting(t *testing.T) {
 	for _, m := range got.Models {
 		models[m.Name] = m
 	}
-	if m := models["openai/model-a"]; m.Count != 3 || m.Errors != 1 || m.CostUSD != 1.25 || m.InputTokens != 40 {
+	if m := models["openai/model-a"]; m.Count != 4 || m.Errors != 2 || m.CostUSD != 1.25 || m.InputTokens != 40 {
 		t.Fatalf("model attribution missing: %+v", got.Models)
 	}
 	if m := models["anthropic/model-b"]; m.Count != 1 || m.InputTokens != 130 || m.OutputTokens != 5 {
