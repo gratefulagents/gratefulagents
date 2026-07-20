@@ -114,7 +114,7 @@ const stations = [
                 muted
                 playsinline
                 preload="auto"
-                aria-label="Screen recording of one agent run: a prompt fans out to a subagent DAG, then the finished trace, replayed at 4x speed"
+                aria-label="View full screen: recording of one agent run — a prompt fans out to a subagent DAG, then the finished trace, replayed at 4x speed"
               ></video>
               <span class="video-progress" data-hero-progress aria-hidden="true"></span>
             </div>
@@ -415,10 +415,28 @@ const stations = [
         }
       });
       if (!reduceMotion) {
-        video.addEventListener('click', () => {
-          if (video.paused) video.play().catch(() => {});
-          else video.pause();
+        // Click (or Enter/Space) opens the recording full screen, mirroring
+        // the screenshot lightbox; native controls take over while there.
+        const goFullscreen = () => {
+          if (document.fullscreenElement) return;
+          if (video.requestFullscreen) video.requestFullscreen().catch(() => {});
+          else if (video.webkitRequestFullscreen) video.webkitRequestFullscreen();
+          else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+        };
+        video.setAttribute('tabindex', '0');
+        video.setAttribute('role', 'button');
+        video.addEventListener('click', goFullscreen);
+        video.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            goFullscreen();
+          }
         });
+        for (const type of ['fullscreenchange', 'webkitfullscreenchange']) {
+          document.addEventListener(type, () => {
+            video.controls = (document.fullscreenElement || document.webkitFullscreenElement) === video;
+          });
+        }
       }
     }
 

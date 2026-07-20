@@ -267,7 +267,7 @@ img { max-width: 100%; height: auto; }
 .plate-stage { position: relative; margin: 14px 14px 0; }
 .plate-stage > img { display: block; width: 100%; height: auto; border: 1px solid var(--line); }
 .plate-stage > video { display: block; width: 100%; height: auto; border: 1px solid var(--line); background: var(--blue-deep); }
-.plate-stage > video:not([controls]) { cursor: pointer; }
+.plate-stage > video:not([controls]) { cursor: zoom-in; }
 
 /* Playback redline: the one live signal on the recorded sheet. */
 .video-progress {
