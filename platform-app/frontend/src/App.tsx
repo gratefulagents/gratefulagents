@@ -84,7 +84,6 @@ import {
   Plus,
   Settings as SettingsIcon,
   ShieldCheck,
-  SquarePen,
 } from "lucide-react";
 import { isTauri, platform } from "@/lib/platform";
 import { APP_VERSION } from "@/lib/build-info";
@@ -142,16 +141,6 @@ function AppSidebar({
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={<Link to="/" />}
-                  tooltip="New chat"
-                  className="h-[30px] text-[12.5px] rounded-[6px] px-2 gap-2 font-medium hover:bg-sidebar-accent"
-                >
-                  <SquarePen className="size-[15px] text-primary" />
-                  <span className="tracking-tight">New chat</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   render={<Link to="/" />}

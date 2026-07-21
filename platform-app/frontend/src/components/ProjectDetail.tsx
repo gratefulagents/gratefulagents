@@ -11,7 +11,6 @@ import {
 
 import { AgentRunTable } from "@/components/AgentRunTable";
 import { CreateRunDialog } from "@/components/CreateRunDialog";
-import { NewChatComposer } from "@/components/NewChatComposer";
 import { ProjectCredentialBadges } from "@/components/projectCredentials";
 import { ProjectContentSection } from "@/components/project-content/ProjectContentSection";
 import { ProjectTriggerRail } from "@/components/project-triggers/ProjectTriggerRail";
@@ -231,17 +230,6 @@ export function ProjectDetail() {
             <div className="pt-4">
               {tab === "overview" && (
                 <div className="space-y-7">
-                  {canEdit && (
-                    <div className="space-y-2">
-                      <NewChatComposer
-                        variant="compact"
-                        fixedNamespace={project.namespace}
-                        fixedProject={project.name}
-                        placeholder={`Start a chat in ${project.displayName || project.name}…`}
-                      />
-                    </div>
-                  )}
-
                   <RecentRunsPreview
                     runs={runs}
                     loading={runsLoading}
@@ -263,7 +251,7 @@ export function ProjectDetail() {
                   <AgentRunTable
                     runs={runs}
                     loading={runsLoading}
-                    emptyMessage="No runs yet — start a chat from the Overview tab."
+                    emptyMessage="No runs yet — start a chat from Home or create a plan."
                     sourceFallbackLabel="Issue"
                     sourceAriaLabel="Source issue (opens in new tab)"
                     viewKey={`project:${namespace}/${name}`}
@@ -326,7 +314,7 @@ function RecentRunsPreview({
         <ListRowSkeleton rows={3} />
       ) : recent.length === 0 ? (
         <p className="rounded-md border border-dashed px-4 py-5 text-[13px] text-muted-foreground">
-          No runs yet. Describe a task above to start the first one.
+          No runs yet. Start one from an entry point below or with New Run.
         </p>
       ) : (
         <ItemGroup className="gap-1">
