@@ -31,6 +31,7 @@ func runCLI(args []string, stderr io.Writer) int {
 			return 1
 		}
 		if err := runEntry(); err != nil {
+			_, _ = fmt.Fprintf(stderr, "agent run failed: %v\n", err)
 			return 1
 		}
 		return 0
@@ -40,6 +41,7 @@ func runCLI(args []string, stderr io.Writer) int {
 			return 1
 		}
 		if err := slackEntry(); err != nil {
+			_, _ = fmt.Fprintf(stderr, "slack connector failed: %v\n", err)
 			return 1
 		}
 		return 0

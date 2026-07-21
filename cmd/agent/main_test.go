@@ -44,6 +44,9 @@ func TestRunCLIPropagatesSlackFailure(t *testing.T) {
 	if code := runCLI([]string{"agent", "slack"}, &stderr); code == 0 {
 		t.Fatal("runCLI(slack) code = 0, want non-zero on connector failure")
 	}
+	if got, want := stderr.String(), "slack connector failed: boom\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
 }
 
 func TestRunCLIRejectsLegacyPlan(t *testing.T) {
@@ -74,5 +77,8 @@ func TestRunCLIPropagatesRunnerFailure(t *testing.T) {
 	var stderr bytes.Buffer
 	if code := runCLI([]string{"agent", "run"}, &stderr); code == 0 {
 		t.Fatal("runCLI(run) code = 0, want non-zero on runner failure")
+	}
+	if got, want := stderr.String(), "agent run failed: boom\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
