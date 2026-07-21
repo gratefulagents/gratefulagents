@@ -319,6 +319,23 @@ describe("ProjectTriggerDialog", () => {
     expect((onSave.mock.calls[0][0] as ProjectTrigger).slack).toEqual(trigger.slack);
   });
 
+  it("creates an unscoped Slack trigger when the conversation ID is left empty", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ connections: [SLACK_CONNECTION], onSave });
+
+    const slackCard = screen.getAllByRole("button").find(
+      (button) => button.textContent?.includes("Slack") && button.textContent?.includes("channel"),
+    );
+    fireEvent.click(slackCard!);
+    fireEvent.click(screen.getByText("my-slack"));
+    fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "team-chat" } });
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0][0] as ProjectTrigger;
+    expect(saved.slack?.channel).toBe("");
+  });
+
   it("rejects a Slack channel name because runtime filtering requires a stable ID", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     renderDialog({ connections: [SLACK_CONNECTION], onSave });

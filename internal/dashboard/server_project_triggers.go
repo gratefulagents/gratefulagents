@@ -542,10 +542,12 @@ func projectTriggerFromProto(pb *platform.ProjectTrigger) (triggersv1alpha1.Proj
 		}
 		config := pb.GetSlack()
 		connectionRef, channel := strings.TrimSpace(config.GetConnectionRef()), strings.TrimSpace(config.GetChannel())
-		if connectionRef == "" || channel == "" {
-			return triggersv1alpha1.ProjectTrigger{}, fmt.Errorf("slack trigger requires connection_ref and channel")
+		if connectionRef == "" {
+			return triggersv1alpha1.ProjectTrigger{}, fmt.Errorf("slack trigger requires connection_ref")
 		}
-		if !validSlackID(channel, "CGD") {
+		// An empty channel means the agent responds in any conversation the bot
+		// is invited to and @mentioned in.
+		if channel != "" && !validSlackID(channel, "CGD") {
 			return triggersv1alpha1.ProjectTrigger{}, fmt.Errorf("invalid Slack conversation ID %q; expected an ID starting with C, G, or D", channel)
 		}
 		commanders, err := normalizedSlackUserIDs(config.GetCommanders())

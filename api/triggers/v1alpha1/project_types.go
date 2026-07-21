@@ -105,8 +105,10 @@ type GitHubProjectTriggerConfig struct {
 type SlackProjectTriggerConfig struct {
 	ConnectionRef ConnectionRef `json:"connectionRef"`
 
-	// +kubebuilder:validation:MinLength=1
-	Channel string `json:"channel"`
+	// channel is the Slack conversation ID (C…/G…/D…) this trigger is scoped
+	// to. Leave empty to respond in any conversation the bot is invited to.
+	// +optional
+	Channel string `json:"channel,omitempty"`
 
 	// channelReplyMode controls whether channel replies need approval.
 	// +kubebuilder:validation:Enum=require-approval;auto

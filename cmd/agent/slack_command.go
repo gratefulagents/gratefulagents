@@ -337,8 +337,14 @@ func (o *slackOrchestrator) handleCommand(ctx context.Context, d internalslack.D
 	if strings.TrimSpace(d.Text) == "" && len(d.Files) == 0 {
 		return
 	}
-	if channel := projectSlackTriggerChannel(o.triggerOwner); channel != "" && !strings.EqualFold(strings.TrimPrefix(channel, "#"), strings.TrimPrefix(d.ChannelID, "#")) {
-		return
+	// Project triggers may be scoped to one conversation. DMs are exempt so the
+	// Agent-view Messages tab keeps working regardless of scope — DM access is
+	// already owner/commander-gated during routing.
+	if d.ChannelType != "im" {
+		if channel := o.projectTriggerChannel(ctx); channel != "" && channel != d.ChannelID {
+			log.Printf("slack connector %s: ignored message in %s (outside trigger channel %s)", o.agentName, d.ChannelID, channel)
+			return
+		}
 	}
 	turnText := o.commandTurnText(ctx, d)
 
@@ -379,8 +385,31 @@ func (o *slackOrchestrator) handleCommand(ctx context.Context, d internalslack.D
 	})
 }
 
+// projectTriggerChannel returns the conversation a project-generated agent is
+// scoped to, or "" when the agent is unscoped (respond wherever the bot is
+// invited and @mentioned). The annotation is read live from the SlackAgent so
+// dashboard edits apply to the next message without a connector restart; a
+// read failure falls back to the startup snapshot.
+func (o *slackOrchestrator) projectTriggerChannel(ctx context.Context) string {
+	if !isGeneratedRuntimeOwner(o.triggerOwner) {
+		return ""
+	}
+	agent := &triggersv1alpha1.SlackAgent{}
+	if err := o.crdClient.Get(ctx, client.ObjectKey{Namespace: o.namespace, Name: o.agentName}, agent); err != nil {
+		log.Printf("slack connector %s: reading trigger channel (using startup value): %v", o.agentName, err)
+		return projectSlackTriggerChannel(o.triggerOwner)
+	}
+	return projectSlackTriggerChannel(agent)
+}
+
+// isGeneratedRuntimeOwner reports whether the connector's owner CR was
+// compiled from a Project trigger declaration.
+func isGeneratedRuntimeOwner(owner client.Object) bool {
+	return owner != nil && owner.GetAnnotations()["triggers.gratefulagents.dev/generated-runtime"] == "true"
+}
+
 func projectSlackTriggerChannel(owner client.Object) string {
-	if owner == nil || owner.GetAnnotations()["triggers.gratefulagents.dev/generated-runtime"] != "true" {
+	if !isGeneratedRuntimeOwner(owner) {
 		return ""
 	}
 	channel := strings.TrimSpace(owner.GetAnnotations()["triggers.gratefulagents.dev/project-trigger-channel"])

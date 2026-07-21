@@ -405,3 +405,87 @@ func TestChannelReplyReviseInstruction(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectSlackTriggerChannel(t *testing.T) {
+	newAgent := func(annotations map[string]string) *triggersv1alpha1.SlackAgent {
+		agent := &triggersv1alpha1.SlackAgent{}
+		agent.SetAnnotations(annotations)
+		return agent
+	}
+	cases := []struct {
+		name  string
+		owner client.Object
+		want  string
+	}{
+		{"nil owner", nil, ""},
+		{"hand-written agent ignores annotation", newAgent(map[string]string{
+			"triggers.gratefulagents.dev/project-trigger-channel": "C123",
+		}), ""},
+		{"generated agent with channel id", newAgent(map[string]string{
+			"triggers.gratefulagents.dev/generated-runtime":       "true",
+			"triggers.gratefulagents.dev/project-trigger-channel": "C123",
+		}), "C123"},
+		{"generated agent without channel is unscoped", newAgent(map[string]string{
+			"triggers.gratefulagents.dev/generated-runtime": "true",
+		}), ""},
+		{"legacy channel name cannot scope", newAgent(map[string]string{
+			"triggers.gratefulagents.dev/generated-runtime":       "true",
+			"triggers.gratefulagents.dev/project-trigger-channel": "#engineering",
+		}), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := projectSlackTriggerChannel(tc.owner); got != tc.want {
+				t.Fatalf("projectSlackTriggerChannel = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProjectTriggerChannelReadsLive(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(triggers): %v", err)
+	}
+
+	snapshot := &triggersv1alpha1.SlackAgent{}
+	snapshot.Name = "me"
+	snapshot.Namespace = "ns"
+	snapshot.SetAnnotations(map[string]string{
+		"triggers.gratefulagents.dev/generated-runtime":       "true",
+		"triggers.gratefulagents.dev/project-trigger-channel": "C0LD",
+	})
+
+	// The live CR carries an edited channel: it must win over the snapshot.
+	live := snapshot.DeepCopy()
+	live.Annotations["triggers.gratefulagents.dev/project-trigger-channel"] = "C0NEW"
+	o := &slackOrchestrator{
+		crdClient:    fake.NewClientBuilder().WithScheme(scheme).WithObjects(live).Build(),
+		namespace:    "ns",
+		agentName:    "me",
+		triggerOwner: snapshot,
+	}
+	if got := o.projectTriggerChannel(context.Background()); got != "C0NEW" {
+		t.Fatalf("projectTriggerChannel = %q, want live value C0NEW", got)
+	}
+
+	// A cleared channel on the live CR unscopes the agent.
+	cleared := snapshot.DeepCopy()
+	delete(cleared.Annotations, "triggers.gratefulagents.dev/project-trigger-channel")
+	o.crdClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(cleared).Build()
+	if got := o.projectTriggerChannel(context.Background()); got != "" {
+		t.Fatalf("projectTriggerChannel = %q, want empty after clearing", got)
+	}
+
+	// A read failure falls back to the startup snapshot.
+	o.crdClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+	if got := o.projectTriggerChannel(context.Background()); got != "C0LD" {
+		t.Fatalf("projectTriggerChannel = %q, want snapshot fallback C0LD", got)
+	}
+
+	// Hand-written (non-generated) agents never scope and never hit the API.
+	o.triggerOwner = &triggersv1alpha1.SlackAgent{}
+	if got := o.projectTriggerChannel(context.Background()); got != "" {
+		t.Fatalf("projectTriggerChannel = %q, want empty for hand-written agent", got)
+	}
+}
