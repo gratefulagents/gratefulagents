@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 // ImageAttachment is a user-attached image held in the composer prior to
 // sending. dataUrl is a full "data:<mime>;base64,..." string ready to pass to
@@ -9,9 +9,12 @@ export interface ImageAttachment {
   dataUrl: string;
 }
 
-// Cap individual attachments so we never try to ship a huge blob through the
-// RPC layer. Mirrors the server-side limit.
+// Keep the pending payload within the backend parser and transport limits.
+const MAX_IMAGES = 8;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MiB
+// The dashboard RPC read limit is 32 MiB. Reserve 2 MiB for the prompt and
+// protobuf framing instead of allowing image data URLs to consume it all.
+const MAX_TOTAL_IMAGE_DATA_URL_BYTES = 30 * 1024 * 1024; // 30 MiB
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -26,16 +29,43 @@ function readFileAsDataURL(file: File): Promise<string> {
 // chat composer, with helpers to add from a file picker or a paste event.
 export function useImageAttachments() {
   const [images, setImages] = useState<ImageAttachment[]>([]);
+  const imagesRef = useRef<ImageAttachment[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const append = useCallback((candidates: ImageAttachment[], initialError: string | null = null) => {
+    const next = [...imagesRef.current];
+    let totalBytes = next.reduce((total, image) => total + image.dataUrl.length, 0);
+    let nextError = initialError;
+
+    for (const candidate of candidates) {
+      if (next.length >= MAX_IMAGES) {
+        nextError = `You can attach up to ${MAX_IMAGES} images.`;
+        break;
+      }
+      if (totalBytes + candidate.dataUrl.length > MAX_TOTAL_IMAGE_DATA_URL_BYTES) {
+        nextError = "Images are too large together (max 30 MB).";
+        continue;
+      }
+      next.push(candidate);
+      totalBytes += candidate.dataUrl.length;
+    }
+
+    if (next.length !== imagesRef.current.length) {
+      imagesRef.current = next;
+      setImages(next);
+    }
+    setError(nextError);
+  }, []);
 
   const addFiles = useCallback(async (files: FileList | File[] | null | undefined) => {
     if (!files) return;
     const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (list.length === 0) return;
     const added: ImageAttachment[] = [];
+    let nextError: string | null = null;
     for (const file of list) {
       if (file.size > MAX_IMAGE_BYTES) {
-        setError(`"${file.name || "image"}" is too large (max 20 MB).`);
+        nextError = `"${file.name || "image"}" is too large (max 20 MB).`;
         continue;
       }
       try {
@@ -46,14 +76,11 @@ export function useImageAttachments() {
           dataUrl,
         });
       } catch {
-        setError("Failed to read an image.");
+        nextError = "Failed to read an image.";
       }
     }
-    if (added.length > 0) {
-      setError(null);
-      setImages((prev) => [...prev, ...added]);
-    }
-  }, []);
+    append(added, nextError);
+  }, [append]);
 
   // onPaste extracts images from the clipboard. Returns true when at least one
   // image was handled so the caller can suppress default text paste behavior.
@@ -84,15 +111,18 @@ export function useImageAttachments() {
         dataUrl,
       }));
     if (restored.length === 0) return;
-    setError(null);
-    setImages((prev) => [...prev, ...restored]);
-  }, []);
+    append(restored);
+  }, [append]);
 
   const remove = useCallback((id: string) => {
-    setImages((prev) => prev.filter((img) => img.id !== id));
+    const next = imagesRef.current.filter((img) => img.id !== id);
+    imagesRef.current = next;
+    setImages(next);
+    setError(null);
   }, []);
 
   const clear = useCallback(() => {
+    imagesRef.current = [];
     setImages([]);
     setError(null);
   }, []);
