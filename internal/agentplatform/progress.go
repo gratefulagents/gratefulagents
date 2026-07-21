@@ -20,13 +20,13 @@ import (
 )
 
 // BuildCRDClient creates a controller-runtime client that can read/write AgentRun status.
-func BuildCRDClient() (client.Client, error) {
+func BuildCRDClient() (client.WithWatch, error) {
 	c, _, err := BuildCRDClientWithScheme()
 	return c, err
 }
 
 // BuildCRDClientWithScheme creates a controller-runtime client plus the runtime scheme it uses.
-func BuildCRDClientWithScheme() (client.Client, *runtime.Scheme, error) {
+func BuildCRDClientWithScheme() (client.WithWatch, *runtime.Scheme, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting in-cluster config: %w", err)
@@ -37,7 +37,7 @@ func BuildCRDClientWithScheme() (client.Client, *runtime.Scheme, error) {
 		return nil, nil, err
 	}
 
-	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	c, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme})
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating client: %w", err)
 	}

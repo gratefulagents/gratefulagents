@@ -189,6 +189,8 @@ rules:
   - crons/status
   - githubrepositories/status
   - linearprojects/status
+  - maintainerworkitemcommands/status
+  - maintainerworkitems/status
   - projects/status
   - pullrequestmonitors/status
   - slackagents/status
@@ -200,6 +202,8 @@ rules:
 - apiGroups:
   - triggers.gratefulagents.dev
   resources:
+  - maintainerworkitemcommands
+  - maintainerworkitems
   - pullrequestmonitors
   verbs:
   - create

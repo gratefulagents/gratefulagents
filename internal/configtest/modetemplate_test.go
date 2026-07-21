@@ -73,15 +73,17 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 	if err := yaml.Unmarshal(source, &template); err != nil {
 		t.Fatalf("parse %s: %v", sourcePath, err)
 	}
-	closeEnabled := false
+	closeEnabled, triageEnabled := false, false
 	for _, name := range template.Spec.AllowedMutatingTools {
-		if name == "close_github_issue" {
-			closeEnabled = true
-			break
+		switch name {
+		case "close_github_issue":
+			closeEnabled = true // Legacy rollback path remains available in phase 1.
+		case "triage_issue":
+			triageEnabled = true
 		}
 	}
-	if !closeEnabled {
-		t.Fatalf("maintainer allowed mutating tools = %#v, want close_github_issue", template.Spec.AllowedMutatingTools)
+	if !closeEnabled || !triageEnabled {
+		t.Fatalf("maintainer allowed mutating tools = %#v, want triage_issue plus legacy close_github_issue", template.Spec.AllowedMutatingTools)
 	}
 
 	instructions := strings.Join(strings.Fields(template.Spec.Instructions), " ")
@@ -92,15 +94,15 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 		"do not repeat an already-current decision",
 		"Ordinary quiescence is a reason to wait, not to call finish",
 		"Triage: choose exactly one disposition",
-		"Close duplicates/out-of-scope/invalid requests as not_planned",
+		"Set close_reason to not_planned for duplicates, out-of-scope, or invalid requests",
 		"BOUNDED — one independently verifiable implementation",
 		"DECOMPOSABLE — the accepted outcome is stable",
 		"DISCOVERY — uncertainty is technical and reversible",
 		"ESCALATED — implementation requires an irreversible or unauthorized",
 		"call AskUserQuestion with concise choices as the last tool call",
 		"Never use \"too broad\" or \"the plan is too small\" as a final disposition",
-		"comment must be posted with add_github_issue_comment before dispatch_issue",
-		"Do not use dispatch_issue.note as the required pre-dispatch comment",
+		"Every disposition must first be recorded with triage_issue",
+		"it exclusively owns the decision comment and closure side effects",
 		"Issue disposition, AgentRun phase, PR-loop verdict, GitHub PR lifecycle, and CI are separate facts",
 		"calling finish ends only its current execution episode",
 		"while checks are pending or an AI reviewer is active",

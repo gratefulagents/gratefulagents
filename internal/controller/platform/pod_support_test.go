@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -75,6 +76,11 @@ func TestRunRBACRulesGiveMaintainerFleetAccess(t *testing.T) {
 		t.Fatalf("missing namespace-wide fleet access in %#v", rules)
 	}
 	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "modetemplates", "get", "list")
+	assertHasRuleVerbs(t, rules, "triggers.gratefulagents.dev", "maintainerworkitems", "get", "list", "watch")
+	assertHasRuleVerbs(t, rules, "triggers.gratefulagents.dev", "maintainerworkitemcommands", "create", "get", "list", "watch")
+	assertRuleWithGroupVerbAndNames(t, rules, "", "secrets", "get", triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name))
+	assertNoResourceVerb(t, rules, "maintainerworkitems", "patch")
+	assertNoResourceVerb(t, rules, "maintainerworkitemcommands", "update")
 	for _, rule := range rules {
 		if contains(rule.APIGroups, "triggers.gratefulagents.dev") && contains(rule.Resources, "githubrepositories") {
 			if !contains(rule.ResourceNames, "repo") || !contains(rule.Verbs, "get") {
@@ -84,6 +90,56 @@ func TestRunRBACRulesGiveMaintainerFleetAccess(t *testing.T) {
 		}
 	}
 	t.Fatal("missing scoped GitHubRepository rule")
+}
+
+func TestEnsureMaintainerCommandCapabilityIsPrivateAndStable(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	run := maintainerRunForRBAC("repo-maintainer", "repo")
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default", UID: types.UID("repo-uid")}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run, repository).Build()
+	controller := true
+	owner := metav1.OwnerReference{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller}
+	if err := ensureMaintainerCommandCapability(context.Background(), c, run, owner, repository.Name); err != nil {
+		t.Fatal(err)
+	}
+	secret := &corev1.Secret{}
+	key := client.ObjectKey{Namespace: run.Namespace, Name: triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name)}
+	if err := c.Get(context.Background(), key, secret); err != nil {
+		t.Fatal(err)
+	}
+	first := append([]byte(nil), secret.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey]...)
+	if len(first) != 32 || !metav1.IsControlledBy(secret, run) || secret.Immutable == nil || !*secret.Immutable || string(secret.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey]) != repository.Name || string(secret.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey]) != string(repository.UID) {
+		t.Fatalf("capability Secret = %#v", secret)
+	}
+	if err := ensureMaintainerCommandCapability(context.Background(), c, run, owner, repository.Name); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(context.Background(), key, secret); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first, secret.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey]) {
+		t.Fatal("capability changed across idempotent reconciliation")
+	}
+}
+
+func maintainerRunForRBAC(name, repository string) *platformv1alpha1.AgentRun {
+	controller := true
+	return &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
+		Name: name, Namespace: "default", UID: types.UID(name + "-uid"),
+		Labels:          map[string]string{orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleMaintainer, orchestration.SupervisedRunLabel: repository},
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "GitHubRepository", Name: repository, UID: types.UID(repository + "-uid"), Controller: &controller}},
+	}}
 }
 
 func TestRunRBACRulesGiveOverseerReadOnlyAccessToSupervisedRun(t *testing.T) {
@@ -182,8 +238,13 @@ func assertHasRuleVerbs(t *testing.T, rules []rbacv1.PolicyRule, apiGroup, resou
 
 func assertRuleWithVerbAndNames(t *testing.T, rules []rbacv1.PolicyRule, resource, verb string, names ...string) {
 	t.Helper()
+	assertRuleWithGroupVerbAndNames(t, rules, "platform.gratefulagents.dev", resource, verb, names...)
+}
+
+func assertRuleWithGroupVerbAndNames(t *testing.T, rules []rbacv1.PolicyRule, apiGroup, resource, verb string, names ...string) {
+	t.Helper()
 	for _, rule := range rules {
-		if !contains(rule.APIGroups, "platform.gratefulagents.dev") || !contains(rule.Resources, resource) || !contains(rule.Verbs, verb) {
+		if !contains(rule.APIGroups, apiGroup) || !contains(rule.Resources, resource) || !contains(rule.Verbs, verb) {
 			continue
 		}
 		for _, name := range names {

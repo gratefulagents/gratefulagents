@@ -12,6 +12,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -59,11 +60,28 @@ func newMaintainerToolBase(t *testing.T, runs ...*platformv1alpha1.AgentRun) (ma
 	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default"}}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default", UID: types.UID("repo-uid")}}
 	objects := make([]client.Object, 0, len(runs)+1)
 	objects = append(objects, repository)
 	for _, run := range runs {
 		objects = append(objects, run)
+		if run.Labels[orchestration.StandingRunRoleLabel] == orchestration.StandingRunRoleMaintainer {
+			controller := true
+			objects = append(objects, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name), Namespace: run.Namespace,
+					OwnerReferences: []metav1.OwnerReference{{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller}},
+				},
+				Data: map[string][]byte{
+					triggersv1alpha1.MaintainerCommandCapabilitySecretKey:         []byte("01234567890123456789012345678901"),
+					triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey: []byte(repository.Name),
+					triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey:  []byte(repository.UID),
+				},
+			})
+		}
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 	stateStore := &maintainerTestStore{sessions: map[string]*store.Session{}}

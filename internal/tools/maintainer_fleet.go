@@ -29,6 +29,7 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&getFleetRunActivityTool{maintainerToolBase: base})
 	registry.Register(&waitForRunsTool{maintainerToolBase: base, pollInterval: 10 * time.Second})
 	registry.Register(&waitForRepoEventsTool{maintainerToolBase: base, runner: prReviewExecRunner{}, backlogPollInterval: defaultBacklogPollInterval, fleetPollInterval: defaultFleetEventsPollInterval})
+	registry.Register(&triageIssueTool{maintainerToolBase: base})
 	registry.Register(&dispatchIssueTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&mergePullRequestTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&wakeAgentRunTool{maintainerToolBase: base})

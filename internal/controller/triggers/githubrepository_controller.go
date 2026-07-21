@@ -23,6 +23,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
@@ -43,10 +45,13 @@ type GitHubRepositoryReconciler struct {
 	Recorder          record.EventRecorder
 	MaintainerEnabled bool
 	MaintainerEngine  *MaintainerEngine
+	GitHubTriage      GitHubTriageClient
 }
 
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=githubrepositories,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=githubrepositories/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=maintainerworkitems;maintainerworkitemcommands,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=maintainerworkitems/status;maintainerworkitemcommands/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=agentruns,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
@@ -62,6 +67,11 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	token, err := resolveGitHubToken(ctx, r.Client, gh, r.GitHubAppMinter)
 	if err != nil {
+		if maintainerWorkItemsEnabled(r, gh) {
+			if staleErr := r.markMaintainerWorkItemObservationsUnavailable(ctx, gh, "AuthenticationUnavailable", err.Error()); staleErr != nil {
+				return ctrl.Result{}, staleErr
+			}
+		}
 		_ = retryGitHubRepositoryStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(gh), func(fresh *triggersv1alpha1.GitHubRepository) {
 			fresh.Status.LastError = err.Error()
 		})
@@ -74,10 +84,28 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	issues, err := listOpenGitHubIssues(ctx, ghClient.Issues, gh.Spec.Owner, gh.Spec.Repo, log)
 	if err != nil {
 		log.Error(err, "failed to fetch issues from GitHub")
+		if maintainerWorkItemsEnabled(r, gh) {
+			if staleErr := r.markMaintainerWorkItemObservationsUnavailable(ctx, gh, "IssuePollUnavailable", err.Error()); staleErr != nil {
+				return ctrl.Result{}, staleErr
+			}
+		}
 		_ = retryGitHubRepositoryStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(gh), func(fresh *triggersv1alpha1.GitHubRepository) {
 			fresh.Status.LastError = err.Error()
 		})
 		return r.reconcileWithMaintainer(ctx, gh, nil, false, ctrl.Result{RequeueAfter: time.Minute})
+	}
+
+	if maintainerWorkItemsEnabled(r, gh) {
+		if err := r.reconcileMaintainerWorkItems(ctx, gh, issues); err != nil {
+			return ctrl.Result{}, err
+		}
+		triageClient := r.GitHubTriage
+		if triageClient == nil {
+			triageClient = githubTriageAdapter{issues: ghClient.Issues}
+		}
+		if err := r.reconcileMaintainerWorkItemCommands(ctx, gh, triageClient); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	result, err := r.syncGitHubIssues(ctx, gh, issues)
@@ -368,6 +396,14 @@ func listOpenGitHubIssues(ctx context.Context, issues githubIssueLister, owner, 
 	}
 }
 
+func (r *GitHubRepositoryReconciler) mapMaintainerWorkItemCommandToRepository(_ context.Context, obj client.Object) []ctrl.Request {
+	command, ok := obj.(*triggersv1alpha1.MaintainerWorkItemCommand)
+	if !ok || command.Spec.RepositoryRef.Name == "" {
+		return nil
+	}
+	return []ctrl.Request{{NamespacedName: client.ObjectKey{Namespace: command.Namespace, Name: command.Spec.RepositoryRef.Name}}}
+}
+
 func (r *GitHubRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// Reconciles rewrite status.lastPollTime on every pass; without a
@@ -379,6 +415,12 @@ func (r *GitHubRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			predicate.LabelChangedPredicate{},
 		))).
 		Owns(&platformv1alpha1.AgentRun{}).
+		Watches(&triggersv1alpha1.MaintainerWorkItemCommand{}, handler.EnqueueRequestsFromMapFunc(r.mapMaintainerWorkItemCommandToRepository), builder.WithPredicates(predicate.Funcs{
+			CreateFunc: func(event.CreateEvent) bool { return true },
+			UpdateFunc: func(update event.UpdateEvent) bool {
+				return update.ObjectOld.GetGeneration() != update.ObjectNew.GetGeneration()
+			},
+		})).
 		Named("githubrepository").
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		Complete(r)
