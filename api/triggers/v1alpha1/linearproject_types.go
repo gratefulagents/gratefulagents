@@ -261,6 +261,7 @@ func IsSupportedProvider(provider string) bool {
 		ProviderGemini,
 		ProviderOpenRouter,
 		ProviderGroq,
+		ProviderXAI,
 		ProviderCopilot:
 		return true
 	default:
