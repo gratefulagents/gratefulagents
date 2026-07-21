@@ -108,6 +108,9 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	registryOpts = append(registryOpts,
 		tools.WithPermissionMode(cfg.PermissionMode),
 		tools.WithSignalTools(),
+		// Register the provider-neutral tool shell here. The SDK runtime attaches
+		// the configured OpenAI vision analyzer when it builds the agent.
+		tools.WithVisionTools(nil),
 	)
 
 	// Mode templates may allowlist specific mutating tools that survive both

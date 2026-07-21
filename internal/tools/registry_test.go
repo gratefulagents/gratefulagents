@@ -53,6 +53,17 @@ func TestNewRegistry_BrowserDoesNotRelaxVisionURLs(t *testing.T) {
 	}
 }
 
+func TestNewRegistry_WithProviderWiredVisionTool(t *testing.T) {
+	r := NewRegistry("/tmp/test", WithVisionTools(nil))
+	vision, ok := r.Get("AnalyzeImage").(*sdkvision.Tool)
+	if !ok {
+		t.Fatalf("provider-wired registry missing AnalyzeImage; names=%v", r.Names())
+	}
+	if vision.AnalyzeFn != nil || vision.AnalyzeWithDetailFn != nil {
+		t.Fatal("provider-wired vision tool should leave analyzer attachment to the SDK runtime")
+	}
+}
+
 func TestNewRegistry_ReadOnlyWithSignalTools(t *testing.T) {
 	r := NewRegistry("/tmp/test", WithReadOnlyTools(), WithSignalTools())
 
