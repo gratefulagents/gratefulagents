@@ -26,9 +26,11 @@ import (
 )
 
 // Server implements the PlatformService business logic.
-// It reads from the controller-runtime cache (zero extra K8s API load).
+// It reads through the controller-runtime cache except for invariants that
+// require authoritative API-server reads.
 type Server struct {
 	k8sClient         client.Client
+	apiReader         client.Reader
 	scheme            *runtime.Scheme
 	s3Reader          *s3ActivityReader
 	s3Diff            *s3DiffReader
@@ -111,6 +113,7 @@ func NewServer(c client.Client, scheme *runtime.Scheme, clientset *kubernetes.Cl
 	ar := newS3ActivityReader()
 	s := &Server{
 		k8sClient:             c,
+		apiReader:             c,
 		scheme:                scheme,
 		s3Reader:              ar,
 		s3Diff:                newS3DiffReader(ar),
@@ -148,6 +151,15 @@ func NewServer(c client.Client, scheme *runtime.Scheme, clientset *kubernetes.Cl
 
 // ServerOption configures the dashboard server.
 type ServerOption func(*Server)
+
+// WithAPIReader sets the uncached reader used for cross-resource invariants.
+func WithAPIReader(reader client.Reader) ServerOption {
+	return func(s *Server) {
+		if reader != nil {
+			s.apiReader = reader
+		}
+	}
+}
 
 // WithStateStore sets the optional Postgres state backend.
 func WithStateStore(ss store.StateStore) ServerOption {

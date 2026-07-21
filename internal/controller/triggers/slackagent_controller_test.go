@@ -1,3 +1,4 @@
+//nolint:goconst // Repeated identifiers are intentional test fixtures.
 package triggers
 
 import (

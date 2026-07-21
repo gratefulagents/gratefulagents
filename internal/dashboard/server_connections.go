@@ -6,8 +6,10 @@ import (
 	"maps"
 	"sort"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -61,36 +63,21 @@ func (s *Server) CreateConnection(ctx context.Context, req *platform.CreateConne
 	if err != nil {
 		return nil, err
 	}
-	existing := &triggersv1alpha1.Connection{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, existing); err == nil {
-		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("connection %q already exists", name))
-	} else if !k8serrors.IsNotFound(err) {
-		return nil, mapK8sError("check existing Connection", err)
-	}
-	connectionType, mutatesSecret := connectionMutatesManagedSecret(req.GetConnection())
-	var snapshot *corev1.Secret
-	if mutatesSecret {
-		snapshot, err = s.snapshotConnectionSecret(ctx, namespace, name, connectionType)
-		if err != nil {
-			return nil, err
-		}
-	}
-	rollback := func() {
-		if mutatesSecret {
-			s.restoreConnectionSecret(ctx, namespace, name, connectionType, snapshot)
-		}
-	}
-	if err := s.materializeConnectionSecrets(ctx, namespace, name, req.GetConnection()); err != nil {
+	createdSecret, err := s.materializeConnectionSecrets(ctx, namespace, name, req.GetConnection())
+	if err != nil {
 		return nil, err
 	}
+	cleanup := func() { s.deleteManagedConnectionSecret(ctx, namespace, name, createdSecret) }
 	connection, err := connectionFromProto(req.GetConnection())
 	if err != nil {
-		rollback()
+		cleanup()
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	connection.Name, connection.Namespace = name, namespace
 	if err := s.k8sClient.Create(ctx, connection); err != nil {
-		rollback()
+		if k8serrors.IsAlreadyExists(err) || k8serrors.IsInvalid(err) {
+			cleanup()
+		}
 		if k8serrors.IsAlreadyExists(err) {
 			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("connection %q already exists", name))
 		}
@@ -109,36 +96,29 @@ func (s *Server) UpdateConnection(ctx context.Context, req *platform.UpdateConne
 		return nil, err
 	}
 	current := &triggersv1alpha1.Connection{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, current); err != nil {
+	key := client.ObjectKey{Namespace: namespace, Name: name}
+	if err := s.k8sClient.Get(ctx, key, current); err != nil {
 		return nil, mapK8sError("get Connection", err)
 	}
-	connectionType, mutatesSecret := connectionMutatesManagedSecret(req.GetConnection())
+	connectionType := triggersv1alpha1.ConnectionType(strings.TrimSpace(req.GetConnection().GetType()))
 	if current.Spec.Type != connectionType {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("connection type is immutable"))
 	}
-	var snapshot *corev1.Secret
-	if mutatesSecret {
-		snapshot, err = s.snapshotConnectionSecret(ctx, namespace, name, connectionType)
-		if err != nil {
-			return nil, err
-		}
-	}
-	rollback := func() {
-		if mutatesSecret {
-			s.restoreConnectionSecret(ctx, namespace, name, connectionType, snapshot)
-		}
-	}
-	if err := s.materializeConnectionSecrets(ctx, namespace, name, req.GetConnection()); err != nil {
+	createdSecret, err := s.materializeConnectionSecrets(ctx, namespace, name, req.GetConnection())
+	if err != nil {
 		return nil, err
 	}
+	cleanupCreated := func() { s.deleteManagedConnectionSecret(ctx, namespace, name, createdSecret) }
 	desired, err := connectionFromProto(req.GetConnection())
 	if err != nil {
-		rollback()
+		cleanupCreated()
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	current.Spec = desired.Spec
 	if err := s.k8sClient.Update(ctx, current); err != nil {
-		rollback()
+		if k8serrors.IsConflict(err) || k8serrors.IsInvalid(err) || k8serrors.IsNotFound(err) {
+			cleanupCreated()
+		}
 		return nil, mapK8sError("update Connection", err)
 	}
 	return connectionToProto(current), nil
@@ -157,6 +137,15 @@ func (s *Server) DeleteConnection(ctx context.Context, req *platform.DeleteConne
 	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, connection); err != nil {
 		return nil, mapK8sError("get Connection", err)
 	}
+	if claim := connection.Annotations[slackTriggerClaimAnnotation]; claim != "" {
+		active, err := s.slackTriggerClaimActive(ctx, namespace, name, claim)
+		if err != nil {
+			return nil, mapK8sError("validate Slack trigger claim", err)
+		}
+		if active {
+			return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("slack connection %q has a trigger operation in progress", name))
+		}
+	}
 	projects := &triggersv1alpha1.ProjectList{}
 	if err := s.k8sClient.List(ctx, projects, client.InNamespace(namespace)); err != nil {
 		return nil, mapK8sError("list Projects", err)
@@ -166,17 +155,13 @@ func (s *Server) DeleteConnection(ctx context.Context, req *platform.DeleteConne
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("connection %q is used by project %q", name, projects.Items[i].Name))
 		}
 	}
-	if err := s.k8sClient.Delete(ctx, connection); err != nil && !k8serrors.IsNotFound(err) {
+	preconditions := client.Preconditions{UID: &connection.UID, ResourceVersion: &connection.ResourceVersion}
+	if err := s.k8sClient.Delete(ctx, connection, preconditions); err != nil && !k8serrors.IsNotFound(err) {
 		return nil, mapK8sError("delete Connection", err)
 	}
-	// Best-effort cleanup of platform-managed credential Secrets created for
-	// this connection from pasted raw values.
-	secrets := &corev1.SecretList{}
-	if err := s.k8sClient.List(ctx, secrets, client.InNamespace(namespace), client.MatchingLabels{connectionSecretLabel: name}); err == nil {
-		for i := range secrets.Items {
-			_ = s.k8sClient.Delete(ctx, &secrets.Items[i])
-		}
-	}
+	// Versioned credential Secrets are intentionally retained for deferred
+	// garbage collection. Eager deletion is unsafe because an overlapping
+	// request may have committed a reference after this request's last read.
 	return &emptypb.Empty{}, nil
 }
 
@@ -202,208 +187,150 @@ func validateSlackConnectionFields(sl *platform.SlackConnection) error {
 	return nil
 }
 
-func connectionMutatesManagedSecret(pb *platform.Connection) (triggersv1alpha1.ConnectionType, bool) {
-	if pb == nil {
-		return "", false
-	}
-	connectionType := triggersv1alpha1.ConnectionType(strings.TrimSpace(pb.GetType()))
-	switch connectionType {
-	case triggersv1alpha1.ConnectionTypeGitHub:
-		g := pb.GetGithub()
-		return connectionType, g != nil && (strings.TrimSpace(g.GetToken()) != "" || strings.TrimSpace(g.GetPrivateKey()) != "")
-	case triggersv1alpha1.ConnectionTypeSlack:
-		sl := pb.GetSlack()
-		return connectionType, sl != nil && (strings.TrimSpace(sl.GetBotToken()) != "" || strings.TrimSpace(sl.GetAppToken()) != "" || strings.TrimSpace(sl.GetUserToken()) != "" || sl.GetClearUserToken())
-	case triggersv1alpha1.ConnectionTypeLinear:
-		l := pb.GetLinear()
-		return connectionType, l != nil && strings.TrimSpace(l.GetApiKey()) != ""
-	default:
-		return connectionType, false
-	}
-}
-
-func (s *Server) snapshotConnectionSecret(ctx context.Context, namespace, name string, connectionType triggersv1alpha1.ConnectionType) (*corev1.Secret, error) {
-	secret := &corev1.Secret{}
-	err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: connectionSecretName(name, connectionType)}, secret)
-	if k8serrors.IsNotFound(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, mapK8sError("snapshot connection secret", err)
-	}
-	return secret.DeepCopy(), nil
-}
-
-func (s *Server) restoreConnectionSecret(ctx context.Context, namespace, name string, connectionType triggersv1alpha1.ConnectionType, snapshot *corev1.Secret) {
-	key := client.ObjectKey{Namespace: namespace, Name: connectionSecretName(name, connectionType)}
-	current := &corev1.Secret{}
-	if snapshot == nil {
-		if err := s.k8sClient.Get(ctx, key, current); err == nil && current.Labels[connectionSecretLabel] == name {
-			_ = s.k8sClient.Delete(ctx, current)
-		}
-		return
-	}
-	if err := s.k8sClient.Get(ctx, key, current); err != nil {
-		return
-	}
-	current.Data = snapshot.Data
-	current.Labels = snapshot.Labels
-	current.Annotations = snapshot.Annotations
-	_ = s.k8sClient.Update(ctx, current)
-}
-
 // materializeConnectionSecrets moves any write-only raw credential values off
 // the wire message into a platform-managed Secret and rewrites the message to
 // reference that Secret. Raw values never reach the Connection CR and are
 // never echoed back to clients. Empty raw fields leave existing Secret keys
 // untouched, so updates may omit previously stored credentials.
-func (s *Server) materializeConnectionSecrets(ctx context.Context, namespace, name string, pb *platform.Connection) error {
+func (s *Server) materializeConnectionSecrets(ctx context.Context, namespace, name string, pb *platform.Connection) (string, error) {
 	if pb == nil {
-		return nil
+		return "", nil
 	}
 	switch triggersv1alpha1.ConnectionType(strings.TrimSpace(pb.GetType())) {
 	case triggersv1alpha1.ConnectionTypeGitHub:
-		g := pb.GetGithub()
-		if g == nil {
-			return nil
+		github := pb.GetGithub()
+		if github == nil {
+			return "", nil
 		}
-		set := map[string][]byte{}
-		if v := strings.TrimSpace(g.GetToken()); v != "" {
-			set[userCredGithubTokenKey] = []byte(v)
+		data := map[string][]byte{}
+		if value := strings.TrimSpace(github.GetToken()); value != "" {
+			data[userCredGithubTokenKey] = []byte(value)
 		}
-		if v := strings.TrimSpace(g.GetPrivateKey()); v != "" {
-			set[githubapp.PrivateKeySecretKey] = []byte(v)
+		if value := strings.TrimSpace(github.GetPrivateKey()); value != "" {
+			data[githubapp.PrivateKeySecretKey] = []byte(value)
 		}
-		g.Token, g.PrivateKey = "", ""
-		if len(set) == 0 {
-			return nil
+		github.Token, github.PrivateKey = "", ""
+		if len(data) == 0 {
+			return "", nil
 		}
-		secretName := connectionSecretName(name, triggersv1alpha1.ConnectionTypeGitHub)
-		if err := s.upsertConnectionSecret(ctx, namespace, secretName, name, set, nil); err != nil {
-			return err
+		secretName, err := s.createManagedConnectionSecret(ctx, namespace, name, triggersv1alpha1.ConnectionTypeGitHub, data)
+		if err != nil {
+			return "", err
 		}
-		if _, ok := set[userCredGithubTokenKey]; ok {
-			g.TokenSecret = secretName
+		if _, ok := data[userCredGithubTokenKey]; ok {
+			github.TokenSecret = secretName
 		}
-		if _, ok := set[githubapp.PrivateKeySecretKey]; ok {
-			g.PrivateKeySecret = secretName
+		if _, ok := data[githubapp.PrivateKeySecretKey]; ok {
+			github.PrivateKeySecret = secretName
 		}
+		return secretName, nil
 	case triggersv1alpha1.ConnectionTypeSlack:
-		sl := pb.GetSlack()
-		if sl == nil {
-			return nil
-		}
-		if err := validateSlackConnectionFields(sl); err != nil {
-			return connect.NewError(connect.CodeInvalidArgument, err)
-		}
-		set := map[string][]byte{}
-		if v := strings.TrimSpace(sl.GetBotToken()); v != "" {
-			set[triggersv1alpha1.SlackBotTokenKey] = []byte(v)
-		}
-		if v := strings.TrimSpace(sl.GetAppToken()); v != "" {
-			set[triggersv1alpha1.SlackAppTokenKey] = []byte(v)
-		}
-		if v := strings.TrimSpace(sl.GetUserToken()); v != "" {
-			set[triggersv1alpha1.SlackUserTokenKey] = []byte(v)
-		}
-		clearUser := sl.GetClearUserToken()
-		sl.BotToken, sl.AppToken, sl.UserToken, sl.ClearUserToken = "", "", "", false
-		if len(set) == 0 && !clearUser {
-			return nil
-		}
-
-		secretName := connectionSecretName(name, triggersv1alpha1.ConnectionTypeSlack)
-		referencedName := strings.TrimSpace(sl.GetTokensSecret())
-		merged := map[string][]byte{}
-		if referencedName != "" {
-			referenced := &corev1.Secret{}
-			if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: referencedName}, referenced); err != nil {
-				if k8serrors.IsNotFound(err) {
-					return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("Slack tokens secret %q not found", referencedName))
-				}
-				return mapK8sError("read Slack tokens secret", err)
-			}
-			for _, key := range []string{triggersv1alpha1.SlackBotTokenKey, triggersv1alpha1.SlackAppTokenKey, triggersv1alpha1.SlackUserTokenKey} {
-				if value, ok := referenced.Data[key]; ok {
-					merged[key] = append([]byte(nil), value...)
-				}
-			}
-		}
-		maps.Copy(merged, set)
-		if clearUser {
-			delete(merged, triggersv1alpha1.SlackUserTokenKey)
-		}
-		if len(merged[triggersv1alpha1.SlackBotTokenKey]) == 0 || len(merged[triggersv1alpha1.SlackAppTokenKey]) == 0 {
-			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("slack connection requires both a bot token (xoxb-…) and an app-level token (xapp-…)"))
-		}
-
-		deleteKeys := []string(nil)
-		if referencedName != secretName {
-			// Editing an externally-backed connection creates a complete managed
-			// copy before changing the reference; the external Secret is untouched.
-			set = merged
-		} else if clearUser {
-			deleteKeys = []string{triggersv1alpha1.SlackUserTokenKey}
-		}
-		if err := s.upsertConnectionSecret(ctx, namespace, secretName, name, set, deleteKeys); err != nil {
-			return err
-		}
-		sl.TokensSecret = secretName
+		return s.materializeSlackConnectionSecret(ctx, namespace, name, pb.GetSlack())
 	case triggersv1alpha1.ConnectionTypeLinear:
-		l := pb.GetLinear()
-		if l == nil {
-			return nil
+		linear := pb.GetLinear()
+		if linear == nil {
+			return "", nil
 		}
-		v := strings.TrimSpace(l.GetApiKey())
-		l.ApiKey = ""
-		if v == "" {
-			return nil
+		value := strings.TrimSpace(linear.GetApiKey())
+		linear.ApiKey = ""
+		if value == "" {
+			return "", nil
 		}
-		secretName := connectionSecretName(name, triggersv1alpha1.ConnectionTypeLinear)
-		if err := s.upsertConnectionSecret(ctx, namespace, secretName, name, map[string][]byte{linearConnectionAPIKeyKey: []byte(v)}, nil); err != nil {
-			return err
+		secretName, err := s.createManagedConnectionSecret(ctx, namespace, name, triggersv1alpha1.ConnectionTypeLinear, map[string][]byte{linearConnectionAPIKeyKey: []byte(value)})
+		if err != nil {
+			return "", err
 		}
-		l.ApiKeySecret = secretName
+		linear.ApiKeySecret = secretName
+		return secretName, nil
+	default:
+		return "", nil
 	}
-	return nil
 }
 
-// upsertConnectionSecret merges the given keys into the named platform-managed
-// Secret, creating and labeling it on first use.
-func (s *Server) upsertConnectionSecret(ctx context.Context, namespace, secretName, connection string, set map[string][]byte, deleteKeys []string) error {
-	secret := &corev1.Secret{}
-	err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
+func (s *Server) materializeSlackConnectionSecret(ctx context.Context, namespace, name string, slack *platform.SlackConnection) (string, error) {
+	if slack == nil {
+		return "", nil
+	}
+	if err := validateSlackConnectionFields(slack); err != nil {
+		return "", connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	set := map[string][]byte{}
+	if value := strings.TrimSpace(slack.GetBotToken()); value != "" {
+		set[triggersv1alpha1.SlackBotTokenKey] = []byte(value)
+	}
+	if value := strings.TrimSpace(slack.GetAppToken()); value != "" {
+		set[triggersv1alpha1.SlackAppTokenKey] = []byte(value)
+	}
+	if value := strings.TrimSpace(slack.GetUserToken()); value != "" {
+		set[triggersv1alpha1.SlackUserTokenKey] = []byte(value)
+	}
+	clearUser := slack.GetClearUserToken()
+	slack.BotToken, slack.AppToken, slack.UserToken, slack.ClearUserToken = "", "", "", false
+	if len(set) == 0 && !clearUser {
+		return "", nil
+	}
+
+	referencedName := strings.TrimSpace(slack.GetTokensSecret())
+	merged := map[string][]byte{}
+	if referencedName != "" {
+		referenced := &corev1.Secret{}
+		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: referencedName}, referenced); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("slack tokens secret %q not found", referencedName))
+			}
+			return "", mapK8sError("read Slack tokens secret", err)
+		}
+		for _, key := range []string{triggersv1alpha1.SlackBotTokenKey, triggersv1alpha1.SlackAppTokenKey, triggersv1alpha1.SlackUserTokenKey} {
+			if value, ok := referenced.Data[key]; ok {
+				merged[key] = append([]byte(nil), value...)
+			}
+		}
+	}
+	maps.Copy(merged, set)
+	if clearUser {
+		delete(merged, triggersv1alpha1.SlackUserTokenKey)
+	}
+	if len(merged[triggersv1alpha1.SlackBotTokenKey]) == 0 || len(merged[triggersv1alpha1.SlackAppTokenKey]) == 0 {
+		return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("slack connection requires both a bot token (xoxb-…) and an app-level token (xapp-…)"))
+	}
+	secretName, err := s.createManagedConnectionSecret(ctx, namespace, name, triggersv1alpha1.ConnectionTypeSlack, merged)
 	if err != nil {
-		if !k8serrors.IsNotFound(err) {
-			return mapK8sError("read connection secret", err)
-		}
-		secret = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: namespace,
-				Labels:    map[string]string{connectionSecretLabel: connection},
-			},
-			Data: set,
-		}
-		if err := s.k8sClient.Create(ctx, secret); err != nil {
-			return mapK8sError("create connection secret", err)
-		}
-		return nil
+		return "", err
+	}
+	slack.TokensSecret = secretName
+	return secretName, nil
+}
+
+func (s *Server) createManagedConnectionSecret(ctx context.Context, namespace, connection string, connectionType triggersv1alpha1.ConnectionType, data map[string][]byte) (string, error) {
+	secretName := fmt.Sprintf("%s-%s", connectionSecretName(connection, connectionType), uuid.NewString())
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+			Labels:    map[string]string{connectionSecretLabel: connection},
+		},
+		Data: data,
+	}
+	if err := s.k8sClient.Create(ctx, secret); err != nil {
+		return "", mapK8sError("create connection secret", err)
+	}
+	return secretName, nil
+}
+
+func (s *Server) deleteManagedConnectionSecret(ctx context.Context, namespace, connection, secretName string) {
+	if secretName == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	secret := &corev1.Secret{}
+	if err := s.k8sClient.Get(cleanupCtx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret); err != nil {
+		return
 	}
 	if secret.Labels[connectionSecretLabel] != connection {
-		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("secret %q is not managed by connection %q", secretName, connection))
+		return
 	}
-	if secret.Data == nil {
-		secret.Data = map[string][]byte{}
-	}
-	maps.Copy(secret.Data, set)
-	for _, key := range deleteKeys {
-		delete(secret.Data, key)
-	}
-	if err := s.k8sClient.Update(ctx, secret); err != nil {
-		return mapK8sError("update connection secret", err)
-	}
-	return nil
+	_ = s.k8sClient.Delete(cleanupCtx, secret, client.Preconditions{UID: &secret.UID, ResourceVersion: &secret.ResourceVersion})
 }
 
 func (s *Server) authorizeConnectionNamespace(ctx context.Context, requested string) (string, error) {

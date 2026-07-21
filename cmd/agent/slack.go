@@ -159,7 +159,11 @@ func runSlack() error {
 		return fmt.Errorf("slack bot auth.test returned no team ID")
 	}
 	if cfg.TeamID != "" && botIdentity.TeamID != cfg.TeamID {
-		return fmt.Errorf("slack connector is pinned to team %s but bot token belongs to team %s", cfg.TeamID, botIdentity.TeamID)
+		return fmt.Errorf(
+			"slack connector is pinned to team %s but bot token belongs to team %s",
+			cfg.TeamID,
+			botIdentity.TeamID,
+		)
 	}
 	log.Printf("slack connector %s/%s authenticated as bot user=%s team=%s",
 		cfg.Namespace, cfg.AgentName, botIdentity.UserID, botIdentity.TeamID)
@@ -178,10 +182,18 @@ func runSlack() error {
 			return fmt.Errorf("validating slack user token: %w", uerr)
 		}
 		if userIdentity.TeamID != backend.teamID {
-			return fmt.Errorf("slack bot token belongs to team %s but user token belongs to team %s", backend.teamID, userIdentity.TeamID)
+			return fmt.Errorf(
+				"slack bot token belongs to team %s but user token belongs to team %s",
+				backend.teamID,
+				userIdentity.TeamID,
+			)
 		}
 		if backend.ownerUserID != "" && userIdentity.UserID != backend.ownerUserID {
-			return fmt.Errorf("slack user token belongs to %s but configured owner is %s", userIdentity.UserID, backend.ownerUserID)
+			return fmt.Errorf(
+				"slack user token belongs to %s but configured owner is %s",
+				userIdentity.UserID,
+				backend.ownerUserID,
+			)
 		}
 		backend.ownerUserID = userIdentity.UserID
 		log.Printf("slack connector owner user=%s", backend.ownerUserID)

@@ -125,7 +125,7 @@ func (r *ProjectReconciler) ensureSlackConnectionExclusive(ctx context.Context, 
 				continue
 			}
 			if projectTriggerEnabled(other) && other.Type == triggersv1alpha1.ProjectTriggerTypeSlack && other.Slack != nil && other.Slack.ConnectionRef.Name == trigger.Slack.ConnectionRef.Name {
-				return fmt.Errorf("Slack connection %q is also used by enabled trigger %s/%s; Socket Mode connections cannot be shared", trigger.Slack.ConnectionRef.Name, project.Name, other.Name)
+				return fmt.Errorf("slack connection %q is also used by enabled trigger %s/%s; Socket Mode connections cannot be shared", trigger.Slack.ConnectionRef.Name, project.Name, other.Name)
 			}
 		}
 	}
