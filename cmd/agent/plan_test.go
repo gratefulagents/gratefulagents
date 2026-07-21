@@ -347,35 +347,40 @@ func TestLoadRunConfigReadsCopilotOAuthAccessToken(t *testing.T) {
 	}
 }
 
-func TestLoadRunConfigGitHubTokenOptionalForRepoless(t *testing.T) {
+func TestLoadRunConfigGitHubTokenOptional(t *testing.T) {
 	base := func(t *testing.T) {
 		t.Setenv("WORKSPACE_DIR", "/workspace")
 		t.Setenv("POD_NAMESPACE", "gratefulagents-system")
 		t.Setenv("PLANTASK_NAME", "run-1")
 		t.Setenv("PLANTASK_UID", "uid-1")
 		t.Setenv("MODEL", "openai/gpt-5.5")
+		t.Setenv("GH_PAT", "")
 	}
 
-	t.Run("repoless without GH_PAT succeeds", func(t *testing.T) {
-		base(t)
-		t.Setenv("REPO_URL", "")
-		cfg, err := loadRunConfig()
-		if err != nil {
-			t.Fatalf("loadRunConfig() error = %v, want nil", err)
-		}
-		if !cfg.Repoless {
-			t.Fatalf("Repoless = false, want true")
-		}
-		if cfg.GithubToken != "" {
-			t.Fatalf("GithubToken = %q, want empty", cfg.GithubToken)
-		}
-	})
-
-	t.Run("with repo requires GH_PAT", func(t *testing.T) {
-		base(t)
-		t.Setenv("REPO_URL", "https://github.com/example/repo")
-		if _, err := loadRunConfig(); err == nil {
-			t.Fatalf("loadRunConfig() error = nil, want error for missing GH_PAT")
-		}
-	})
+	for _, tc := range []struct {
+		name               string
+		repoURL            string
+		additionalRepoURLs string
+		wantRepoless       bool
+	}{
+		{name: "repoless", wantRepoless: true},
+		{name: "primary repository", repoURL: "https://github.com/example/repo"},
+		{name: "additional repository", additionalRepoURLs: "https://github.com/example/lib", wantRepoless: true},
+	} {
+		t.Run(tc.name+" without GH_PAT succeeds", func(t *testing.T) {
+			base(t)
+			t.Setenv("REPO_URL", tc.repoURL)
+			t.Setenv("ADDITIONAL_REPO_URLS", tc.additionalRepoURLs)
+			cfg, err := loadRunConfig()
+			if err != nil {
+				t.Fatalf("loadRunConfig() error = %v, want nil", err)
+			}
+			if cfg.Repoless != tc.wantRepoless {
+				t.Fatalf("Repoless = %v, want %v", cfg.Repoless, tc.wantRepoless)
+			}
+			if cfg.GithubToken != "" {
+				t.Fatalf("GithubToken = %q, want empty", cfg.GithubToken)
+			}
+		})
+	}
 }
