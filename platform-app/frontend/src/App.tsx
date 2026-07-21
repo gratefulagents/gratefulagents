@@ -97,7 +97,7 @@ function AppSidebar({
   runs: AgentRunT[];
 }) {
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, activeWorkspaceId } = useAuth();
   const navigate = useNavigate();
 
   return (
@@ -180,8 +180,10 @@ function AppSidebar({
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <ProjectTree
+              key={activeWorkspaceId}
               projects={projects}
               runs={runs}
+              workspaceId={activeWorkspaceId}
               onNewChat={(p) => { writeLastProject(p); navigate("/"); }}
             />
           </SidebarGroupContent>

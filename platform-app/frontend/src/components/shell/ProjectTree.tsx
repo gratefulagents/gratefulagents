@@ -1,13 +1,26 @@
 import * as React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Check, ChevronRight, FolderKanban, Plus } from "lucide-react";
+import { Check, ChevronRight, Eye, EyeOff, FolderKanban, MoreHorizontal, Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { phaseTone, toneColor, isLivePhase, isDonePhase } from "@/lib/status";
 import { formatAge } from "@/lib/format";
 import { writeLastProject } from "@/lib/lastProject";
 import { projectRunKey } from "@/lib/runSource";
+import {
+  readHiddenSidebarProjects,
+  sidebarProjectKey,
+  writeHiddenSidebarProjects,
+} from "@/lib/sidebarProjectVisibility";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   SidebarMenu,
   SidebarMenuItem,
@@ -135,14 +148,19 @@ function ShowCompletedCheckbox({
 export function ProjectTree({
   projects,
   runs,
+  workspaceId,
   onNewChat,
 }: {
   projects: Project[];
   runs: AgentRun[];
+  workspaceId: string;
   onNewChat: (p: Project) => void;
 }) {
   const location = useLocation();
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
+  const [hiddenProjectKeys, setHiddenProjectKeys] = React.useState<Set<string>>(
+    () => readHiddenSidebarProjects(workspaceId),
+  );
   const [showCompleted, setShowCompleted] = React.useState<boolean>(
     () => localStorage.getItem(SHOW_COMPLETED_KEY) === "1",
   );
@@ -168,15 +186,65 @@ export function ProjectTree({
     return m;
   }, [runs]);
 
+  const hiddenProjects = React.useMemo(
+    () => projects.filter((project) => hiddenProjectKeys.has(sidebarProjectKey(project))),
+    [hiddenProjectKeys, projects],
+  );
+  const visibleProjects = React.useMemo(
+    () => projects.filter((project) => !hiddenProjectKeys.has(sidebarProjectKey(project))),
+    [hiddenProjectKeys, projects],
+  );
   const totalCompleted = React.useMemo(() => {
-    let n = 0;
-    for (const list of runsByProject.values()) n += list.filter((r) => isDonePhase(r.phase)).length;
-    return n;
-  }, [runsByProject]);
+    let count = 0;
+    for (const project of visibleProjects) {
+      const projectRuns = runsByProject.get(sidebarProjectKey(project)) ?? [];
+      count += projectRuns.filter((run) => isDonePhase(run.phase)).length;
+    }
+    return count;
+  }, [runsByProject, visibleProjects]);
+
+  const projectLinkRefs = React.useRef(new Map<string, HTMLAnchorElement>());
+  const hiddenProjectsTriggerRef = React.useRef<HTMLButtonElement>(null);
+
+  const setProjectHidden = React.useCallback((project: Project, hidden: boolean) => {
+    setHiddenProjectKeys((previous) => {
+      const next = new Set(previous);
+      const key = sidebarProjectKey(project);
+      if (hidden) next.add(key);
+      else next.delete(key);
+      writeHiddenSidebarProjects(workspaceId, next);
+      return next;
+    });
+  }, [workspaceId]);
+
+  const restoreAllProjects = React.useCallback(() => {
+    const next = new Set<string>();
+    writeHiddenSidebarProjects(workspaceId, next);
+    setHiddenProjectKeys(next);
+    const firstProject = projects[0];
+    if (firstProject) {
+      window.setTimeout(() => projectLinkRefs.current.get(sidebarProjectKey(firstProject))?.focus());
+    }
+  }, [projects, workspaceId]);
+
+  const hideProject = React.useCallback((project: Project) => {
+    const index = visibleProjects.findIndex((candidate) => sidebarProjectKey(candidate) === sidebarProjectKey(project));
+    const focusTarget = visibleProjects[index + 1] ?? visibleProjects[index - 1];
+    setProjectHidden(project, true);
+    window.setTimeout(() => {
+      if (focusTarget) projectLinkRefs.current.get(sidebarProjectKey(focusTarget))?.focus();
+      else hiddenProjectsTriggerRef.current?.focus();
+    });
+  }, [setProjectHidden, visibleProjects]);
+
+  const restoreProject = React.useCallback((project: Project) => {
+    setProjectHidden(project, false);
+    window.setTimeout(() => projectLinkRefs.current.get(sidebarProjectKey(project))?.focus());
+  }, [setProjectHidden]);
 
   return (
     <SidebarMenu>
-      {projects.map((p) => {
+      {visibleProjects.map((p) => {
         const key = `${p.namespace}/${p.name}`;
         const projRuns = runsByProject.get(key) ?? [];
         const detail = `/projects/${p.namespace}/${p.name}`;
@@ -214,22 +282,50 @@ export function ProjectTree({
                 <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} />
               </CollapsibleTrigger>
               <SidebarMenuButton
-                render={<Link to={detail} onClick={() => writeLastProject(p)} />}
+                render={
+                  <Link
+                    to={detail}
+                    ref={(node) => {
+                      if (node) projectLinkRefs.current.set(key, node);
+                      else projectLinkRefs.current.delete(key);
+                    }}
+                    onClick={() => writeLastProject(p)}
+                  />
+                }
                 isActive={active}
                 tooltip={p.displayName || p.name}
-                className="h-[30px] pl-6 pr-2 text-[12.5px] rounded-[6px] gap-2 data-[active=true]:bg-[color:var(--color-primary)]/12 data-[active=true]:text-foreground hover:bg-sidebar-accent"
+                className="h-[30px] pl-6 pr-8 text-[12.5px] rounded-[6px] gap-2 data-[active=true]:bg-[color:var(--color-primary)]/12 data-[active=true]:text-foreground hover:bg-sidebar-accent"
               >
                 <FolderKanban className="size-[14px] text-muted-foreground" />
                 <span className="truncate tracking-tight">{p.displayName || p.name}</span>
                 <ActiveRunsBadge count={projRuns.filter((r) => isLivePhase(r.phase)).length} />
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onNewChat(p); }}
-                  title="New chat"
-                  className="ml-auto grid size-[18px] shrink-0 place-items-center rounded text-muted-foreground/70 opacity-0 hover:bg-muted/70 hover:text-foreground group-hover/proj:opacity-100"
-                >
-                  <Plus className="size-3.5" />
-                </button>
               </SidebarMenuButton>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  aria-label={`Actions for ${p.displayName || p.name} (${key})`}
+                  className={cn(
+                    "absolute right-1 top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded",
+                    "text-muted-foreground/70 hover:bg-muted/70 hover:text-foreground",
+                    "group-data-[collapsible=icon]:hidden",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                  )}
+                >
+                  <MoreHorizontal className="size-3.5" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="right" align="start" className="min-w-[190px]">
+                  <DropdownMenuItem onClick={() => onNewChat(p)}>
+                    <Plus className="size-3.5" />
+                    New chat
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => hideProject(p)}
+                    aria-label={`Hide ${p.displayName || p.name} (${key}) from sidebar`}
+                  >
+                    <EyeOff className="size-3.5" />
+                    Hide from sidebar
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </SidebarMenuItem>
             <CollapsibleContent>
               <SidebarMenuSub>
@@ -277,6 +373,53 @@ export function ProjectTree({
           </Collapsible>
         );
       })}
+      {hiddenProjects.length > 0 && (
+        <SidebarMenuItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              ref={hiddenProjectsTriggerRef}
+              aria-label={`${hiddenProjects.length} hidden ${hiddenProjects.length === 1 ? "project" : "projects"}`}
+              className={cn(
+                "mt-1 flex h-[28px] w-full items-center gap-2 rounded-[6px] px-2",
+                "text-[11px] text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground",
+                "group-data-[collapsible=icon]:hidden",
+                "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+              )}
+            >
+              <EyeOff className="size-3.5" />
+              <span>{hiddenProjects.length} hidden {hiddenProjects.length === 1 ? "project" : "projects"}</span>
+              <ChevronRight className="ml-auto size-3" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="end" className="min-w-[210px]">
+              <DropdownMenuLabel>Hidden projects</DropdownMenuLabel>
+              {hiddenProjects.map((project) => (
+                <DropdownMenuItem
+                  key={sidebarProjectKey(project)}
+                  onClick={() => restoreProject(project)}
+                  aria-label={`Show ${project.displayName || project.name} (${sidebarProjectKey(project)}) in sidebar`}
+                  className="gap-2"
+                >
+                  <Eye className="size-3.5 text-muted-foreground" />
+                  <span className="min-w-0">
+                    <span className="block truncate">{project.displayName || project.name}</span>
+                    <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                      {sidebarProjectKey(project)}
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              ))}
+              {hiddenProjects.length > 1 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={restoreAllProjects}>
+                    Show all projects
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarMenuItem>
+      )}
       <ShowCompletedCheckbox
         checked={showCompleted}
         onChange={toggleShowCompleted}
