@@ -35,6 +35,7 @@ type Registry struct {
 	allowMutating       map[string]struct{}
 	browser             bool
 	interactiveTerminal bool
+	vision              bool
 	visionAnalyze       sdkvision.AnalyzeFn
 	closers             []io.Closer
 }
@@ -68,9 +69,14 @@ func WithInteractiveTerminal() RegistryOption {
 	return func(r *Registry) { r.interactiveTerminal = true }
 }
 
-// WithVisionTools enables the image analysis tool in the registry.
+// WithVisionTools enables the image analysis tool in the registry. A nil
+// analyzer registers the tool shell so the SDK runtime can attach the selected
+// provider's vision implementation while building the agent.
 func WithVisionTools(analyzeFn func(ctx context.Context, imageData []byte, mimeType, prompt string) (string, error)) RegistryOption {
-	return func(r *Registry) { r.visionAnalyze = sdkvision.AnalyzeFn(analyzeFn) }
+	return func(r *Registry) {
+		r.vision = true
+		r.visionAnalyze = sdkvision.AnalyzeFn(analyzeFn)
+	}
 }
 
 // WithAllowedMutatingTools allows specific non-read-only tools to remain
@@ -120,7 +126,7 @@ func NewRegistry(workDir string, opts ...RegistryOption) *Registry {
 	if r.interactiveTerminal {
 		sdkOpts = append(sdkOpts, sdktools.WithInteractiveTerminal())
 	}
-	if r.visionAnalyze != nil {
+	if r.vision {
 		sdkOpts = append(sdkOpts, sdktools.WithVisionTools(r.visionAnalyze))
 	}
 	if len(r.allowMutating) > 0 {
