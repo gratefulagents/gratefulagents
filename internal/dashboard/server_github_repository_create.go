@@ -287,8 +287,8 @@ func (s *Server) CreateGitHubRepositoryFromToken(ctx context.Context, req *platf
 	if err != nil {
 		return nil, err
 	}
-	// Runs created by a token-authenticated trigger receive this same token
-	// (the controller passes Defaults.Secrets.GithubToken to runs).
+	// Keep the run defaults aligned with the trigger credential for legacy
+	// consumers that read the default secret directly.
 	resolved.defaults.Secrets.GithubToken = tokenSecretName
 
 	cleanup := policyCleanup

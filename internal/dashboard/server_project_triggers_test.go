@@ -33,6 +33,95 @@ func (c commitThenErrorProjectPatchClient) Patch(ctx context.Context, object cli
 	return nil
 }
 
+func TestGitHubProjectTriggerMaintainerProtoRoundTrip(t *testing.T) {
+	enabled := true
+	pb := &platform.ProjectTrigger{
+		Name: "issues",
+		Type: "github",
+		Github: &platform.GitHubProjectTrigger{
+			ConnectionRef: "github", Owner: "acme", Repo: "widgets", Issues: true,
+			MaintainerEnabled: &enabled, MaintainerMaxConcurrentDispatches: 3, MaintainerMaxDispatchesPerDay: 12,
+			MaintainerStandupInterval: "6h", MaintainerModeRef: "repository-maintainer", MaintainerModel: "gpt-5",
+			MaintainerAllowPrMerge: true,
+		},
+	}
+
+	trigger, err := projectTriggerFromProto(pb)
+	if err != nil {
+		t.Fatalf("projectTriggerFromProto: %v", err)
+	}
+	maintainer := trigger.GitHub.Maintainer
+	if maintainer == nil || maintainer.ModeRef == nil || maintainer.ModeRef.Name != "repository-maintainer" || maintainer.Model != "gpt-5" ||
+		maintainer.MaxConcurrentDispatches != 3 || maintainer.MaxDispatchesPerDay != 12 || maintainer.StandupInterval == nil ||
+		maintainer.StandupInterval.Duration != 6*time.Hour || !maintainer.AllowPullRequestMerge {
+		t.Fatalf("parsed maintainer = %#v", maintainer)
+	}
+
+	roundTrip := projectTriggerToProto(trigger, triggersv1alpha1.ProjectTriggerStatus{}).GetGithub()
+	if roundTrip.MaintainerEnabled == nil || !roundTrip.GetMaintainerEnabled() || roundTrip.GetMaintainerMaxConcurrentDispatches() != 3 ||
+		roundTrip.GetMaintainerMaxDispatchesPerDay() != 12 || roundTrip.GetMaintainerStandupInterval() != "6h0m0s" ||
+		roundTrip.GetMaintainerModeRef() != "repository-maintainer" || roundTrip.GetMaintainerModel() != "gpt-5" || !roundTrip.GetMaintainerAllowPrMerge() {
+		t.Fatalf("round trip maintainer = %#v", roundTrip)
+	}
+}
+
+func TestGitHubProjectTriggerMaintainerRequiresExplicitOptIn(t *testing.T) {
+	trigger, err := projectTriggerFromProto(&platform.ProjectTrigger{
+		Name: "issues", Type: "github",
+		Github: &platform.GitHubProjectTrigger{
+			ConnectionRef: "github", Owner: "acme", Repo: "widgets",
+			MaintainerModeRef: "repository-maintainer", MaintainerMaxConcurrentDispatches: 3,
+		},
+	})
+	if err != nil {
+		t.Fatalf("projectTriggerFromProto: %v", err)
+	}
+	if trigger.GitHub.Maintainer != nil {
+		t.Fatalf("maintainer = %#v, want nil without explicit opt-in", trigger.GitHub.Maintainer)
+	}
+}
+
+func TestGitHubProjectTriggerDisabledMaintainerPreservesConfiguration(t *testing.T) {
+	disabled := false
+	trigger, err := projectTriggerFromProto(&platform.ProjectTrigger{
+		Name: "issues", Type: "github",
+		Github: &platform.GitHubProjectTrigger{
+			ConnectionRef: "github", Owner: "acme", Repo: "widgets", MaintainerEnabled: &disabled,
+			MaintainerModeRef: "repository-maintainer", MaintainerMaxConcurrentDispatches: 3,
+		},
+	})
+	if err != nil {
+		t.Fatalf("projectTriggerFromProto: %v", err)
+	}
+	if trigger.GitHub.Maintainer == nil || !trigger.GitHub.Maintainer.Disabled || trigger.GitHub.Maintainer.ModeRef == nil ||
+		trigger.GitHub.Maintainer.ModeRef.Name != "repository-maintainer" || trigger.GitHub.Maintainer.MaxConcurrentDispatches != 3 {
+		t.Fatalf("disabled maintainer = %#v", trigger.GitHub.Maintainer)
+	}
+}
+
+func TestGitHubProjectTriggerMaintainerValidation(t *testing.T) {
+	enabled := true
+	for _, tc := range []struct {
+		name   string
+		mutate func(*platform.GitHubProjectTrigger)
+		want   string
+	}{
+		{name: "negative concurrent", mutate: func(config *platform.GitHubProjectTrigger) { config.MaintainerMaxConcurrentDispatches = -1 }, want: "max_concurrent"},
+		{name: "negative daily", mutate: func(config *platform.GitHubProjectTrigger) { config.MaintainerMaxDispatchesPerDay = -1 }, want: "per_day"},
+		{name: "invalid interval", mutate: func(config *platform.GitHubProjectTrigger) { config.MaintainerStandupInterval = "tomorrow" }, want: "standup_interval"},
+		{name: "non-positive interval", mutate: func(config *platform.GitHubProjectTrigger) { config.MaintainerStandupInterval = "0s" }, want: "greater than zero"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &platform.GitHubProjectTrigger{ConnectionRef: "github", Owner: "acme", Repo: "widgets", MaintainerEnabled: &enabled}
+			tc.mutate(config)
+			_, err := projectTriggerFromProto(&platform.ProjectTrigger{Name: "issues", Type: "github", Github: config})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestSlackProjectTriggerProtoRoundTrip(t *testing.T) {
 	idle := int32(90)
 	pb := &platform.ProjectTrigger{

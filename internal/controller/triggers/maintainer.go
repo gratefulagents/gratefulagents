@@ -189,7 +189,7 @@ func (e *MaintainerEngine) desiredMaintainerRun(gh *triggersv1alpha1.GitHubRepos
 		return nil, err
 	}
 	runName := orchestration.StandingRunName(gh.Name, orchestration.StandingRunRoleMaintainer)
-	gitHubTokenSecret := defaults.Secrets.GithubToken
+	gitHubTokenSecret := gh.Spec.GitHubTokenSecret
 	if gh.Spec.GitHubApp != nil {
 		gitHubTokenSecret = runName + "-gh-token"
 	}

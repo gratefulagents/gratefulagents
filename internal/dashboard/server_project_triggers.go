@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
@@ -505,6 +506,45 @@ func normalizedSlackUserIDs(values []string) ([]string, error) {
 	return out, nil
 }
 
+func projectTriggerMaintainerFromProto(config *platform.GitHubProjectTrigger) (*triggersv1alpha1.MaintainerSpec, error) {
+	if config == nil || config.MaintainerEnabled == nil {
+		return nil, nil
+	}
+	hasConfiguration := config.GetMaintainerMaxConcurrentDispatches() != 0 || config.GetMaintainerMaxDispatchesPerDay() != 0 ||
+		strings.TrimSpace(config.GetMaintainerStandupInterval()) != "" || strings.TrimSpace(config.GetMaintainerModeRef()) != "" ||
+		strings.TrimSpace(config.GetMaintainerModel()) != "" || config.GetMaintainerAllowPrMerge()
+	if !config.GetMaintainerEnabled() && !hasConfiguration {
+		return nil, nil
+	}
+	if config.GetMaintainerMaxConcurrentDispatches() < 0 {
+		return nil, fmt.Errorf("maintainer_max_concurrent_dispatches must be zero or greater")
+	}
+	if config.GetMaintainerMaxDispatchesPerDay() < 0 {
+		return nil, fmt.Errorf("maintainer_max_dispatches_per_day must be zero or greater")
+	}
+	maintainer := &triggersv1alpha1.MaintainerSpec{
+		Disabled:                !config.GetMaintainerEnabled(),
+		Model:                   strings.TrimSpace(config.GetMaintainerModel()),
+		MaxConcurrentDispatches: config.GetMaintainerMaxConcurrentDispatches(),
+		MaxDispatchesPerDay:     config.GetMaintainerMaxDispatchesPerDay(),
+		AllowPullRequestMerge:   config.GetMaintainerAllowPrMerge(),
+	}
+	if modeRef := strings.TrimSpace(config.GetMaintainerModeRef()); modeRef != "" {
+		maintainer.ModeRef = &platformv1alpha1.ModeRef{Name: modeRef}
+	}
+	if value := strings.TrimSpace(config.GetMaintainerStandupInterval()); value != "" {
+		duration, err := time.ParseDuration(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid maintainer_standup_interval %q: %w", value, err)
+		}
+		if duration <= 0 {
+			return nil, fmt.Errorf("maintainer_standup_interval must be greater than zero")
+		}
+		maintainer.StandupInterval = &metav1.Duration{Duration: duration}
+	}
+	return maintainer, nil
+}
+
 func projectTriggerFromProto(pb *platform.ProjectTrigger) (triggersv1alpha1.ProjectTrigger, error) {
 	if pb == nil {
 		return triggersv1alpha1.ProjectTrigger{}, fmt.Errorf("trigger is required")
@@ -539,6 +579,10 @@ func projectTriggerFromProto(pb *platform.ProjectTrigger) (triggersv1alpha1.Proj
 		if len(authAllowedUsers) > 0 || len(authDenyUsers) > 0 {
 			auth = &triggersv1alpha1.TriggerAuth{AllowedUsers: authAllowedUsers, DenyUsers: authDenyUsers}
 		}
+		maintainer, err := projectTriggerMaintainerFromProto(config)
+		if err != nil {
+			return triggersv1alpha1.ProjectTrigger{}, err
+		}
 		trigger.GitHub = &triggersv1alpha1.GitHubProjectTriggerConfig{
 			ConnectionRef:  triggersv1alpha1.ConnectionRef{Name: connectionRef},
 			Owner:          owner,
@@ -548,6 +592,7 @@ func projectTriggerFromProto(pb *platform.ProjectTrigger) (triggersv1alpha1.Proj
 			TriggerKeyword: strings.TrimSpace(config.GetTriggerKeyword()),
 			PollInterval:   pollInterval,
 			Auth:           auth,
+			Maintainer:     maintainer,
 		}
 	case triggersv1alpha1.ProjectTriggerTypeSlack:
 		if pb.GetGithub() != nil || pb.GetSlack() == nil || pb.GetCron() != nil || pb.GetLinear() != nil {

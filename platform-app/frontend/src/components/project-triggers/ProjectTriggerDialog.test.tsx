@@ -264,6 +264,84 @@ describe("ProjectTriggerDialog", () => {
     expect(saved.github?.issues).toBe(true);
   });
 
+  it("creates a GitHub trigger with repository maintainer settings", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ connections: [GITHUB_CONNECTION], onSave });
+
+    const githubCard = screen.getAllByRole("button").find(
+      (button) => button.textContent?.includes("GitHub") && button.textContent?.includes("React to issues"),
+    );
+    fireEvent.click(githubCard!);
+    fireEvent.click(screen.getByText("my-github"));
+    fireEvent.change(screen.getByLabelText("Repository"), { target: { value: "acme/payments" } });
+    fireEvent.click(screen.getByLabelText("Enable repository maintainer"));
+    fireEvent.change(screen.getByLabelText("Maintainer max concurrent dispatches"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Maintainer max dispatches per day"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("Maintainer standup interval"), { target: { value: "6h" } });
+    fireEvent.change(screen.getByLabelText("Maintainer mode"), { target: { value: "repository-maintainer" } });
+    fireEvent.change(screen.getByLabelText("Maintainer model"), { target: { value: "gpt-5" } });
+    fireEvent.click(screen.getByLabelText("Allow maintainer pull request merge"));
+    fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "gh-trigger" } });
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect((onSave.mock.calls[0][0] as ProjectTrigger).github).toMatchObject({
+      maintainerEnabled: true,
+      maintainerMaxConcurrentDispatches: 3,
+      maintainerMaxDispatchesPerDay: 12,
+      maintainerStandupInterval: "6h",
+      maintainerModeRef: "repository-maintainer",
+      maintainerModel: "gpt-5",
+      maintainerAllowPrMerge: true,
+    });
+  });
+
+  it("preserves GitHub repository maintainer settings while editing", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const trigger: ProjectTrigger = {
+      name: "issues",
+      type: "github",
+      github: {
+        connectionRef: "my-github",
+        owner: "acme",
+        repo: "payments",
+        issues: true,
+        triggerKeyword: "@grateful",
+        pollInterval: "2m",
+        authAllowedUsers: ["maintainer"],
+        authDenyUsers: ["blocked-user"],
+        maintainerEnabled: true,
+        maintainerMaxConcurrentDispatches: 4,
+        maintainerMaxDispatchesPerDay: 15,
+        maintainerStandupInterval: "8h",
+        maintainerModeRef: "repository-maintainer",
+        maintainerModel: "gpt-5-mini",
+        maintainerAllowPrMerge: true,
+      },
+    };
+    renderDialog({ trigger, connections: [GITHUB_CONNECTION], onSave });
+
+    expect(screen.getByLabelText<HTMLInputElement>("Enable repository maintainer").checked).toBe(true);
+    expect(screen.getByLabelText<HTMLInputElement>("Maintainer max concurrent dispatches").value).toBe("4");
+    expect(screen.getByLabelText<HTMLInputElement>("Maintainer mode").value).toBe("repository-maintainer");
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect((onSave.mock.calls[0][0] as ProjectTrigger).github).toMatchObject({
+      triggerKeyword: "@grateful",
+      pollInterval: "2m",
+      authAllowedUsers: ["maintainer"],
+      authDenyUsers: ["blocked-user"],
+      maintainerEnabled: true,
+      maintainerMaxConcurrentDispatches: 4,
+      maintainerMaxDispatchesPerDay: 15,
+      maintainerStandupInterval: "8h",
+      maintainerModeRef: "repository-maintainer",
+      maintainerModel: "gpt-5-mini",
+      maintainerAllowPrMerge: true,
+    });
+  });
+
   it("creates a Slack trigger with authorization, reply, and memory settings", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     renderDialog({ connections: [SLACK_CONNECTION], onSave });

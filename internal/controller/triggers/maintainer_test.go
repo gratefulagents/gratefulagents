@@ -72,6 +72,7 @@ func setMaintainerPhase(t *testing.T, c client.Client, run *platformv1alpha1.Age
 func TestMaintainerCreatesStandingRunOnceWithFencesAndSeed(t *testing.T) {
 	t.Parallel()
 	repository := maintainerRepository()
+	repository.Spec.Defaults.Secrets.GithubToken = "different-default-token"
 	engine, c, stateStore := newMaintainerEngine(t, nil, repository, maintainerMode())
 
 	if _, err := engine.Reconcile(context.Background(), repository, nil, true); err != nil {
@@ -83,6 +84,9 @@ func TestMaintainerCreatesStandingRunOnceWithFencesAndSeed(t *testing.T) {
 	}
 	if run.Spec.Trigger.Kind != gitHubRepositoryTriggerKind || run.Spec.Trigger.Name != repository.Name || run.Spec.Trigger.ExternalRef != nil {
 		t.Fatalf("trigger = %#v, want GitHubRepository repository without external reference", run.Spec.Trigger)
+	}
+	if run.Spec.Secrets == nil || run.Spec.Secrets.GitHubTokenSecret != repository.Spec.GitHubTokenSecret {
+		t.Fatalf("GitHub token secret = %#v, want repository connection secret %q", run.Spec.Secrets, repository.Spec.GitHubTokenSecret)
 	}
 	if run.Spec.Overseer != nil || run.Labels[PRLoopRoleLabel] != "" || run.Annotations[PRLoopOptAnnotation] != "" {
 		t.Fatalf("maintainer recursion fences missing: spec=%#v labels=%#v annotations=%#v", run.Spec.Overseer, run.Labels, run.Annotations)

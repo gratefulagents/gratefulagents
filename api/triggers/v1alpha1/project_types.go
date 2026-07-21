@@ -99,6 +99,11 @@ type GitHubProjectTriggerConfig struct {
 	// auth restricts the GitHub actors that may create runs through this trigger.
 	// +optional
 	Auth *TriggerAuth `json:"auth,omitempty"`
+
+	// maintainer configures a standing supervisor for this repository trigger.
+	// The configuration is copied to the generated GitHubRepository child.
+	// +optional
+	Maintainer *MaintainerSpec `json:"maintainer,omitempty"`
 }
 
 // SlackProjectTriggerConfig configures Slack channel ingress.
