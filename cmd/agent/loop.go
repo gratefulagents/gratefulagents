@@ -264,7 +264,7 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		}
 	}
 	if mcpManager != nil {
-		defer mcpManager.Close()
+		defer func() { _ = mcpManager.Close() }()
 		tools.RegisterMCPTools(ctx, toolRegistry, mcpManager, cfg.PermissionMode, crdClient, cfg.Namespace, cfg.TaskName, sc)
 		log.Printf("MCP tools registered: %d tool descriptors", len(mcpManager.ToolDescriptors()))
 	}
