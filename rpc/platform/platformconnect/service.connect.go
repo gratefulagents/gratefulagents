@@ -573,8 +573,8 @@ type PlatformServiceClient interface {
 	UpdateGuardrailPolicy(context.Context, *connect.Request[platform.UpdateGuardrailPolicyRequest]) (*connect.Response[platform.GuardrailPolicy], error)
 	DeleteGuardrailPolicy(context.Context, *connect.Request[platform.DeleteGuardrailPolicyRequest]) (*connect.Response[emptypb.Empty], error)
 	// ModeTemplate and RoleInstruction are cluster-scoped catalogs. Every
-	// authenticated user may browse them and create new mode templates. Editing
-	// or deleting mode templates and mutating role instructions requires an admin.
+	// authenticated user may browse, create, and edit mode templates. Deleting
+	// mode templates and mutating role instructions requires an admin.
 	ListModeTemplates(context.Context, *connect.Request[platform.ListModeTemplatesRequest]) (*connect.Response[platform.ListModeTemplatesResponse], error)
 	CreateModeTemplate(context.Context, *connect.Request[platform.CreateModeTemplateRequest]) (*connect.Response[platform.ModeTemplate], error)
 	UpdateModeTemplate(context.Context, *connect.Request[platform.UpdateModeTemplateRequest]) (*connect.Response[platform.ModeTemplate], error)
@@ -2634,8 +2634,8 @@ type PlatformServiceHandler interface {
 	UpdateGuardrailPolicy(context.Context, *connect.Request[platform.UpdateGuardrailPolicyRequest]) (*connect.Response[platform.GuardrailPolicy], error)
 	DeleteGuardrailPolicy(context.Context, *connect.Request[platform.DeleteGuardrailPolicyRequest]) (*connect.Response[emptypb.Empty], error)
 	// ModeTemplate and RoleInstruction are cluster-scoped catalogs. Every
-	// authenticated user may browse them and create new mode templates. Editing
-	// or deleting mode templates and mutating role instructions requires an admin.
+	// authenticated user may browse, create, and edit mode templates. Deleting
+	// mode templates and mutating role instructions requires an admin.
 	ListModeTemplates(context.Context, *connect.Request[platform.ListModeTemplatesRequest]) (*connect.Response[platform.ListModeTemplatesResponse], error)
 	CreateModeTemplate(context.Context, *connect.Request[platform.CreateModeTemplateRequest]) (*connect.Response[platform.ModeTemplate], error)
 	UpdateModeTemplate(context.Context, *connect.Request[platform.UpdateModeTemplateRequest]) (*connect.Response[platform.ModeTemplate], error)

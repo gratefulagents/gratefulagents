@@ -17,7 +17,6 @@ export interface RefreshOutcome {
 type RefreshAccessToken = () => Promise<RefreshOutcome>;
 type UnauthorizedHandler = () => void;
 
-let refreshInFlight: Promise<RefreshOutcome> | null = null;
 let latestRefreshAccessToken: RefreshAccessToken | null = null;
 let latestOnUnauthorized: UnauthorizedHandler | null = null;
 
@@ -28,13 +27,6 @@ function isUnauthenticated(err: unknown): boolean {
       "code" in err &&
       (err as { code: number }).code === Code.Unauthenticated,
   );
-}
-
-async function refreshOnce(refreshAccessToken: RefreshAccessToken): Promise<RefreshOutcome> {
-  refreshInFlight ??= refreshAccessToken().finally(() => {
-    refreshInFlight = null;
-  });
-  return refreshInFlight;
 }
 
 /**
@@ -49,7 +41,8 @@ export async function refreshOnUnauthenticated(err: unknown): Promise<boolean> {
     return false;
   }
 
-  const outcome = await refreshOnce(latestRefreshAccessToken);
+  // The client-provided callback owns workspace-scoped single-flight behavior.
+  const outcome = await latestRefreshAccessToken();
   if (outcome.token) {
     return true;
   }

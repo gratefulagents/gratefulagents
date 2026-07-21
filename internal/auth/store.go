@@ -151,7 +151,10 @@ func (s *PGStore) UpsertUser(ctx context.Context, u *User) (*User, error) {
 			picture = COALESCE(NULLIF(EXCLUDED.picture, ''), auth_users.picture),
 			password_hash = COALESCE(NULLIF(EXCLUDED.password_hash, ''), auth_users.password_hash),
 			google_id = COALESCE(NULLIF(EXCLUDED.google_id, ''), auth_users.google_id),
-			role = EXCLUDED.role,
+			-- Existing roles are managed explicitly by SetUserRole. Preserving the
+			-- stored value prevents an SSO profile refresh from undoing a manual
+			-- promotion or demotion with the resolver's default role.
+			role = auth_users.role,
 			updated_at = now()
 		RETURNING id, username, COALESCE(email, ''), name, picture,
 			COALESCE(password_hash, ''), COALESCE(google_id, ''), role,

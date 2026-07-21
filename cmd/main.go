@@ -601,7 +601,7 @@ func main() {
 			connect.WithInterceptors(dashboard.LoggingInterceptor()),
 		)
 		r.Group(func(r chi.Router) {
-			r.Use(auth.OptionalJWTMiddleware(jwksCache))
+			r.Use(auth.OptionalJWTMiddleware(jwksCache, authStore))
 			r.Mount(authPath, authHandler)
 		})
 
@@ -618,7 +618,7 @@ func main() {
 		// framing overhead.
 		readLimit := connect.WithReadMaxBytes(dashboard.MaxRPCReadBytes)
 		r.Group(func(r chi.Router) {
-			r.Use(auth.JWTMiddleware(jwksCache))
+			r.Use(auth.JWTMiddleware(jwksCache, authStore))
 			path, h := platformconnect.NewPlatformServiceHandler(handler, connectOpts, readLimit)
 			r.Mount(path, h)
 		})

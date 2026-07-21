@@ -14098,8 +14098,8 @@ export const PlatformService: GenService<{
   },
   /**
    * ModeTemplate and RoleInstruction are cluster-scoped catalogs. Every
-   * authenticated user may browse them and create new mode templates. Editing
-   * or deleting mode templates and mutating role instructions requires an admin.
+   * authenticated user may browse, create, and edit mode templates. Deleting
+   * mode templates and mutating role instructions requires an admin.
    *
    * @generated from rpc platform.v1.PlatformService.ListModeTemplates
    */

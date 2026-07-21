@@ -9,6 +9,10 @@ export function canCreateResource(kind: ResourceKind, role?: string) {
 }
 
 export function canMutateResource(kind: ResourceKind, role?: string) {
+  return kind !== "roles" || role === "admin";
+}
+
+export function canDeleteResource(kind: ResourceKind, role?: string) {
   return (kind !== "modes" && kind !== "roles") || role === "admin";
 }
 
