@@ -32,10 +32,12 @@ export class WatchStore<T, L = unknown, E = unknown> {
   private snapshot: WatchStoreSnapshot<T> = { items: [], loading: true, error: null };
   private controller: AbortController | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private resolveRetry: (() => void) | null = null;
   private running = false;
   private generation = 0;
   private refCount = 0;
   private lingerTimer: ReturnType<typeof setTimeout> | null = null;
+  private wasBackgrounded = false;
 
   constructor(
     private readonly config: WatchStoreConfig<T, L, E>,
@@ -59,8 +61,9 @@ export class WatchStore<T, L = unknown, E = unknown> {
     }
     if (!this.running) {
       this.running = true;
+      this.installForegroundListeners();
       void this.refetch();
-      void this.watchLoop();
+      void this.watchLoop(this.generation);
     }
   }
 
@@ -100,31 +103,44 @@ export class WatchStore<T, L = unknown, E = unknown> {
 
   private waitForRetry(attempt: number): Promise<void> {
     return new Promise((resolve) => {
+      this.resolveRetry = resolve;
       this.retryTimer = setTimeout(() => {
         this.retryTimer = null;
+        this.resolveRetry = null;
         resolve();
       }, backoffDelayMs(attempt));
     });
   }
 
-  private async watchLoop(): Promise<void> {
+  private cancelRetry(): void {
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    const resolve = this.resolveRetry;
+    this.resolveRetry = null;
+    resolve?.();
+  }
+
+  private async watchLoop(loopGeneration: number): Promise<void> {
     let attempt = 0;
     let resync = false;
-    while (this.running) {
+    while (this.running && loopGeneration === this.generation) {
       // After a dropped stream, re-list before re-watching: events that fired
       // while we were disconnected would otherwise be lost until a remount.
       if (resync) {
         await this.refetch();
-        if (!this.running) {
+        if (!this.running || loopGeneration !== this.generation) {
           return;
         }
       }
       const controller = new AbortController();
-      const generation = this.generation;
       this.controller = controller;
       try {
         for await (const event of this.config.watch({ signal: controller.signal })) {
-          if (!this.running || controller.signal.aborted) return;
+          if (!this.running || loopGeneration !== this.generation || controller.signal.aborted) {
+            return;
+          }
           attempt = 0;
           const next = this.config.applyEvent(this.snapshot.items, event);
           if (next !== this.snapshot.items || this.snapshot.error !== null) {
@@ -132,11 +148,11 @@ export class WatchStore<T, L = unknown, E = unknown> {
           }
         }
       } catch (e) {
-        if (!this.running || controller.signal.aborted) {
+        if (!this.running || loopGeneration !== this.generation || controller.signal.aborted) {
           return;
         }
         const refreshed = await refreshOnUnauthenticated(e);
-        if (!this.running || generation !== this.generation || controller.signal.aborted) {
+        if (!this.running || loopGeneration !== this.generation || controller.signal.aborted) {
           return;
         }
         if (!refreshed) {
@@ -149,13 +165,55 @@ export class WatchStore<T, L = unknown, E = unknown> {
           this.controller = null;
         }
       }
-      if (!this.running) {
+      if (!this.running || loopGeneration !== this.generation) {
         return;
       }
       resync = true;
       await this.waitForRetry(attempt++);
     }
   }
+
+  private installForegroundListeners(): void {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    window.addEventListener("blur", this.handleBackground);
+    window.addEventListener("focus", this.handleForeground);
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+  }
+
+  private removeForegroundListeners(): void {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    window.removeEventListener("blur", this.handleBackground);
+    window.removeEventListener("focus", this.handleForeground);
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+  }
+
+  private handleBackground = (): void => {
+    this.wasBackgrounded = true;
+  };
+
+  private handleForeground = (): void => {
+    if (!this.wasBackgrounded || !this.running) return;
+    this.wasBackgrounded = false;
+
+    // A response body that was open while WKWebView was suspended is not safe
+    // to keep decoding. Retire that loop without surfacing its abort error,
+    // then immediately re-list and open a fresh stream. The generation also
+    // prevents late responses from the suspended connection changing state.
+    const generation = ++this.generation;
+    this.controller?.abort();
+    this.controller = null;
+    this.cancelRetry();
+    void this.refetch();
+    void this.watchLoop(generation);
+  };
+
+  private handleVisibilityChange = (): void => {
+    if (document.visibilityState === "hidden") {
+      this.handleBackground();
+    } else {
+      this.handleForeground();
+    }
+  };
 
   invalidate(): void {
     this.emit({ items: [], loading: true, error: null });
@@ -167,10 +225,9 @@ export class WatchStore<T, L = unknown, E = unknown> {
     this.generation++;
     this.controller?.abort();
     this.controller = null;
-    if (this.retryTimer !== null) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
+    this.cancelRetry();
+    this.removeForegroundListeners();
+    this.wasBackgrounded = false;
     this.onStopped();
   }
 }
