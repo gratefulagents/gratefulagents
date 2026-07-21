@@ -304,9 +304,11 @@ export function RunSessionHeader({
   // One contextual primary action keeps the toolbar calm: ship the work,
   // recover a failed run, or unblock a paused one — everything else lives in
   // the overflow menu. Stop stays inline separately because interrupting a
-  // live agent must never hide behind a menu.
+  // live agent must never hide behind a menu. Once a PR exists the pill is
+  // the artifact; creating another PR demotes to the overflow menu.
+  const canCreatePR = showCreatePRButton && !isViewer;
   const primaryAction: "createPR" | "retry" | "extend" | null =
-    showCreatePRButton && !isViewer
+    canCreatePR && prUrls.length === 0
       ? "createPR"
       : canRetry
         ? "retry"
@@ -317,10 +319,13 @@ export function RunSessionHeader({
   // (always-rendered entries) vs. only the phone-only duplicates of inline
   // buttons — the group separator must match, or it floats above nothing.
   const menuActionsAlwaysVisible =
-    canPromote || (canRetry && primaryAction !== "retry") || (canExtendRuntime && primaryAction !== "extend");
+    canPromote ||
+    (canCreatePR && primaryAction !== "createPR") ||
+    (canRetry && primaryAction !== "retry") ||
+    (canExtendRuntime && primaryAction !== "extend");
   const menuActionsPhoneOnly =
     canStop ||
-    (showCreatePRButton && !isViewer) ||
+    (canCreatePR && primaryAction === "createPR") ||
     (canRetry && primaryAction === "retry") ||
     (canExtendRuntime && primaryAction === "extend");
   const overseerRunName = run.overseerSummary?.runName.trim();
@@ -448,7 +453,7 @@ export function RunSessionHeader({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            {showCreatePRButton && !isViewer && (
+            {canCreatePR && (
               <>
                 {primaryAction === "createPR" && (
                   <Button size="sm" className="hidden md:inline-flex" onClick={() => setCreatePROpen(true)}>
@@ -660,10 +665,13 @@ export function RunSessionHeader({
                 {/* Run actions. Items that duplicate the inline primary/Stop
                     buttons only surface here on phones, where those buttons
                     are hidden. Non-primary actions are always reachable. */}
-                {showCreatePRButton && !isViewer && (
-                  <DropdownMenuItem className="md:hidden" onClick={() => setCreatePROpen(true)}>
+                {canCreatePR && (
+                  <DropdownMenuItem
+                    className={primaryAction === "createPR" ? "md:hidden" : undefined}
+                    onClick={() => setCreatePROpen(true)}
+                  >
                     <GitPullRequest className="size-3.5" />
-                    Create PR…
+                    {prUrls.length > 0 ? "Create another PR…" : "Create PR…"}
                   </DropdownMenuItem>
                 )}
                 {canRetry && (
