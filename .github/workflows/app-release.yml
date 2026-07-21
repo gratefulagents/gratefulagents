@@ -450,13 +450,17 @@ jobs:
                 ;;
             esac
 
-            asset_download_url="$(jq -r --arg name "${asset_name}" '.[] | select(.name == $name) | .browser_download_url' "${ASSETS_JSON}")"
+            asset_id="$(jq -r --arg name "${asset_name}" '.[] | select(.name == $name) | .id' "${ASSETS_JSON}")"
             signature_id="$(jq -r --arg name "${signature_name}" '.[] | select(.name == $name) | .id' "${ASSETS_JSON}")"
-            if [ -z "${asset_download_url}" ] || [ "${asset_download_url}" = "null" ] || [ -z "${signature_id}" ] || [ "${signature_id}" = "null" ]; then
+            if [ -z "${asset_id}" ] || [ "${asset_id}" = "null" ] || [ -z "${signature_id}" ] || [ "${signature_id}" = "null" ]; then
               echo "::error::Missing updater artifact or signature for ${signature_name}"
               exit 1
             fi
 
+            # Draft assets report browser_download_url paths under a temporary
+            # `untagged-*` identifier that stops working once the release is
+            # published. Build the permanent tag URL instead.
+            asset_download_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${asset_name}"
             signature="$(gh api -H 'Accept: application/octet-stream' "repos/${GITHUB_REPOSITORY}/releases/assets/${signature_id}")"
             jq \
               --arg key "${platform_key}" \

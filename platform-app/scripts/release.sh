@@ -276,6 +276,7 @@ build_updater_manifest() {
   local asset_name
   local platform_key
   local asset_download_url
+  local asset_id
   local sig_id
   local signature
 
@@ -296,11 +297,15 @@ build_updater_manifest() {
       *) continue ;;
     esac
 
-    asset_download_url="$(jq -r --arg name "${asset_name}" '.[] | select(.name == $name) | .browser_download_url' "${assets_json}")"
+    asset_id="$(jq -r --arg name "${asset_name}" '.[] | select(.name == $name) | .id' "${assets_json}")"
     sig_id="$(jq -r --arg name "${sig_name}" '.[] | select(.name == $name) | .id' "${assets_json}")"
-    [[ -n "${asset_download_url}" && "${asset_download_url}" != "null" ]] || die "missing updater artifact for ${sig_name}"
+    [[ -n "${asset_id}" && "${asset_id}" != "null" ]] || die "missing updater artifact for ${sig_name}"
     [[ -n "${sig_id}" && "${sig_id}" != "null" ]] || die "missing signature asset ${sig_name}"
 
+    # A draft release's browser_download_url uses a temporary `untagged-*`
+    # identifier that becomes a 404 after publication. The tag URL is stable
+    # before and after the release is published.
+    asset_download_url="https://github.com/${RELEASE_REPO}/releases/download/${TAG_NAME}/${asset_name}"
     signature="$(gh api \
       -H 'Accept: application/octet-stream' \
       "repos/${RELEASE_REPO}/releases/assets/${sig_id}")"
