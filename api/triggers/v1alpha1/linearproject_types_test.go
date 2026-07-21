@@ -34,6 +34,17 @@ func TestNormalizeProvider(t *testing.T) {
 	}
 }
 
+func TestIsSupportedProvider(t *testing.T) {
+	t.Parallel()
+
+	if !IsSupportedProvider(ProviderXAI) {
+		t.Fatalf("IsSupportedProvider(%q) = false, want true", ProviderXAI)
+	}
+	if IsSupportedProvider("z-ai") {
+		t.Fatal("IsSupportedProvider(\"z-ai\") = true, want false")
+	}
+}
+
 func TestProviderModelQualification(t *testing.T) {
 	t.Parallel()
 
@@ -44,6 +55,7 @@ func TestProviderModelQualification(t *testing.T) {
 		wantModel    string
 	}{
 		{name: "recognized provider", model: "anthropic/claude-sonnet-4-6", wantProvider: ProviderAnthropic, wantModel: "claude-sonnet-4-6"},
+		{name: "xAI provider", model: "xai/grok-4", wantProvider: ProviderXAI, wantModel: "grok-4"},
 		{name: "nested OpenRouter model", model: "openrouter/z-ai/glm-4.7", wantProvider: ProviderOpenRouter, wantModel: "z-ai/glm-4.7"},
 		{name: "vendor namespace is not provider", model: "z-ai/glm-4.7", wantModel: "z-ai/glm-4.7"},
 	}
