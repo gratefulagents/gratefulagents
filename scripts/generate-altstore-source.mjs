@@ -29,6 +29,22 @@ function requireHttps(value, label) {
   return raw;
 }
 
+function stableReleaseAssetUrl(value, tag, assetName, label) {
+  const url = new URL(requireHttps(value, label));
+  const path = url.pathname.match(/^(.*\/releases\/download\/)[^/]+\/[^/]+$/);
+  if (!path) {
+    throw new Error(`${label} must be a GitHub release asset URL`);
+  }
+
+  // Draft assets use a temporary `untagged-*` path which becomes invalid as
+  // soon as GitHub publishes the release. Construct the permanent tag path
+  // while retaining the repository origin from the API response.
+  url.pathname = `${path[1]}${encodeURIComponent(tag)}/${encodeURIComponent(assetName)}`;
+  url.search = '';
+  url.hash = '';
+  return url.href;
+}
+
 function releaseList(input) {
   if (!Array.isArray(input)) {
     throw new Error('GitHub releases input must be an array');
@@ -148,7 +164,12 @@ function versionFromRelease(release, metadataByAssetName, currentTag) {
       marketingVersion: metadata.version,
       date: new Date(timestamp).toISOString(),
       localizedDescription: `Grateful Agents ${tag}. See the linked GitHub release for full notes.`,
-      downloadURL: requireHttps(ipa.browser_download_url, `release ${tag} IPA download URL`),
+      downloadURL: stableReleaseAssetUrl(
+        ipa.browser_download_url,
+        tag,
+        ipaName,
+        `release ${tag} IPA download URL`,
+      ),
       size: ipa.size,
       minOSVersion: metadata.minOSVersion,
     },
