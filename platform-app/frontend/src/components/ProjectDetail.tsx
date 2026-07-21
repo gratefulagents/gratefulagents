@@ -1,9 +1,17 @@
 import { useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
-import { ChevronRight, GitBranch, Share2 } from "lucide-react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  ChevronRight,
+  GitBranch,
+  MessageSquarePlus,
+  Share2,
+} from "lucide-react";
 
 import { AgentRunTable } from "@/components/AgentRunTable";
 import { CreateRunDialog } from "@/components/CreateRunDialog";
+import { NewChatComposer } from "@/components/NewChatComposer";
 import { ProjectCredentialBadges } from "@/components/projectCredentials";
 import { ProjectContentSection } from "@/components/project-content/ProjectContentSection";
 import { ProjectTriggerRail } from "@/components/project-triggers/ProjectTriggerRail";
@@ -11,6 +19,7 @@ import type { ProjectWithTriggers } from "@/components/project-triggers/types";
 import { ProjectSettingsDialog } from "@/components/ProjectSettingsDialog";
 import { OwnerAvatar } from "@/components/OwnerAvatar";
 import { ShareDialog } from "@/components/ShareDialog";
+import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +27,16 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import { ListState, ListRowSkeleton } from "@/components/ui/list-state";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DetailHeader,
   DetailSection,
@@ -34,13 +52,33 @@ import { useProjects } from "@/hooks/useWatchedList";
 import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { formatAge, formatCount, formatRepoShort, formatSuccessRate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { Project } from "@/rpc/platform/service_pb";
+import type { AgentRun, Project } from "@/rpc/platform/service_pb";
+
+const TAB_VALUES = ["overview", "runs", "files", "configuration"] as const;
+type ProjectTab = (typeof TAB_VALUES)[number];
+
+function isProjectTab(value: string | null): value is ProjectTab {
+  return TAB_VALUES.includes(value as ProjectTab);
+}
 
 export function ProjectDetail() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const { projects, loading, error, refetch } = useProjects();
   const { runs, loading: runsLoading } = useAgentRuns(namespace || "", name || "", "Project");
   const [shareOpen, setShareOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get("tab");
+  const tab: ProjectTab = isProjectTab(rawTab) ? rawTab : "overview";
+  const setTab = (next: ProjectTab) => {
+    setSearchParams(
+      (prev) => {
+        if (next === "overview") prev.delete("tab");
+        else prev.set("tab", next);
+        return prev;
+      },
+      { replace: true },
+    );
+  };
 
   const project = projects.find((p) => p.namespace === namespace && p.name === name);
   const metrics = project?.metrics;
@@ -56,7 +94,7 @@ export function ProjectDetail() {
       emptyDescription="This project may have been removed or you may not have access."
     >
       {project && (
-        <div className="space-y-7">
+        <div className="space-y-6">
           <DetailHeader
             parentLabel="Projects"
             parentTo="/projects"
@@ -166,35 +204,158 @@ export function ProjectDetail() {
             />
           </StatBar>
 
-          <ProjectTriggerRail
-            namespace={project.namespace}
-            projectName={project.name}
-            triggers={(project as unknown as ProjectWithTriggers).triggers ?? []}
-            canEdit={canEdit}
-            onChanged={() => void refetch()}
-          />
+          <Tabs value={tab} onValueChange={(value) => setTab(value as ProjectTab)}>
+            <TabsList
+              variant="line"
+              className="w-full justify-start gap-4 border-b border-border/60 pb-1"
+            >
+              <TabsTrigger value="overview" className="flex-none px-0.5">
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="runs" className="flex-none px-0.5">
+                Runs
+                {runs.length > 0 && (
+                  <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground">
+                    {runs.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="files" className="flex-none px-0.5">
+                Files
+              </TabsTrigger>
+              <TabsTrigger value="configuration" className="flex-none px-0.5">
+                Configuration
+              </TabsTrigger>
+            </TabsList>
 
-          <ProjectContentSection
-            namespace={project.namespace}
-            projectName={project.name}
-            canEdit={canEdit}
-          />
+            <div className="pt-4">
+              {tab === "overview" && (
+                <div className="space-y-7">
+                  {canEdit && (
+                    <div className="space-y-2">
+                      <NewChatComposer
+                        variant="compact"
+                        fixedNamespace={project.namespace}
+                        fixedProject={project.name}
+                        placeholder={`Start a chat in ${project.displayName || project.name}…`}
+                      />
+                    </div>
+                  )}
 
-          <ProjectConfiguration project={project} />
+                  <RecentRunsPreview
+                    runs={runs}
+                    loading={runsLoading}
+                    onViewAll={() => setTab("runs")}
+                  />
 
-          <RunsSection count={runs.length} loading={runsLoading}>
-            <AgentRunTable
-              runs={runs}
-              loading={runsLoading}
-              emptyMessage="No runs yet — start a chat from Home or create a plan."
-              sourceFallbackLabel="Issue"
-              sourceAriaLabel="Source issue (opens in new tab)"
-              viewKey={`project:${namespace}/${name}`}
-            />
-          </RunsSection>
+                  <ProjectTriggerRail
+                    namespace={project.namespace}
+                    projectName={project.name}
+                    triggers={(project as unknown as ProjectWithTriggers).triggers ?? []}
+                    canEdit={canEdit}
+                    onChanged={() => void refetch()}
+                  />
+                </div>
+              )}
+
+              {tab === "runs" && (
+                <RunsSection count={runs.length} loading={runsLoading}>
+                  <AgentRunTable
+                    runs={runs}
+                    loading={runsLoading}
+                    emptyMessage="No runs yet — start a chat from the Overview tab."
+                    sourceFallbackLabel="Issue"
+                    sourceAriaLabel="Source issue (opens in new tab)"
+                    viewKey={`project:${namespace}/${name}`}
+                  />
+                </RunsSection>
+              )}
+
+              {tab === "files" && (
+                <ProjectContentSection
+                  namespace={project.namespace}
+                  projectName={project.name}
+                  canEdit={canEdit}
+                />
+              )}
+
+              {tab === "configuration" && <ProjectConfiguration project={project} />}
+            </div>
+          </Tabs>
         </div>
       )}
     </ListState>
+  );
+}
+
+/** Latest few runs, so the Overview answers "what is happening here?" at a glance. */
+function RecentRunsPreview({
+  runs,
+  loading,
+  onViewAll,
+}: {
+  runs: AgentRun[];
+  loading: boolean;
+  onViewAll: () => void;
+}) {
+  const recent = useMemo(
+    () =>
+      [...runs]
+        .sort((a, b) => Number(b.createdAtUnix - a.createdAtUnix))
+        .slice(0, 5),
+    [runs],
+  );
+
+  return (
+    <section className="flex flex-col gap-2" aria-label="Recent activity">
+      <div className="flex h-7 items-center justify-between">
+        <h2 className="text-[13px] font-medium text-muted-foreground">Recent activity</h2>
+        {runs.length > 0 && (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
+            onClick={onViewAll}
+          >
+            All runs
+            <ArrowRight data-icon="inline-end" />
+          </Button>
+        )}
+      </div>
+      {loading && recent.length === 0 ? (
+        <ListRowSkeleton rows={3} />
+      ) : recent.length === 0 ? (
+        <p className="rounded-md border border-dashed px-4 py-5 text-[13px] text-muted-foreground">
+          No runs yet. Describe a task above to start the first one.
+        </p>
+      ) : (
+        <ItemGroup className="gap-1">
+          {recent.map((r) => (
+            <Item
+              key={`${r.namespace}/${r.name}`}
+              size="xs"
+              render={<Link to={`/runs/${r.namespace}/${r.name}`} />}
+            >
+              <ItemMedia variant="icon">
+                <MessageSquarePlus className="text-muted-foreground" />
+              </ItemMedia>
+              <ItemContent className="min-w-0">
+                <ItemTitle>{r.displayName || r.intentTitle || r.name}</ItemTitle>
+              </ItemContent>
+              <ItemActions>
+                <StatusBadge phase={r.phase} run={r} />
+                <span className="w-9 text-right font-mono text-xs tabular-nums text-muted-foreground group-hover/item:hidden">
+                  {formatAge(r.createdAtUnix)}
+                </span>
+                <span className="hidden w-9 justify-end group-hover/item:flex">
+                  <ArrowUpRight className="size-3.5 text-muted-foreground" />
+                </span>
+              </ItemActions>
+            </Item>
+          ))}
+        </ItemGroup>
+      )}
+    </section>
   );
 }
 

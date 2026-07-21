@@ -20,6 +20,7 @@ import {
   KeyRound,
   Blocks,
   Sparkles,
+  SquarePen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { palette as paletteMotion, fade } from "@/lib/motion";
@@ -76,6 +77,15 @@ export function CommandPalette({ open, onOpenChange, extraItems = [], runLabels 
 
   const navItems: PaletteItem[] = React.useMemo(
     () => [
+      {
+        id: "action.new-chat",
+        group: "Go to",
+        label: "New chat",
+        hint: "Start a run from the home composer",
+        icon: <SquarePen className="size-4" />,
+        keywords: ["new", "chat", "run", "start", "create", "compose"],
+        action: () => navigate("/"),
+      },
       {
         id: "nav.home",
         group: "Go to",

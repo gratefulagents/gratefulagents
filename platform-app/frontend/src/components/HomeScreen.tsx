@@ -117,7 +117,7 @@ export function HomeScreen() {
 
       <SetupChecklist className="mt-6" />
 
-      <div className="mt-8 grid gap-x-10 gap-y-8 sm:grid-cols-[1fr_1fr]">
+      <div className="mt-8 grid gap-x-10 gap-y-8 sm:grid-cols-[3fr_2fr]">
         <motion.section {...rise(2)} className="flex min-w-0 flex-col gap-3">
           <div className="flex h-7 items-center">
             <h2 className="text-[13px] font-medium text-muted-foreground">Recent chats</h2>
@@ -202,17 +202,16 @@ export function HomeScreen() {
                   );
                 })}
               </ItemGroup>
-              {projects.length > 6 && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="self-start text-muted-foreground"
-                  render={<Link to="/projects" />}
-                >
-                  All projects
-                  <ArrowUpRight data-icon="inline-end" />
-                </Button>
-              )}
+              <Button
+                variant="ghost"
+                size="xs"
+                className="self-start text-muted-foreground"
+                nativeButton={false}
+                render={<Link to="/projects" />}
+              >
+                All projects
+                <ArrowUpRight data-icon="inline-end" />
+              </Button>
             </>
           )}
         </motion.section>
