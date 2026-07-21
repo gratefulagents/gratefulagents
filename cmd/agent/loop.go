@@ -199,6 +199,9 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		)
 	}
 	tools.RegisterPlanTools(toolRegistry, sc.StateStore(), sc.SessionID())
+	// Skills use progressive disclosure: advertise only names and summaries,
+	// then load full instructions into context when the model chooses one.
+	loadSkillTool := tools.RegisterLoadSkillTool(ctx, toolRegistry, crdClient, run)
 	// Gate on the startup-resolved flag as well as the freshly read run: a
 	// transient CRD read failure (run == nil) must not produce a system
 	// prompt that advertises Kubernetes-admin tools without registering them.
@@ -1059,6 +1062,7 @@ messageLoop:
 			}
 			turnAgent := baseAgent.Clone(cloneOpts...)
 			turnAgent.ModelSettings = parentModelSettings
+			attachLoadedSkillInstructions(turnAgent, loadSkillTool)
 
 			var sdkModeSnapshot *sdkmode.TemplateSpec
 			if activeRun != nil {
@@ -1066,12 +1070,6 @@ messageLoop:
 			}
 			modeDirectiveText := strings.TrimSpace(mo.ModeInstructions)
 			modeDirectiveText = strings.TrimSpace(modeDirectiveText + "\n\n" + commitAttributionPolicyPrompt())
-			// Skill-shipped guidance (e.g. PromQL/LogQL discipline) rides
-			// with the mode directive so attached tool bundles come with their
-			// usage instructions.
-			if skillInstr := skillInstructionsForRun(ctx, crdClient, activeRun); skillInstr != "" {
-				modeDirectiveText = strings.TrimSpace(modeDirectiveText + "\n\n" + skillInstr)
-			}
 			// Connected MCP servers ride along too, so the agent knows the
 			// mcp__<server>__<tool> tools exist.
 			if mcpPromptBlock != "" {

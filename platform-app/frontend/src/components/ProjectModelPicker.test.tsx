@@ -150,9 +150,8 @@ describe("Project settings flow", () => {
     expect(screen.getByRole("button", { name: /Model & credentials/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Repository details/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Runtime/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Tools & skills/ }).textContent).toContain(
-      "1 MCP server · 1 skill",
-    );
+    expect(screen.getByRole("button", { name: /Tools/ }).textContent).toContain("1 MCP server");
+    expect(screen.queryByRole("switch", { name: "Attach code-review" })).toBeNull();
     expect(screen.getByRole("button", { name: /MCP policy/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Advanced/ })).toBeTruthy();
     expect(screen.getByText("Editing")).toBeTruthy();

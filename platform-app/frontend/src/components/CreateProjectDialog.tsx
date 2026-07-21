@@ -42,7 +42,6 @@ import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
 import { ProjectReviewLoopOption } from "@/components/ProjectReviewLoopOption";
 import { MCPServerPicker } from "@/components/MCPServerPicker";
-import { SkillPicker } from "@/components/SkillPicker";
 import { UserSecretPicker, type UserSecretOption } from "@/components/UserSecretPicker";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
@@ -104,7 +103,6 @@ type FormState = {
   mcpPolicyDefaultAction: string;
   mcpPolicyAllowedServers: string;
   mcpServerRefs: string[];
-  skillRefs: string[];
 };
 
 const initialForm: FormState = {
@@ -136,7 +134,6 @@ const initialForm: FormState = {
   mcpPolicyDefaultAction: "Deny",
   mcpPolicyAllowedServers: "",
   mcpServerRefs: [],
-  skillRefs: [],
 };
 
 const selectClassName =
@@ -391,7 +388,6 @@ export function CreateProjectDialog({
         mcpPolicyDefaultAction: form.mcpPolicyDefaultAction,
         mcpPolicyAllowedServers,
         mcpServerRefs: form.mcpServerRefs,
-        skillRefs: form.skillRefs,
         image: form.image.trim(),
       }));
       setOpen(false);
@@ -420,14 +416,9 @@ export function CreateProjectDialog({
     ? `${form.permissionMode} · ${form.egressMode}`
     : form.runtimeProfileRef.trim() || "Project defaults";
 
-  const toolsCount = form.mcpServerRefs.length + form.skillRefs.length;
+  const toolsCount = form.mcpServerRefs.length;
   const toolsSummaryText = toolsCount
-    ? [
-        form.mcpServerRefs.length ? `${form.mcpServerRefs.length} MCP server${form.mcpServerRefs.length === 1 ? "" : "s"}` : null,
-        form.skillRefs.length ? `${form.skillRefs.length} skill${form.skillRefs.length === 1 ? "" : "s"}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")
+    ? `${toolsCount} MCP server${toolsCount === 1 ? "" : "s"}`
     : "None";
 
   const policySummaryText = form.configureMcpPolicy
@@ -826,7 +817,7 @@ export function CreateProjectDialog({
               {/* Tools */}
               <OptionRow
                 icon={Blocks}
-                title="Tools & skills"
+                title="Tools"
                 summary={toolsSummaryText}
                 modified={toolsCount > 0}
               >
@@ -847,12 +838,6 @@ export function CreateProjectDialog({
                     servers or their tools won't load.
                   </p>
                 )}
-                <FlowField label="Skills" hint="Reusable agent skills attached to this project's runs.">
-                  <SkillPicker
-                    selected={form.skillRefs}
-                    onChange={(names) => update("skillRefs", names)}
-                  />
-                </FlowField>
               </OptionRow>
 
               {/* MCP policy */}
