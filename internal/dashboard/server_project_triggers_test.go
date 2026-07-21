@@ -286,3 +286,20 @@ func TestConcurrentSlackTriggersCannotShareConnection(t *testing.T) {
 		t.Fatalf("Slack trigger claim = %q, want %q", got, want)
 	}
 }
+
+func TestSlackProjectTriggerAllowsEmptyChannel(t *testing.T) {
+	trigger, err := projectTriggerFromProto(&platform.ProjectTrigger{
+		Name: "team-chat",
+		Type: "slack",
+		Slack: &platform.SlackProjectTrigger{
+			ConnectionRef: "workspace-app",
+			Channel:       "  ",
+		},
+	})
+	if err != nil {
+		t.Fatalf("projectTriggerFromProto: %v", err)
+	}
+	if trigger.Slack == nil || trigger.Slack.Channel != "" {
+		t.Fatalf("trigger.Slack = %#v, want empty channel (unscoped)", trigger.Slack)
+	}
+}

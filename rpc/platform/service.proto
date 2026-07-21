@@ -2356,6 +2356,9 @@ message GitHubProjectTrigger {
 
 message SlackProjectTrigger {
   string connection_ref = 1;
+  // channel is the Slack conversation ID (C…/G…/D…) this trigger is scoped
+  // to. Empty means the agent responds wherever the bot is invited and
+  // @mentioned; owner DMs always work.
   string channel = 2;
   string channel_reply_mode = 3; // require-approval | auto
   repeated string commanders = 4;

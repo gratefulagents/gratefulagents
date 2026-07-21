@@ -603,7 +603,9 @@ spec:
                         ingress.
                       properties:
                         channel:
-                          minLength: 1
+                          description: |-
+                            channel is the Slack conversation ID (C…/G…/D…) this trigger is scoped
+                            to. Leave empty to respond in any conversation the bot is invited to.
                           type: string
                         channelReplyMode:
                           default: require-approval
@@ -636,7 +638,6 @@ spec:
                           format: int32
                           type: integer
                       required:
-                      - channel
                       - connectionRef
                       type: object
                     type:

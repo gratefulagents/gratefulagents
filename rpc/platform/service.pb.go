@@ -16554,12 +16554,15 @@ func (x *GitHubProjectTrigger) GetAuthDenyUsers() []string {
 }
 
 type SlackProjectTrigger struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	ConnectionRef      string                 `protobuf:"bytes,1,opt,name=connection_ref,json=connectionRef,proto3" json:"connection_ref,omitempty"`
-	Channel            string                 `protobuf:"bytes,2,opt,name=channel,proto3" json:"channel,omitempty"`
-	ChannelReplyMode   string                 `protobuf:"bytes,3,opt,name=channel_reply_mode,json=channelReplyMode,proto3" json:"channel_reply_mode,omitempty"` // require-approval | auto
-	Commanders         []string               `protobuf:"bytes,4,rep,name=commanders,proto3" json:"commanders,omitempty"`
-	SessionIdleMinutes *int32                 `protobuf:"varint,5,opt,name=session_idle_minutes,json=sessionIdleMinutes,proto3,oneof" json:"session_idle_minutes,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConnectionRef string                 `protobuf:"bytes,1,opt,name=connection_ref,json=connectionRef,proto3" json:"connection_ref,omitempty"`
+	// channel is the Slack conversation ID (C…/G…/D…) this trigger is scoped
+	// to. Empty means the agent responds wherever the bot is invited and
+	// @mentioned; owner DMs always work.
+	Channel            string   `protobuf:"bytes,2,opt,name=channel,proto3" json:"channel,omitempty"`
+	ChannelReplyMode   string   `protobuf:"bytes,3,opt,name=channel_reply_mode,json=channelReplyMode,proto3" json:"channel_reply_mode,omitempty"` // require-approval | auto
+	Commanders         []string `protobuf:"bytes,4,rep,name=commanders,proto3" json:"commanders,omitempty"`
+	SessionIdleMinutes *int32   `protobuf:"varint,5,opt,name=session_idle_minutes,json=sessionIdleMinutes,proto3,oneof" json:"session_idle_minutes,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }

@@ -8788,6 +8788,10 @@ export type SlackProjectTrigger = Message<"platform.v1.SlackProjectTrigger"> & {
   connectionRef: string;
 
   /**
+   * channel is the Slack conversation ID (C…/G…/D…) this trigger is scoped
+   * to. Empty means the agent responds wherever the bot is invited and
+   * @mentioned; owner DMs always work.
+   *
    * @generated from field: string channel = 2;
    */
   channel: string;
