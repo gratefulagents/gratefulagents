@@ -560,6 +560,10 @@ type AgentRunArtifacts struct {
 type AgentRunResolvedPolicy struct {
 	// +optional
 	ResolvedPermissionMode string `json:"resolvedPermissionMode,omitempty"`
+	// ResolvedGitRemoteWrites reports whether remote Git mutations are enabled
+	// after RuntimeProfile defaults are applied.
+	// +optional
+	ResolvedGitRemoteWrites string `json:"resolvedGitRemoteWrites,omitempty"`
 	// +listType=atomic
 	// +optional
 	ResolvedAgentKinds []string `json:"resolvedAgentKinds,omitempty"`

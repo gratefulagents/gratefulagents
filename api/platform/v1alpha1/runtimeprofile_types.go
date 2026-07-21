@@ -50,6 +50,29 @@ func MostRestrictivePermissionMode(a, b PermissionMode) PermissionMode {
 	return b
 }
 
+// GitRemoteWrites controls whether tools and shell commands may mutate Git
+// remotes. The empty value preserves backward compatibility and means enabled.
+// +kubebuilder:validation:Enum=enabled;disabled
+type GitRemoteWrites string
+
+const (
+	GitRemoteWritesEnabled  GitRemoteWrites = "enabled"
+	GitRemoteWritesDisabled GitRemoteWrites = "disabled"
+)
+
+// NormalizeGitRemoteWrites returns the effective remote-write policy. Empty
+// preserves the legacy enabled behavior; unknown values fail closed.
+func NormalizeGitRemoteWrites(value GitRemoteWrites) GitRemoteWrites {
+	switch value {
+	case "", GitRemoteWritesEnabled:
+		return GitRemoteWritesEnabled
+	case GitRemoteWritesDisabled:
+		return GitRemoteWritesDisabled
+	default:
+		return GitRemoteWritesDisabled
+	}
+}
+
 // EgressMode defines outbound network posture.
 // +kubebuilder:validation:Enum=unrestricted;restricted;disabled
 type EgressMode string
@@ -122,6 +145,11 @@ type RuntimeProfileCommandSandbox struct {
 type RuntimeProfileSecurity struct {
 	// +optional
 	PermissionMode PermissionMode `json:"permissionMode,omitempty"`
+	// GitRemoteWrites controls whether the agent may push to Git remotes,
+	// including through built-in tools, compound PR tools, and shell commands.
+	// Defaults to enabled for backward compatibility.
+	// +optional
+	GitRemoteWrites GitRemoteWrites `json:"gitRemoteWrites,omitempty"`
 	// +optional
 	EgressMode EgressMode `json:"egressMode,omitempty"`
 	// +optional

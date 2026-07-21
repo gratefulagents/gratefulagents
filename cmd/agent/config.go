@@ -49,15 +49,16 @@ type runConfig struct {
 	GithubToken               string
 	TaskName                  string
 	TaskUID                   string
-	ModelFallbacks            []string                   // ordered fallback models for OpenRouter-style providers
-	AutoMode                  bool                       // true for autonomous mode (no user questions) — resolved from CRD
-	DelegatedChild            bool                       // true if this run was created by a parent team run — resolved from CRD
-	KubernetesAdmin           bool                       // true when this run has cluster-admin RBAC and platform introspection tools
-	TaskContext               string                     // Operator task context injected into system prompt.
-	Debug                     bool                       // verbose logging (full instructions, tool I/O)
-	PermissionMode            agentpolicy.PermissionMode // resolved from RuntimeProfile; defaults to read-only
-	PermissionModeDegraded    bool                       // read-only fell out of a startup failure/race, not explicit config; re-checked per turn
-	PermissionModeReason      string                     // human-readable reason when the pod's base mode is read-only
+	ModelFallbacks            []string                    // ordered fallback models for OpenRouter-style providers
+	AutoMode                  bool                        // true for autonomous mode (no user questions) — resolved from CRD
+	DelegatedChild            bool                        // true if this run was created by a parent team run — resolved from CRD
+	KubernetesAdmin           bool                        // true when this run has cluster-admin RBAC and platform introspection tools
+	TaskContext               string                      // Operator task context injected into system prompt.
+	Debug                     bool                        // verbose logging (full instructions, tool I/O)
+	PermissionMode            agentpolicy.PermissionMode  // resolved from RuntimeProfile; defaults to read-only
+	GitRemoteWrites           agentpolicy.GitRemoteWrites // resolved from RuntimeProfile; defaults to enabled for compatibility
+	PermissionModeDegraded    bool                        // read-only fell out of a startup failure/race, not explicit config; re-checked per turn
+	PermissionModeReason      string                      // human-readable reason when the pod's base mode is read-only
 }
 
 func loadRunConfig() (runConfig, error) {

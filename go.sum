@@ -157,6 +157,10 @@ github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 h1:JeSE6pjso5T
 github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674/go.mod h1:r4w70xmWCQKmi1ONH4KIaBptdivuRPyosB9RmPlGEwA=
 github.com/gratefulagents/sdk v0.0.88 h1:ZL+/4z8RRcvx0AdjocV2ejRv014UjqB2+oInvkCfbkM=
 github.com/gratefulagents/sdk v0.0.88/go.mod h1:f4gWx6dTlmrVHQDAb5pvfbFvtTEPWZuL2yk637+6dP0=
+github.com/gratefulagents/sdk v0.0.89-0.20260721133029-87f8ef40d989 h1:PxYr1rsy3js127t8R/6e8QuMWhhxjHtioafLXBWuIKA=
+github.com/gratefulagents/sdk v0.0.89-0.20260721133029-87f8ef40d989/go.mod h1:f4gWx6dTlmrVHQDAb5pvfbFvtTEPWZuL2yk637+6dP0=
+github.com/gratefulagents/sdk v0.0.89-0.20260721135502-5e57c7fe68b9 h1:ow8VcF5LSbfsvtskgh0xknuNmeO1WyXZQj0AfR/6B+Q=
+github.com/gratefulagents/sdk v0.0.89-0.20260721135502-5e57c7fe68b9/go.mod h1:f4gWx6dTlmrVHQDAb5pvfbFvtTEPWZuL2yk637+6dP0=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 h1:NmZ1PKzSTQbuGHw9DGPFomqkkLWMC+vZCkfs+FHv1Vg=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3/go.mod h1:zQrxl1YP88HQlA6i9c63DSVPFklWpGX4OWAc9bFuaH4=
 github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=

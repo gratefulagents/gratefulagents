@@ -8626,7 +8626,8 @@ type RuntimeProfile struct {
 	MaxConcurrentRuns             int32                   `protobuf:"varint,21,opt,name=max_concurrent_runs,json=maxConcurrentRuns,proto3" json:"max_concurrent_runs,omitempty"`
 	PerNamespaceMaxConcurrentRuns int32                   `protobuf:"varint,22,opt,name=per_namespace_max_concurrent_runs,json=perNamespaceMaxConcurrentRuns,proto3" json:"per_namespace_max_concurrent_runs,omitempty"`
 	StaleRunTimeout               string                  `protobuf:"bytes,23,opt,name=stale_run_timeout,json=staleRunTimeout,proto3" json:"stale_run_timeout,omitempty"`
-	ReplaceSpec                   bool                    `protobuf:"varint,24,opt,name=replace_spec,json=replaceSpec,proto3" json:"replace_spec,omitempty"` // New clients set true; false preserves fields absent from the legacy RPC contract.
+	ReplaceSpec                   bool                    `protobuf:"varint,24,opt,name=replace_spec,json=replaceSpec,proto3" json:"replace_spec,omitempty"`                    // New clients set true; false preserves fields absent from the legacy RPC contract.
+	GitRemoteWrites               *string                 `protobuf:"bytes,25,opt,name=git_remote_writes,json=gitRemoteWrites,proto3,oneof" json:"git_remote_writes,omitempty"` // enabled | disabled; absent preserves the current value on update
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -8827,6 +8828,13 @@ func (x *RuntimeProfile) GetReplaceSpec() bool {
 		return x.ReplaceSpec
 	}
 	return false
+}
+
+func (x *RuntimeProfile) GetGitRemoteWrites() string {
+	if x != nil && x.GitRemoteWrites != nil {
+		return *x.GitRemoteWrites
+	}
+	return ""
 }
 
 type ListRuntimeProfilesRequest struct {
@@ -26549,7 +26557,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"D\n" +
 	"\x14RuntimeResourceClaim\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\arequest\x18\x02 \x01(\tR\arequest\"\x8f\v\n" +
+	"\arequest\x18\x02 \x01(\tR\arequest\"\xd6\v\n" +
 	"\x0eRuntimeProfile\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
@@ -26577,7 +26585,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x13max_concurrent_runs\x18\x15 \x01(\x05R\x11maxConcurrentRuns\x12H\n" +
 	"!per_namespace_max_concurrent_runs\x18\x16 \x01(\x05R\x1dperNamespaceMaxConcurrentRuns\x12*\n" +
 	"\x11stale_run_timeout\x18\x17 \x01(\tR\x0fstaleRunTimeout\x12!\n" +
-	"\freplace_spec\x18\x18 \x01(\bR\vreplaceSpec\x1a=\n" +
+	"\freplace_spec\x18\x18 \x01(\bR\vreplaceSpec\x12/\n" +
+	"\x11git_remote_writes\x18\x19 \x01(\tH\x00R\x0fgitRemoteWrites\x88\x01\x01\x1a=\n" +
 	"\x0fCommandEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aC\n" +
@@ -26586,7 +26595,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aA\n" +
 	"\x13ResourceLimitsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x1c\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x14\n" +
+	"\x12_git_remote_writes\"\x1c\n" +
 	"\x1aListRuntimeProfilesRequest\"t\n" +
 	"\x1bListRuntimeProfilesResponse\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x127\n" +
@@ -29081,6 +29091,7 @@ func file_rpc_platform_service_proto_init() {
 	if File_rpc_platform_service_proto != nil {
 		return
 	}
+	file_rpc_platform_service_proto_msgTypes[86].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[199].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[200].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[202].OneofWrappers = []any{}

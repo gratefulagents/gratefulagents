@@ -33,6 +33,7 @@ type Registry struct {
 	permissionMode      policy.PermissionMode
 	signals             bool
 	allowMutating       map[string]struct{}
+	gitRemoteWrites     policy.GitRemoteWrites
 	browser             bool
 	interactiveTerminal bool
 	vision              bool
@@ -51,6 +52,12 @@ func WithReadOnlyTools() RegistryOption {
 // WithPermissionMode configures the registry's mutability mode.
 func WithPermissionMode(mode policy.PermissionMode) RegistryOption {
 	return func(r *Registry) { r.permissionMode = policy.NormalizePermissionMode(string(mode)) }
+}
+
+// WithGitRemoteWrites configures whether tools and shell commands may mutate
+// Git remotes. Disabled mode still permits workspace edits and local commits.
+func WithGitRemoteWrites(mode policy.GitRemoteWrites) RegistryOption {
+	return func(r *Registry) { r.gitRemoteWrites = policy.NormalizeGitRemoteWrites(mode) }
 }
 
 // WithSignalTools enables the AskUserQuestion signal tool.
@@ -98,8 +105,9 @@ func WithAllowedMutatingTools(names ...string) RegistryOption {
 // NewRegistry creates a registry with all default tools.
 func NewRegistry(workDir string, opts ...RegistryOption) *Registry {
 	r := &Registry{
-		tools:          make(map[string]Tool),
-		permissionMode: policy.PermissionModeWorkspaceWrite,
+		tools:           make(map[string]Tool),
+		permissionMode:  policy.PermissionModeWorkspaceWrite,
+		gitRemoteWrites: policy.GitRemoteWritesEnabled,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -107,6 +115,7 @@ func NewRegistry(workDir string, opts ...RegistryOption) *Registry {
 
 	sdkOpts := []sdktools.RegistryOption{
 		sdktools.WithPermissionMode(r.permissionMode),
+		sdktools.WithGitRemoteWrites(r.gitRemoteWrites),
 		// Think scratchpad (SDK v0.0.9): read-only reasoning log between actions.
 		sdktools.WithThinkTool(),
 	}
@@ -170,6 +179,9 @@ func (r *Registry) Register(t Tool) {
 	if t == nil {
 		return
 	}
+	if r.gitRemoteWrites == policy.GitRemoteWritesDisabled && isGitRemoteWriteTool(t) {
+		return
+	}
 	// Control-flow tools are always registered regardless of permission mode.
 	// They are needed for phase transitions, finishing, mode switching, etc.
 	if !t.IsReadOnly() && !isRegistryControlFlowTool(t.Name()) && !r.permissionMode.AllowsWriteTools() {
@@ -189,6 +201,10 @@ func isRegistryControlFlowTool(name string) bool {
 		return true
 	}
 	return false
+}
+
+func isGitRemoteWriteTool(tool Tool) bool {
+	return sdktools.WritesGitRemote(tool)
 }
 
 // Get returns a tool by name, or nil if not found.

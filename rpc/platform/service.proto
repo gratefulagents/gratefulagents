@@ -1469,6 +1469,7 @@ message RuntimeProfile {
   int32 per_namespace_max_concurrent_runs = 22;
   string stale_run_timeout = 23;
   bool replace_spec = 24; // New clients set true; false preserves fields absent from the legacy RPC contract.
+  optional string git_remote_writes = 25; // enabled | disabled; absent preserves the current value on update
 }
 message ListRuntimeProfilesRequest {}
 message ListRuntimeProfilesResponse {

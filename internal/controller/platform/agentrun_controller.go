@@ -816,6 +816,12 @@ func applyStatusPolicyDefaults(run *platformv1alpha1.AgentRun, runtimeProfile *p
 		}
 		run.Status.Policy.ResolvedPermissionMode = string(resolved)
 	}
+	if runtimeProfile != nil && runtimeProfile.Spec.Security != nil {
+		if run.Status.Policy == nil {
+			run.Status.Policy = &platformv1alpha1.AgentRunResolvedPolicy{}
+		}
+		run.Status.Policy.ResolvedGitRemoteWrites = string(platformv1alpha1.NormalizeGitRemoteWrites(runtimeProfile.Spec.Security.GitRemoteWrites))
+	}
 	if mcpPolicy != nil {
 		if run.Status.Policy == nil {
 			run.Status.Policy = &platformv1alpha1.AgentRunResolvedPolicy{}

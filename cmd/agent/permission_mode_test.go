@@ -52,6 +52,18 @@ func writeProfileRun() (*platformv1alpha1.AgentRun, *platformv1alpha1.RuntimePro
 	return run, profile
 }
 
+func TestResolveStartupPermissionModeResolvesDisabledGitRemoteWrites(t *testing.T) {
+	fastStartupRetries(t)
+	run, profile := writeProfileRun()
+	profile.Spec.Security.GitRemoteWrites = platformv1alpha1.GitRemoteWritesDisabled
+	c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).WithObjects(run, profile).Build()
+
+	res := resolveStartupPermissionMode(context.Background(), c, "run-1", "default")
+	if res.GitRemoteWrites != agentpolicy.GitRemoteWritesDisabled {
+		t.Fatalf("GitRemoteWrites = %q, want disabled", res.GitRemoteWrites)
+	}
+}
+
 func TestResolveStartupPermissionModeRetriesTransientProfileErrors(t *testing.T) {
 	fastStartupRetries(t)
 	run, profile := writeProfileRun()

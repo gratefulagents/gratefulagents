@@ -556,8 +556,9 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "interactive-readonly", Namespace: "default"},
 		Spec: platformv1alpha1.RuntimeProfileSpec{
 			Security: &platformv1alpha1.RuntimeProfileSecurity{
-				PermissionMode: platformv1alpha1.PermissionMode("read-only"),
-				DefaultTimeout: metav1.Duration{Duration: 45 * time.Minute},
+				PermissionMode:  platformv1alpha1.PermissionMode("read-only"),
+				GitRemoteWrites: platformv1alpha1.GitRemoteWritesDisabled,
+				DefaultTimeout:  metav1.Duration{Duration: 45 * time.Minute},
 			},
 		},
 	}
@@ -621,6 +622,9 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	}
 	if updated.Status.Policy.ResolvedPermissionMode != "read-only" {
 		t.Fatalf("ResolvedPermissionMode = %q, want read-only", updated.Status.Policy.ResolvedPermissionMode)
+	}
+	if updated.Status.Policy.ResolvedGitRemoteWrites != "disabled" {
+		t.Fatalf("ResolvedGitRemoteWrites = %q, want disabled", updated.Status.Policy.ResolvedGitRemoteWrites)
 	}
 	if len(updated.Status.Policy.ResolvedMCPServers) != 2 {
 		t.Fatalf("ResolvedMCPServers len = %d, want 2", len(updated.Status.Policy.ResolvedMCPServers))

@@ -193,6 +193,22 @@ func TestOverseerConstants(t *testing.T) {
 	}
 }
 
+func TestNormalizeGitRemoteWrites(t *testing.T) {
+	for _, tc := range []struct {
+		in   GitRemoteWrites
+		want GitRemoteWrites
+	}{
+		{"", GitRemoteWritesEnabled},
+		{GitRemoteWritesEnabled, GitRemoteWritesEnabled},
+		{GitRemoteWritesDisabled, GitRemoteWritesDisabled},
+		{"unexpected", GitRemoteWritesDisabled},
+	} {
+		if got := NormalizeGitRemoteWrites(tc.in); got != tc.want {
+			t.Errorf("NormalizeGitRemoteWrites(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestMostRestrictivePermissionMode(t *testing.T) {
 	cases := []struct {
 		a, b, want PermissionMode

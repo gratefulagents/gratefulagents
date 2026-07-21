@@ -47,7 +47,8 @@ func (t *GitPushTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *GitPushTool) IsReadOnly() bool { return false }
+func (t *GitPushTool) IsReadOnly() bool      { return false }
+func (t *GitPushTool) WritesGitRemote() bool { return true }
 func (t *GitPushTool) IsEnabled(ctx *agentsdk.RunContext) bool {
 	return ctx == nil || ctx.ToolAccessLevel != agentsdk.ToolAccessLevelReadOnly
 }

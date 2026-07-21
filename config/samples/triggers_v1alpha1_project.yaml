@@ -48,6 +48,9 @@ spec:
   # SandboxTemplate-backed pool.
   security:
     permissionMode: danger-full-access
+    # Set disabled to allow workspace edits and local commits while preventing
+    # built-in tools and shell commands from pushing to Git remotes.
+    gitRemoteWrites: enabled
     egressMode: unrestricted
     defaultTimeout: 2h
   admission:
@@ -216,6 +219,9 @@ metadata:
 spec:
   security:
     permissionMode: danger-full-access
+    # Set disabled to allow workspace edits and local commits while preventing
+    # built-in tools and shell commands from pushing to Git remotes.
+    gitRemoteWrites: enabled
     egressMode: unrestricted
     defaultTimeout: 2h
   # Per-agent pod resources live HERE (on the RuntimeProfile), not on the Project.

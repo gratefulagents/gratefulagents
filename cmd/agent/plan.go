@@ -24,6 +24,7 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
 	sdkotel "github.com/gratefulagents/sdk/pkg/agentsdk/otel"
+	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 	sdkproviders "github.com/gratefulagents/sdk/pkg/agentsdk/providers"
 	sdkruntime "github.com/gratefulagents/sdk/pkg/agentsdk/runtime"
 	metaharness "github.com/gratefulagents/sdk/pkg/agentsdk/tracestore"
@@ -271,6 +272,7 @@ func doRun(ctx context.Context, cfg runConfig, k8sClient *kubernetes.Clientset, 
 		log.Printf("WARN: failed to prepare Kubernetes-admin kubeconfig for sandbox: %v", err)
 	}
 	cfg.PermissionMode = clampResolvedPermissionMode(resolution.Mode, clampedRun)
+	cfg.GitRemoteWrites = agentpolicy.NormalizeGitRemoteWrites(resolution.GitRemoteWrites)
 	cfg.PermissionModeDegraded = resolution.Degraded
 	cfg.PermissionModeReason = resolution.Reason
 	if cfg.PermissionMode != resolution.Mode && !cfg.PermissionMode.AllowsWriteTools() {

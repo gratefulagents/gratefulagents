@@ -1,6 +1,7 @@
 export type RuntimeProfileRow = {
   name: string;
   permissionMode?: unknown;
+  gitRemoteWrites?: unknown;
   egressMode?: unknown;
   defaultTimeout?: unknown;
   sandboxTemplateRef?: unknown;
@@ -88,6 +89,7 @@ export function runtimeProfileFormFromRow(row: RuntimeProfileRow) {
   return {
     name: row.name,
     permissionMode: String(row.permissionMode ?? ""),
+    gitRemoteWrites: String(row.gitRemoteWrites ?? "enabled"),
     egressMode: String(row.egressMode ?? ""),
     defaultTimeout: String(row.defaultTimeout ?? ""),
     sandboxTemplateRef: String(row.sandboxTemplateRef ?? ""),

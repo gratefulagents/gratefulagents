@@ -29,7 +29,7 @@ const descriptions: Record<ResourceKind, string> = {
 };
 const initial: Record<string, Form> = {
   "runtime-profiles": {
-    name: "", permissionMode: "workspace-write", egressMode: "restricted", defaultTimeout: "",
+    name: "", permissionMode: "workspace-write", gitRemoteWrites: "enabled", egressMode: "restricted", defaultTimeout: "",
     sandboxTemplateRef: "", runtimeClassName: "", warmPoolRef: "", persistWorkspace: false,
     workspaceSize: "", enablePrivateProcfs: false, commandPath: "", commandPathPrepend: "",
     commandPathAppend: "", extraReadOnlyPaths: "", extraWritablePaths: "", commandEnv: "",
@@ -105,7 +105,7 @@ function ManagedResources({ kind, mutable }: { kind: Exclude<ResourceKind,"skill
   </section>;
 }
 function summary(kind: ResourceKind,row: Row) {
-  if (kind === "runtime-profiles") return `${row.permissionMode} · ${row.egressMode} egress${row.enablePrivateProcfs ? " · private procfs" : ""}${row.defaultTimeout ? ` · ${row.defaultTimeout}`:""}`;
+  if (kind === "runtime-profiles") return `${row.permissionMode} · Git remote writes ${row.gitRemoteWrites || "enabled"} · ${row.egressMode} egress${row.enablePrivateProcfs ? " · private procfs" : ""}${row.defaultTimeout ? ` · ${row.defaultTimeout}`:""}`;
   if (kind === "mcp-policies") return `${row.defaultAction} by default · ${(row.allowedServers as unknown[])?.length || 0} allowed servers`;
   if (kind === "guardrails") return `${(row.rules as unknown[])?.length || 0} rules`;
   if (kind === "modes") return `${row.category} · ${row.executionStrategy} · ${row.description || "No description"}`;
@@ -131,7 +131,7 @@ function ResourceDialog({kind,row,onClose,onSaved}:{kind:Exclude<ResourceKind,"s
     try {
       if (kind === "runtime-profiles") {
         const value = create(RuntimeProfileSchema, {
-          name:String(form.name), permissionMode:String(form.permissionMode), egressMode:String(form.egressMode),
+          name:String(form.name), permissionMode:String(form.permissionMode), gitRemoteWrites:String(form.gitRemoteWrites), egressMode:String(form.egressMode),
           defaultTimeout:String(form.defaultTimeout), sandboxTemplateRef:String(form.sandboxTemplateRef),
           runtimeClassName:String(form.runtimeClassName), warmPoolRef:String(form.warmPoolRef),
           persistWorkspace:Boolean(form.persistWorkspace), workspaceSize:String(form.workspaceSize),
@@ -225,7 +225,7 @@ function Field({name,label,value,set,disabled,wide}:{name:string;label?:string;v
   if (typeof value === "boolean") return <div className={`space-y-1.5 ${wide ? "sm:col-span-2" : ""}`}><div className="flex items-center justify-between gap-3"><Label htmlFor={name}>{displayLabel}</Label><Switch id={name} checked={value} onCheckedChange={(checked) => set(name,checked)} /></div>{name === "enablePrivateProcfs" && <p className="text-xs text-muted-foreground">Required by Chromium and toolchains that inspect /proc. Your cluster must support pod user namespaces and unmasked proc mounts.</p>}{name === "manageBreakGlass" && <p className="text-xs text-muted-foreground">Configure exceptional access requests for tools blocked by this policy.</p>}</div>;
   const multiline = ["instructions","description","commandPath","commandPathPrepend","commandPathAppend","extraReadOnlyPaths","extraWritablePaths","commandEnv","resourceRequests","resourceLimits"].includes(name) || name.endsWith("-message");
   const numeric = ["maxTurns", "subagentMaxTurns", "maxRuntimeMinutes", "maxRetries", "maxConcurrentSubagents", "maxConcurrentRuns", "perNamespaceMaxConcurrentRuns"].includes(name);
-  const selectOptions: Record<string,string[]> = { permissionMode:["read-only","workspace-write","danger-full-access"], egressMode:["unrestricted","restricted","disabled"], defaultAction:["Allow","Deny"] };
+  const selectOptions: Record<string,string[]> = { permissionMode:["read-only","workspace-write","danger-full-access"], gitRemoteWrites:["enabled","disabled"], egressMode:["unrestricted","restricted","disabled"], defaultAction:["Allow","Deny"] };
   const control = selectOptions[name]
     ? <select id={name} className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={value} disabled={disabled} onChange={(event) => set(name,event.target.value)}>{selectOptions[name].map((option) => <option key={option} value={option}>{option}</option>)}</select>
     : multiline

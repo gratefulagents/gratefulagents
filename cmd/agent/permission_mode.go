@@ -31,6 +31,8 @@ type permissionResolution struct {
 	// Mode is the pod's base permission mode, before pod-level mode-template
 	// clamps (clampResolvedPermissionMode).
 	Mode agentpolicy.PermissionMode
+	// GitRemoteWrites is the RuntimeProfile's normalized remote-write policy.
+	GitRemoteWrites agentpolicy.GitRemoteWrites
 	// Run is the AgentRun read during resolution; nil when it was unreadable.
 	Run *platformv1alpha1.AgentRun
 	// Degraded marks a zero-trust read-only fallback caused by a startup
@@ -43,6 +45,15 @@ type permissionResolution struct {
 	// Reason explains a read-only fallback in one human-readable sentence.
 	// Empty when Mode grants write access.
 	Reason string
+}
+
+func restrictivePermissionFallback(reason string, degraded bool) permissionResolution {
+	return permissionResolution{
+		Mode:            agentpolicy.PermissionModeReadOnly,
+		GitRemoteWrites: agentpolicy.GitRemoteWritesDisabled,
+		Degraded:        degraded,
+		Reason:          reason,
+	}
 }
 
 // resolveStartupPermissionMode resolves the run's permission mode from its
@@ -62,13 +73,13 @@ func resolveStartupPermissionMode(
 		if attempt >= startupPermissionAttempts || ctx.Err() != nil {
 			reason := fmt.Sprintf("could not read AgentRun %s/%s after %d attempts", namespace, taskName, attempt)
 			log.Printf("WARN: %s — defaulting to read-only (zero trust)", reason)
-			return permissionResolution{Mode: agentpolicy.PermissionModeReadOnly, Degraded: true, Reason: reason}
+			return restrictivePermissionFallback(reason, true)
 		}
 		log.Printf("WARN: could not read AgentRun %s/%s (attempt %d/%d) — retrying",
 			namespace, taskName, attempt, startupPermissionAttempts)
 		if !sleepStartupRetry(ctx) {
 			reason := fmt.Sprintf("startup cancelled while reading AgentRun %s/%s", namespace, taskName)
-			return permissionResolution{Mode: agentpolicy.PermissionModeReadOnly, Degraded: true, Reason: reason}
+			return restrictivePermissionFallback(reason, true)
 		}
 	}
 
@@ -90,7 +101,7 @@ func resolveRunPermissionMode(
 		// the session feed says why the workspace is read-only.
 		reason := "no RuntimeProfile is configured for this run"
 		log.Printf("No RuntimeProfile configured — defaulting to read-only (zero trust)")
-		return permissionResolution{Mode: agentpolicy.PermissionModeReadOnly, Degraded: true, Reason: reason}
+		return restrictivePermissionFallback(reason, true)
 	}
 
 	rpKey := types.NamespacedName{Name: run.Spec.RuntimeProfileRef.Name, Namespace: run.Namespace}
@@ -101,14 +112,15 @@ func resolveRunPermissionMode(
 			if rp.Spec.Security == nil || rp.Spec.Security.PermissionMode == "" {
 				reason := fmt.Sprintf("RuntimeProfile %s does not set security.permissionMode", rpKey)
 				log.Printf("%s — defaulting to read-only (zero trust)", reason)
-				return permissionResolution{Mode: agentpolicy.PermissionModeReadOnly, Reason: reason}
+				return restrictivePermissionFallback(reason, false)
 			}
 			mode := agentpolicy.NormalizePermissionMode(string(rp.Spec.Security.PermissionMode))
-			res := permissionResolution{Mode: mode}
+			gitRemoteWrites := agentpolicy.NormalizeGitRemoteWrites(agentpolicy.GitRemoteWrites(rp.Spec.Security.GitRemoteWrites))
+			res := permissionResolution{Mode: mode, GitRemoteWrites: gitRemoteWrites}
 			if mode == agentpolicy.PermissionModeReadOnly {
 				res.Reason = fmt.Sprintf("RuntimeProfile %s sets permissionMode read-only", rpKey)
 			}
-			log.Printf("RuntimeProfile %s resolved: permissionMode=%s", rpKey, mode)
+			log.Printf("RuntimeProfile %s resolved: permissionMode=%s gitRemoteWrites=%s", rpKey, mode, gitRemoteWrites)
 			return res
 		}
 
@@ -121,13 +133,13 @@ func resolveRunPermissionMode(
 				reason = fmt.Sprintf("failed to read RuntimeProfile %s after %d attempts: %v", rpKey, attempt, err)
 			}
 			log.Printf("WARN: %s — defaulting to read-only (zero trust)", reason)
-			return permissionResolution{Mode: agentpolicy.PermissionModeReadOnly, Degraded: true, Reason: reason}
+			return restrictivePermissionFallback(reason, true)
 		}
 		log.Printf("WARN: failed to read RuntimeProfile %s (attempt %d/%d): %v — retrying",
 			rpKey, attempt, attempts, err)
 		if !sleepStartupRetry(ctx) {
 			reason := fmt.Sprintf("startup cancelled while reading RuntimeProfile %s", rpKey)
-			return permissionResolution{Mode: agentpolicy.PermissionModeReadOnly, Degraded: true, Reason: reason}
+			return restrictivePermissionFallback(reason, true)
 		}
 	}
 }
