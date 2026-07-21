@@ -11,10 +11,14 @@ import {
 
 import { AgentRunTable } from "@/components/AgentRunTable";
 import { CreateRunDialog } from "@/components/CreateRunDialog";
+import { MaintainerCard } from "@/components/MaintainerPanel";
 import { ProjectCredentialBadges } from "@/components/projectCredentials";
 import { ProjectContentSection } from "@/components/project-content/ProjectContentSection";
 import { ProjectTriggerRail } from "@/components/project-triggers/ProjectTriggerRail";
 import type { ProjectWithTriggers } from "@/components/project-triggers/types";
+import type {
+  ProjectTrigger as ProjectTriggerModel,
+} from "@/components/project-triggers/types";
 import { ProjectSettingsDialog } from "@/components/ProjectSettingsDialog";
 import { OwnerAvatar } from "@/components/OwnerAvatar";
 import { ShareDialog } from "@/components/ShareDialog";
@@ -236,6 +240,11 @@ export function ProjectDetail() {
                   onViewAll={() => setTab("runs")}
                 />
 
+                <ProjectMaintainerSection
+                  namespace={project.namespace}
+                  triggers={(project as unknown as ProjectWithTriggers).triggers ?? []}
+                />
+
                 <ProjectTriggerRail
                   namespace={project.namespace}
                   projectName={project.name}
@@ -278,6 +287,51 @@ export function ProjectDetail() {
         </div>
       )}
     </ListState>
+  );
+}
+
+/**
+ * Standing maintainer(s) for the project's GitHub triggers. Rendered only when
+ * at least one github trigger opted into the maintainer, so the Overview stays
+ * quiet for projects without one.
+ */
+function ProjectMaintainerSection({
+  namespace,
+  triggers,
+}: {
+  namespace: string;
+  triggers: ProjectTriggerModel[];
+}) {
+  const maintainerTriggers = triggers.filter(
+    (trigger) => trigger.type === "github" && Boolean(trigger.github?.maintainerEnabled),
+  );
+  if (maintainerTriggers.length === 0) return null;
+
+  return (
+    <DetailSection title="Maintainer">
+      <div className="space-y-4">
+        {maintainerTriggers.map((trigger) => (
+          <div key={trigger.name} className="space-y-1.5">
+            {maintainerTriggers.length > 1 && (
+              <p className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70">
+                {trigger.name}
+              </p>
+            )}
+            <MaintainerCard
+              namespace={namespace}
+              enabled
+              maintainer={trigger.maintainerStatus}
+              maxDispatchesPerDay={
+                typeof trigger.github?.maintainerMaxDispatchesPerDay === "number"
+                  ? trigger.github.maintainerMaxDispatchesPerDay
+                  : undefined
+              }
+              allowPrMerge={Boolean(trigger.github?.maintainerAllowPrMerge)}
+            />
+          </div>
+        ))}
+      </div>
+    </DetailSection>
   );
 }
 

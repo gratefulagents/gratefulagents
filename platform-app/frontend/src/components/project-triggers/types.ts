@@ -50,6 +50,15 @@ export interface ProjectTrigger {
   lastActivityTime?: Record<string, unknown>;
   nextActivityTime?: Record<string, unknown>;
   lastError?: string;
+  /** Maintainer status mirrored from the generated GitHubRepository child. */
+  maintainerStatus?: {
+    runName?: string;
+    lastWakeUnix?: bigint;
+    dispatchesToday?: number;
+    lastReportTimeUnix?: bigint;
+    lastReportState?: string;
+    lastReportSummary?: string;
+  };
 }
 
 export interface ProjectWithTriggers {

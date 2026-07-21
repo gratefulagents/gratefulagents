@@ -207,30 +207,71 @@ function ReportHistoryItem({ report }: { report: MaintainerReport }) {
 
 export function MaintainerPanel({ repo }: { repo: GitHubRepository }) {
   const settings = repo.triggerSettings;
-  const enabled = Boolean(settings?.maintainerEnabled);
-  const maintainer = repo.maintainerStatus;
-  const { reports, loading, error } = useMaintainerReports(repo.namespace, maintainer?.runName ?? "", enabled);
+  return (
+    <MaintainerCard
+      namespace={repo.namespace}
+      enabled={Boolean(settings?.maintainerEnabled)}
+      maintainer={repo.maintainerStatus}
+      maxDispatchesPerDay={settings?.maintainerMaxDispatchesPerDay}
+      allowPrMerge={settings?.maintainerAllowPrMerge}
+      disabledHint="Enable it in repository settings."
+    />
+  );
+}
+
+/**
+ * Structural view of GitHubRepositoryMaintainerStatus so the card renders the
+ * same maintainer from a repository or a project trigger read model.
+ */
+export type MaintainerStatusLike = {
+  runName?: string;
+  lastWakeUnix?: bigint;
+  dispatchesToday?: number;
+  lastReportTimeUnix?: bigint;
+  lastReportState?: string;
+  lastReportSummary?: string;
+};
+
+export type MaintainerCardProps = {
+  namespace: string;
+  enabled: boolean;
+  maintainer?: MaintainerStatusLike;
+  maxDispatchesPerDay?: number;
+  allowPrMerge?: boolean;
+  /** Where to enable the maintainer when it is off. */
+  disabledHint?: string;
+};
+
+export function MaintainerCard({
+  namespace,
+  enabled,
+  maintainer,
+  maxDispatchesPerDay,
+  allowPrMerge,
+  disabledHint,
+}: MaintainerCardProps) {
+  const { reports, loading, error } = useMaintainerReports(namespace, maintainer?.runName ?? "", enabled);
   const [historyOpen, setHistoryOpen] = useState(false);
 
   if (!enabled) {
     return (
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[8px] border border-border/60 px-3.5 py-3 text-[12.5px]">
         <span className="font-medium text-muted-foreground">Maintainer is disabled.</span>
-        <span className="text-muted-foreground">Enable it in repository settings.</span>
+        {disabledHint ? <span className="text-muted-foreground">{disabledHint}</span> : null}
       </div>
     );
   }
 
   const state = maintainer?.lastReportState ?? "";
   const hasReport = Boolean(maintainer?.lastReportTimeUnix);
-  const dailyCap = settings?.maintainerMaxDispatchesPerDay || 10;
+  const dailyCap = maxDispatchesPerDay || 10;
 
   return (
     <div className="surface-card overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
         {maintainer?.runName ? (
           <Link
-            to={`/runs/${repo.namespace}/${maintainer.runName}`}
+            to={`/runs/${namespace}/${maintainer.runName}`}
             className="text-[13px] font-medium text-primary underline-offset-2 hover:underline"
           >
             {maintainer.runName}
@@ -247,7 +288,7 @@ export function MaintainerPanel({ repo }: { repo: GitHubRepository }) {
             {maintainer?.lastReportSummary || "No maintainer report yet."}
           </p>
           <p className="text-[11.5px] text-muted-foreground">
-            {hasReport ? `Last report ${formatAge(maintainer!.lastReportTimeUnix)} ago` : "Awaiting first report"}
+            {hasReport ? `Last report ${formatAge(maintainer!.lastReportTimeUnix!)} ago` : "Awaiting first report"}
           </p>
         </div>
 
@@ -268,7 +309,7 @@ export function MaintainerPanel({ repo }: { repo: GitHubRepository }) {
               {maintainer?.lastWakeUnix ? `${formatAge(maintainer.lastWakeUnix)} ago` : "—"}
             </dd>
           </div>
-          {settings?.maintainerAllowPrMerge ? (
+          {allowPrMerge ? (
             <div className="flex items-end px-5 sm:px-7">
               <Badge variant="secondary" className={cn("text-[10.5px]", toneSoft.danger)}>
                 PR merging enabled

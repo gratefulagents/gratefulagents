@@ -475,13 +475,24 @@ export function AgentRunTable({
                     )}
                   </TableCell>
                   <TableCell>
-                    <Link
-                      to={`/runs/${run.namespace}/${run.name}`}
-                      className="font-medium text-primary hover:underline"
-                      title={run.displayName ? run.name : undefined}
-                    >
-                      {run.displayName || run.name}
-                    </Link>
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <Link
+                        to={`/runs/${run.namespace}/${run.name}`}
+                        className="font-medium text-primary hover:underline"
+                        title={run.displayName ? run.name : undefined}
+                      >
+                        {run.displayName || run.name}
+                      </Link>
+                      {run.standingRunRole && (
+                        <Badge
+                          variant="secondary"
+                          className="h-4 px-1.5 text-[10px] capitalize"
+                          title="Standing supervisor run — stays attached to its source instead of finishing"
+                        >
+                          {run.standingRunRole}
+                        </Badge>
+                      )}
+                    </span>
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap items-center gap-1.5">
