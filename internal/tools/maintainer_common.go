@@ -17,6 +17,8 @@ import (
 const (
 	defaultMaintainerConcurrentDispatches int32 = 2
 	defaultMaintainerDispatchesPerDay     int32 = 10
+	maintainerPRLoopStateLabel                  = "triggers.gratefulagents.dev/pr-loop"
+	maintainerPRLoopRoundAnnotation             = "triggers.gratefulagents.dev/review-round"
 )
 
 type maintainerToolBase struct {

@@ -22,12 +22,16 @@ import (
 type maintainerTestStore struct {
 	store.StateStore
 	sessions    map[string]*store.Session
+	sessionErr  error
 	messages    []store.Message
 	activity    []store.ActivityEvent
 	activityErr error
 }
 
 func (s *maintainerTestStore) GetSessionByRun(_ context.Context, name, namespace string) (*store.Session, error) {
+	if s.sessionErr != nil {
+		return nil, s.sessionErr
+	}
 	return s.sessions[namespace+"/"+name], nil
 }
 
@@ -113,6 +117,26 @@ func TestMaintainerAuthorizationAndFleetFiltering(t *testing.T) {
 		if _, err := base.currentRun(context.Background()); err == nil {
 			t.Fatal("unauthorized maintainer was accepted")
 		}
+	}
+}
+
+func TestDescribeFleetRunExposesPRLoopStateAndRound(t *testing.T) {
+	t.Parallel()
+	maintainer := maintainerRun()
+	implementer := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	implementer.Labels = map[string]string{
+		maintainerPRLoopStateLabel:          "in_review",
+		triggersv1alpha1.PRLoopRoleLabelKey: "unexpected-role-value",
+	}
+	implementer.Annotations = map[string]string{maintainerPRLoopRoundAnnotation: "2"}
+	base, _, _ := newMaintainerToolBase(t, maintainer, implementer)
+	tool := &getFleetRunsTool{maintainerToolBase: base}
+	entry, err := tool.describeFleetRun(context.Background(), implementer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.PRLoopState != "in_review" || entry.ReviewRound != "2" {
+		t.Fatalf("PR loop state/round = %q/%q, want in_review/2", entry.PRLoopState, entry.ReviewRound)
 	}
 }
 

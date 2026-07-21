@@ -113,7 +113,7 @@ type markRunSucceededInput struct {
 
 func (t *markRunSucceededTool) Name() string { return "mark_run_succeeded" }
 func (t *markRunSucceededTool) Description() string {
-	return "Request that the controller transition an authorized implementer fleet run to Succeeded after the maintainer records evidence that its outcome is achieved."
+	return "Request that the controller transition a non-terminal implementer run to Succeeded only after verifying every pull request required by its accepted scope is merged and that scope is delivered. An agent calling finish may leave its run ready or idle for PR feedback; finish alone is not success. Include merged PR URLs and evidence in reason."
 }
 func (t *markRunSucceededTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"run_name":{"type":"string"},"reason":{"type":"string","minLength":10,"maxLength":1000}},"required":["run_name","reason"]}`)
