@@ -108,6 +108,26 @@ test('builds an ordered AltStore Classic source from paginated GitHub releases',
   });
 });
 
+test('replaces a draft release temporary download URL with its permanent tag URL', () => {
+  const source = generateAltStoreSource(
+    [
+      release('v1.0.0', {
+        draft: true,
+        url: 'https://github.com/gratefulagents/gratefulagents/releases/download/untagged-a36cef1d8efe06080bf5/gratefulagents-v1.0.0-ios-arm64-unsigned.ipa',
+      }),
+    ],
+    {
+      currentTag: 'v1.0.0',
+      metadataByAssetName: metadataMap('v1.0.0'),
+    },
+  );
+
+  assert.equal(
+    source.apps[0].versions[0].downloadURL,
+    'https://github.com/gratefulagents/gratefulagents/releases/download/v1.0.0/gratefulagents-v1.0.0-ios-arm64-unsigned.ipa',
+  );
+});
+
 test('always places the current release first, then orders history by date', () => {
   const source = generateAltStoreSource(
     [
