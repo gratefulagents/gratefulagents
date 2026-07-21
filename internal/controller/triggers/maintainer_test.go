@@ -142,12 +142,14 @@ func TestMaintainerResumeNudges(t *testing.T) {
 		lastResume  time.Duration
 		standupDue  bool
 		idle        bool
+		noSession   bool
 		wantNudge   bool
 		wantRequeue time.Duration
 	}{
 		{name: "terminal run with open work after cooldown", phase: platformv1alpha1.AgentRunPhaseSucceeded, issues: []*github.Issue{{Number: github.Int(42)}}, wantNudge: true, wantRequeue: 5 * time.Minute},
 		{name: "running run", phase: platformv1alpha1.AgentRunPhaseRunning, issues: []*github.Issue{{Number: github.Int(42)}}, wantRequeue: defaultMaintainerStandupInterval},
 		{name: "running idle run", phase: platformv1alpha1.AgentRunPhaseRunning, idle: true, issues: []*github.Issue{{Number: github.Int(42)}}, wantNudge: true, wantRequeue: 5 * time.Minute},
+		{name: "running run without session", phase: platformv1alpha1.AgentRunPhaseRunning, noSession: true, issues: []*github.Issue{{Number: github.Int(42)}}, wantRequeue: defaultMaintainerStandupInterval},
 		{name: "terminal run without work", phase: platformv1alpha1.AgentRunPhaseSucceeded, wantRequeue: defaultMaintainerStandupInterval},
 		{name: "within cooldown", phase: platformv1alpha1.AgentRunPhaseSucceeded, issues: []*github.Issue{{Number: github.Int(42)}}, lastResume: -9 * time.Minute, wantRequeue: 5 * time.Minute},
 		{name: "standup", phase: platformv1alpha1.AgentRunPhasePaused, standupDue: true, wantNudge: true, wantRequeue: defaultMaintainerStandupInterval},
@@ -168,6 +170,9 @@ func TestMaintainerResumeNudges(t *testing.T) {
 				}
 				session.PendingInputType = string(platformv1alpha1.UserInputIdle)
 				session.PendingRequestID = "idle-request"
+			}
+			if tc.noSession {
+				stateStore.deleteSession(standing.Name, standing.Namespace)
 			}
 			if tc.lastResume != 0 {
 				standing = standingMaintainer(t, c, repository.Namespace, repository.Name)
@@ -195,11 +200,21 @@ func TestMaintainerResumeNudges(t *testing.T) {
 				t.Fatalf("RequeueAfter = %s, want %s", result.RequeueAfter, tc.wantRequeue)
 			}
 			standing = standingMaintainer(t, c, repository.Namespace, repository.Name)
-			if got := standing.Spec.WakeRequests; (got == 1) != tc.wantNudge {
-				t.Fatalf("WakeRequests = %d, want nudge=%t", got, tc.wantNudge)
+			// A nudge of a Running run parked on idle input goes through the
+			// durable session only; it must not leave a pending wakeRequests
+			// counter for the run controller to consume later.
+			wantWakeRequests := int64(0)
+			if tc.wantNudge && tc.phase != platformv1alpha1.AgentRunPhaseRunning {
+				wantWakeRequests = 1
+			}
+			if got := standing.Spec.WakeRequests; got != wantWakeRequests {
+				t.Fatalf("WakeRequests = %d, want %d (nudge=%t)", got, wantWakeRequests, tc.wantNudge)
 			}
 			messages := stateStore.messagesFor(standing.Name, standing.Namespace)
 			wantMessages := 1
+			if tc.noSession {
+				wantMessages = 0
+			}
 			if tc.wantNudge {
 				wantMessages++
 			}

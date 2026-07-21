@@ -31,6 +31,7 @@ func TestMergePullRequestGateAndSafetyChecks(t *testing.T) {
 		{name: "flag off", enabled: false, wantError: "not enabled"},
 		{name: "draft", enabled: true, view: `{"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","url":"https://github.com/octo/widgets/pull/7"}`, wantError: "is a draft"},
 		{name: "not approved", enabled: true, view: `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"REVIEW_REQUIRED","url":"https://github.com/octo/widgets/pull/7"}`, wantError: "not approved"},
+		{name: "no review decision", enabled: true, view: `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"","url":"https://github.com/octo/widgets/pull/7"}`, wantError: "no computed review decision"},
 		{name: "unlinked", enabled: true, view: `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","url":"https://github.com/octo/widgets/pull/8"}`, wantError: "not attached"},
 		{name: "conflicting", enabled: true, view: `{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","reviewDecision":"APPROVED","url":"https://github.com/octo/widgets/pull/7"}`, wantError: "mergeability is not confirmed"},
 		{name: "unknown mergeability", enabled: true, view: `{"state":"OPEN","isDraft":false,"mergeable":"UNKNOWN","reviewDecision":"APPROVED","url":"https://github.com/octo/widgets/pull/7"}`, wantError: "mergeability is not confirmed"},

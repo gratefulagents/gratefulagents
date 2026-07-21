@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -440,5 +441,107 @@ func TestWaitForRepoEventsFirstSnapshotIncludesPullRequestChanges(t *testing.T) 
 	}
 	if cursor.PullRequestSignatures[maintainerTestPullRequestURL] == "" {
 		t.Fatalf("pull request signatures = %#v", cursor.PullRequestSignatures)
+	}
+}
+
+func TestWaitForRepoEventsDegradesOnFleetSnapshotError(t *testing.T) {
+	maintainer := maintainerRun()
+	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
+	stateStore.sessionErr = errors.New("state store unavailable")
+	runner := &maintainerFakeRunner{out: map[string]string{
+		"issue list --state open --json number,title,labels,updatedAt,url --limit 200": `[{"number":9,"title":"new work","labels":[],"updatedAt":"2026-01-09T00:00:00Z","url":"https://example.test/issues/9"}]`,
+	}}
+	tool := &waitForRepoEventsTool{
+		maintainerToolBase: base, runner: runner,
+		backlogPollInterval: 5 * time.Millisecond, fleetPollInterval: time.Hour, pullRequestPollInterval: time.Hour,
+	}
+	cursor, err := encodeMaintainerRepoEventsCursor(maintainerRepoEventsCursor{
+		BacklogFingerprint: maintainerBacklogSnapshot(nil).backlogFingerprint,
+		IssueSignatures:    map[string]string{},
+		FleetSignatures:    map[string]string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"timeout_seconds":30,"cursor":"`+cursor+`"}`), maintainerTestGitRepoDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("fleet snapshot failure aborted the wait: %s", result.Content)
+	}
+	var output waitForRepoEventsOutput
+	if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
+		t.Fatal(err)
+	}
+	if !output.Changed || len(output.ChangedIssues) != 1 || output.ChangedIssues[0].Number != 9 {
+		t.Fatalf("output = %#v, want the backlog change despite the fleet error", output)
+	}
+	if !strings.Contains(output.FleetError, "state store unavailable") {
+		t.Fatalf("fleet_error = %q, want the degraded fleet failure surfaced", output.FleetError)
+	}
+}
+
+func TestChangedRepoEventIssuesEmitsRemovals(t *testing.T) {
+	previous := maintainerBacklogSnapshot([]maintainerBacklogIssue{
+		{Number: 3, Title: "keep", UpdatedAt: "2026-01-01T00:00:00Z", URL: "https://example.test/issues/3"},
+		{Number: 7, Title: "closed", UpdatedAt: "2026-01-01T00:00:00Z", URL: "https://example.test/issues/7"},
+	})
+	current := maintainerBacklogSnapshot([]maintainerBacklogIssue{
+		{Number: 3, Title: "keep", UpdatedAt: "2026-01-01T00:00:00Z", URL: "https://example.test/issues/3"},
+	})
+	if !repoEventsChanged(previous, current) {
+		t.Fatal("issue removal did not register as a change")
+	}
+	changes := changedRepoEventIssues(previous, current)
+	if len(changes) != 1 || changes[0].Number != 7 || !changes[0].Removed {
+		t.Fatalf("changed issues = %#v, want issue 7 removed", changes)
+	}
+
+	// An emitted removal is acknowledged; the cursor converges with live state.
+	cursor := repoEventsCursorForEmitted(previous, current, changes, nil, nil)
+	if cursor.BacklogFingerprint != current.backlogFingerprint {
+		t.Fatalf("cursor fingerprint = %q, want live %q", cursor.BacklogFingerprint, current.backlogFingerprint)
+	}
+	if repoEventsChanged(snapshotFromMaintainerRepoEventsCursor(cursor), current) {
+		t.Fatal("acknowledged removal must not re-fire")
+	}
+
+	// A trimmed (not emitted) removal stays pending instead of being silently
+	// acknowledged.
+	trimmed := repoEventsCursorForEmitted(previous, current, nil, nil, nil)
+	if !repoEventsChanged(snapshotFromMaintainerRepoEventsCursor(trimmed), current) {
+		t.Fatal("suppressed removal was silently acknowledged")
+	}
+}
+
+func TestPullRequestEventKeepsUnknownMergeabilityDistinct(t *testing.T) {
+	outputs := maintainerPullRequestRunnerOutputs("completed", "success", "APPROVED")
+	outputs["api repos/octo/widgets/pulls/7"] = `{"head":{"sha":"abc123"},"state":"OPEN","draft":false,"mergeable":null,"mergeable_state":"unknown"}`
+	runner := &maintainerFakeRunner{out: outputs}
+	tool := &waitForRepoEventsTool{runner: runner}
+	event, err := tool.pullRequestEvent(context.Background(), maintainerTestGitRepoDir(t), maintainerTestPullRequestURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Mergeable != nil || event.MergeState != "unknown" {
+		t.Fatalf("event = %#v, want nil mergeable while GitHub recomputes", event)
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"mergeable":null`) {
+		t.Fatalf("encoded event = %s, want explicit null mergeable", encoded)
+	}
+
+	runner.out["api repos/octo/widgets/pulls/7"] = `{"head":{"sha":"abc123"},"state":"OPEN","draft":false,"mergeable":true,"mergeable_state":"clean"}`
+	computed, err := tool.pullRequestEvent(context.Background(), maintainerTestGitRepoDir(t), maintainerTestPullRequestURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if computed.Mergeable == nil || !*computed.Mergeable {
+		t.Fatalf("event = %#v, want computed mergeable true", computed)
 	}
 }

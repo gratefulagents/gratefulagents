@@ -59,6 +59,7 @@ type maintainerRepoEventIssue struct {
 	URL       string   `json:"url"`
 	UpdatedAt string   `json:"updated_at"`
 	Labels    []string `json:"labels"`
+	Removed   bool     `json:"removed,omitempty"`
 }
 
 type maintainerRepoFleetEvent struct {
@@ -77,7 +78,7 @@ type maintainerRepoPullRequestEvent struct {
 	State          string                   `json:"state"`
 	Draft          bool                     `json:"draft"`
 	ReviewDecision string                   `json:"review_decision"`
-	Mergeable      bool                     `json:"mergeable"`
+	Mergeable      *bool                    `json:"mergeable"`
 	MergeState     string                   `json:"merge_state"`
 	Checks         pullRequestChecksSummary `json:"checks"`
 	Error          string                   `json:"error,omitempty"`
@@ -99,6 +100,7 @@ type maintainerRepoEventsSnapshot struct {
 	backlogError          string
 	fleetSignatures       map[string]string
 	fleet                 map[string]maintainerRepoFleetEvent
+	fleetError            string
 	pullRequestSignatures map[string]string
 	pullRequests          map[string]maintainerRepoPullRequestEvent
 	pullRequestError      string
@@ -114,6 +116,7 @@ type waitForRepoEventsOutput struct {
 	PullRequestChanges []maintainerRepoPullRequestEvent `json:"pull_request_changes"`
 	Cursor             string                           `json:"cursor"`
 	BacklogError       string                           `json:"backlog_error,omitempty"`
+	FleetError         string                           `json:"fleet_error,omitempty"`
 	PullRequestError   string                           `json:"pull_request_error,omitempty"`
 }
 
@@ -160,7 +163,16 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 
 	current, err := t.repoEventsSnapshot(ctx, wd, true)
 	if err != nil {
-		return Result{Content: err.Error(), IsError: true}, nil
+		if !cursorProvided {
+			return Result{Content: err.Error(), IsError: true}, nil
+		}
+		// A transient fleet-listing failure must not abort a long wait when a
+		// cursor already carries the last acknowledged state. Degrade like a
+		// backlog or pull-request polling failure: keep the acknowledged
+		// signatures, surface fleet_error, and let the tickers re-establish
+		// live state.
+		current = previous
+		current.fleetError = err.Error()
 	}
 	if !cursorProvided {
 		// First call of an episode: return the current backlog and fleet state
@@ -209,10 +221,12 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 		case <-fleetTicker.C:
 			fleet, fleetErr := t.fleetEventsSnapshot(ctx)
 			if fleetErr != nil {
-				return Result{Content: fleetErr.Error(), IsError: true}, nil
+				latest.fleetError = fleetErr.Error()
+			} else {
+				latest.fleetSignatures = fleet.fleetSignatures
+				latest.fleet = fleet.fleet
+				latest.fleetError = ""
 			}
-			latest.fleetSignatures = fleet.fleetSignatures
-			latest.fleet = fleet.fleet
 			if repoEventsChanged(previous, latest) {
 				return t.repoEventsResult(previous, latest, true, false, started, cursorProvided)
 			}
@@ -480,7 +494,7 @@ func (t *waitForRepoEventsTool) pullRequestEvent(ctx context.Context, workDir, p
 		} `json:"head"`
 		State          string `json:"state"`
 		Draft          bool   `json:"draft"`
-		Mergeable      bool   `json:"mergeable"`
+		Mergeable      *bool  `json:"mergeable"`
 		MergeableState string `json:"mergeable_state"`
 	}
 	if err := json.Unmarshal([]byte(pullRequestOut), &pullRequest); err != nil {
@@ -650,7 +664,7 @@ func (t *waitForRepoEventsTool) repoEventsResult(previous, current maintainerRep
 		out := waitForRepoEventsOutput{
 			Changed: changed, TimedOut: timedOut, BacklogChanged: current.backlogAvailable && (!previous.backlogAvailable || previous.backlogFingerprint != current.backlogFingerprint),
 			ChangedIssues: changedIssues, FleetChanges: fleetChanges, PullRequestChanges: pullRequestChanges, Cursor: cursor,
-			BacklogError: truncateUTF8(current.backlogError, 1024), PullRequestError: truncateUTF8(current.pullRequestError, 1024),
+			BacklogError: truncateUTF8(current.backlogError, 1024), FleetError: truncateUTF8(current.fleetError, 1024), PullRequestError: truncateUTF8(current.pullRequestError, 1024),
 		}
 		if !started.IsZero() {
 			out.ElapsedSeconds = int(time.Since(started).Seconds())
@@ -685,14 +699,17 @@ func (t *waitForRepoEventsTool) repoEventsResult(previous, current maintainerRep
 func repoEventsCursorForEmitted(previous, current maintainerRepoEventsSnapshot, emittedIssues []maintainerRepoEventIssue, emittedFleet []maintainerRepoFleetEvent, emittedPullRequests []maintainerRepoPullRequestEvent) maintainerRepoEventsCursor {
 	issueSignatures := map[string]string{}
 	for number, signature := range previous.issueSignatures {
-		if _, exists := current.issueSignatures[number]; exists {
-			issueSignatures[number] = signature
-		}
+		// Keep removed-but-not-yet-emitted issues pending so a trimmed
+		// removal event still surfaces on the next call instead of being
+		// silently acknowledged.
+		issueSignatures[number] = signature
 	}
 	for _, issue := range emittedIssues {
 		number := strconv.Itoa(issue.Number)
 		if signature, exists := current.issueSignatures[number]; exists {
 			issueSignatures[number] = signature
+		} else {
+			delete(issueSignatures, number)
 		}
 	}
 	backlogFingerprint := current.backlogFingerprint
@@ -751,6 +768,21 @@ func changedRepoEventIssues(previous, current maintainerRepoEventsSnapshot) []ma
 			issues = append(issues, issue)
 		}
 	}
+	// Issues that left the open backlog (closed, converted, or transferred)
+	// are emitted as explicit removal events, mirroring fleet and pull-request
+	// removals, so the maintainer knows which issue disappeared instead of
+	// observing only a backlog fingerprint change.
+	for number := range previous.issueSignatures {
+		if _, exists := current.issueSignatures[number]; exists {
+			continue
+		}
+		value, err := strconv.Atoi(number)
+		if err != nil {
+			continue
+		}
+		issues = append(issues, maintainerRepoEventIssue{Number: value, Labels: []string{}, Removed: true})
+	}
+	sort.Slice(issues, func(i, j int) bool { return issues[i].Number < issues[j].Number })
 	return issues
 }
 

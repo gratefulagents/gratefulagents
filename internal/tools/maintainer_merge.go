@@ -97,6 +97,12 @@ func (t *mergePullRequestTool) Execute(ctx context.Context, input json.RawMessag
 	if view.IsDraft {
 		return Result{Content: fmt.Sprintf("pull request #%d is a draft", in.PRNumber), IsError: true}, nil
 	}
+	if strings.TrimSpace(view.ReviewDecision) == "" {
+		// GitHub computes reviewDecision only when the base branch requires
+		// pull-request reviews. Without that protection an approving review
+		// cannot be verified, so the gate fails closed with the reason.
+		return Result{Content: fmt.Sprintf("pull request #%d has no computed review decision: the base branch does not require pull-request reviews, so approval cannot be verified. Enable required reviews via branch protection or a ruleset, or leave merging to humans.", in.PRNumber), IsError: true}, nil
+	}
 	if view.ReviewDecision != "APPROVED" {
 		return Result{Content: fmt.Sprintf("pull request #%d is not approved (review decision: %s)", in.PRNumber, view.ReviewDecision), IsError: true}, nil
 	}

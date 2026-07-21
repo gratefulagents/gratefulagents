@@ -189,6 +189,20 @@ func hasDeliveryMessage(messages []store.Message, deliveryID string) bool {
 // once for deliveryID. Message metadata and the run annotation repair the two
 // sides independently after a partial failure.
 func WakeAgentRunOnce(ctx context.Context, k8sClient client.Client, stateStore store.StateStore, runNamespace, runName, contextMessage, deliveryID string) error {
+	return wakeAgentRunOnceWithOptions(ctx, k8sClient, stateStore, runNamespace, runName, contextMessage, deliveryID, true)
+}
+
+// NudgeAgentRunSessionOnce idempotently enqueues contextMessage into the run's
+// durable session without incrementing spec.wakeRequests. It is meant for
+// Running runs blocked on durable idle input, whose live runner consumes the
+// queued message directly: bumping wakeRequests there would leave a wake the
+// run controller only consumes at the next terminal or paused transition,
+// spuriously resurrecting the run and suppressing later nudges in the interim.
+func NudgeAgentRunSessionOnce(ctx context.Context, k8sClient client.Client, stateStore store.StateStore, runNamespace, runName, contextMessage, deliveryID string) error {
+	return wakeAgentRunOnceWithOptions(ctx, k8sClient, stateStore, runNamespace, runName, contextMessage, deliveryID, false)
+}
+
+func wakeAgentRunOnceWithOptions(ctx context.Context, k8sClient client.Client, stateStore store.StateStore, runNamespace, runName, contextMessage, deliveryID string, provisionRunner bool) error {
 	deliveryID = strings.TrimSpace(deliveryID)
 	if deliveryID == "" {
 		return fmt.Errorf("delivery ID is required")
@@ -220,7 +234,9 @@ func WakeAgentRunOnce(ctx context.Context, k8sClient client.Client, stateStore s
 			fresh.Annotations = map[string]string{}
 		}
 		fresh.Annotations[LastWakeDeliveryAnnotation] = deliveryID
-		fresh.Spec.WakeRequests++
+		if provisionRunner {
+			fresh.Spec.WakeRequests++
+		}
 		return k8sClient.Patch(ctx, fresh, patch)
 	})
 }

@@ -59,9 +59,15 @@ func (s *prLoopStateStore) GetSessionByRun(_ context.Context, name, ns string) (
 	defer s.mu.Unlock()
 	sess, ok := s.sessions[s.key(name, ns)]
 	if !ok {
-		return nil, errors.New("session not found")
+		return nil, fmt.Errorf("session %s/%s: %w", ns, name, store.ErrSessionNotFound)
 	}
 	return sess, nil
+}
+
+func (s *prLoopStateStore) deleteSession(name, ns string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, s.key(name, ns))
 }
 
 func (s *prLoopStateStore) AppendMessage(_ context.Context, sessionID uuid.UUID, role, content string, metadata json.RawMessage) (*store.Message, error) {

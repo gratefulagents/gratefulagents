@@ -26,6 +26,10 @@ var (
 	// metadata already exists for the session. Callers may treat it as a
 	// successful replay of the original append.
 	ErrMessageAlreadyExists = errors.New("message already exists")
+	// ErrSessionNotFound is returned when no durable session exists for the
+	// referenced AgentRun, e.g. before its first runner episode created one.
+	// Callers use it to distinguish "not provisioned yet" from store outages.
+	ErrSessionNotFound = errors.New("session not found")
 )
 
 // Session represents a persistent agent session tied to an AgentRun.

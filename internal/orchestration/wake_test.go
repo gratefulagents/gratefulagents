@@ -150,6 +150,29 @@ func TestWakeAgentRunOnceIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestNudgeAgentRunSessionOnceDeliversWithoutProvisioningRunner(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "primary", Namespace: "default"}}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run).Build()
+	stateStore := &wakeTestStore{session: &store.Session{ID: uuid.New()}}
+	for range 2 {
+		if err := NudgeAgentRunSessionOnce(context.Background(), k8sClient, stateStore, run.Namespace, run.Name, "resume", "nudge-1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	updated := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(run), updated); err != nil {
+		t.Fatal(err)
+	}
+	if stateStore.appendCount != 1 || updated.Spec.WakeRequests != 0 || updated.Annotations[LastWakeDeliveryAnnotation] != "nudge-1" {
+		t.Fatalf("appends=%d wakeRequests=%d annotations=%#v", stateStore.appendCount, updated.Spec.WakeRequests, updated.Annotations)
+	}
+}
+
 func TestDeliverImmediateMessageMetadata(t *testing.T) {
 	t.Parallel()
 	stateStore := &wakeTestStore{session: &store.Session{ID: uuid.New()}}

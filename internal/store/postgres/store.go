@@ -118,6 +118,9 @@ func (s *Store) GetSessionByRun(ctx context.Context, agentRunName, agentRunNS st
 		AgentrunName: agentRunName,
 		AgentrunNs:   agentRunNS,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("getting session by run %s/%s: %w", agentRunNS, agentRunName, store.ErrSessionNotFound)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("getting session by run: %w", err)
 	}
