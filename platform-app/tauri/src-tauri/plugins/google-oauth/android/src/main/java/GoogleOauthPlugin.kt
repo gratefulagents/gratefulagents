@@ -139,9 +139,10 @@ class GoogleOauthPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun bindLoopback(): ServerSocket? {
-    // Use one numeric loopback address in both the listener and redirect URI.
-    // This avoids independent localhost IPv4/IPv6 resolution and prevents the
-    // callback from being exposed on Wi-Fi or another non-loopback interface.
+    // Keep the listener pinned to IPv4 loopback so the callback is never
+    // exposed on Wi-Fi or another non-loopback interface. The redirect URI
+    // itself uses localhost because these exact URIs are registered for the
+    // shared web OAuth client in Google Cloud Console.
     val loopback = InetAddress.getByName("127.0.0.1")
     for (port in REDIRECT_PORTS) {
       try {
@@ -165,7 +166,7 @@ class GoogleOauthPlugin(private val activity: Activity) : Plugin(activity) {
       }
     }
     return builder
-      .appendQueryParameter("redirect_uri", "http://127.0.0.1:$port/callback")
+      .appendQueryParameter("redirect_uri", "http://localhost:$port/callback")
       .appendQueryParameter("response_type", "id_token")
       .appendQueryParameter("state", state)
       .build()
