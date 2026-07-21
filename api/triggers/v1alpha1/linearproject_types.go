@@ -85,7 +85,7 @@ type AgentRunDefaults struct {
 	// - "openrouter" (OpenAI-compatible API with OpenRouter default URL)
 	// - "groq" (OpenAI-compatible API with Groq default URL)
 	// - "xai" (OpenAI-compatible API with xAI default URL)
-// - "copilot" (GitHub OAuth provider)
+	// - "copilot" (GitHub OAuth provider)
 	//
 	// When omitted, "openai" is used.
 	// +kubebuilder:validation:Enum=anthropic;openai;gemini;openrouter;groq;xai;copilot
