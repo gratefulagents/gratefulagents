@@ -15,6 +15,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
@@ -25,9 +26,10 @@ import (
 const (
 	// connectionSecretLabel marks Secrets the platform manages on behalf of a
 	// Connection (created from raw credential values pasted in the dashboard).
-	// Its value is the owning Connection's name; these Secrets are deleted
-	// together with the Connection.
-	connectionSecretLabel = "triggers.gratefulagents.dev/connection"
+	// Its value is the owning Connection's name; unreferenced versions are
+	// removed by the deferred garbage collector.
+	connectionSecretLabel      = "triggers.gratefulagents.dev/connection"
+	connectionSecretOrphanedAt = "triggers.gratefulagents.dev/connection-secret-orphaned-at"
 
 	// linearConnectionAPIKeyKey is the Secret key the LinearProject controller
 	// reads the API key from.
@@ -74,6 +76,10 @@ func (s *Server) CreateConnection(ctx context.Context, req *platform.CreateConne
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	connection.Name, connection.Namespace = name, namespace
+	if err := s.protectManagedConnectionSecrets(ctx, namespace, name, connection); err != nil {
+		cleanup()
+		return nil, err
+	}
 	if err := s.k8sClient.Create(ctx, connection); err != nil {
 		if k8serrors.IsAlreadyExists(err) || k8serrors.IsInvalid(err) {
 			cleanup()
@@ -113,6 +119,10 @@ func (s *Server) UpdateConnection(ctx context.Context, req *platform.UpdateConne
 	if err != nil {
 		cleanupCreated()
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := s.protectManagedConnectionSecrets(ctx, namespace, name, desired); err != nil {
+		cleanupCreated()
+		return nil, err
 	}
 	current.Spec = desired.Spec
 	if err := s.k8sClient.Update(ctx, current); err != nil {
@@ -331,6 +341,43 @@ func (s *Server) deleteManagedConnectionSecret(ctx context.Context, namespace, c
 		return
 	}
 	_ = s.k8sClient.Delete(cleanupCtx, secret, client.Preconditions{UID: &secret.UID, ResourceVersion: &secret.ResourceVersion})
+}
+
+// protectManagedConnectionSecrets clears the GC orphan marker before a
+// Connection starts referencing an older managed Secret. The Secret update
+// fences a concurrent delete through its resourceVersion precondition.
+func (s *Server) protectManagedConnectionSecrets(ctx context.Context, namespace, connectionName string, connection *triggersv1alpha1.Connection) error {
+	seen := map[string]struct{}{}
+	managedPrefix := "conn-" + connectionName + "-"
+	for _, secretName := range connectionSecretReferences(connection) {
+		secretName = strings.TrimSpace(secretName)
+		if secretName == "" || !strings.HasPrefix(secretName, managedPrefix) {
+			continue
+		}
+		if _, ok := seen[secretName]; ok {
+			continue
+		}
+		seen[secretName] = struct{}{}
+		key := client.ObjectKey{Namespace: namespace, Name: secretName}
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			secret := &corev1.Secret{}
+			if err := s.apiReader.Get(ctx, key, secret); err != nil {
+				return err
+			}
+			if secret.Labels[connectionSecretLabel] != connectionName || secret.Annotations[connectionSecretOrphanedAt] == "" {
+				return nil
+			}
+			delete(secret.Annotations, connectionSecretOrphanedAt)
+			return s.k8sClient.Update(ctx, secret)
+		})
+		if k8serrors.IsNotFound(err) && strings.HasPrefix(secretName, managedPrefix) {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("managed credential Secret %q no longer exists", secretName))
+		}
+		if err != nil && !k8serrors.IsNotFound(err) {
+			return mapK8sError("protect managed connection Secret", err)
+		}
+	}
+	return nil
 }
 
 func (s *Server) authorizeConnectionNamespace(ctx context.Context, requested string) (string, error) {

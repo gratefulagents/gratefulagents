@@ -515,9 +515,9 @@ func inboundFromInnerEvent(inner any) (internalslack.InboundMessage, bool) {
 	}
 }
 
-// slackEventViaBot reports whether a raw Events API envelope was delivered for
-// the bot's own event subscription (authorizations[].is_bot) rather than a
-// user-token subscription a legacy app manifest may still carry. Slack includes
+// slackEventViaBot reports whether a raw Events API envelope includes the bot's
+// own event subscription (any authorizations[].is_bot) rather than only
+// user-token subscriptions a legacy app manifest may still carry. Slack includes
 // the authorizations array in every Events API delivery; if it is ever absent
 // or unparseable this reports true so DMs with the bot stay gated on the owner
 // (fail closed) while legacy user-token events are ignored by the router.
@@ -533,7 +533,12 @@ func slackEventViaBot(payload json.RawMessage) bool {
 	if err := json.Unmarshal(payload, &envelope); err != nil || len(envelope.Authorizations) == 0 {
 		return true
 	}
-	return envelope.Authorizations[0].IsBot
+	for _, authorization := range envelope.Authorizations {
+		if authorization.IsBot {
+			return true
+		}
+	}
+	return false
 }
 
 // slackEventFiles extracts file attachments from a raw Events API envelope

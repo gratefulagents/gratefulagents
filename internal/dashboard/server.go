@@ -49,6 +49,7 @@ type Server struct {
 	skillsHTTP        *http.Client
 	skillsCatalogURL  string
 	providerOAuthHTTP *http.Client
+
 	// providerOAuthKube stores browser OAuth sessions in per-user Kubernetes
 	// Secrets so Start and Complete/Poll can land on different manager replicas.
 	providerOAuthKube kubernetes.Interface
@@ -57,6 +58,8 @@ type Server struct {
 	// not configure a Kubernetes clientset.
 	providerOAuthMu       sync.Mutex
 	providerOAuthSessions map[string]providerOAuthSession
+
+	slackConversationLookup slackConversationLookup
 
 	// metricsCache caches aggregated resource metrics per namespace for a
 	// short TTL: every project/cron/repo get/list/watch tick otherwise lists
@@ -126,6 +129,8 @@ func NewServer(c client.Client, scheme *runtime.Scheme, clientset *kubernetes.Cl
 		providerOAuthHTTP:     &http.Client{Timeout: 20 * time.Second},
 		providerOAuthKube:     clientset,
 		providerOAuthSessions: make(map[string]providerOAuthSession),
+
+		slackConversationLookup: lookupSlackConversation,
 	}
 	for _, opt := range opts {
 		opt(s)

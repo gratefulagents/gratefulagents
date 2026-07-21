@@ -342,6 +342,46 @@ func TestConnectionWriteUnknownOutcomeRetainsCommittedCredentials(t *testing.T) 
 	})
 }
 
+func TestUpdateConnectionProtectsManagedSecretFromGarbageCollection(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	connection := &triggersv1alpha1.Connection{
+		ObjectMeta: metav1.ObjectMeta{Name: "slack", Namespace: "team"},
+		Spec:       triggersv1alpha1.ConnectionSpec{Type: triggersv1alpha1.ConnectionTypeSlack, Slack: &triggersv1alpha1.SlackConnectionConfig{TokensSecret: "conn-slack-slack-old"}},
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "conn-slack-slack-old", Namespace: "team",
+			Labels:      map[string]string{connectionSecretLabel: "slack"},
+			Annotations: map[string]string{connectionSecretOrphanedAt: "123"},
+		},
+		Data: map[string][]byte{
+			triggersv1alpha1.SlackBotTokenKey: []byte("xoxb-original"),
+			triggersv1alpha1.SlackAppTokenKey: []byte("xapp-original"),
+		},
+	}
+	k8s := fake.NewClientBuilder().WithScheme(scheme).WithObjects(connection, secret).Build()
+	server := NewServer(k8s, scheme, nil, nil, false)
+	if _, err := server.UpdateConnection(context.Background(), &platform.UpdateConnectionRequest{
+		Namespace: "team", Name: "slack",
+		Connection: &platform.Connection{Type: "slack", Slack: &platform.SlackConnection{TokensSecret: secret.Name}},
+	}); err != nil {
+		t.Fatalf("UpdateConnection: %v", err)
+	}
+	stored := &corev1.Secret{}
+	if err := k8s.Get(context.Background(), client.ObjectKeyFromObject(secret), stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Annotations[connectionSecretOrphanedAt] != "" {
+		t.Fatalf("orphan marker was not cleared: %#v", stored.Annotations)
+	}
+}
+
 func TestConflictingUpdateConnectionDeletesOnlyRequestScopedSecret(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {

@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 const (
 	slackTriggerClaimAnnotation = "triggers.gratefulagents.dev/slack-trigger-claim"
 	slackPendingClaimPrefix     = "pending|"
+	slackPendingClaimTTL        = 5 * time.Minute
 )
 
 type slackTriggerClaimHandle struct {
@@ -42,16 +44,21 @@ func parseSlackTriggerClaim(value string) (claim string, pendingSince time.Time)
 	if len(parts) != 4 {
 		return "", time.Time{}
 	}
-	unixNano, err := time.ParseDuration(parts[1] + "ns")
+	unixNano, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
 		return "", time.Time{}
 	}
-	return parts[3], time.Unix(0, int64(unixNano))
+	return parts[3], time.Unix(0, unixNano)
+}
+
+func slackPendingClaimActive(pendingSince, now time.Time) bool {
+	age := now.Sub(pendingSince)
+	return !pendingSince.IsZero() && age >= 0 && age <= slackPendingClaimTTL
 }
 
 func (s *Server) slackTriggerClaimActive(ctx context.Context, namespace, connectionName, value string) (bool, error) {
 	claim, pendingSince := parseSlackTriggerClaim(value)
-	if !pendingSince.IsZero() {
+	if slackPendingClaimActive(pendingSince, time.Now()) {
 		return true, nil
 	}
 	return s.slackTriggerClaimBackedByProject(ctx, namespace, connectionName, claim)
@@ -93,7 +100,7 @@ func (s *Server) claimSlackTriggerConnection(ctx context.Context, namespace, pro
 		existing := connection.Annotations[slackTriggerClaimAnnotation]
 		if existing != "" {
 			existingClaim, pendingSince := parseSlackTriggerClaim(existing)
-			if existingClaim == claim && !pendingSince.IsZero() {
+			if existingClaim == claim && slackPendingClaimActive(pendingSince, time.Now()) {
 				return connect.NewError(connect.CodeAborted, fmt.Errorf("trigger %s already has an operation in progress", claim))
 			}
 			if existingClaim != claim {
@@ -199,6 +206,9 @@ func (s *Server) CreateProjectTrigger(ctx context.Context, req *platform.CreateP
 	if err != nil {
 		return nil, err
 	}
+	if err := s.resolveSlackTriggerChannel(ctx, namespace, req.GetTrigger()); err != nil {
+		return nil, err
+	}
 	trigger, err := projectTriggerFromProto(req.GetTrigger())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -249,6 +259,9 @@ func (s *Server) UpdateProjectTrigger(ctx context.Context, req *platform.UpdateP
 		return nil, err
 	}
 	if err := s.requireResourceAccess(ctx, projectResourceType, project, namespace, AccessCollaborator, "update a project trigger"); err != nil {
+		return nil, err
+	}
+	if err := s.resolveSlackTriggerChannel(ctx, namespace, req.GetTrigger()); err != nil {
 		return nil, err
 	}
 	trigger, err := projectTriggerFromProto(req.GetTrigger())
