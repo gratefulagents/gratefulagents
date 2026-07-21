@@ -98,8 +98,8 @@ spec:
     disabled: true
 
   # Named entry points. Each trigger inherits the Project defaults below and
-  # contains only source-specific ingress behavior. Connections are reusable
-  # resources and are not deleted with this Project.
+  # contains source-specific behavior. Connections are reusable resources and
+  # are not deleted with this Project.
   triggers:
     - name: github-issues
       type: github
@@ -112,6 +112,14 @@ spec:
         issues: true
         comments: true
         triggerKeyword: "@agent"
+        # Optional standing repository supervisor. Omit to leave it disabled.
+        maintainer:
+          modeRef:
+            name: maintainer
+          maxConcurrentDispatches: 2
+          maxDispatchesPerDay: 10
+          standupInterval: 12h
+          allowPullRequestMerge: false
     - name: nightly-maintenance
       type: cron
       enabled: true

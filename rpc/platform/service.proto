@@ -2352,6 +2352,13 @@ message GitHubProjectTrigger {
   string poll_interval = 7;
   repeated string auth_allowed_users = 8;
   repeated string auth_deny_users = 9;
+  optional bool maintainer_enabled = 10;
+  int32 maintainer_max_concurrent_dispatches = 11; // 0 = controller default (2).
+  int32 maintainer_max_dispatches_per_day = 12; // 0 = controller default (10).
+  string maintainer_standup_interval = 13; // Go duration string; empty = controller default "12h".
+  string maintainer_mode_ref = 14; // ModeTemplate name; empty = default "maintainer".
+  string maintainer_model = 15; // Empty inherits the project run model.
+  bool maintainer_allow_pr_merge = 16;
 }
 
 message SlackProjectTrigger {

@@ -16446,18 +16446,25 @@ func (x *ProjectTriggerCondition) GetLastTransitionTime() *timestamppb.Timestamp
 }
 
 type GitHubProjectTrigger struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	ConnectionRef    string                 `protobuf:"bytes,1,opt,name=connection_ref,json=connectionRef,proto3" json:"connection_ref,omitempty"`
-	Owner            string                 `protobuf:"bytes,2,opt,name=owner,proto3" json:"owner,omitempty"`
-	Repo             string                 `protobuf:"bytes,3,opt,name=repo,proto3" json:"repo,omitempty"`
-	Issues           bool                   `protobuf:"varint,4,opt,name=issues,proto3" json:"issues,omitempty"`
-	Comments         bool                   `protobuf:"varint,5,opt,name=comments,proto3" json:"comments,omitempty"`
-	TriggerKeyword   string                 `protobuf:"bytes,6,opt,name=trigger_keyword,json=triggerKeyword,proto3" json:"trigger_keyword,omitempty"`
-	PollInterval     string                 `protobuf:"bytes,7,opt,name=poll_interval,json=pollInterval,proto3" json:"poll_interval,omitempty"`
-	AuthAllowedUsers []string               `protobuf:"bytes,8,rep,name=auth_allowed_users,json=authAllowedUsers,proto3" json:"auth_allowed_users,omitempty"`
-	AuthDenyUsers    []string               `protobuf:"bytes,9,rep,name=auth_deny_users,json=authDenyUsers,proto3" json:"auth_deny_users,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                             protoimpl.MessageState `protogen:"open.v1"`
+	ConnectionRef                     string                 `protobuf:"bytes,1,opt,name=connection_ref,json=connectionRef,proto3" json:"connection_ref,omitempty"`
+	Owner                             string                 `protobuf:"bytes,2,opt,name=owner,proto3" json:"owner,omitempty"`
+	Repo                              string                 `protobuf:"bytes,3,opt,name=repo,proto3" json:"repo,omitempty"`
+	Issues                            bool                   `protobuf:"varint,4,opt,name=issues,proto3" json:"issues,omitempty"`
+	Comments                          bool                   `protobuf:"varint,5,opt,name=comments,proto3" json:"comments,omitempty"`
+	TriggerKeyword                    string                 `protobuf:"bytes,6,opt,name=trigger_keyword,json=triggerKeyword,proto3" json:"trigger_keyword,omitempty"`
+	PollInterval                      string                 `protobuf:"bytes,7,opt,name=poll_interval,json=pollInterval,proto3" json:"poll_interval,omitempty"`
+	AuthAllowedUsers                  []string               `protobuf:"bytes,8,rep,name=auth_allowed_users,json=authAllowedUsers,proto3" json:"auth_allowed_users,omitempty"`
+	AuthDenyUsers                     []string               `protobuf:"bytes,9,rep,name=auth_deny_users,json=authDenyUsers,proto3" json:"auth_deny_users,omitempty"`
+	MaintainerEnabled                 *bool                  `protobuf:"varint,10,opt,name=maintainer_enabled,json=maintainerEnabled,proto3,oneof" json:"maintainer_enabled,omitempty"`
+	MaintainerMaxConcurrentDispatches int32                  `protobuf:"varint,11,opt,name=maintainer_max_concurrent_dispatches,json=maintainerMaxConcurrentDispatches,proto3" json:"maintainer_max_concurrent_dispatches,omitempty"` // 0 = controller default (2).
+	MaintainerMaxDispatchesPerDay     int32                  `protobuf:"varint,12,opt,name=maintainer_max_dispatches_per_day,json=maintainerMaxDispatchesPerDay,proto3" json:"maintainer_max_dispatches_per_day,omitempty"`           // 0 = controller default (10).
+	MaintainerStandupInterval         string                 `protobuf:"bytes,13,opt,name=maintainer_standup_interval,json=maintainerStandupInterval,proto3" json:"maintainer_standup_interval,omitempty"`                            // Go duration string; empty = controller default "12h".
+	MaintainerModeRef                 string                 `protobuf:"bytes,14,opt,name=maintainer_mode_ref,json=maintainerModeRef,proto3" json:"maintainer_mode_ref,omitempty"`                                                    // ModeTemplate name; empty = default "maintainer".
+	MaintainerModel                   string                 `protobuf:"bytes,15,opt,name=maintainer_model,json=maintainerModel,proto3" json:"maintainer_model,omitempty"`                                                            // Empty inherits the project run model.
+	MaintainerAllowPrMerge            bool                   `protobuf:"varint,16,opt,name=maintainer_allow_pr_merge,json=maintainerAllowPrMerge,proto3" json:"maintainer_allow_pr_merge,omitempty"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
 }
 
 func (x *GitHubProjectTrigger) Reset() {
@@ -16551,6 +16558,55 @@ func (x *GitHubProjectTrigger) GetAuthDenyUsers() []string {
 		return x.AuthDenyUsers
 	}
 	return nil
+}
+
+func (x *GitHubProjectTrigger) GetMaintainerEnabled() bool {
+	if x != nil && x.MaintainerEnabled != nil {
+		return *x.MaintainerEnabled
+	}
+	return false
+}
+
+func (x *GitHubProjectTrigger) GetMaintainerMaxConcurrentDispatches() int32 {
+	if x != nil {
+		return x.MaintainerMaxConcurrentDispatches
+	}
+	return 0
+}
+
+func (x *GitHubProjectTrigger) GetMaintainerMaxDispatchesPerDay() int32 {
+	if x != nil {
+		return x.MaintainerMaxDispatchesPerDay
+	}
+	return 0
+}
+
+func (x *GitHubProjectTrigger) GetMaintainerStandupInterval() string {
+	if x != nil {
+		return x.MaintainerStandupInterval
+	}
+	return ""
+}
+
+func (x *GitHubProjectTrigger) GetMaintainerModeRef() string {
+	if x != nil {
+		return x.MaintainerModeRef
+	}
+	return ""
+}
+
+func (x *GitHubProjectTrigger) GetMaintainerModel() string {
+	if x != nil {
+		return x.MaintainerModel
+	}
+	return ""
+}
+
+func (x *GitHubProjectTrigger) GetMaintainerAllowPrMerge() bool {
+	if x != nil {
+		return x.MaintainerAllowPrMerge
+	}
+	return false
 }
 
 type SlackProjectTrigger struct {
@@ -27112,7 +27168,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x18\n" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x12L\n" +
-	"\x14last_transition_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastTransitionTime\"\xbf\x02\n" +
+	"\x14last_transition_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastTransitionTime\"\xfb\x05\n" +
 	"\x14GitHubProjectTrigger\x12%\n" +
 	"\x0econnection_ref\x18\x01 \x01(\tR\rconnectionRef\x12\x14\n" +
 	"\x05owner\x18\x02 \x01(\tR\x05owner\x12\x12\n" +
@@ -27122,7 +27178,16 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x0ftrigger_keyword\x18\x06 \x01(\tR\x0etriggerKeyword\x12#\n" +
 	"\rpoll_interval\x18\a \x01(\tR\fpollInterval\x12,\n" +
 	"\x12auth_allowed_users\x18\b \x03(\tR\x10authAllowedUsers\x12&\n" +
-	"\x0fauth_deny_users\x18\t \x03(\tR\rauthDenyUsers\"\xf4\x01\n" +
+	"\x0fauth_deny_users\x18\t \x03(\tR\rauthDenyUsers\x122\n" +
+	"\x12maintainer_enabled\x18\n" +
+	" \x01(\bH\x00R\x11maintainerEnabled\x88\x01\x01\x12O\n" +
+	"$maintainer_max_concurrent_dispatches\x18\v \x01(\x05R!maintainerMaxConcurrentDispatches\x12H\n" +
+	"!maintainer_max_dispatches_per_day\x18\f \x01(\x05R\x1dmaintainerMaxDispatchesPerDay\x12>\n" +
+	"\x1bmaintainer_standup_interval\x18\r \x01(\tR\x19maintainerStandupInterval\x12.\n" +
+	"\x13maintainer_mode_ref\x18\x0e \x01(\tR\x11maintainerModeRef\x12)\n" +
+	"\x10maintainer_model\x18\x0f \x01(\tR\x0fmaintainerModel\x129\n" +
+	"\x19maintainer_allow_pr_merge\x18\x10 \x01(\bR\x16maintainerAllowPrMergeB\x15\n" +
+	"\x13_maintainer_enabled\"\xf4\x01\n" +
 	"\x13SlackProjectTrigger\x12%\n" +
 	"\x0econnection_ref\x18\x01 \x01(\tR\rconnectionRef\x12\x18\n" +
 	"\achannel\x18\x02 \x01(\tR\achannel\x12,\n" +
@@ -28995,6 +29060,7 @@ func file_rpc_platform_service_proto_init() {
 	}
 	file_rpc_platform_service_proto_msgTypes[199].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[200].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[202].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[203].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[206].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[228].OneofWrappers = []any{}

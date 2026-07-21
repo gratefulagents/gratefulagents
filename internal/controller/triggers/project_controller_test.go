@@ -4,7 +4,9 @@ package triggers
 import (
 	"context"
 	"testing"
+	"time"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,6 +53,14 @@ func TestProjectReconcilerCompilesTriggers(t *testing.T) {
 		Build()
 
 	reconciler := &ProjectReconciler{Client: k8sClient, Scheme: scheme}
+	compiled, err := reconciler.compileTrigger(context.Background(), project, project.Spec.Triggers[0])
+	if err != nil {
+		t.Fatalf("compileTrigger() error = %v", err)
+	}
+	compiledGitHub := compiled.(*triggersv1alpha1.GitHubRepository)
+	if compiledGitHub.Spec.Maintainer == project.Spec.Triggers[0].GitHub.Maintainer || compiledGitHub.Spec.Maintainer.ModeRef == project.Spec.Triggers[0].GitHub.Maintainer.ModeRef {
+		t.Fatal("compiled GitHubRepository maintainer aliases Project trigger configuration")
+	}
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(project)}); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
@@ -61,6 +71,12 @@ func TestProjectReconcilerCompilesTriggers(t *testing.T) {
 	}
 	if github.Spec.GitHubTokenSecret != "github-token" || github.Spec.Owner != "acme" || github.Spec.Repo != "widgets" {
 		t.Fatalf("GitHubRepository spec = %#v", github.Spec)
+	}
+	maintainer := github.Spec.Maintainer
+	if maintainer == nil || maintainer.ModeRef == nil || maintainer.ModeRef.Name != "repository-maintainer" || maintainer.Model != "gpt-5" ||
+		maintainer.MaxConcurrentDispatches != 3 || maintainer.MaxDispatchesPerDay != 12 || maintainer.StandupInterval == nil ||
+		maintainer.StandupInterval.Duration != 6*time.Hour || !maintainer.AllowPullRequestMerge {
+		t.Fatalf("GitHubRepository maintainer = %#v", maintainer)
 	}
 	if !github.Spec.Defaults.KubernetesAdmin || github.Labels[projectGeneratedRuntimeLabel] != "true" || github.Labels[projectTriggerNameLabel] != "issues" {
 		t.Fatalf("GitHubRepository metadata/defaults = %#v/%#v", github.ObjectMeta, github.Spec.Defaults)
@@ -198,7 +214,14 @@ func projectWithTriggers() *triggersv1alpha1.Project {
 			KubernetesAdmin: true,
 			Defaults:        triggersv1alpha1.AgentRunDefaults{Model: "gpt-4.1"},
 			Triggers: []triggersv1alpha1.ProjectTrigger{
-				{Name: "issues", Type: triggersv1alpha1.ProjectTriggerTypeGitHub, GitHub: &triggersv1alpha1.GitHubProjectTriggerConfig{ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "github"}, Owner: "acme", Repo: "widgets", Issues: true, Comments: true}},
+				{Name: "issues", Type: triggersv1alpha1.ProjectTriggerTypeGitHub, GitHub: &triggersv1alpha1.GitHubProjectTriggerConfig{
+					ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "github"}, Owner: "acme", Repo: "widgets", Issues: true, Comments: true,
+					Maintainer: &triggersv1alpha1.MaintainerSpec{
+						ModeRef: &platformv1alpha1.ModeRef{Name: "repository-maintainer"}, Model: "gpt-5",
+						MaxConcurrentDispatches: 3, MaxDispatchesPerDay: 12,
+						StandupInterval: &metav1.Duration{Duration: 6 * time.Hour}, AllowPullRequestMerge: true,
+					},
+				}},
 				{Name: "team-chat", Type: triggersv1alpha1.ProjectTriggerTypeSlack, Slack: &triggersv1alpha1.SlackProjectTriggerConfig{ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "slack"}, Channel: "C123", ChannelReplyMode: triggersv1alpha1.SlackChannelReplyAuto, Commanders: []string{"UHELPER1"}, SessionIdleMinutes: &idle}},
 				{Name: "nightly", Type: triggersv1alpha1.ProjectTriggerTypeCron, Cron: &triggersv1alpha1.CronProjectTriggerConfig{Schedule: "0 2 * * *", Prompt: "Review the queue"}},
 				{Name: "linear", Type: triggersv1alpha1.ProjectTriggerTypeLinear, Linear: &triggersv1alpha1.LinearProjectTriggerConfig{ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "linear"}, ProjectID: "project-1", TeamID: "team-1", AutoCreate: true}},

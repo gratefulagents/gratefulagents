@@ -90,6 +90,20 @@ func projectTriggerToProto(trigger triggersv1alpha1.ProjectTrigger, status trigg
 		if trigger.GitHub.PollInterval.Duration != 0 {
 			pb.Github.PollInterval = trigger.GitHub.PollInterval.Duration.String()
 		}
+		maintainerEnabled := trigger.GitHub.Maintainer != nil && !trigger.GitHub.Maintainer.Disabled
+		pb.Github.MaintainerEnabled = &maintainerEnabled
+		if maintainer := trigger.GitHub.Maintainer; maintainer != nil {
+			pb.Github.MaintainerMaxConcurrentDispatches = maintainer.MaxConcurrentDispatches
+			pb.Github.MaintainerMaxDispatchesPerDay = maintainer.MaxDispatchesPerDay
+			pb.Github.MaintainerModel = maintainer.Model
+			pb.Github.MaintainerAllowPrMerge = maintainer.AllowPullRequestMerge
+			if maintainer.StandupInterval != nil {
+				pb.Github.MaintainerStandupInterval = maintainer.StandupInterval.Duration.String()
+			}
+			if maintainer.ModeRef != nil {
+				pb.Github.MaintainerModeRef = maintainer.ModeRef.Name
+			}
+		}
 	}
 	if trigger.Slack != nil {
 		pb.Slack = &platform.SlackProjectTrigger{

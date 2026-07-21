@@ -153,6 +153,7 @@ func (r *ProjectReconciler) compileTrigger(ctx context.Context, project *trigger
 				PollInterval:   trigger.GitHub.PollInterval,
 				TriggerKeyword: trigger.GitHub.TriggerKeyword,
 				Auth:           projectGitHubAuth(project.Spec.Auth, trigger.GitHub.Auth),
+				Maintainer:     trigger.GitHub.Maintainer.DeepCopy(),
 				Defaults:       defaults,
 			},
 		}

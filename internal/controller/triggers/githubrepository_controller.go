@@ -256,7 +256,7 @@ func (r *GitHubRepositoryReconciler) createAgentRun(ctx context.Context, gh *tri
 		ProjectRef: &platformv1alpha1.ProjectRef{Kind: "GitHubRepository", Name: gh.Name},
 	}
 
-	gitHubTokenSecret := d.Secrets.GithubToken
+	gitHubTokenSecret := gh.Spec.GitHubTokenSecret
 	if gh.Spec.GitHubApp != nil {
 		gitHubTokenSecret = runName + "-gh-token"
 		if _, err := resolveGitHubToken(ctx, r.Client, gh, r.GitHubAppMinter); err != nil {

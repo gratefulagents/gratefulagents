@@ -538,6 +538,59 @@ spec:
                         issues:
                           description: issues enables issue events.
                           type: boolean
+                        maintainer:
+                          description: |-
+                            maintainer configures a standing supervisor for this repository trigger.
+                            The configuration is copied to the generated GitHubRepository child.
+                          properties:
+                            allowPullRequestMerge:
+                              description: |-
+                                allowPullRequestMerge dangerously permits the maintainer's
+                                merge_pull_request tool to merge approved, non-draft pull requests in
+                                this repository. Disabled by default; merging stays human otherwise.
+                              type: boolean
+                            disabled:
+                              description: disabled turns off the maintainer without
+                                removing its configuration.
+                              type: boolean
+                            maxConcurrentDispatches:
+                              description: |-
+                                maxConcurrentDispatches caps how many maintainer-dispatched runs may be
+                                active at once. Defaults to 2.
+                              format: int32
+                              minimum: 1
+                              type: integer
+                            maxDispatchesPerDay:
+                              description: maxDispatchesPerDay caps maintainer dispatches
+                                per UTC day. Defaults to 10.
+                              format: int32
+                              minimum: 1
+                              type: integer
+                            modeRef:
+                              description: |-
+                                modeRef overrides the ModeTemplate used by the maintainer run.
+                                Defaults to the "maintainer" template when it exists.
+                              properties:
+                                channel:
+                                  type: string
+                                name:
+                                  type: string
+                                version:
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            model:
+                              description: |-
+                                model overrides the model used by the maintainer run. Defaults to the
+                                repository defaults' model.
+                              type: string
+                            standupInterval:
+                              description: |-
+                                standupInterval is the periodic wake cadence for the maintainer when no
+                                backlog or fleet events occur. Defaults to 12h.
+                              type: string
+                          type: object
                         owner:
                           minLength: 1
                           type: string

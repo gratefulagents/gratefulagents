@@ -27,6 +27,13 @@ type FormState = {
   repository: string;
   issueEvents: boolean;
   commentEvents: boolean;
+  maintainerEnabled: boolean;
+  maintainerMaxConcurrentDispatches: string;
+  maintainerMaxDispatchesPerDay: string;
+  maintainerStandupInterval: string;
+  maintainerModeRef: string;
+  maintainerModel: string;
+  maintainerAllowPrMerge: boolean;
   channel: string;
   channelReplyMode: "require-approval" | "auto";
   commanders: string;
@@ -53,6 +60,10 @@ function stringList(source: Record<string, unknown> | undefined, name: string): 
 function positiveNumber(source: Record<string, unknown> | undefined, name: string): string {
   const value = source?.[name];
   return typeof value === "number" && value > 0 ? String(value) : "";
+}
+
+function booleanField(source: Record<string, unknown> | undefined, name: string): boolean {
+  return source?.[name] === true;
 }
 
 function splitSlackUserIds(value: string): string[] {
@@ -82,6 +93,13 @@ function initialForm(trigger?: ProjectTrigger): FormState {
     repository: [field(github, "owner"), field(github, "repo")].filter(Boolean).join("/"),
     issueEvents: Boolean(github?.issues),
     commentEvents: Boolean(github?.comments),
+    maintainerEnabled: booleanField(github, "maintainerEnabled"),
+    maintainerMaxConcurrentDispatches: positiveNumber(github, "maintainerMaxConcurrentDispatches"),
+    maintainerMaxDispatchesPerDay: positiveNumber(github, "maintainerMaxDispatchesPerDay"),
+    maintainerStandupInterval: field(github, "maintainerStandupInterval"),
+    maintainerModeRef: field(github, "maintainerModeRef"),
+    maintainerModel: field(github, "maintainerModel"),
+    maintainerAllowPrMerge: booleanField(github, "maintainerAllowPrMerge"),
     channel: field(slack, "channel"),
     channelReplyMode: replyMode === "auto" ? "auto" : "require-approval",
     commanders: stringList(slack, "commanders").join(", "),
@@ -104,11 +122,23 @@ function buildTrigger(form: FormState, existing?: ProjectTrigger): ProjectTrigge
     github:
       source === "github"
         ? {
+            ...existing?.github,
             connectionRef: form.connectionRef.trim(),
             owner,
             repo,
             issues: form.issueEvents,
             comments: form.commentEvents,
+            maintainerEnabled: form.maintainerEnabled,
+            maintainerMaxConcurrentDispatches: form.maintainerMaxConcurrentDispatches
+              ? Number(form.maintainerMaxConcurrentDispatches)
+              : 0,
+            maintainerMaxDispatchesPerDay: form.maintainerMaxDispatchesPerDay
+              ? Number(form.maintainerMaxDispatchesPerDay)
+              : 0,
+            maintainerStandupInterval: form.maintainerStandupInterval.trim(),
+            maintainerModeRef: form.maintainerModeRef.trim(),
+            maintainerModel: form.maintainerModel.trim(),
+            maintainerAllowPrMerge: form.maintainerAllowPrMerge,
           }
         : undefined,
     slack:
@@ -193,6 +223,17 @@ export function ProjectTriggerDialog({
     if (form.type !== "cron" && !form.connectionRef) {
       setError("Choose a connection.");
       return;
+    }
+    if (form.type === "github" && form.maintainerEnabled) {
+      for (const [value, label] of [
+        [form.maintainerMaxConcurrentDispatches, "Max concurrent dispatches"],
+        [form.maintainerMaxDispatchesPerDay, "Max dispatches per day"],
+      ] as const) {
+        if (value && (!Number.isInteger(Number(value)) || Number(value) <= 0)) {
+          setError(`${label} must be a whole number greater than zero.`);
+          return;
+        }
+      }
     }
     if (form.type === "slack") {
       const channel = form.channel.trim();
@@ -522,6 +563,99 @@ function GitHubDetails({
             <span>Comments — issue and pull-request comments</span>
           </label>
         </div>
+      </fieldset>
+      <fieldset className="space-y-3 rounded-lg border border-border/70 p-3.5">
+        <label className="flex items-start gap-2.5 text-[12.5px]">
+          <input
+            type="checkbox"
+            checked={form.maintainerEnabled}
+            onChange={(e) => update("maintainerEnabled", e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+            aria-label="Enable repository maintainer"
+          />
+          <span>
+            <span className="block font-medium">Repository maintainer</span>
+            <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+              Keep a standing agent attached to this repository to triage and dispatch issue work.
+            </span>
+          </span>
+        </label>
+        {form.maintainerEnabled && (
+          <div className="space-y-4 border-t border-border/60 pt-3">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label className="mb-1.5 block text-[12.5px] font-medium">Max concurrent dispatches</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={form.maintainerMaxConcurrentDispatches}
+                  onChange={(e) => update("maintainerMaxConcurrentDispatches", e.target.value)}
+                  placeholder="2"
+                  aria-label="Maintainer max concurrent dispatches"
+                />
+                <FieldHint>Blank uses the controller default of 2.</FieldHint>
+              </div>
+              <div>
+                <Label className="mb-1.5 block text-[12.5px] font-medium">Max dispatches per day</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={form.maintainerMaxDispatchesPerDay}
+                  onChange={(e) => update("maintainerMaxDispatchesPerDay", e.target.value)}
+                  placeholder="10"
+                  aria-label="Maintainer max dispatches per day"
+                />
+                <FieldHint>Blank uses the controller default of 10.</FieldHint>
+              </div>
+              <div>
+                <Label className="mb-1.5 block text-[12.5px] font-medium">Standup interval</Label>
+                <Input
+                  value={form.maintainerStandupInterval}
+                  onChange={(e) => update("maintainerStandupInterval", e.target.value)}
+                  placeholder="12h"
+                  aria-label="Maintainer standup interval"
+                />
+                <FieldHint>Go duration. Blank uses 12h.</FieldHint>
+              </div>
+              <div>
+                <Label className="mb-1.5 block text-[12.5px] font-medium">Maintainer mode</Label>
+                <Input
+                  value={form.maintainerModeRef}
+                  onChange={(e) => update("maintainerModeRef", e.target.value)}
+                  placeholder="maintainer"
+                  aria-label="Maintainer mode"
+                />
+                <FieldHint>ModeTemplate name. Blank uses maintainer.</FieldHint>
+              </div>
+              <div className="sm:col-span-2">
+                <Label className="mb-1.5 block text-[12.5px] font-medium">Maintainer model</Label>
+                <Input
+                  value={form.maintainerModel}
+                  onChange={(e) => update("maintainerModel", e.target.value)}
+                  placeholder="Inherit the project model"
+                  aria-label="Maintainer model"
+                />
+              </div>
+            </div>
+            <label className="flex items-start gap-2.5 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-[12.5px]">
+              <input
+                type="checkbox"
+                checked={form.maintainerAllowPrMerge}
+                onChange={(e) => update("maintainerAllowPrMerge", e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                aria-label="Allow maintainer pull request merge"
+              />
+              <span>
+                <span className="block font-medium">Allow merging approved pull requests</span>
+                <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                  Danger: permits the maintainer to merge approved, non-draft pull requests without a human merge step.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
       </fieldset>
     </div>
   );

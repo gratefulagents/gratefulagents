@@ -53,6 +53,32 @@ func TestResolveGitHubTokenMintsGitHubAppToken(t *testing.T) {
 	}
 }
 
+func TestCreateAgentRunUsesRepositoryPATSecret(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = platformv1alpha1.AddToScheme(scheme)
+	_ = triggersv1alpha1.AddToScheme(scheme)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+	gh := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "ns"}, Spec: triggersv1alpha1.GitHubRepositorySpec{
+		Owner: "owner", Repo: "repo", GitHubTokenSecret: "connection-token",
+		Defaults: triggersv1alpha1.AgentRunDefaults{
+			Model: "claude-sonnet", RepoURL: "https://github.com/owner/repo.git",
+			Secrets: triggersv1alpha1.AgentRunSecrets{GithubToken: "different-default-token", ClaudeApiKey: "claude-key"},
+		},
+	}}
+	if _, err := r.createAgentRun(context.Background(), gh, "7", 7, "https://github.com/owner/repo/issues/7", "body", "author", nil); err != nil {
+		t.Fatalf("createAgentRun() error = %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: ghIssueName("owner", "repo", "7")}, run); err != nil {
+		t.Fatalf("get AgentRun: %v", err)
+	}
+	if run.Spec.Secrets == nil || run.Spec.Secrets.GitHubTokenSecret != gh.Spec.GitHubTokenSecret {
+		t.Fatalf("run GitHubTokenSecret = %#v, want repository secret %q", run.Spec.Secrets, gh.Spec.GitHubTokenSecret)
+	}
+}
+
 func TestCreateAgentRunCreatesPerRunGitHubAppTokenSecret(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
