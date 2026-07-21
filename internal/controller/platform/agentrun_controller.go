@@ -233,9 +233,14 @@ func (r *AgentRunReconciler) ensureInitialized(ctx context.Context, run *platfor
 		return false, fmt.Errorf("resolving MCPPolicy: %w", err)
 	}
 
-	if needsSpecDefaults(run, snapshot, runtimeProfile) {
+	userSkillRefs, err := listUserSkillRefsForRun(ctx, r.Client, run)
+	if err != nil {
+		return false, fmt.Errorf("listing user skills: %w", err)
+	}
+
+	if needsSpecDefaults(run, snapshot, runtimeProfile, userSkillRefs) {
 		if err := retryAgentRunPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
-			applySpecDefaults(fresh, snapshot, runtimeProfile)
+			applySpecDefaults(fresh, snapshot, runtimeProfile, userSkillRefs)
 		}); err != nil {
 			return false, fmt.Errorf("applying AgentRun spec defaults: %w", err)
 		}
@@ -693,14 +698,69 @@ func resolveMCPPolicyForRun(ctx context.Context, c client.Client, run *platformv
 	return policy, nil
 }
 
-func needsSpecDefaults(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha1.ModeTemplateSpec, runtimeProfile *platformv1alpha1.RuntimeProfile) bool {
+func listUserSkillRefsForRun(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) ([]platformv1alpha1.NamedRef, error) {
+	if run == nil {
+		return nil, nil
+	}
+	var skills platformv1alpha1.SkillList
+	if err := c.List(ctx, &skills, client.InNamespace(run.Namespace)); err != nil {
+		return nil, err
+	}
+	sort.Slice(skills.Items, func(i, j int) bool { return skills.Items[i].Name < skills.Items[j].Name })
+	refs := make([]platformv1alpha1.NamedRef, 0, len(skills.Items))
+	for i := range skills.Items {
+		refs = append(refs, platformv1alpha1.NamedRef{Name: skills.Items[i].Name})
+	}
+	return refs, nil
+}
+
+func effectiveSkillRefs(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha1.ModeTemplateSpec, userSkillRefs []platformv1alpha1.NamedRef) []platformv1alpha1.NamedRef {
+	if run == nil {
+		return nil
+	}
+	refs := make([]platformv1alpha1.NamedRef, 0, len(run.Spec.SkillRefs)+len(userSkillRefs))
+	seen := make(map[string]struct{}, cap(refs))
+	appendUnique := func(candidates []platformv1alpha1.NamedRef) {
+		for _, ref := range candidates {
+			name := strings.TrimSpace(ref.Name)
+			if name == "" {
+				continue
+			}
+			if _, exists := seen[name]; exists {
+				continue
+			}
+			seen[name] = struct{}{}
+			refs = append(refs, platformv1alpha1.NamedRef{Name: name})
+		}
+	}
+	appendUnique(run.Spec.SkillRefs)
+	if snapshot != nil {
+		appendUnique(snapshot.DefaultSkillRefs)
+	}
+	appendUnique(userSkillRefs)
+	return refs
+}
+
+func namedRefsEqual(a, b []platformv1alpha1.NamedRef) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name {
+			return false
+		}
+	}
+	return true
+}
+
+func needsSpecDefaults(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha1.ModeTemplateSpec, runtimeProfile *platformv1alpha1.RuntimeProfile, userSkillRefs []platformv1alpha1.NamedRef) bool {
 	if run == nil {
 		return false
 	}
 	if snapshot != nil && len(snapshot.DefaultMCPServerRefs) > 0 && len(run.Spec.MCPServerRefs) == 0 {
 		return true
 	}
-	if snapshot != nil && len(snapshot.DefaultSkillRefs) > 0 && len(run.Spec.SkillRefs) == 0 {
+	if !namedRefsEqual(run.Spec.SkillRefs, effectiveSkillRefs(run, snapshot, userSkillRefs)) {
 		return true
 	}
 	if runtimeProfile != nil && runtimeProfile.Spec.Security != nil &&
@@ -711,7 +771,7 @@ func needsSpecDefaults(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha
 	return false
 }
 
-func applySpecDefaults(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha1.ModeTemplateSpec, runtimeProfile *platformv1alpha1.RuntimeProfile) {
+func applySpecDefaults(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha1.ModeTemplateSpec, runtimeProfile *platformv1alpha1.RuntimeProfile, userSkillRefs []platformv1alpha1.NamedRef) {
 	if run == nil {
 		return
 	}
@@ -720,11 +780,7 @@ func applySpecDefaults(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha
 		copy(refs, snapshot.DefaultMCPServerRefs)
 		run.Spec.MCPServerRefs = refs
 	}
-	if snapshot != nil && len(snapshot.DefaultSkillRefs) > 0 && len(run.Spec.SkillRefs) == 0 {
-		refs := make([]platformv1alpha1.NamedRef, len(snapshot.DefaultSkillRefs))
-		copy(refs, snapshot.DefaultSkillRefs)
-		run.Spec.SkillRefs = refs
-	}
+	run.Spec.SkillRefs = effectiveSkillRefs(run, snapshot, userSkillRefs)
 	if runtimeProfile != nil && runtimeProfile.Spec.Security != nil && runtimeProfile.Spec.Security.DefaultTimeout.Duration > 0 {
 		if run.Spec.Limits == nil {
 			run.Spec.Limits = &platformv1alpha1.AgentRunLimits{}

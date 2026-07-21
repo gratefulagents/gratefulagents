@@ -29,7 +29,6 @@ import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
 import { ProjectReviewLoopOption } from "@/components/ProjectReviewLoopOption";
 import { MCPServerPicker } from "@/components/MCPServerPicker";
-import { SkillPicker } from "@/components/SkillPicker";
 import { UserSecretKeyPicker, UserSecretPicker, type UserSecretOption } from "@/components/UserSecretPicker";
 import {
   Chip,
@@ -92,7 +91,6 @@ type FormState = {
   mcpPolicyDefaultAction: string;
   mcpPolicyAllowedServers: string;
   mcpServerRefs: string[];
-  skillRefs: string[];
   kubernetesAdmin: boolean;
 };
 
@@ -142,7 +140,6 @@ function formFromProject(project: Project): FormState {
     mcpPolicyDefaultAction: project.mcpPolicyDefaultAction || "Deny",
     mcpPolicyAllowedServers: (project.mcpPolicyAllowedServers ?? []).join(", "),
     mcpServerRefs: [...(project.mcpServerRefs ?? [])],
-    skillRefs: [...(project.skillRefs ?? [])],
     kubernetesAdmin: project.kubernetesAdmin,
   };
 }
@@ -385,7 +382,7 @@ export function ProjectSettingsDialog({
         mcpPolicyDefaultAction: form.mcpPolicyDefaultAction,
         mcpPolicyAllowedServers,
         mcpServerRefs: form.mcpServerRefs,
-        skillRefs: form.skillRefs,
+        skillRefs: [],
         ...(isAdmin ? { kubernetesAdmin: form.kubernetesAdmin } : {}),
       }));
       onUpdated?.(updated);
@@ -445,22 +442,11 @@ export function ProjectSettingsDialog({
     form.permissionMode !== initial.permissionMode ||
     form.egressMode !== initial.egressMode;
 
-  const toolsCount = form.mcpServerRefs.length + form.skillRefs.length;
+  const toolsCount = form.mcpServerRefs.length;
   const toolsSummaryText = toolsCount
-    ? [
-        form.mcpServerRefs.length
-          ? `${form.mcpServerRefs.length} MCP server${form.mcpServerRefs.length === 1 ? "" : "s"}`
-          : null,
-        form.skillRefs.length
-          ? `${form.skillRefs.length} skill${form.skillRefs.length === 1 ? "" : "s"}`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")
+    ? `${toolsCount} MCP server${toolsCount === 1 ? "" : "s"}`
     : "None";
-  const toolsModified =
-    listKey(form.mcpServerRefs) !== listKey(initial.mcpServerRefs) ||
-    listKey(form.skillRefs) !== listKey(initial.skillRefs);
+  const toolsModified = listKey(form.mcpServerRefs) !== listKey(initial.mcpServerRefs);
 
   const policySummaryText = form.configureMcpPolicy
     ? `${form.mcpPolicyDefaultAction} by default · updating policy`
@@ -816,7 +802,7 @@ export function ProjectSettingsDialog({
 
               <OptionRow
                 icon={Blocks}
-                title="Tools & skills"
+                title="Tools"
                 summary={toolsSummaryText}
                 modified={toolsModified}
               >
@@ -837,12 +823,6 @@ export function ProjectSettingsDialog({
                     servers or their tools won't load.
                   </p>
                 )}
-                <FlowField label="Skills" hint="Reusable agent skills attached to this project's runs.">
-                  <SkillPicker
-                    selected={form.skillRefs}
-                    onChange={(names) => update("skillRefs", names)}
-                  />
-                </FlowField>
               </OptionRow>
 
               <OptionRow

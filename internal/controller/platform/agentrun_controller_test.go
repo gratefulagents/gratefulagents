@@ -512,6 +512,7 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 			WorkflowMode:      platformv1alpha1.WorkflowModeChat,
 			RuntimeProfileRef: &platformv1alpha1.NamedRef{Name: "interactive-readonly"},
 			MCPPolicyRef:      &platformv1alpha1.NamedRef{Name: "safe-mcp"},
+			SkillRefs:         []platformv1alpha1.NamedRef{{Name: "explicit-skill"}},
 		},
 	}
 	runtimeProfile := &platformv1alpha1.RuntimeProfile{
@@ -532,11 +533,23 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 			},
 		},
 	}
+	alphaSkill := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-skill", Namespace: "default"},
+		Spec: platformv1alpha1.SkillSpec{
+			Source: platformv1alpha1.SkillSource{Inline: &platformv1alpha1.SkillInlineSource{Instructions: "alpha"}},
+		},
+	}
+	zetaSkill := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: "zeta-skill", Namespace: "default"},
+		Spec: platformv1alpha1.SkillSpec{
+			Source: platformv1alpha1.SkillSource{Inline: &platformv1alpha1.SkillInlineSource{Instructions: "zeta"}},
+		},
+	}
 
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
-		WithObjects(run, runtimeProfile, mcpPolicy).
+		WithObjects(run, runtimeProfile, mcpPolicy, zetaSkill, alphaSkill).
 		Build()
 
 	reconciler := &AgentRunReconciler{Client: k8sClient}
@@ -558,6 +571,13 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	}
 	if updated.Spec.Limits.MaxRuntime.Duration != 45*time.Minute {
 		t.Fatalf("Spec.Limits.MaxRuntime = %s, want 45m", updated.Spec.Limits.MaxRuntime.Duration)
+	}
+	gotSkillRefs := make([]string, 0, len(updated.Spec.SkillRefs))
+	for _, ref := range updated.Spec.SkillRefs {
+		gotSkillRefs = append(gotSkillRefs, ref.Name)
+	}
+	if !slices.Equal(gotSkillRefs, []string{"explicit-skill", "alpha-skill", "zeta-skill"}) {
+		t.Fatalf("Spec.SkillRefs = %v, want all user skills after explicit refs", gotSkillRefs)
 	}
 	if updated.Status.Policy == nil {
 		t.Fatal("Status.Policy = nil, want resolved defaults")
