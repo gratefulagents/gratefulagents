@@ -134,7 +134,7 @@ describe("ProjectDetail triggers", () => {
 });
 
 describe("ProjectDetail maintainer", () => {
-  const projectWithMaintainer = (maintainerEnabled: boolean) => ({
+  const projectWithMaintainer = (maintainerEnabled: boolean, triggerEnabled = true) => ({
     namespace: "team",
     name: "platform",
     displayName: "Platform",
@@ -146,6 +146,7 @@ describe("ProjectDetail maintainer", () => {
       {
         name: "github-issues",
         type: "github",
+        enabled: triggerEnabled,
         github: {
           owner: "acme",
           repo: "payments",
@@ -198,6 +199,18 @@ describe("ProjectDetail maintainer", () => {
   it("hides the maintainer section when no trigger enables it", () => {
     useProjects.mockReturnValue({
       projects: [projectWithMaintainer(false)],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderProject();
+
+    expect(screen.queryByRole("heading", { name: "Maintainer" })).toBeNull();
+  });
+
+  it("hides the maintainer when its project trigger is disabled", () => {
+    useProjects.mockReturnValue({
+      projects: [projectWithMaintainer(true, false)],
       loading: false,
       error: null,
       refetch: vi.fn(),

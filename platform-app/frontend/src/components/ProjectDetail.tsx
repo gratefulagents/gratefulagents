@@ -303,7 +303,12 @@ function ProjectMaintainerSection({
   triggers: ProjectTriggerModel[];
 }) {
   const maintainerTriggers = triggers.filter(
-    (trigger) => trigger.type === "github" && Boolean(trigger.github?.maintainerEnabled),
+    (trigger) =>
+      trigger.type === "github" &&
+      // A disabled project trigger tears down its generated runtime, so its
+      // maintainer cannot run — don't present it as active.
+      trigger.enabled !== false &&
+      Boolean(trigger.github?.maintainerEnabled),
   );
   if (maintainerTriggers.length === 0) return null;
 
