@@ -53,7 +53,7 @@ cd gratefulagents
 make k3s-install
 ```
 
-The k3s installer resolves the latest GitHub release tag, deploys the matching public GHCR images, and installs the chart with a private persistent values file. It does not build images or create a node-local registry. It is not equivalent to `helm install` with chart defaults: the defaults contain sample bundled-service credentials. Follow the [k3s guide](user-docs/docs/getting-started/self-hosting-k3s.md) for network exposure, upgrades, backups, and removal/data-retention warnings.
+The k3s installer resolves the latest GitHub release tag, deploys the matching public GHCR images, and installs the chart from that same release tag with a private persistent values file. It does not build images or create a node-local registry. It is not equivalent to `helm install` with chart defaults: the defaults contain sample bundled-service credentials. Follow the [k3s guide](user-docs/docs/getting-started/self-hosting-k3s.md) for network exposure, upgrades, backups, and removal/data-retention warnings.
 
 ## Develop from source
 
