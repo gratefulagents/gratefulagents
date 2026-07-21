@@ -14,7 +14,10 @@ import { CreateRunDialog } from "@/components/CreateRunDialog";
 import { MaintainerCard } from "@/components/MaintainerPanel";
 import { ProjectCredentialBadges } from "@/components/projectCredentials";
 import { ProjectContentSection } from "@/components/project-content/ProjectContentSection";
-import { ProjectTriggerRail } from "@/components/project-triggers/ProjectTriggerRail";
+import {
+  EntryPointsPreview,
+  ProjectEntryPoints,
+} from "@/components/project-triggers/ProjectEntryPoints";
 import type { ProjectWithTriggers } from "@/components/project-triggers/types";
 import type {
   ProjectTrigger as ProjectTriggerModel,
@@ -57,7 +60,7 @@ import { formatAge, formatCount, formatRepoShort, formatSuccessRate } from "@/li
 import { cn } from "@/lib/utils";
 import type { AgentRun, Project } from "@/rpc/platform/service_pb";
 
-const TAB_VALUES = ["overview", "runs", "files", "configuration"] as const;
+const TAB_VALUES = ["overview", "runs", "entry-points", "files", "configuration"] as const;
 type ProjectTab = (typeof TAB_VALUES)[number];
 
 function isProjectTab(value: string | null): value is ProjectTab {
@@ -211,7 +214,7 @@ export function ProjectDetail() {
           <Tabs value={tab} onValueChange={(value) => setTab(value as ProjectTab)}>
             <TabsList
               variant="line"
-              className="w-full justify-start gap-4 border-b border-border/60 pb-1"
+              className="w-full justify-start gap-4 overflow-x-auto border-b border-border/60 pb-1"
             >
               <TabsTrigger value="overview" className="flex-none px-0.5">
                 Overview
@@ -223,6 +226,12 @@ export function ProjectDetail() {
                     {runs.length}
                   </span>
                 )}
+              </TabsTrigger>
+              <TabsTrigger value="entry-points" className="flex-none px-0.5">
+                Entry points
+                <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground">
+                  {((project as unknown as ProjectWithTriggers).triggers?.length ?? 0) + 1}
+                </span>
               </TabsTrigger>
               <TabsTrigger value="files" className="flex-none px-0.5">
                 Files
@@ -241,19 +250,28 @@ export function ProjectDetail() {
                   onViewAll={() => setTab("runs")}
                 />
 
+                <EntryPointsPreview
+                  namespace={project.namespace}
+                  projectName={project.name}
+                  triggers={(project as unknown as ProjectWithTriggers).triggers ?? []}
+                  onManage={() => setTab("entry-points")}
+                />
+
                 <ProjectMaintainerSection
                   namespace={project.namespace}
                   triggers={(project as unknown as ProjectWithTriggers).triggers ?? []}
                 />
-
-                <ProjectTriggerRail
-                  namespace={project.namespace}
-                  projectName={project.name}
-                  triggers={(project as unknown as ProjectWithTriggers).triggers ?? []}
-                  canEdit={canEdit}
-                  onChanged={() => void refetch()}
-                />
               </div>
+            </TabsContent>
+
+            <TabsContent value="entry-points" className="pt-4">
+              <ProjectEntryPoints
+                namespace={project.namespace}
+                projectName={project.name}
+                triggers={(project as unknown as ProjectWithTriggers).triggers ?? []}
+                canEdit={canEdit}
+                onChanged={() => void refetch()}
+              />
             </TabsContent>
 
             <TabsContent value="runs" className="pt-4">
@@ -263,7 +281,7 @@ export function ProjectDetail() {
                   loading={runsLoading}
                   emptyMessage={
                     canEdit
-                      ? "No runs yet — start one from an Overview entry point or with New Run."
+                      ? "No runs yet. Start one from an entry point or with New Run."
                       : "No runs yet."
                   }
                   sourceFallbackLabel="Issue"
@@ -382,7 +400,7 @@ function RecentRunsPreview({
       ) : recent.length === 0 ? (
         <p className="rounded-md border border-dashed px-4 py-5 text-[13px] text-muted-foreground">
           {canEdit
-            ? "No runs yet. Start one from an entry point below or with New Run."
+            ? "No runs yet. Start one from an entry point or with New Run."
             : "No runs yet."}
         </p>
       ) : (

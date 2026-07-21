@@ -37,7 +37,45 @@ afterEach(() => {
 });
 
 describe("ProjectDetail triggers", () => {
-  it("renders dashboard chat and a disabled trigger", () => {
+  it("renders dashboard chat and a disabled trigger on the Entry points tab", () => {
+    useProjects.mockReturnValue({
+      projects: [{
+        namespace: "team",
+        name: "platform",
+        displayName: "Platform",
+        additionalRepoUrls: [],
+        allowedModels: [],
+        mcpPolicyAllowedServers: [],
+        metrics: {},
+        triggers: [{
+          name: "nightly-triage",
+          type: "cron",
+          enabled: false,
+          cron: { schedule: "0 9 * * 1-5", timeZone: "UTC" },
+        }],
+      }],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects/team/platform?tab=entry-points"]}>
+        <Routes>
+          <Route path="/projects/:namespace/:name" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Entry points" })).toBeTruthy();
+    expect(screen.getByText("Dashboard chat")).toBeTruthy();
+    expect(screen.getByText("nightly-triage")).toBeTruthy();
+    expect(screen.getByText("disabled")).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: /Dashboard chat/ }));
+    expect(localStorage.getItem("gratefulagents.lastProject.v1")).toBe("team/platform");
+  });
+
+  it("shows a compact entry-points preview on Overview that jumps to the tab", () => {
     useProjects.mockReturnValue({
       projects: [{
         namespace: "team",
@@ -67,12 +105,16 @@ describe("ProjectDetail triggers", () => {
       </MemoryRouter>,
     );
 
+    // Overview shows the compact preview: chat pill + trigger pill.
     expect(screen.getByRole("heading", { name: "Entry points" })).toBeTruthy();
     expect(screen.getByText("Dashboard chat")).toBeTruthy();
     expect(screen.getByText("nightly-triage")).toBeTruthy();
-    expect(screen.getByText("disabled")).toBeTruthy();
-    fireEvent.click(screen.getByRole("link", { name: /Dashboard chat/ }));
-    expect(localStorage.getItem("gratefulagents.lastProject.v1")).toBe("team/platform");
+    // Management controls only live on the Entry points tab.
+    expect(screen.queryByRole("button", { name: "New trigger" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Manage/ }));
+    expect(screen.getByRole("button", { name: /New trigger/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Manage connections" })).toBeTruthy();
   });
 
   it("switches tabs and keeps the header visible", () => {
