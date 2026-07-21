@@ -35,7 +35,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { ListState, ListRowSkeleton } from "@/components/ui/list-state";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DetailHeader,
   DetailSection,
@@ -227,48 +227,53 @@ export function ProjectDetail() {
               </TabsTrigger>
             </TabsList>
 
-            <div className="pt-4">
-              {tab === "overview" && (
-                <div className="space-y-7">
-                  <RecentRunsPreview
-                    runs={runs}
-                    loading={runsLoading}
-                    onViewAll={() => setTab("runs")}
-                  />
+            <TabsContent value="overview" className="pt-4">
+              <div className="space-y-7">
+                <RecentRunsPreview
+                  runs={runs}
+                  loading={runsLoading}
+                  canEdit={canEdit}
+                  onViewAll={() => setTab("runs")}
+                />
 
-                  <ProjectTriggerRail
-                    namespace={project.namespace}
-                    projectName={project.name}
-                    triggers={(project as unknown as ProjectWithTriggers).triggers ?? []}
-                    canEdit={canEdit}
-                    onChanged={() => void refetch()}
-                  />
-                </div>
-              )}
-
-              {tab === "runs" && (
-                <RunsSection count={runs.length} loading={runsLoading}>
-                  <AgentRunTable
-                    runs={runs}
-                    loading={runsLoading}
-                    emptyMessage="No runs yet — start a chat from Home or create a plan."
-                    sourceFallbackLabel="Issue"
-                    sourceAriaLabel="Source issue (opens in new tab)"
-                    viewKey={`project:${namespace}/${name}`}
-                  />
-                </RunsSection>
-              )}
-
-              {tab === "files" && (
-                <ProjectContentSection
+                <ProjectTriggerRail
                   namespace={project.namespace}
                   projectName={project.name}
+                  triggers={(project as unknown as ProjectWithTriggers).triggers ?? []}
                   canEdit={canEdit}
+                  onChanged={() => void refetch()}
                 />
-              )}
+              </div>
+            </TabsContent>
 
-              {tab === "configuration" && <ProjectConfiguration project={project} />}
-            </div>
+            <TabsContent value="runs" className="pt-4">
+              <RunsSection count={runs.length} loading={runsLoading}>
+                <AgentRunTable
+                  runs={runs}
+                  loading={runsLoading}
+                  emptyMessage={
+                    canEdit
+                      ? "No runs yet — start one from an Overview entry point or with New Run."
+                      : "No runs yet."
+                  }
+                  sourceFallbackLabel="Issue"
+                  sourceAriaLabel="Source issue (opens in new tab)"
+                  viewKey={`project:${namespace}/${name}`}
+                />
+              </RunsSection>
+            </TabsContent>
+
+            <TabsContent value="files" className="pt-4">
+              <ProjectContentSection
+                namespace={project.namespace}
+                projectName={project.name}
+                canEdit={canEdit}
+              />
+            </TabsContent>
+
+            <TabsContent value="configuration" className="pt-4">
+              <ProjectConfiguration project={project} />
+            </TabsContent>
           </Tabs>
         </div>
       )}
@@ -280,10 +285,12 @@ export function ProjectDetail() {
 function RecentRunsPreview({
   runs,
   loading,
+  canEdit,
   onViewAll,
 }: {
   runs: AgentRun[];
   loading: boolean;
+  canEdit: boolean;
   onViewAll: () => void;
 }) {
   const recent = useMemo(
@@ -314,7 +321,9 @@ function RecentRunsPreview({
         <ListRowSkeleton rows={3} />
       ) : recent.length === 0 ? (
         <p className="rounded-md border border-dashed px-4 py-5 text-[13px] text-muted-foreground">
-          No runs yet. Start one from an entry point below or with New Run.
+          {canEdit
+            ? "No runs yet. Start one from an entry point below or with New Run."
+            : "No runs yet."}
         </p>
       ) : (
         <ItemGroup className="gap-1">
