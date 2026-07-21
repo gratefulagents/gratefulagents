@@ -213,7 +213,7 @@ export function ProjectDetail() {
           <Tabs value={tab} onValueChange={(value) => setTab(value as ProjectTab)}>
             <TabsList
               variant="line"
-              className="w-full justify-start gap-4 border-b border-border/60 pb-1"
+              className="w-full justify-start gap-4 overflow-x-auto border-b border-border/60 pb-1"
             >
               <TabsTrigger value="overview" className="flex-none px-0.5">
                 Overview
