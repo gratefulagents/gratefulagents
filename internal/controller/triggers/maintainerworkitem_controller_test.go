@@ -18,6 +18,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+const (
+	maintainerWorkItemTestNamespace = "default"
+	maintainerAgentRunKind          = "AgentRun"
+	maintainerWorkItemTestOwner     = "owner"
+	maintainerWorkItemTestRepo      = "repo"
+)
+
 func TestMaintainerWorkItemName(t *testing.T) {
 	t.Parallel()
 
@@ -44,13 +51,13 @@ func TestMaintainerWorkItemProjectionNoopAndFreshness(t *testing.T) {
 
 	scheme := maintainerWorkItemScheme(t)
 	repository := testMaintainerRepository()
-	client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}).WithObjects(repository).Build()
-	reconciler := &GitHubRepositoryReconciler{Client: client, Scheme: scheme}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}).WithObjects(repository).Build()
+	reconciler := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
 	issue := testMaintainerIssue(7)
 	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, []*github.Issue{issue}); err != nil {
 		t.Fatalf("first projection: %v", err)
 	}
-	item := getMaintainerWorkItem(t, client, repository, 7)
+	item := getMaintainerWorkItem(t, c, repository, 7)
 	sequence := item.Status.ProjectionSequence
 	observedAt := item.Status.IssueObservation.ObservedAt
 
@@ -58,7 +65,7 @@ func TestMaintainerWorkItemProjectionNoopAndFreshness(t *testing.T) {
 	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, []*github.Issue{issue}); err != nil {
 		t.Fatalf("second projection: %v", err)
 	}
-	item = getMaintainerWorkItem(t, client, repository, 7)
+	item = getMaintainerWorkItem(t, c, repository, 7)
 	if item.Status.ProjectionSequence != sequence || !item.Status.IssueObservation.ObservedAt.Equal(&observedAt) {
 		t.Fatalf("no-op projection changed sequence or observedAt: %#v", item.Status)
 	}
@@ -66,7 +73,7 @@ func TestMaintainerWorkItemProjectionNoopAndFreshness(t *testing.T) {
 	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, nil); err != nil {
 		t.Fatalf("stale projection: %v", err)
 	}
-	item = getMaintainerWorkItem(t, client, repository, 7)
+	item = getMaintainerWorkItem(t, c, repository, 7)
 	if item.Status.ProjectionSequence != sequence+1 {
 		t.Fatalf("stale sequence = %d, want %d", item.Status.ProjectionSequence, sequence+1)
 	}
@@ -172,7 +179,7 @@ func TestFailedMaintainerCommandCannotApplyAfterNewerTriage(t *testing.T) {
 	command.Spec.PayloadHash = MaintainerWorkItemCommandPayloadHash(command.Spec.Type, command.Spec.Triage, command.Spec.Preconditions)
 	command.Spec.Issuer.Proof = triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, command.Spec.Issuer.RunName, command.Spec.Issuer.UID)
 	command.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseFailed
-	githubClient := &fakeMaintainerGitHub{issue: &github.Issue{State: github.String("open")}}
+	githubClient := &fakeMaintainerGitHub{issue: &github.Issue{State: new("open")}}
 	c := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).
 		WithObjects(repository, item, issuer, testMaintainerCapability(repository, issuer), command).Build()
@@ -227,7 +234,7 @@ func TestNotActionableTriageReusesDecisionMarker(t *testing.T) {
 	item := testMaintainerWorkItem(repository, 10)
 	reason := triggersv1alpha1.MaintainerWorkItemCloseReasonNotPlanned
 	triage := &triggersv1alpha1.MaintainerTriageCommand{IssueNumber: 10, Disposition: triggersv1alpha1.MaintainerWorkItemDispositionNotActionable, EvidenceSummary: "duplicate", CloseReason: &reason}
-	githubClient := &fakeMaintainerGitHub{issue: &github.Issue{State: github.String("open")}}
+	githubClient := &fakeMaintainerGitHub{issue: &github.Issue{State: new("open")}}
 
 	firstURL, _, err := (&GitHubRepositoryReconciler{}).applyNotActionableTriage(context.Background(), repository, item, triage, githubClient)
 	if err != nil {
@@ -237,7 +244,7 @@ func TestNotActionableTriageReusesDecisionMarker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second triage: %v", err)
 	}
-	if githubClient.created != 1 || githubClient.editedIssue != 1 || githubClient.issue.GetState() != "closed" || githubClient.issue.GetStateReason() != "not_planned" || firstURL != secondURL {
+	if githubClient.created != 1 || githubClient.editedIssue != 1 || githubClient.issue.GetState() != string(triggersv1alpha1.MaintainerIssueStateClosed) || githubClient.issue.GetStateReason() != "not_planned" || firstURL != secondURL {
 		t.Fatalf("created=%d editedIssue=%d issue=%#v URLs=%q,%q", githubClient.created, githubClient.editedIssue, githubClient.issue, firstURL, secondURL)
 	}
 }
@@ -258,12 +265,12 @@ func maintainerWorkItemScheme(t *testing.T) *runtime.Scheme {
 }
 
 func testMaintainerRepository() *triggersv1alpha1.GitHubRepository {
-	return &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default", UID: types.UID("repository")}, Spec: triggersv1alpha1.GitHubRepositorySpec{Owner: "owner", Repo: "repo"}}
+	return &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: maintainerWorkItemTestRepo, Namespace: maintainerWorkItemTestNamespace, UID: types.UID("repository")}, Spec: triggersv1alpha1.GitHubRepositorySpec{Owner: maintainerWorkItemTestOwner, Repo: maintainerWorkItemTestRepo}}
 }
 
 func testMaintainerIssue(number int) *github.Issue {
 	updated := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	return &github.Issue{Number: github.Int(number), Title: github.String("title"), Body: github.String("body"), HTMLURL: github.String("https://example.test/issues/1"), User: &github.User{Login: github.String("author")}, UpdatedAt: &github.Timestamp{Time: updated}, Labels: []*github.Label{{Name: github.String("bug")}}}
+	return &github.Issue{Number: new(number), Title: new("title"), Body: new("body"), HTMLURL: new("https://example.test/issues/1"), User: &github.User{Login: new("author")}, UpdatedAt: &github.Timestamp{Time: updated}, Labels: []*github.Label{{Name: new("bug")}}}
 }
 
 func testMaintainerWorkItem(repository *triggersv1alpha1.GitHubRepository, issue int32) *triggersv1alpha1.MaintainerWorkItem {
@@ -278,7 +285,7 @@ func testMaintainerIssuer(repository *triggersv1alpha1.GitHubRepository) *platfo
 	controller := true
 	return &platformv1alpha1.AgentRun{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "maintainer",
+			Name:      defaultMaintainerModeName,
 			Namespace: repository.Namespace,
 			UID:       types.UID("issuer"),
 			Labels: map[string]string{
@@ -287,7 +294,7 @@ func testMaintainerIssuer(repository *triggersv1alpha1.GitHubRepository) *platfo
 			},
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: triggersv1alpha1.GroupVersion.String(),
-				Kind:       "GitHubRepository",
+				Kind:       gitHubRepositoryTriggerKind,
 				Name:       repository.Name,
 				UID:        repository.UID,
 				Controller: &controller,
@@ -305,7 +312,7 @@ func testMaintainerCapability(repository *triggersv1alpha1.GitHubRepository, iss
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: triggersv1alpha1.MaintainerCommandCapabilitySecretName(issuer.Name), Namespace: issuer.Namespace,
-			OwnerReferences: []metav1.OwnerReference{{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: issuer.Name, UID: issuer.UID, Controller: &controller}},
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: maintainerAgentRunKind, Name: issuer.Name, UID: issuer.UID, Controller: &controller}},
 		},
 		Data: map[string][]byte{
 			triggersv1alpha1.MaintainerCommandCapabilitySecretKey:         testMaintainerCapabilityKey(),
@@ -319,19 +326,19 @@ func testMaintainerCommand(repository *triggersv1alpha1.GitHubRepository, item *
 	triage := &triggersv1alpha1.MaintainerTriageCommand{IssueNumber: item.Spec.IssueNumber, Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded, EvidenceSummary: "evidence", AcceptedScope: triggersv1alpha1.MaintainerAcceptedScope{Statement: "scope"}}
 	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion}
 	payloadHash := MaintainerWorkItemCommandPayloadHash(triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue, triage, preconditions)
-	proof := triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, idempotencyKey, payloadHash, "maintainer", issuerUID)
+	proof := triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, idempotencyKey, payloadHash, defaultMaintainerModeName, issuerUID)
 	controller := true
 	return &triggersv1alpha1.MaintainerWorkItemCommand{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      MaintainerWorkItemCommandName(repository.Name, idempotencyKey),
 			Namespace: repository.Namespace,
 			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "GitHubRepository", Name: repository.Name, UID: repository.UID, Controller: &controller,
+				APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: gitHubRepositoryTriggerKind, Name: repository.Name, UID: repository.UID, Controller: &controller,
 			}},
 		},
 		Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{
 			RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IdempotencyKey: idempotencyKey,
-			Issuer: triggersv1alpha1.MaintainerWorkItemCommandIssuer{RunName: "maintainer", UID: issuerUID, Proof: proof},
+			Issuer: triggersv1alpha1.MaintainerWorkItemCommandIssuer{RunName: defaultMaintainerModeName, UID: issuerUID, Proof: proof},
 			Type:   triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue, Triage: triage, Preconditions: preconditions,
 			PayloadHash: payloadHash,
 		},
@@ -369,8 +376,8 @@ func (f *fakeMaintainerGitHub) ListIssueComments(context.Context, string, string
 
 func (f *fakeMaintainerGitHub) CreateIssueComment(_ context.Context, _ string, _ string, _ int, comment *github.IssueComment) (*github.IssueComment, *github.Response, error) {
 	f.created++
-	comment.ID = github.Int64(int64(f.created))
-	comment.HTMLURL = github.String("https://example.test/comments/1")
+	comment.ID = new(int64(f.created))
+	comment.HTMLURL = new("https://example.test/comments/1")
 	f.comments = append(f.comments, comment)
 	return comment, &github.Response{}, nil
 }

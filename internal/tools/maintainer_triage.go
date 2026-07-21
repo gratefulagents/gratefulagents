@@ -105,10 +105,7 @@ func (t *triageIssueTool) Execute(ctx context.Context, input json.RawMessage, _ 
 		ProjectionSequence: *in.ExpectedProjectionSequence,
 		ResourceVersion:    in.ExpectedResourceVersion,
 	}
-	payloadHash, err := triageIssuePayloadHash(triage, preconditions)
-	if err != nil {
-		return triageIssueError("failed to hash triage command payload: %v", err)
-	}
+	payloadHash := triageIssuePayloadHash(triage, preconditions)
 	capability := &corev1.Secret{}
 	capabilityName := triggersv1alpha1.MaintainerCommandCapabilitySecretName(current.Name)
 	if err := t.k8sClient.Get(ctx, client.ObjectKey{Namespace: current.Namespace, Name: capabilityName}, capability); err != nil {
@@ -206,8 +203,8 @@ func validateTriageIssueInput(in triageIssueInput) error {
 	return nil
 }
 
-func triageIssuePayloadHash(triage *triggersv1alpha1.MaintainerTriageCommand, preconditions triggersv1alpha1.MaintainerWorkItemCommandPreconditions) (string, error) {
-	return triggersv1alpha1.MaintainerWorkItemCommandPayloadHash(triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue, triage, preconditions), nil
+func triageIssuePayloadHash(triage *triggersv1alpha1.MaintainerTriageCommand, preconditions triggersv1alpha1.MaintainerWorkItemCommandPreconditions) string {
+	return triggersv1alpha1.MaintainerWorkItemCommandPayloadHash(triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue, triage, preconditions)
 }
 
 func triageIssueResult(command *triggersv1alpha1.MaintainerWorkItemCommand, workItem *triggersv1alpha1.MaintainerWorkItem, replayed bool) (Result, error) {

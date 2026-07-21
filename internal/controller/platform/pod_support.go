@@ -339,13 +339,13 @@ func ensureMaintainerCommandCapability(ctx context.Context, c client.Client, run
 	if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, existing); err == nil {
 		key := existing.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey]
 		if len(key) < 32 {
-			return fmt.Errorf("Secret %s/%s has a missing or invalid %q", run.Namespace, name, triggersv1alpha1.MaintainerCommandCapabilitySecretKey)
+			return fmt.Errorf("secret %s/%s has a missing or invalid %q", run.Namespace, name, triggersv1alpha1.MaintainerCommandCapabilitySecretKey)
 		}
 		if !metav1.IsControlledBy(existing, run) {
-			return fmt.Errorf("Secret %s/%s is not controlled by AgentRun %s", run.Namespace, name, run.Name)
+			return fmt.Errorf("secret %s/%s is not controlled by AgentRun %s", run.Namespace, name, run.Name)
 		}
 		if string(existing.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey]) != repository.Name || string(existing.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey]) != string(repository.UID) {
-			return fmt.Errorf("Secret %s/%s is bound to a different GitHubRepository", run.Namespace, name)
+			return fmt.Errorf("secret %s/%s is bound to a different GitHubRepository", run.Namespace, name)
 		}
 		return nil
 	} else if !apierrors.IsNotFound(err) {

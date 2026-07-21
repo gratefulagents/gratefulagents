@@ -514,7 +514,7 @@ func (r *GitHubRepositoryReconciler) authorizeMaintainerCommand(ctx context.Cont
 	}
 	ownedByRepository := false
 	for _, owner := range issuer.OwnerReferences {
-		if owner.Controller != nil && *owner.Controller && owner.APIVersion == triggersv1alpha1.GroupVersion.String() && owner.Kind == "GitHubRepository" && owner.Name == repository.Name && owner.UID == repository.UID {
+		if owner.Controller != nil && *owner.Controller && owner.APIVersion == triggersv1alpha1.GroupVersion.String() && owner.Kind == gitHubRepositoryTriggerKind && owner.Name == repository.Name && owner.UID == repository.UID {
 			ownedByRepository = true
 			break
 		}
@@ -705,12 +705,12 @@ func (r *GitHubRepositoryReconciler) applyNotActionableTriage(ctx context.Contex
 		return "", "", err
 	}
 	if comment == nil {
-		comment, _, err = githubClient.CreateIssueComment(ctx, repository.Spec.Owner, repository.Spec.Repo, int(item.Spec.IssueNumber), &github.IssueComment{Body: github.String(body)})
+		comment, _, err = githubClient.CreateIssueComment(ctx, repository.Spec.Owner, repository.Spec.Repo, int(item.Spec.IssueNumber), &github.IssueComment{Body: new(body)})
 		if err != nil {
 			return "", "", fmt.Errorf("creating triage comment: %w", err)
 		}
 	} else if comment.GetBody() != body {
-		comment, _, err = githubClient.EditIssueComment(ctx, repository.Spec.Owner, repository.Spec.Repo, comment.GetID(), &github.IssueComment{Body: github.String(body)})
+		comment, _, err = githubClient.EditIssueComment(ctx, repository.Spec.Owner, repository.Spec.Repo, comment.GetID(), &github.IssueComment{Body: new(body)})
 		if err != nil {
 			return "", "", fmt.Errorf("editing triage comment: %w", err)
 		}
@@ -719,8 +719,10 @@ func (r *GitHubRepositoryReconciler) applyNotActionableTriage(ctx context.Contex
 	if err != nil {
 		return "", "", fmt.Errorf("getting issue for triage close: %w", err)
 	}
-	if issue.GetState() != "closed" || issue.GetStateReason() != string(*triage.CloseReason) {
-		issue, _, err = githubClient.EditIssue(ctx, repository.Spec.Owner, repository.Spec.Repo, int(item.Spec.IssueNumber), &github.IssueRequest{State: github.String("closed"), StateReason: github.String(string(*triage.CloseReason))})
+	closedState := string(triggersv1alpha1.MaintainerIssueStateClosed)
+	closeReason := string(*triage.CloseReason)
+	if issue.GetState() != closedState || issue.GetStateReason() != closeReason {
+		issue, _, err = githubClient.EditIssue(ctx, repository.Spec.Owner, repository.Spec.Repo, int(item.Spec.IssueNumber), &github.IssueRequest{State: new(closedState), StateReason: new(closeReason)})
 		if err != nil {
 			return "", "", fmt.Errorf("closing triaged issue: %w", err)
 		}

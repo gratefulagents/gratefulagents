@@ -109,7 +109,7 @@ func TestEnsureMaintainerCommandCapabilityIsPrivateAndStable(t *testing.T) {
 	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default", UID: types.UID("repo-uid")}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run, repository).Build()
 	controller := true
-	owner := metav1.OwnerReference{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller}
+	owner := metav1.OwnerReference{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: standingOverseerOwnerKind, Name: run.Name, UID: run.UID, Controller: &controller}
 	if err := ensureMaintainerCommandCapability(context.Background(), c, run, owner, repository.Name); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestRunRBACRulesGiveOverseerReadOnlyAccessToSupervisedRun(t *testing.T) {
 			orchestration.SupervisedRunLabel:   "primary",
 		},
 		OwnerReferences: []metav1.OwnerReference{{
-			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: "primary", UID: types.UID("primary-uid"), Controller: &controller,
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: standingOverseerOwnerKind, Name: "primary", UID: types.UID("primary-uid"), Controller: &controller,
 		}},
 	}}
 	rules := runRBACRules(run, "primary", "")

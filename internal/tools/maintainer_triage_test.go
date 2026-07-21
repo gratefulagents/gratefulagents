@@ -49,10 +49,10 @@ func TestTriageIssueCreatesImmutableCommandWithoutChangingWorkItem(t *testing.T)
 	t.Parallel()
 
 	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
-	workItem := createMaintainerWorkItem(t, k8sClient, "repo", 42, 7)
+	workItem := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 42, 7)
 	before := workItem.DeepCopy()
 	tool := &triageIssueTool{maintainerToolBase: base}
-	result, err := tool.Execute(context.Background(), triageIssueInputJSON(t, 42, "Bounded", "Evidence from the repository", "stale-resource-version", 3, "stable-key"), "")
+	result, err := tool.Execute(context.Background(), triageIssueInputJSON(t, 42, "Evidence from the repository", "stale-resource-version", 3, "stable-key"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestTriageIssueCreatesImmutableCommandWithoutChangingWorkItem(t *testing.T)
 		t.Fatalf("receipt = %#v", out)
 	}
 	command := &triggersv1alpha1.MaintainerWorkItemCommand{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: out.CommandName, Namespace: "default"}, command); err != nil {
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: out.CommandName, Namespace: maintainerTestNamespace}, command); err != nil {
 		t.Fatal(err)
 	}
 	if command.Spec.Triage == nil || len(command.Spec.Triage.AcceptedScope.AcceptanceCriteria) != 1 || command.Spec.Triage.AcceptedScope.AcceptanceCriteria[0] != "criterion" {
@@ -77,14 +77,14 @@ func TestTriageIssueCreatesImmutableCommandWithoutChangingWorkItem(t *testing.T)
 	if command.Spec.Type != triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue || command.Spec.Preconditions.ProjectionSequence != 3 || command.Spec.Preconditions.ResourceVersion != "stale-resource-version" || command.Spec.Preconditions.WorkItemName != workItem.Name {
 		t.Fatalf("command preconditions = %#v", command.Spec)
 	}
-	expectedProof := triggersv1alpha1.MaintainerWorkItemCommandProof([]byte("01234567890123456789012345678901"), "repo", "repo-uid", command.Spec.IdempotencyKey, command.Spec.PayloadHash, "repo-maintainer", command.Spec.Issuer.UID)
-	if command.Spec.Issuer.RunName != "repo-maintainer" || string(command.Spec.Issuer.UID) != "maintainer" || command.Spec.Issuer.Proof != expectedProof || command.Spec.RepositoryRef.Name != "repo" {
+	expectedProof := triggersv1alpha1.MaintainerWorkItemCommandProof([]byte("01234567890123456789012345678901"), maintainerTestRepositoryName, "repo-uid", command.Spec.IdempotencyKey, command.Spec.PayloadHash, maintainerTestRunName, command.Spec.Issuer.UID)
+	if command.Spec.Issuer.RunName != maintainerTestRunName || string(command.Spec.Issuer.UID) != maintainerTestRunUID || command.Spec.Issuer.Proof != expectedProof || command.Spec.RepositoryRef.Name != maintainerTestRepositoryName {
 		t.Fatalf("command issuer/repository = %#v", command.Spec)
 	}
-	if command.Labels[triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey] != "repo" || command.Labels[triggersv1alpha1.MaintainerWorkItemIssueNumberLabelKey] != "42" {
+	if command.Labels[triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey] != maintainerTestRepositoryName || command.Labels[triggersv1alpha1.MaintainerWorkItemIssueNumberLabelKey] != "42" {
 		t.Fatalf("command labels = %#v", command.Labels)
 	}
-	if len(command.OwnerReferences) != 1 || command.OwnerReferences[0].APIVersion != triggersv1alpha1.GroupVersion.String() || command.OwnerReferences[0].Kind != "GitHubRepository" || command.OwnerReferences[0].Name != "repo" || command.OwnerReferences[0].Controller == nil || !*command.OwnerReferences[0].Controller {
+	if len(command.OwnerReferences) != 1 || command.OwnerReferences[0].APIVersion != triggersv1alpha1.GroupVersion.String() || command.OwnerReferences[0].Kind != maintainerTestRepositoryKind || command.OwnerReferences[0].Name != maintainerTestRepositoryName || command.OwnerReferences[0].Controller == nil || !*command.OwnerReferences[0].Controller {
 		t.Fatalf("command owner references = %#v", command.OwnerReferences)
 	}
 
@@ -101,9 +101,9 @@ func TestTriageIssueReplayAndPayloadMismatch(t *testing.T) {
 	t.Parallel()
 
 	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
-	workItem := createMaintainerWorkItem(t, k8sClient, "repo", 7, 4)
+	workItem := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 7, 4)
 	tool := &triageIssueTool{maintainerToolBase: base}
-	input := triageIssueInputJSON(t, 7, "Bounded", "Evidence", "rv", 4, "same-key")
+	input := triageIssueInputJSON(t, 7, "Evidence", "rv", 4, "same-key")
 	first, err := tool.Execute(context.Background(), input, "")
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestTriageIssueReplayAndPayloadMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := &triggersv1alpha1.MaintainerWorkItemCommand{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: submitted.CommandName, Namespace: "default"}, command); err != nil {
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: submitted.CommandName, Namespace: maintainerTestNamespace}, command); err != nil {
 		t.Fatal(err)
 	}
 	command.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded
@@ -140,7 +140,7 @@ func TestTriageIssueReplayAndPayloadMismatch(t *testing.T) {
 		t.Fatalf("replay receipt = %#v", receipt)
 	}
 
-	mismatch, err := tool.Execute(context.Background(), triageIssueInputJSON(t, 7, "Bounded", "Changed evidence", "rv", 4, "same-key"), "")
+	mismatch, err := tool.Execute(context.Background(), triageIssueInputJSON(t, 7, "Changed evidence", "rv", 4, "same-key"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,10 +153,10 @@ func TestTriageIssueAuthorizesMaintainerRun(t *testing.T) {
 	t.Parallel()
 
 	unauthorized := maintainerRun()
-	unauthorized.Labels[orchestration.StandingRunRoleLabel] = "other"
+	unauthorized.Labels[orchestration.StandingRunRoleLabel] = maintainerTestOther
 	base, k8sClient, _ := newMaintainerToolBase(t, unauthorized)
-	createMaintainerWorkItem(t, k8sClient, "repo", 3, 0)
-	result, err := (&triageIssueTool{maintainerToolBase: base}).Execute(context.Background(), triageIssueInputJSON(t, 3, "Bounded", "Evidence", "rv", 0, "key"), "")
+	createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 3, 0)
+	result, err := (&triageIssueTool{maintainerToolBase: base}).Execute(context.Background(), triageIssueInputJSON(t, 3, "Evidence", "rv", 0, "key"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestTriageIssueAuthorizesMaintainerRun(t *testing.T) {
 func createMaintainerWorkItem(t *testing.T, k8sClient client.Client, repository string, issueNumber int32, sequence int64) *triggersv1alpha1.MaintainerWorkItem {
 	t.Helper()
 	workItem := &triggersv1alpha1.MaintainerWorkItem{
-		ObjectMeta: metav1.ObjectMeta{Name: maintainerWorkItemName(repository, issueNumber), Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: maintainerWorkItemName(repository, issueNumber), Namespace: maintainerTestNamespace},
 		Spec: triggersv1alpha1.MaintainerWorkItemSpec{
 			RepositoryRef: triggersRepositoryRef(repository),
 			IssueNumber:   issueNumber,
@@ -188,11 +188,11 @@ func triggersRepositoryRef(name string) corev1.LocalObjectReference {
 	return corev1.LocalObjectReference{Name: name}
 }
 
-func triageIssueInputJSON(t *testing.T, issueNumber int, disposition, evidence, resourceVersion string, sequence int64, idempotencyKey string) json.RawMessage {
+func triageIssueInputJSON(t *testing.T, issueNumber int, evidence, resourceVersion string, sequence int64, idempotencyKey string) json.RawMessage {
 	t.Helper()
 	input := map[string]any{
 		"issue_number":                 issueNumber,
-		"disposition":                  disposition,
+		"disposition":                  "Bounded",
 		"evidence_summary":             evidence,
 		"accepted_scope":               map[string]any{"statement": "scope", "acceptance_criteria": []string{"criterion"}},
 		"idempotency_key":              idempotencyKey,

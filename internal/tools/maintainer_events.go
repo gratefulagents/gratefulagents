@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"sort"
 	"strconv"
@@ -254,7 +255,7 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 				workItemEvents = nil
 				continue
 			}
-			workItems, workItemErr := t.workItemEventsSnapshot(ctx, "")
+			workItems, workItemErr := t.workItemEventsSnapshot(ctx)
 			if workItemErr != nil {
 				latest.workItemError = workItemErr.Error()
 			} else {
@@ -289,7 +290,7 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 				latest.fleet = fleet.fleet
 				latest.fleetError = ""
 			}
-			workItems, workItemErr := t.workItemEventsSnapshot(ctx, "")
+			workItems, workItemErr := t.workItemEventsSnapshot(ctx)
 			if workItemErr != nil {
 				latest.workItemError = workItemErr.Error()
 			} else {
@@ -358,7 +359,7 @@ func (t *waitForRepoEventsTool) repoEventsSnapshot(ctx context.Context, workDir 
 		fleet.pullRequests = pullRequests.pullRequests
 		fleet.pullRequestError = pullRequests.pullRequestError
 	}
-	workItems, workItemErr := t.workItemEventsSnapshot(ctx, "")
+	workItems, workItemErr := t.workItemEventsSnapshot(ctx)
 	if workItemErr != nil {
 		fleet.workItemError = workItemErr.Error()
 	} else {
@@ -467,9 +468,9 @@ func (t *waitForRepoEventsTool) workItemListOptions(resourceVersion string) *cli
 	return options
 }
 
-func (t *waitForRepoEventsTool) workItemEventsSnapshot(ctx context.Context, resourceVersion string) (maintainerRepoEventsSnapshot, error) {
+func (t *waitForRepoEventsTool) workItemEventsSnapshot(ctx context.Context) (maintainerRepoEventsSnapshot, error) {
 	var items triggersv1alpha1.MaintainerWorkItemList
-	options := t.workItemListOptions(resourceVersion)
+	options := t.workItemListOptions("")
 	if err := t.k8sClient.List(ctx, &items, options); err != nil {
 		return maintainerRepoEventsSnapshot{}, fmt.Errorf("failed to list repository MaintainerWorkItems: %w", err)
 	}
@@ -499,13 +500,13 @@ func (t *waitForRepoEventsTool) workItemEventsSnapshot(ctx context.Context, reso
 // the returned list. An update committed between the list and Watch call is
 // therefore replayed by the API server instead of falling into a waiter gap.
 func (t *waitForRepoEventsTool) workItemSnapshotAndWatch(ctx context.Context) (maintainerRepoEventsSnapshot, watch.Interface, error) {
-	snapshot, err := t.workItemEventsSnapshot(ctx, "")
+	snapshot, err := t.workItemEventsSnapshot(ctx)
 	if err != nil {
 		return maintainerRepoEventsSnapshot{}, nil, err
 	}
 	watchClient, ok := t.k8sClient.(client.WithWatch)
 	if !ok {
-		return snapshot, nil, fmt.Errorf("Kubernetes client does not support MaintainerWorkItem watches")
+		return snapshot, nil, fmt.Errorf("kubernetes client does not support MaintainerWorkItem watches")
 	}
 	if t.beforeWorkItemWatch != nil {
 		t.beforeWorkItemWatch()
@@ -905,9 +906,7 @@ func repoEventsCursorForEmitted(previous, current maintainerRepoEventsSnapshot, 
 	}
 
 	workItemSignatures := map[string]string{}
-	for name, signature := range previous.workItemSignatures {
-		workItemSignatures[name] = signature
-	}
+	maps.Copy(workItemSignatures, previous.workItemSignatures)
 	for _, event := range emittedWorkItems {
 		if signature, exists := current.workItemSignatures[event.Name]; exists {
 			workItemSignatures[event.Name] = signature

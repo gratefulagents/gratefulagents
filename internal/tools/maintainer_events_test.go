@@ -23,6 +23,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const maintainerEventsTestWorkItemName = "issue-7"
+
 type noWatchClient struct{ client.Client }
 
 type gapSafeWatchClient struct {
@@ -116,9 +118,9 @@ func TestMaintainerBacklogFingerprintAndCursorRoundTrip(t *testing.T) {
 
 func TestWaitForRepoEventsReturnsCursorDeltaWithoutSleeping(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
-	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: "implementer", AgentRunNS: "default"}
+	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: maintainerTestFleetRunName, AgentRunNS: maintainerTestNamespace}
 	runner := &maintainerFakeRunner{out: map[string]string{
 		"issue list --state open --json number,title,labels,updatedAt,url --limit 200": `[{"number":4,"title":"new work","labels":[{"name":"bug"}],"updatedAt":"2026-01-04T00:00:00Z","url":"https://example.test/issues/4"}]`,
 	}}
@@ -161,25 +163,25 @@ func TestWaitForRepoEventsReturnsCursorDeltaWithoutSleeping(t *testing.T) {
 
 func TestFleetEventConditionIncludesPendingInput(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
-	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: "implementer", AgentRunNS: "default", PendingInputType: "question", PendingRequestID: "request"}
+	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: maintainerTestFleetRunName, AgentRunNS: maintainerTestNamespace, PendingInputType: "question", PendingRequestID: "request"}
 	tool := &waitForRepoEventsTool{maintainerToolBase: base}
 	snapshot, err := tool.fleetEventsSnapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := snapshot.fleet["implementer"]
-	if !event.PendingInput || snapshot.fleetSignatures["implementer"] == "" {
+	event := snapshot.fleet[maintainerTestFleetRunName]
+	if !event.PendingInput || snapshot.fleetSignatures[maintainerTestFleetRunName] == "" {
 		t.Fatalf("fleet event = %#v, signatures = %#v", event, snapshot.fleetSignatures)
 	}
 }
 
 func TestWaitForRepoEventsFirstCallReturnsCurrentStateImmediately(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseSucceeded)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseSucceeded)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
-	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: "implementer", AgentRunNS: "default"}
+	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: maintainerTestFleetRunName, AgentRunNS: maintainerTestNamespace}
 	runner := &maintainerFakeRunner{out: map[string]string{
 		"issue list --state open --json number,title,labels,updatedAt,url --limit 200": `[{"number":9,"title":"open work","labels":[{"name":"autopilot"}],"updatedAt":"2026-01-09T00:00:00Z","url":"https://example.test/issues/9"}]`,
 	}}
@@ -207,7 +209,7 @@ func TestWaitForRepoEventsFirstCallReturnsCurrentStateImmediately(t *testing.T) 
 	if len(output.ChangedIssues) != 1 || output.ChangedIssues[0].Number != 9 {
 		t.Fatalf("changed issues = %#v", output.ChangedIssues)
 	}
-	if len(output.FleetChanges) != 1 || output.FleetChanges[0].Name != "implementer" {
+	if len(output.FleetChanges) != 1 || output.FleetChanges[0].Name != maintainerTestFleetRunName {
 		t.Fatalf("fleet changes = %#v", output.FleetChanges)
 	}
 	if _, err := decodeMaintainerRepoEventsCursor(output.Cursor); err != nil {
@@ -311,7 +313,7 @@ func maintainerPullRequestRunnerOutputs(checkStatus, conclusion, reviewDecision 
 func TestRepoEventsDetectsPullRequestCIPendingToPassed(t *testing.T) {
 	runner := &maintainerFakeRunner{out: maintainerPullRequestRunnerOutputs("in_progress", "", "REVIEW_REQUIRED")}
 	tool := &waitForRepoEventsTool{runner: runner}
-	fleet := map[string]maintainerRepoFleetEvent{"implementer": {PullRequestURLs: []string{maintainerTestPullRequestURL}}}
+	fleet := map[string]maintainerRepoFleetEvent{maintainerTestFleetRunName: {PullRequestURLs: []string{maintainerTestPullRequestURL}}}
 
 	pending, err := tool.pullRequestEventsSnapshot(context.Background(), maintainerTestGitRepoDir(t), fleet)
 	if err != nil {
@@ -472,7 +474,7 @@ func TestWorkItemCurrentSnapshotPlusWatchCannotLoseCreate(t *testing.T) {
 	base.k8sClient = gapClient
 	tool := &waitForRepoEventsTool{maintainerToolBase: base}
 
-	baseline, err := tool.workItemEventsSnapshot(context.Background(), "")
+	baseline, err := tool.workItemEventsSnapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,11 +491,11 @@ func TestWorkItemCurrentSnapshotPlusWatchCannotLoseCreate(t *testing.T) {
 	previous := snapshotFromMaintainerRepoEventsCursor(decoded)
 	item := &triggersv1alpha1.MaintainerWorkItem{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "issue-7", Namespace: "default",
-			Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: "repo"},
+			Name: maintainerEventsTestWorkItemName, Namespace: maintainerTestNamespace,
+			Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: maintainerTestRepositoryName},
 		},
 		Spec: triggersv1alpha1.MaintainerWorkItemSpec{
-			RepositoryRef: corev1.LocalObjectReference{Name: "repo"}, IssueNumber: 7,
+			RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 7,
 			Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded,
 		},
 		Status: triggersv1alpha1.MaintainerWorkItemStatus{
@@ -508,9 +510,7 @@ func TestWorkItemCurrentSnapshotPlusWatchCannotLoseCreate(t *testing.T) {
 		// Starting the watch from that List's resourceVersion must replay it.
 		createErr = k8sClient.Create(context.Background(), item)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	currentBeforeCreate, watcher, err := tool.workItemSnapshotAndWatch(ctx)
+	currentBeforeCreate, watcher, err := tool.workItemSnapshotAndWatch(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +533,7 @@ func TestWorkItemCurrentSnapshotPlusWatchCannotLoseCreate(t *testing.T) {
 		t.Fatal("create between List and Watch was lost")
 	}
 
-	current, err := tool.workItemEventsSnapshot(context.Background(), "")
+	current, err := tool.workItemEventsSnapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +541,7 @@ func TestWorkItemCurrentSnapshotPlusWatchCannotLoseCreate(t *testing.T) {
 		t.Fatal("watched work-item snapshot did not detect creation")
 	}
 	changes := changedRepoWorkItemEvents(previous, current)
-	if len(changes) != 1 || changes[0].Name != "issue-7" || changes[0].IssueNumber != 7 || !changes[0].ObservationFresh || changes[0].ProjectionSequence != 3 {
+	if len(changes) != 1 || changes[0].Name != maintainerEventsTestWorkItemName || changes[0].IssueNumber != 7 || !changes[0].ObservationFresh || changes[0].ProjectionSequence != 3 {
 		t.Fatalf("work item changes = %#v", changes)
 	}
 	initial, err := tool.repoEventsResult(maintainerRepoEventsSnapshot{}, current, true, false, time.Time{}, false)
@@ -552,7 +552,7 @@ func TestWorkItemCurrentSnapshotPlusWatchCannotLoseCreate(t *testing.T) {
 	if err := json.Unmarshal([]byte(initial.Content), &initialOutput); err != nil {
 		t.Fatal(err)
 	}
-	if len(initialOutput.WorkItemChanges) != 1 || initialOutput.WorkItemChanges[0].Name != "issue-7" {
+	if len(initialOutput.WorkItemChanges) != 1 || initialOutput.WorkItemChanges[0].Name != maintainerEventsTestWorkItemName {
 		t.Fatalf("initial work item output = %#v", initialOutput.WorkItemChanges)
 	}
 	result, err := tool.repoEventsResult(previous, current, true, false, time.Time{}, true)
@@ -563,7 +563,7 @@ func TestWorkItemCurrentSnapshotPlusWatchCannotLoseCreate(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
 		t.Fatal(err)
 	}
-	if len(output.WorkItemChanges) != 1 || output.WorkItemChanges[0].Name != "issue-7" {
+	if len(output.WorkItemChanges) != 1 || output.WorkItemChanges[0].Name != maintainerEventsTestWorkItemName {
 		t.Fatalf("work item output = %#v", output.WorkItemChanges)
 	}
 	acknowledged, err := decodeMaintainerRepoEventsCursor(output.Cursor)
@@ -577,7 +577,7 @@ func TestWorkItemCurrentSnapshotPlusWatchCannotLoseCreate(t *testing.T) {
 
 func TestWaitForRepoEventsFirstSnapshotIncludesPullRequestChanges(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	run.Status.Artifacts = &platformv1alpha1.AgentRunArtifacts{PullRequestURLs: []string{maintainerTestPullRequestURL}}
 	base, _, _ := newMaintainerToolBase(t, maintainer, run)
 	runner := &maintainerFakeRunner{out: maintainerPullRequestRunnerOutputs("completed", "success", "APPROVED")}
@@ -609,7 +609,7 @@ func TestWaitForRepoEventsFirstSnapshotIncludesPullRequestChanges(t *testing.T) 
 
 func TestWaitForRepoEventsDegradesOnFleetSnapshotError(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
 	stateStore.sessionErr = errors.New("state store unavailable")
 	runner := &maintainerFakeRunner{out: map[string]string{
@@ -711,7 +711,7 @@ func TestPullRequestEventKeepsUnknownMergeabilityDistinct(t *testing.T) {
 
 func TestWaitForRepoEventsSkipsPullRequestPollingWhileFleetDegraded(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
 	stateStore.sessionErr = errors.New("state store unavailable")
 	runner := &maintainerFakeRunner{out: map[string]string{
