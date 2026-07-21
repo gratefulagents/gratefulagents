@@ -522,8 +522,10 @@ jobs:
           # Fetch the exact draft explicitly: unauthenticated and ordinary
           # release listings omit drafts, including the release being built.
           # /releases/tags/{tag} only resolves published releases (requires a
-          # git tag); use the release ID instead so this works for drafts too.
-          RELEASE_ID="$(gh release view "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --json id --jq .id)"
+          # git tag). The `id` JSON field is a GraphQL node ID, but this REST
+          # endpoint needs the numeric ID embedded in `apiUrl`.
+          RELEASE_API_URL="$(gh release view "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --json apiUrl --jq .apiUrl)"
+          RELEASE_ID="${RELEASE_API_URL##*/}"
           gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "${CURRENT_RELEASE}"
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "${RELEASE_PAGES}"
           jq \
