@@ -103,7 +103,12 @@ markers in the reported files, then git_commit and git_push (git_merge_abort
 abandons a conflicted merge; git_status shows sync/conflict state).%s%s`,
 		cfg.BaseBranch, branchName, sessionModeNotes, mode, parentRefJSON, cfg.RepoDir,
 		additionalRepoContextLine(cfg.AdditionalRepoURLs), workspaceScratchDir, parallelToolCallingOneLiner,
-		cfg.RepoDir, workspaceScratchDir, branchName, gitRemoteWritePromptSection(cfg.GitRemoteWrites), kubernetesAdminPromptSection(cfg.KubernetesAdmin))
+		cfg.RepoDir,
+		workspaceScratchDir,
+		branchName,
+		gitRemoteWritePromptSection(cfg.GitRemoteWrites),
+		kubernetesAdminPromptSection(cfg.KubernetesAdmin),
+	)
 
 	log.Println("Setup complete.")
 	return nil

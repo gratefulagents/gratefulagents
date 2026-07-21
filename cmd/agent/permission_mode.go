@@ -115,7 +115,9 @@ func resolveRunPermissionMode(
 				return restrictivePermissionFallback(reason, false)
 			}
 			mode := agentpolicy.NormalizePermissionMode(string(rp.Spec.Security.PermissionMode))
-			gitRemoteWrites := agentpolicy.NormalizeGitRemoteWrites(agentpolicy.GitRemoteWrites(rp.Spec.Security.GitRemoteWrites))
+			gitRemoteWrites := agentpolicy.NormalizeGitRemoteWrites(
+				agentpolicy.GitRemoteWrites(rp.Spec.Security.GitRemoteWrites),
+			)
 			res := permissionResolution{Mode: mode, GitRemoteWrites: gitRemoteWrites}
 			if mode == agentpolicy.PermissionModeReadOnly {
 				res.Reason = fmt.Sprintf("RuntimeProfile %s sets permissionMode read-only", rpKey)

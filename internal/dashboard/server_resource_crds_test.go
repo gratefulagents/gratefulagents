@@ -9,11 +9,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
+)
+
+const (
+	runtimeProfileWorkspaceWrite = "workspace-write"
+	runtimeProfileRestricted     = "restricted"
 )
 
 func resourceActorContext(subject, role, name string) context.Context {
@@ -26,8 +30,14 @@ func TestRuntimeProfileCRUDUsesPersonalNamespace(t *testing.T) {
 	srv := &Server{k8sClient: c, scheme: scheme}
 	ctx := resourceActorContext("alice-id", "member", "Alice Smith")
 
+	gitRemoteWrites := string(platformv1alpha1.GitRemoteWritesDisabled)
+	const profileName = "git-policy-profile"
 	created, err := srv.CreateRuntimeProfile(ctx, &platform.CreateRuntimeProfileRequest{Profile: &platform.RuntimeProfile{
-		Name: "default", PermissionMode: "workspace-write", GitRemoteWrites: ptr.To("disabled"), EgressMode: "restricted", DefaultTimeout: "5m",
+		Name:               profileName,
+		PermissionMode:     runtimeProfileWorkspaceWrite,
+		GitRemoteWrites:    &gitRemoteWrites,
+		EgressMode:         runtimeProfileRestricted,
+		DefaultTimeout:     "5m",
 		SandboxTemplateRef: "browser-template", RuntimeClassName: "gvisor", WarmPoolRef: "browser-pool",
 		PersistWorkspace: true, WorkspaceSize: "10Gi", EnablePrivateProcfs: true,
 		CommandPath: []string{"/usr/bin"}, CommandPathPrepend: []string{"/opt/bin"}, CommandPathAppend: []string{"/workspace/repo/node_modules/.bin"},
@@ -43,13 +53,15 @@ func TestRuntimeProfileCRUDUsesPersonalNamespace(t *testing.T) {
 		t.Fatalf("namespace = %q, want %q", created.Namespace, wantNS)
 	}
 	var saved platformv1alpha1.RuntimeProfile
-	if err := c.Get(context.Background(), types.NamespacedName{Name: "default", Namespace: wantNS}, &saved); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Name: profileName, Namespace: wantNS}, &saved); err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 	if saved.Spec.Sandbox == nil || !saved.Spec.Sandbox.EnablePrivateProcfs || saved.Spec.Sandbox.SandboxTemplateRef == nil || saved.Spec.Sandbox.SandboxTemplateRef.Name != "browser-template" || saved.Spec.Sandbox.RuntimeClassName != "gvisor" || saved.Spec.Sandbox.WarmPoolRef == nil || saved.Spec.Sandbox.WarmPoolRef.Name != "browser-pool" || saved.Spec.Sandbox.CommandSandbox == nil || len(saved.Spec.Sandbox.CommandSandbox.ExtraWritablePaths) != 2 || saved.Spec.Sandbox.CommandSandbox.ExtraWritablePaths[0] != "/cache/go" || saved.Spec.Sandbox.CommandSandbox.Env["LANG"] != "C.UTF-8" {
 		t.Fatalf("saved sandbox = %#v, want all dashboard sandbox values", saved.Spec.Sandbox)
 	}
-	if saved.Spec.Security == nil || saved.Spec.Security.GitRemoteWrites != platformv1alpha1.GitRemoteWritesDisabled || created.GetGitRemoteWrites() != "disabled" {
+	if saved.Spec.Security == nil ||
+		saved.Spec.Security.GitRemoteWrites != platformv1alpha1.GitRemoteWritesDisabled ||
+		created.GetGitRemoteWrites() != string(platformv1alpha1.GitRemoteWritesDisabled) {
 		t.Fatalf("Git remote writes did not round-trip: saved=%#v created=%q", saved.Spec.Security, created.GetGitRemoteWrites())
 	}
 	if saved.Spec.Resources == nil || saved.Spec.Resources.Requests.Cpu().String() != "500m" || saved.Spec.Resources.Limits.Memory().String() != "2Gi" {
@@ -176,7 +188,13 @@ func TestResourceCRDValidation(t *testing.T) {
 	cases := []error{}
 	_, err := srv.CreateRuntimeProfile(ctx, &platform.CreateRuntimeProfileRequest{Profile: &platform.RuntimeProfile{Name: "Bad Name", PermissionMode: "root", EgressMode: "restricted"}})
 	cases = append(cases, err)
-	_, err = srv.CreateRuntimeProfile(ctx, &platform.CreateRuntimeProfileRequest{Profile: &platform.RuntimeProfile{Name: "bad-git-policy", PermissionMode: "workspace-write", GitRemoteWrites: ptr.To("sometimes"), EgressMode: "restricted"}})
+	invalidGitRemoteWrites := "sometimes"
+	_, err = srv.CreateRuntimeProfile(ctx, &platform.CreateRuntimeProfileRequest{Profile: &platform.RuntimeProfile{
+		Name:            "bad-git-policy",
+		PermissionMode:  runtimeProfileWorkspaceWrite,
+		GitRemoteWrites: &invalidGitRemoteWrites,
+		EgressMode:      runtimeProfileRestricted,
+	}})
 	cases = append(cases, err)
 	_, err = srv.CreateRuntimeProfile(ctx, &platform.CreateRuntimeProfileRequest{Profile: &platform.RuntimeProfile{Name: "cache", PermissionMode: "workspace-write", EgressMode: "restricted", ExtraWritablePaths: []string{"/usr/local/cache"}}})
 	cases = append(cases, err)

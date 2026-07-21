@@ -24,6 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -114,6 +116,12 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if changed, err := r.ensureInitialized(ctx, run); err != nil {
+		return ctrl.Result{}, err
+	} else if changed {
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	if changed, err := r.syncResolvedGitRemoteWrites(ctx, run); err != nil {
 		return ctrl.Result{}, err
 	} else if changed {
 		return ctrl.Result{Requeue: true}, nil
@@ -796,6 +804,39 @@ func applySpecDefaults(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha
 	}
 }
 
+func resolvedGitRemoteWrites(runtimeProfile *platformv1alpha1.RuntimeProfile) string {
+	if runtimeProfile == nil {
+		return ""
+	}
+	if runtimeProfile.Spec.Security == nil || runtimeProfile.Spec.Security.PermissionMode == "" {
+		return string(platformv1alpha1.GitRemoteWritesDisabled)
+	}
+	return string(platformv1alpha1.NormalizeGitRemoteWrites(runtimeProfile.Spec.Security.GitRemoteWrites))
+}
+
+func (r *AgentRunReconciler) syncResolvedGitRemoteWrites(ctx context.Context, run *platformv1alpha1.AgentRun) (bool, error) {
+	if run == nil || run.Status.Phase == "" || run.Spec.RuntimeProfileRef == nil || strings.TrimSpace(run.Spec.RuntimeProfileRef.Name) == "" {
+		return false, nil
+	}
+	profile, err := resolveRuntimeProfileForRun(ctx, r.Client, run)
+	if err != nil {
+		return false, fmt.Errorf("resolving RuntimeProfile policy status: %w", err)
+	}
+	resolved := resolvedGitRemoteWrites(profile)
+	if run.Status.Policy != nil && run.Status.Policy.ResolvedGitRemoteWrites == resolved {
+		return false, nil
+	}
+	if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+		if fresh.Status.Policy == nil {
+			fresh.Status.Policy = &platformv1alpha1.AgentRunResolvedPolicy{}
+		}
+		fresh.Status.Policy.ResolvedGitRemoteWrites = resolved
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func applyStatusPolicyDefaults(run *platformv1alpha1.AgentRun, runtimeProfile *platformv1alpha1.RuntimeProfile, mcpPolicy *platformv1alpha1.MCPPolicy) {
 	if run == nil {
 		return
@@ -816,11 +857,11 @@ func applyStatusPolicyDefaults(run *platformv1alpha1.AgentRun, runtimeProfile *p
 		}
 		run.Status.Policy.ResolvedPermissionMode = string(resolved)
 	}
-	if runtimeProfile != nil && runtimeProfile.Spec.Security != nil {
+	if resolved := resolvedGitRemoteWrites(runtimeProfile); resolved != "" {
 		if run.Status.Policy == nil {
 			run.Status.Policy = &platformv1alpha1.AgentRunResolvedPolicy{}
 		}
-		run.Status.Policy.ResolvedGitRemoteWrites = string(platformv1alpha1.NormalizeGitRemoteWrites(runtimeProfile.Spec.Security.GitRemoteWrites))
+		run.Status.Policy.ResolvedGitRemoteWrites = resolved
 	}
 	if mcpPolicy != nil {
 		if run.Status.Policy == nil {
@@ -1373,9 +1414,29 @@ func projectStateIDForRun(run *platformv1alpha1.AgentRun) string {
 	return projectstate.ProjectID(run.Namespace, run.Spec.Repository.URL)
 }
 
+func (r *AgentRunReconciler) requestsForRuntimeProfile(ctx context.Context, obj client.Object) []reconcile.Request {
+	profile, ok := obj.(*platformv1alpha1.RuntimeProfile)
+	if !ok || profile == nil {
+		return nil
+	}
+	var runs platformv1alpha1.AgentRunList
+	if err := r.List(ctx, &runs, client.InNamespace(profile.Namespace)); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0)
+	for i := range runs.Items {
+		ref := runs.Items[i].Spec.RuntimeProfileRef
+		if ref != nil && ref.Name == profile.Name {
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&runs.Items[i])})
+		}
+	}
+	return requests
+}
+
 func (r *AgentRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.AgentRun{}).
+		Watches(&platformv1alpha1.RuntimeProfile{}, handler.EnqueueRequestsFromMapFunc(r.requestsForRuntimeProfile)).
 		Owns(&agentsandboxextensionsv1alpha1.SandboxClaim{}).
 		Owns(&corev1.Pod{}).
 		Named("agentrun").

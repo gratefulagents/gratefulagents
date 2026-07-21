@@ -623,7 +623,7 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	if updated.Status.Policy.ResolvedPermissionMode != "read-only" {
 		t.Fatalf("ResolvedPermissionMode = %q, want read-only", updated.Status.Policy.ResolvedPermissionMode)
 	}
-	if updated.Status.Policy.ResolvedGitRemoteWrites != "disabled" {
+	if updated.Status.Policy.ResolvedGitRemoteWrites != string(platformv1alpha1.GitRemoteWritesDisabled) {
 		t.Fatalf("ResolvedGitRemoteWrites = %q, want disabled", updated.Status.Policy.ResolvedGitRemoteWrites)
 	}
 	if len(updated.Status.Policy.ResolvedMCPServers) != 2 {
@@ -634,6 +634,54 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	}
 	if updated.Status.Phase != platformv1alpha1.AgentRunPhasePending {
 		t.Fatalf("Phase = %q, want %q", updated.Status.Phase, platformv1alpha1.AgentRunPhasePending)
+	}
+}
+
+func TestResolvedGitRemoteWritesUsesRestrictiveFallback(t *testing.T) {
+	profile := &platformv1alpha1.RuntimeProfile{Spec: platformv1alpha1.RuntimeProfileSpec{
+		Security: &platformv1alpha1.RuntimeProfileSecurity{GitRemoteWrites: platformv1alpha1.GitRemoteWritesEnabled},
+	}}
+	if got := resolvedGitRemoteWrites(profile); got != string(platformv1alpha1.GitRemoteWritesDisabled) {
+		t.Fatalf("resolvedGitRemoteWrites() = %q, want disabled for missing permissionMode", got)
+	}
+	profile.Spec.Security.PermissionMode = platformv1alpha1.PermissionModeWorkspaceWrite
+	if got := resolvedGitRemoteWrites(profile); got != string(platformv1alpha1.GitRemoteWritesEnabled) {
+		t.Fatalf("resolvedGitRemoteWrites() = %q, want enabled", got)
+	}
+}
+
+func TestSyncResolvedGitRemoteWritesRefreshesActiveRun(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "git-policy-status-run", Namespace: "default"},
+		Spec:       platformv1alpha1.AgentRunSpec{RuntimeProfileRef: &platformv1alpha1.NamedRef{Name: "runtime"}},
+		Status: platformv1alpha1.AgentRunStatus{
+			Phase:  platformv1alpha1.AgentRunPhaseRunning,
+			Policy: &platformv1alpha1.AgentRunResolvedPolicy{ResolvedGitRemoteWrites: "enabled"},
+		},
+	}
+	profile := &platformv1alpha1.RuntimeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "default"},
+		Spec: platformv1alpha1.RuntimeProfileSpec{Security: &platformv1alpha1.RuntimeProfileSecurity{
+			PermissionMode:  platformv1alpha1.PermissionModeWorkspaceWrite,
+			GitRemoteWrites: platformv1alpha1.GitRemoteWritesDisabled,
+		}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run, profile).Build()
+	r := &AgentRunReconciler{Client: c}
+	changed, err := r.syncResolvedGitRemoteWrites(context.Background(), run)
+	if err != nil || !changed {
+		t.Fatalf("syncResolvedGitRemoteWrites() changed=%v err=%v", changed, err)
+	}
+	var updated platformv1alpha1.AgentRun
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(run), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Status.Policy.ResolvedGitRemoteWrites; got != string(platformv1alpha1.GitRemoteWritesDisabled) {
+		t.Fatalf("resolved status = %q, want disabled", got)
 	}
 }
 

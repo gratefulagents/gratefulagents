@@ -93,7 +93,8 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		_ = sc.WriteActivity(ctx, "runtime_config", notice, nil)
 	}
 	if cfg.GitRemoteWrites == agentpolicy.GitRemoteWritesDisabled {
-		notice := "Git remote writes are disabled for this session; workspace edits, local commits, and remote reads remain available"
+		notice := "Git remote writes are disabled for this session; " +
+			"workspace edits, local commits, and remote reads remain available"
 		log.Printf("%s", notice)
 		_ = sc.WriteActivity(ctx, "runtime_config", notice, nil)
 	}
@@ -767,18 +768,31 @@ messageLoop:
 			// unrelated pod restart.
 			livePolicy := resolveRunPermissionMode(ctx, crdClient, activeRun, 1)
 			if livePolicy.Degraded {
-				log.Printf("ERROR: refusing to start turn %d: unable to verify live Git remote-write policy: %s", turnNumber, livePolicy.Reason)
-				return runResult{Status: "failed", Error: "unable to verify current Git remote-write policy; refusing to start another turn"}
+				log.Printf(
+					"ERROR: refusing to start turn %d: unable to verify live Git remote-write policy: %s",
+					turnNumber,
+					livePolicy.Reason,
+				)
+				return runResult{
+					Status: "failed",
+					Error:  "unable to verify current Git remote-write policy; refusing to start another turn",
+				}
 			}
 			liveGitRemoteWrites := agentpolicy.NormalizeGitRemoteWrites(livePolicy.GitRemoteWrites)
 			if liveGitRemoteWrites != cfg.GitRemoteWrites {
-				msg := fmt.Sprintf("Git remote-write policy changed to %s — restarting compute before handling this message", liveGitRemoteWrites)
+				msg := fmt.Sprintf(
+					"Git remote-write policy changed to %s — restarting compute before handling this message",
+					liveGitRemoteWrites,
+				)
 				log.Printf("Turn %d: %s", turnNumber, msg)
 				if err := patchAgentRunSpec(ctx, crdClient, cfg.TaskName, cfg.Namespace, func(fresh *platformv1alpha1.AgentRun) {
 					fresh.Spec.RestartRequests++
 				}); err != nil {
 					log.Printf("ERROR: failed to request compute restart for Git policy change: %v", err)
-					return runResult{Status: "failed", Error: "Git remote-write policy changed but compute restart could not be requested"}
+					return runResult{
+						Status: "failed",
+						Error:  "Git remote-write policy changed but compute restart could not be requested",
+					}
 				}
 				_ = sc.WriteActivity(ctx, "runtime_config", msg, nil)
 				return runResult{}
