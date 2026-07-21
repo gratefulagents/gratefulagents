@@ -222,6 +222,11 @@ type ProjectTriggerStatus struct {
 
 	// +optional
 	LastError string `json:"lastError,omitempty"`
+
+	// maintainer mirrors the generated GitHubRepository child's standing
+	// maintainer status (github triggers with a configured maintainer only).
+	// +optional
+	Maintainer *MaintainerStatus `json:"maintainer,omitempty"`
 }
 
 // ProjectStatus defines the observed state of Project.

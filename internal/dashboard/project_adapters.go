@@ -71,6 +71,7 @@ func projectTriggerToProto(trigger triggersv1alpha1.ProjectTrigger, status trigg
 		Type:               string(trigger.Type),
 		ObservedGeneration: status.ObservedGeneration,
 		LastError:          status.LastError,
+		MaintainerStatus:   maintainerStatusToProto(status.Maintainer),
 	}
 	if trigger.Enabled != nil {
 		enabled := *trigger.Enabled

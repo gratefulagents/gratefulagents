@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
 
@@ -33,12 +34,13 @@ func k8sAgentRunToProto(run *platformv1alpha1.AgentRun) *platform.AgentRun {
 	workflowMode := string(platformv1alpha1.WorkflowModeAuto)
 
 	pb := &platform.AgentRun{
-		Namespace:     run.Namespace,
-		Name:          run.Name,
-		WorkflowMode:  workflowMode,
-		ExecutionMode: string(run.Spec.ExecutionMode),
-		IntentTitle:   "", // Intent removed; title is seeded as first Postgres message
-		CreatedAtUnix: run.CreationTimestamp.Unix(),
+		Namespace:       run.Namespace,
+		Name:            run.Name,
+		WorkflowMode:    workflowMode,
+		ExecutionMode:   string(run.Spec.ExecutionMode),
+		IntentTitle:     "", // Intent removed; title is seeded as first Postgres message
+		CreatedAtUnix:   run.CreationTimestamp.Unix(),
+		StandingRunRole: strings.TrimSpace(run.Labels[orchestration.StandingRunRoleLabel]),
 	}
 
 	if run.Spec.Trigger.ExternalRef != nil {

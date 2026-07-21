@@ -570,6 +570,7 @@ func (r *ProjectReconciler) normalizedChildStatus(ctx context.Context, project *
 		status.Conditions = append([]metav1.Condition(nil), child.Status.Conditions...)
 		status.LastActivityTime = child.Status.LastPollTime
 		status.LastError = child.Status.LastError
+		status.Maintainer = child.Status.Maintainer.DeepCopy()
 	case *triggersv1alpha1.SlackAgent:
 		status.Conditions = append([]metav1.Condition(nil), child.Status.Conditions...)
 		status.LastActivityTime = child.Status.LastEventTime
