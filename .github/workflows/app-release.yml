@@ -100,8 +100,12 @@ jobs:
 
   website:
     name: GitHub Pages website
-    needs: release
-    if: github.ref == 'refs/heads/main'
+    needs:
+      - release
+      - publish-release
+    if: >-
+      ${{ always() && github.ref == 'refs/heads/main' && needs.release.result == 'success' &&
+      (needs.release.outputs.release_created != 'true' || needs.publish-release.result == 'success') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -401,16 +405,26 @@ jobs:
             echo "::error::Tauri iOS build completed without producing ${IPA}"
             exit 1
           fi
+
           ASSET="gratefulagents-${TAG_NAME}-ios-arm64-unsigned.ipa"
+          METADATA="gratefulagents-${TAG_NAME}-ios-arm64-altstore-metadata.json"
           cp "${IPA}" "${ASSET}"
-          gh release upload "${TAG_NAME}" "${ASSET}" --repo "${GITHUB_REPOSITORY}" --clobber
+          python3 scripts/extract-ios-ipa-metadata.py "${IPA}" \
+            --xcode-project-root platform-app/tauri/src-tauri/gen/apple \
+            --output "${METADATA}"
+          jq -e \
+            --arg bundle_id "dev.gratefulagents.app" \
+            '.schemaVersion == 1 and .bundleIdentifier == $bundle_id and (.version | length > 0) and (.buildVersion | length > 0)' \
+            "${METADATA}" > /dev/null
+
+          gh release upload "${TAG_NAME}" "${ASSET}" "${METADATA}" \
+            --repo "${GITHUB_REPOSITORY}" --clobber
 
   publish-release:
     name: Finalize release
     needs:
       - release
       - images
-      - website
       - desktop
       - android
       - ios
@@ -419,6 +433,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Build and upload updater manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -487,6 +507,50 @@ jobs:
             > latest.json
           gh release upload "${TAG_NAME}" latest.json --repo "${GITHUB_REPOSITORY}" --clobber
 
+      - name: Build and upload AltStore Classic source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.release.outputs.tag_name }}
+          APP_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          CURRENT_RELEASE="${RUNNER_TEMP}/current-release.json"
+          RELEASE_PAGES="${RUNNER_TEMP}/release-pages.json"
+          RELEASES="${RUNNER_TEMP}/altstore-releases.json"
+          METADATA_DIR="${RUNNER_TEMP}/altstore-metadata"
+          mkdir -p "${METADATA_DIR}"
+
+          # Fetch the exact draft explicitly: unauthenticated and ordinary
+          # release listings omit drafts, including the release being built.
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG_NAME}" > "${CURRENT_RELEASE}"
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "${RELEASE_PAGES}"
+          jq \
+            --slurpfile current "${CURRENT_RELEASE}" \
+            '[ $current[0], (.[][] | select(.tag_name != $current[0].tag_name)) ]' \
+            "${RELEASE_PAGES}" > "${RELEASES}"
+
+          while IFS=$'\t' read -r asset_id asset_name; do
+            gh api \
+              -H 'Accept: application/octet-stream' \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
+              > "${METADATA_DIR}/${asset_name}"
+          done < <(
+            jq -r \
+              '.[] | .assets[] | select(.name | test("^gratefulagents-v[0-9A-Za-z.+-]+-ios-arm64-altstore-metadata\\.json$")) | [.id, .name] | @tsv' \
+              "${RELEASES}"
+          )
+
+          node scripts/generate-altstore-source.mjs \
+            --releases "${RELEASES}" \
+            --metadata-dir "${METADATA_DIR}" \
+            --current-tag "${TAG_NAME}" \
+            --output altstore-source.json
+          jq -e \
+            --arg version "${APP_VERSION}" \
+            '.apps | length == 1 and .[0].bundleIdentifier == "dev.gratefulagents.app" and .[0].versions[0].version == $version' \
+            altstore-source.json > /dev/null
+          gh release upload "${TAG_NAME}" altstore-source.json \
+            --repo "${GITHUB_REPOSITORY}" --clobber
+
       - name: Publish completed release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -512,4 +576,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ needs.release.outputs.tag_name }}
-        run: gh release delete "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
+        run: |
+          if ! release_state="$(gh release view "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft)"; then
+            echo "Release ${TAG_NAME} no longer exists; nothing to clean up."
+            exit 0
+          fi
+          if [ "${release_state}" != "true" ]; then
+            echo "::warning::Release ${TAG_NAME} is already published; refusing to delete it."
+            exit 0
+          fi
+          gh release delete "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes

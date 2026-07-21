@@ -16,7 +16,7 @@ Complete these in order:
 
 1. **Install GratefulAgents.** Use [Kind](./self-hosting-kind.md) for local evaluation on a macOS or Linux laptop. Use [k3s](./self-hosting-k3s.md) for a dedicated Debian or Ubuntu server and the Internet-facing path.
 2. **Publish and protect k3s.** Follow [Publish securely with Cloudflare](./cloudflare-access.md) to create a public HTTPS hostname, protect it with Cloudflare Access, and create service-token credentials for installed apps. Keep the origin dashboard port closed to the Internet.
-3. **Distribute a client.** Give users the HTTPS Operator URL and, when needed, device-specific Cloudflare Access credentials. Follow [Install mobile and desktop apps](./web-desktop-workspaces.md); the published iOS IPA is unsigned and must be signed before installation, and the Android APK is a debug build for sideloading.
+3. **Distribute a client.** Give users the HTTPS Operator URL and, when needed, device-specific Cloudflare Access credentials. Follow [Install mobile and desktop apps](./web-desktop-workspaces.md); AltStore Classic signs the published iOS IPA for each user's device, and the Android APK is a debug build for sideloading.
 
 ### I am joining an existing workspace
 
