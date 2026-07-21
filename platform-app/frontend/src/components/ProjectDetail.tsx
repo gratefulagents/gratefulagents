@@ -153,6 +153,7 @@ export function ProjectDetail() {
                 )}
                 {canEdit && (
                   <CreateRunDialog
+                    key={`${project.namespace}/${project.name}`}
                     defaultSource={project.name}
                     defaultNamespace={project.namespace}
                   />

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { ProjectDetail } from "@/components/ProjectDetail";
 
@@ -9,7 +9,17 @@ const { useProjects } = vi.hoisted(() => ({ useProjects: vi.fn() }));
 vi.mock("@/hooks/useWatchedList", () => ({ useProjects }));
 vi.mock("@/hooks/useAgentRuns", () => ({ useAgentRuns: () => ({ runs: [], loading: false }) }));
 vi.mock("@/components/ProjectSettingsDialog", () => ({ ProjectSettingsDialog: () => null }));
-vi.mock("@/components/CreateRunDialog", () => ({ CreateRunDialog: () => null }));
+vi.mock("@/components/CreateRunDialog", async () => {
+  const { useState } = await import("react");
+  return {
+    CreateRunDialog: ({ defaultSource }: { defaultSource: string }) => {
+      // Mirror the real dialog's mount-scoped form initialization so route
+      // reuse regressions are visible in this parent integration test.
+      const [mountedSource] = useState(defaultSource);
+      return <div data-testid="create-run-project">{mountedSource}</div>;
+    },
+  };
+});
 vi.mock("@/components/project-content/ProjectContentSection", () => ({
   ProjectContentSection: () => <div data-testid="project-content-section" />,
 }));
@@ -101,6 +111,49 @@ describe("ProjectDetail triggers", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Configuration" }));
     expect(screen.getByRole("heading", { name: "Configuration" })).toBeTruthy();
+  });
+
+  it("remounts New Run with the current project when the project route changes", () => {
+    useProjects.mockReturnValue({
+      projects: [
+        {
+          namespace: "team",
+          name: "alpha",
+          displayName: "Alpha",
+          additionalRepoUrls: [],
+          allowedModels: [],
+          mcpPolicyAllowedServers: [],
+          metrics: {},
+          triggers: [],
+        },
+        {
+          namespace: "team",
+          name: "beta",
+          displayName: "Beta",
+          additionalRepoUrls: [],
+          allowedModels: [],
+          mcpPolicyAllowedServers: [],
+          metrics: {},
+          triggers: [],
+        },
+      ],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects/team/alpha"]}>
+        <Link to="/projects/team/beta">Open Beta</Link>
+        <Routes>
+          <Route path="/projects/:namespace/:name" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId("create-run-project").textContent).toBe("alpha");
+    fireEvent.click(screen.getByRole("link", { name: "Open Beta" }));
+    expect(screen.getByTestId("create-run-project").textContent).toBe("beta");
   });
 
   it("opens the tab named in the URL", () => {
