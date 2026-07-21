@@ -70,9 +70,48 @@ describe("NewChatComposer", () => {
       userRequest: "Summarize our launch notes",
       model: "",
       source: { kind: "Project", name: "briefs" },
+      imageDataUrls: [],
     }));
     expect(client.createProject).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith("/runs/team/run-1");
+  });
+
+  it("starts an image-only chat from an attached file", async () => {
+    watched.projects = [{ namespace: "team", name: "briefs", displayName: "Briefs" }];
+    vi.mocked(client.createAgentRun).mockResolvedValue({ namespace: "team", name: "run-image" } as never);
+
+    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
+    const image = new File([new Uint8Array([1, 2, 3])], "diagram.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Choose images"), { target: { files: [image] } });
+
+    expect(await screen.findByAltText("diagram.png")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(client.createAgentRun).toHaveBeenCalledWith({
+      namespace: "team",
+      userRequest: "",
+      model: "",
+      source: { kind: "Project", name: "briefs" },
+      imageDataUrls: ["data:image/png;base64,AQID"],
+    }));
+    expect(navigate).toHaveBeenCalledWith("/runs/team/run-image");
+  });
+
+  it("accepts pasted images and lets the user remove them", async () => {
+    watched.projects = [{ namespace: "team", name: "briefs", displayName: "Briefs" }];
+
+    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
+    const image = new File([new Uint8Array([1, 2, 3])], "pasted.png", { type: "image/png" });
+    fireEvent.paste(screen.getByPlaceholderText("Describe a task, or ask anything…"), {
+      clipboardData: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => image }],
+      },
+    });
+
+    expect(await screen.findByAltText("pasted.png")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove pasted.png" }));
+    expect(screen.queryByAltText("pasted.png")).toBeNull();
+    expect(screen.getByRole("button", { name: "Start" })).toHaveProperty("disabled", true);
   });
 
   it("provisions a repository-free personal workspace for a first chat", async () => {
@@ -119,6 +158,7 @@ describe("NewChatComposer", () => {
       userRequest: "Draft a client update",
       model: "",
       source: { kind: "Project", name: "personal-workspace" },
+      imageDataUrls: [],
     });
     expect(navigate).toHaveBeenCalledWith("/runs/alice-123/run-1");
   });
