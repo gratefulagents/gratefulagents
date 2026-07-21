@@ -918,6 +918,11 @@ spec:
                       type: string
                     type: array
                     x-kubernetes-list-type: atomic
+                  resolvedGitRemoteWrites:
+                    description: |-
+                      ResolvedGitRemoteWrites reports whether remote Git mutations are enabled
+                      after RuntimeProfile defaults are applied.
+                    type: string
                   resolvedMcpServers:
                     items:
                       type: string

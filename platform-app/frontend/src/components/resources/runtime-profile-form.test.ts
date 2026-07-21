@@ -10,6 +10,7 @@ describe("runtime profile form", () => {
   it("hydrates every structured runtime profile field for editing", () => {
     const form = runtimeProfileFormFromRow({
       name: "build",
+      gitRemoteWrites: "disabled",
       enablePrivateProcfs: true,
       commandPath: ["/usr/bin", "/opt/bin"],
       extraWritablePaths: ["/cache/go", "/cache/cargo"],
@@ -21,6 +22,7 @@ describe("runtime profile form", () => {
       perNamespaceMaxConcurrentRuns: 2,
       staleRunTimeout: "30m0s",
     });
+    expect(form.gitRemoteWrites).toBe("disabled");
     expect(form.enablePrivateProcfs).toBe(true);
     expect(form.commandPath).toBe("/usr/bin\n/opt/bin");
     expect(form.extraWritablePaths).toBe("/cache/go\n/cache/cargo");

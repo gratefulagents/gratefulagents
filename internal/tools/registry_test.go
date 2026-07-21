@@ -150,6 +150,32 @@ func TestNewRegistry_WorkspaceWriteUsesRestrictedBash(t *testing.T) {
 	}
 }
 
+func TestNewRegistry_DisabledGitRemoteWritesBlocksPushButKeepsWorkspaceWrites(t *testing.T) {
+	r := NewRegistry(t.TempDir(),
+		WithPermissionMode(policy.PermissionModeWorkspaceWrite),
+		WithGitRemoteWrites(policy.GitRemoteWritesDisabled),
+	)
+	for _, name := range []string{"Bash", "Edit", "Write"} {
+		if r.Get(name) == nil {
+			t.Fatalf("no-push workspace-write registry missing %q", name)
+		}
+	}
+	for _, name := range []string{"git_push", "create_pull_request"} {
+		r.Register(&duplicateNameTool{name: name})
+		if r.Get(name) != nil {
+			t.Fatalf("no-push registry retained remote-write tool %q", name)
+		}
+	}
+
+	result, err := r.Get("Bash").Execute(context.Background(), json.RawMessage(`{"command":"git push origin feature"}`), t.TempDir())
+	if err != nil {
+		t.Fatalf("Bash.Execute() error = %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("git push result = %#v, want policy error", result)
+	}
+}
+
 type nonReadOnlyTestTool struct{}
 
 func (t *nonReadOnlyTestTool) Name() string        { return "NonReadOnlyTestTool" }

@@ -47,6 +47,7 @@ The form rejects a saved-credential choice when no usable saved credential exist
 | **Timeout** | Optional maximum runtime duration, such as `30m`. |
 | **RuntimeProfile ref** | References a reusable runtime profile. With **Create/update a RuntimeProfile** enabled, the Project settings also set its permission mode and network egress. |
 | **Permission mode** | `read-only`, `workspace-write`, or `danger-full-access`. |
+| **Git remote writes** | `enabled` (default) or `disabled`. Disabling removes push and pull-request creation tools and rejects `git push` from shell tools while preserving workspace edits, local commits, fetches, and pulls. |
 | **Network egress** | `unrestricted`, `restricted`, or `disabled`. |
 | **MCP servers** | Attaches server configurations to Project runs. |
 | **Skills** | Attaches reusable agent skills to Project runs. |

@@ -25,6 +25,7 @@ import (
 	sdkguardrails "github.com/gratefulagents/sdk/pkg/agentsdk/guardrails"
 	sdkmcp "github.com/gratefulagents/sdk/pkg/agentsdk/mcp"
 	sdkmode "github.com/gratefulagents/sdk/pkg/agentsdk/mode"
+	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 	sdkruntime "github.com/gratefulagents/sdk/pkg/agentsdk/runtime"
 	sdksandbox "github.com/gratefulagents/sdk/pkg/agentsdk/sandbox"
 	metaharness "github.com/gratefulagents/sdk/pkg/agentsdk/tracestore"
@@ -91,6 +92,12 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		log.Printf("%s", notice)
 		_ = sc.WriteActivity(ctx, "runtime_config", notice, nil)
 	}
+	if cfg.GitRemoteWrites == agentpolicy.GitRemoteWritesDisabled {
+		notice := "Git remote writes are disabled for this session; " +
+			"workspace edits, local commits, and remote reads remain available"
+		log.Printf("%s", notice)
+		_ = sc.WriteActivity(ctx, "runtime_config", notice, nil)
+	}
 
 	// Spend recorded by earlier provisioning sessions of this run; captured
 	// once before this process starts publishing metrics so progress ticks can
@@ -107,6 +114,7 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	var registryOpts []tools.RegistryOption
 	registryOpts = append(registryOpts,
 		tools.WithPermissionMode(cfg.PermissionMode),
+		tools.WithGitRemoteWrites(cfg.GitRemoteWrites),
 		tools.WithSignalTools(),
 		// Register the provider-neutral tool shell here. The SDK runtime attaches
 		// the configured OpenAI vision analyzer when it builds the agent.
@@ -332,6 +340,7 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	runtimeCfg.ToolAccess = runtimeToolAccess
 	runtimeCfg.AllowedMutatingTools = effectiveAllowedMutatingTools(run)
 	runtimeCfg.PermissionMode = cfg.PermissionMode
+	runtimeCfg.GitRemoteWrites = cfg.GitRemoteWrites
 	// Explicit feature selection (SDK v0.0.7+): the operator brings its own
 	// tool registry, signal tools, MCP manager, and guardrail rules, so only
 	// ExtraTools, vision attachment, specialists, and project state are
@@ -753,6 +762,42 @@ messageLoop:
 				return runResult{}
 			}
 
+			// Git remote-write policy is baked into the registry and command
+			// sandbox. Re-resolve it before every turn so a RuntimeProfile
+			// restriction acts as a revocation rather than waiting for an
+			// unrelated pod restart.
+			livePolicy := resolveRunPermissionMode(ctx, crdClient, activeRun, 1)
+			if livePolicy.Degraded {
+				log.Printf(
+					"ERROR: refusing to start turn %d: unable to verify live Git remote-write policy: %s",
+					turnNumber,
+					livePolicy.Reason,
+				)
+				return runResult{
+					Status: "failed",
+					Error:  "unable to verify current Git remote-write policy; refusing to start another turn",
+				}
+			}
+			liveGitRemoteWrites := agentpolicy.NormalizeGitRemoteWrites(livePolicy.GitRemoteWrites)
+			if liveGitRemoteWrites != cfg.GitRemoteWrites {
+				msg := fmt.Sprintf(
+					"Git remote-write policy changed to %s — restarting compute before handling this message",
+					liveGitRemoteWrites,
+				)
+				log.Printf("Turn %d: %s", turnNumber, msg)
+				if err := patchAgentRunSpec(ctx, crdClient, cfg.TaskName, cfg.Namespace, func(fresh *platformv1alpha1.AgentRun) {
+					fresh.Spec.RestartRequests++
+				}); err != nil {
+					log.Printf("ERROR: failed to request compute restart for Git policy change: %v", err)
+					return runResult{
+						Status: "failed",
+						Error:  "Git remote-write policy changed but compute restart could not be requested",
+					}
+				}
+				_ = sc.WriteActivity(ctx, "runtime_config", msg, nil)
+				return runResult{}
+			}
+
 			// Self-heal a degraded read-only pod. When the startup fallback
 			// was caused by an API failure or race, re-resolve from the live
 			// CRDs before each turn: once resolution succeeds with a write
@@ -1086,6 +1131,7 @@ messageLoop:
 				MaxConcurrentSubAgents: mo.MaxConcurrentSubAgents,
 				ToolAccess:             toolAccessLevel,
 				AllowedMutatingTools:   effectiveAllowedMutatingTools(activeRun),
+				GitRemoteWrites:        cfg.GitRemoteWrites,
 				TracingProcessor:       tp,
 				Debug:                  cfg.Debug,
 				ModeDirectiveText:      modeDirectiveText,

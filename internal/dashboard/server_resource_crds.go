@@ -135,14 +135,22 @@ func runtimeProfileSpec(p *platform.RuntimeProfile) (platformv1alpha1.RuntimePro
 	if p.EgressMode != "unrestricted" && p.EgressMode != "restricted" && p.EgressMode != "disabled" {
 		return platformv1alpha1.RuntimeProfileSpec{}, invalidArgument("invalid egress_mode %q", p.EgressMode)
 	}
+	gitRemoteWrites := p.GetGitRemoteWrites()
+	if gitRemoteWrites == "" {
+		gitRemoteWrites = string(platformv1alpha1.GitRemoteWritesEnabled)
+	}
+	if gitRemoteWrites != string(platformv1alpha1.GitRemoteWritesEnabled) && gitRemoteWrites != string(platformv1alpha1.GitRemoteWritesDisabled) {
+		return platformv1alpha1.RuntimeProfileSpec{}, invalidArgument("invalid git_remote_writes %q", p.GetGitRemoteWrites())
+	}
 	defaultTimeout, err := positiveDuration("default_timeout", p.DefaultTimeout)
 	if err != nil {
 		return platformv1alpha1.RuntimeProfileSpec{}, err
 	}
 	security := &platformv1alpha1.RuntimeProfileSecurity{
-		PermissionMode: platformv1alpha1.PermissionMode(p.PermissionMode),
-		EgressMode:     platformv1alpha1.EgressMode(p.EgressMode),
-		DefaultTimeout: defaultTimeout,
+		PermissionMode:  platformv1alpha1.PermissionMode(p.PermissionMode),
+		GitRemoteWrites: platformv1alpha1.GitRemoteWrites(gitRemoteWrites),
+		EgressMode:      platformv1alpha1.EgressMode(p.EgressMode),
+		DefaultTimeout:  defaultTimeout,
 	}
 	if p.WorkspaceSize != "" {
 		if !regexp.MustCompile(`^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|m|k|M|G|T|P|E)?$`).MatchString(p.WorkspaceSize) {
@@ -245,6 +253,8 @@ func runtimeProfileToProto(v *platformv1alpha1.RuntimeProfile) *platform.Runtime
 	p := &platform.RuntimeProfile{Name: v.Name, Namespace: v.Namespace}
 	if v.Spec.Security != nil {
 		p.PermissionMode = string(v.Spec.Security.PermissionMode)
+		gitRemoteWrites := string(platformv1alpha1.NormalizeGitRemoteWrites(v.Spec.Security.GitRemoteWrites))
+		p.GitRemoteWrites = &gitRemoteWrites
 		p.EgressMode = string(v.Spec.Security.EgressMode)
 		if v.Spec.Security.DefaultTimeout.Duration != 0 {
 			p.DefaultTimeout = v.Spec.Security.DefaultTimeout.Duration.String()
@@ -365,6 +375,11 @@ func (s *Server) UpdateRuntimeProfile(ctx context.Context, req *platform.UpdateR
 		return nil, mapK8sError("read RuntimeProfile", e)
 	}
 	if req.Profile.ReplaceSpec {
+		// Presence-aware security fields must survive updates from older clients
+		// that replace the spec but do not know about the field.
+		if req.Profile.GitRemoteWrites == nil && v.Spec.Security != nil {
+			spec.Security.GitRemoteWrites = v.Spec.Security.GitRemoteWrites
+		}
 		// Container resource-claim references are not dashboard-owned because
 		// RuntimeProfile cannot yet describe the matching pod-level sources.
 		// Preserve externally managed references while replacing every field the

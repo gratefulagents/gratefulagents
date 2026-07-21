@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 )
 
 // newBareOrigin creates a bare origin named <name>.git with one seeded commit
@@ -148,6 +150,18 @@ func TestCloneAdditionalReposRepoless(t *testing.T) {
 	// scratch workspace root.
 	if _, err := os.Stat(filepath.Join(repoDir, ".git")); !os.IsNotExist(err) {
 		t.Fatalf(".git in repoless workspace root: err=%v, want not exist", err)
+	}
+}
+
+func TestGitRemoteWritePromptSection(t *testing.T) {
+	if got := gitRemoteWritePromptSection(agentpolicy.GitRemoteWritesEnabled); got != "" {
+		t.Fatalf("enabled policy prompt = %q, want empty", got)
+	}
+	got := gitRemoteWritePromptSection(agentpolicy.GitRemoteWritesDisabled)
+	for _, want := range []string{"remote writes are disabled", "git_push", "create_pull_request", "local commits"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("disabled policy prompt = %q, want containing %q", got, want)
+		}
 	}
 }
 

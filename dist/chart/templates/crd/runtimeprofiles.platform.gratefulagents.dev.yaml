@@ -226,6 +226,15 @@ spec:
                                             - restricted
                                             - disabled
                                         type: string
+                                    gitRemoteWrites:
+                                        description: |-
+                                            GitRemoteWrites controls whether the agent may push to Git remotes,
+                                            including through built-in tools, compound PR tools, and shell commands.
+                                            Defaults to enabled for backward compatibility.
+                                        enum:
+                                            - enabled
+                                            - disabled
+                                        type: string
                                     permissionMode:
                                         description: PermissionMode defines the runtime mutability boundary.
                                         enum:

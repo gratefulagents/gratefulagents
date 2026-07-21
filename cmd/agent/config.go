@@ -56,8 +56,11 @@ type runConfig struct {
 	TaskContext               string                     // Operator task context injected into system prompt.
 	Debug                     bool                       // verbose logging (full instructions, tool I/O)
 	PermissionMode            agentpolicy.PermissionMode // resolved from RuntimeProfile; defaults to read-only
-	PermissionModeDegraded    bool                       // read-only fell out of a startup failure/race, not explicit config; re-checked per turn
-	PermissionModeReason      string                     // human-readable reason when the pod's base mode is read-only
+	// GitRemoteWrites is resolved from RuntimeProfile and defaults to enabled for compatibility.
+	GitRemoteWrites agentpolicy.GitRemoteWrites
+	// PermissionModeDegraded means read-only resulted from a startup failure/race, not explicit config.
+	PermissionModeDegraded bool
+	PermissionModeReason   string // human-readable reason when the pod's base mode is read-only
 }
 
 func loadRunConfig() (runConfig, error) {

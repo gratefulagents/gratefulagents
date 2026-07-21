@@ -117,8 +117,9 @@ func (s *Server) applyConfiguredRuntimeProfile(
 	}
 
 	security := &platformv1alpha1.RuntimeProfileSecurity{
-		PermissionMode: normalizeConfiguredPermissionMode(permissionMode),
-		EgressMode:     normalizeConfiguredEgressMode(egressMode),
+		PermissionMode:  normalizeConfiguredPermissionMode(permissionMode),
+		GitRemoteWrites: platformv1alpha1.GitRemoteWritesEnabled,
+		EgressMode:      normalizeConfiguredEgressMode(egressMode),
 	}
 
 	profile := &platformv1alpha1.RuntimeProfile{}
@@ -141,6 +142,11 @@ func (s *Server) applyConfiguredRuntimeProfile(
 		return &platformv1alpha1.NamedRef{Name: name}, true, nil
 	}
 
+	// This legacy project/trigger editor does not expose every RuntimeProfile
+	// security field. Preserve the independently managed remote-write policy.
+	if profile.Spec.Security != nil {
+		security.GitRemoteWrites = profile.Spec.Security.GitRemoteWrites
+	}
 	profile.Spec.Security = security
 	if err := s.k8sClient.Update(ctx, profile); err != nil {
 		return nil, false, mapK8sError("update RuntimeProfile", err)

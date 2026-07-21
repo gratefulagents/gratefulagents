@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gratefulagents/gratefulagents/internal/agentinfra"
+	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 )
 
 const workspaceScratchDir = "/workspace/scratch"
@@ -99,13 +100,29 @@ main/master/default branches.
 If your PR branch is behind origin, use git_pull; if it has merge conflicts
 with its base branch, use git_merge with the base branch, resolve the conflict
 markers in the reported files, then git_commit and git_push (git_merge_abort
-abandons a conflicted merge; git_status shows sync/conflict state).%s`,
+abandons a conflicted merge; git_status shows sync/conflict state).%s%s`,
 		cfg.BaseBranch, branchName, sessionModeNotes, mode, parentRefJSON, cfg.RepoDir,
 		additionalRepoContextLine(cfg.AdditionalRepoURLs), workspaceScratchDir, parallelToolCallingOneLiner,
-		cfg.RepoDir, workspaceScratchDir, branchName, kubernetesAdminPromptSection(cfg.KubernetesAdmin))
+		cfg.RepoDir,
+		workspaceScratchDir,
+		branchName,
+		gitRemoteWritePromptSection(cfg.GitRemoteWrites),
+		kubernetesAdminPromptSection(cfg.KubernetesAdmin),
+	)
 
 	log.Println("Setup complete.")
 	return nil
+}
+
+func gitRemoteWritePromptSection(mode agentpolicy.GitRemoteWrites) string {
+	if agentpolicy.NormalizeGitRemoteWrites(mode) != agentpolicy.GitRemoteWritesDisabled {
+		return ""
+	}
+	return `
+
+Git remote writes are disabled by runtime policy. Do not attempt to push or create a pull request.
+The git_push and create_pull_request tools are unavailable, and shell git push commands are blocked.
+Workspace edits, local commits, fetches, and pulls remain available.`
 }
 
 func remoteBranchExists(repoDir, branchName string) bool {
