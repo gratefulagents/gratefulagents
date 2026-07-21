@@ -221,7 +221,6 @@ func TestMonitorPodRunningPreservesInteractivePhases(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -2126,7 +2125,6 @@ func TestHandleWakeRequestPinsCurrentPhaseGate(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -2394,7 +2392,6 @@ func TestReconcileChildRunUsesWorkflowModeForInitialStep(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

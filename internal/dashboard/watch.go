@@ -181,7 +181,6 @@ func (s *Server) WatchAgentRuns(ctx context.Context, req *platform.WatchAgentRun
 		var batchBuilt bool
 		seen := make(map[string]struct{}, len(runs.Items))
 		for _, run := range runs.Items {
-			run := run
 			if !visible(&run) {
 				continue
 			}

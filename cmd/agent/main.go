@@ -12,7 +12,7 @@ var slackEntry = runSlack
 
 func runCLI(args []string, stderr io.Writer) int {
 	if len(args) < 2 {
-		fmt.Fprintln(stderr, "Usage: agent <run|slack>")
+		_, _ = fmt.Fprintln(stderr, "Usage: agent <run|slack>")
 		return 1
 	}
 
@@ -46,7 +46,7 @@ func runCLI(args []string, stderr io.Writer) int {
 		}
 		return 0
 	default:
-		fmt.Fprintf(stderr, "Unknown subcommand: %s\nUsage: agent <run|slack>\n", args[1])
+		_, _ = fmt.Fprintf(stderr, "Unknown subcommand: %s\nUsage: agent <run|slack>\n", args[1])
 		return 1
 	}
 }

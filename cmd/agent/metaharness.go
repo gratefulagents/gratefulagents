@@ -210,7 +210,7 @@ func buildMetaHarnessTraceArchive(traceDir string) ([]byte, error) {
 		if openErr != nil {
 			return openErr
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		// Copy at most the header size so a concurrent append cannot corrupt
 		// the archive framing.
 		if _, err := io.CopyN(tw, f, info.Size()); err != nil && err != io.EOF {
