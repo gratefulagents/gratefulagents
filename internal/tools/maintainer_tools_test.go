@@ -22,12 +22,16 @@ import (
 type maintainerTestStore struct {
 	store.StateStore
 	sessions    map[string]*store.Session
+	sessionErr  error
 	messages    []store.Message
 	activity    []store.ActivityEvent
 	activityErr error
 }
 
 func (s *maintainerTestStore) GetSessionByRun(_ context.Context, name, namespace string) (*store.Session, error) {
+	if s.sessionErr != nil {
+		return nil, s.sessionErr
+	}
 	return s.sessions[namespace+"/"+name], nil
 }
 

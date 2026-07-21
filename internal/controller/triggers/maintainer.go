@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -164,7 +165,12 @@ func (e *MaintainerEngine) Reconcile(ctx context.Context, gh *triggersv1alpha1.G
 			message = fmt.Sprintf("Maintainer resume: scheduled standup for %s/%s. Review the backlog and fleet with your tools, perform a health pass, then return to wait_for_repo_events.", gh.Spec.Owner, gh.Spec.Repo)
 		}
 		deliveryID := fmt.Sprintf("maintainer-resume-%d", now.Unix()/int64(maintainerResumeCooldown/time.Second))
-		if err := orchestration.WakeAgentRunOnce(ctx, e.Client, e.StateStore, standing.Namespace, standing.Name, message, deliveryID); err != nil {
+		// WakeOrNudgeAgentRunOnce bumps spec.wakeRequests only when the run's
+		// freshest phase is consumable by the run controller's wake handler; a
+		// Running run parked on durable idle input receives the session
+		// message alone, so no latent wake lingers and a phase transition
+		// racing this reconcile is still handled correctly.
+		if err := orchestration.WakeOrNudgeAgentRunOnce(ctx, e.Client, e.StateStore, standing.Namespace, standing.Name, message, deliveryID); err != nil {
 			return ctrl.Result{}, err
 		}
 		if err := e.markMaintainerResumed(ctx, client.ObjectKeyFromObject(standing), now); err != nil {
@@ -421,6 +427,11 @@ func (e *MaintainerEngine) maintainerRunWakeable(ctx context.Context, run *platf
 		return false, nil
 	}
 	session, err := e.StateStore.GetSessionByRun(ctx, run.Name, run.Namespace)
+	if errors.Is(err, store.ErrSessionNotFound) {
+		// A Running run without a durable session has not started its first
+		// episode; there is nothing to nudge yet and this is not an outage.
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("resolving standing maintainer session: %w", err)
 	}

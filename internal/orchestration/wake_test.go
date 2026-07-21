@@ -150,6 +150,43 @@ func TestWakeAgentRunOnceIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestWakeOrNudgeAgentRunOnceDecidesFromFreshPhase(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name             string
+		phase            platformv1alpha1.AgentRunPhase
+		wantWakeRequests int64
+	}{
+		{name: "running run gets session-only nudge", phase: platformv1alpha1.AgentRunPhaseRunning, wantWakeRequests: 0},
+		{name: "succeeded run gets a consumable wake", phase: platformv1alpha1.AgentRunPhaseSucceeded, wantWakeRequests: 1},
+		{name: "paused run gets a consumable wake", phase: platformv1alpha1.AgentRunPhasePaused, wantWakeRequests: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			scheme := runtime.NewScheme()
+			if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "primary", Namespace: "default"}}
+			run.Status.Phase = tc.phase
+			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(run).WithObjects(run).Build()
+			stateStore := &wakeTestStore{session: &store.Session{ID: uuid.New()}}
+			for range 2 {
+				if err := WakeOrNudgeAgentRunOnce(context.Background(), k8sClient, stateStore, run.Namespace, run.Name, "resume", "nudge-1"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			updated := &platformv1alpha1.AgentRun{}
+			if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(run), updated); err != nil {
+				t.Fatal(err)
+			}
+			if stateStore.appendCount != 1 || updated.Spec.WakeRequests != tc.wantWakeRequests || updated.Annotations[LastWakeDeliveryAnnotation] != "nudge-1" {
+				t.Fatalf("appends=%d wakeRequests=%d annotations=%#v, want %d wake requests", stateStore.appendCount, updated.Spec.WakeRequests, updated.Annotations, tc.wantWakeRequests)
+			}
+		})
+	}
+}
+
 func TestDeliverImmediateMessageMetadata(t *testing.T) {
 	t.Parallel()
 	stateStore := &wakeTestStore{session: &store.Session{ID: uuid.New()}}
