@@ -6,7 +6,7 @@ set -Eeuo pipefail
 AGENT_SANDBOX_VERSION="${AGENT_SANDBOX_VERSION:-v0.3.10}"
 CLOUDFLARE_TUNNEL_TOKEN="${CLOUDFLARE_TUNNEL_TOKEN:-}"
 DASHBOARD_SERVICE_TYPE="${DASHBOARD_SERVICE_TYPE:-LoadBalancer}"
-GRATEFULAGENTS_REF="${GRATEFULAGENTS_REF:-main}"
+GRATEFULAGENTS_REF="${GRATEFULAGENTS_REF:-}"
 GRATEFULAGENTS_REPOSITORY="${GRATEFULAGENTS_REPOSITORY:-gratefulagents/gratefulagents}"
 GRATEFULAGENTS_REPOSITORY_URL="${GRATEFULAGENTS_REPOSITORY_URL:-https://github.com/gratefulagents/gratefulagents.git}"
 HELM_VERSION="${HELM_VERSION:-v3.18.6}"
@@ -35,12 +35,12 @@ PostgreSQL/MinIO credentials are reused, and Helm upgrades the release.
 
 Environment overrides:
   AGENT_SANDBOX_VERSION   agent-sandbox release (default: v0.3.10)
-  CHART_DIR               local chart directory (auto-detected in a checkout)
+  CHART_DIR               local chart directory (default: matching release checkout)
   CLOUDFLARE_TUNNEL_TOKEN remotely-managed tunnel token; required the first time
                           INSTALL_CLOUDFLARE_WARP=1 is used
   DASHBOARD_SERVICE_TYPE  LoadBalancer, ClusterIP, or NodePort
                           (default: LoadBalancer)
-  GRATEFULAGENTS_REF      branch/tag cloned if no local chart exists (default: main)
+  GRATEFULAGENTS_REF      chart source branch/tag (default: resolved image release tag)
   GRATEFULAGENTS_REPOSITORY
                           GitHub owner/repository used to find the latest release
   HELM_VERSION            Helm version (default: v3.18.6)
@@ -53,7 +53,7 @@ Environment overrides:
   K3S_VERSION             exact k3s release, for example v1.33.5+k3s1
   NAMESPACE               release namespace (default: gratefulagents-system)
   RELEASE_NAME            Helm release name (default: gratefulagents)
-  SOURCE_DIR              source checkout used for chart/config files (auto-detected)
+  SOURCE_DIR              explicit local source checkout for chart/config files
   TIMEOUT                 Kubernetes/Helm timeout (default: 15m)
   SKIP_RESOURCE_CHECK=1   suppress minimum-resource warnings
 
@@ -208,9 +208,19 @@ helm_version="$(helm version --template '{{.Version}}')"
 [[ "$helm_version" == v3.* ]] || die "Helm 3 is required (found $helm_version)"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -z "$SOURCE_DIR" && -f "$script_dir/../dist/chart/Chart.yaml" ]]; then
-  SOURCE_DIR="$(cd "$script_dir/.." && pwd)"
+if [[ -z "$IMAGE_TAG" ]]; then
+  log "Finding the latest gratefulagents release"
+  IMAGE_TAG="$(GRATEFULAGENTS_REPOSITORY="$GRATEFULAGENTS_REPOSITORY" \
+    "$script_dir/latest-release-tag.sh")" || die "could not resolve the latest gratefulagents image tag"
 fi
+[[ "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || die "IMAGE_TAG is not a valid container image tag"
+
+# By default, install the chart and supporting manifests committed at the same
+# release tag as the application images. Do not silently use dist/chart from the
+# checkout that happens to contain this installer; it may be ahead of or behind
+# the release being deployed. Explicit local source/chart overrides remain useful
+# for development and custom builds.
+source_ref="${GRATEFULAGENTS_REF:-$IMAGE_TAG}"
 if [[ -z "$SOURCE_DIR" && -n "$CHART_DIR" ]]; then
   source_candidate="$(cd "$CHART_DIR/../.." 2>/dev/null && pwd || true)"
   if [[ -f "$source_candidate/dist/chart/Chart.yaml" ]]; then
@@ -218,8 +228,9 @@ if [[ -z "$SOURCE_DIR" && -n "$CHART_DIR" ]]; then
   fi
 fi
 if [[ -z "$SOURCE_DIR" ]]; then
-  log "Fetching gratefulagents $GRATEFULAGENTS_REF"
-  git clone --depth 1 --branch "$GRATEFULAGENTS_REF" "$GRATEFULAGENTS_REPOSITORY_URL" "$TMP_DIR/gratefulagents"
+  log "Fetching gratefulagents $source_ref for the matching Helm chart"
+  "$script_dir/fetch-k3s-source.sh" \
+    "$IMAGE_TAG" "$GRATEFULAGENTS_REF" "$GRATEFULAGENTS_REPOSITORY_URL" "$TMP_DIR/gratefulagents"
   SOURCE_DIR="$TMP_DIR/gratefulagents"
 fi
 SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
@@ -230,12 +241,6 @@ else
 fi
 [[ -f "$CHART_DIR/Chart.yaml" ]] || die "Helm chart not found at $CHART_DIR"
 
-if [[ -z "$IMAGE_TAG" ]]; then
-  log "Finding the latest gratefulagents release"
-  IMAGE_TAG="$(GRATEFULAGENTS_REPOSITORY="$GRATEFULAGENTS_REPOSITORY" \
-    "$script_dir/latest-release-tag.sh")" || die "could not resolve the latest gratefulagents image tag"
-fi
-[[ "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || die "IMAGE_TAG is not a valid container image tag"
 manager_image_repository="$IMAGE_REGISTRY/controller"
 manager_image="$manager_image_repository:$IMAGE_TAG"
 worker_image="$IMAGE_REGISTRY/worker:$IMAGE_TAG"

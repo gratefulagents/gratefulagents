@@ -42,7 +42,7 @@ The script requests sudo only for host-level changes. A root login also works. F
 make k3s-upgrade
 ```
 
-The installer preserves an existing k3s installation, selects the latest release tag for all three GHCR images, reapplies agent-sandbox, and runs `helm upgrade --install --atomic`. It disables active swap and saves the original `/etc/fstab` as `/etc/fstab.gratefulagents-backup` before its first swap change. It creates the login user's kubeconfig at `~/.kube/config`.
+The installer preserves an existing k3s installation, selects the latest release tag for all three GHCR images, fetches the Helm chart and supporting manifests from that same tag, reapplies agent-sandbox, and runs `helm upgrade --install --atomic`. It does not deploy the chart from whichever branch happens to be checked out. It disables active swap and saves the original `/etc/fstab` as `/etc/fstab.gratefulagents-backup` before its first swap change. It creates the login user's kubeconfig at `~/.kube/config`.
 
 Older versions of this installer created a registry in the `gratefulagents-registry` namespace and configured `127.0.0.1:5000` in k3s. The current installer does not use or remove those older resources automatically.
 
@@ -90,10 +90,10 @@ Set overrides before running the installer.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `AGENT_SANDBOX_VERSION` | `v0.3.10` | agent-sandbox release. |
-| `CHART_DIR` | `<source-dir>/dist/chart` | Chart directory. |
+| `CHART_DIR` | `<matching-release-source>/dist/chart` | Explicit local chart override. |
 | `CLOUDFLARE_TUNNEL_TOKEN` | empty | Remotely managed tunnel token; required on first connector deployment. |
 | `DASHBOARD_SERVICE_TYPE` | `LoadBalancer` | `LoadBalancer`, `ClusterIP`, or `NodePort`. |
-| `GRATEFULAGENTS_REF` | `main` | Branch or tag cloned only when a source checkout is not available. |
+| `GRATEFULAGENTS_REF` | selected `IMAGE_TAG` | Explicit source branch or tag override. |
 | `GRATEFULAGENTS_REPOSITORY` | `gratefulagents/gratefulagents` | GitHub repository queried for the latest release. |
 | `GRATEFULAGENTS_REPOSITORY_URL` | project GitHub URL | Repository cloned when no source checkout is available. |
 | `GITHUB_TOKEN` | empty | Optional GitHub token used when the unauthenticated API rate limit is insufficient. |
@@ -106,13 +106,13 @@ Set overrides before running the installer.
 | `NAMESPACE` | `gratefulagents-system` | Release namespace. |
 | `RELEASE_NAME` | `gratefulagents` | Helm release name. |
 | `SKIP_RESOURCE_CHECK` | `0` | Set to `1` to suppress minimum-resource warnings. |
-| `SOURCE_DIR` | auto-detected | Source checkout used for chart and optional connector configuration. |
+| `SOURCE_DIR` | matching release checkout | Explicit local source override used for the chart and optional connector configuration. |
 | `SERVER_IP` | node internal IP | Address printed in the dashboard URL for `LoadBalancer` or `NodePort`. |
 | `STATE_DIR` | `<login-home>/.config/gratefulagents` | Private installer state directory. |
 | `TIMEOUT` | `15m` | Kubernetes and Helm readiness timeout. |
 | `VALUES_FILE` | `<state-dir>/<release>-<namespace>-values.yaml` | Private persistent values file. |
 
-To reproduce a particular application release, set `IMAGE_TAG` to its version tag and use the matching chart revision. Pin `K3S_VERSION` only after validating that Kubernetes version with the selected release.
+To reproduce a particular application release, set `IMAGE_TAG` to its version tag; the installer automatically fetches the chart at that tag. Set `GRATEFULAGENTS_REF`, `SOURCE_DIR`, or `CHART_DIR` only when you intentionally need a different or local chart revision. Pin `K3S_VERSION` only after validating that Kubernetes version with the selected release.
 
 ## Cloudflare and network exposure
 

@@ -35,6 +35,7 @@ k3s-status: ## Show Kubernetes nodes, the application namespace, and workloads.
 .PHONY: test-installers
 test-installers: ## Run installer helper tests.
 	./scripts/latest-release-tag_test.sh
+	./scripts/install-k3s_test.sh
 
 .PHONY: docker-build-all docker-build docker-build-worker docker-build-injector
 docker-build-all: docker-build docker-build-worker docker-build-injector

@@ -88,6 +88,15 @@ jobs:
         working-directory: platform-app
         run: pnpm test
 
+  installer-tests:
+    name: Installer tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run installer tests
+        run: make test-installers
+
   altstore-source-tests:
     name: AltStore source tests
     runs-on: ubuntu-24.04
