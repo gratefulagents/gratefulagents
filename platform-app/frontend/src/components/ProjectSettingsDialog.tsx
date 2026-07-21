@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import {
   Blocks,
+  Bot,
   Cpu,
   FolderGit2,
   KeyRound,
@@ -29,6 +30,7 @@ import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
 import { ProjectReviewLoopOption } from "@/components/ProjectReviewLoopOption";
 import { MCPServerPicker } from "@/components/MCPServerPicker";
+import { ModeTemplateSelect } from "@/components/ModeTemplateSelect";
 import { UserSecretKeyPicker, UserSecretPicker, type UserSecretOption } from "@/components/UserSecretPicker";
 import {
   Chip,
@@ -72,6 +74,7 @@ type FormState = {
   authMode: "api-key" | "oauth";
   model: string;
   reasoningLevel: string;
+  modeRef: string;
   image: string;
   timeout: string;
   allowedModels: string;
@@ -121,6 +124,7 @@ function formFromProject(project: Project): FormState {
     authMode,
     model: project.model || "",
     reasoningLevel: project.reasoningLevel || "",
+    modeRef: project.modeRef || "",
     image: project.image || "",
     timeout: project.timeout || "",
     allowedModels: project.allowedModels.join(", "),
@@ -364,6 +368,9 @@ export function ProjectSettingsDialog({
         authMode: effectiveAuthMode,
         model: form.model.trim(),
         reasoningLevel: form.reasoningLevel,
+        // Omit an unchanged mode so name-only dashboard reads do not erase a
+        // version/channel pin configured through the Kubernetes API.
+        ...(form.modeRef.trim() !== project.modeRef.trim() ? { modeRef: form.modeRef.trim() } : {}),
         image: form.image.trim(),
         timeout: form.timeout.trim(),
         allowedModels,
@@ -687,6 +694,26 @@ export function ProjectSettingsDialog({
                     </FlowField>
                   </div>
                 ) : null}
+              </OptionRow>
+
+              <OptionRow
+                icon={Bot}
+                title="Default mode"
+                summary={form.modeRef.trim() || "Interactive"}
+                modified={form.modeRef.trim() !== initial.modeRef.trim()}
+              >
+                <FlowField
+                  id="project-settings-mode-ref"
+                  label="Mode template"
+                  hint="Sets the behavior and tool policy inherited by new runs in this project."
+                >
+                  <ModeTemplateSelect
+                    id="project-settings-mode-ref"
+                    value={form.modeRef}
+                    enabled={open}
+                    onChange={(value) => update("modeRef", value)}
+                  />
+                </FlowField>
               </OptionRow>
 
               <OptionRow
