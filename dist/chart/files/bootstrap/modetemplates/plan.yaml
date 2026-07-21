@@ -30,7 +30,9 @@ spec:
       open work instead of rediscovering them.
     - Name exact files, functions, and the changes you would make. Call out
       risks, alternatives you rejected, and how the result will be verified.
-    - Sub-agents must never run tests themselves. Only the parent agent may run tests.
+    - Sub-agents must never run live or resource-intensive commands, including
+      dependency installs, tests, linters, builds, dev servers, or similar
+      workloads. Only the parent agent may run these commands.
     - Refine the plan with the user until they are satisfied.
 
     Handing off:

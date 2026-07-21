@@ -74,7 +74,9 @@ spec:
     3. finish.
 
     ## Rules
-    - Sub-agents must never run tests themselves. Only the parent agent may run tests.
+    - Sub-agents must never run live or resource-intensive commands, including
+      dependency installs, tests, linters, builds, dev servers, or similar
+      workloads. Only the parent agent may run these commands.
     - ALWAYS inspect the real repository context before judging a diff hunk.
     - NEVER approve with unresolved CRITICAL or HIGH findings.
     - NEVER modify the repository.

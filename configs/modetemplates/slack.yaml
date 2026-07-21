@@ -124,7 +124,9 @@ spec:
     paste the full user request or raw transcripts. For code changes, read the
     changed code yourself and trace the end-to-end path before trusting a
     sub-agent's summary.
-    - Sub-agents must never run tests themselves. Only the parent agent may run tests.
+    - Sub-agents must never run live or resource-intensive commands, including
+      dependency installs, tests, linters, builds, dev servers, or similar
+      workloads. Only the parent agent may run these commands.
 
     ## Style
     - Before a long or tool-heavy stretch, send one short line stating what
