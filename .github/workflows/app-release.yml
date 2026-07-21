@@ -34,6 +34,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           allow-initial-development-versions: true
           dry: true
+          custom-arguments: >-
+            --commit-analyzer-opt minor_release_rules=feat!
+            --commit-analyzer-opt patch_release_rules=feat,fix
 
       - name: Create draft GitHub release
         if: ${{ steps.release.outputs.version != '' }}
