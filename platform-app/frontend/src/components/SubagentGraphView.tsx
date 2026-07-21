@@ -146,6 +146,7 @@ function NodeCard({
         "transition-[box-shadow,opacity,border-color] duration-[var(--dur-fast)]",
         "bg-card/95 backdrop-blur-sm",
         isRoot ? "border-border" : color.border,
+        node.status === "failed" && "border-destructive/70",
         onCritical && !selected && "border-[color:var(--color-primary)]/70",
         selected
           ? "shadow-[0_0_0_1px_var(--color-primary),0_0_0_5px_color-mix(in_oklch,var(--color-primary)_18%,transparent)]"
@@ -329,7 +330,7 @@ function GraphCanvas({
                   markerHeight="6"
                   orient="auto-start-reverse"
                 >
-                  <path d="M0,0 L8,4 L0,8 z" className="fill-border" />
+                  <path d="M0,0 L8,4 L0,8 z" className="fill-muted-foreground/70" />
                 </marker>
                 <marker
                   id="arrow-dep"
@@ -381,8 +382,8 @@ function GraphCanvas({
                         ? "stroke-[color:var(--color-primary)]"
                         : isDep
                           ? "stroke-amber-500"
-                          : "stroke-border",
-                      active ? "opacity-90" : criticalActive ? "opacity-10" : "opacity-20",
+                          : "stroke-muted-foreground/60",
+                      active ? "opacity-90" : criticalActive ? "opacity-10" : "opacity-45",
                     )}
                     strokeWidth={onCritical ? 2.5 : isDep ? 1.5 : 1.75}
                     strokeDasharray={isDep && !onCritical ? "4 4" : undefined}
@@ -438,7 +439,7 @@ function SummaryStrip({ graph, layout }: { graph: SubagentGraph; layout: Layout 
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {pill("agents", subagents)}
+      {pill("subagents", subagents)}
       {dependencies > 0 && pill("deps", dependencies)}
       {pill("tokens", formatTokens(totalTokens))}
       {running > 0 && pill("running", running, "text-[color:var(--color-primary)]")}
@@ -453,7 +454,7 @@ function Legend() {
     <div className="flex items-center gap-3 text-[10px] text-muted-foreground/80">
       <span className="inline-flex items-center gap-1">
         <svg width="22" height="8" className="overflow-visible">
-          <line x1="0" y1="4" x2="20" y2="4" className="stroke-border" strokeWidth="1.75" />
+          <line x1="0" y1="4" x2="20" y2="4" className="stroke-muted-foreground/60" strokeWidth="1.75" />
         </svg>
         spawned
       </span>

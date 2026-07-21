@@ -48,6 +48,7 @@ export function SubagentShell({
   status,
   title,
   liveLine,
+  resultPreview,
   metrics,
   timestamp,
   children,
@@ -57,6 +58,8 @@ export function SubagentShell({
   status: string;
   title: string;
   liveLine?: string;
+  /** One-line outcome shown on the collapsed card once the subagent finished. */
+  resultPreview?: string;
   metrics: string[];
   timestamp: bigint;
   children: ReactNode;
@@ -109,6 +112,11 @@ export function SubagentShell({
                 className={`size-1.5 animate-pulse rounded-full bg-current ${toneText.running}`}
               />
               {liveLine}
+            </span>
+          )}
+          {!isRunning && !open && resultPreview && (
+            <span className="mt-1 block truncate text-xs text-muted-foreground" title={resultPreview}>
+              {resultPreview}
             </span>
           )}
           {metrics.length > 0 && (
@@ -265,6 +273,7 @@ export const SubagentCard = memo(function SubagentCard({
       status={group.subagentStatus}
       title={title}
       liveLine={liveLine}
+      resultPreview={resultIsError ? "" : firstLine(resultContent)}
       metrics={metrics}
       timestamp={firstEntry.timestampUnix}
     >
@@ -371,6 +380,7 @@ export const InlineSubagentCard = memo(function InlineSubagentCard({
       status={isComplete ? "completed" : "running"}
       title={firstLine(parentEntry.message || parentEntry.input || "") || agentName}
       liveLine={isComplete ? "" : "working…"}
+      resultPreview={group.resultEntry?.isError ? "" : firstLine(group.resultEntry?.output || "")}
       metrics={metrics}
       timestamp={parentEntry.timestampUnix}
     >

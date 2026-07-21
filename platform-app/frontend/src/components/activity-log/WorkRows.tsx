@@ -5,7 +5,7 @@ import { RowDetail } from "./DetailPanes";
 import { useResolvedEntry } from "./detailContext";
 import { entryIdentity, workUnitKey } from "./feedModel";
 import type { WorkItem, WorkUnit } from "./types";
-import { computeStats, liveVerb, statsSummary } from "./workStats";
+import { computeStats, liveVerb, statsSummary, workVerb } from "./workStats";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { formatDuration, shortPath } from "@/lib/activityGrouping";
 import { bashCommand, fileTarget, firstLine, firstMeaningfulLine, formatClock, formatWall, genericTarget, searchPattern, systemLabel, wallSeconds } from "@/lib/activityLogFormat";
@@ -353,8 +353,8 @@ export const WorkCard = memo(function WorkCard({ item, live }: { item: WorkItem;
     : onlyReasoning
       ? "Reasoned"
       : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+        ? `${workVerb(stats)} for ${duration}`
+        : workVerb(stats);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/50 bg-muted/[0.15]">

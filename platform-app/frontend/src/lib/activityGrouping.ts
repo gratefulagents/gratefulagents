@@ -388,5 +388,14 @@ export function formatDuration(ms: number | bigint): string {
   const n = Number(ms);
   if (n <= 0) return "";
   if (n < 1000) return `${n}ms`;
-  return `${(n / 1000).toFixed(1)}s`;
+  const seconds = n / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  // Above a minute, humanize like wall-clock durations ("2m 52s", "1h 4m")
+  // so tool, subagent, and work-card durations all read the same way.
+  const total = Math.round(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  return m % 60 > 0 ? `${h}h ${m % 60}m` : `${h}h`;
 }
