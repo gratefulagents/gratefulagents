@@ -57,6 +57,35 @@ export function statsSummary(s: WorkStats): string {
   return parts.join(" · ");
 }
 
+const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "apply_patch", "notebookedit", "str_replace_editor"]);
+const COMMAND_TOOLS = new Set(["bash", "execute", "shell", "run_command", "terminal"]);
+const EXPLORE_TOOLS = new Set(["read", "read_file", "grep", "glob", "search", "list_files", "ls", "lsp", "webfetch", "web_search", "codebase_search"]);
+
+/**
+ * Human verb describing what a completed work unit mostly did, so collapsed
+ * cards read as "Edited files" / "Ran commands" / "Explored" instead of a
+ * generic "Worked". Falls back to "Worked" for unknown or mixed tool sets.
+ */
+export function workVerb(s: WorkStats): string {
+  if (s.toolTotal === 0) return "Worked";
+  let writes = false;
+  let commands = false;
+  let explores = false;
+  let other = false;
+  for (const t of s.tools) {
+    const name = t.name.toLowerCase();
+    if (WRITE_TOOLS.has(name)) writes = true;
+    else if (COMMAND_TOOLS.has(name)) commands = true;
+    else if (EXPLORE_TOOLS.has(name)) explores = true;
+    else other = true;
+  }
+  if (writes) return "Edited files";
+  if (other) return "Worked";
+  if (commands) return "Ran commands";
+  if (explores) return "Explored";
+  return "Worked";
+}
+
 export function liveVerb(entries: ActivityEntry[]): string {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];

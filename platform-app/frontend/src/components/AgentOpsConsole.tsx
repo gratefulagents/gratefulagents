@@ -17,7 +17,6 @@ import {
   MoreHorizontal,
   Network,
   Play,
-  Radio,
   RotateCcw,
   Share2,
   Square,
@@ -120,7 +119,7 @@ const BUCKET_LABELS: Record<OpsBucket, string> = {
   attention: "Needs attention",
   active: "Active",
   queued: "Queued",
-  completed: "Recently completed",
+  completed: "Completed",
 };
 
 const GROUP_LABELS: Record<GroupKey, string> = {
@@ -487,14 +486,9 @@ export function AgentOpsConsole() {
   return (
     <div className="space-y-5 pb-8">
       <header className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="grid size-9 place-items-center rounded-xl bg-primary/12 text-primary ring-1 ring-inset ring-primary/20">
-            <Radio className="size-[18px]" />
-          </div>
-          <div>
-            <h1 className="text-[24px] font-semibold leading-none tracking-[-0.025em]">Agent Ops</h1>
-            <p className="mt-1 text-[12.5px] text-muted-foreground">Monitor live work, resolve blockers, and review recent outcomes.</p>
-          </div>
+        <div>
+          <h1 className="text-[24px] font-semibold leading-none tracking-[-0.025em]">Agent Ops</h1>
+          <p className="mt-1 text-[12.5px] text-muted-foreground">Monitor live work, resolve blockers, and review recent outcomes.</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[color-mix(in_oklch,var(--tone-running)_10%,transparent)] px-2.5 text-[11.5px] text-[color:var(--tone-running-fg)] ring-1 ring-inset ring-[color-mix(in_oklch,var(--tone-running)_25%,transparent)]">
@@ -508,90 +502,92 @@ export function AgentOpsConsole() {
         </div>
       </header>
 
-      <section aria-label="Run overview" className="grid grid-cols-2 overflow-hidden rounded-xl border border-border/60 bg-card/30 shadow-[var(--elevation-low)] sm:grid-cols-5">
-        <button
-          type="button"
-          aria-pressed={bucket === "all"}
-          onClick={() => { setBucket("all"); setActiveView(null); }}
-          className={cn(
-            "relative flex min-w-0 flex-col border-b border-r border-border/50 px-4 py-3 text-left transition-colors hover:bg-muted/35 sm:border-b-0",
-            bucket === "all" && "bg-primary/8 after:absolute after:inset-x-0 after:top-0 after:h-0.5 after:bg-primary",
-          )}
-        >
-          <span className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">All loaded</span>
-          <span className="mt-1 font-mono text-[22px] font-semibold leading-none tabular-nums">{runs.length}</span>
-          <span className="mt-1.5 text-[10.5px] text-muted-foreground">In this workspace</span>
-        </button>
-        {(["attention", "active", "queued", "completed"] as OpsBucket[]).map((key) => {
-          const tone = key === "attention" ? "warning" : key === "active" ? "running" : key === "queued" ? "info" : "success";
+      <section aria-label="Run overview" className="flex items-stretch gap-1 overflow-x-auto border-b border-border/60 pb-px">
+        {(["all", "attention", "active", "queued", "completed"] as BucketFilter[]).map((key) => {
+          const active = bucket === key;
+          const count = key === "all" ? runs.length : counts[key];
+          const tone = key === "attention" ? "warning" : key === "active" ? "running" : key === "queued" ? "info" : key === "completed" ? "success" : null;
+          const emphasize = key === "attention" && count > 0;
           return (
             <button
               key={key}
               type="button"
-              aria-pressed={bucket === key}
+              aria-pressed={active}
+              title={key === "all" ? "Every run loaded in this workspace" : BUCKET_DESCRIPTIONS[key as OpsBucket]}
               onClick={() => { setBucket(key); setActiveView(null); }}
               className={cn(
-                "relative flex min-w-0 flex-col border-b border-r border-border/50 px-4 py-3 text-left transition-colors hover:bg-muted/35 sm:border-b-0 last:border-r-0",
-                bucket === key && "bg-muted/30 after:absolute after:inset-x-0 after:top-0 after:h-0.5",
-                bucket === key && (key === "attention" ? "after:bg-[color:var(--tone-warning)]" : key === "active" ? "after:bg-[color:var(--tone-running)]" : key === "queued" ? "after:bg-[color:var(--tone-info)]" : "after:bg-[color:var(--tone-success)]"),
+                "relative -mb-px flex shrink-0 items-baseline gap-2 rounded-t-md border-b-2 border-transparent px-3 py-2 text-left text-[12.5px] transition-colors hover:bg-muted/40",
+                active
+                  ? cn(
+                      "font-medium text-foreground",
+                      tone ? "border-b-[color:var(--tone-accent)]" : "border-b-primary",
+                    )
+                  : "text-muted-foreground",
+                emphasize && !active && toneText.warning,
               )}
+              style={tone ? ({ "--tone-accent": `var(--tone-${tone})` } as React.CSSProperties) : undefined}
             >
-              <span className={cn("truncate text-[10px] font-semibold uppercase tracking-[0.09em]", toneText[tone])}>{BUCKET_LABELS[key]}</span>
-              <span className="mt-1 font-mono text-[22px] font-semibold leading-none tabular-nums">{counts[key]}</span>
-              <span className="mt-1.5 truncate text-[10.5px] text-muted-foreground">{BUCKET_DESCRIPTIONS[key]}</span>
+              <span className="whitespace-nowrap">{key === "all" ? "All runs" : BUCKET_LABELS[key as OpsBucket]}</span>
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-px font-mono text-[11px] font-semibold tabular-nums",
+                  emphasize
+                    ? "bg-[color-mix(in_oklch,var(--tone-warning)_15%,transparent)] text-[color:var(--tone-warning-fg)]"
+                    : "bg-muted/60 text-muted-foreground",
+                )}
+              >
+                {count}
+              </span>
             </button>
           );
         })}
+        <span className="ml-auto hidden shrink-0 items-center self-center rounded-md bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground tabular-nums sm:inline-flex">
+          {filtered.length}{filtered.length !== runs.length ? ` of ${runs.length}` : ""} runs shown
+        </span>
       </section>
 
-      <div className="rounded-xl border border-border/60 bg-card/20 p-2 shadow-[var(--elevation-low)]">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <ListSearchInput
-            value={query}
-            onChange={(value) => { setQuery(value); setActiveView(null); }}
-            placeholder="Search runs, repos, sources, activity…"
-            className="w-full sm:w-[320px]"
-          />
-          <span className="mx-0.5 hidden h-5 w-px bg-border/70 sm:block" aria-hidden />
-          <FilterMenu label="Status" values={options.phases} selected={phases} onToggle={(value) => toggleSet(value, setPhases)} />
-          <FilterMenu label="Mode" values={options.modes} selected={modes} onToggle={(value) => toggleSet(value, setModes)} />
-          <FilterMenu label="Source" values={options.sources} selected={sources} onToggle={(value) => toggleSet(value, setSources)} />
-          <FilterMenu label="Repo" values={options.repos} selected={repos} onToggle={(value) => toggleSet(value, setRepos)} />
-          <span className="ml-auto rounded-md bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground tabular-nums">
-            {filtered.length}{filtered.length !== runs.length ? ` of ${runs.length}` : ""} runs
-          </span>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border/50 pt-2">
-          <span className="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">View</span>
-          <ChoiceMenu
-            label={`Age: ${age === "all" ? "All" : age}`}
-            choices={[
-              ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["all", "All loaded"],
-            ]}
-            value={age}
-            onChange={(value) => { setAge(value as AgeKey); setActiveView(null); }}
-          />
-          <ChoiceMenu
-            label={cost === "all" ? "Cost" : `Cost: ${cost === "under-1" ? "<$1" : cost === "1-5" ? "$1–5" : ">$5"}`}
-            choices={[["all", "Any cost"], ["under-1", "Under $1"], ["1-5", "$1 to $5"], ["over-5", "Over $5"]]}
-            value={cost}
-            onChange={(value) => { setCost(value as CostKey); setActiveView(null); }}
-          />
-          <ChoiceMenu
-            label={`Group: ${GROUP_LABELS[group]}`}
-            choices={(Object.entries(GROUP_LABELS) as [GroupKey, string][])}
-            value={group}
-            onChange={(value) => { setGroup(value as GroupKey); setCollapsed(new Set()); setActiveView(null); }}
-          />
-          <ChoiceMenu
-            label={`Sort: ${sort === "attention" ? "Attention" : sort === "oldest-active" ? "Oldest" : sort === "newest" ? "Newest" : sort === "cost" ? "Cost" : sort === "status" ? "Status" : sort === "mode" ? "Mode" : sort === "source" ? "Source" : sort === "repo" ? "Repository" : "Name"}`}
-            choices={[["attention", "Attention first"], ["newest", "Newest"], ["oldest-active", "Oldest first"], ["cost", "Highest cost"], ["status", "Status"], ["mode", "Mode"], ["source", "Project / source"], ["repo", "Repository"], ["name", "Name"]]}
-            value={sort}
-            onChange={(value) => { setSort(value as SortKey); setActiveView(null); }}
-          />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <ListSearchInput
+          value={query}
+          onChange={(value) => { setQuery(value); setActiveView(null); }}
+          placeholder="Search runs…"
+          className="w-full sm:w-[240px]"
+        />
+        <span className="mx-0.5 hidden h-5 w-px bg-border/70 sm:block" aria-hidden />
+        <FilterMenu label="Status" values={options.phases} selected={phases} onToggle={(value) => toggleSet(value, setPhases)} />
+        <FilterMenu label="Mode" values={options.modes} selected={modes} onToggle={(value) => toggleSet(value, setModes)} />
+        <FilterMenu label="Source" values={options.sources} selected={sources} onToggle={(value) => toggleSet(value, setSources)} />
+        <FilterMenu label="Repo" values={options.repos} selected={repos} onToggle={(value) => toggleSet(value, setRepos)} />
+        <ChoiceMenu
+          label={`Age: ${age === "all" ? "All" : age}`}
+          choices={[
+            ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["all", "Any age"],
+          ]}
+          value={age}
+          onChange={(value) => { setAge(value as AgeKey); setActiveView(null); }}
+        />
+        <ChoiceMenu
+          label={cost === "all" ? "Cost" : `Cost: ${cost === "under-1" ? "<$1" : cost === "1-5" ? "$1 to $5" : ">$5"}`}
+          choices={[["all", "Any cost"], ["under-1", "Under $1"], ["1-5", "$1 to $5"], ["over-5", "Over $5"]]}
+          value={cost}
+          onChange={(value) => { setCost(value as CostKey); setActiveView(null); }}
+        />
+        <span className="mx-0.5 hidden h-5 w-px bg-border/70 sm:block" aria-hidden />
+        <ChoiceMenu
+          label={`Group: ${group === "attention" ? "State" : group === "none" ? "None" : group === "source" ? "Source" : GROUP_LABELS[group]}`}
+          choices={(Object.entries(GROUP_LABELS) as [GroupKey, string][])}
+          value={group}
+          onChange={(value) => { setGroup(value as GroupKey); setCollapsed(new Set()); setActiveView(null); }}
+        />
+        <ChoiceMenu
+          label={`Sort: ${sort === "attention" ? "Attention" : sort === "oldest-active" ? "Oldest" : sort === "newest" ? "Newest" : sort === "cost" ? "Cost" : sort === "status" ? "Status" : sort === "mode" ? "Mode" : sort === "source" ? "Source" : sort === "repo" ? "Repository" : "Name"}`}
+          choices={[["attention", "Attention first"], ["newest", "Newest"], ["oldest-active", "Oldest first"], ["cost", "Highest cost"], ["status", "Status"], ["mode", "Mode"], ["source", "Project / source"], ["repo", "Repository"], ["name", "Name"]]}
+          value={sort}
+          onChange={(value) => { setSort(value as SortKey); setActiveView(null); }}
+        />
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="gap-1 text-muted-foreground" />}>
-              <Bookmark className="size-3.5" /> {activeView || "Saved views"} <ChevronDown className="size-3" />
+              <Bookmark className="size-3.5" /> {activeView || "Views"} <ChevronDown className="size-3" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[210px]">
               <DropdownMenuLabel>Saved operations views</DropdownMenuLabel>
@@ -629,7 +625,6 @@ export function AgentOpsConsole() {
           {(filterCount > 0 || query) && (
             <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={clearFilters}>Clear filters</Button>
           )}
-        </div>
       </div>
 
       {selectedRuns.length > 0 && (
@@ -694,8 +689,7 @@ export function AgentOpsConsole() {
               <TableHead>State</TableHead>
               <TableHead className="hidden xl:table-cell">Mode</TableHead>
               <TableHead className="min-w-[210px]">Latest activity</TableHead>
-              <TableHead className="hidden lg:table-cell">Source</TableHead>
-              <TableHead className="hidden xl:table-cell">Repository</TableHead>
+              <TableHead className="hidden lg:table-cell">Origin</TableHead>
               <TableHead className="hidden lg:table-cell">PR</TableHead>
               <TableHead className="text-right">Cost</TableHead>
               <TableHead className="text-right">Age</TableHead>
@@ -707,7 +701,7 @@ export function AgentOpsConsole() {
               <React.Fragment key={groupName}>
                 {group !== "none" && (
                   <TableRow className="bg-muted/25 hover:bg-muted/35">
-                    <TableCell colSpan={11} className="py-1.5">
+                    <TableCell colSpan={10} className="py-1.5">
                       <button
                         type="button"
                         className="flex w-full items-center gap-2 text-left"
@@ -929,7 +923,7 @@ function RunRows({
   const presentation = runActivitySummary(run, now);
   const activitySummary = attention.detail || presentation.summary;
   const activityTimestamp = attention.kind === "none" ? presentation.timestamp : activity?.timestampUnix;
-  const rowTone = attention.kind === "none" ? "" : attention.tone === "danger" ? "border-l-2 border-l-destructive" : "border-l-2 border-l-[color:var(--tone-warning)]";
+  const rowTone = attention.kind === "none" ? "" : attention.tone === "danger" ? "border-l-2 border-l-destructive bg-[color-mix(in_oklch,var(--destructive)_4%,transparent)]" : "border-l-2 border-l-[color:var(--tone-warning)] bg-[color-mix(in_oklch,var(--tone-warning)_4%,transparent)]";
 
   return (
     <>
@@ -968,14 +962,13 @@ function RunRows({
         </TableCell>
         <TableCell className="hidden xl:table-cell">
           <div className="text-[12px]">{runModeLabel(run)}</div>
-          <div className="text-[10.5px] capitalize text-muted-foreground">{run.executionMode || run.modeCategory || "direct"}</div>
         </TableCell>
         <TableCell className="max-w-[300px] whitespace-normal">
-          <div className={cn("truncate text-[12px]", isDonePhase(run.phase) && attention.kind === "none" && "text-muted-foreground")} title={activitySummary}>
+          <div className={cn("truncate text-[12.5px]", isDonePhase(run.phase) && attention.kind === "none" && "text-muted-foreground")} title={activitySummary}>
             {activitySummary}
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-muted-foreground">
-            {activityTimestamp ? <span>{formatAge(activityTimestamp, now)} ago</span> : <span>—</span>}
+            {activityTimestamp ? <span>{formatAge(activityTimestamp, now)} ago</span> : <span>-</span>}
             {hasChildren && (
               <button type="button" onClick={onExpand} className="inline-flex items-center gap-1 text-primary hover:underline" aria-expanded={expanded}>
                 <Network className="size-3" /> {run.children.length} child {run.children.length === 1 ? "run" : "runs"}
@@ -983,7 +976,7 @@ function RunRows({
             )}
           </div>
         </TableCell>
-        <TableCell className="hidden max-w-[180px] lg:table-cell">
+        <TableCell className="hidden max-w-[200px] lg:table-cell">
           <div className="flex items-center gap-1.5">
             {sourcePath ? (
               <Link to={sourcePath} className="truncate text-[12px] text-primary hover:underline">{runSourceLabel(run)}</Link>
@@ -996,12 +989,12 @@ function RunRows({
               </a>
             )}
           </div>
-          {run.trigger?.externalIdentifier && <div className="truncate font-mono text-[10.5px] text-muted-foreground">{run.trigger.externalIdentifier}</div>}
-        </TableCell>
-        <TableCell className="hidden max-w-[170px] xl:table-cell">
-          {run.repoUrl ? (
-            <a href={run.repoUrl} target="_blank" rel="noopener noreferrer" className="block truncate text-[12px] text-primary hover:underline" title={run.repoUrl}>{runRepoLabel(run)}</a>
-          ) : <span className="text-muted-foreground">—</span>}
+          <div className="flex items-center gap-1.5 truncate font-mono text-[10.5px] text-muted-foreground">
+            {run.repoUrl && (
+              <a href={run.repoUrl} target="_blank" rel="noopener noreferrer" className="truncate hover:text-foreground hover:underline" title={run.repoUrl}>{runRepoLabel(run)}</a>
+            )}
+            {run.trigger?.externalIdentifier && <span className="shrink-0 truncate">{run.trigger.externalIdentifier}</span>}
+          </div>
         </TableCell>
         <TableCell className="hidden lg:table-cell">
           {prs.length ? (
@@ -1011,10 +1004,10 @@ function RunRows({
               </a>
               {prs.length > 1 && <Badge variant="secondary" className="h-4 px-1 text-[9px]">+{prs.length - 1}</Badge>}
             </div>
-          ) : <span className="text-muted-foreground">—</span>}
+          ) : <span className="text-muted-foreground">-</span>}
           {run.prLoop?.state && <div className="mt-0.5 text-[10.5px] capitalize text-muted-foreground">{run.prLoop.state.replace(/_/g, " ")}</div>}
         </TableCell>
-        <TableCell className="text-right font-mono text-[12px] tabular-nums">{run.costUsd ? `$${costValue(run).toFixed(2)}` : "—"}</TableCell>
+        <TableCell className="text-right font-mono text-[12px] tabular-nums">{run.costUsd ? `$${costValue(run).toFixed(2)}` : "-"}</TableCell>
         <TableCell className="text-right">
           <div className="font-mono text-[12px] tabular-nums text-muted-foreground">{formatAge(run.createdAtUnix, now)}</div>
           <div className="font-mono text-[10px] text-muted-foreground/70">{shortDuration(runDurationSeconds(run, now))} runtime</div>
@@ -1080,7 +1073,7 @@ function RunRows({
       </TableRow>
       {expanded && hasChildren && (
         <TableRow className="bg-muted/15 hover:bg-muted/15">
-          <TableCell colSpan={11} className="py-3 pl-14">
+          <TableCell colSpan={10} className="py-3 pl-14">
             <ChildRunGraph run={run} />
           </TableCell>
         </TableRow>
@@ -1195,7 +1188,7 @@ function ComparisonDialog({ runs, onOpenChange, now }: { runs: AgentRun[]; onOpe
                       <div className="flex items-center gap-2">
                         {prs.length > 0 && <a href={prs[prs.length - 1]} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">PR</a>}
                         {run.trigger?.externalUrl && <a href={run.trigger.externalUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Source</a>}
-                        {!prs.length && !run.trigger?.externalUrl && <span className="text-muted-foreground">—</span>}
+                        {!prs.length && !run.trigger?.externalUrl && <span className="text-muted-foreground">-</span>}
                       </div>
                     </td>
                   </tr>
