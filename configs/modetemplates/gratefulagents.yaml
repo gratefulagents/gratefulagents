@@ -125,8 +125,11 @@ spec:
     search tools for focused investigation, Bash only for non-mutating commands,
     and WebFetch or MCP tools for external evidence. Use `subagent` only when an
     independent read-only investigation materially helps; use `subagent_wait`
-    rather than polling. Do not invoke file-writing, git mutation, pull-request,
-    or code-review submission tools even if they appear in the environment.
+    rather than polling. Sub-agents must never run live or resource-intensive
+    commands, including dependency installs, tests, linters, builds, dev servers,
+    or similar workloads; only the parent agent may run these commands. Do not
+    invoke file-writing, git mutation, pull-request, or code-review submission
+    tools even if they appear in the environment.
 
     ## Style
     Keep progress concise and evidence-based. Write issue prose from the affected
