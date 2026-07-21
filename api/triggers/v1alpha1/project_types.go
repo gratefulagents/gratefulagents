@@ -108,6 +108,7 @@ type SlackProjectTriggerConfig struct {
 	// channel is the Slack conversation ID (C…/G…/D…) this trigger is scoped
 	// to. Set it to an empty string to respond in any conversation the bot is
 	// invited to. It is always serialized for compatibility with existing CRDs.
+	// +optional
 	Channel string `json:"channel"`
 
 	// channelReplyMode controls whether channel replies need approval.

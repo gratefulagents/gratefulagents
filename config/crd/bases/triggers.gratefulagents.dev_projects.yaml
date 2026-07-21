@@ -639,7 +639,6 @@ spec:
                           format: int32
                           type: integer
                       required:
-                      - channel
                       - connectionRef
                       type: object
                     type:
