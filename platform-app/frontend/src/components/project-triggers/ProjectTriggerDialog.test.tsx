@@ -336,7 +336,7 @@ describe("ProjectTriggerDialog", () => {
     expect(saved.slack?.channel).toBe("");
   });
 
-  it("rejects a Slack channel name because runtime filtering requires a stable ID", async () => {
+  it("accepts a Slack channel name for server-side ID resolution", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     renderDialog({ connections: [SLACK_CONNECTION], onSave });
 
@@ -349,8 +349,9 @@ describe("ProjectTriggerDialog", () => {
     fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "team-chat" } });
     fireEvent.submit(document.querySelector("form")!);
 
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/conversation ID/i));
-    expect(onSave).not.toHaveBeenCalled();
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0][0] as ProjectTrigger;
+    expect(saved.slack?.channel).toBe("#engineering");
   });
 
   it("Linear type shows empty state with onManageConnections when no Linear connection exists", () => {

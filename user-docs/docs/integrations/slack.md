@@ -32,7 +32,7 @@ Pasted tokens are moved into a platform-managed Secret and are never returned by
 ## Create a Slack Entry point
 
 1. In **Entry points**, select **New trigger → Slack** and choose a Slack connection.
-2. Optionally enter the Slack **Conversation ID** to scope the agent to one conversation. In Slack, open the channel details, select **About**, and copy the channel ID. Do not enter a `#channel-name`: names can change and cannot safely restrict connector ingress. Leave the field empty to let the agent respond in any conversation the bot is invited to and @mentioned in.
+2. Optionally enter a Slack **#channel name or Conversation ID** to scope the agent to one conversation. The dashboard resolves a `#channel-name` through Slack when you save and persists its stable conversation ID. You can also open the channel details, select **About**, and copy the ID directly. Leave the field empty to let the agent respond in any conversation the bot is invited to and @mentioned in.
 3. Configure who may command the agent, how channel replies are posted, and how long conversations reuse a run.
 4. Enter a DNS-style trigger name and select **Create trigger**.
 
@@ -40,7 +40,7 @@ Pasted tokens are moved into a platform-managed Secret and are never returned by
 | --- | --- | --- |
 | **Name** | Yes | DNS-style trigger identifier. `manual` is reserved. |
 | **Connection** | Yes | Slack app credentials and owner identity from the Project namespace. |
-| **Conversation ID** | No | Stable Slack ID beginning with `C`, `G`, or `D` that scopes the agent to one conversation. Empty means the agent responds wherever the bot is invited and @mentioned. DMs with the owner always work regardless of scope. The bot must be invited to channels it watches. |
+| **Conversation** | No | A `#channel-name` resolved at save time, or a stable Slack ID beginning with `C`, `G`, or `D`. Empty means the agent responds wherever the bot is invited and @mentioned. DMs with the owner always work regardless of scope. The bot must be invited to channels it watches. |
 | **Allowed commanders** | No | Additional comma-separated Slack user IDs (`U…` or `W…`) allowed to invoke the agent by mention. Empty means owner only. |
 | **Channel replies** | No | **Require owner approval** (default) holds shared-channel replies for approval; **Post directly** sends them immediately. DM and Agent-view replies remain direct. |
 | **Conversation memory** | No | Positive idle time in minutes before a new conversation starts a fresh run. Empty uses the 12-hour default. |

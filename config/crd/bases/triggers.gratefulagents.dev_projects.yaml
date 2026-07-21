@@ -605,7 +605,8 @@ spec:
                         channel:
                           description: |-
                             channel is the Slack conversation ID (C…/G…/D…) this trigger is scoped
-                            to. Leave empty to respond in any conversation the bot is invited to.
+                            to. Set it to an empty string to respond in any conversation the bot is
+                            invited to. It is always serialized for compatibility with existing CRDs.
                           type: string
                         channelReplyMode:
                           default: require-approval
@@ -638,6 +639,7 @@ spec:
                           format: int32
                           type: integer
                       required:
+                      - channel
                       - connectionRef
                       type: object
                     type:

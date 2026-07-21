@@ -29,6 +29,16 @@ func TestSlackEventViaBot(t *testing.T) {
 			want:    false,
 		},
 		{
+			name:    "bot authorization after user authorization is a bot event",
+			payload: `{"authorizations":[{"team_id":"T1","user_id":"UOWNER","is_bot":false},{"team_id":"T1","user_id":"UBOT","is_bot":true}],"event":{"type":"message"}}`,
+			want:    true,
+		},
+		{
+			name:    "multiple user authorizations are not a bot event",
+			payload: `{"authorizations":[{"team_id":"T1","user_id":"UOWNER","is_bot":false},{"team_id":"T1","user_id":"UOTHER","is_bot":false}],"event":{"type":"message"}}`,
+			want:    false,
+		},
+		{
 			name:    "missing authorizations fails closed as bot event",
 			payload: `{"event":{"type":"message"}}`,
 			want:    true,

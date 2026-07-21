@@ -548,6 +548,10 @@ func main() {
 			dashOpts = append(dashOpts, dashboard.WithGitHubAppConfig(githubAppID, githubAppSlug, githubAppPrivateKeySecret, strings.TrimSpace(os.Getenv("POD_NAMESPACE"))))
 		}
 		srv := dashboard.NewServer(mgr.GetClient(), mgr.GetScheme(), clientset, restConfig, enableAgentRunTeamMode, dashOpts...)
+		if err := mgr.Add(dashboard.NewConnectionSecretGarbageCollector(mgr.GetClient(), mgr.GetAPIReader())); err != nil {
+			setupLog.Error(err, "unable to add connection Secret garbage collector")
+			os.Exit(1)
+		}
 		handler := dashboard.NewPlatformServiceConnectHandler(srv)
 
 		r := chi.NewRouter()

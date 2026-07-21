@@ -3,15 +3,18 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,6 +73,20 @@ func TestSlackProjectTriggerProtoRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSlackProjectTriggerSerializesEmptyChannel(t *testing.T) {
+	trigger := triggersv1alpha1.ProjectTrigger{
+		Name: "team-chat", Type: triggersv1alpha1.ProjectTriggerTypeSlack,
+		Slack: &triggersv1alpha1.SlackProjectTriggerConfig{ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "slack"}},
+	}
+	encoded, err := json.Marshal(trigger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"channel":""`) {
+		t.Fatalf("empty channel was omitted from JSON: %s", encoded)
+	}
+}
+
 func TestSlackProjectTriggerValidation(t *testing.T) {
 	idle := int32(90)
 	base := func() *platform.ProjectTrigger {
@@ -103,6 +120,49 @@ func TestSlackProjectTriggerValidation(t *testing.T) {
 				t.Fatal("projectTriggerFromProto succeeded")
 			}
 		})
+	}
+}
+
+func TestResolveSlackTriggerChannelName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	connection := &triggersv1alpha1.Connection{
+		ObjectMeta: metav1.ObjectMeta{Name: "slack", Namespace: "team"},
+		Spec:       triggersv1alpha1.ConnectionSpec{Type: triggersv1alpha1.ConnectionTypeSlack, Slack: &triggersv1alpha1.SlackConnectionConfig{TokensSecret: "slack-tokens"}},
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "slack-tokens", Namespace: "team"},
+		Data:       map[string][]byte{triggersv1alpha1.SlackBotTokenKey: []byte("xoxb-fixture")},
+	}
+	k8s := fake.NewClientBuilder().WithScheme(scheme).WithObjects(connection, secret).Build()
+	server := NewServer(k8s, scheme, nil, nil, false)
+	server.slackConversationLookup = func(_ context.Context, token, name string) (string, error) {
+		if token != "xoxb-fixture" || name != "engineering" {
+			t.Fatalf("lookup token/name = %q, %q", token, name)
+		}
+		return "C0123ABC", nil
+	}
+	pb := &platform.ProjectTrigger{
+		Name: "team-chat", Type: "slack",
+		Slack: &platform.SlackProjectTrigger{ConnectionRef: "slack", Channel: "#engineering"},
+	}
+	if err := server.resolveSlackTriggerChannel(context.Background(), "team", pb); err != nil {
+		t.Fatalf("resolveSlackTriggerChannel: %v", err)
+	}
+	if pb.GetSlack().GetChannel() != "C0123ABC" {
+		t.Fatalf("resolved channel = %q", pb.GetSlack().GetChannel())
+	}
+	trigger, err := projectTriggerFromProto(pb)
+	if err != nil {
+		t.Fatalf("projectTriggerFromProto after resolution: %v", err)
+	}
+	if trigger.Slack.Channel != "C0123ABC" {
+		t.Fatalf("persisted channel = %q", trigger.Slack.Channel)
 	}
 }
 
@@ -140,6 +200,55 @@ func TestUnknownProjectPatchOutcomeRetainsSlackClaim(t *testing.T) {
 	claim, pendingSince := parseSlackTriggerClaim(claimValue)
 	if claim != slackTriggerClaim("project", "first") || pendingSince.IsZero() {
 		t.Fatalf("retained claim = %q", claimValue)
+	}
+}
+
+func TestSlackPendingClaimTTL(t *testing.T) {
+	now := time.Unix(1_700_000_000, 123)
+	claim := slackTriggerClaim("project", "trigger")
+	value := fmt.Sprintf("%s%d|request|%s", slackPendingClaimPrefix, now.UnixNano(), claim)
+	parsedClaim, pendingSince := parseSlackTriggerClaim(value)
+	if parsedClaim != claim || !pendingSince.Equal(now) {
+		t.Fatalf("parseSlackTriggerClaim(%q) = %q, %v", value, parsedClaim, pendingSince)
+	}
+	if !slackPendingClaimActive(pendingSince, now.Add(slackPendingClaimTTL)) {
+		t.Fatal("claim should remain active through its TTL boundary")
+	}
+	if slackPendingClaimActive(pendingSince, now.Add(slackPendingClaimTTL+time.Nanosecond)) {
+		t.Fatal("claim remained active after its TTL")
+	}
+	if slackPendingClaimActive(now.Add(time.Minute), now) {
+		t.Fatal("future-dated claim should not be active")
+	}
+	if parsed, at := parseSlackTriggerClaim("pending|not-a-timestamp|request|project/trigger"); parsed != "" || !at.IsZero() {
+		t.Fatalf("malformed claim parsed as %q, %v", parsed, at)
+	}
+}
+
+func TestExpiredPendingSlackClaimCanBeReclaimed(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	claim := slackTriggerClaim("project", "trigger")
+	pending := fmt.Sprintf("%s%d|old-request|%s", slackPendingClaimPrefix, time.Now().Add(-slackPendingClaimTTL-time.Minute).UnixNano(), claim)
+	trigger := triggersv1alpha1.ProjectTrigger{
+		Name: "trigger", Type: triggersv1alpha1.ProjectTriggerTypeSlack, Enabled: &enabled,
+		Slack: &triggersv1alpha1.SlackProjectTriggerConfig{ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "slack"}, Channel: "C111"},
+	}
+	connection := &triggersv1alpha1.Connection{
+		ObjectMeta: metav1.ObjectMeta{Name: "slack", Namespace: "team", Annotations: map[string]string{slackTriggerClaimAnnotation: pending}},
+		Spec:       triggersv1alpha1.ConnectionSpec{Type: triggersv1alpha1.ConnectionTypeSlack, Slack: &triggersv1alpha1.SlackConnectionConfig{TokensSecret: "tokens"}},
+	}
+	k8s := fake.NewClientBuilder().WithScheme(scheme).WithObjects(connection).Build()
+	server := NewServer(k8s, scheme, nil, nil, false)
+	handle, err := server.claimSlackTriggerConnection(context.Background(), "team", "project", trigger)
+	if err != nil {
+		t.Fatalf("claimSlackTriggerConnection: %v", err)
+	}
+	if handle.pendingValue == "" || handle.pendingValue == pending {
+		t.Fatalf("replacement pending claim = %q", handle.pendingValue)
 	}
 }
 

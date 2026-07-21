@@ -196,8 +196,8 @@ export function ProjectTriggerDialog({
     }
     if (form.type === "slack") {
       const channel = form.channel.trim();
-      if (channel && !/^[CGD][A-Z0-9]+$/.test(channel)) {
-        setError("Enter a Slack conversation ID starting with C, G, or D (not a #channel name), or leave it empty.");
+      if (channel && !/^[CGD][A-Z0-9]+$/.test(channel) && !/^#[^#\s]+$/.test(channel)) {
+        setError("Enter a Slack conversation ID starting with C, G, or D, a #channel name, or leave it empty.");
         return;
       }
       if (splitSlackUserIds(form.commanders).some((id) => !/^[UW][A-Z0-9]+$/.test(id))) {
@@ -553,19 +553,19 @@ function SlackDetails({
       />
       <div>
         <Label className="mb-1.5 block text-[12.5px] font-medium">
-          Conversation ID <span className="font-normal text-muted-foreground">(optional)</span>
+          Conversation <span className="font-normal text-muted-foreground">(optional)</span>
         </Label>
         <Input
           value={form.channel}
           onChange={(e) => update("channel", e.target.value)}
-          placeholder="C0123456789"
+          placeholder="#engineering or C0123456789"
           autoFocus={!editing}
           autoComplete="off"
           aria-label="Slack conversation ID"
         />
         <FieldHint>
-          Use Slack&apos;s channel ID, not its #name (Channel details → About → Copy channel ID). Leave empty
-          to respond wherever the bot is @mentioned. Invite the bot first with{" "}
+          Enter a #channel name or Slack conversation ID. Leave empty to respond wherever the bot is @mentioned.
+          Invite the bot first with{" "}
           <code className="rounded bg-muted px-1 text-[11px]">/invite @your-bot</code>.
         </FieldHint>
       </div>
