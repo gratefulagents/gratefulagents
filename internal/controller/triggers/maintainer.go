@@ -165,16 +165,12 @@ func (e *MaintainerEngine) Reconcile(ctx context.Context, gh *triggersv1alpha1.G
 			message = fmt.Sprintf("Maintainer resume: scheduled standup for %s/%s. Review the backlog and fleet with your tools, perform a health pass, then return to wait_for_repo_events.", gh.Spec.Owner, gh.Spec.Repo)
 		}
 		deliveryID := fmt.Sprintf("maintainer-resume-%d", now.Unix()/int64(maintainerResumeCooldown/time.Second))
-		deliver := orchestration.WakeAgentRunOnce
-		if standing.Status.Phase == platformv1alpha1.AgentRunPhaseRunning {
-			// A Running run parked on durable idle input has a live runner
-			// consuming the session queue; enqueue the nudge without bumping
-			// spec.wakeRequests, which the run controller could only consume
-			// at the next terminal transition (resurrecting the run then and
-			// suppressing further nudges until it).
-			deliver = orchestration.NudgeAgentRunSessionOnce
-		}
-		if err := deliver(ctx, e.Client, e.StateStore, standing.Namespace, standing.Name, message, deliveryID); err != nil {
+		// WakeOrNudgeAgentRunOnce bumps spec.wakeRequests only when the run's
+		// freshest phase is consumable by the run controller's wake handler; a
+		// Running run parked on durable idle input receives the session
+		// message alone, so no latent wake lingers and a phase transition
+		// racing this reconcile is still handled correctly.
+		if err := orchestration.WakeOrNudgeAgentRunOnce(ctx, e.Client, e.StateStore, standing.Namespace, standing.Name, message, deliveryID); err != nil {
 			return ctrl.Result{}, err
 		}
 		if err := e.markMaintainerResumed(ctx, client.ObjectKeyFromObject(standing), now); err != nil {

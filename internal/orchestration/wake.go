@@ -189,20 +189,32 @@ func hasDeliveryMessage(messages []store.Message, deliveryID string) bool {
 // once for deliveryID. Message metadata and the run annotation repair the two
 // sides independently after a partial failure.
 func WakeAgentRunOnce(ctx context.Context, k8sClient client.Client, stateStore store.StateStore, runNamespace, runName, contextMessage, deliveryID string) error {
-	return wakeAgentRunOnceWithOptions(ctx, k8sClient, stateStore, runNamespace, runName, contextMessage, deliveryID, true)
+	return wakeAgentRunOnceWithOptions(ctx, k8sClient, stateStore, runNamespace, runName, contextMessage, deliveryID, func(*platformv1alpha1.AgentRun) bool { return true })
 }
 
-// NudgeAgentRunSessionOnce idempotently enqueues contextMessage into the run's
-// durable session without incrementing spec.wakeRequests. It is meant for
-// Running runs blocked on durable idle input, whose live runner consumes the
-// queued message directly: bumping wakeRequests there would leave a wake the
-// run controller only consumes at the next terminal or paused transition,
-// spuriously resurrecting the run and suppressing later nudges in the interim.
-func NudgeAgentRunSessionOnce(ctx context.Context, k8sClient client.Client, stateStore store.StateStore, runNamespace, runName, contextMessage, deliveryID string) error {
-	return wakeAgentRunOnceWithOptions(ctx, k8sClient, stateStore, runNamespace, runName, contextMessage, deliveryID, false)
+// WakeOrNudgeAgentRunOnce idempotently enqueues contextMessage into the run's
+// durable session and increments spec.wakeRequests only when the freshest run
+// phase is one the run controller's wake handler can consume (Succeeded,
+// Failed, Paused, or Cancelled). A Running run parked on durable idle input
+// has a live runner consuming the session queue, so the message alone resumes
+// it; bumping wakeRequests there would leave a wake the controller only
+// consumes at the next terminal or paused transition, spuriously resurrecting
+// the run and suppressing later nudges in the interim. Deciding on the fresh
+// read inside the patch loop avoids acting on a stale phase observed earlier
+// in the caller's reconcile.
+func WakeOrNudgeAgentRunOnce(ctx context.Context, k8sClient client.Client, stateStore store.StateStore, runNamespace, runName, contextMessage, deliveryID string) error {
+	return wakeAgentRunOnceWithOptions(ctx, k8sClient, stateStore, runNamespace, runName, contextMessage, deliveryID, func(fresh *platformv1alpha1.AgentRun) bool {
+		switch fresh.Status.Phase {
+		case platformv1alpha1.AgentRunPhaseSucceeded, platformv1alpha1.AgentRunPhaseFailed,
+			platformv1alpha1.AgentRunPhasePaused, platformv1alpha1.AgentRunPhaseCancelled:
+			return true
+		default:
+			return false
+		}
+	})
 }
 
-func wakeAgentRunOnceWithOptions(ctx context.Context, k8sClient client.Client, stateStore store.StateStore, runNamespace, runName, contextMessage, deliveryID string, provisionRunner bool) error {
+func wakeAgentRunOnceWithOptions(ctx context.Context, k8sClient client.Client, stateStore store.StateStore, runNamespace, runName, contextMessage, deliveryID string, provisionRunner func(*platformv1alpha1.AgentRun) bool) error {
 	deliveryID = strings.TrimSpace(deliveryID)
 	if deliveryID == "" {
 		return fmt.Errorf("delivery ID is required")
@@ -234,7 +246,7 @@ func wakeAgentRunOnceWithOptions(ctx context.Context, k8sClient client.Client, s
 			fresh.Annotations = map[string]string{}
 		}
 		fresh.Annotations[LastWakeDeliveryAnnotation] = deliveryID
-		if provisionRunner {
+		if provisionRunner(fresh) {
 			fresh.Spec.WakeRequests++
 		}
 		return k8sClient.Patch(ctx, fresh, patch)

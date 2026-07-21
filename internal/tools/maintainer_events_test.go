@@ -545,3 +545,58 @@ func TestPullRequestEventKeepsUnknownMergeabilityDistinct(t *testing.T) {
 		t.Fatalf("event = %#v, want computed mergeable true", computed)
 	}
 }
+
+func TestWaitForRepoEventsSkipsPullRequestPollingWhileFleetDegraded(t *testing.T) {
+	maintainer := maintainerRun()
+	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
+	stateStore.sessionErr = errors.New("state store unavailable")
+	runner := &maintainerFakeRunner{out: map[string]string{
+		"issue list --state open --json number,title,labels,updatedAt,url --limit 200": `[{"number":9,"title":"new work","labels":[],"updatedAt":"2026-01-09T00:00:00Z","url":"https://example.test/issues/9"}]`,
+	}}
+	tool := &waitForRepoEventsTool{
+		maintainerToolBase: base, runner: runner,
+		backlogPollInterval: 40 * time.Millisecond, fleetPollInterval: time.Hour, pullRequestPollInterval: time.Millisecond,
+	}
+	cursor, err := encodeMaintainerRepoEventsCursor(maintainerRepoEventsCursor{
+		BacklogFingerprint:    maintainerBacklogSnapshot(nil).backlogFingerprint,
+		IssueSignatures:       map[string]string{},
+		FleetSignatures:       map[string]string{},
+		PullRequestSignatures: map[string]string{maintainerTestPullRequestURL: "tracked"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"timeout_seconds":30,"cursor":"`+cursor+`"}`), maintainerTestGitRepoDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute() error result: %s", result.Content)
+	}
+	var output waitForRepoEventsOutput
+	if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
+		t.Fatal(err)
+	}
+	// Many pull-request ticks fire before the backlog change returns; none of
+	// them may poll with the degraded (empty) fleet map and misreport the
+	// tracked pull request as removed.
+	if len(output.PullRequestChanges) != 0 {
+		t.Fatalf("pull request changes = %#v, want none while fleet state is degraded", output.PullRequestChanges)
+	}
+	if !output.Changed || len(output.ChangedIssues) != 1 || output.ChangedIssues[0].Number != 9 {
+		t.Fatalf("output = %#v, want only the backlog change", output)
+	}
+	decoded, err := decodeMaintainerRepoEventsCursor(output.Cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.PullRequestSignatures[maintainerTestPullRequestURL] != "tracked" {
+		t.Fatalf("cursor pull request signatures = %#v, want the tracked PR preserved", decoded.PullRequestSignatures)
+	}
+	for _, call := range runner.calls {
+		if strings.Contains(call, "pulls") {
+			t.Fatalf("pull request polling ran while fleet state was degraded: %v", runner.calls)
+		}
+	}
+}

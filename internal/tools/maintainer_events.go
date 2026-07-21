@@ -231,6 +231,13 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 				return t.repoEventsResult(previous, latest, true, false, started, cursorProvided)
 			}
 		case <-pullRequestTicker.C:
+			if latest.fleetError != "" {
+				// The attached-PR set derives from live fleet state. Polling
+				// with the stale or empty fleet map carried through a fleet
+				// failure would drop every tracked PR signature and misreport
+				// the PRs as removed; wait for the fleet ticker to recover.
+				continue
+			}
 			pullRequests, pullRequestErr := t.pullRequestEventsSnapshot(ctx, wd, latest.fleet)
 			if pullRequestErr != nil {
 				latest.pullRequestError = pullRequestErr.Error()
