@@ -26,13 +26,15 @@ describe("CreateRunDialog overseer", () => {
     render(<MemoryRouter><CreateRunDialog defaultSource="project" defaultNamespace="team" /></MemoryRouter>);
     fireEvent.click(screen.getByRole("button", { name: /New Run/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Overseer/ }));
-    fireEvent.click(screen.getByLabelText("Enable overseer"));
+    fireEvent.click(screen.getByLabelText("Enable overseer", { selector: "input" }));
     fireEvent.change(screen.getByLabelText("Mode name"), { target: { value: "review" } });
     fireEvent.change(screen.getByLabelText("Mode version"), { target: { value: "v3" } });
     fireEvent.change(screen.getByLabelText("Mode channel"), { target: { value: "stable" } });
     fireEvent.change(screen.getByLabelText("Model", { selector: "input#create-run-overseer-model" }), { target: { value: "opus" } });
     fireEvent.click(screen.getByRole("combobox", { name: "Authority" }));
-    fireEvent.click(await screen.findByText("Enforce"));
+    const enforceOption = await screen.findByRole("option", { name: "Enforce" });
+    fireEvent.pointerDown(enforceOption, { pointerType: "mouse" });
+    fireEvent.click(enforceOption);
     fireEvent.change(screen.getByLabelText("Interval (minutes)"), { target: { value: "30" } });
     fireEvent.change(screen.getByLabelText("Max interventions"), { target: { value: "0" } });
     fireEvent.click(screen.getByRole("button", { name: "Start run" }));

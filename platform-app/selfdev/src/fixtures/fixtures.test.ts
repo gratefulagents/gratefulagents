@@ -8,9 +8,22 @@ describe("scenario fixtures", () => {
     (_name, scenario) => {
       const runKeys = new Set(scenario.runs.map((r) => runKey(r.namespace, r.name)));
 
+      const resourceKeys = {
+        runs: runKeys,
+        projects: new Set(scenario.projects.map((item) => runKey(item.namespace, item.name))),
+        linear: new Set(scenario.linearProjects.map((item) => runKey(item.namespace, item.name))),
+        github: new Set(scenario.githubRepositories.map((item) => runKey(item.namespace, item.name))),
+        cron: new Set(scenario.crons.map((item) => runKey(item.namespace, item.name))),
+        slack: new Set(scenario.slackAgents.map((item) => runKey(item.namespace, item.name))),
+      };
+
       for (const route of scenario.routes) {
-        const m = /^\/runs\/([^/]+)\/([^/]+)$/.exec(route.path);
-        if (m) expect(runKeys, `route ${route.path}`).toContain(runKey(m[1], m[2]));
+        const match = /^\/(runs|projects|linear|github|cron|slack)\/([^/?]+)\/([^/?]+)(?:\?.*)?$/.exec(route.path);
+        if (!match) continue;
+        const [, kind, namespace, name] = match;
+        expect(resourceKeys[kind as keyof typeof resourceKeys], `route ${route.path}`).toContain(
+          runKey(namespace, name),
+        );
       }
       for (const mapName of ["activityLogs", "usage", "pullRequests", "diffs", "traces"] as const) {
         for (const key of Object.keys(scenario[mapName])) {
