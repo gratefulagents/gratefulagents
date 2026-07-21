@@ -30,10 +30,10 @@ export type BannerConfig = {
   dotColor: string;
 };
 
-export type MainView = "chat" | "graph" | "diff" | "pr" | "errors" | "trace";
+export type MainView = "chat" | "graph" | "diff" | "pr" | "errors" | "logs" | "trace";
 
 export function isMainView(value: string | null): value is MainView {
-  return value === "chat" || value === "graph" || value === "diff" || value === "pr" || value === "errors" || value === "trace";
+  return value === "chat" || value === "graph" || value === "diff" || value === "pr" || value === "errors" || value === "logs" || value === "trace";
 }
 
 export const autoChatKickoffRequest =

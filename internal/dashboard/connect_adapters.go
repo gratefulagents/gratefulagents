@@ -1100,6 +1100,14 @@ func (h *PlatformServiceConnectHandler) GetAgentRunErrors(ctx context.Context, r
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) GetAgentRunLogs(ctx context.Context, req *connect.Request[platform.GetAgentRunLogsRequest]) (*connect.Response[platform.GetAgentRunLogsResponse], error) {
+	resp, err := h.srv.GetAgentRunLogs(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) ExportAgentRunArchive(ctx context.Context, req *connect.Request[platform.ExportAgentRunArchiveRequest]) (*connect.Response[platform.ExportAgentRunArchiveResponse], error) {
 	resp, err := h.srv.ExportAgentRunArchive(ctx, req.Msg)
 	if err != nil {

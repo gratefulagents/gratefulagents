@@ -15,6 +15,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "@/components/ui/toaster";
 import { useAgentRun } from "@/hooks/useAgentRun";
 import { useAgentRunErrors } from "@/hooks/useAgentRunErrors";
+import { useAgentRunLogs } from "@/hooks/useAgentRunLogs";
 import { useAgentTrace } from "@/hooks/useAgentTrace";
 import { useImageAttachments } from "@/hooks/useImageAttachments";
 import { useDiff } from "@/hooks/useDiff";
@@ -35,6 +36,7 @@ import { RunSessionFooter } from "@/components/run-session/RunSessionFooter";
 import { RunSessionHeader } from "@/components/run-session/RunSessionHeader";
 import { RunSessionTracePane } from "@/components/run-session/RunSessionTracePane";
 import { RunSessionErrorsPane } from "@/components/run-session/RunSessionErrorsPane";
+import { RunSessionLogsPane } from "@/components/run-session/RunSessionLogsPane";
 import { RunPullRequestPanel } from "@/components/run-session/RunPullRequestPanel";
 import { ChatScrollControls } from "@/components/run-session/ChatScrollControls";
 import { buildSlashCommands, type SlashCommand } from "@/components/run-session/slashCommands";
@@ -191,6 +193,9 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   });
   const runErrors = useAgentRunErrors(namespace, name, run?.phase, {
     enabled: mainView === "errors",
+  });
+  const runLogs = useAgentRunLogs(namespace, name, run?.phase, {
+    enabled: mainView === "logs" && Boolean(run),
   });
   const traceSpans = trace?.spans;
   const sessionMetrics = useMemo(() => {
@@ -490,6 +495,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     { value: "diff", label: "Diff" },
     ...(prUrls.length > 0 ? [{ value: "pr" as const, label: "PR" }] : []),
     { value: "errors", label: "Errors" },
+    { value: "logs", label: "Logs" },
     ...(run.traceId ? [{ value: "trace" as const, label: "Trace" }] : []),
   ];
 
@@ -1131,6 +1137,19 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
               loading={runErrors.loading}
               error={runErrors.error}
               truncated={runErrors.truncated}
+            />
+          )}
+
+          {activeMainView === "logs" && (
+            <RunSessionLogsPane
+              content={runLogs.content}
+              podName={runLogs.podName}
+              available={runLogs.available}
+              loading={runLogs.loading}
+              error={runLogs.error}
+              truncated={runLogs.truncated}
+              lastUpdated={runLogs.lastUpdated}
+              onRefresh={runLogs.refresh}
             />
           )}
 
