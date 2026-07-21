@@ -60,15 +60,17 @@ Use the route and scenario that exercise the changed UI. Review the generated sc
 
 ## Releases
 
-Releases are automated from Conventional Commit messages on `main`. A `fix:`
-commit creates a patch release, `feat:` creates a minor release, and a commit
-with a `BREAKING CHANGE:` footer creates a major release. Other commit types do
-not publish a release by default.
+Releases are automated from Conventional Commit messages on `main`. Both
+`fix:` and `feat:` commits create a patch release, while a commit with a
+`BREAKING CHANGE:` footer (or a `!` type modifier) creates a major release.
+Other commit types do not publish a release by default.
 
-The release workflow calculates the next version, creates the Git tag and
-GitHub Release, stamps the version into the controller and native apps, and
-uploads the release artifacts. No release pull request or checked-in version
-file is used.
+The release workflow calculates the next version, creates the Git tag and a
+draft GitHub Release, stamps the version into the controller and native apps,
+and uploads the images and release artifacts. The draft is published only
+after every artifact and the updater manifest are available. A failed release
+run removes its draft and tag so a later run can reuse the version. No release
+pull request or checked-in version file is used.
 
 ## Open a pull request
 
