@@ -14,6 +14,8 @@ import {
   getRefreshToken,
   setTokens,
   clearTokens,
+  refreshAccessToken,
+  notifySessionExpired,
   clearWorkspaceSecrets,
   getWorkspaceRefreshToken,
   userStoreKey,
@@ -69,6 +71,52 @@ interface AppConfig {
   googleClientId: string;
 }
 
+type CurrentUserResult = { user: AuthUser; accessToken: string };
+type CurrentUserScope = {
+  workspaceId: string;
+  baseUrl: string;
+  cloudflareHeaders: Record<string, string>;
+};
+
+async function fetchCurrentUser(
+  accessToken: string,
+  mayRefresh = true,
+  scope: CurrentUserScope = {
+    workspaceId: getActiveWorkspaceId(),
+    baseUrl: backendBaseUrl(),
+    cloudflareHeaders: { ...getCloudflareAccessHeaders() },
+  },
+): Promise<CurrentUserResult | null> {
+  try {
+    if (scope.workspaceId !== getActiveWorkspaceId()) return null;
+    const response = await runtimeFetch(`${scope.baseUrl}/auth.v1.AuthService/GetCurrentUser`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        ...scope.cloudflareHeaders,
+      },
+      body: "{}",
+    });
+    if (response.status === 401 && mayRefresh) {
+      if (scope.workspaceId !== getActiveWorkspaceId()) return null;
+      const refreshed = await refreshAccessToken();
+      if (refreshed.token && scope.workspaceId === getActiveWorkspaceId()) {
+        return fetchCurrentUser(refreshed.token, false, scope);
+      }
+      if (refreshed.sessionInvalid && scope.workspaceId === getActiveWorkspaceId()) {
+        notifySessionExpired();
+      }
+      return null;
+    }
+    if (!response.ok) return null;
+    const user = (await response.json()) as AuthUser;
+    return user.id && user.role ? { user, accessToken } : null;
+  } catch {
+    return null;
+  }
+}
+
 interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
@@ -122,8 +170,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await hydrateTokens();
     }
 
-    const token = getTokenSync();
-    const user = (await storeGet<AuthUser>(userStoreKey())) ?? null;
+    let token = getTokenSync();
+    let user = (await storeGet<AuthUser>(userStoreKey())) ?? null;
     const environment = getAppEnvironment();
 
     let config: AppConfig = { authEnabled: true, googleClientId: "" };
@@ -166,6 +214,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    if (isConnected && token) {
+      const current = await fetchCurrentUser(token);
+      if (current) {
+        user = current.user;
+        token = current.accessToken;
+        await storeSet(userStoreKey(), current.user);
+      } else {
+        token = getTokenSync();
+      }
+    }
+
     setState({
       isLoading: false,
       isAuthenticated: isConnected && !!(token && user),
@@ -183,6 +242,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void loadConfig(true);
   }, [loadConfig]);
+
+  // Role changes made by another admin must update an already-open client.
+  // Re-read the authoritative user record when the app regains focus instead
+  // of relying on the profile cached at login time.
+  useEffect(() => {
+    let syncing = false;
+    const syncCurrentUser = async () => {
+      if (syncing || document.visibilityState === "hidden") return;
+      const workspaceId = getActiveWorkspaceId();
+      const token = getTokenSync();
+      if (!token) return;
+      syncing = true;
+      try {
+        const current = await fetchCurrentUser(token);
+        if (!current || workspaceId !== getActiveWorkspaceId() || current.accessToken !== getTokenSync()) return;
+        await storeSet(userStoreKey(), current.user);
+        setState((previous) => ({ ...previous, accessToken: current.accessToken, user: current.user }));
+      } finally {
+        syncing = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void syncCurrentUser();
+    };
+    window.addEventListener("focus", syncCurrentUser);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", syncCurrentUser);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
 
   // Soft sign-out: fired when a token refresh is definitively rejected
   // (refresh token expired/revoked). Swaps to the sign-in screen in place

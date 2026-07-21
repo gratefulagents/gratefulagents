@@ -238,8 +238,12 @@ func TestCatalogAuthorization(t *testing.T) {
 	if createdMode.Name != "alice-mode" {
 		t.Fatalf("created mode name = %q", createdMode.Name)
 	}
-	if _, err := srv.UpdateModeTemplate(member, &platform.UpdateModeTemplateRequest{Template: &platform.ModeTemplate{Name: "alice-mode", Version: "v2", Category: "direct", ExecutionStrategy: "serial"}}); connect.CodeOf(err) != connect.CodePermissionDenied {
-		t.Fatalf("member mode update: got %v", err)
+	updatedMode, err := srv.UpdateModeTemplate(member, &platform.UpdateModeTemplateRequest{Template: &platform.ModeTemplate{Name: "alice-mode", Version: "v2", Category: "direct", ExecutionStrategy: "serial"}})
+	if err != nil {
+		t.Fatalf("member mode update error = %v", err)
+	}
+	if updatedMode.Version != "v2" {
+		t.Fatalf("updated mode version = %q, want v2", updatedMode.Version)
 	}
 	if err := srv.DeleteModeTemplate(member, &platform.DeleteModeTemplateRequest{Name: "alice-mode"}); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("member mode delete: got %v", err)

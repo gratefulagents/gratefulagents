@@ -28,6 +28,7 @@ vi.mock("@/lib/client", () => ({
       }],
     }),
     createModeTemplate: vi.fn().mockResolvedValue({}),
+    updateModeTemplate: vi.fn().mockResolvedValue({}),
   },
 }));
 
@@ -37,7 +38,7 @@ afterEach(() => {
 });
 
 describe("ResourcePage mode templates", () => {
-  it("lets a member create a new template without editing the existing catalog", async () => {
+  it("lets a member create and edit templates without deleting the catalog", async () => {
     render(
       <MemoryRouter initialEntries={["/resources/modes"]}>
         <Routes>
@@ -47,8 +48,23 @@ describe("ResourcePage mode templates", () => {
     );
 
     expect(await screen.findByText("Autopilot")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Edit autopilot" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Edit autopilot" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Delete autopilot" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit autopilot" }));
+    fireEvent.change(screen.getByLabelText("Version"), { target: { value: "v2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(client.updateModeTemplate).toHaveBeenCalledWith({
+        template: expect.objectContaining({
+          name: "autopilot",
+          version: "v2",
+          category: "direct",
+          executionStrategy: "serial",
+        }),
+      });
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "my-mode" } });

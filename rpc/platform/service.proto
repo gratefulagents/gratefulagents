@@ -88,8 +88,8 @@ service PlatformService {
   rpc UpdateGuardrailPolicy(UpdateGuardrailPolicyRequest) returns (GuardrailPolicy);
   rpc DeleteGuardrailPolicy(DeleteGuardrailPolicyRequest) returns (google.protobuf.Empty);
   // ModeTemplate and RoleInstruction are cluster-scoped catalogs. Every
-  // authenticated user may browse them and create new mode templates. Editing
-  // or deleting mode templates and mutating role instructions requires an admin.
+  // authenticated user may browse, create, and edit mode templates. Deleting
+  // mode templates and mutating role instructions requires an admin.
   rpc ListModeTemplates(ListModeTemplatesRequest) returns (ListModeTemplatesResponse);
   rpc CreateModeTemplate(CreateModeTemplateRequest) returns (ModeTemplate);
   rpc UpdateModeTemplate(UpdateModeTemplateRequest) returns (ModeTemplate);

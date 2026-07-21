@@ -710,7 +710,7 @@ func (s *Server) CreateModeTemplate(ctx context.Context, r *platform.CreateModeT
 	return k8sModeTemplateToProto(v), nil
 }
 func (s *Server) UpdateModeTemplate(ctx context.Context, r *platform.UpdateModeTemplateRequest) (*platform.ModeTemplate, error) {
-	if e := requireCatalogActor(ctx, true); e != nil {
+	if e := requireCatalogActor(ctx, false); e != nil {
 		return nil, e
 	}
 	sp, e := modeSpec(r.GetTemplate())
