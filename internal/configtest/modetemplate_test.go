@@ -84,6 +84,10 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 		"a maintainer report does not substitute",
 		"Dispatch with dispatch_issue only after validation succeeds and the issue decision comment is posted",
 		"do not dispatch it",
+		"PR creation is not completion",
+		"checks are pending or an AI reviewer run is active",
+		"AgentRun phase, PR review-loop state, and GitHub PR state as separate signals",
+		"all reported checks and commit statuses have completed successfully",
 	} {
 		if !strings.Contains(instructions, want) {
 			t.Errorf("%s maintainer instructions do not contain %q", sourcePath, want)

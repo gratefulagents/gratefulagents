@@ -11,8 +11,10 @@ import (
 )
 
 func TestMergePullRequestGateAndSafetyChecks(t *testing.T) {
-	viewKey := "pr view 7 --json state,isDraft,mergeable,reviewDecision,url,headRefName"
-	approved := `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","url":"https://example.test/pull/7","headRefName":"feature"}`
+	viewKey := "pr view 7 --json state,isDraft,mergeable,reviewDecision,url,headRefName,headRefOid"
+	approved := `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","url":"https://example.test/pull/7","headRefName":"feature","headRefOid":"abc123"}`
+	checksKey := "api repos/{owner}/{repo}/commits/abc123/check-runs --paginate"
+	statusKey := "api repos/{owner}/{repo}/commits/abc123/status"
 	for _, tc := range []struct {
 		name      string
 		enabled   bool
@@ -20,19 +22,25 @@ func TestMergePullRequestGateAndSafetyChecks(t *testing.T) {
 		method    string
 		wantError string
 		mergeCall string
+		checkRuns string
+		statuses  string
 	}{
 		{name: "flag off", enabled: false, wantError: "not enabled"},
 		{name: "draft", enabled: true, view: `{"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","reviewDecision":"APPROVED"}`, wantError: "is a draft"},
 		{name: "not approved", enabled: true, view: `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"REVIEW_REQUIRED"}`, wantError: "not approved"},
 		{name: "conflicting", enabled: true, view: `{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","reviewDecision":"APPROVED"}`, wantError: "merge conflicts"},
-		{name: "squash", enabled: true, view: approved, method: "squash", mergeCall: "pr merge 7 --squash"},
-		{name: "merge", enabled: true, view: approved, method: "merge", mergeCall: "pr merge 7 --merge"},
-		{name: "rebase", enabled: true, view: approved, method: "rebase", mergeCall: "pr merge 7 --rebase"},
+		{name: "pending checks", enabled: true, view: approved, checkRuns: `{"check_runs":[{"name":"test","status":"in_progress"}]}`, statuses: `{"statuses":[]}`, wantError: "pending checks"},
+		{name: "failing status", enabled: true, view: approved, checkRuns: `{"check_runs":[]}`, statuses: `{"statuses":[{"context":"ci","state":"failure"}]}`, wantError: "failing checks"},
+		{name: "squash", enabled: true, view: approved, method: "squash", checkRuns: `{"check_runs":[{"name":"test","status":"completed","conclusion":"success"}]}`, statuses: `{"statuses":[]}`, mergeCall: "pr merge 7 --squash --match-head-commit abc123"},
+		{name: "merge", enabled: true, view: approved, method: "merge", checkRuns: `{"check_runs":[]}`, statuses: `{"statuses":[{"context":"ci","state":"success"}]}`, mergeCall: "pr merge 7 --merge --match-head-commit abc123"},
+		{name: "rebase", enabled: true, view: approved, method: "rebase", checkRuns: `{"check_runs":[]}`, statuses: `{"statuses":[]}`, mergeCall: "pr merge 7 --rebase --match-head-commit abc123"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
 			setMaintainerMergeEnabled(t, k8sClient, tc.enabled)
-			runner := &maintainerFakeRunner{out: map[string]string{viewKey: tc.view}}
+			runner := &maintainerFakeRunner{out: map[string]string{
+				viewKey: tc.view, checksKey: tc.checkRuns, statusKey: tc.statuses,
+			}}
 			tool := &mergePullRequestTool{maintainerToolBase: base, runner: runner}
 			input := map[string]any{"pr_number": 7}
 			if tc.method != "" {
@@ -58,8 +66,8 @@ func TestMergePullRequestGateAndSafetyChecks(t *testing.T) {
 			if result.IsError || !strings.Contains(result.Content, "https://example.test/pull/7") {
 				t.Fatalf("result = %#v", result)
 			}
-			if len(runner.calls) != 2 || runner.calls[1] != tc.mergeCall {
-				t.Fatalf("gh calls = %v, want merge %q", runner.calls, tc.mergeCall)
+			if len(runner.calls) != 4 || runner.calls[1] != checksKey || runner.calls[2] != statusKey || runner.calls[3] != tc.mergeCall {
+				t.Fatalf("gh calls = %v, want checks, statuses, then merge %q", runner.calls, tc.mergeCall)
 			}
 		})
 	}

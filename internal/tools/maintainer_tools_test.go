@@ -116,6 +116,26 @@ func TestMaintainerAuthorizationAndFleetFiltering(t *testing.T) {
 	}
 }
 
+func TestDescribeFleetRunExposesPRLoopStateAndRound(t *testing.T) {
+	t.Parallel()
+	maintainer := maintainerRun()
+	implementer := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	implementer.Labels = map[string]string{
+		maintainerPRLoopStateLabel:          "in_review",
+		triggersv1alpha1.PRLoopRoleLabelKey: "unexpected-role-value",
+	}
+	implementer.Annotations = map[string]string{maintainerPRLoopRoundAnnotation: "2"}
+	base, _, _ := newMaintainerToolBase(t, maintainer, implementer)
+	tool := &getFleetRunsTool{maintainerToolBase: base}
+	entry, err := tool.describeFleetRun(context.Background(), implementer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.PRLoopState != "in_review" || entry.ReviewRound != "2" {
+		t.Fatalf("PR loop state/round = %q/%q, want in_review/2", entry.PRLoopState, entry.ReviewRound)
+	}
+}
+
 func TestConditionsMet(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

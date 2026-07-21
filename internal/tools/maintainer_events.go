@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,19 +19,21 @@ import (
 )
 
 const (
-	defaultRepoEventsTimeout        = 3600
-	minRepoEventsTimeout            = 30
-	maxRepoEventsTimeout            = 21600
-	defaultBacklogPollInterval      = 60 * time.Second
-	defaultFleetEventsPollInterval  = 15 * time.Second
-	maintainerRepoEventsResultLimit = 24 * 1024
+	defaultRepoEventsTimeout             = 3600
+	minRepoEventsTimeout                 = 30
+	maxRepoEventsTimeout                 = 21600
+	defaultBacklogPollInterval           = 60 * time.Second
+	defaultFleetEventsPollInterval       = 15 * time.Second
+	defaultPullRequestEventsPollInterval = 40 * time.Second
+	maintainerRepoEventsResultLimit      = 24 * 1024
 )
 
 type waitForRepoEventsTool struct {
 	maintainerToolBase
-	runner              prReviewRunner
-	backlogPollInterval time.Duration
-	fleetPollInterval   time.Duration
+	runner                  prReviewRunner
+	backlogPollInterval     time.Duration
+	fleetPollInterval       time.Duration
+	pullRequestPollInterval time.Duration
 }
 
 type waitForRepoEventsInput struct {
@@ -64,38 +67,59 @@ type maintainerRepoFleetEvent struct {
 	PullRequestURLs []string                       `json:"pull_request_urls"`
 	BlockedReason   string                         `json:"blocked_reason,omitempty"`
 	PendingInput    bool                           `json:"pending_input"`
+	PRLoopState     string                         `json:"pr_loop_state,omitempty"`
+	PRLoopRound     string                         `json:"pr_loop_round,omitempty"`
+}
+
+type maintainerRepoPullRequestEvent struct {
+	URL            string                   `json:"url"`
+	HeadSHA        string                   `json:"head_sha"`
+	State          string                   `json:"state"`
+	Draft          bool                     `json:"draft"`
+	ReviewDecision string                   `json:"review_decision"`
+	Mergeable      bool                     `json:"mergeable"`
+	MergeState     string                   `json:"merge_state"`
+	Checks         pullRequestChecksSummary `json:"checks"`
+	Error          string                   `json:"error,omitempty"`
+	Removed        bool                     `json:"removed,omitempty"`
 }
 
 type maintainerRepoEventsCursor struct {
-	BacklogFingerprint string            `json:"backlog_fingerprint"`
-	IssueSignatures    map[string]string `json:"issue_signatures"`
-	FleetSignatures    map[string]string `json:"fleet_signatures"`
+	BacklogFingerprint    string            `json:"backlog_fingerprint"`
+	IssueSignatures       map[string]string `json:"issue_signatures"`
+	FleetSignatures       map[string]string `json:"fleet_signatures"`
+	PullRequestSignatures map[string]string `json:"pull_request_signatures,omitempty"`
 }
 
 type maintainerRepoEventsSnapshot struct {
-	backlogFingerprint string
-	issueSignatures    map[string]string
-	issues             []maintainerRepoEventIssue
-	backlogAvailable   bool
-	backlogError       string
-	fleetSignatures    map[string]string
-	fleet              map[string]maintainerRepoFleetEvent
+	backlogFingerprint    string
+	issueSignatures       map[string]string
+	issues                []maintainerRepoEventIssue
+	backlogAvailable      bool
+	backlogError          string
+	fleetSignatures       map[string]string
+	fleet                 map[string]maintainerRepoFleetEvent
+	pullRequestSignatures map[string]string
+	pullRequests          map[string]maintainerRepoPullRequestEvent
+	pullRequestError      string
 }
 
 type waitForRepoEventsOutput struct {
-	Changed        bool                       `json:"changed"`
-	TimedOut       bool                       `json:"timed_out"`
-	ElapsedSeconds int                        `json:"elapsed_seconds"`
-	BacklogChanged bool                       `json:"backlog_changed"`
-	ChangedIssues  []maintainerRepoEventIssue `json:"changed_issues"`
-	FleetChanges   []maintainerRepoFleetEvent `json:"fleet_changes"`
-	Cursor         string                     `json:"cursor"`
-	BacklogError   string                     `json:"backlog_error,omitempty"`
+	Changed            bool                             `json:"changed"`
+	TimedOut           bool                             `json:"timed_out"`
+	ElapsedSeconds     int                              `json:"elapsed_seconds"`
+	BacklogChanged     bool                             `json:"backlog_changed"`
+	ChangedIssues      []maintainerRepoEventIssue       `json:"changed_issues"`
+	FleetChanges       []maintainerRepoFleetEvent       `json:"fleet_changes"`
+	PullRequestChanges []maintainerRepoPullRequestEvent `json:"pull_request_changes"`
+	Cursor             string                           `json:"cursor"`
+	BacklogError       string                           `json:"backlog_error,omitempty"`
+	PullRequestError   string                           `json:"pull_request_error,omitempty"`
 }
 
 func (t *waitForRepoEventsTool) Name() string { return "wait_for_repo_events" }
 func (t *waitForRepoEventsTool) Description() string {
-	return "Watch the maintained repository. Without a cursor it returns the current open-issue backlog and fleet run state immediately; with the cursor from the previous result it blocks until either changes. Always pass the cursor when waiting."
+	return "Watch the maintained repository. Without a cursor it returns the current open-issue, fleet-run, and attached pull-request state immediately; with the previous cursor it blocks until issues, run lifecycle, PR head/review/merge state, or aggregate CI checks change. Always pass the cursor when waiting."
 }
 func (t *waitForRepoEventsTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"timeout_seconds":{"type":"integer","minimum":30,"maximum":21600},"cursor":{"type":"string"}}}`)
@@ -159,6 +183,8 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 	defer backlogTicker.Stop()
 	fleetTicker := time.NewTicker(t.effectiveFleetPollInterval())
 	defer fleetTicker.Stop()
+	pullRequestTicker := time.NewTicker(t.effectivePullRequestPollInterval())
+	defer pullRequestTicker.Stop()
 	latest := current
 	for {
 		select {
@@ -190,6 +216,18 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 			if repoEventsChanged(previous, latest) {
 				return t.repoEventsResult(previous, latest, true, false, started, cursorProvided)
 			}
+		case <-pullRequestTicker.C:
+			pullRequests, pullRequestErr := t.pullRequestEventsSnapshot(ctx, wd, latest.fleet)
+			if pullRequestErr != nil {
+				latest.pullRequestError = pullRequestErr.Error()
+			} else {
+				latest.pullRequestSignatures = pullRequests.pullRequestSignatures
+				latest.pullRequests = pullRequests.pullRequests
+				latest.pullRequestError = pullRequests.pullRequestError
+			}
+			if repoEventsChanged(previous, latest) {
+				return t.repoEventsResult(previous, latest, true, false, started, cursorProvided)
+			}
 		}
 	}
 }
@@ -208,10 +246,25 @@ func (t *waitForRepoEventsTool) effectiveFleetPollInterval() time.Duration {
 	return defaultFleetEventsPollInterval
 }
 
+func (t *waitForRepoEventsTool) effectivePullRequestPollInterval() time.Duration {
+	if t.pullRequestPollInterval > 0 {
+		return t.pullRequestPollInterval
+	}
+	return defaultPullRequestEventsPollInterval
+}
+
 func (t *waitForRepoEventsTool) repoEventsSnapshot(ctx context.Context, workDir string, includeBacklog bool) (maintainerRepoEventsSnapshot, error) {
 	fleet, err := t.fleetEventsSnapshot(ctx)
 	if err != nil {
 		return maintainerRepoEventsSnapshot{}, err
+	}
+	pullRequests, pullRequestErr := t.pullRequestEventsSnapshot(ctx, workDir, fleet.fleet)
+	if pullRequestErr != nil {
+		fleet.pullRequestError = pullRequestErr.Error()
+	} else {
+		fleet.pullRequestSignatures = pullRequests.pullRequestSignatures
+		fleet.pullRequests = pullRequests.pullRequests
+		fleet.pullRequestError = pullRequests.pullRequestError
 	}
 	if !includeBacklog {
 		return fleet, nil
@@ -294,11 +347,251 @@ func (t *waitForRepoEventsTool) fleetEventsSnapshot(ctx context.Context) (mainta
 		}
 		blockedReason := maintainerBlockedReason(run)
 		pendingInput := orchestration.PendingUserInputForSession(session) != nil
-		signature := string(run.Status.Phase) + "|" + strconv.Itoa(len(urls)) + "|" + blockedReason + "|" + strconv.FormatBool(pendingInput)
+		loopState := run.Labels[maintainerPRLoopStateLabel]
+		loopRound := run.Annotations[maintainerPRLoopRoundAnnotation]
+		signature := string(run.Status.Phase) + "|" + strings.Join(urls, "\x00") + "|" + blockedReason + "|" + strconv.FormatBool(pendingInput) + "|" + loopState + "|" + loopRound
 		signatures[run.Name] = maintainerRepoEventSignature(signature)
-		events[run.Name] = maintainerRepoFleetEvent{Name: run.Name, Phase: run.Status.Phase, PullRequestURLs: urls, BlockedReason: blockedReason, PendingInput: pendingInput}
+		events[run.Name] = maintainerRepoFleetEvent{Name: run.Name, Phase: run.Status.Phase, PullRequestURLs: urls, BlockedReason: blockedReason, PendingInput: pendingInput, PRLoopState: loopState, PRLoopRound: loopRound}
 	}
-	return maintainerRepoEventsSnapshot{fleetSignatures: signatures, fleet: events}, nil
+	return maintainerRepoEventsSnapshot{fleetSignatures: signatures, fleet: events, pullRequestSignatures: map[string]string{}, pullRequests: map[string]maintainerRepoPullRequestEvent{}}, nil
+}
+
+const maintainerPullRequestReviewDecisionQuery = "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewDecision}}}"
+
+func (t *waitForRepoEventsTool) pullRequestEventsSnapshot(ctx context.Context, workDir string, fleet map[string]maintainerRepoFleetEvent) (maintainerRepoEventsSnapshot, error) {
+	type target struct {
+		url               string
+		owner, repository string
+		number            int
+	}
+	targetsByRepository := map[string][]target{}
+	events := map[string]maintainerRepoPullRequestEvent{}
+	errorsByURL := map[string]string{}
+	for _, fleetEvent := range fleet {
+		for _, rawURL := range fleetEvent.PullRequestURLs {
+			owner, repository, number, err := parseMaintainerPullRequestURL(rawURL)
+			if err != nil {
+				value := strings.TrimSpace(rawURL)
+				errorsByURL[value] = err.Error()
+				continue
+			}
+			value := fmt.Sprintf("https://github.com/%s/%s/pull/%d", owner, repository, number)
+			key := strings.ToLower(owner + "/" + repository)
+			targetsByRepository[key] = append(targetsByRepository[key], target{url: value, owner: owner, repository: repository, number: number})
+		}
+	}
+
+	runner := t.runner
+	if runner == nil {
+		runner = prReviewExecRunner{}
+	}
+	for _, targets := range targetsByRepository {
+		sort.Slice(targets, func(i, j int) bool { return targets[i].number < targets[j].number })
+		open, err := maintainerOpenPullRequestNumbers(ctx, runner, workDir, targets[0].owner, targets[0].repository)
+		if err != nil {
+			for _, item := range targets {
+				errorsByURL[item.url] = err.Error()
+			}
+			continue
+		}
+		for _, item := range targets {
+			if _, exists := open[item.number]; !exists {
+				events[item.url] = maintainerRepoPullRequestEvent{URL: item.url, State: "closed"}
+				continue
+			}
+			event, err := t.pullRequestEvent(ctx, workDir, item.url)
+			if err != nil {
+				errorsByURL[item.url] = err.Error()
+				continue
+			}
+			events[item.url] = event
+		}
+	}
+
+	snapshot := maintainerRepoEventsSnapshot{
+		pullRequestSignatures: make(map[string]string, len(events)+len(errorsByURL)),
+		pullRequests:          make(map[string]maintainerRepoPullRequestEvent, len(events)+len(errorsByURL)),
+	}
+	for value, message := range errorsByURL {
+		events[value] = maintainerRepoPullRequestEvent{URL: value, Error: truncateUTF8(message, 1024)}
+	}
+	values := make([]string, 0, len(events))
+	for value := range events {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	messages := make([]string, 0, len(errorsByURL))
+	for _, value := range values {
+		event := events[value]
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return maintainerRepoEventsSnapshot{}, err
+		}
+		snapshot.pullRequestSignatures[value] = maintainerRepoEventSignature(string(encoded))
+		snapshot.pullRequests[value] = event
+		if event.Error != "" {
+			messages = append(messages, value+": "+event.Error)
+		}
+	}
+	snapshot.pullRequestError = strings.Join(messages, "; ")
+	return snapshot, nil
+}
+
+func maintainerOpenPullRequestNumbers(ctx context.Context, runner prReviewRunner, workDir, owner, repository string) (map[int]struct{}, error) {
+	out, err := runner.RunGH(ctx, workDir, "api", "repos/"+owner+"/"+repository+"/pulls?state=open&per_page=100", "--paginate")
+	if err != nil {
+		return nil, fmt.Errorf("gh api open pull requests failed: %w: %s", err, strings.TrimSpace(out))
+	}
+	open := map[int]struct{}{}
+	decoder := json.NewDecoder(strings.NewReader(out))
+	for decoder.More() {
+		var page []struct {
+			Number int `json:"number"`
+		}
+		if err := decoder.Decode(&page); err != nil {
+			return nil, fmt.Errorf("parse gh api open pull requests output: %w", err)
+		}
+		for _, pullRequest := range page {
+			if pullRequest.Number > 0 {
+				open[pullRequest.Number] = struct{}{}
+			}
+		}
+	}
+	return open, nil
+}
+
+func (t *waitForRepoEventsTool) pullRequestEvent(ctx context.Context, workDir, pullRequestURL string) (maintainerRepoPullRequestEvent, error) {
+	owner, repository, number, err := parseMaintainerPullRequestURL(pullRequestURL)
+	if err != nil {
+		return maintainerRepoPullRequestEvent{}, err
+	}
+	runner := t.runner
+	if runner == nil {
+		runner = prReviewExecRunner{}
+	}
+	endpoint := "repos/" + owner + "/" + repository + "/pulls/" + strconv.Itoa(number)
+	pullRequestOut, err := runner.RunGH(ctx, workDir, "api", endpoint)
+	if err != nil {
+		return maintainerRepoPullRequestEvent{}, fmt.Errorf("gh api pull request failed: %w: %s", err, strings.TrimSpace(pullRequestOut))
+	}
+	var pullRequest struct {
+		Head struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+		State          string `json:"state"`
+		Draft          bool   `json:"draft"`
+		Mergeable      bool   `json:"mergeable"`
+		MergeableState string `json:"mergeable_state"`
+	}
+	if err := json.Unmarshal([]byte(pullRequestOut), &pullRequest); err != nil {
+		return maintainerRepoPullRequestEvent{}, fmt.Errorf("parse gh api pull request output: %w", err)
+	}
+	if pullRequest.Head.SHA == "" {
+		return maintainerRepoPullRequestEvent{}, fmt.Errorf("gh api pull request returned no head SHA")
+	}
+
+	reviewOut, err := runner.RunGH(ctx, workDir, "api", "graphql", "-f", "query="+maintainerPullRequestReviewDecisionQuery, "-f", "owner="+owner, "-f", "repo="+repository, "-F", "number="+strconv.Itoa(number))
+	if err != nil {
+		return maintainerRepoPullRequestEvent{}, fmt.Errorf("gh api pull request review decision failed: %w: %s", err, strings.TrimSpace(reviewOut))
+	}
+	var review struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewDecision string `json:"reviewDecision"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(reviewOut), &review); err != nil {
+		return maintainerRepoPullRequestEvent{}, fmt.Errorf("parse gh api pull request review decision output: %w", err)
+	}
+
+	checksOut, err := runner.RunGH(ctx, workDir, "api", "repos/"+owner+"/"+repository+"/commits/"+pullRequest.Head.SHA+"/check-runs", "--paginate")
+	if err != nil {
+		return maintainerRepoPullRequestEvent{}, fmt.Errorf("gh api check-runs failed: %w: %s", err, strings.TrimSpace(checksOut))
+	}
+	checks, err := parseCheckRunPages(checksOut)
+	if err != nil {
+		return maintainerRepoPullRequestEvent{}, fmt.Errorf("parse check-runs output: %w", err)
+	}
+
+	statusOut, err := runner.RunGH(ctx, workDir, "api", "repos/"+owner+"/"+repository+"/commits/"+pullRequest.Head.SHA+"/status")
+	if err != nil {
+		return maintainerRepoPullRequestEvent{}, fmt.Errorf("gh api commit status failed: %w: %s", err, strings.TrimSpace(statusOut))
+	}
+	var status struct {
+		Statuses []pullRequestCommitStatus `json:"statuses"`
+	}
+	if err := json.Unmarshal([]byte(statusOut), &status); err != nil {
+		return maintainerRepoPullRequestEvent{}, fmt.Errorf("parse gh api commit status output: %w", err)
+	}
+
+	return maintainerRepoPullRequestEvent{
+		URL:            pullRequestURL,
+		HeadSHA:        pullRequest.Head.SHA,
+		State:          pullRequest.State,
+		Draft:          pullRequest.Draft,
+		ReviewDecision: review.Data.Repository.PullRequest.ReviewDecision,
+		Mergeable:      pullRequest.Mergeable,
+		MergeState:     pullRequest.MergeableState,
+		Checks:         maintainerPullRequestChecksSummary(checks, status.Statuses),
+	}, nil
+}
+
+func parseMaintainerPullRequestURL(value string) (owner, repository string, number int, err error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed == nil {
+		return "", "", 0, fmt.Errorf("invalid pull request URL")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if !strings.EqualFold(parsed.Scheme, "https") || (host != "github.com" && host != "www.github.com") || parsed.User != nil || parsed.Port() != "" {
+		return "", "", 0, fmt.Errorf("pull request URL must be an HTTPS github.com URL without userinfo or a port")
+	}
+	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	if len(parts) < 4 || parts[0] == "" || parts[1] == "" || !strings.EqualFold(parts[2], "pull") {
+		return "", "", 0, fmt.Errorf("invalid pull request URL")
+	}
+	owner, err = url.PathUnescape(parts[0])
+	if err != nil || owner == "" || strings.Contains(owner, "/") {
+		return "", "", 0, fmt.Errorf("invalid pull request owner")
+	}
+	repository, err = url.PathUnescape(parts[1])
+	if err != nil || repository == "" || strings.Contains(repository, "/") {
+		return "", "", 0, fmt.Errorf("invalid pull request repository")
+	}
+	number64, err := strconv.ParseInt(parts[3], 10, 32)
+	if err != nil || number64 <= 0 {
+		return "", "", 0, fmt.Errorf("invalid pull request number")
+	}
+	return strings.ToLower(owner), strings.ToLower(repository), int(number64), nil
+}
+
+func maintainerPullRequestChecksSummary(checks []pullRequestCheckRun, statuses []pullRequestCommitStatus) pullRequestChecksSummary {
+	summary := pullRequestChecksSummary{Total: len(checks) + len(statuses)}
+	for _, check := range checks {
+		if check.Status != "completed" {
+			summary.Pending++
+			continue
+		}
+		switch check.Conclusion {
+		case "success", "neutral", "skipped":
+			summary.Passed++
+		default:
+			summary.Failed++
+		}
+	}
+	for _, status := range statuses {
+		switch status.State {
+		case "success":
+			summary.Passed++
+		case "pending":
+			summary.Pending++
+		default:
+			summary.Failed++
+		}
+	}
+	return summary
 }
 
 func maintainerRepoEventSignature(value string) string {
@@ -310,7 +603,8 @@ func repoEventsChanged(previous, current maintainerRepoEventsSnapshot) bool {
 	if current.backlogAvailable && (!previous.backlogAvailable || previous.backlogFingerprint != current.backlogFingerprint) {
 		return true
 	}
-	return !maintainerRepoEventSignaturesEqual(previous.fleetSignatures, current.fleetSignatures)
+	return !maintainerRepoEventSignaturesEqual(previous.fleetSignatures, current.fleetSignatures) ||
+		!maintainerRepoEventSignaturesEqual(previous.pullRequestSignatures, current.pullRequestSignatures)
 }
 
 func maintainerRepoEventSignaturesEqual(left, right map[string]string) bool {
@@ -333,9 +627,11 @@ func (t *waitForRepoEventsTool) repoEventsResult(previous, current maintainerRep
 	}
 	changedIssues := changedRepoEventIssues(previous, current)
 	fleetChanges := changedRepoFleetEvents(previous, current)
+	pullRequestChanges := changedRepoPullRequestEvents(previous, current)
 	if !changed {
 		changedIssues = []maintainerRepoEventIssue{}
 		fleetChanges = []maintainerRepoFleetEvent{}
+		pullRequestChanges = []maintainerRepoPullRequestEvent{}
 	} else if !cursorKnown {
 		changedIssues = append([]maintainerRepoEventIssue(nil), current.issues...)
 	}
@@ -347,13 +643,14 @@ func (t *waitForRepoEventsTool) repoEventsResult(previous, current maintainerRep
 	// an emitted-only cursor the next call detects the remaining difference
 	// immediately and pages through the rest.
 	for {
-		cursor, err := encodeMaintainerRepoEventsCursor(repoEventsCursorForEmitted(previous, current, changedIssues, fleetChanges))
+		cursor, err := encodeMaintainerRepoEventsCursor(repoEventsCursorForEmitted(previous, current, changedIssues, fleetChanges, pullRequestChanges))
 		if err != nil {
 			return Result{}, err
 		}
 		out := waitForRepoEventsOutput{
 			Changed: changed, TimedOut: timedOut, BacklogChanged: current.backlogAvailable && (!previous.backlogAvailable || previous.backlogFingerprint != current.backlogFingerprint),
-			ChangedIssues: changedIssues, FleetChanges: fleetChanges, Cursor: cursor, BacklogError: truncateUTF8(current.backlogError, 1024),
+			ChangedIssues: changedIssues, FleetChanges: fleetChanges, PullRequestChanges: pullRequestChanges, Cursor: cursor,
+			BacklogError: truncateUTF8(current.backlogError, 1024), PullRequestError: truncateUTF8(current.pullRequestError, 1024),
 		}
 		if !started.IsZero() {
 			out.ElapsedSeconds = int(time.Since(started).Seconds())
@@ -362,25 +659,30 @@ func (t *waitForRepoEventsTool) repoEventsResult(previous, current maintainerRep
 		if err != nil {
 			return Result{}, err
 		}
-		if len(encoded) <= maintainerRepoEventsResultLimit || (len(changedIssues) == 0 && len(fleetChanges) == 0) {
+		if len(encoded) <= maintainerRepoEventsResultLimit || (len(changedIssues) == 0 && len(fleetChanges) == 0 && len(pullRequestChanges) == 0) {
 			return Result{Content: string(encoded)}, nil
 		}
 		if len(changedIssues) > 0 {
 			changedIssues = changedIssues[:len(changedIssues)-1]
 			continue
 		}
-		fleetChanges = fleetChanges[:len(fleetChanges)-1]
+		if len(fleetChanges) > 0 {
+			fleetChanges = fleetChanges[:len(fleetChanges)-1]
+			continue
+		}
+		pullRequestChanges = pullRequestChanges[:len(pullRequestChanges)-1]
 	}
 }
 
 // repoEventsCursorForEmitted advances the previous cursor by only the emitted
-// deltas: emitted issues and fleet runs adopt their current signatures,
-// removed entries are dropped, and everything else keeps the previously seen
-// signature so it still registers as a pending change. The backlog
-// fingerprint matches the live snapshot only when nothing was suppressed;
-// otherwise a fingerprint derived from the acknowledged signatures keeps the
-// cursor distinct from the live state so the next call returns immediately.
-func repoEventsCursorForEmitted(previous, current maintainerRepoEventsSnapshot, emittedIssues []maintainerRepoEventIssue, emittedFleet []maintainerRepoFleetEvent) maintainerRepoEventsCursor {
+// deltas: emitted issues, fleet runs, and pull requests adopt their current
+// signatures, removed entries are dropped, and everything else keeps the
+// previously seen signature so it still registers as a pending change. The
+// backlog fingerprint matches the live snapshot only when nothing was
+// suppressed; otherwise a fingerprint derived from the acknowledged
+// signatures keeps the cursor distinct from the live state so the next call
+// returns immediately.
+func repoEventsCursorForEmitted(previous, current maintainerRepoEventsSnapshot, emittedIssues []maintainerRepoEventIssue, emittedFleet []maintainerRepoFleetEvent, emittedPullRequests []maintainerRepoPullRequestEvent) maintainerRepoEventsCursor {
 	issueSignatures := map[string]string{}
 	for number, signature := range previous.issueSignatures {
 		if _, exists := current.issueSignatures[number]; exists {
@@ -409,10 +711,23 @@ func repoEventsCursorForEmitted(previous, current maintainerRepoEventsSnapshot, 
 			delete(fleetSignatures, event.Name)
 		}
 	}
+
+	pullRequestSignatures := map[string]string{}
+	for value, signature := range previous.pullRequestSignatures {
+		pullRequestSignatures[value] = signature
+	}
+	for _, event := range emittedPullRequests {
+		if signature, exists := current.pullRequestSignatures[event.URL]; exists {
+			pullRequestSignatures[event.URL] = signature
+		} else {
+			delete(pullRequestSignatures, event.URL)
+		}
+	}
 	return maintainerRepoEventsCursor{
-		BacklogFingerprint: backlogFingerprint,
-		IssueSignatures:    issueSignatures,
-		FleetSignatures:    fleetSignatures,
+		BacklogFingerprint:    backlogFingerprint,
+		IssueSignatures:       issueSignatures,
+		FleetSignatures:       fleetSignatures,
+		PullRequestSignatures: pullRequestSignatures,
 	}
 }
 
@@ -463,12 +778,39 @@ func changedRepoFleetEvents(previous, current maintainerRepoEventsSnapshot) []ma
 	return events
 }
 
+func changedRepoPullRequestEvents(previous, current maintainerRepoEventsSnapshot) []maintainerRepoPullRequestEvent {
+	values := make([]string, 0)
+	for value, signature := range current.pullRequestSignatures {
+		if previous.pullRequestSignatures[value] != signature {
+			values = append(values, value)
+		}
+	}
+	for value := range previous.pullRequestSignatures {
+		if _, exists := current.pullRequestSignatures[value]; !exists {
+			values = append(values, value)
+		}
+	}
+	sort.Strings(values)
+	events := make([]maintainerRepoPullRequestEvent, 0, len(values))
+	for _, value := range values {
+		if event, exists := current.pullRequests[value]; exists {
+			events = append(events, event)
+			continue
+		}
+		events = append(events, maintainerRepoPullRequestEvent{URL: value, Removed: true})
+	}
+	return events
+}
+
 func encodeMaintainerRepoEventsCursor(cursor maintainerRepoEventsCursor) (string, error) {
 	if cursor.IssueSignatures == nil {
 		cursor.IssueSignatures = map[string]string{}
 	}
 	if cursor.FleetSignatures == nil {
 		cursor.FleetSignatures = map[string]string{}
+	}
+	if cursor.PullRequestSignatures == nil {
+		cursor.PullRequestSignatures = map[string]string{}
 	}
 	encoded, err := json.Marshal(cursor)
 	if err != nil {
@@ -489,6 +831,9 @@ func decodeMaintainerRepoEventsCursor(value string) (maintainerRepoEventsCursor,
 	if cursor.IssueSignatures == nil || cursor.FleetSignatures == nil {
 		return maintainerRepoEventsCursor{}, fmt.Errorf("snapshot signatures are required")
 	}
+	if cursor.PullRequestSignatures == nil {
+		cursor.PullRequestSignatures = map[string]string{}
+	}
 	return cursor, nil
 }
 
@@ -496,5 +841,6 @@ func snapshotFromMaintainerRepoEventsCursor(cursor maintainerRepoEventsCursor) m
 	return maintainerRepoEventsSnapshot{
 		backlogFingerprint: cursor.BacklogFingerprint, issueSignatures: cursor.IssueSignatures, backlogAvailable: cursor.BacklogFingerprint != "",
 		fleetSignatures: cursor.FleetSignatures, fleet: map[string]maintainerRepoFleetEvent{},
+		pullRequestSignatures: cursor.PullRequestSignatures, pullRequests: map[string]maintainerRepoPullRequestEvent{},
 	}
 }

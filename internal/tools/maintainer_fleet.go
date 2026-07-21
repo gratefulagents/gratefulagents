@@ -8,7 +8,6 @@ import (
 	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
-	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
@@ -56,6 +55,7 @@ type fleetRunOutput struct {
 	QueueState      string                          `json:"queue_state,omitempty"`
 	BlockedReason   string                          `json:"blocked_reason,omitempty"`
 	PRLoopState     string                          `json:"pr_loop_state,omitempty"`
+	ReviewRound     string                          `json:"review_round,omitempty"`
 	PendingInput    *orchestration.PendingUserInput `json:"pending_input,omitempty"`
 }
 
@@ -134,7 +134,8 @@ func (t *getFleetRunsTool) describeFleetRun(ctx context.Context, run *platformv1
 	} else {
 		entry.Role = "implementer"
 	}
-	entry.PRLoopState = run.Labels[triggersv1alpha1.PRLoopRoleLabelKey]
+	entry.PRLoopState = run.Labels[maintainerPRLoopStateLabel]
+	entry.ReviewRound = run.Annotations[maintainerPRLoopRoundAnnotation]
 	if run.Status.Artifacts != nil {
 		entry.PullRequestURLs = append(entry.PullRequestURLs, run.Status.Artifacts.PullRequestURLs...)
 		if len(entry.PullRequestURLs) == 0 && run.Status.Artifacts.PullRequestURL != "" {

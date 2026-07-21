@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type maintainerFakeRunner struct {
@@ -58,9 +60,10 @@ func TestMaintainerBacklogFingerprintAndCursorRoundTrip(t *testing.T) {
 		t.Fatal("fingerprint did not change for an updated issue")
 	}
 	want := maintainerRepoEventsCursor{
-		BacklogFingerprint: baseline.backlogFingerprint,
-		IssueSignatures:    baseline.issueSignatures,
-		FleetSignatures:    map[string]string{"run": "signature"},
+		BacklogFingerprint:    baseline.backlogFingerprint,
+		IssueSignatures:       baseline.issueSignatures,
+		FleetSignatures:       map[string]string{"run": "signature"},
+		PullRequestSignatures: map[string]string{},
 	}
 	encoded, err := encodeMaintainerRepoEventsCursor(want)
 	if err != nil {
@@ -187,7 +190,7 @@ func TestRepoEventsCursorAcknowledgesOnlyEmittedIssues(t *testing.T) {
 
 	// Emit only the first 25 issues, as a cap or byte-budget trim would.
 	emitted := append([]maintainerRepoEventIssue(nil), current.issues[:25]...)
-	cursor := repoEventsCursorForEmitted(maintainerRepoEventsSnapshot{}, current, emitted, nil)
+	cursor := repoEventsCursorForEmitted(maintainerRepoEventsSnapshot{}, current, emitted, nil, nil)
 	if cursor.BacklogFingerprint == current.backlogFingerprint {
 		t.Fatal("suppressed issues must keep the cursor distinct from the live snapshot")
 	}
@@ -212,7 +215,7 @@ func TestRepoEventsCursorAcknowledgesOnlyEmittedIssues(t *testing.T) {
 
 	// Once everything is emitted the cursor converges with the live snapshot
 	// and a further wait blocks instead of spinning.
-	fullCursor := repoEventsCursorForEmitted(previous, current, remaining, nil)
+	fullCursor := repoEventsCursorForEmitted(previous, current, remaining, nil, nil)
 	if fullCursor.BacklogFingerprint != current.backlogFingerprint {
 		t.Fatal("fully acknowledged cursor must match the live fingerprint")
 	}
@@ -254,5 +257,188 @@ func TestWaitForRepoEventsFirstCallReturnsBacklogsBeyondThirtyIssues(t *testing.
 	}
 	if len(cursor.IssueSignatures) != 35 {
 		t.Fatalf("cursor signatures = %d, want 35", len(cursor.IssueSignatures))
+	}
+}
+
+const maintainerTestPullRequestURL = "https://github.com/octo/widgets/pull/7"
+
+func maintainerPullRequestRunnerOutputs(checkStatus, conclusion, reviewDecision string) map[string]string {
+	return map[string]string{
+		"api repos/octo/widgets/pulls?state=open&per_page=100 --paginate":                                                 `[{"number":7}]`,
+		"api repos/octo/widgets/pulls/7":                                                                                  `{"head":{"sha":"abc123"},"state":"OPEN","draft":false,"mergeable":true,"mergeable_state":"clean"}`,
+		"api graphql -f query=" + maintainerPullRequestReviewDecisionQuery + " -f owner=octo -f repo=widgets -F number=7": `{"data":{"repository":{"pullRequest":{"reviewDecision":"` + reviewDecision + `"}}}}`,
+		"api repos/octo/widgets/commits/abc123/check-runs --paginate":                                                     `{"check_runs":[{"name":"build","status":"` + checkStatus + `","conclusion":"` + conclusion + `"}]}`,
+		"api repos/octo/widgets/commits/abc123/status":                                                                    `{"statuses":[]}`,
+	}
+}
+
+func TestRepoEventsDetectsPullRequestCIPendingToPassed(t *testing.T) {
+	runner := &maintainerFakeRunner{out: maintainerPullRequestRunnerOutputs("in_progress", "", "REVIEW_REQUIRED")}
+	tool := &waitForRepoEventsTool{runner: runner}
+	fleet := map[string]maintainerRepoFleetEvent{"implementer": {PullRequestURLs: []string{maintainerTestPullRequestURL}}}
+
+	pending, err := tool.pullRequestEventsSnapshot(context.Background(), maintainerTestGitRepoDir(t), fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.out["api repos/octo/widgets/commits/abc123/check-runs --paginate"] = `{"check_runs":[{"name":"build","status":"completed","conclusion":"success"}]}`
+	passed, err := tool.pullRequestEventsSnapshot(context.Background(), maintainerTestGitRepoDir(t), fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repoEventsChanged(pending, passed) {
+		t.Fatal("CI pending-to-passed change did not wake the waiter")
+	}
+	changes := changedRepoPullRequestEvents(pending, passed)
+	if len(changes) != 1 || changes[0].URL != maintainerTestPullRequestURL || changes[0].Checks.Pending != 0 || changes[0].Checks.Passed != 1 {
+		t.Fatalf("pull request changes = %#v", changes)
+	}
+	runner.out["api graphql -f query="+maintainerPullRequestReviewDecisionQuery+" -f owner=octo -f repo=widgets -F number=7"] = `{"data":{"repository":{"pullRequest":{"reviewDecision":"APPROVED"}}}}`
+	reviewed, err := tool.pullRequestEventsSnapshot(context.Background(), maintainerTestGitRepoDir(t), fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repoEventsChanged(passed, reviewed) || changedRepoPullRequestEvents(passed, reviewed)[0].ReviewDecision != "APPROVED" {
+		t.Fatalf("review decision change = %#v", changedRepoPullRequestEvents(passed, reviewed))
+	}
+}
+
+func TestRepoEventsIsolatesBadPullRequestAndContinuesMonitoringOthers(t *testing.T) {
+	runner := &maintainerFakeRunner{out: maintainerPullRequestRunnerOutputs("completed", "success", "APPROVED")}
+	tool := &waitForRepoEventsTool{runner: runner}
+	fleet := map[string]maintainerRepoFleetEvent{
+		"good": {PullRequestURLs: []string{maintainerTestPullRequestURL}},
+		"bad":  {PullRequestURLs: []string{"https://example.test/not-a-pr"}},
+	}
+
+	snapshot, err := tool.pullRequestEventsSnapshot(context.Background(), maintainerTestGitRepoDir(t), fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.pullRequests[maintainerTestPullRequestURL]; got.ReviewDecision != "APPROVED" || got.Checks.Passed != 1 {
+		t.Fatalf("good pull request was not monitored: %#v", got)
+	}
+	bad := snapshot.pullRequests["https://example.test/not-a-pr"]
+	if bad.Error == "" || snapshot.pullRequestError == "" || snapshot.pullRequestSignatures[bad.URL] == "" {
+		t.Fatalf("bad pull request event/error = %#v / %q", bad, snapshot.pullRequestError)
+	}
+	previous := snapshot
+	delete(fleet, "bad")
+	recovered, err := tool.pullRequestEventsSnapshot(context.Background(), maintainerTestGitRepoDir(t), fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repoEventsChanged(previous, recovered) {
+		t.Fatal("removing a failed pull request must wake the waiter")
+	}
+}
+
+func TestRepoEventsDoesNotPollChecksForClosedHistoricalPullRequests(t *testing.T) {
+	runner := &maintainerFakeRunner{out: map[string]string{
+		"api repos/octo/widgets/pulls?state=open&per_page=100 --paginate": `[]`,
+	}}
+	tool := &waitForRepoEventsTool{runner: runner}
+	fleet := map[string]maintainerRepoFleetEvent{"historical": {PullRequestURLs: []string{maintainerTestPullRequestURL}}}
+
+	snapshot, err := tool.pullRequestEventsSnapshot(context.Background(), maintainerTestGitRepoDir(t), fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.pullRequests[maintainerTestPullRequestURL]; got.State != "closed" || got.Error != "" {
+		t.Fatalf("closed pull request = %#v", got)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("closed historical pull request made per-PR/check calls: %v", runner.calls)
+	}
+}
+
+func TestParseMaintainerPullRequestURLMatchesArtifactNormalization(t *testing.T) {
+	owner, repository, number, err := parseMaintainerPullRequestURL("HTTPS://www.github.com/Octo/Widgets/PULL/7/files")
+	if err != nil || owner != "octo" || repository != "widgets" || number != 7 {
+		t.Fatalf("parse = %q/%q#%d, %v", owner, repository, number, err)
+	}
+}
+
+func TestFleetEventDetectsPRLoopStateAndRound(t *testing.T) {
+	maintainer := maintainerRun()
+	run := fleetRun("reviewer", platformv1alpha1.AgentRunPhaseRunning)
+	run.Labels = map[string]string{maintainerPRLoopStateLabel: "reviewing"}
+	run.Annotations = map[string]string{maintainerPRLoopRoundAnnotation: "1"}
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainer, run)
+	tool := &waitForRepoEventsTool{maintainerToolBase: base}
+
+	previous, err := tool.fleetEventsSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: run.Name, Namespace: run.Namespace}, updated); err != nil {
+		t.Fatal(err)
+	}
+	updated.Labels[maintainerPRLoopStateLabel] = "approved"
+	updated.Annotations[maintainerPRLoopRoundAnnotation] = "2"
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatal(err)
+	}
+	current, err := tool.fleetEventsSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repoEventsChanged(previous, current) {
+		t.Fatal("PR-loop state change did not wake the waiter")
+	}
+	change := changedRepoFleetEvents(previous, current)
+	if len(change) != 1 || change[0].PRLoopState != "approved" || change[0].PRLoopRound != "2" {
+		t.Fatalf("fleet changes = %#v", change)
+	}
+}
+
+func TestMaintainerRepoEventsCursorDecodesOlderSnapshots(t *testing.T) {
+	legacy, err := json.Marshal(map[string]any{
+		"backlog_fingerprint": "backlog",
+		"issue_signatures":    map[string]string{"1": "issue"},
+		"fleet_signatures":    map[string]string{"run": "fleet"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor, err := decodeMaintainerRepoEventsCursor(base64.RawStdEncoding.EncodeToString(legacy))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cursor.PullRequestSignatures == nil || len(cursor.PullRequestSignatures) != 0 {
+		t.Fatalf("pull request signatures = %#v", cursor.PullRequestSignatures)
+	}
+}
+
+func TestWaitForRepoEventsFirstSnapshotIncludesPullRequestChanges(t *testing.T) {
+	maintainer := maintainerRun()
+	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run.Status.Artifacts = &platformv1alpha1.AgentRunArtifacts{PullRequestURLs: []string{maintainerTestPullRequestURL}}
+	base, _, _ := newMaintainerToolBase(t, maintainer, run)
+	runner := &maintainerFakeRunner{out: maintainerPullRequestRunnerOutputs("completed", "success", "APPROVED")}
+	runner.out["issue list --state open --json number,title,labels,updatedAt,url --limit 200"] = "[]"
+	tool := &waitForRepoEventsTool{maintainerToolBase: base, runner: runner}
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"timeout_seconds":30}`), maintainerTestGitRepoDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute() error result: %s", result.Content)
+	}
+	var output waitForRepoEventsOutput
+	if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.PullRequestChanges) != 1 || output.PullRequestChanges[0].URL != maintainerTestPullRequestURL || output.PullRequestChanges[0].ReviewDecision != "APPROVED" {
+		t.Fatalf("pull request changes = %#v", output.PullRequestChanges)
+	}
+	cursor, err := decodeMaintainerRepoEventsCursor(output.Cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cursor.PullRequestSignatures[maintainerTestPullRequestURL] == "" {
+		t.Fatalf("pull request signatures = %#v", cursor.PullRequestSignatures)
 	}
 }

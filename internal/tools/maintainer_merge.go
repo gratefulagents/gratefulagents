@@ -27,6 +27,7 @@ type mergePullRequestView struct {
 	ReviewDecision string `json:"reviewDecision"`
 	URL            string `json:"url"`
 	HeadRefName    string `json:"headRefName"`
+	HeadRefOid     string `json:"headRefOid"`
 }
 
 func (t *mergePullRequestTool) Name() string { return "merge_pull_request" }
@@ -75,7 +76,7 @@ func (t *mergePullRequestTool) Execute(ctx context.Context, input json.RawMessag
 		runner = prReviewExecRunner{}
 	}
 	number := strconv.Itoa(in.PRNumber)
-	out, err := runner.RunGH(ctx, wd, "pr", "view", number, "--json", "state,isDraft,mergeable,reviewDecision,url,headRefName")
+	out, err := runner.RunGH(ctx, wd, "pr", "view", number, "--json", "state,isDraft,mergeable,reviewDecision,url,headRefName,headRefOid")
 	if err != nil {
 		return Result{Content: fmt.Sprintf("gh pr view failed: %v\n%s", err, out), IsError: true}, nil
 	}
@@ -95,9 +96,37 @@ func (t *mergePullRequestTool) Execute(ctx context.Context, input json.RawMessag
 	if view.Mergeable == "CONFLICTING" {
 		return Result{Content: fmt.Sprintf("pull request #%d has merge conflicts", in.PRNumber), IsError: true}, nil
 	}
-	out, err = runner.RunGH(ctx, wd, "pr", "merge", number, "--"+method)
+	if strings.TrimSpace(view.HeadRefOid) == "" {
+		return Result{Content: fmt.Sprintf("pull request #%d has no head commit SHA", in.PRNumber), IsError: true}, nil
+	}
+	checksOut, err := runner.RunGH(ctx, wd, "api", "repos/{owner}/{repo}/commits/"+view.HeadRefOid+"/check-runs", "--paginate")
+	if err != nil {
+		return Result{Content: fmt.Sprintf("gh api check-runs failed: %v\n%s", err, checksOut), IsError: true}, nil
+	}
+	checks, err := parseCheckRunPages(checksOut)
+	if err != nil {
+		return Result{Content: fmt.Sprintf("parse check-runs output: %v", err), IsError: true}, nil
+	}
+	statusOut, err := runner.RunGH(ctx, wd, "api", "repos/{owner}/{repo}/commits/"+view.HeadRefOid+"/status")
+	if err != nil {
+		return Result{Content: fmt.Sprintf("gh api commit status failed: %v\n%s", err, statusOut), IsError: true}, nil
+	}
+	var combinedStatus struct {
+		Statuses []pullRequestCommitStatus `json:"statuses"`
+	}
+	if err := json.Unmarshal([]byte(statusOut), &combinedStatus); err != nil {
+		return Result{Content: fmt.Sprintf("parse commit status output: %v", err), IsError: true}, nil
+	}
+	checksSummary := maintainerPullRequestChecksSummary(checks, combinedStatus.Statuses)
+	if checksSummary.Pending > 0 {
+		return Result{Content: fmt.Sprintf("pull request #%d still has %d pending checks or commit statuses", in.PRNumber, checksSummary.Pending), IsError: true}, nil
+	}
+	if checksSummary.Failed > 0 {
+		return Result{Content: fmt.Sprintf("pull request #%d has %d failing checks or commit statuses", in.PRNumber, checksSummary.Failed), IsError: true}, nil
+	}
+	out, err = runner.RunGH(ctx, wd, "pr", "merge", number, "--"+method, "--match-head-commit", view.HeadRefOid)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("gh pr merge failed: %v\n%s", err, out), IsError: true}, nil
 	}
-	return Result{Content: fmt.Sprintf("Merged pull request %s with %s. Consider dispatching the next issue.", view.URL, method)}, nil
+	return Result{Content: fmt.Sprintf("Merged pull request %s with %s after verifying %d checks and commit statuses. Consider dispatching the next issue.", view.URL, method, checksSummary.Total)}, nil
 }

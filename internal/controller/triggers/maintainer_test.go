@@ -103,6 +103,34 @@ func TestMaintainerCreatesStandingRunOnceWithFencesAndSeed(t *testing.T) {
 	}
 }
 
+func TestMaintainerCountsUnresolvedPullRequests(t *testing.T) {
+	t.Parallel()
+	repository := maintainerRepository()
+	monitor := func(name string, state triggersv1alpha1.PullRequestMonitorState, repositoryName string) *triggersv1alpha1.PullRequestMonitor {
+		return &triggersv1alpha1.PullRequestMonitor{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: repository.Namespace},
+			Spec: triggersv1alpha1.PullRequestMonitorSpec{
+				GitHubRepositoryRef: &corev1.LocalObjectReference{Name: repositoryName},
+			},
+			Status: triggersv1alpha1.PullRequestMonitorStatus{State: state},
+		}
+	}
+	engine, _, _ := newMaintainerEngine(t, nil,
+		repository,
+		monitor("open", triggersv1alpha1.PullRequestMonitorStateOpen, repository.Name),
+		monitor("approved", triggersv1alpha1.PullRequestMonitorStateApproved, repository.Name),
+		monitor("merged", triggersv1alpha1.PullRequestMonitorStateMerged, repository.Name),
+		monitor("foreign", triggersv1alpha1.PullRequestMonitorStateOpen, "other"),
+	)
+	got, err := engine.countActivePullRequests(context.Background(), repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 2 {
+		t.Fatalf("active pull requests = %d, want 2", got)
+	}
+}
+
 func TestMaintainerDoesNotRunWhenDisabledOrNotEnabled(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
