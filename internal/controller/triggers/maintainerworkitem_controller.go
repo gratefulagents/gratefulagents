@@ -78,7 +78,7 @@ func maintainerWorkItemsEnabled(r *GitHubRepositoryReconciler, repository *trigg
 	return r != nil && r.MaintainerEnabled && repository != nil && repository.Spec.Maintainer != nil && !repository.Spec.Maintainer.Disabled
 }
 
-func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, issues []*github.Issue) error {
+func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, issues []*github.Issue, issueListComplete bool) error {
 	items := &triggersv1alpha1.MaintainerWorkItemList{}
 	if err := r.List(ctx, items, client.InNamespace(repository.Namespace), client.MatchingLabels{
 		triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name,
@@ -105,12 +105,14 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Co
 		}
 	}
 
-	for i := range items.Items {
-		if _, ok := seen[items.Items[i].Name]; ok {
-			continue
-		}
-		if err := r.markMaintainerWorkItemObservationStale(ctx, client.ObjectKeyFromObject(&items.Items[i])); err != nil {
-			return err
+	if issueListComplete {
+		for i := range items.Items {
+			if _, ok := seen[items.Items[i].Name]; ok {
+				continue
+			}
+			if err := r.markMaintainerWorkItemObservationStale(ctx, client.ObjectKeyFromObject(&items.Items[i])); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

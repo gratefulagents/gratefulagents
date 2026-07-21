@@ -81,7 +81,7 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	ghClient := github.NewClient(nil).WithAuthToken(token)
 
 	// Fetch open issues from the repo.
-	issues, err := listOpenGitHubIssues(ctx, ghClient.Issues, gh.Spec.Owner, gh.Spec.Repo, log)
+	issues, issueListComplete, err := listOpenGitHubIssues(ctx, ghClient.Issues, gh.Spec.Owner, gh.Spec.Repo, log)
 	if err != nil {
 		log.Error(err, "failed to fetch issues from GitHub")
 		if maintainerWorkItemsEnabled(r, gh) {
@@ -96,7 +96,7 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	if maintainerWorkItemsEnabled(r, gh) {
-		if err := r.reconcileMaintainerWorkItems(ctx, gh, issues); err != nil {
+		if err := r.reconcileMaintainerWorkItems(ctx, gh, issues, issueListComplete); err != nil {
 			return ctrl.Result{}, err
 		}
 		triageClient := r.GitHubTriage
@@ -368,7 +368,7 @@ type githubIssueLister interface {
 	ListByRepo(context.Context, string, string, *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error)
 }
 
-func listOpenGitHubIssues(ctx context.Context, issues githubIssueLister, owner, repo string, logger logr.Logger) ([]*github.Issue, error) {
+func listOpenGitHubIssues(ctx context.Context, issues githubIssueLister, owner, repo string, logger logr.Logger) ([]*github.Issue, bool, error) {
 	opts := &github.IssueListByRepoOptions{
 		State:       "open",
 		ListOptions: github.ListOptions{PerPage: 100},
@@ -378,19 +378,23 @@ func listOpenGitHubIssues(ctx context.Context, issues githubIssueLister, owner, 
 		opts.Page = page
 		batch, resp, err := issues.ListByRepo(ctx, owner, repo, opts)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		all = append(all, batch...)
+		hasNextPage := resp != nil && resp.NextPage != 0
 		if len(all) >= maxGitHubIssues {
-			logger.Info("hit GitHub issue pagination cap", "owner", owner, "repo", repo, "issues", len(all), "maxIssues", maxGitHubIssues)
-			return all[:maxGitHubIssues], nil
+			complete := len(all) == maxGitHubIssues && !hasNextPage
+			if !complete {
+				logger.Info("hit GitHub issue pagination cap", "owner", owner, "repo", repo, "issues", len(all), "maxIssues", maxGitHubIssues)
+			}
+			return all[:maxGitHubIssues], complete, nil
 		}
-		if resp == nil || resp.NextPage == 0 {
-			return all, nil
+		if !hasNextPage {
+			return all, true, nil
 		}
 		if pagesFetched+1 >= maxGitHubIssuePages {
 			logger.Info("hit GitHub issue page cap", "owner", owner, "repo", repo, "pages", pagesFetched+1, "maxPages", maxGitHubIssuePages)
-			return all, nil
+			return all, false, nil
 		}
 		page = resp.NextPage
 	}
