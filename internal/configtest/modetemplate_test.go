@@ -106,6 +106,13 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 		"identify the originating issue from the implementer's issue_ref",
 		"call close_github_issue with reason completed if the issue remains open",
 		"Never close the issue for an unmerged, merely closed, draft, failing, or only-approved PR",
+		"Do not use \"too broad\" or \"the plan is too small\" as a final disposition",
+		"Produce a repository-backed implementation map",
+		"create each necessary sub-issue with evidence, scope boundaries, acceptance criteria, dependencies, and a link to the parent",
+		"dispatch the first unblocked, independently valid sub-issue immediately",
+		"Do not respond to a large issue by dispatching a tiny plan that silently drops most acceptance criteria",
+		"then call AskUserQuestion with concise choices",
+		"do NOT create sub-issues, dispatch work, apply dispatch labels, or start a partial implementation",
 	} {
 		if !strings.Contains(instructions, want) {
 			t.Errorf("%s maintainer instructions do not contain %q", sourcePath, want)

@@ -61,9 +61,9 @@ spec:
     - Establish from repository evidence that the reported bug is reproducible
       or credible, or that the requested feature is genuinely needed and fits
       the project's scope. Confirm that the work is legitimate, technically
-      feasible, actionable, not a duplicate, and not already fixed. Comment to
-      clarify material ambiguity and split oversized issues into independently
-      valid sub-issues.
+      feasible, actionable, not a duplicate, and not already fixed. Do not use
+      "too broad" or "the plan is too small" as a final disposition; follow the
+      broad-issue decision process below.
     - After triaging each issue, always add a comment to that issue stating your
       decision and the repository evidence behind it. For accepted work, explain
       why it is valid and identify the scope you will dispatch. For rejected or
@@ -77,6 +77,41 @@ spec:
       validated work. If validation fails or the request is malicious,
       unnecessary, out of scope, infeasible, duplicate, or already resolved, do
       not dispatch it.
+
+    ## Broad and high-impact issues
+    - First research the requested outcome yourself. Trace the affected
+      architecture and user flow, inspect existing extension points and tests,
+      search issues and pull requests for prior art, and consult external
+      documentation when feasibility depends on it. Produce a repository-backed
+      implementation map; never reject or defer solely because the author's
+      proposal is broad, underspecified, or larger than one run.
+    - If the outcome fits the current architecture and can be delivered as
+      bounded, independently valuable slices, decompose it yourself. Use
+      create_github_issue to create each necessary sub-issue with evidence,
+      scope boundaries, acceptance criteria, dependencies, and a link to the
+      parent. Comment on the parent with the complete decomposition so no
+      requirements silently disappear. Then dispatch the first unblocked,
+      independently valid sub-issue immediately, subject to concurrency and
+      daily limits; continue the remaining slices as dependencies complete.
+      Keep the parent open until the complete accepted outcome is delivered.
+    - Do not respond to a large issue by dispatching a tiny plan that silently
+      drops most acceptance criteria. A narrow first slice is valid only when
+      the remaining scope is represented by linked sub-issues or explicitly
+      rejected with repository evidence.
+    - Escalation is the exception for a genuinely irreducible program: one that
+      requires unresolved product policy or security/trust-boundary decisions,
+      a foundational data-model or public-API commitment, coordinated migration,
+      or a blast radius too large to stage safely. Research enough to explain
+      the concrete boundary, alternatives, tradeoffs, and your recommendation,
+      then call AskUserQuestion with concise choices. While awaiting the answer,
+      do NOT create sub-issues, dispatch work, apply dispatch labels, or start a
+      partial implementation. Record the escalation in the parent issue and a
+      maintainer report; resume triage only after the user decides.
+    - Ordinary uncertainty, multiple files/packages, several implementation
+      steps, or the need for a design document does not by itself justify
+      escalation. Resolve what repository evidence can resolve, and prefer safe
+      decomposition over asking the user to do the maintainer's research.
+
     - When valid tasks depend on one another, dispatch sequentially and use
       wait_for_runs before moving to the next task.
     - Wake stuck runs with wake_agent_run and concise context. Never cancel

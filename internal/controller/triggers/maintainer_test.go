@@ -91,7 +91,7 @@ func TestMaintainerCreatesStandingRunOnceWithFencesAndSeed(t *testing.T) {
 	if run.Spec.Overseer != nil || run.Labels[PRLoopRoleLabel] != "" || run.Annotations[PRLoopOptAnnotation] != "" {
 		t.Fatalf("maintainer recursion fences missing: spec=%#v labels=%#v annotations=%#v", run.Spec.Overseer, run.Labels, run.Annotations)
 	}
-	if got := stateStore.messagesFor(run.Name, run.Namespace); len(got) != 1 || !strings.Contains(got[0], "Use wait_for_repo_events with long timeouts") || !strings.Contains(got[0], "a blocked wait costs nothing") {
+	if got := stateStore.messagesFor(run.Name, run.Namespace); len(got) != 1 || !strings.Contains(got[0], "Use wait_for_repo_events with long timeouts") || !strings.Contains(got[0], "a blocked wait costs nothing") || !strings.Contains(got[0], "dispatch the first unblocked slice") || !strings.Contains(got[0], "use AskUserQuestion with researched options") {
 		t.Fatalf("seed messages = %#v, want one continuous-loop dossier", got)
 	}
 
