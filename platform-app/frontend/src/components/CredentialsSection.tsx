@@ -277,13 +277,14 @@ export function CredentialsSection() {
             open={openProvider === "anthropic"}
             onToggle={toggle}
           >
-            <AnthropicOAuthConnect onSaved={onOAuthSaved("Claude")} />
-            {presence.anthropicOauth && (
-              <SavedCredential
-                label="Claude account (OAuth)"
-                onRemove={() => void remove("anthropic-oauth")}
-              />
-            )}
+            <Method
+              title="Claude account"
+              hint="Sign in with your Claude Pro/Max plan — stores refreshable OAuth credentials."
+              present={presence.anthropicOauth}
+              onRemove={() => void remove("anthropic-oauth")}
+            >
+              <AnthropicOAuthConnect compact onSaved={onOAuthSaved("Claude")} />
+            </Method>
             <SecretField
               label="API key"
               present={presence.anthropicApiKey}
@@ -320,13 +321,14 @@ export function CredentialsSection() {
             open={openProvider === "openai"}
             onToggle={toggle}
           >
-            <OpenAIOAuthConnect onSaved={onOAuthSaved("ChatGPT")} />
-            {presence.openaiOauth && (
-              <SavedCredential
-                label="ChatGPT account (OAuth)"
-                onRemove={() => void remove("openai-oauth")}
-              />
-            )}
+            <Method
+              title="ChatGPT account"
+              hint="Sign in with your ChatGPT plan — stores refreshable OAuth credentials."
+              present={presence.openaiOauth}
+              onRemove={() => void remove("openai-oauth")}
+            >
+              <OpenAIOAuthConnect compact onSaved={onOAuthSaved("ChatGPT")} />
+            </Method>
             <SecretField
               label="API key"
               present={presence.openaiApiKey}
@@ -366,13 +368,14 @@ export function CredentialsSection() {
             open={openProvider === "copilot"}
             onToggle={toggle}
           >
-            <CopilotOAuthConnect onSaved={onOAuthSaved("Copilot")} />
-            {presence.copilotOauth && (
-              <SavedCredential
-                label="Copilot account (OAuth)"
-                onRemove={() => void remove("copilot-oauth")}
-              />
-            )}
+            <Method
+              title="Copilot account"
+              hint="Connect with GitHub — stores refreshable Copilot OAuth credentials."
+              present={presence.copilotOauth}
+              onRemove={() => void remove("copilot-oauth")}
+            >
+              <CopilotOAuthConnect compact onSaved={onOAuthSaved("Copilot")} />
+            </Method>
             <Advanced>
               <SecretField
                 label="Copilot OAuth JSON"
@@ -536,7 +539,10 @@ function ProviderRow({
         />
       </button>
       {open && (
-        <div id={panelId} className="space-y-4 border-t border-border/60 px-3.5 py-4">
+        <div
+          id={panelId}
+          className="border-t border-border/60 px-3.5 divide-y divide-border/50 [&>*]:py-4"
+        >
           {children}
         </div>
       )}
@@ -544,28 +550,67 @@ function ProviderRow({
   );
 }
 
-/** A saved OAuth credential: presence line with a remove action. */
-function SavedCredential({ label, onRemove }: { label: string; onRemove: () => void }) {
+/** Saved pill + Remove link shown next to a field or method label. */
+function FieldHeader({
+  label,
+  present,
+  onRemove,
+}: {
+  label: string;
+  present?: boolean;
+  onRemove?: () => void;
+}) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border bg-background/70 px-3 py-2">
-      <span className="flex min-w-0 items-center gap-2 text-[12.5px]">
-        <span
-          className={cn(
-            "inline-flex h-[18px] shrink-0 items-center rounded-full px-1.5 text-[10.5px] font-medium select-none",
-            toneSoft.success,
+    <div className="mb-1.5 flex min-h-5 items-center justify-between gap-2">
+      <Label className="text-[12.5px]">{label}</Label>
+      {present && (
+        <span className="flex items-center gap-2">
+          <span
+            className={cn(
+              "inline-flex h-[18px] items-center rounded-full px-1.5 text-[10.5px] font-medium select-none",
+              toneSoft.success,
+            )}
+          >
+            Saved
+          </span>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="rounded-sm text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-destructive hover:underline"
+            >
+              Remove
+            </button>
           )}
-        >
-          Saved
         </span>
-        <span className="truncate">{label}</span>
-      </span>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="shrink-0 rounded-sm text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-destructive hover:underline"
-      >
-        Remove
-      </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A way to connect a provider (e.g. its OAuth sign-in): label + saved state
+ * header over the flow itself, matching SecretField's rhythm so the panel
+ * reads as a uniform list of methods.
+ */
+function Method({
+  title,
+  hint,
+  present,
+  onRemove,
+  children,
+}: {
+  title: string;
+  hint?: ReactNode;
+  present?: boolean;
+  onRemove?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <FieldHeader label={title} present={present} onRemove={onRemove} />
+      {hint && <p className="mb-2.5 text-[11.5px] text-muted-foreground">{hint}</p>}
+      {children}
     </div>
   );
 }
@@ -610,30 +655,7 @@ function SecretField({
 
   return (
     <div>
-      <div className="mb-1.5 flex min-h-5 items-center justify-between gap-2">
-        <Label className="text-[12.5px]">{label}</Label>
-        {present && (
-          <span className="flex items-center gap-2">
-            <span
-              className={cn(
-                "inline-flex h-[18px] items-center rounded-full px-1.5 text-[10.5px] font-medium select-none",
-                toneSoft.success,
-              )}
-            >
-              Saved
-            </span>
-            {onRemove && (
-              <button
-                type="button"
-                onClick={onRemove}
-                className="rounded-sm text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-destructive hover:underline"
-              >
-                Remove
-              </button>
-            )}
-          </span>
-        )}
-      </div>
+      <FieldHeader label={label} present={present} onRemove={onRemove} />
       {hint && <p className="mb-1.5 text-[11.5px] text-muted-foreground">{hint}</p>}
       {multiline ? (
         <div className="space-y-2">
@@ -676,12 +698,12 @@ function SecretField({
 /** Collapsed-by-default disclosure for rare, expert-only inputs. */
 function Advanced({ children }: { children: ReactNode }) {
   return (
-    <details className="group rounded-md border border-dashed border-border/70 px-3 py-2">
+    <details className="group">
       <summary className="cursor-pointer select-none list-none text-[12px] text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">
         <ChevronDown className="mr-1 inline size-3 -rotate-90 transition-transform group-open:rotate-0" />
         Advanced: paste credentials manually
       </summary>
-      <div className="space-y-4 pb-1 pt-3">{children}</div>
+      <div className="space-y-4 pt-3">{children}</div>
     </details>
   );
 }

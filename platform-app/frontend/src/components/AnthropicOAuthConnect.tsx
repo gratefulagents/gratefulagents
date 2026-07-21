@@ -25,6 +25,8 @@ interface SavedCredentials {
 }
 
 interface AnthropicOAuthConnectProps {
+  /** Render only the flow body — no card chrome or header (for embedding in a provider panel). */
+  compact?: boolean;
   onSaved: (credentials: SavedCredentials) => void;
   className?: string;
 }
@@ -36,7 +38,7 @@ type Phase = "idle" | "starting" | "awaiting-code" | "exchanging" | "done";
 // sign-in link, approves in the browser, and pastes back the callback code.
 // Desktop exchanges it in Rust; web exchanges and stores it on the platform
 // server so refresh tokens never pass through browser JavaScript.
-export function AnthropicOAuthConnect({ onSaved, className }: AnthropicOAuthConnectProps) {
+export function AnthropicOAuthConnect({ onSaved, className, compact }: AnthropicOAuthConnectProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [authorizeUrl, setAuthorizeUrl] = useState("");
   const [sessionId, setSessionId] = useState<string | undefined>();
@@ -111,19 +113,23 @@ export function AnthropicOAuthConnect({ onSaved, className }: AnthropicOAuthConn
   const busy = phase === "starting" || phase === "exchanging";
 
   return (
-    <div className={cn("rounded-lg border bg-muted/20 p-3", className)}>
+    <div className={cn(!compact && "rounded-lg border bg-muted/20 p-3", className)}>
       <div className="flex items-start gap-3">
-        <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg", toneSoft.neutral)}>
-          <Sparkles className="size-4" />
-        </span>
+        {!compact && (
+          <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg", toneSoft.neutral)}>
+            <Sparkles className="size-4" />
+          </span>
+        )}
         <div className="min-w-0 flex-1 space-y-3">
-          <div className="space-y-1">
-            <h3 className="text-sm font-medium">Claude</h3>
-            <p className="text-xs text-muted-foreground">
-              Sign in with your Claude Pro/Max account, then gratefulagents stores refreshable Claude
-              credentials for new projects.
-            </p>
-          </div>
+          {!compact && (
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium">Claude</h3>
+              <p className="text-xs text-muted-foreground">
+                Sign in with your Claude Pro/Max account, then gratefulagents stores refreshable Claude
+                credentials for new projects.
+              </p>
+            </div>
+          )}
 
           {phase === "awaiting-code" || phase === "exchanging" ? (
             <div className="space-y-2 rounded-md border bg-background/70 p-3">
