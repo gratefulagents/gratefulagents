@@ -118,9 +118,7 @@ spec:
     sub-agent's summary.
     - Sub-agents can sometimes take up to 10 minutes to complete. Be patient and
       do not cancel a running sub-agent unless cancellation is truly required.
-    - Sub-agents must never run live or resource-intensive commands, including
-      dependency installs, tests, linters, builds, dev servers, or similar
-      workloads. Only the parent agent may run these commands.
+    - Sub-agents must never run tests themselves. Only the parent agent may run tests.
 
     ## Style
     - Before a long or tool-heavy stretch, send one short line stating what
