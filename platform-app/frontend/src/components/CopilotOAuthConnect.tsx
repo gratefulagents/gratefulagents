@@ -28,11 +28,13 @@ interface SavedCredentials {
 interface CopilotOAuthConnectProps {
   onSaved: (credentials: SavedCredentials) => void;
   className?: string;
+  /** Render only the flow body — no card chrome or header (for embedding in a provider panel). */
+  compact?: boolean;
 }
 
 type Phase = "idle" | "starting" | "pending" | "saving" | "done";
 
-export function CopilotOAuthConnect({ onSaved, className }: CopilotOAuthConnectProps) {
+export function CopilotOAuthConnect({ onSaved, className, compact }: CopilotOAuthConnectProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [session, setSession] = useState<CopilotOAuthStart | null>(null);
   const [pollDelay, setPollDelay] = useState(5);
@@ -132,18 +134,22 @@ export function CopilotOAuthConnect({ onSaved, className }: CopilotOAuthConnectP
   const busy = phase === "starting" || phase === "pending" || phase === "saving";
 
   return (
-    <div className={cn("rounded-lg border bg-muted/20 p-3", className)}>
+    <div className={cn(!compact && "rounded-lg border bg-muted/20 p-3", className)}>
       <div className="flex items-start gap-3">
-        <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg", toneSoft.neutral)}>
-          <GithubIcon className="size-4" />
-        </span>
+        {!compact && (
+          <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg", toneSoft.neutral)}>
+            <GithubIcon className="size-4" />
+          </span>
+        )}
         <div className="min-w-0 flex-1 space-y-3">
-          <div className="space-y-1">
-            <h3 className="text-sm font-medium">GitHub Copilot</h3>
-            <p className="text-xs text-muted-foreground">
-              Connect with GitHub, then gratefulagents stores refreshable Copilot credentials for new projects.
-            </p>
-          </div>
+          {!compact && (
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium">GitHub Copilot</h3>
+              <p className="text-xs text-muted-foreground">
+                Connect with GitHub, then gratefulagents stores refreshable Copilot credentials for new projects.
+              </p>
+            </div>
+          )}
 
           {session && phase !== "done" ? (
             <div className="space-y-2 rounded-md border bg-background/70 p-3">

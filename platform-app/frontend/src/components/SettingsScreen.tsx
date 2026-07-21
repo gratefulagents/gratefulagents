@@ -1,20 +1,12 @@
 import * as React from "react";
-import { Link } from "react-router-dom";
 import {
-  Bot,
   Bug,
-  ChevronRight,
-  DownloadCloud,
   FolderOpen,
-  GitCommitHorizontal,
-  KeyRound,
   LifeBuoy,
   LogOut,
   Mail,
   Monitor,
   Moon,
-  Server,
-  Sparkles,
   Sun,
   SunMoon,
   UserRound,
@@ -28,15 +20,6 @@ import {
 } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -45,7 +28,6 @@ import {
   openDiagnosticLogs,
   openExternal,
 } from "@/lib/native";
-import { isTauri } from "@/lib/platform";
 import {
   setThemePreference,
   useThemePreference,
@@ -53,105 +35,30 @@ import {
 } from "@/lib/theme";
 
 /**
- * Settings hub (/settings): lightweight personal preferences (appearance,
- * account, diagnostics) plus links to lazily loaded sub-pages that fetch
- * only when visited (/settings/connection, /credentials, /skills, /soul,
- * /role-models, /git).
+ * General settings (/settings index): appearance, account, and diagnostics.
+ * Renders inside SettingsLayout, whose sidebar navigates to every other
+ * section — so this page holds only the always-relevant personal basics.
  *
  * Policy: settings is for per-user preferences and personal resources only.
  * New resource-management surfaces (policies, triggers, templates, …) get
  * their own top-level routes — like /slack — never new settings sections.
  */
 export function SettingsScreen() {
-  const sections: SettingsLinkCardProps[] = [
-    ...(isTauri
-      ? [
-          {
-            to: "/settings/connection",
-            icon: <Server />,
-            title: "Connection",
-            description: "Backend endpoint, Cloudflare Access, and workspaces on this device.",
-          },
-          {
-            to: "/settings/updates",
-            icon: <DownloadCloud />,
-            title: "Desktop updates",
-            description: "Keep the desktop app up to date — GitHub token and update checks.",
-          },
-        ]
-      : []),
-    {
-      to: "/settings/credentials",
-      icon: <KeyRound />,
-      title: "Credentials",
-      description: "API keys and OAuth sign-ins your runs can use.",
-    },
-    {
-      to: "/settings/soul",
-      icon: <Sparkles />,
-      title: "SOUL",
-      description: "Your agent persona — teammates can ask it for your perspective.",
-    },
-    {
-      to: "/settings/role-models",
-      icon: <Bot />,
-      title: "Role models",
-      description: "Personal model overrides for each platform role and provider.",
-    },
-    {
-      to: "/settings/git",
-      icon: <GitCommitHorizontal />,
-      title: "Git identity",
-      description: "The name and email your runs use to author commits.",
-    },
-  ];
-
   return (
-    <div className="mx-auto flex max-w-[760px] flex-col gap-5 pb-10">
+    <div className="flex max-w-[760px] flex-col gap-5">
       <header className="pt-1">
-        <h1>Settings</h1>
+        <h1>General</h1>
         <p className="text-[12.5px] text-muted-foreground">
-          Appearance, workspaces, credentials, and account.
+          Appearance, account, and diagnostics.
         </p>
       </header>
 
       <AppearanceSettings />
 
-      <nav aria-label="Settings sections">
-        <ItemGroup className="gap-2.5">
-          {sections.map((section) => (
-            <SettingsLinkCard key={section.to} {...section} />
-          ))}
-        </ItemGroup>
-      </nav>
-
       <AccountSettings />
 
       <DiagnosticsSettings />
     </div>
-  );
-}
-
-interface SettingsLinkCardProps {
-  to: string;
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}
-
-/** Card-style link to a settings sub-page; mirrors SettingsSection's header. */
-function SettingsLinkCard({ to, icon, title, description }: SettingsLinkCardProps) {
-  return (
-    <Item render={<Link to={to} />} className="surface-card p-4 sm:p-5">
-      <ItemMedia variant="icon">{icon}</ItemMedia>
-      <ItemContent className="min-w-0">
-        <ItemTitle>{title}</ItemTitle>
-        <ItemDescription>{description}</ItemDescription>
-      </ItemContent>
-      <ItemActions>
-        <ChevronRight className="size-4 text-muted-foreground transition-colors duration-[var(--dur-fast)] group-hover/item:text-foreground" />
-      </ItemActions>
-    </Item>
   );
 }
 

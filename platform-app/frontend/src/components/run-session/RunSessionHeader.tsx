@@ -301,6 +301,33 @@ export function RunSessionHeader({
   const permMode = run.resolvedPermissionMode || "read-only";
   const live = isRunComputing(run);
   const showRunContext = Boolean(run.modeInstructions) || showRepositories;
+  // One contextual primary action keeps the toolbar calm: ship the work,
+  // recover a failed run, or unblock a paused one — everything else lives in
+  // the overflow menu. Stop stays inline separately because interrupting a
+  // live agent must never hide behind a menu. Once a PR exists the pill is
+  // the artifact; creating another PR demotes to the overflow menu.
+  const canCreatePR = showCreatePRButton && !isViewer;
+  const primaryAction: "createPR" | "retry" | "extend" | null =
+    canCreatePR && prUrls.length === 0
+      ? "createPR"
+      : canRetry
+        ? "retry"
+        : canExtendRuntime && isPaused
+          ? "extend"
+          : null;
+  // Menu grouping: whether the action group has items visible on desktop
+  // (always-rendered entries) vs. only the phone-only duplicates of inline
+  // buttons — the group separator must match, or it floats above nothing.
+  const menuActionsAlwaysVisible =
+    canPromote ||
+    (canCreatePR && primaryAction !== "createPR") ||
+    (canRetry && primaryAction !== "retry") ||
+    (canExtendRuntime && primaryAction !== "extend");
+  const menuActionsPhoneOnly =
+    canStop ||
+    (canCreatePR && primaryAction === "createPR") ||
+    (canRetry && primaryAction === "retry") ||
+    (canExtendRuntime && primaryAction === "extend");
   const overseerRunName = run.overseerSummary?.runName.trim();
   const overseerHref = overseerRunName
     ? `/runs/${encodeURIComponent(namespace)}/${encodeURIComponent(overseerRunName)}`
@@ -391,20 +418,6 @@ export function RunSessionHeader({
               </Suspense>
             )}
 
-            {showRunContext && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="hidden h-8 gap-1.5 px-2 text-xs lg:inline-flex"
-                onClick={() => setContextOpen(true)}
-                title="Mode instructions and repositories"
-              >
-                <PanelRight className="size-3.5" />
-                Context
-              </Button>
-            )}
-
             <Separator orientation="vertical" className="hidden h-4 md:block" />
 
             {prUrls.length === 1 && (
@@ -440,11 +453,13 @@ export function RunSessionHeader({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            {showCreatePRButton && !isViewer && (
+            {canCreatePR && (
               <>
-                <Button size="sm" className="hidden md:inline-flex" onClick={() => setCreatePROpen(true)}>
-                  Create PR
-                </Button>
+                {primaryAction === "createPR" && (
+                  <Button size="sm" className="hidden md:inline-flex" onClick={() => setCreatePROpen(true)}>
+                    Create PR
+                  </Button>
+                )}
                 <CreatePRDialog
                   namespace={namespace}
                   name={name}
@@ -454,18 +469,18 @@ export function RunSessionHeader({
               </>
             )}
 
-            {canExtendRuntime && isPaused && (
+            {primaryAction === "extend" && (
               <Button
                 type="button"
                 variant="default"
                 size="sm"
                 onClick={() => setExtendRuntimeOpen(true)}
                 disabled={extendingRuntime}
-                className="hidden h-7 gap-1.5 px-2 text-xs md:inline-flex"
+                className="hidden gap-1.5 md:inline-flex"
                 title="Extend runtime"
               >
                 <Clock className="size-3.5" />
-                Extend
+                Extend runtime
               </Button>
             )}
             <Dialog open={extendRuntimeOpen} onOpenChange={setExtendRuntimeOpen}>
@@ -526,22 +541,9 @@ export function RunSessionHeader({
             </Dialog>
 
             {hasPlan && (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPlanOpen(true)}
-                  className="hidden h-7 gap-1.5 px-2 text-xs md:inline-flex"
-                  title="View the current plan"
-                >
-                  <FileText className="size-3.5" />
-                  Plan
-                </Button>
-                <Dialog open={planOpen} onOpenChange={setPlanOpen}>
-                  <PlanDialogContent planContent={planContent} />
-                </Dialog>
-              </>
+              <Dialog open={planOpen} onOpenChange={setPlanOpen}>
+                <PlanDialogContent planContent={planContent} />
+              </Dialog>
             )}
 
             <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
@@ -616,13 +618,13 @@ export function RunSessionHeader({
               />
             )}
 
-            {canRetry && (
+            {primaryAction === "retry" && (
               <Button
                 type="button"
                 size="sm"
                 onClick={handleRetry}
                 disabled={retrying}
-                className="hidden h-7 gap-1.5 px-2 text-xs md:inline-flex"
+                className="hidden gap-1.5 md:inline-flex"
                 title="Retry this run"
               >
                 <RotateCcw className="size-3.5" />
@@ -637,26 +639,11 @@ export function RunSessionHeader({
                 size="sm"
                 onClick={handleStop}
                 disabled={stopping}
-                className="hidden h-7 gap-1.5 px-2 text-xs md:inline-flex"
+                className="hidden gap-1.5 md:inline-flex"
                 title="Stop this run"
               >
                 <Square className="size-3.5" />
                 {stopping ? "Stopping..." : "Stop"}
-              </Button>
-            )}
-
-            {canPromote && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handlePromote}
-                disabled={promoting}
-                className="hidden h-7 gap-1.5 px-2 text-xs md:inline-flex"
-                title="Mark this run as succeeded"
-              >
-                <CheckCircle2 className="size-3.5" />
-                {promoting ? "Marking…" : "Mark as succeeded"}
               </Button>
             )}
 
@@ -674,15 +661,25 @@ export function RunSessionHeader({
               >
                 <MoreHorizontal className="size-4" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-44">
-                {showCreatePRButton && !isViewer && (
-                  <DropdownMenuItem className="md:hidden" onClick={() => setCreatePROpen(true)}>
+              <DropdownMenuContent align="end" className="min-w-48">
+                {/* Run actions. Items that duplicate the inline primary/Stop
+                    buttons only surface here on phones, where those buttons
+                    are hidden. Non-primary actions are always reachable. */}
+                {canCreatePR && (
+                  <DropdownMenuItem
+                    className={primaryAction === "createPR" ? "md:hidden" : undefined}
+                    onClick={() => setCreatePROpen(true)}
+                  >
                     <GitPullRequest className="size-3.5" />
-                    Create PR…
+                    {prUrls.length > 0 ? "Create another PR…" : "Create PR…"}
                   </DropdownMenuItem>
                 )}
                 {canRetry && (
-                  <DropdownMenuItem className="md:hidden" onClick={handleRetry} disabled={retrying}>
+                  <DropdownMenuItem
+                    className={primaryAction === "retry" ? "md:hidden" : undefined}
+                    onClick={handleRetry}
+                    disabled={retrying}
+                  >
                     <RotateCcw className="size-3.5" />
                     {retrying ? "Retrying..." : "Retry run"}
                   </DropdownMenuItem>
@@ -694,19 +691,35 @@ export function RunSessionHeader({
                   </DropdownMenuItem>
                 )}
                 {canExtendRuntime && (
-                  <DropdownMenuItem onClick={() => setExtendRuntimeOpen(true)} disabled={extendingRuntime}>
+                  <DropdownMenuItem
+                    className={primaryAction === "extend" ? "md:hidden" : undefined}
+                    onClick={() => setExtendRuntimeOpen(true)}
+                    disabled={extendingRuntime}
+                  >
                     <Clock className="size-3.5" />
                     Extend runtime…
                   </DropdownMenuItem>
                 )}
+                {canPromote && (
+                  <DropdownMenuItem onClick={handlePromote} disabled={promoting}>
+                    <CheckCircle2 className="size-3.5" />
+                    {promoting ? "Marking as succeeded…" : "Mark as succeeded"}
+                  </DropdownMenuItem>
+                )}
+                {menuActionsAlwaysVisible ? (
+                  <DropdownMenuSeparator />
+                ) : menuActionsPhoneOnly ? (
+                  <DropdownMenuSeparator className="md:hidden" />
+                ) : null}
+                {/* Inspect the run. */}
                 {hasPlan && (
-                  <DropdownMenuItem className="md:hidden" onClick={() => setPlanOpen(true)}>
+                  <DropdownMenuItem onClick={() => setPlanOpen(true)}>
                     <FileText className="size-3.5" />
                     View plan
                   </DropdownMenuItem>
                 )}
                 {showRunContext && (
-                  <DropdownMenuItem className="lg:hidden" onClick={() => setContextOpen(true)}>
+                  <DropdownMenuItem onClick={() => setContextOpen(true)}>
                     <PanelRight className="size-3.5" />
                     Run context
                   </DropdownMenuItem>
@@ -715,6 +728,8 @@ export function RunSessionHeader({
                   <Info className="size-3.5" />
                   Run details
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {/* Take the run's data elsewhere. */}
                 <DropdownMenuItem onClick={handleExportArchive} disabled={exporting}>
                   <Download className="size-3.5" />
                   {exporting ? "Exporting…" : "Export logs & traces"}
@@ -724,15 +739,6 @@ export function RunSessionHeader({
                     <Share2 className="size-3.5" />
                     Share…
                   </DropdownMenuItem>
-                )}
-                {canPromote && (
-                  <>
-                    <DropdownMenuSeparator className="md:hidden" />
-                    <DropdownMenuItem className="md:hidden" onClick={handlePromote} disabled={promoting}>
-                      <CheckCircle2 className="size-3.5" />
-                      {promoting ? "Marking as succeeded…" : "Mark as succeeded"}
-                    </DropdownMenuItem>
-                  </>
                 )}
                 {canDelete && (
                   <>

@@ -89,6 +89,7 @@ import { APP_VERSION } from "@/lib/build-info";
 
 // Settings sub-pages are code-split so /settings stays light: each section's
 // data is fetched only when its route mounts.
+const SettingsLayout = React.lazy(() => import("@/components/settings/SettingsLayout"));
 const SettingsConnectionPage = React.lazy(() => import("@/components/settings/ConnectionPage"));
 const SettingsCredentialsPage = React.lazy(() => import("@/components/settings/CredentialsPage"));
 const SettingsSoulPage = React.lazy(() => import("@/components/settings/SoulPage"));
@@ -504,17 +505,19 @@ function AuthenticatedShell() {
               <Route path="/cron/:namespace/:name" element={<Scroll><CronDetail /></Scroll>} />
               <Route path="/slack" element={<Scroll><SlackAgentsPage /></Scroll>} />
               <Route path="/slack/:namespace/:name" element={<Scroll><SlackAgentDetail /></Scroll>} />
-              <Route path="/settings" element={<Scroll><SettingsScreen /></Scroll>} />
-              <Route path="/settings/connection" element={<Scroll><SettingsConnectionPage /></Scroll>} />
-              <Route path="/settings/credentials" element={<Scroll><SettingsCredentialsPage /></Scroll>} />
+              <Route path="/settings" element={<Scroll><SettingsLayout /></Scroll>}>
+                <Route index element={<SettingsScreen />} />
+                <Route path="connection" element={<SettingsConnectionPage />} />
+                <Route path="credentials" element={<SettingsCredentialsPage />} />
+                <Route path="soul" element={<SettingsSoulPage />} />
+                <Route path="role-models" element={<SettingsRoleModelsPage />} />
+                <Route path="git" element={<SettingsGitIdentityPage />} />
+                <Route path="updates" element={<SettingsUpdatesPage />} />
+              </Route>
               <Route path="/resources" element={<Navigate to="/resources/skills" replace />} />
               <Route path="/resources/:kind" element={<Scroll><ResourcePage /></Scroll>} />
               <Route path="/settings/skills" element={<Navigate to="/resources/skills" replace />} />
               <Route path="/settings/mcp" element={<Navigate to="/resources/mcp-servers" replace />} />
-              <Route path="/settings/soul" element={<Scroll><SettingsSoulPage /></Scroll>} />
-              <Route path="/settings/role-models" element={<Scroll><SettingsRoleModelsPage /></Scroll>} />
-              <Route path="/settings/git" element={<Scroll><SettingsGitIdentityPage /></Scroll>} />
-              <Route path="/settings/updates" element={<Scroll><SettingsUpdatesPage /></Scroll>} />
               <Route path="/admin/users" element={<Scroll><AdminUsersPage /></Scroll>} />
             </Routes>
             </React.Suspense>
