@@ -119,7 +119,7 @@ type waitForRepoEventsOutput struct {
 
 func (t *waitForRepoEventsTool) Name() string { return "wait_for_repo_events" }
 func (t *waitForRepoEventsTool) Description() string {
-	return "Watch the maintained repository. Without a cursor it returns the current open-issue, fleet-run, and attached pull-request state immediately; with the previous cursor it blocks until issues, run lifecycle, PR head/review/merge state, or aggregate CI checks change. Always pass the cursor when waiting."
+	return "Watch the maintained repository. Without a cursor it returns current open-issue, fleet-run, and attached pull-request state immediately; with the previous cursor it blocks until issues, run lifecycle, PR head/open/draft/review/mergeability, or aggregate CI changes. A closed event does not prove merge; inspect the PR before finalization. Always pass the cursor when waiting."
 }
 func (t *waitForRepoEventsTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"timeout_seconds":{"type":"integer","minimum":30,"maximum":21600},"cursor":{"type":"string"}}}`)

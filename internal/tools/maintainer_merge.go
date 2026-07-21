@@ -32,7 +32,7 @@ type mergePullRequestView struct {
 
 func (t *mergePullRequestTool) Name() string { return "merge_pull_request" }
 func (t *mergePullRequestTool) Description() string {
-	return "Dangerously merge one approved, non-draft, non-conflicting pull request when repository policy explicitly permits maintainer merges."
+	return "Dangerously merge one approved, non-draft pull request only after confirming mergeability, current-head CI success, and repository policy; then re-read GitHub to distinguish a completed merge from a queued merge request."
 }
 func (t *mergePullRequestTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"pr_number":{"type":"integer","minimum":1},"merge_method":{"type":"string","enum":["squash","merge","rebase"]}},"required":["pr_number"]}`)
@@ -84,6 +84,13 @@ func (t *mergePullRequestTool) Execute(ctx context.Context, input json.RawMessag
 	if err := json.Unmarshal([]byte(out), &view); err != nil {
 		return Result{Content: fmt.Sprintf("parse gh pr view output: %v", err), IsError: true}, nil
 	}
+	linked, err := t.pullRequestBelongsToFleet(ctx, view.URL)
+	if err != nil {
+		return Result{Content: fmt.Sprintf("failed to verify pull request linkage: %v", err), IsError: true}, nil
+	}
+	if !linked {
+		return Result{Content: fmt.Sprintf("pull request #%d is not attached to an authorized maintainer fleet run", in.PRNumber), IsError: true}, nil
+	}
 	if view.State != "OPEN" {
 		return Result{Content: fmt.Sprintf("pull request #%d is not open (state: %s)", in.PRNumber, view.State), IsError: true}, nil
 	}
@@ -93,8 +100,8 @@ func (t *mergePullRequestTool) Execute(ctx context.Context, input json.RawMessag
 	if view.ReviewDecision != "APPROVED" {
 		return Result{Content: fmt.Sprintf("pull request #%d is not approved (review decision: %s)", in.PRNumber, view.ReviewDecision), IsError: true}, nil
 	}
-	if view.Mergeable == "CONFLICTING" {
-		return Result{Content: fmt.Sprintf("pull request #%d has merge conflicts", in.PRNumber), IsError: true}, nil
+	if view.Mergeable != "MERGEABLE" {
+		return Result{Content: fmt.Sprintf("pull request #%d mergeability is not confirmed (state: %s)", in.PRNumber, view.Mergeable), IsError: true}, nil
 	}
 	if strings.TrimSpace(view.HeadRefOid) == "" {
 		return Result{Content: fmt.Sprintf("pull request #%d has no head commit SHA", in.PRNumber), IsError: true}, nil
@@ -128,5 +135,47 @@ func (t *mergePullRequestTool) Execute(ctx context.Context, input json.RawMessag
 	if err != nil {
 		return Result{Content: fmt.Sprintf("gh pr merge failed: %v\n%s", err, out), IsError: true}, nil
 	}
-	return Result{Content: fmt.Sprintf("Merged pull request %s with %s after verifying %d checks and commit statuses. Verify the merge, mark its implementer succeeded if needed, close the linked issue as completed, then consider dispatching dependent work.", view.URL, method, checksSummary.Total)}, nil
+	postOut, err := runner.RunGH(ctx, wd, "pr", "view", number, "--json", "state,mergedAt,url,headRefOid")
+	if err != nil {
+		return Result{Content: fmt.Sprintf("merge command completed, but post-merge verification failed: %v\n%s", err, postOut), IsError: true}, nil
+	}
+	var post struct {
+		State      string `json:"state"`
+		MergedAt   string `json:"mergedAt"`
+		URL        string `json:"url"`
+		HeadRefOid string `json:"headRefOid"`
+	}
+	if err := json.Unmarshal([]byte(postOut), &post); err != nil {
+		return Result{Content: fmt.Sprintf("parse post-merge pull request output: %v", err), IsError: true}, nil
+	}
+	if post.State != "MERGED" || strings.TrimSpace(post.MergedAt) == "" {
+		return Result{Content: fmt.Sprintf("Merge request for %s was accepted but GitHub has not reported it merged yet (state: %s). Keep the work item active and wait for a pull-request event before finalizing the run or issue.", view.URL, post.State)}, nil
+	}
+	if post.HeadRefOid != view.HeadRefOid {
+		return Result{Content: fmt.Sprintf("pull request %s merged an unexpected head SHA (verified %s, merged %s); do not finalize automatically", view.URL, view.HeadRefOid, post.HeadRefOid), IsError: true}, nil
+	}
+	return Result{Content: fmt.Sprintf("Verified pull request %s merged at %s with %s after checking %d checks and commit statuses. Finalize only after confirming the accepted issue scope is delivered.", post.URL, post.MergedAt, method, checksSummary.Total)}, nil
+}
+
+func (t *mergePullRequestTool) pullRequestBelongsToFleet(ctx context.Context, rawURL string) (bool, error) {
+	owner, repository, number, err := parseMaintainerPullRequestURL(rawURL)
+	if err != nil {
+		return false, err
+	}
+	fleet, err := t.fleetRuns(ctx)
+	if err != nil {
+		return false, err
+	}
+	for i := range fleet {
+		for _, candidate := range waitPullRequestURLs(&fleet[i]) {
+			candidateOwner, candidateRepository, candidateNumber, err := parseMaintainerPullRequestURL(candidate)
+			if err != nil {
+				continue
+			}
+			if owner == candidateOwner && repository == candidateRepository && number == candidateNumber {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }

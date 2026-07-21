@@ -30,7 +30,7 @@ type dispatchIssueInput struct {
 
 func (t *dispatchIssueTool) Name() string { return "dispatch_issue" }
 func (t *dispatchIssueTool) Description() string {
-	return "Dispatch one repository issue by applying a ModeTemplate label through GitHub trigger ingress, subject to the maintainer's active and daily caps. When note is provided, it is posted as an issue comment with the gratefulagents GitHub App authorization footer added automatically."
+	return "Dispatch one already-triaged repository issue by applying a ModeTemplate label through GitHub trigger ingress, subject to active and daily caps. Post the required evidence-backed decision comment separately before calling this tool. The optional note is posted only after labeling and must not be used as the pre-dispatch decision record."
 }
 func (t *dispatchIssueTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"mode":{"type":"string"},"note":{"type":"string"}},"required":["issue_number","mode"]}`)
@@ -75,7 +75,7 @@ func (t *dispatchIssueTool) Execute(ctx context.Context, input json.RawMessage, 
 		}
 	}
 	if active >= int(maxConcurrent) {
-		return Result{Content: fmt.Sprintf("dispatch cap reached (%d active of %d); wait for a fleet run with wait_for_runs before dispatching another issue", active, maxConcurrent), IsError: true}, nil
+		return Result{Content: fmt.Sprintf("dispatch cap reached (%d active of %d); wait for a fleet transition with wait_for_repo_events before dispatching another issue", active, maxConcurrent), IsError: true}, nil
 	}
 	ledger := parseMaintainerLedger(current, time.Now())
 	if ledger.Count >= int(maxDaily) {
@@ -107,7 +107,7 @@ func (t *dispatchIssueTool) Execute(ctx context.Context, input json.RawMessage, 
 	if err := t.recordDispatch(ctx, in.IssueNumber); err != nil {
 		return Result{Content: fmt.Sprintf("issue was labeled but failed to record the dispatch ledger: %v", err), IsError: true}, nil
 	}
-	return Result{Content: fmt.Sprintf("Issue #%d was labeled %q. Trigger ingress will create its AgentRun shortly; find it with get_fleet_runs (externalRef identifier %d), then use wait_for_runs.", in.IssueNumber, mode, in.IssueNumber)}, nil
+	return Result{Content: fmt.Sprintf("Issue #%d was labeled %q. Trigger ingress will create its AgentRun shortly; find it with get_fleet_runs (externalRef identifier %d), then return to wait_for_repo_events.", in.IssueNumber, mode, in.IssueNumber)}, nil
 }
 
 func (t *dispatchIssueTool) validateMode(ctx context.Context, mode string) error {
