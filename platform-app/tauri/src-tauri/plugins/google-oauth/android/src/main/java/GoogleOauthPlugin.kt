@@ -26,6 +26,13 @@ class StartGoogleOauthArgs {
   var authUrl: String = ""
 }
 
+// Android Uri preserves '+' while reading query parameters, but the frontend
+// builds the OAuth URL with URLSearchParams, where '+' encodes a space. OAuth
+// scopes are space-delimited, so normalize only this known form-encoded field;
+// a literal '+' in another parameter (for example a nonce) must stay intact.
+internal fun normalizeGoogleOauthQueryParameter(name: String, value: String): String =
+  if (name == "scope") value.replace('+', ' ') else value
+
 /**
  * Runs Google OAuth in the user's browser, as required by RFC 8252 and Google's
  * secure-browser policy. A short-lived loopback server receives the redirect.
@@ -162,7 +169,7 @@ class GoogleOauthPlugin(private val activity: Activity) : Plugin(activity) {
         continue
       }
       for (value in uri.getQueryParameters(name)) {
-        builder.appendQueryParameter(name, value)
+        builder.appendQueryParameter(name, normalizeGoogleOauthQueryParameter(name, value))
       }
     }
     return builder
