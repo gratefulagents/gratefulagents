@@ -521,7 +521,10 @@ jobs:
 
           # Fetch the exact draft explicitly: unauthenticated and ordinary
           # release listings omit drafts, including the release being built.
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG_NAME}" > "${CURRENT_RELEASE}"
+          # /releases/tags/{tag} only resolves published releases (requires a
+          # git tag); use the release ID instead so this works for drafts too.
+          RELEASE_ID="$(gh release view "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --json id --jq .id)"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "${CURRENT_RELEASE}"
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "${RELEASE_PAGES}"
           jq \
             --slurpfile current "${CURRENT_RELEASE}" \
