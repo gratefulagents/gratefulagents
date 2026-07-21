@@ -27,12 +27,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create the semantic version tag and GitHub release
+      - name: Calculate the next semantic version
         id: release
         uses: go-semantic-release/action@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           allow-initial-development-versions: true
+          dry: true
+
+      - name: Create draft GitHub release
+        if: ${{ steps.release.outputs.version != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NOTES: ${{ steps.release.outputs.changelog }}
+          RELEASE_SHA: ${{ github.sha }}
+          TAG_NAME: ${{ format('v{0}', steps.release.outputs.version) }}
+        run: |
+          printf '%s\n' "${RELEASE_NOTES}" > release-notes.md
+          gh release create "${TAG_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${RELEASE_SHA}" \
+            --title "${TAG_NAME}" \
+            --notes-file release-notes.md \
+            --draft
 
   images:
     name: ${{ matrix.image }} image
@@ -218,7 +235,7 @@ jobs:
           tauriScript: pnpm tauri
           args: ${{ matrix.args }} --config ${{ runner.temp }}/tauri-release.conf.json --ci
           tagName: ${{ needs.release.outputs.tag_name }}
-          releaseDraft: false
+          releaseDraft: true
           uploadUpdaterJson: false
           uploadUpdaterSignatures: true
           retryAttempts: 2
@@ -462,3 +479,30 @@ jobs:
             '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms[0]}' \
             > latest.json
           gh release upload "${TAG_NAME}" latest.json --repo "${GITHUB_REPOSITORY}" --clobber
+
+      - name: Publish completed release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.release.outputs.tag_name }}
+        run: gh release edit "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
+
+  cleanup-release:
+    name: Remove failed draft release
+    needs:
+      - release
+      - images
+      - website
+      - desktop
+      - android
+      - ios
+      - publish-release
+    if: ${{ always() && needs.release.outputs.release_created == 'true' && needs.publish-release.result != 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Delete draft release and tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.release.outputs.tag_name }}
+        run: gh release delete "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
