@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { GitHubRepositorySettingsDialog } from "@/components/GitHubRepositorySettingsDialog";
@@ -9,12 +9,6 @@ import {
   GitHubRepositorySchema,
   GitHubRepositoryTriggerSettingsSchema,
 } from "@/rpc/platform/service_pb";
-
-beforeAll(() => {
-  // Base UI synthesizes PointerEvent when toggling a Switch; jsdom does not
-  // provide the constructor yet.
-  Object.defineProperty(window, "PointerEvent", { configurable: true, value: MouseEvent });
-});
 
 vi.mock("@/lib/client", () => ({
   client: {
@@ -64,6 +58,7 @@ function repo(namespace = "user-alice", webhookSecret = "") {
       pollInterval: "60s",
       webhookSecret,
       cancelRunsOnIssueClose: true,
+      reviewLoopDisabled: true,
     }),
   });
 }
@@ -97,7 +92,9 @@ describe("GitHubRepositorySettingsDialog", () => {
       target: { value: "mallory" },
     });
     fireEvent.click(screen.getByRole("button", { name: /PR review loop/ }));
-    fireEvent.click(screen.getByRole("switch", { name: /Disable autonomous PR review loop/ }));
+    expect(
+      screen.getByRole("switch", { name: /Disable autonomous PR review loop/ }).getAttribute("aria-checked"),
+    ).toBe("true");
     fireEvent.change(screen.getByLabelText(/Max review rounds/), {
       target: { value: "5" },
     });

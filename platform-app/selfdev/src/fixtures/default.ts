@@ -1190,7 +1190,7 @@ export const defaultScenario: Scenario = {
     { name: "projects", path: "/projects" },
     { name: "project-detail", path: "/projects/demo/operator-app" },
     { name: "linear", path: "/linear" },
-    { name: "linear-project", path: "/projects/demo/linear-ops" },
+    { name: "linear-project", path: "/linear/demo/linear-ops" },
     { name: "github", path: "/github" },
     { name: "github-repo", path: "/github/demo/gh-operator" },
     { name: "cron", path: "/cron" },

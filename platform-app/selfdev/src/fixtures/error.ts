@@ -205,7 +205,7 @@ export const errorScenario: Scenario = {
     { name: "run-auth-expired", path: "/runs/demo/run-auth-expired" },
     { name: "run-blocked-quota", path: "/runs/demo/run-blocked-quota" },
     { name: "linear", path: "/linear" },
-    { name: "linear-project", path: "/projects/demo/linear-ops" },
+    { name: "linear-project", path: "/linear/demo/linear-ops" },
     { name: "github", path: "/github" },
     { name: "cron", path: "/cron" },
     { name: "slack", path: "/slack" },

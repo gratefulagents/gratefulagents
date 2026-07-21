@@ -18,6 +18,14 @@ const SharedWithMeList = React.lazy(() => import("@/components/SharedWithMeList"
 const LoginPage = React.lazy(() => import("@/components/LoginPage").then((m) => ({ default: m.LoginPage })));
 const OnboardingWizard = React.lazy(() => import("@/components/onboarding/OnboardingWizard").then((m) => ({ default: m.OnboardingWizard })));
 const ResourcePage = React.lazy(() => import("@/components/resources/ResourcePage").then((m) => ({ default: m.ResourcePage })));
+const LinearProjectList = React.lazy(() => import("@/components/LinearProjectList").then((m) => ({ default: m.LinearProjectList })));
+const LinearProjectDetail = React.lazy(() => import("@/components/LinearProjectDetail").then((m) => ({ default: m.LinearProjectDetail })));
+const GitHubRepositoryList = React.lazy(() => import("@/components/GitHubRepositoryList").then((m) => ({ default: m.GitHubRepositoryList })));
+const GitHubRepositoryDetail = React.lazy(() => import("@/components/GitHubRepositoryDetail").then((m) => ({ default: m.GitHubRepositoryDetail })));
+const CronList = React.lazy(() => import("@/components/CronList").then((m) => ({ default: m.CronList })));
+const CronDetail = React.lazy(() => import("@/components/CronDetail").then((m) => ({ default: m.CronDetail })));
+const SlackAgentsPage = React.lazy(() => import("@/components/SlackAgentSection").then((m) => ({ default: m.SlackAgentsPage })));
+const SlackAgentDetail = React.lazy(() => import("@/components/SlackAgentDetail").then((m) => ({ default: m.SlackAgentDetail })));
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { OnboardingRedirect } from "@/components/onboarding/OnboardingRedirect";
@@ -489,6 +497,14 @@ function AuthenticatedShell() {
               <Route path="/runs" element={<Scroll><AgentOpsConsole /></Scroll>} />
               <Route path="/observability" element={<Scroll><ObservabilityPage /></Scroll>} />
               <Route path="/runs/:namespace/:name" element={<AgentRunDetail />} />
+              <Route path="/linear" element={<Scroll><LinearProjectList /></Scroll>} />
+              <Route path="/linear/:namespace/:name" element={<Scroll><LinearProjectDetail /></Scroll>} />
+              <Route path="/github" element={<Scroll><GitHubRepositoryList /></Scroll>} />
+              <Route path="/github/:namespace/:name" element={<Scroll><GitHubRepositoryDetail /></Scroll>} />
+              <Route path="/cron" element={<Scroll><CronList /></Scroll>} />
+              <Route path="/cron/:namespace/:name" element={<Scroll><CronDetail /></Scroll>} />
+              <Route path="/slack" element={<Scroll><SlackAgentsPage /></Scroll>} />
+              <Route path="/slack/:namespace/:name" element={<Scroll><SlackAgentDetail /></Scroll>} />
               <Route path="/settings" element={<Scroll><SettingsLayout /></Scroll>}>
                 <Route index element={<SettingsScreen />} />
                 <Route path="connection" element={<SettingsConnectionPage />} />
