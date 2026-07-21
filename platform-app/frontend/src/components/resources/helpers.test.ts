@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildLinearCreateRequest, initialLinearCreateValues } from "@/components/linear-create";
-import { canMutateResource, formatProviderModels, parseProviderModels } from "@/components/resources/resource-helpers";
+import { canCreateResource, canMutateResource, formatProviderModels, parseProviderModels } from "@/components/resources/resource-helpers";
 
 describe("resource permissions", () => {
-  it("limits mode and role mutations to administrators", () => {
+  it("lets members create modes without managing existing catalog entries", () => {
+    expect(canCreateResource("modes", "member")).toBe(true);
     expect(canMutateResource("modes", "member")).toBe(false);
+    expect(canCreateResource("roles", undefined)).toBe(false);
     expect(canMutateResource("roles", undefined)).toBe(false);
+    expect(canCreateResource("modes", "admin")).toBe(true);
     expect(canMutateResource("modes", "admin")).toBe(true);
     expect(canMutateResource("runtime-profiles", "member")).toBe(true);
   });
