@@ -55,24 +55,33 @@ func k8sGitHubRepositoryToProto(gh *triggersv1alpha1.GitHubRepository) *platform
 	pb.AllowedModels = append(pb.AllowedModels, d.AllowedModels...)
 	pb.Defaults = crdDefaultsToProto(d)
 	pb.TriggerSettings = crdGitHubTriggerSettingsToProto(gh.Spec)
-	if gh.Status.Maintainer != nil {
-		pb.MaintainerStatus = &platform.GitHubRepositoryMaintainerStatus{
-			RunName:           gh.Status.Maintainer.RunName,
-			DispatchesToday:   gh.Status.Maintainer.DispatchesToday,
-			LastReportState:   gh.Status.Maintainer.LastReportState,
-			LastReportSummary: gh.Status.Maintainer.LastReportSummary,
-		}
-		if gh.Status.Maintainer.LastWakeTime != nil {
-			pb.MaintainerStatus.LastWakeUnix = gh.Status.Maintainer.LastWakeTime.Unix()
-		}
-		if gh.Status.Maintainer.LastReportTime != nil {
-			pb.MaintainerStatus.LastReportTimeUnix = gh.Status.Maintainer.LastReportTime.Unix()
-		}
-	}
+	pb.MaintainerStatus = maintainerStatusToProto(gh.Status.Maintainer)
 	if gh.Spec.ReviewLoop != nil && gh.Spec.ReviewLoop.ReviewerDefaults != nil {
 		pb.ReviewerDefaults = crdDefaultsToProto(*gh.Spec.ReviewLoop.ReviewerDefaults)
 	}
 
+	return pb
+}
+
+// maintainerStatusToProto converts the CRD maintainer status shared by
+// GitHubRepository and Project trigger read models. Returns nil when the
+// maintainer has no observed state.
+func maintainerStatusToProto(maintainer *triggersv1alpha1.MaintainerStatus) *platform.GitHubRepositoryMaintainerStatus {
+	if maintainer == nil {
+		return nil
+	}
+	pb := &platform.GitHubRepositoryMaintainerStatus{
+		RunName:           maintainer.RunName,
+		DispatchesToday:   maintainer.DispatchesToday,
+		LastReportState:   maintainer.LastReportState,
+		LastReportSummary: maintainer.LastReportSummary,
+	}
+	if maintainer.LastWakeTime != nil {
+		pb.LastWakeUnix = maintainer.LastWakeTime.Unix()
+	}
+	if maintainer.LastReportTime != nil {
+		pb.LastReportTimeUnix = maintainer.LastReportTime.Unix()
+	}
 	return pb
 }
 

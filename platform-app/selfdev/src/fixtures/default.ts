@@ -362,6 +362,35 @@ const runSharedByTeammate = create(AgentRunSchema, {
   myPermission: "viewer",
 });
 
+// Standing repository maintainer attached to the operator-app project's
+// GitHub trigger. Carries Project provenance so it surfaces in the project's
+// run list, plus the standing-run role badge.
+const runMaintainer = create(AgentRunSchema, {
+  namespace: NS,
+  name: "project-operator-app-github-issues-maintainer",
+  displayName: "Repository maintainer",
+  repoUrl: REPO_URL,
+  baseBranch: "main",
+  workflowMode: "auto",
+  executionMode: "linear",
+  model: "anthropic/claude-sonnet-4-6",
+  modeName: "maintainer",
+  modeCategory: "supervisor",
+  phase: "Running",
+  currentStep: "Waiting for repository events",
+  standingRunRole: "maintainer",
+  sessionNumber: 4,
+  agentCount: 1,
+  costUsd: "0.6120",
+  toolCallCount: 58,
+  createdAtUnix: unix(daysAgo(6)),
+  startedAtUnix: unix(daysAgo(6)),
+  admittedAtUnix: unix(daysAgo(6)),
+  owner: OWNER,
+  myPermission: "owner",
+  project: { kind: "Project", name: "operator-app" },
+});
+
 const runs = [
   runUiPolish,
   runPlanReview,
@@ -370,6 +399,7 @@ const runs = [
   runQueued,
   runTeamRefactor,
   runSharedByTeammate,
+  runMaintainer,
 ];
 
 // ---------------------------------------------------------------------------
@@ -750,6 +780,17 @@ const projects = [
           comments: true,
           triggerKeyword: "@agent",
           pollInterval: "60s",
+          maintainerEnabled: true,
+          maintainerMaxDispatchesPerDay: 10,
+        },
+        maintainerStatus: {
+          runName: "project-operator-app-github-issues-maintainer",
+          lastWakeUnix: unix(minutesAgo(42)),
+          dispatchesToday: 3,
+          lastReportTimeUnix: unix(hoursAgo(2)),
+          lastReportState: "healthy",
+          lastReportSummary:
+            "Backlog triaged: dispatched 2 issues, 1 PR awaiting human review, no blocked work.",
         },
         observedGeneration: 4n,
         conditions: [create(ProjectTriggerConditionSchema, {

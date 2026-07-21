@@ -278,3 +278,63 @@ func TestMaintainerLedgerParsing(t *testing.T) {
 		t.Fatal("parseMaintainerDispatchLedger() accepted invalid ledger")
 	}
 }
+
+func TestMaintainerStandingRunCarriesProjectProvenanceForGeneratedTriggers(t *testing.T) {
+	t.Parallel()
+	repository := maintainerRepository()
+	repository.Labels = generatedProjectRuntimeMetadata("payments", "project-uid", "issues", "github")
+	engine, c, _ := newMaintainerEngine(t, nil, repository, maintainerMode())
+
+	if _, err := engine.Reconcile(context.Background(), repository, nil, true); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	run := standingMaintainer(t, c, repository.Namespace, repository.Name)
+	if run.Spec.Context == nil || run.Spec.Context.ProjectRef == nil || run.Spec.Context.ProjectRef.Kind != "Project" || run.Spec.Context.ProjectRef.Name != "payments" {
+		t.Fatalf("Context = %#v, want Project/payments", run.Spec.Context)
+	}
+	if run.Spec.Trigger.Kind != gitHubRepositoryTriggerKind || run.Spec.Trigger.Name != "issues" || run.Spec.Trigger.Type != "github" {
+		t.Fatalf("Trigger = %#v, want declared project trigger name/type", run.Spec.Trigger)
+	}
+	if got := RuntimeTriggerName(run); got != repository.Name {
+		t.Fatalf("RuntimeTriggerName = %q, want %q", got, repository.Name)
+	}
+}
+
+func TestMaintainerBackfillsProjectProvenanceOnExistingStandingRun(t *testing.T) {
+	t.Parallel()
+	repository := maintainerRepository()
+	engine, c, _ := newMaintainerEngine(t, nil, repository, maintainerMode())
+
+	// First reconcile creates a standing run with legacy (standalone) provenance.
+	if _, err := engine.Reconcile(context.Background(), repository, nil, true); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	legacy := standingMaintainer(t, c, repository.Namespace, repository.Name)
+	if legacy.Spec.Context == nil || legacy.Spec.Context.ProjectRef == nil || legacy.Spec.Context.ProjectRef.Kind != gitHubRepositoryTriggerKind {
+		t.Fatalf("legacy Context = %#v, want GitHubRepository ref", legacy.Spec.Context)
+	}
+
+	// The repository later becomes project-generated: the next reconcile must
+	// backfill Project provenance on the existing standing run.
+	fresh := &triggersv1alpha1.GitHubRepository{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(repository), fresh); err != nil {
+		t.Fatalf("Get(repository): %v", err)
+	}
+	fresh.Labels = generatedProjectRuntimeMetadata("payments", "project-uid", "issues", "github")
+	if err := c.Update(context.Background(), fresh); err != nil {
+		t.Fatalf("Update(repository): %v", err)
+	}
+	if _, err := engine.Reconcile(context.Background(), fresh, nil, true); err != nil {
+		t.Fatalf("second Reconcile() error = %v", err)
+	}
+	run := standingMaintainer(t, c, repository.Namespace, repository.Name)
+	if run.Spec.Context == nil || run.Spec.Context.ProjectRef == nil || run.Spec.Context.ProjectRef.Kind != "Project" || run.Spec.Context.ProjectRef.Name != "payments" {
+		t.Fatalf("Context = %#v, want backfilled Project/payments", run.Spec.Context)
+	}
+	if run.Spec.Trigger.Name != "issues" || run.Spec.Trigger.Type != "github" {
+		t.Fatalf("Trigger = %#v, want declared project trigger name/type", run.Spec.Trigger)
+	}
+	if got := RuntimeTriggerName(run); got != repository.Name {
+		t.Fatalf("RuntimeTriggerName = %q, want %q", got, repository.Name)
+	}
+}

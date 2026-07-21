@@ -785,6 +785,10 @@ message AgentRun {
   // pull_request_url (114) stays the most recent one for compatibility.
   repeated string pull_request_urls = 137;
 
+  // Standing-run role for durable supervisor runs ("maintainer", "overseer");
+  // empty for ordinary runs. Mirrors the standing-run role label.
+  string standing_run_role = 145;
+
   // Additional per-provider OAuth secrets mounted on the run
   // (spec.secrets.providerOAuthSecrets) so it can switch to these providers
   // mid-run without a compute restart. secret_key is unused.
@@ -2404,6 +2408,9 @@ message ProjectTrigger {
   google.protobuf.Timestamp last_activity_time = 10;
   google.protobuf.Timestamp next_activity_time = 11;
   string last_error = 12;
+  // Maintainer status mirrored from the generated GitHubRepository child
+  // (github triggers only; empty when the maintainer is disabled).
+  GitHubRepositoryMaintainerStatus maintainer_status = 13;
 }
 
 message CreateProjectTriggerRequest {

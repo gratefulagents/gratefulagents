@@ -861,6 +861,40 @@ spec:
                       type: string
                     lastError:
                       type: string
+                    maintainer:
+                      description: |-
+                        maintainer mirrors the generated GitHubRepository child's standing
+                        maintainer status (github triggers with a configured maintainer only).
+                      properties:
+                        dispatchesToday:
+                          description: |-
+                            dispatchesToday mirrors the maintainer's dispatch ledger for the current
+                            UTC day.
+                          format: int32
+                          type: integer
+                        lastReportState:
+                          description: lastReportState is the state declared by the
+                            latest maintainer report.
+                          type: string
+                        lastReportSummary:
+                          description: lastReportSummary is the summary from the latest
+                            maintainer report.
+                          type: string
+                        lastReportTime:
+                          description: lastReportTime is when the maintainer last
+                            submitted a report.
+                          format: date-time
+                          type: string
+                        lastWakeTime:
+                          description: lastWakeTime is when the maintainer was last
+                            woken by the engine.
+                          format: date-time
+                          type: string
+                        runName:
+                          description: runName is the name of the standing maintainer
+                            AgentRun.
+                          type: string
+                      type: object
                     name:
                       type: string
                     nextActivityTime:

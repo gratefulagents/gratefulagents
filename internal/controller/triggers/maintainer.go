@@ -14,6 +14,7 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -104,6 +105,10 @@ func (e *MaintainerEngine) Reconcile(ctx context.Context, gh *triggersv1alpha1.G
 
 	standing, created, err := orchestration.EnsureStandingRun(ctx, e.Client, e.Scheme, e.StateStore, gh, desired, maintainerInitialDossier(gh))
 	if err != nil {
+		e.recordError(ctx, gh, err)
+		return ctrl.Result{}, err
+	}
+	if err := e.ensureStandingRunProvenance(ctx, standing, desired); err != nil {
 		e.recordError(ctx, gh, err)
 		return ctrl.Result{}, err
 	}
@@ -201,7 +206,11 @@ func (e *MaintainerEngine) desiredMaintainerRun(gh *triggersv1alpha1.GitHubRepos
 		Defaults:          defaults,
 		ModeRef:           modeRef,
 		GitHubTokenSecret: gitHubTokenSecret,
-		Context:           &platformv1alpha1.AgentRunContext{ProjectRef: &platformv1alpha1.ProjectRef{Kind: gitHubRepositoryTriggerKind, Name: gh.Name}},
+		// OwnerRef lets BuildTriggerRun rewrite provenance for
+		// project-generated triggers (Project context + declared trigger
+		// name) so the maintainer run surfaces in its project's run list.
+		OwnerRef: gh,
+		Context:  &platformv1alpha1.AgentRunContext{ProjectRef: &platformv1alpha1.ProjectRef{Kind: gitHubRepositoryTriggerKind, Name: gh.Name}},
 		Labels: map[string]string{
 			orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleMaintainer,
 		},
@@ -216,6 +225,35 @@ func (e *MaintainerEngine) desiredMaintainerRun(gh *triggersv1alpha1.GitHubRepos
 	delete(run.Labels, PRLoopRoleLabel)
 	delete(run.Labels, PRLoopNumberLabel)
 	return run, nil
+}
+
+// ensureStandingRunProvenance backfills project provenance (context, declared
+// trigger name/type, and runtime trigger annotation) on standing runs created
+// before project-generated triggers propagated it, so existing maintainer runs
+// surface in their project's run list.
+func (e *MaintainerEngine) ensureStandingRunProvenance(ctx context.Context, standing, desired *platformv1alpha1.AgentRun) error {
+	if standing == nil || desired == nil {
+		return nil
+	}
+	sameTrigger := standing.Spec.Trigger.Name == desired.Spec.Trigger.Name && standing.Spec.Trigger.Type == desired.Spec.Trigger.Type
+	sameContext := equality.Semantic.DeepEqual(standing.Spec.Context, desired.Spec.Context)
+	sameRuntimeName := standing.Annotations[RuntimeTriggerNameAnnotation] == desired.Annotations[RuntimeTriggerNameAnnotation]
+	if sameTrigger && sameContext && sameRuntimeName {
+		return nil
+	}
+	standing.Spec.Trigger.Name = desired.Spec.Trigger.Name
+	standing.Spec.Trigger.Type = desired.Spec.Trigger.Type
+	standing.Spec.Context = desired.Spec.Context.DeepCopy()
+	if name := desired.Annotations[RuntimeTriggerNameAnnotation]; name != "" {
+		if standing.Annotations == nil {
+			standing.Annotations = map[string]string{}
+		}
+		standing.Annotations[RuntimeTriggerNameAnnotation] = name
+	}
+	if err := e.Client.Update(ctx, standing); err != nil {
+		return fmt.Errorf("updating standing maintainer run provenance: %w", err)
+	}
+	return nil
 }
 
 func configuredMaintainerModeRef(gh *triggersv1alpha1.GitHubRepository) *platformv1alpha1.ModeRef {
