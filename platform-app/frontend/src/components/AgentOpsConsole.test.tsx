@@ -94,14 +94,14 @@ describe("AgentOpsConsole", () => {
     expect(screen.queryByText("Fix broken build")).toBeNull();
     expect(screen.queryByText("Ship dashboard polish")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /All loaded/ }));
+    fireEvent.click(screen.getByRole("button", { name: /All runs/ }));
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.getByRole("button", { name: /^Active/, pressed: true })).toBeTruthy();
   });
 
   it("shows attention reasons, live summaries, and deep links", () => {
     render(<MemoryRouter><AgentOpsConsole /></MemoryRouter>);
-    fireEvent.click(screen.getByRole("button", { name: /All loaded/ }));
+    fireEvent.click(screen.getByRole("button", { name: /All runs/ }));
 
     expect(screen.getByRole("heading", { name: "Agent Ops" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Observability" })).toBeNull();
@@ -122,9 +122,9 @@ describe("AgentOpsConsole", () => {
     expect(screen.queryByText("Investigate API latency")).toBeNull();
     expect(screen.queryByText("Ship dashboard polish")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /All loaded/ }));
+    fireEvent.click(screen.getByRole("button", { name: /All runs/ }));
     expect(screen.getByText("Completed successfully")).toBeTruthy();
-    fireEvent.change(screen.getByPlaceholderText("Search runs, repos, sources, activity…"), { target: { value: "migration" } });
+    fireEvent.change(screen.getByPlaceholderText("Search runs…"), { target: { value: "migration" } });
     await waitFor(() => expect(screen.queryByText("Fix broken build")).toBeNull());
     expect(screen.getByText("Approve data migration")).toBeTruthy();
   });
