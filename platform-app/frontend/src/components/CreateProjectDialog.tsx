@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Blocks,
+  Bot,
   Cpu,
   Eye,
   EyeOff,
@@ -42,6 +43,7 @@ import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
 import { ProjectReviewLoopOption } from "@/components/ProjectReviewLoopOption";
 import { MCPServerPicker } from "@/components/MCPServerPicker";
+import { ModeTemplateSelect } from "@/components/ModeTemplateSelect";
 import { UserSecretPicker, type UserSecretOption } from "@/components/UserSecretPicker";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
@@ -83,6 +85,7 @@ type FormState = {
   provider: string;
   model: string;
   reasoningLevel: string;
+  modeRef: string;
   baseBranch: string;
   timeout: string;
   customInstructions: string;
@@ -114,6 +117,7 @@ const initialForm: FormState = {
   provider: "anthropic",
   model: "",
   reasoningLevel: "",
+  modeRef: "",
   baseBranch: "",
   timeout: "",
   customInstructions: "",
@@ -369,6 +373,7 @@ export function CreateProjectDialog({
         provider: form.provider,
         model: form.model.trim(),
         reasoningLevel: form.reasoningLevel,
+        modeRef: form.modeRef.trim(),
         baseBranch: form.baseBranch.trim(),
         timeout: form.timeout.trim(),
         customInstructions: form.customInstructions.trim(),
@@ -712,6 +717,26 @@ export function CreateProjectDialog({
                     )}
                   </div>
                 ) : null}
+              </OptionRow>
+
+              <OptionRow
+                icon={Bot}
+                title="Default mode"
+                summary={form.modeRef.trim() || "Interactive"}
+                modified={Boolean(form.modeRef.trim())}
+              >
+                <FlowField
+                  id="project-mode-ref"
+                  label="Mode template"
+                  hint="Sets the behavior and tool policy inherited by new runs in this project."
+                >
+                  <ModeTemplateSelect
+                    id="project-mode-ref"
+                    value={form.modeRef}
+                    enabled={open}
+                    onChange={(value) => update("modeRef", value)}
+                  />
+                </FlowField>
               </OptionRow>
 
               {/* Repository details */}

@@ -147,6 +147,12 @@ func (s *Server) UpdateProject(ctx context.Context, req *platform.UpdateProjectR
 		fresh.Spec.Defaults.AllowedModels = append([]string(nil), req.GetAllowedModels()...)
 		fresh.Spec.Defaults.AuthMode = authMode
 		fresh.Spec.Defaults.ReasoningLevel = reasoningLevel
+		if req.ModeRef != nil {
+			fresh.Spec.Defaults.ModeRef = nil
+			if modeName := strings.TrimSpace(req.GetModeRef()); modeName != "" {
+				fresh.Spec.Defaults.ModeRef = &platformv1alpha1.ModeRef{Name: modeName}
+			}
+		}
 		fresh.Spec.Defaults.Secrets = secrets
 		fresh.Spec.Defaults.RuntimeProfileRef = runtimeProfileRef
 		fresh.Spec.Defaults.MCPPolicyRef = mcpPolicyRef

@@ -191,6 +191,13 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 		reviewLoopDisabled = req.GetReviewLoopDisabled()
 	}
 
+	var modeRef *platformv1alpha1.ModeRef
+	if req.ModeRef != nil {
+		if name := strings.TrimSpace(req.GetModeRef()); name != "" {
+			modeRef = &platformv1alpha1.ModeRef{Name: name}
+		}
+	}
+
 	project := &triggersv1alpha1.Project{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: triggersv1alpha1.GroupVersion.String(),
@@ -217,6 +224,7 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 				AllowedModels:      append([]string(nil), req.AllowedModels...),
 				AuthMode:           authMode,
 				ReasoningLevel:     reasoningLevel,
+				ModeRef:            modeRef,
 				RuntimeProfileRef:  runtimeProfileRef,
 				MCPPolicyRef:       mcpPolicyRef,
 				MCPServerRefs:      namedRefsFromNames(req.GetMcpServerRefs()),
@@ -224,7 +232,7 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 			},
 		},
 	}
-	if isGratefulAgentsBootstrapProject(name, repoURL, additionalRepos) {
+	if req.ModeRef == nil && isGratefulAgentsBootstrapProject(name, repoURL, additionalRepos) {
 		project.Spec.Defaults.ModeRef = &platformv1alpha1.ModeRef{Name: gratefulAgentsModeName}
 	}
 

@@ -25,6 +25,9 @@ func k8sProjectToProto(p *triggersv1alpha1.Project) *platform.Project {
 	pb.Provider = providerOrDefault(d.Provider)
 	pb.AuthMode = string(triggersv1alpha1.NormalizeAuthMode(string(d.AuthMode)))
 	pb.ReasoningLevel = string(d.ReasoningLevel)
+	if d.ModeRef != nil {
+		pb.ModeRef = d.ModeRef.Name
+	}
 	pb.Image = d.Image
 	pb.ClaudeApiKeySecret = d.Secrets.ClaudeApiKey
 	pb.OpenaiOauthSecret = d.Secrets.OpenAIOAuthSecret
