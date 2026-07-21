@@ -696,7 +696,7 @@ func (s *Server) ListModeTemplates(ctx context.Context, _ *platform.ListModeTemp
 	return o, nil
 }
 func (s *Server) CreateModeTemplate(ctx context.Context, r *platform.CreateModeTemplateRequest) (*platform.ModeTemplate, error) {
-	if e := requireCatalogActor(ctx, true); e != nil {
+	if e := requireCatalogActor(ctx, false); e != nil {
 		return nil, e
 	}
 	sp, e := modeSpec(r.GetTemplate())
