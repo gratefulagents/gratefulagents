@@ -2288,6 +2288,10 @@ message CreateProjectRequest {
   // opened by runs created from this project, including additional repositories.
   // Omission defaults to true; set false explicitly to opt in.
   optional bool review_loop_disabled = 34;
+  // mode_ref selects the ModeTemplate used by default for runs created from
+  // this project. A present empty value explicitly uses the platform's
+  // interactive default; omission allows server-side bootstrap defaults.
+  optional string mode_ref = 35;
 }
 
 message UpdateProjectRequest {
@@ -2338,6 +2342,9 @@ message UpdateProjectRequest {
   // review_loop_disabled changes whether runs created from this project receive
   // autonomous PR reviews. Omitted means preserve the current value.
   optional bool review_loop_disabled = 32;
+  // mode_ref replaces the project's default ModeTemplate. Empty clears the
+  // project override so new runs use the platform's interactive default.
+  optional string mode_ref = 33;
 }
 
 message ProjectTriggerCondition {
@@ -2567,6 +2574,9 @@ message Project {
   // opened by this project's runs.
   bool review_loop_disabled = 48;
   repeated ProjectTrigger triggers = 49;
+  // mode_ref is the ModeTemplate used by default for this project's runs.
+  // Empty means the platform's interactive default.
+  string mode_ref = 50;
 }
 
 message ProjectMetrics {
