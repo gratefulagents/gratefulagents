@@ -214,6 +214,36 @@ describe("watchStore", () => {
     expect(getWatchStore("Items:ns", () => config)).toBe(store);
   });
 
+  it("replaces a suspended stream immediately when the app returns to the foreground", async () => {
+    const { config, list, watch, abortedCount } = makeConfig();
+    const store = getWatchStore("Items:foreground", () => config);
+
+    store.acquire();
+    await flushMicrotasks();
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(watch).toHaveBeenCalledTimes(1);
+
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    await flushMicrotasks();
+
+    expect(abortedCount()).toBe(1);
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(watch).toHaveBeenCalledTimes(2);
+    expect(store.getSnapshot()).toEqual({
+      items: [{ namespace: "ns", name: "one" }],
+      loading: false,
+      error: null,
+    });
+
+    // Browsers can emit focus immediately after visibilitychange; one return
+    // to the app must create only one reconnection wave.
+    window.dispatchEvent(new Event("focus"));
+    await flushMicrotasks();
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(watch).toHaveBeenCalledTimes(2);
+  });
+
   it("notifies subscribers when the snapshot changes", async () => {
     const { config } = makeConfig();
     const store = getWatchStore("Items:ns", () => config);
