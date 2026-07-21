@@ -128,5 +128,5 @@ func (t *mergePullRequestTool) Execute(ctx context.Context, input json.RawMessag
 	if err != nil {
 		return Result{Content: fmt.Sprintf("gh pr merge failed: %v\n%s", err, out), IsError: true}, nil
 	}
-	return Result{Content: fmt.Sprintf("Merged pull request %s with %s after verifying %d checks and commit statuses. Consider dispatching the next issue.", view.URL, method, checksSummary.Total)}, nil
+	return Result{Content: fmt.Sprintf("Merged pull request %s with %s after verifying %d checks and commit statuses. Verify the merge, mark its implementer succeeded if needed, close the linked issue as completed, then consider dispatching dependent work.", view.URL, method, checksSummary.Total)}, nil
 }

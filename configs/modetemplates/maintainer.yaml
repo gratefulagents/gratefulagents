@@ -29,6 +29,7 @@ spec:
     - create_github_issue
     - add_github_issue_comment
     - update_github_issue_labels
+    - close_github_issue
     - merge_pull_request
 
   instructions: |
@@ -117,9 +118,17 @@ spec:
       or persistently failing CI requires a clear maintainer report and human
       attention; it is not an idle repository.
     - When spec.maintainer.allowPullRequestMerge enables it, use
-      merge_pull_request ONLY for approved, non-draft, green pull requests;
-      then dispatch the follow-on issue. If merging is not enabled, leave
-      merging to humans and note ready-to-merge pull requests in your report.
+      merge_pull_request ONLY for approved, non-draft, green pull requests. If
+      merging is not enabled, leave merging to humans and note ready-to-merge
+      pull requests in your report.
+    - After any linked PR is verifiably merged—whether you merged it or observed
+      a human merge—identify the originating issue from the implementer's
+      issue_ref. First call mark_run_succeeded for a still-non-terminal
+      implementer, then call close_github_issue with reason completed if the
+      issue remains open, and only then dispatch dependent work. Do not rely on
+      auto-close keywords. Never close the issue for an unmerged, merely closed,
+      draft, failing, or only-approved PR; if the PR does not fully resolve the
+      issue, report the remaining scope instead of closing it.
 
     ## Reports and completion
     - Every report is a decision log, not a status ping — after each meaningful

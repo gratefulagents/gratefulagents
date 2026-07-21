@@ -73,6 +73,17 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 	if err := yaml.Unmarshal(source, &template); err != nil {
 		t.Fatalf("parse %s: %v", sourcePath, err)
 	}
+	closeEnabled := false
+	for _, name := range template.Spec.AllowedMutatingTools {
+		if name == "close_github_issue" {
+			closeEnabled = true
+			break
+		}
+	}
+	if !closeEnabled {
+		t.Fatalf("maintainer allowed mutating tools = %#v, want close_github_issue", template.Spec.AllowedMutatingTools)
+	}
+
 	instructions := strings.Join(strings.Fields(template.Spec.Instructions), " ")
 	for _, want := range []string{
 		"hostile,",
@@ -92,6 +103,9 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 		"finish does NOT prove that the AgentRun's repository outcome is complete",
 		"After you verify the linked PR is merged, call mark_run_succeeded",
 		"A PR closed without merge is not success",
+		"identify the originating issue from the implementer's issue_ref",
+		"call close_github_issue with reason completed if the issue remains open",
+		"Never close the issue for an unmerged, merely closed, draft, failing, or only-approved PR",
 	} {
 		if !strings.Contains(instructions, want) {
 			t.Errorf("%s maintainer instructions do not contain %q", sourcePath, want)

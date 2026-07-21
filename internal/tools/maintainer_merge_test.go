@@ -63,7 +63,7 @@ func TestMergePullRequestGateAndSafetyChecks(t *testing.T) {
 				}
 				return
 			}
-			if result.IsError || !strings.Contains(result.Content, "https://example.test/pull/7") {
+			if result.IsError || !strings.Contains(result.Content, "https://example.test/pull/7") || !strings.Contains(result.Content, "close the linked issue as completed") {
 				t.Fatalf("result = %#v", result)
 			}
 			if len(runner.calls) != 4 || runner.calls[1] != checksKey || runner.calls[2] != statusKey || runner.calls[3] != tc.mergeCall {
