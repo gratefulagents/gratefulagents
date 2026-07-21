@@ -699,7 +699,7 @@ func resolveMCPPolicyForRun(ctx context.Context, c client.Client, run *platformv
 }
 
 func listUserSkillRefsForRun(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) ([]platformv1alpha1.NamedRef, error) {
-	if run == nil {
+	if run == nil || isStandingOverseerRun(run) {
 		return nil, nil
 	}
 	var skills platformv1alpha1.SkillList
@@ -714,8 +714,13 @@ func listUserSkillRefsForRun(ctx context.Context, c client.Client, run *platform
 	return refs, nil
 }
 
+func isStandingOverseerRun(run *platformv1alpha1.AgentRun) bool {
+	_, supervisedRunName, _ := supervisedIdentityForRun(run)
+	return supervisedRunName != ""
+}
+
 func effectiveSkillRefs(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha1.ModeTemplateSpec, userSkillRefs []platformv1alpha1.NamedRef) []platformv1alpha1.NamedRef {
-	if run == nil {
+	if run == nil || isStandingOverseerRun(run) {
 		return nil
 	}
 	refs := make([]platformv1alpha1.NamedRef, 0, len(run.Spec.SkillRefs)+len(userSkillRefs))

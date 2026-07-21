@@ -6,7 +6,7 @@ export default function SkillsPage() {
   return (
     <SettingsSubPage
       title="Skills"
-      description="Reusable agent skills, automatically available in every project."
+      description="Reusable agent skills, discoverable in every project and loaded on demand."
     >
       <SkillsSection />
     </SettingsSubPage>

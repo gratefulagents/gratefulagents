@@ -243,7 +243,7 @@ export function SkillsSection() {
     <SettingsSection
       icon={<GraduationCap />}
       title="Skills"
-      description="Reusable agent instructions: write them inline or install from the skills.sh catalog. Every skill is available automatically in all of your projects; required MCP servers are attached with it."
+      description="Reusable agent instructions: write them inline or install from the skills.sh catalog. Every skill is discoverable in all of your projects and loaded on demand; required MCP servers are attached automatically."
       aside={
         <div className="flex items-center gap-2">
           <Button

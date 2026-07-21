@@ -10,6 +10,7 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/projectstate"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
@@ -24,6 +25,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+)
+
+const (
+	standingOverseerOwnerKind = "AgentRun"
+	explicitSkillName         = "explicit-skill"
 )
 
 func TestProjectStateIDForRunUsesSharedHashedIdentity(t *testing.T) {
@@ -492,6 +498,37 @@ func TestRunPastTimeoutRestartsWindowOnWake(t *testing.T) {
 	}
 }
 
+func TestEffectiveSkillRefsExcludesStandingOverseer(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Labels: map[string]string{
+				orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleOverseer,
+				orchestration.SupervisedRunLabel:   "primary-run",
+			},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: platformv1alpha1.GroupVersion.String(),
+				Kind:       standingOverseerOwnerKind,
+				Name:       "primary-run",
+			}},
+		},
+		Spec: platformv1alpha1.AgentRunSpec{
+			SkillRefs: []platformv1alpha1.NamedRef{{Name: explicitSkillName}},
+		},
+	}
+	snapshot := &platformv1alpha1.ModeTemplateSpec{
+		DefaultSkillRefs: []platformv1alpha1.NamedRef{{Name: "mode-skill"}},
+	}
+	userSkills := []platformv1alpha1.NamedRef{{Name: "user-skill"}}
+
+	if got := effectiveSkillRefs(run, snapshot, userSkills); len(got) != 0 {
+		t.Fatalf("effectiveSkillRefs() = %v, want no skills for standing overseer", got)
+	}
+	if got, err := listUserSkillRefsForRun(context.Background(), nil, run); err != nil || len(got) != 0 {
+		t.Fatalf("listUserSkillRefsForRun() = %v, %v; want no lookup or skills for standing overseer", got, err)
+	}
+}
+
 func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -512,7 +549,7 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 			WorkflowMode:      platformv1alpha1.WorkflowModeChat,
 			RuntimeProfileRef: &platformv1alpha1.NamedRef{Name: "interactive-readonly"},
 			MCPPolicyRef:      &platformv1alpha1.NamedRef{Name: "safe-mcp"},
-			SkillRefs:         []platformv1alpha1.NamedRef{{Name: "explicit-skill"}},
+			SkillRefs:         []platformv1alpha1.NamedRef{{Name: explicitSkillName}},
 		},
 	}
 	runtimeProfile := &platformv1alpha1.RuntimeProfile{
@@ -576,7 +613,7 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	for _, ref := range updated.Spec.SkillRefs {
 		gotSkillRefs = append(gotSkillRefs, ref.Name)
 	}
-	if !slices.Equal(gotSkillRefs, []string{"explicit-skill", "alpha-skill", "zeta-skill"}) {
+	if !slices.Equal(gotSkillRefs, []string{explicitSkillName, "alpha-skill", "zeta-skill"}) {
 		t.Fatalf("Spec.SkillRefs = %v, want all user skills after explicit refs", gotSkillRefs)
 	}
 	if updated.Status.Policy == nil {
