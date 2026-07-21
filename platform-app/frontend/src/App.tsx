@@ -4,6 +4,7 @@ import { MotionConfig } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 import { ProjectTree } from "@/components/shell/ProjectTree";
+import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { ApiMonitorSidebar } from "@/components/ApiMonitorSidebar";
 import { AppVersionPrompt } from "@/components/AppVersionPrompt";
 
@@ -183,9 +184,18 @@ function AppSidebar({
         <SidebarGroup>
           <SidebarGroupLabel className="text-[10.5px] tracking-[0.08em] font-medium text-muted-foreground/70 flex items-center justify-between pr-1">
             <span>Projects</span>
-            <Link to="/projects" className="text-muted-foreground/60 hover:text-foreground" title="All projects">
-              <Plus className="size-3.5" />
-            </Link>
+            <CreateProjectDialog
+              trigger={
+                <button
+                  type="button"
+                  title="New project"
+                  aria-label="New project"
+                  className="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              }
+            />
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <ProjectTree

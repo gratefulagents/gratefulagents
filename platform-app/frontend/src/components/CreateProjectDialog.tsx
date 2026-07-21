@@ -1,4 +1,5 @@
 import { create } from "@bufbuild/protobuf";
+import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -161,7 +162,12 @@ function savedCredentialAvailable(p: CredentialPresence, provider: string): bool
   return false;
 }
 
-export function CreateProjectDialog() {
+export function CreateProjectDialog({
+  trigger,
+}: {
+  /** Optional custom trigger element; defaults to a "Create Project" button. */
+  trigger?: ReactElement<Record<string, unknown>>;
+} = {}) {
   const navigate = useNavigate();
   const { createProject, submitting, error, clearError } = useCreateProject();
   const [open, setOpen] = useState(false);
@@ -442,10 +448,14 @@ export function CreateProjectDialog() {
         if (!nextOpen) reset();
       }}
     >
-      <DialogTrigger render={<Button size="sm" />}>
-        <Plus />
-        Create Project
-      </DialogTrigger>
+      {trigger ? (
+        <DialogTrigger render={trigger} />
+      ) : (
+        <DialogTrigger render={<Button size="sm" />}>
+          <Plus />
+          Create Project
+        </DialogTrigger>
+      )}
       <DialogContent
         className="flex w-full max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl max-h-[92vh]"
         showCloseButton
