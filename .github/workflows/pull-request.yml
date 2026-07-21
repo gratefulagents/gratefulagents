@@ -88,6 +88,22 @@ jobs:
         working-directory: platform-app
         run: pnpm test
 
+  altstore-source-tests:
+    name: AltStore source tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Test IPA metadata extraction
+        run: python3 -m unittest scripts/extract-ios-ipa-metadata_test.py
+
+      - name: Test AltStore source generation
+        run: node --test scripts/generate-altstore-source.test.mjs
+
   docker-builds:
     name: Docker build (${{ matrix.image }})
     runs-on: ubuntu-24.04

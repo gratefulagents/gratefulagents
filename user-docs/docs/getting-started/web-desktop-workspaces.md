@@ -27,7 +27,7 @@ Desktop release artifacts currently target Apple Silicon macOS and AMD64 or ARM6
    | Debian or Ubuntu AMD64/ARM64 | matching `.deb` |
    | Fedora, RHEL, or compatible Linux AMD64/ARM64 | matching `.rpm` |
    | Other supported Linux distribution | matching `.AppImage` |
-   | iPhone or iPad | `gratefulagents-<tag>-ios-arm64-unsigned.ipa` — read [Install on iOS](#install-on-ios) before downloading |
+   | iPhone or iPad | Add the official AltStore Classic source under [Install on iOS](#install-on-ios); its direct-install fallback uses `gratefulagents-<tag>-ios-arm64-unsigned.ipa` |
    | Android phone or tablet (ARM64) | `gratefulagents-<tag>-android-arm64-debug.apk` — read [Install on Android](#install-on-android) before downloading |
 
 4. Verify any checksum and signing information published by the release owner. If none is available, confirm the expected release tag and artifact with your administrator before running it.
@@ -68,11 +68,33 @@ Use the downloaded asset's real filename in place of the examples. Prefer the na
 
 ## Install on iOS
 
-:::warning The release IPA is unsigned
-The release workflow currently publishes an asset ending in `ios-arm64-unsigned.ipa`. iOS will not install or run that file as downloaded. Renaming it, trusting an unrelated developer profile, or enabling Developer Mode does not add a valid signature.
+:::warning AltStore Classic signs the unsigned IPA for your device
+The release IPA is intentionally unsigned and cannot be installed by tapping it directly. [AltStore Classic](https://altstore.io/) sends it to AltServer, which signs it with your Apple ID before installation. Do not install a certificate or provisioning profile supplied by an unknown third party.
 :::
 
-### Recommended organization distribution
+### Install with AltStore Classic
+
+AltStore Classic is the project's free public installation method. It works worldwide, but Apple requires apps installed with a regular free Apple ID to be refreshed through AltServer every seven days. Apple also limits a device to three active sideloaded apps; AltStore itself normally occupies one slot, leaving two for other apps. Read [AltStore's installation instructions](https://faq.altstore.io/altstore-classic/) and install AltStore and AltServer before continuing.
+
+1. On the iPhone or iPad, open the [Grateful Agents source in AltStore](https://altstore.io/source/github.com/gratefulagents/gratefulagents/releases/latest/download/altstore-source.json?app=dev.gratefulagents.app).
+2. Confirm that the source is **Grateful Agents**, the app identifier is `dev.gratefulagents.app`, and the source URL is the official GitHub repository shown below.
+3. Add the source, select **Grateful Agents**, and choose **FREE** to install it.
+4. Keep AltServer available on the computer AltStore uses. In AltStore, periodically open **My Apps** and choose **Refresh All** if background refresh has not renewed the app.
+5. Open Grateful Agents and continue to [Connect the installed app](#connect-the-installed-app).
+
+The canonical source URL is:
+
+```text
+https://github.com/gratefulagents/gratefulagents/releases/latest/download/altstore-source.json
+```
+
+Every completed release regenerates this source from the IPA's actual bundle version, minimum iOS version, permissions, and versioned GitHub download URL. AltStore downloads the unsigned IPA and re-signs it for the current device; the project never receives your Apple ID or password.
+
+If the source link does not open automatically, add the canonical URL manually in AltStore's **Sources** screen. As a fallback, download `gratefulagents-<tag>-ios-arm64-unsigned.ipa` from the official GitHub release, open AltStore's **My Apps** tab, select **+**, and choose the downloaded IPA. Manual installation works, but adding the source makes future updates visible in AltStore.
+
+AltStore **PAL** is a different, region-limited alternative marketplace and does not install IPA files. Use AltStore Classic for this unsigned IPA distribution method.
+
+### Organization-managed distribution
 
 An administrator must sign the app for the intended devices using an appropriate Apple Developer certificate and provisioning profile, then distribute it using an approved method such as TestFlight or mobile device management (MDM). Apple recommends MDM for internal organization apps because installation and trust can be managed centrally.
 
