@@ -1,8 +1,16 @@
+// Base UI dispatches PointerEvent from switch/select controls. jsdom 25 does
+// not implement it, so user-like interactions otherwise throw or silently fail.
+if (typeof window.PointerEvent !== "function") {
+  Object.defineProperty(window, "PointerEvent", {
+    configurable: true,
+    value: MouseEvent,
+  });
+}
+
 // Node ≥22 ships an experimental `globalThis.localStorage` that is
 // non-functional unless the process is started with --localstorage-file, and
-// under the jsdom environment it shadows the DOM Storage implementation. When
-// the ambient localStorage is unusable, replace it with a Map-backed Storage
-// so components and tests exercise real get/set semantics on every Node.
+// under jsdom it can shadow the DOM Storage implementation. Use a Map-backed
+// fallback so tests exercise real get/set semantics on every Node.
 if (typeof globalThis.localStorage?.getItem !== "function") {
   const store = new Map<string, string>();
   const storage: Storage = {

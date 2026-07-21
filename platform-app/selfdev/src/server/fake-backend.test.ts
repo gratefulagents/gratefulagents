@@ -22,10 +22,14 @@ describe("fake backend", () => {
     await backend.close();
   });
 
-  it("serves /api/config", async () => {
-    const res = await fetch(`${backend.url}/api/config`);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ authEnabled: true, googleClientId: "" });
+  it("serves runtime metadata", async () => {
+    const config = await fetch(`${backend.url}/api/config`);
+    expect(config.status).toBe(200);
+    expect(await config.json()).toEqual({ authEnabled: true, googleClientId: "" });
+
+    const version = await fetch(`${backend.url}/api/version`);
+    expect(version.status).toBe(200);
+    expect(await version.json()).toEqual({ version: "0.1.0" });
   });
 
   it("accepts any login and returns the scenario user", async () => {

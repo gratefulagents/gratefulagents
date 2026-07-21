@@ -24,7 +24,7 @@ export interface TauriSimOptions {
 export function buildTauriSimScript(options: TauriSimOptions = {}): string {
   const config = {
     platform: options.platform ?? "macos",
-    appVersion: options.appVersion ?? "0.1.0-selfdev",
+    appVersion: options.appVersion ?? "0.1.0",
     localCredentials: options.localCredentials ?? [],
   };
 

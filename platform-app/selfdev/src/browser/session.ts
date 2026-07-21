@@ -147,11 +147,29 @@ function attachRecorder(page: Page): Recorder {
   };
   page.on("console", (msg) => {
     const type = msg.type();
-    if (type === "error" || type === "warning") record(`[console.${type}] ${msg.text()}`);
+    const text = msg.text();
+    // The harness deliberately emulates reduced motion for stable captures.
+    // Framer Motion warns about that expected condition once per app load.
+    if (
+      type === "warning" &&
+      text === "You have Reduced Motion enabled on your device. Animations may not appear as expected."
+    ) return;
+    if (type === "error" || type === "warning") record(`[console.${type}] ${text}`);
   });
   page.on("pageerror", (err) => record(`[pageerror] ${err.message}`));
   page.on("requestfailed", (req) => {
-    record(`[requestfailed] ${req.method()} ${req.url()} — ${req.failure()?.errorText ?? "unknown"}`);
+    const failure = req.failure()?.errorText ?? "unknown";
+    const pathname = new URL(req.url()).pathname;
+    // React StrictMode intentionally cleans up and restarts effects once in
+    // development. AbortController cancellation of an in-flight Connect RPC
+    // is expected; other aborts (including Vite modules) remain findings.
+    const cancelledConnectRpc =
+      failure === "net::ERR_ABORTED" &&
+      req.method() === "POST" &&
+      /^\/(?:platform|auth)\.v1\.[^/]+\//.test(pathname);
+    if (!cancelledConnectRpc) {
+      record(`[requestfailed] ${req.method()} ${req.url()} — ${failure}`);
+    }
   });
   page.on("response", (res) => {
     if (res.status() >= 400) record(`[http ${res.status()}] ${res.request().method()} ${res.url()}`);
@@ -300,15 +318,16 @@ export class UiSession {
     // Already signed in (cached storageState)?
     const shell = page.locator("#main-content");
     const username = page.locator("#username");
+    const operatorUrl = page.locator("#gratefulagents-url");
     await Promise.race([
       shell.waitFor({ state: "visible", timeout: 30_000 }),
       username.waitFor({ state: "visible", timeout: 30_000 }),
+      operatorUrl.waitFor({ state: "visible", timeout: 30_000 }),
     ]);
     if (await shell.isVisible()) return;
 
     // Tauri sim boots unconfigured: connect to the dev-server origin first
     // (proxied to the fake backend), exactly like a desktop user would.
-    const operatorUrl = page.locator("#gratefulagents-url");
     if (await operatorUrl.isVisible()) {
       await operatorUrl.fill(this.baseUrl);
       await page.getByRole("button", { name: /^(Connect|Reconnect)$/ }).click();
@@ -327,11 +346,19 @@ export class UiSession {
   async capturePage(opts: PageOptions, outBaseName: string): Promise<CaptureResult> {
     const context = await this.newContext(opts);
     try {
+      // Authenticate on a disposable page. Navigating that page from the app
+      // shell to the requested route aborts in-flight streams and lazy module
+      // requests; recording those expected aborts made every clean shot noisy.
+      const authKey = opts.tauriSim ? "tauri" : "web";
+      if (!opts.noAuth && !this.authStates.has(authKey)) {
+        const authPage = await context.newPage();
+        await this.ensureAuth(authPage, opts);
+        await authPage.close();
+      }
+
       const page = await context.newPage();
       const recorder = attachRecorder(page);
       await page.clock.install({ time: this.scenario.now });
-
-      if (!opts.noAuth) await this.ensureAuth(page, opts);
       await page.goto(`${this.baseUrl}${opts.route}`, { waitUntil: "domcontentloaded" });
 
       const waitFor = opts.waitFor ?? (opts.noAuth ? "body" : "#main-content");

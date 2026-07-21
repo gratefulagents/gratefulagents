@@ -22,6 +22,7 @@
 //   --settle ms                      extra settle delay (default 700)
 //   --no-auth                        skip login (shoot the login page itself)
 //   --out dir                        output dir (default selfdev/out)
+//   --allow-findings                 exit zero despite console/network findings
 
 import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -64,6 +65,7 @@ interface CommonFlags {
   out: string | undefined;
   uiPort: number | undefined;
   backendPort: number | undefined;
+  allowFindings: boolean;
 }
 
 function parseCommon(args: string[], defaults: { theme: string }): CommonFlags & { positionals: string[]; route?: string } {
@@ -82,6 +84,7 @@ function parseCommon(args: string[], defaults: { theme: string }): CommonFlags &
       "wait-for": { type: "string" },
       settle: { type: "string" },
       "no-auth": { type: "boolean", default: false },
+      "allow-findings": { type: "boolean", default: false },
       out: { type: "string" },
       "ui-port": { type: "string" },
       "backend-port": { type: "string" },
@@ -121,6 +124,7 @@ function parseCommon(args: string[], defaults: { theme: string }): CommonFlags &
       : values.port
         ? Number(values.port)
         : undefined,
+    allowFindings: values["allow-findings"] as boolean,
   };
 }
 
@@ -167,6 +171,7 @@ async function cmdScreenshot(args: string[]): Promise<void> {
       console.log(result.consolePath);
       if (result.consoleLines.length) {
         console.log(`  (${result.consoleLines.length} console/network finding(s) — see log)`);
+        if (!flags.allowFindings) process.exitCode = 1;
       }
     }
   });
@@ -194,6 +199,7 @@ async function cmdSnapAll(args: string[]): Promise<void> {
     console.log(`\nwrote output to ${session.outDir}`);
   });
   console.log(findings ? `${findings} console/network finding(s) across all shots` : "no console findings");
+  if (findings && !flags.allowFindings) process.exitCode = 1;
 }
 
 async function cmdFakeServer(args: string[]): Promise<void> {

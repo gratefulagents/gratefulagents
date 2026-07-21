@@ -1,7 +1,7 @@
 // Fake gratefulagents backend for self-dev mode.
 //
 // A connect-node HTTP server that serves the real `platform.v1.PlatformService`
-// and `auth.v1.AuthService` contracts (plus `GET /api/config`) from an
+// and `auth.v1.AuthService` contracts (plus runtime `/api/*` metadata) from an
 // in-memory Scenario. The methods the UI exercises get real fixture-backed
 // implementations — including light mutation semantics so interactive `serve`
 // sessions feel alive — and every other method falls back to an empty
@@ -619,6 +619,11 @@ export async function startFakeBackend(
     if (path === "/api/config") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(s.config));
+      return;
+    }
+    if (path === "/api/version") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ version: "0.1.0" }));
       return;
     }
     if (path.startsWith("/api/")) {
