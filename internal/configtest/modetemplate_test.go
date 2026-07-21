@@ -88,6 +88,10 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 		"checks are pending or an AI reviewer run is active",
 		"AgentRun phase, PR review-loop state, and GitHub PR state as separate signals",
 		"all reported checks and commit statuses have completed successfully",
+		"calling finish ends its current execution episode",
+		"finish does NOT prove that the AgentRun's repository outcome is complete",
+		"After you verify the linked PR is merged, call mark_run_succeeded",
+		"A PR closed without merge is not success",
 	} {
 		if !strings.Contains(instructions, want) {
 			t.Errorf("%s maintainer instructions do not contain %q", sourcePath, want)

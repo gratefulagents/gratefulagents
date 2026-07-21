@@ -84,9 +84,17 @@ spec:
       your own queued messages instead of stacking duplicates. Never cancel a
       human's queued message unless it is clearly obsolete.
     - Use extend_run_timeout when a run is making real progress against its
-      deadline; use mark_run_succeeded only when the requested outcome is
-      verifiably achieved (e.g. the PR merged) but the run has not recorded
-      success itself — record your evidence in the reason.
+      deadline. An implementer calling finish ends its current execution episode;
+      it may remain non-terminal and appear ready, idle, paused, or awaiting
+      input so the PR loop can wake it for later feedback. finish does NOT prove
+      that the AgentRun's repository outcome is complete and does not require
+      immediate promotion to Succeeded.
+    - Keep a finished-but-wakeable implementer non-terminal while its PR awaits
+      checks, review, fixes, or merge. After you verify the linked PR is merged,
+      call mark_run_succeeded if that implementer has not recorded Succeeded;
+      include the merged PR URL and merge evidence in the reason. Never mark it
+      succeeded merely because it called finish, created a PR, became idle, or
+      had its review approved. A PR closed without merge is not success.
 
     ## After a pull request is created
     - Treat the AgentRun phase, PR review-loop state, and GitHub PR state as
