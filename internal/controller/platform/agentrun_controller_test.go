@@ -633,6 +633,48 @@ func TestReconcileRunCreatesSandboxClaimWithoutLifecycleExpiry(t *testing.T) {
 	}
 }
 
+func TestClaimReadyFailureIgnoresTransientPodUpdateConflict(t *testing.T) {
+	t.Parallel()
+
+	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "run-slack-conflict", Namespace: "default"},
+		Status: agentsandboxextensionsv1alpha1.SandboxClaimStatus{
+			Conditions: []metav1.Condition{{
+				Type:   string(agentsandboxv1alpha1.SandboxConditionReady),
+				Status: metav1.ConditionFalse,
+				Reason: "ReconcilerError",
+				Message: "Error seen: failed to update pod: Operation cannot be fulfilled on pods \"run-slack-conflict\": " +
+					"the object has been modified; please apply your changes to the latest version and try again",
+			}},
+		},
+	}
+
+	if err := claimReadyFailure(claim); err != nil {
+		t.Fatalf("claimReadyFailure() error = %v, want transient conflict ignored", err)
+	}
+}
+
+func TestClaimReadyFailureKeepsPermanentReconcilerError(t *testing.T) {
+	t.Parallel()
+
+	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "run-owned-elsewhere", Namespace: "default"},
+		Status: agentsandboxextensionsv1alpha1.SandboxClaimStatus{
+			Conditions: []metav1.Condition{{
+				Type:    string(agentsandboxv1alpha1.SandboxConditionReady),
+				Status:  metav1.ConditionFalse,
+				Reason:  "ReconcilerError",
+				Message: "Error seen: sandbox is controlled by another claim",
+			}},
+		},
+	}
+
+	err := claimReadyFailure(claim)
+	if err == nil || !strings.Contains(err.Error(), "controlled by another claim") {
+		t.Fatalf("claimReadyFailure() error = %v, want permanent reconciler error", err)
+	}
+}
+
 func TestMonitorAgentSandboxClearsLegacyClaimLifecycle(t *testing.T) {
 	t.Parallel()
 

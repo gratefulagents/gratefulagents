@@ -537,7 +537,20 @@ func claimReadyFailure(claim *extensionsv1alpha1.SandboxClaim) error {
 		return nil
 	}
 	switch ready.Reason {
-	case "TemplateNotFound", "InvalidMetadata", "ReconcilerError":
+	case "TemplateNotFound", "InvalidMetadata":
+		if strings.TrimSpace(ready.Message) != "" {
+			return errors.New(ready.Message)
+		}
+		return fmt.Errorf("sandbox claim %s is not ready: %s", claim.Name, ready.Reason)
+	case "ReconcilerError":
+		// agent-sandbox v0.3 reports all reconciliation failures through this
+		// condition, including optimistic-lock conflicts while it labels a pod.
+		// Those conflicts are retried by its controller and must not terminally
+		// fail the AgentRun in the brief window before the next reconciliation.
+		// Keep surfacing non-conflict reconciler errors, such as ownership errors.
+		if isSandboxResourceVersionConflict(ready.Message) {
+			return nil
+		}
 		if strings.TrimSpace(ready.Message) != "" {
 			return errors.New(ready.Message)
 		}
@@ -545,6 +558,11 @@ func claimReadyFailure(claim *extensionsv1alpha1.SandboxClaim) error {
 	default:
 		return nil
 	}
+}
+
+func isSandboxResourceVersionConflict(message string) bool {
+	message = strings.ToLower(strings.TrimSpace(message))
+	return strings.Contains(message, "the object has been modified; please apply your changes to the latest version and try again")
 }
 
 func sandboxClaimExpired(claim *extensionsv1alpha1.SandboxClaim) bool {
