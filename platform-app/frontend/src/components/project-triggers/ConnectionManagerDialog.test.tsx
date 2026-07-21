@@ -82,8 +82,12 @@ describe("ConnectionManagerDialog", () => {
     const slackCard = cards.find((b) => b.textContent?.includes("Slack") && b.textContent?.includes("Chat with your agents"));
     expect(slackCard).toBeTruthy();
     fireEvent.click(slackCard!);
+    expect(screen.getByRole("button", { name: /Copy Agent view manifest/ })).toBeTruthy();
     expect(screen.getByLabelText("Slack bot token")).toBeTruthy();
     expect(screen.getByLabelText("Slack app token")).toBeTruthy();
+    expect(screen.getByLabelText("Slack user token")).toBeTruthy();
+    expect(screen.getByLabelText("Owner Slack user ID")).toBeTruthy();
+    expect(screen.getByLabelText("Slack team ID")).toBeTruthy();
   });
 
   it("selecting Linear provider shows the guided Linear form", () => {
@@ -197,7 +201,38 @@ describe("ConnectionManagerDialog", () => {
     expect(screen.getByLabelText("GitHub App private key PEM")).toBeTruthy();
   });
 
-  it("submits a Slack connection with both tokens provided", async () => {
+  it("requires owner identity for raw Slack credentials", async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ onCreate });
+
+    fireEvent.click(screen.getByRole("button", { name: /New connection/ }));
+    const slackCard = screen.getAllByRole("button").find(
+      (button) => button.textContent?.includes("Slack") && button.textContent?.includes("Chat with your agents"),
+    );
+    fireEvent.click(slackCard!);
+    fireEvent.change(screen.getByLabelText("Slack bot token"), { target: { value: "xoxb-test" } });
+    fireEvent.change(screen.getByLabelText("Slack app token"), { target: { value: "xapp-test" } });
+    fireEvent.change(screen.getByLabelText("Connection name"), { target: { value: "slack" } });
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/owner Slack user ID/i));
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it("can explicitly remove a stored Slack user token on edit", async () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined);
+    renderDialog({
+      connections: [{ name: "slack", type: "slack", slack: { tokensSecret: "conn-slack-slack", slackUserId: "U0123ABC" } }],
+      onUpdate,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Edit slack" }));
+    fireEvent.click(screen.getByLabelText("Remove stored Slack user token"));
+    fireEvent.submit(document.querySelector("form")!);
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+    expect((onUpdate.mock.calls[0][0] as ProjectConnection).slack?.clearUserToken).toBe(true);
+  });
+
+  it("submits a Slack connection with all identity and token options", async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     renderDialog({ onCreate });
 
@@ -208,6 +243,9 @@ describe("ConnectionManagerDialog", () => {
 
     fireEvent.change(screen.getByLabelText("Slack bot token"), { target: { value: "bot-token-value" } });
     fireEvent.change(screen.getByLabelText("Slack app token"), { target: { value: "app-token-value" } });
+    fireEvent.change(screen.getByLabelText("Slack user token"), { target: { value: "user-token-value" } });
+    fireEvent.change(screen.getByLabelText("Owner Slack user ID"), { target: { value: "U0123ABC" } });
+    fireEvent.change(screen.getByLabelText("Slack team ID"), { target: { value: "T0123ABC" } });
 
     const nameInput = screen.getByLabelText("Connection name");
     fireEvent.change(nameInput, { target: { value: "slack" } });
@@ -222,5 +260,8 @@ describe("ConnectionManagerDialog", () => {
     expect(connection.type).toBe("slack");
     expect(connection.slack?.botToken).toBe("bot-token-value");
     expect(connection.slack?.appToken).toBe("app-token-value");
+    expect(connection.slack?.userToken).toBe("user-token-value");
+    expect(connection.slack?.slackUserId).toBe("U0123ABC");
+    expect(connection.slack?.teamId).toBe("T0123ABC");
   });
 });

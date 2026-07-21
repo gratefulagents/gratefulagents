@@ -60,6 +60,10 @@ type InboundMessage struct {
 	// events are DMs with the bot (a command surface); user-token im events
 	// are the owner's own DMs with other people and are never routed.
 	ViaBotEvent bool
+	// ContextChannelID is the most relevant Slack channel in the app_context
+	// attached to an Agent messaging experience event. It lets requests such as
+	// "summarize this channel" resolve without retaining Slack context data.
+	ContextChannelID string
 	// Files lists any attachments on the message (subtype file_share carries
 	// them); the connector may ingest small text files into the run's context.
 	Files []File
@@ -89,15 +93,22 @@ type Decision struct {
 	MessageTS   string // ts of the triggering message (for reactions)
 	UserID      string
 	Text        string
-	Reason      string // human-readable explanation, useful for logs and tests
-	Files       []File // attachments carried through from the inbound message
+	// ContextChannelID is the channel the user was viewing when they sent the
+	// message, when Slack included Agent view app_context.
+	ContextChannelID string
+	Reason           string // human-readable explanation, useful for logs and tests
+	Files            []File // attachments carried through from the inbound message
 }
 
 // Route classifies an inbound message. It is a pure function: same inputs always
 // produce the same decision, with no I/O.
 func Route(msg InboundMessage, cfg RouterConfig) Decision {
 	threadTS := firstNonEmptyStr(msg.ThreadTS, msg.TS)
-	base := Decision{ChannelType: msg.ChannelType, ChannelID: msg.ChannelID, ThreadTS: threadTS, MessageTS: msg.TS, UserID: msg.UserID, Text: msg.Text, Files: msg.Files}
+	base := Decision{
+		ChannelType: msg.ChannelType, ChannelID: msg.ChannelID, ThreadTS: threadTS,
+		MessageTS: msg.TS, UserID: msg.UserID, Text: msg.Text,
+		ContextChannelID: msg.ContextChannelID, Files: msg.Files,
+	}
 
 	ignore := func(reason string) Decision {
 		d := base

@@ -16,6 +16,7 @@ type dedicatedSlackBackend struct {
 	web         *internalslack.Client
 	botUserID   string
 	ownerUserID string
+	teamID      string
 	// botDMChannelID is the owner<->bot control DM, resolved at startup.
 	botDMChannelID string
 	// orch handles owner commands (create/wake AgentRuns, stream replies). It is
@@ -23,9 +24,12 @@ type dedicatedSlackBackend struct {
 	orch *slackOrchestrator
 }
 
-// allowTeam accepts all teams: a dedicated app is single-workspace by
-// construction (non-distributed), so no pinning is needed.
-func (b *dedicatedSlackBackend) allowTeam(string) bool { return true }
+// allowTeam rejects events and interactions that do not match the workspace
+// authenticated by the bot token. This also fails closed if an app-level token
+// from another Slack app is accidentally combined with the connection.
+func (b *dedicatedSlackBackend) allowTeam(teamID string) bool {
+	return b.teamID != "" && teamID == b.teamID
+}
 
 // routerConfig snapshots the identities the router needs for the current event.
 func (b *dedicatedSlackBackend) routerConfig() internalslack.RouterConfig {

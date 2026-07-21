@@ -41,9 +41,15 @@ type SlackConnectionConfig struct {
 	// tokensSecret is the name of a Secret holding Slack tokens.
 	TokensSecret string `json:"tokensSecret"`
 
-	// teamID is the Slack workspace/team ID.
+	// teamID optionally pins the Slack workspace/team ID expected from auth.test.
 	// +optional
 	TeamID string `json:"teamId,omitempty"`
+
+	// slackUserId is the Slack user ID that owns agents using this connection.
+	// It authorizes direct messages and owner actions. When empty, the connector
+	// can resolve it from the optional user-token in tokensSecret.
+	// +optional
+	SlackUserID string `json:"slackUserId,omitempty"`
 }
 
 // LinearConnectionConfig stores Linear credential references and workspace identity.

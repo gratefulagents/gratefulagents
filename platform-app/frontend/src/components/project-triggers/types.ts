@@ -19,10 +19,15 @@ export interface ProjectConnection {
   slack?: {
     tokensSecret?: string;
     teamId?: string;
+    slackUserId?: string;
     /** Write-only xoxb- bot token. */
     botToken?: string;
     /** Write-only xapp- app token. */
     appToken?: string;
+    /** Write-only optional xoxp- user token for search and owner resolution. */
+    userToken?: string;
+    /** Write-only update control that removes a previously stored user token. */
+    clearUserToken?: boolean;
   };
   linear?: {
     apiKeySecret?: string;

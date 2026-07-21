@@ -24,15 +24,17 @@ import (
 )
 
 const (
-	projectGeneratedRuntimeLabel = "triggers.gratefulagents.dev/generated-runtime"
-	projectNameLabel             = "triggers.gratefulagents.dev/project-name"
-	projectUIDLabel              = "triggers.gratefulagents.dev/project-uid"
-	projectTriggerNameLabel      = "triggers.gratefulagents.dev/project-trigger-name"
-	projectTriggerTypeLabel      = "triggers.gratefulagents.dev/project-trigger-type"
-	projectNameAnnotation        = "triggers.gratefulagents.dev/project-name"
-	projectUIDAnnotation         = "triggers.gratefulagents.dev/project-uid"
-	projectTriggerNameAnnotation = "triggers.gratefulagents.dev/project-trigger-name"
-	projectTriggerTypeAnnotation = "triggers.gratefulagents.dev/project-trigger-type"
+	projectGeneratedRuntimeLabel  = "triggers.gratefulagents.dev/generated-runtime"
+	projectNameLabel              = "triggers.gratefulagents.dev/project-name"
+	projectUIDLabel               = "triggers.gratefulagents.dev/project-uid"
+	projectTriggerNameLabel       = "triggers.gratefulagents.dev/project-trigger-name"
+	projectTriggerTypeLabel       = "triggers.gratefulagents.dev/project-trigger-type"
+	projectNameAnnotation         = "triggers.gratefulagents.dev/project-name"
+	projectUIDAnnotation          = "triggers.gratefulagents.dev/project-uid"
+	projectTriggerNameAnnotation  = "triggers.gratefulagents.dev/project-trigger-name"
+	projectTriggerTypeAnnotation  = "triggers.gratefulagents.dev/project-trigger-type"
+	projectSlackChannelAnnotation = "triggers.gratefulagents.dev/project-trigger-channel"
+	projectSlackTeamIDAnnotation  = "triggers.gratefulagents.dev/project-slack-team-id"
 )
 
 // ProjectReconciler compiles Project trigger declarations into standalone
@@ -111,6 +113,25 @@ func projectTriggerEnabled(trigger triggersv1alpha1.ProjectTrigger) bool {
 	return trigger.Enabled == nil || *trigger.Enabled
 }
 
+func (r *ProjectReconciler) ensureSlackConnectionExclusive(ctx context.Context, owner *triggersv1alpha1.Project, trigger triggersv1alpha1.ProjectTrigger) error {
+	projects := &triggersv1alpha1.ProjectList{}
+	if err := r.List(ctx, projects, client.InNamespace(owner.Namespace)); err != nil {
+		return fmt.Errorf("listing Projects for Slack connection exclusivity: %w", err)
+	}
+	for i := range projects.Items {
+		project := &projects.Items[i]
+		for _, other := range project.Spec.Triggers {
+			if project.Name == owner.Name && other.Name == trigger.Name {
+				continue
+			}
+			if projectTriggerEnabled(other) && other.Type == triggersv1alpha1.ProjectTriggerTypeSlack && other.Slack != nil && other.Slack.ConnectionRef.Name == trigger.Slack.ConnectionRef.Name {
+				return fmt.Errorf("slack connection %q is also used by enabled trigger %s/%s; Socket Mode connections cannot be shared", trigger.Slack.ConnectionRef.Name, project.Name, other.Name)
+			}
+		}
+	}
+	return nil
+}
+
 func (r *ProjectReconciler) compileTrigger(ctx context.Context, project *triggersv1alpha1.Project, trigger triggersv1alpha1.ProjectTrigger) (client.Object, error) {
 	metadata := r.generatedMetadata(project, trigger)
 	defaults := projectDefaults(project)
@@ -157,6 +178,9 @@ func (r *ProjectReconciler) compileTrigger(ctx context.Context, project *trigger
 		if trigger.Slack == nil {
 			return nil, fmt.Errorf("slack configuration is required")
 		}
+		if err := r.ensureSlackConnectionExclusive(ctx, project, trigger); err != nil {
+			return nil, err
+		}
 		connection, err := r.connection(ctx, project.Namespace, trigger.Slack.ConnectionRef.Name, triggersv1alpha1.ConnectionTypeSlack)
 		if err != nil {
 			return nil, err
@@ -168,13 +192,17 @@ func (r *ProjectReconciler) compileTrigger(ctx context.Context, project *trigger
 			ObjectMeta: metadata,
 			Spec: triggersv1alpha1.SlackAgentSpec{
 				TokensSecret:       connection.Spec.Slack.TokensSecret,
+				SlackUserID:        connection.Spec.Slack.SlackUserID,
 				ChannelReplyMode:   trigger.Slack.ChannelReplyMode,
 				Commanders:         append([]string(nil), trigger.Slack.Commanders...),
 				SessionIdleMinutes: trigger.Slack.SessionIdleMinutes,
 				Defaults:           defaults,
 			},
 		}
-		child.Annotations["triggers.gratefulagents.dev/project-trigger-channel"] = trigger.Slack.Channel
+		child.Annotations[projectSlackChannelAnnotation] = trigger.Slack.Channel
+		if teamID := strings.TrimSpace(connection.Spec.Slack.TeamID); teamID != "" {
+			child.Annotations[projectSlackTeamIDAnnotation] = teamID
+		}
 		return child, r.setProjectControllerReference(project, child)
 
 	case triggersv1alpha1.ProjectTriggerTypeCron:

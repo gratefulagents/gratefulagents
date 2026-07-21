@@ -17325,14 +17325,22 @@ func (x *GitHubConnection) GetPrivateKey() string {
 type SlackConnection struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	TokensSecret string                 `protobuf:"bytes,1,opt,name=tokens_secret,json=tokensSecret,proto3" json:"tokens_secret,omitempty"`
-	TeamId       string                 `protobuf:"bytes,2,opt,name=team_id,json=teamId,proto3" json:"team_id,omitempty"`
-	// bot_token (xoxb-) and app_token (xapp-) are write-only raw Slack tokens.
-	// When set the server stores them in a platform-managed Secret and fills
-	// tokens_secret. Never echoed back in responses.
-	BotToken      string `protobuf:"bytes,3,opt,name=bot_token,json=botToken,proto3" json:"bot_token,omitempty"`
-	AppToken      string `protobuf:"bytes,4,opt,name=app_token,json=appToken,proto3" json:"app_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Expected Slack workspace/team ID. The connector rejects credentials for a
+	// different workspace when this is set.
+	TeamId string `protobuf:"bytes,2,opt,name=team_id,json=teamId,proto3" json:"team_id,omitempty"`
+	// Raw credentials are write-only. When set the server stores them in a
+	// platform-managed Secret and fills tokens_secret. Never echoed in responses.
+	BotToken  string `protobuf:"bytes,3,opt,name=bot_token,json=botToken,proto3" json:"bot_token,omitempty"`    // xoxb-, required with app_token for a new connection
+	AppToken  string `protobuf:"bytes,4,opt,name=app_token,json=appToken,proto3" json:"app_token,omitempty"`    // xapp-, required for Socket Mode
+	UserToken string `protobuf:"bytes,5,opt,name=user_token,json=userToken,proto3" json:"user_token,omitempty"` // optional xoxp-, enables search and owner resolution
+	// Owner Slack user ID. Authorizes DMs and owner-only actions. May be omitted
+	// when tokens_secret contains a user-token that resolves the same identity.
+	SlackUserId string `protobuf:"bytes,6,opt,name=slack_user_id,json=slackUserId,proto3" json:"slack_user_id,omitempty"`
+	// Write-only update control. Removes user-token from the stored credentials.
+	// Cannot be combined with user_token.
+	ClearUserToken bool `protobuf:"varint,7,opt,name=clear_user_token,json=clearUserToken,proto3" json:"clear_user_token,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SlackConnection) Reset() {
@@ -17391,6 +17399,27 @@ func (x *SlackConnection) GetAppToken() string {
 		return x.AppToken
 	}
 	return ""
+}
+
+func (x *SlackConnection) GetUserToken() string {
+	if x != nil {
+		return x.UserToken
+	}
+	return ""
+}
+
+func (x *SlackConnection) GetSlackUserId() string {
+	if x != nil {
+		return x.SlackUserId
+	}
+	return ""
+}
+
+func (x *SlackConnection) GetClearUserToken() bool {
+	if x != nil {
+		return x.ClearUserToken
+	}
+	return false
 }
 
 type LinearConnection struct {
@@ -27162,12 +27191,16 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x12private_key_secret\x18\x04 \x01(\tR\x10privateKeySecret\x12\x14\n" +
 	"\x05token\x18\x05 \x01(\tR\x05token\x12\x1f\n" +
 	"\vprivate_key\x18\x06 \x01(\tR\n" +
-	"privateKey\"\x89\x01\n" +
+	"privateKey\"\xf6\x01\n" +
 	"\x0fSlackConnection\x12#\n" +
 	"\rtokens_secret\x18\x01 \x01(\tR\ftokensSecret\x12\x17\n" +
 	"\ateam_id\x18\x02 \x01(\tR\x06teamId\x12\x1b\n" +
 	"\tbot_token\x18\x03 \x01(\tR\bbotToken\x12\x1b\n" +
-	"\tapp_token\x18\x04 \x01(\tR\bappToken\"t\n" +
+	"\tapp_token\x18\x04 \x01(\tR\bappToken\x12\x1d\n" +
+	"\n" +
+	"user_token\x18\x05 \x01(\tR\tuserToken\x12\"\n" +
+	"\rslack_user_id\x18\x06 \x01(\tR\vslackUserId\x12(\n" +
+	"\x10clear_user_token\x18\a \x01(\bR\x0eclearUserToken\"t\n" +
 	"\x10LinearConnection\x12$\n" +
 	"\x0eapi_key_secret\x18\x01 \x01(\tR\fapiKeySecret\x12!\n" +
 	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\x12\x17\n" +

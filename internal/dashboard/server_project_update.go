@@ -178,7 +178,7 @@ func (s *Server) patchProjectWithRetry(ctx context.Context, namespace, name stri
 		if err := s.k8sClient.Get(ctx, key, fresh); err != nil {
 			return err
 		}
-		patch := client.MergeFrom(fresh.DeepCopy())
+		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
 		if err := mutate(fresh); err != nil {
 			return err
 		}

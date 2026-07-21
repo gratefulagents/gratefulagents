@@ -208,6 +208,17 @@ func TestRouteCarriesChannelType(t *testing.T) {
 	}
 }
 
+func TestRouteCarriesAgentViewContext(t *testing.T) {
+	cfg := RouterConfig{OwnerUserID: "UOWNER", BotUserID: "UBOT", BotDMChannelID: "DBOTDM"}
+	d := Route(InboundMessage{
+		ChannelType: "im", ChannelID: "DBOTDM", UserID: "UOWNER", Text: "summarize this channel", TS: "1.1",
+		ContextChannelID: "CVIEWED",
+	}, cfg)
+	if d.ContextChannelID != "CVIEWED" {
+		t.Fatalf("Decision.ContextChannelID = %q, want CVIEWED", d.ContextChannelID)
+	}
+}
+
 // Owner-unknown DM declines must carry ReasonOwnerUnknown so the dispatcher
 // logs the setup problem instead of the generic decline.
 func TestRouteDeclineReasonOwnerUnknown(t *testing.T) {

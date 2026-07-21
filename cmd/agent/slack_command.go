@@ -431,11 +431,16 @@ func isPublicSurface(channelType string) bool {
 }
 
 // commandTurnText assembles the text for this turn: the owner's message plus,
-// when known, the channel they are viewing in the assistant pane and the
-// contents of small text attachments.
+// when known, the channel they are viewing and the contents of small text
+// attachments. Agent view supplies point-in-time app_context on the message;
+// the stored assistant-thread context is a compatibility fallback.
 func (o *slackOrchestrator) commandTurnText(ctx context.Context, d internalslack.Decision) string {
 	text := d.Text
-	if viewed := o.assistantContext(d.ChannelID, d.ThreadTS); viewed != "" {
+	viewed := d.ContextChannelID
+	if viewed == "" {
+		viewed = o.assistantContext(d.ChannelID, d.ThreadTS)
+	}
+	if viewed != "" {
 		text += "\n\n(Context: the user is currently viewing Slack channel <#" + viewed + ">. " +
 			"Requests like \"this channel\" refer to it.)"
 	}
