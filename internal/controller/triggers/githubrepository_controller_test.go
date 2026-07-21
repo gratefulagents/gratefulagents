@@ -98,6 +98,15 @@ func TestListOpenGitHubIssuesReportsPaginationCapIncomplete(t *testing.T) {
 	if complete || len(issues) != maxGitHubIssues {
 		t.Fatalf("complete=%t len(issues)=%d, want false and %d", complete, len(issues), maxGitHubIssues)
 	}
+
+	completeLister := &fakeGitHubIssueLister{pages: []githubIssuePage{{issues: batch}}}
+	issues, complete, err = listOpenGitHubIssues(context.Background(), completeLister, maintainerWorkItemTestOwner, maintainerWorkItemTestRepo, logr.Discard())
+	if err != nil {
+		t.Fatalf("listOpenGitHubIssues() exact-cap error = %v", err)
+	}
+	if !complete || len(issues) != maxGitHubIssues {
+		t.Fatalf("exact-cap complete=%t len(issues)=%d, want true and %d", complete, len(issues), maxGitHubIssues)
+	}
 }
 
 func TestGitHubRepositoryPollSkipsProcessedIssueWithoutLiveRun(t *testing.T) {
