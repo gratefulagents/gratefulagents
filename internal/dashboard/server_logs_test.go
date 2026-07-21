@@ -19,6 +19,11 @@ import (
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
 
+const (
+	logsTestNamespace = "default"
+	completedRunName  = "completed"
+)
+
 func TestTrimAgentRunLogTail(t *testing.T) {
 	got, truncated := trimAgentRunLogTail("one\ntwo\nthree\n", 2)
 	if got != "two\nthree\n" {
@@ -44,13 +49,22 @@ func TestReadBoundedLogSuffixKeepsNewestCompleteLines(t *testing.T) {
 	}
 }
 
-func TestIsWorkerContainerWaiting(t *testing.T) {
+func TestIsWorkerContainerReadyForLogs(t *testing.T) {
+	if isWorkerContainerReadyForLogs(&corev1.Pod{}) {
+		t.Fatal("isWorkerContainerReadyForLogs() = true without a worker status")
+	}
+
 	pod := &corev1.Pod{Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
-		Name:  "worker",
+		Name:  agentRunWorkerContainerName,
 		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}},
 	}}}}
-	if !isWorkerContainerWaiting(pod) {
-		t.Fatal("isWorkerContainerWaiting() = false, want true")
+	if isWorkerContainerReadyForLogs(pod) {
+		t.Fatal("isWorkerContainerReadyForLogs() = true for a waiting worker")
+	}
+
+	pod.Status.ContainerStatuses[0].State = corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}
+	if !isWorkerContainerReadyForLogs(pod) {
+		t.Fatal("isWorkerContainerReadyForLogs() = false for a running worker")
 	}
 }
 
@@ -60,7 +74,7 @@ func TestGetAgentRunLogsReturnsBoundedOwnedWorkerOutput(t *testing.T) {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "active", Namespace: "default", UID: "run-uid"},
+		ObjectMeta: metav1.ObjectMeta{Name: "active", Namespace: logsTestNamespace, UID: "run-uid"},
 		Status: platformv1alpha1.AgentRunStatus{
 			Phase: platformv1alpha1.AgentRunPhaseRunning,
 			Sandbox: &platformv1alpha1.AgentRunSandboxStatus{
@@ -71,18 +85,21 @@ func TestGetAgentRunLogsReturnsBoundedOwnedWorkerOutput(t *testing.T) {
 	pod := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "active-worker", Namespace: "default",
+			Name: "active-worker", Namespace: logsTestNamespace,
 			Labels: map[string]string{
 				"platform.gratefulagents.dev/owner-run":     run.Name,
 				"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
 			},
 		},
-		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "worker"}}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: agentRunWorkerContainerName}}},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+			Name: agentRunWorkerContainerName, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		}}},
 	}
 
 	api := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if strings.HasSuffix(request.URL.Path, "/log") {
-			if request.URL.Query().Get("container") != "worker" || request.URL.Query().Get("tailLines") != "3" {
+			if request.URL.Query().Get("container") != agentRunWorkerContainerName || request.URL.Query().Get("tailLines") != "3" {
 				t.Errorf("unexpected log query: %s", request.URL.RawQuery)
 			}
 			_, _ = response.Write([]byte("first\nsecond\nthird\n"))
@@ -125,7 +142,7 @@ func TestGetAgentRunLogsReportsUnavailableWithoutWorkerPod(t *testing.T) {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "completed", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: completedRunName, Namespace: logsTestNamespace},
 		Status: platformv1alpha1.AgentRunStatus{
 			Phase: platformv1alpha1.AgentRunPhaseSucceeded,
 		},

@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	agentRunWorkerContainerName = "worker"
 	defaultAgentRunLogTailLines = int32(2000)
 	maxAgentRunLogTailLines     = int32(5000)
 	maxAgentRunLogBytes         = int64(2 * 1024 * 1024)
@@ -63,7 +64,7 @@ func (s *Server) GetAgentRunLogs(ctx context.Context, req *platform.GetAgentRunL
 	if tailLines > maxAgentRunLogTailLines {
 		tailLines = maxAgentRunLogTailLines
 	}
-	if isWorkerContainerWaiting(pod) {
+	if !isWorkerContainerReadyForLogs(pod) {
 		return out, nil
 	}
 
@@ -74,7 +75,7 @@ func (s *Server) GetAgentRunLogs(ctx context.Context, req *platform.GetAgentRunL
 	// output that a tail viewer must preserve.
 	requestedLines := int64(tailLines) + 1
 	stream, err := s.clientset.CoreV1().Pods(run.Namespace).GetLogs(podName, &corev1.PodLogOptions{
-		Container:  "worker",
+		Container:  agentRunWorkerContainerName,
 		TailLines:  &requestedLines,
 		Timestamps: true,
 	}).Stream(ctx)
@@ -84,7 +85,7 @@ func (s *Server) GetAgentRunLogs(ctx context.Context, req *platform.GetAgentRunL
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("reading worker logs: %w", err))
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	content, byteTruncated, err := readBoundedLogSuffix(stream, int(maxAgentRunLogBytes))
 	if err != nil {
@@ -96,12 +97,15 @@ func (s *Server) GetAgentRunLogs(ctx context.Context, req *platform.GetAgentRunL
 	return out, nil
 }
 
-func isWorkerContainerWaiting(pod *corev1.Pod) bool {
+func isWorkerContainerReadyForLogs(pod *corev1.Pod) bool {
 	for _, status := range pod.Status.ContainerStatuses {
-		if status.Name == "worker" {
-			return status.State.Waiting != nil
+		if status.Name == agentRunWorkerContainerName {
+			return status.State.Waiting == nil
 		}
 	}
+	// A newly created pod may not have container statuses yet. Treat that as
+	// temporarily unavailable so the UI keeps polling instead of receiving a
+	// PodInitializing error and stopping its automatic refresh loop.
 	return false
 }
 
