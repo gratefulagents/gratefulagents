@@ -86,8 +86,15 @@ spec:
                 description: SlackConnectionConfig stores Slack credential references
                   and workspace identity.
                 properties:
+                  slackUserId:
+                    description: |-
+                      slackUserId is the Slack user ID that owns agents using this connection.
+                      It authorizes direct messages and owner actions. When empty, the connector
+                      can resolve it from the optional user-token in tokensSecret.
+                    type: string
                   teamId:
-                    description: teamID is the Slack workspace/team ID.
+                    description: teamID optionally pins the Slack workspace/team ID
+                      expected from auth.test.
                     type: string
                   tokensSecret:
                     description: tokensSecret is the name of a Secret holding Slack

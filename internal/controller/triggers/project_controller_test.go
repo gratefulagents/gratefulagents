@@ -28,8 +28,12 @@ func TestProjectReconcilerCompilesTriggers(t *testing.T) {
 	slackConnection := &triggersv1alpha1.Connection{
 		ObjectMeta: metav1.ObjectMeta{Name: "slack", Namespace: project.Namespace},
 		Spec: triggersv1alpha1.ConnectionSpec{
-			Type:  triggersv1alpha1.ConnectionTypeSlack,
-			Slack: &triggersv1alpha1.SlackConnectionConfig{TokensSecret: "slack-tokens"},
+			Type: triggersv1alpha1.ConnectionTypeSlack,
+			Slack: &triggersv1alpha1.SlackConnectionConfig{
+				TokensSecret: "slack-tokens",
+				TeamID:       "T123",
+				SlackUserID:  "UOWNER1",
+			},
 		},
 	}
 	linearConnection := &triggersv1alpha1.Connection{
@@ -68,8 +72,11 @@ func TestProjectReconcilerCompilesTriggers(t *testing.T) {
 	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: project.Namespace, Name: projectGeneratedChildName(project.Name, "team-chat")}, slack); err != nil {
 		t.Fatalf("Get(SlackAgent) error = %v", err)
 	}
-	if slack.Spec.TokensSecret != "slack-tokens" || slack.Annotations["triggers.gratefulagents.dev/project-trigger-channel"] != "C123" {
-		t.Fatalf("SlackAgent spec/annotations = %#v/%#v", slack.Spec, slack.Annotations)
+	if slack.Spec.TokensSecret != "slack-tokens" || slack.Spec.SlackUserID != "UOWNER1" || slack.Annotations[projectSlackChannelAnnotation] != "C123" || slack.Annotations[projectSlackTeamIDAnnotation] != "T123" {
+		t.Fatalf("SlackAgent identity/annotations = %#v/%#v", slack.Spec, slack.Annotations)
+	}
+	if slack.Spec.ChannelReplyMode != triggersv1alpha1.SlackChannelReplyAuto || len(slack.Spec.Commanders) != 1 || slack.Spec.Commanders[0] != "UHELPER1" || slack.Spec.SessionIdleMinutes == nil || *slack.Spec.SessionIdleMinutes != 90 {
+		t.Fatalf("SlackAgent behavior = %#v", slack.Spec)
 	}
 
 	cron := &triggersv1alpha1.Cron{}
@@ -183,6 +190,7 @@ func projectTestScheme(t *testing.T) *runtime.Scheme {
 }
 
 func projectWithTriggers() *triggersv1alpha1.Project {
+	idle := int32(90)
 	return &triggersv1alpha1.Project{
 		ObjectMeta: metav1.ObjectMeta{Name: "Payments Service", Namespace: "default", UID: types.UID("project-uid")},
 		Spec: triggersv1alpha1.ProjectSpec{
@@ -190,7 +198,7 @@ func projectWithTriggers() *triggersv1alpha1.Project {
 			Defaults:        triggersv1alpha1.AgentRunDefaults{Model: "gpt-4.1"},
 			Triggers: []triggersv1alpha1.ProjectTrigger{
 				{Name: "issues", Type: triggersv1alpha1.ProjectTriggerTypeGitHub, GitHub: &triggersv1alpha1.GitHubProjectTriggerConfig{ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "github"}, Owner: "acme", Repo: "widgets", Issues: true, Comments: true}},
-				{Name: "team-chat", Type: triggersv1alpha1.ProjectTriggerTypeSlack, Slack: &triggersv1alpha1.SlackProjectTriggerConfig{ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "slack"}, Channel: "C123"}},
+				{Name: "team-chat", Type: triggersv1alpha1.ProjectTriggerTypeSlack, Slack: &triggersv1alpha1.SlackProjectTriggerConfig{ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "slack"}, Channel: "C123", ChannelReplyMode: triggersv1alpha1.SlackChannelReplyAuto, Commanders: []string{"UHELPER1"}, SessionIdleMinutes: &idle}},
 				{Name: "nightly", Type: triggersv1alpha1.ProjectTriggerTypeCron, Cron: &triggersv1alpha1.CronProjectTriggerConfig{Schedule: "0 2 * * *", Prompt: "Review the queue"}},
 				{Name: "linear", Type: triggersv1alpha1.ProjectTriggerTypeLinear, Linear: &triggersv1alpha1.LinearProjectTriggerConfig{ConnectionRef: triggersv1alpha1.ConnectionRef{Name: "linear"}, ProjectID: "project-1", TeamID: "team-1", AutoCreate: true}},
 			},

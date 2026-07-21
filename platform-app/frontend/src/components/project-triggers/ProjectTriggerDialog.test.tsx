@@ -106,12 +106,15 @@ describe("ProjectTriggerDialog", () => {
     expect(onManageConnections).toHaveBeenCalledTimes(1);
   });
 
-  it("selecting Slack type shows channel input", () => {
+  it("selecting Slack type shows all trigger behavior fields", () => {
     renderDialog({ connections: [SLACK_CONNECTION] });
     const buttons = screen.getAllByRole("button");
     const slackCard = buttons.find((b) => b.textContent?.includes("Slack") && b.textContent?.includes("channel"));
     fireEvent.click(slackCard!);
-    expect(screen.getByLabelText("Slack channel")).toBeTruthy();
+    expect(screen.getByLabelText("Slack conversation ID")).toBeTruthy();
+    expect(screen.getByLabelText("Allowed Slack commanders")).toBeTruthy();
+    expect(screen.getByLabelText("Slack channel reply mode")).toBeTruthy();
+    expect(screen.getByLabelText("Slack conversation memory minutes")).toBeTruthy();
   });
 
   it("selecting cron type shows preset chips that fill the schedule input", () => {
@@ -259,6 +262,78 @@ describe("ProjectTriggerDialog", () => {
     expect(saved.github?.owner).toBe("acme");
     expect(saved.github?.repo).toBe("payments");
     expect(saved.github?.issues).toBe(true);
+  });
+
+  it("creates a Slack trigger with authorization, reply, and memory settings", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ connections: [SLACK_CONNECTION], onSave });
+
+    const slackCard = screen.getAllByRole("button").find(
+      (button) => button.textContent?.includes("Slack") && button.textContent?.includes("channel"),
+    );
+    fireEvent.click(slackCard!);
+    fireEvent.click(screen.getByText("my-slack"));
+    fireEvent.change(screen.getByLabelText("Slack conversation ID"), { target: { value: "C0123ABC" } });
+    fireEvent.change(screen.getByLabelText("Allowed Slack commanders"), {
+      target: { value: "U01OWNER, U02HELPER, U02HELPER" },
+    });
+    fireEvent.click(screen.getByText("Post directly"));
+    fireEvent.change(screen.getByLabelText("Slack conversation memory minutes"), {
+      target: { value: "90" },
+    });
+    fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "team-chat" } });
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0][0] as ProjectTrigger;
+    expect(saved.slack).toEqual({
+      connectionRef: "my-slack",
+      channel: "C0123ABC",
+      channelReplyMode: "auto",
+      commanders: ["U01OWNER", "U02HELPER"],
+      sessionIdleMinutes: 90,
+    });
+  });
+
+  it("preserves existing Slack behavior fields while editing", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const trigger: ProjectTrigger = {
+      name: "team-chat",
+      type: "slack",
+      slack: {
+        connectionRef: "my-slack",
+        channel: "C0123ABC",
+        channelReplyMode: "auto",
+        commanders: ["U02HELPER"],
+        sessionIdleMinutes: 240,
+      },
+    };
+    renderDialog({ trigger, connections: [SLACK_CONNECTION], onSave });
+
+    expect((screen.getByLabelText("Slack conversation ID") as HTMLInputElement).value).toBe("C0123ABC");
+    expect((screen.getByLabelText("Allowed Slack commanders") as HTMLInputElement).value).toBe("U02HELPER");
+    expect((screen.getByLabelText("Slack conversation memory minutes") as HTMLInputElement).value).toBe("240");
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect((onSave.mock.calls[0][0] as ProjectTrigger).slack).toEqual(trigger.slack);
+  });
+
+  it("rejects a Slack channel name because runtime filtering requires a stable ID", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ connections: [SLACK_CONNECTION], onSave });
+
+    const slackCard = screen.getAllByRole("button").find(
+      (button) => button.textContent?.includes("Slack") && button.textContent?.includes("channel"),
+    );
+    fireEvent.click(slackCard!);
+    fireEvent.click(screen.getByText("my-slack"));
+    fireEvent.change(screen.getByLabelText("Slack conversation ID"), { target: { value: "#engineering" } });
+    fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "team-chat" } });
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/conversation ID/i));
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("Linear type shows empty state with onManageConnections when no Linear connection exists", () => {

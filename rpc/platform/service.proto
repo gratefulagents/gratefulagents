@@ -2445,12 +2445,20 @@ message GitHubConnection {
 
 message SlackConnection {
   string tokens_secret = 1;
+  // Expected Slack workspace/team ID. The connector rejects credentials for a
+  // different workspace when this is set.
   string team_id = 2;
-  // bot_token (xoxb-) and app_token (xapp-) are write-only raw Slack tokens.
-  // When set the server stores them in a platform-managed Secret and fills
-  // tokens_secret. Never echoed back in responses.
-  string bot_token = 3;
-  string app_token = 4;
+  // Raw credentials are write-only. When set the server stores them in a
+  // platform-managed Secret and fills tokens_secret. Never echoed in responses.
+  string bot_token = 3;  // xoxb-, required with app_token for a new connection
+  string app_token = 4;  // xapp-, required for Socket Mode
+  string user_token = 5; // optional xoxp-, enables search and owner resolution
+  // Owner Slack user ID. Authorizes DMs and owner-only actions. May be omitted
+  // when tokens_secret contains a user-token that resolves the same identity.
+  string slack_user_id = 6;
+  // Write-only update control. Removes user-token from the stored credentials.
+  // Cannot be combined with user_token.
+  bool clear_user_token = 7;
 }
 
 message LinearConnection {

@@ -4,7 +4,7 @@
  *
  * Create the app from the output at https://api.slack.com/apps → Create New App
  * → From a manifest. It sets every scope, event, and feature the connector uses
- * (Socket Mode, the assistant pane, the App Home tab, Block Kit interactivity).
+ * (Socket Mode, the agent Messages tab, the App Home tab, Block Kit interactivity).
  */
 export function buildSlackManifest(appName: string): string {
   const name = ((appName || "").trim() || "My Agent").slice(0, 35);
@@ -19,9 +19,15 @@ features:
   bot_user:
     display_name: ${quoted}
     always_online: true
-  assistant_view:
-    assistant_description: DM me a task, or @mention me in a channel.
-    suggested_prompts: []
+  agent_view:
+    agent_description: DM me a task, or @mention me in a channel.
+    suggested_prompts:
+      - title: What needs my attention?
+        message: What in my Slack needs my attention right now?
+      - title: Draft a reply
+        message: Help me draft a reply to my most recent DM.
+      - title: Summarize a channel
+        message: Summarize the recent activity in the channel I'm viewing.
   app_home:
     home_tab_enabled: true
     messages_tab_enabled: true
@@ -32,17 +38,28 @@ oauth_config:
     bot:
       - app_mentions:read
       - assistant:write
+      - channels:history
+      - channels:read
       - chat:write
+      - files:read
+      - groups:history
+      - groups:read
       - im:history
+      - im:read
       - im:write
+      - mpim:history
+      - mpim:read
       - reactions:write
+      - users:read
+    user:
+      - search:read
 
 settings:
   event_subscriptions:
     bot_events:
       - app_mention
+      - app_context_changed
       - app_home_opened
-      - assistant_thread_started
       - message.im
   interactivity:
     is_enabled: true

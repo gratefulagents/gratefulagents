@@ -181,10 +181,12 @@ func TestSlackAgentReconcileSuspendScalesToZero(t *testing.T) {
 	}
 }
 
-func TestSlackAgentConnectorEnvCarriesCommanders(t *testing.T) {
+func TestSlackAgentConnectorEnvCarriesProjectRoutingAndAuthorization(t *testing.T) {
 	scheme := slackAgentTestScheme(t)
 	cr := slackAgentTestCR()
 	cr.Spec.Commanders = []string{"U1", "U2"}
+	cr.Spec.SlackUserID = "UOWNER1"
+	cr.Annotations = map[string]string{projectSlackTeamIDAnnotation: "T123"}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&triggersv1alpha1.SlackAgent{}).
@@ -206,5 +208,11 @@ func TestSlackAgentConnectorEnvCarriesCommanders(t *testing.T) {
 	}
 	if got := env["SLACK_COMMANDERS"]; got != "U1,U2" {
 		t.Errorf("SLACK_COMMANDERS = %q, want U1,U2", got)
+	}
+	if got := env["SLACK_USER_ID"]; got != "UOWNER1" {
+		t.Errorf("SLACK_USER_ID = %q, want UOWNER1", got)
+	}
+	if got := env["SLACK_TEAM_ID"]; got != "T123" {
+		t.Errorf("SLACK_TEAM_ID = %q, want T123", got)
 	}
 }

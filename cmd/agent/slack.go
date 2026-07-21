@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -31,6 +32,7 @@ type slackConnectorConfig struct {
 	AppToken    string
 	HealthAddr  string
 	SlackUserID string
+	TeamID      string
 	Commanders  []string
 	SessionIdle time.Duration
 	BatchWindow time.Duration
@@ -46,6 +48,20 @@ const defaultSlackSessionIdle = 12 * time.Hour
 // "and in usa") is handled as one turn with one reply instead of racing.
 const defaultSlackBatchWindow = 4 * time.Second
 
+// slackAppContextChangedEvent bridges the Agent messaging experience event
+// until slack-go exposes a typed equivalent. Registering it keeps Socket Mode
+// from rejecting the otherwise unknown event before the connector can ACK it.
+type slackAppContextChangedEvent struct {
+	Type string `json:"type"`
+}
+
+func init() {
+	eventType := slackevents.EventsAPIType("app_context_changed")
+	if _, supported := slackevents.EventsAPIInnerEventMapping[eventType]; !supported {
+		slackevents.EventsAPIInnerEventMapping[eventType] = slackAppContextChangedEvent{}
+	}
+}
+
 func loadSlackConnectorConfig() (slackConnectorConfig, error) {
 	cfg := slackConnectorConfig{
 		AgentName:   strings.TrimSpace(os.Getenv("SLACK_AGENT_NAME")),
@@ -54,6 +70,7 @@ func loadSlackConnectorConfig() (slackConnectorConfig, error) {
 		UserToken:   strings.TrimSpace(os.Getenv("SLACK_USER_TOKEN")),
 		AppToken:    strings.TrimSpace(os.Getenv("SLACK_APP_TOKEN")),
 		SlackUserID: strings.TrimSpace(os.Getenv("SLACK_USER_ID")),
+		TeamID:      strings.TrimSpace(os.Getenv("SLACK_TEAM_ID")),
 		HealthAddr:  strings.TrimSpace(os.Getenv("SLACK_HEALTH_ADDR")),
 		Commanders:  slackEnvList("SLACK_COMMANDERS"),
 		SessionIdle: slackSessionIdle("SLACK_SESSION_IDLE_MINUTES"),
@@ -138,25 +155,36 @@ func runSlack() error {
 		log.Printf("ERROR: validating bot token: %v", err)
 		return err
 	}
+	if botIdentity.TeamID == "" {
+		return fmt.Errorf("slack bot auth.test returned no team ID")
+	}
+	if cfg.TeamID != "" && botIdentity.TeamID != cfg.TeamID {
+		return fmt.Errorf("slack connector is pinned to team %s but bot token belongs to team %s", cfg.TeamID, botIdentity.TeamID)
+	}
 	log.Printf("slack connector %s/%s authenticated as bot user=%s team=%s",
 		cfg.Namespace, cfg.AgentName, botIdentity.UserID, botIdentity.TeamID)
 
 	backend := &dedicatedSlackBackend{
-		cfg: cfg, web: webClient, botUserID: botIdentity.UserID, ownerUserID: cfg.SlackUserID,
+		cfg: cfg, web: webClient, botUserID: botIdentity.UserID,
+		ownerUserID: cfg.SlackUserID, teamID: botIdentity.TeamID,
 	}
 
-	// A user token is optional (it powers the slack_search tool); when present
-	// it also resolves the owner's Slack user ID if spec.slackUserId is unset,
-	// so owner gating works out of the box.
+	// A user token is optional (it powers slack_search and owner resolution).
+	// When supplied it must identify the same workspace and, when explicitly
+	// configured, the same owner; mixed credentials fail closed at startup.
 	if webClient.HasUser() {
-		if userIdentity, uerr := webClient.AuthTestUser(ctx); uerr != nil {
-			log.Printf("WARN: user token present but auth.test failed: %v", uerr)
-		} else {
-			if backend.ownerUserID == "" {
-				backend.ownerUserID = userIdentity.UserID
-			}
-			log.Printf("slack connector owner user=%s", backend.ownerUserID)
+		userIdentity, uerr := webClient.AuthTestUser(ctx)
+		if uerr != nil {
+			return fmt.Errorf("validating slack user token: %w", uerr)
 		}
+		if userIdentity.TeamID != backend.teamID {
+			return fmt.Errorf("slack bot token belongs to team %s but user token belongs to team %s", backend.teamID, userIdentity.TeamID)
+		}
+		if backend.ownerUserID != "" && userIdentity.UserID != backend.ownerUserID {
+			return fmt.Errorf("slack user token belongs to %s but configured owner is %s", userIdentity.UserID, backend.ownerUserID)
+		}
+		backend.ownerUserID = userIdentity.UserID
+		log.Printf("slack connector owner user=%s", backend.ownerUserID)
 	}
 
 	// Resolve the owner<->bot control DM so the router can tell owner commands
@@ -382,9 +410,9 @@ func (c *slackConnector) handleInteractive(ctx context.Context, evt socketmode.E
 	c.backend.handleInteraction(ctx, callback)
 }
 
-// handleEventsAPI decodes a Slack Events API envelope and dispatches it: the
-// assistant pane lifecycle (assistant_thread_started) gets a greeting + prompts;
-// message/app_mention events are routed and handled.
+// handleEventsAPI decodes a Slack Events API envelope and dispatches it. Agent
+// view apps use app_home_opened plus message.im/app_context_changed; legacy
+// assistant lifecycle events remain supported while existing apps migrate.
 func (c *slackConnector) handleEventsAPI(ctx context.Context, evt socketmode.Event) {
 	apiEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 	if !ok {
@@ -406,9 +434,18 @@ func (c *slackConnector) handleEventsAPI(ctx context.Context, evt socketmode.Eve
 		c.backend.handleAssistantContextChanged(inner.AssistantThread)
 		return
 	case *slackevents.AppHomeOpenedEvent:
-		if inner.Tab == "home" {
+		switch inner.Tab {
+		case "home":
 			c.backend.handleAppHome(ctx, inner.User)
+		case "messages":
+			// This is the Agent view signal that the user opened the app DM.
+			// Suggested prompts are pinned globally by the app manifest, so no
+			// per-open Web API call or repetitive greeting is needed.
 		}
+		return
+	case *slackAppContextChangedEvent:
+		// Subscribing enables app_context on message.im events. We consume that
+		// point-in-time context below instead of retaining these ambient updates.
 		return
 	}
 	msg, ok := inboundFromInnerEvent(apiEvent.InnerEvent.Data)
@@ -422,10 +459,13 @@ func (c *slackConnector) handleEventsAPI(ctx context.Context, evt socketmode.Eve
 	if evt.Request != nil {
 		msg.ViaBotEvent = slackEventViaBot(evt.Request.Payload)
 	}
-	if len(msg.Files) == 0 && evt.Request != nil {
-		// slack-go's MessageEvent drops the files array (only app_mention carries
-		// it), so re-parse the raw envelope for attachments.
-		msg.Files = slackEventFiles(evt.Request.Payload)
+	if evt.Request != nil {
+		msg.ContextChannelID = slackEventContextChannel(evt.Request.Payload)
+		if len(msg.Files) == 0 {
+			// slack-go's MessageEvent drops the files array (only app_mention carries
+			// it), so re-parse the raw envelope for attachments.
+			msg.Files = slackEventFiles(evt.Request.Payload)
+		}
 	}
 	c.backend.handleMessage(ctx, msg)
 }
@@ -500,6 +540,46 @@ func slackEventFiles(payload json.RawMessage) []internalslack.File {
 		return nil
 	}
 	return filesFromSlack(envelope.Event.Files)
+}
+
+// slackEventContextChannel returns the most relevant channel from the
+// app_context attached to an Agent view message. Slack orders entities by
+// relevance and may represent a channel either directly or through a message
+// context. Other entity types are intentionally ignored.
+func slackEventContextChannel(payload json.RawMessage) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	var envelope struct {
+		Event struct {
+			AppContext struct {
+				Entities []struct {
+					Type  string          `json:"type"`
+					Value json.RawMessage `json:"value"`
+				} `json:"entities"`
+			} `json:"app_context"`
+		} `json:"event"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return ""
+	}
+	for _, entity := range envelope.Event.AppContext.Entities {
+		switch entity.Type {
+		case "slack#/types/channel_id":
+			var channelID string
+			if json.Unmarshal(entity.Value, &channelID) == nil && channelID != "" {
+				return channelID
+			}
+		case "slack#/types/message_context":
+			var message struct {
+				ChannelID string `json:"channel_id"`
+			}
+			if json.Unmarshal(entity.Value, &message) == nil && message.ChannelID != "" {
+				return message.ChannelID
+			}
+		}
+	}
+	return ""
 }
 
 // filesFromSlack converts slack-go file records to the transport-agnostic view.

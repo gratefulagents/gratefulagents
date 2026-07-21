@@ -289,6 +289,9 @@ func (r *SlackAgentReconciler) connectorPodSpec(agent *triggersv1alpha1.SlackAge
 	if uid := strings.TrimSpace(agent.Spec.SlackUserID); uid != "" {
 		env = append(env, corev1.EnvVar{Name: "SLACK_USER_ID", Value: uid})
 	}
+	if teamID := strings.TrimSpace(agent.Annotations[projectSlackTeamIDAnnotation]); teamID != "" {
+		env = append(env, corev1.EnvVar{Name: "SLACK_TEAM_ID", Value: teamID})
+	}
 	if commanders := strings.Join(agent.Spec.Commanders, ","); commanders != "" {
 		env = append(env, corev1.EnvVar{Name: "SLACK_COMMANDERS", Value: commanders})
 	}

@@ -77,17 +77,23 @@ func TestConnectionRawCredentialMaterialization(t *testing.T) {
 	if _, err := server.CreateConnection(ctx, &platform.CreateConnectionRequest{Namespace: "team", Name: "sl", Connection: &platform.Connection{Type: "slack", Slack: &platform.SlackConnection{BotToken: "xoxb-fixture-1"}}}); err == nil {
 		t.Fatal("slack create with only a bot token succeeded")
 	}
-	slack, err := server.CreateConnection(ctx, &platform.CreateConnectionRequest{Namespace: "team", Name: "sl", Connection: &platform.Connection{Type: "slack", Slack: &platform.SlackConnection{BotToken: "xoxb-fixture-1", AppToken: "xapp-fixture-1", TeamId: "T123"}}})
+	if _, err := server.CreateConnection(ctx, &platform.CreateConnectionRequest{Namespace: "team", Name: "sl", Connection: &platform.Connection{Type: "slack", Slack: &platform.SlackConnection{BotToken: "xoxb-fixture-1", UserToken: "xoxp-fixture-1"}}}); err == nil {
+		t.Fatal("slack create without an app token succeeded")
+	}
+	slack, err := server.CreateConnection(ctx, &platform.CreateConnectionRequest{Namespace: "team", Name: "sl", Connection: &platform.Connection{Type: "slack", Slack: &platform.SlackConnection{BotToken: "xoxb-fixture-1", AppToken: "xapp-fixture-1", UserToken: "xoxp-fixture-1", TeamId: "T123", SlackUserId: "UOWNER1"}}})
 	if err != nil {
 		t.Fatalf("CreateConnection slack: %v", err)
 	}
-	if slack.GetSlack().GetTokensSecret() != "conn-sl-slack" || slack.GetSlack().GetBotToken() != "" {
+	if slack.GetSlack().GetTokensSecret() != "conn-sl-slack" || slack.GetSlack().GetBotToken() != "" || slack.GetSlack().GetUserToken() != "" {
 		t.Fatalf("slack = %#v", slack)
+	}
+	if slack.GetSlack().GetTeamId() != "T123" || slack.GetSlack().GetSlackUserId() != "UOWNER1" {
+		t.Fatalf("slack identity = %#v", slack.GetSlack())
 	}
 	if err := k8s.Get(ctx, client.ObjectKey{Namespace: "team", Name: "conn-sl-slack"}, secret); err != nil {
 		t.Fatalf("slack secret: %v", err)
 	}
-	if string(secret.Data[triggersv1alpha1.SlackBotTokenKey]) != "xoxb-fixture-1" || string(secret.Data[triggersv1alpha1.SlackAppTokenKey]) != "xapp-fixture-1" {
+	if string(secret.Data[triggersv1alpha1.SlackBotTokenKey]) != "xoxb-fixture-1" || string(secret.Data[triggersv1alpha1.SlackAppTokenKey]) != "xapp-fixture-1" || string(secret.Data[triggersv1alpha1.SlackUserTokenKey]) != "xoxp-fixture-1" {
 		t.Fatalf("slack secret data = %#v", secret.Data)
 	}
 
@@ -100,6 +106,17 @@ func TestConnectionRawCredentialMaterialization(t *testing.T) {
 	}
 	if string(secret.Data[triggersv1alpha1.SlackBotTokenKey]) != "xoxb-fixture-2" || string(secret.Data[triggersv1alpha1.SlackAppTokenKey]) != "xapp-fixture-1" {
 		t.Fatalf("slack secret after update = %#v", secret.Data)
+	}
+
+	// Slack user tokens have an explicit deletion path.
+	if _, err := server.UpdateConnection(ctx, &platform.UpdateConnectionRequest{Namespace: "team", Name: "sl", Connection: &platform.Connection{Type: "slack", Slack: &platform.SlackConnection{TokensSecret: "conn-sl-slack", SlackUserId: "UOWNER1", ClearUserToken: true}}}); err != nil {
+		t.Fatalf("clear Slack user token: %v", err)
+	}
+	if err := k8s.Get(ctx, client.ObjectKey{Namespace: "team", Name: "conn-sl-slack"}, secret); err != nil {
+		t.Fatalf("slack secret after user-token clear: %v", err)
+	}
+	if _, exists := secret.Data[triggersv1alpha1.SlackUserTokenKey]; exists {
+		t.Fatalf("user-token remains after clear: %#v", secret.Data)
 	}
 
 	// Linear: raw API key materializes under the controller's expected key.

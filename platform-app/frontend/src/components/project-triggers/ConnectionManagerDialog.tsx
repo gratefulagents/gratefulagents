@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ComponentType } from "react";
-import { ChevronDown, ChevronRight, GitBranch, Layers, Loader2, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, GitBranch, Layers, Loader2, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
 
 import {
   ExternalLinkButton,
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { buildSlackManifest } from "@/lib/slackManifest";
 import { cn } from "@/lib/utils";
 
 type GitHubMode = "token" | "app";
@@ -38,8 +39,11 @@ type FormFields = {
   installationId: string;
   botToken: string;
   appToken: string;
+  userToken: string;
+  clearUserToken: boolean;
   // shared optional fields
   teamId: string;
+  slackUserId: string;
   apiKey: string;
   workspaceId: string;
   // advanced: existing secret refs
@@ -61,7 +65,10 @@ function defaultForm(_provider: ConnectionType, connection?: ProjectConnection):
     installationId: connection?.github?.installationId?.toString() ?? "",
     botToken: "",
     appToken: "",
+    userToken: "",
+    clearUserToken: false,
     teamId: connection?.slack?.teamId ?? "",
+    slackUserId: connection?.slack?.slackUserId ?? "",
     apiKey: "",
     workspaceId: connection?.linear?.workspaceId ?? "",
     tokenSecret: connection?.github?.tokenSecret ?? "",
@@ -91,8 +98,11 @@ function buildConnection(form: FormFields, provider: ConnectionType): ProjectCon
   } else if (provider === "slack") {
     connection.slack = {
       teamId: form.teamId.trim() || undefined,
+      slackUserId: form.slackUserId.trim() || undefined,
       ...(form.botToken ? { botToken: form.botToken } : {}),
       ...(form.appToken ? { appToken: form.appToken } : {}),
+      ...(form.userToken ? { userToken: form.userToken } : {}),
+      ...(form.clearUserToken ? { clearUserToken: true } : {}),
       // Keep the existing tokens Secret reference so pasting a single token on
       // edit merges into it instead of demanding a complete new pair.
       ...(form.tokensSecret ? { tokensSecret: form.tokensSecret } : {}),
@@ -375,17 +385,37 @@ function ConnectionFormView({
       return;
     }
     // Slack: when using raw tokens, both are required for a new connection
-    if (provider === "slack" && !editing) {
+    if (provider === "slack") {
       const hasRaw = form.botToken || form.appToken;
       const hasAdvanced = form.tokensSecret;
-      if (hasRaw && (!form.botToken || !form.appToken)) {
+      if (!editing && hasRaw && (!form.botToken || !form.appToken)) {
         setError(
           "Paste both the bot token (xoxb-) and the app token (xapp-) to create a Slack connection.",
         );
         return;
       }
-      if (!hasRaw && !hasAdvanced) {
+      if (!editing && !hasRaw && !hasAdvanced) {
         setError("Paste a bot token and app token, or enter a tokens secret name in Advanced.");
+        return;
+      }
+      if (form.teamId && !/^T[A-Z0-9]+$/.test(form.teamId.trim())) {
+        setError("Slack team ID must start with T and contain only uppercase letters and numbers.");
+        return;
+      }
+      if (form.slackUserId && !/^[UW][A-Z0-9]+$/.test(form.slackUserId.trim())) {
+        setError("Owner Slack user ID must start with U or W and contain only uppercase letters and numbers.");
+        return;
+      }
+      if (form.userToken && form.clearUserToken) {
+        setError("Choose either a replacement user token or remove the stored user token, not both.");
+        return;
+      }
+      if (form.clearUserToken && !form.slackUserId.trim()) {
+        setError("Enter the owner Slack user ID before removing the user token.");
+        return;
+      }
+      if (!editing && !hasAdvanced && !form.slackUserId.trim() && !form.userToken.trim()) {
+        setError("Enter the owner Slack user ID or an optional user token so owner-only commands can be authorized.");
         return;
       }
     }
@@ -712,36 +742,44 @@ function SlackGuide({
   const hasTokensSecret = Boolean(form.tokensSecret);
   const botTokenWarn = form.botToken && !form.botToken.startsWith("xoxb-");
   const appTokenWarn = form.appToken && !form.appToken.startsWith("xapp-");
+  const userTokenWarn = form.userToken && !form.userToken.startsWith("xoxp-");
+  const [manifestCopied, setManifestCopied] = useState(false);
+
+  function copyManifest() {
+    void navigator.clipboard?.writeText(buildSlackManifest(form.name.trim() || "My Agent")).then(() => {
+      setManifestCopied(true);
+      window.setTimeout(() => setManifestCopied(false), 1500);
+    });
+  }
 
   return (
     <div className="space-y-3.5">
       <div className="space-y-2">
         <HowToHeader>How to create a Slack app</HowToHeader>
         <HowToStep n={1}>
-          Go to{" "}
+          <Button type="button" variant="outline" size="sm" onClick={copyManifest}>
+            {manifestCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            {manifestCopied ? "Manifest copied" : "Copy Agent view manifest"}
+          </Button>
+          <span className="ml-2">This includes the current Agent messaging experience, scopes, and events.</span>
+        </HowToStep>
+        <HowToStep n={2}>
+          Open{" "}
           <ExternalLinkButton href="https://api.slack.com/apps">
             api.slack.com/apps
           </ExternalLinkButton>{" "}
-          and click <strong>Create New App → From scratch</strong>.
-        </HowToStep>
-        <HowToStep n={2}>
-          Enable <strong>Socket Mode</strong> (Settings → Socket Mode) and generate an app-level
-          token with the{" "}
-          <code className="rounded bg-muted px-1 text-[11px]">connections:write</code> scope. This
-          is your <strong>xapp-</strong> token.
+          and choose <strong>Create New App → From a manifest</strong>, then paste the copied YAML.
         </HowToStep>
         <HowToStep n={3}>
-          Under <strong>OAuth &amp; Permissions → Bot Token Scopes</strong>, add:{" "}
-          <code className="rounded bg-muted px-1 text-[11px]">app_mentions:read</code>,{" "}
-          <code className="rounded bg-muted px-1 text-[11px]">channels:history</code>,{" "}
-          <code className="rounded bg-muted px-1 text-[11px]">chat:write</code>,{" "}
-          <code className="rounded bg-muted px-1 text-[11px]">im:history</code>,{" "}
-          <code className="rounded bg-muted px-1 text-[11px]">im:read</code>,{" "}
-          <code className="rounded bg-muted px-1 text-[11px]">im:write</code>,{" "}
-          <code className="rounded bg-muted px-1 text-[11px]">reactions:write</code>. Then click{" "}
-          <strong>Install to workspace</strong> to get your <strong>xoxb-</strong> bot token.
+          Under <strong>Basic Information → App-Level Tokens</strong>, generate a token with{" "}
+          <code className="rounded bg-muted px-1 text-[11px]">connections:write</code>. This is the{" "}
+          <strong>xapp-</strong> token.
         </HowToStep>
-        <HowToStep n={4}>Paste both tokens below.</HowToStep>
+        <HowToStep n={4}>
+          Install the app from <strong>OAuth &amp; Permissions</strong>. Copy the <strong>xoxb-</strong>{" "}
+          bot token and, if you want workspace search or automatic owner resolution, the optional{" "}
+          <strong>xoxp-</strong> user token.
+        </HowToStep>
       </div>
 
       <div className="space-y-3">
@@ -779,6 +817,55 @@ function SlackGuide({
               App-level tokens typically start with xapp-.
             </p>
           )}
+        </div>
+        <div>
+          <Label className="mb-1.5 block text-[12.5px] font-medium">
+            User token (xoxp-) <span className="font-normal text-muted-foreground">(optional)</span>
+          </Label>
+          <Input
+            type="password"
+            value={form.userToken}
+            onChange={(e) => update("userToken", e.target.value)}
+            disabled={form.clearUserToken}
+            placeholder={editing && hasTokensSecret ? STORED_PLACEHOLDER : "xoxp-…"}
+            autoComplete="new-password"
+            aria-label="Slack user token"
+          />
+          {userTokenWarn ? (
+            <p className="mt-1 text-[11.5px] text-amber-600 dark:text-amber-400">
+              User tokens typically start with xoxp-.
+            </p>
+          ) : (
+            <FieldHint>Enables workspace search and can resolve the owner identity.</FieldHint>
+          )}
+          {editing && (
+            <label className="mt-2 flex items-center gap-2 text-[12px] text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={form.clearUserToken}
+                onChange={(event) => {
+                  update("clearUserToken", event.target.checked);
+                  if (event.target.checked) update("userToken", "");
+                }}
+                className="h-4 w-4 rounded border-input accent-primary"
+                aria-label="Remove stored Slack user token"
+              />
+              Remove the stored user token when saving
+            </label>
+          )}
+        </div>
+        <div>
+          <Label className="mb-1.5 block text-[12.5px] font-medium">Owner Slack user ID</Label>
+          <Input
+            value={form.slackUserId}
+            onChange={(e) => update("slackUserId", e.target.value)}
+            placeholder="U0123456789"
+            autoComplete="off"
+            aria-label="Owner Slack user ID"
+          />
+          <FieldHint>
+            Controls who can DM and approve for this agent. Optional only when a user token can resolve it.
+          </FieldHint>
         </div>
         <div>
           <Label className="mb-1.5 block text-[12.5px] font-medium">

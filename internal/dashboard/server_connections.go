@@ -61,15 +61,36 @@ func (s *Server) CreateConnection(ctx context.Context, req *platform.CreateConne
 	if err != nil {
 		return nil, err
 	}
+	existing := &triggersv1alpha1.Connection{}
+	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, existing); err == nil {
+		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("connection %q already exists", name))
+	} else if !k8serrors.IsNotFound(err) {
+		return nil, mapK8sError("check existing Connection", err)
+	}
+	connectionType, mutatesSecret := connectionMutatesManagedSecret(req.GetConnection())
+	var snapshot *corev1.Secret
+	if mutatesSecret {
+		snapshot, err = s.snapshotConnectionSecret(ctx, namespace, name, connectionType)
+		if err != nil {
+			return nil, err
+		}
+	}
+	rollback := func() {
+		if mutatesSecret {
+			s.restoreConnectionSecret(ctx, namespace, name, connectionType, snapshot)
+		}
+	}
 	if err := s.materializeConnectionSecrets(ctx, namespace, name, req.GetConnection()); err != nil {
 		return nil, err
 	}
 	connection, err := connectionFromProto(req.GetConnection())
 	if err != nil {
+		rollback()
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	connection.Name, connection.Namespace = name, namespace
 	if err := s.k8sClient.Create(ctx, connection); err != nil {
+		rollback()
 		if k8serrors.IsAlreadyExists(err) {
 			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("connection %q already exists", name))
 		}
@@ -87,22 +108,37 @@ func (s *Server) UpdateConnection(ctx context.Context, req *platform.UpdateConne
 	if err != nil {
 		return nil, err
 	}
+	current := &triggersv1alpha1.Connection{}
+	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, current); err != nil {
+		return nil, mapK8sError("get Connection", err)
+	}
+	connectionType, mutatesSecret := connectionMutatesManagedSecret(req.GetConnection())
+	if current.Spec.Type != connectionType {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("connection type is immutable"))
+	}
+	var snapshot *corev1.Secret
+	if mutatesSecret {
+		snapshot, err = s.snapshotConnectionSecret(ctx, namespace, name, connectionType)
+		if err != nil {
+			return nil, err
+		}
+	}
+	rollback := func() {
+		if mutatesSecret {
+			s.restoreConnectionSecret(ctx, namespace, name, connectionType, snapshot)
+		}
+	}
 	if err := s.materializeConnectionSecrets(ctx, namespace, name, req.GetConnection()); err != nil {
 		return nil, err
 	}
 	desired, err := connectionFromProto(req.GetConnection())
 	if err != nil {
+		rollback()
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	current := &triggersv1alpha1.Connection{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, current); err != nil {
-		return nil, mapK8sError("get Connection", err)
-	}
-	if current.Spec.Type != desired.Spec.Type {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("connection type is immutable"))
 	}
 	current.Spec = desired.Spec
 	if err := s.k8sClient.Update(ctx, current); err != nil {
+		rollback()
 		return nil, mapK8sError("update Connection", err)
 	}
 	return connectionToProto(current), nil
@@ -150,6 +186,72 @@ func connectionSecretName(connection string, connectionType triggersv1alpha1.Con
 	return fmt.Sprintf("conn-%s-%s", connection, connectionType)
 }
 
+func validateSlackConnectionFields(sl *platform.SlackConnection) error {
+	if sl == nil {
+		return fmt.Errorf("slack configuration is required")
+	}
+	if teamID := strings.TrimSpace(sl.GetTeamId()); teamID != "" && !validSlackID(teamID, "T") {
+		return fmt.Errorf("invalid Slack team ID %q; expected an ID starting with T", teamID)
+	}
+	if userID := strings.TrimSpace(sl.GetSlackUserId()); userID != "" && !validSlackID(userID, "UW") {
+		return fmt.Errorf("invalid owner Slack user ID %q; expected an ID starting with U or W", userID)
+	}
+	if sl.GetClearUserToken() && strings.TrimSpace(sl.GetUserToken()) != "" {
+		return fmt.Errorf("user_token and clear_user_token cannot be used together")
+	}
+	return nil
+}
+
+func connectionMutatesManagedSecret(pb *platform.Connection) (triggersv1alpha1.ConnectionType, bool) {
+	if pb == nil {
+		return "", false
+	}
+	connectionType := triggersv1alpha1.ConnectionType(strings.TrimSpace(pb.GetType()))
+	switch connectionType {
+	case triggersv1alpha1.ConnectionTypeGitHub:
+		g := pb.GetGithub()
+		return connectionType, g != nil && (strings.TrimSpace(g.GetToken()) != "" || strings.TrimSpace(g.GetPrivateKey()) != "")
+	case triggersv1alpha1.ConnectionTypeSlack:
+		sl := pb.GetSlack()
+		return connectionType, sl != nil && (strings.TrimSpace(sl.GetBotToken()) != "" || strings.TrimSpace(sl.GetAppToken()) != "" || strings.TrimSpace(sl.GetUserToken()) != "" || sl.GetClearUserToken())
+	case triggersv1alpha1.ConnectionTypeLinear:
+		l := pb.GetLinear()
+		return connectionType, l != nil && strings.TrimSpace(l.GetApiKey()) != ""
+	default:
+		return connectionType, false
+	}
+}
+
+func (s *Server) snapshotConnectionSecret(ctx context.Context, namespace, name string, connectionType triggersv1alpha1.ConnectionType) (*corev1.Secret, error) {
+	secret := &corev1.Secret{}
+	err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: connectionSecretName(name, connectionType)}, secret)
+	if k8serrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, mapK8sError("snapshot connection secret", err)
+	}
+	return secret.DeepCopy(), nil
+}
+
+func (s *Server) restoreConnectionSecret(ctx context.Context, namespace, name string, connectionType triggersv1alpha1.ConnectionType, snapshot *corev1.Secret) {
+	key := client.ObjectKey{Namespace: namespace, Name: connectionSecretName(name, connectionType)}
+	current := &corev1.Secret{}
+	if snapshot == nil {
+		if err := s.k8sClient.Get(ctx, key, current); err == nil && current.Labels[connectionSecretLabel] == name {
+			_ = s.k8sClient.Delete(ctx, current)
+		}
+		return
+	}
+	if err := s.k8sClient.Get(ctx, key, current); err != nil {
+		return
+	}
+	current.Data = snapshot.Data
+	current.Labels = snapshot.Labels
+	current.Annotations = snapshot.Annotations
+	_ = s.k8sClient.Update(ctx, current)
+}
+
 // materializeConnectionSecrets moves any write-only raw credential values off
 // the wire message into a platform-managed Secret and rewrites the message to
 // reference that Secret. Raw values never reach the Connection CR and are
@@ -177,7 +279,7 @@ func (s *Server) materializeConnectionSecrets(ctx context.Context, namespace, na
 			return nil
 		}
 		secretName := connectionSecretName(name, triggersv1alpha1.ConnectionTypeGitHub)
-		if err := s.upsertConnectionSecret(ctx, namespace, secretName, name, set); err != nil {
+		if err := s.upsertConnectionSecret(ctx, namespace, secretName, name, set, nil); err != nil {
 			return err
 		}
 		if _, ok := set[userCredGithubTokenKey]; ok {
@@ -191,6 +293,9 @@ func (s *Server) materializeConnectionSecrets(ctx context.Context, namespace, na
 		if sl == nil {
 			return nil
 		}
+		if err := validateSlackConnectionFields(sl); err != nil {
+			return connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		set := map[string][]byte{}
 		if v := strings.TrimSpace(sl.GetBotToken()); v != "" {
 			set[triggersv1alpha1.SlackBotTokenKey] = []byte(v)
@@ -198,17 +303,49 @@ func (s *Server) materializeConnectionSecrets(ctx context.Context, namespace, na
 		if v := strings.TrimSpace(sl.GetAppToken()); v != "" {
 			set[triggersv1alpha1.SlackAppTokenKey] = []byte(v)
 		}
-		sl.BotToken, sl.AppToken = "", ""
-		if len(set) == 0 {
+		if v := strings.TrimSpace(sl.GetUserToken()); v != "" {
+			set[triggersv1alpha1.SlackUserTokenKey] = []byte(v)
+		}
+		clearUser := sl.GetClearUserToken()
+		sl.BotToken, sl.AppToken, sl.UserToken, sl.ClearUserToken = "", "", "", false
+		if len(set) == 0 && !clearUser {
 			return nil
 		}
-		// A Slack trigger needs both tokens to connect (Socket Mode). Only a
-		// brand-new tokens Secret must be complete; merges may send one.
-		if strings.TrimSpace(sl.GetTokensSecret()) == "" && (len(set) < 2) {
+
+		secretName := connectionSecretName(name, triggersv1alpha1.ConnectionTypeSlack)
+		referencedName := strings.TrimSpace(sl.GetTokensSecret())
+		merged := map[string][]byte{}
+		if referencedName != "" {
+			referenced := &corev1.Secret{}
+			if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: referencedName}, referenced); err != nil {
+				if k8serrors.IsNotFound(err) {
+					return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("Slack tokens secret %q not found", referencedName))
+				}
+				return mapK8sError("read Slack tokens secret", err)
+			}
+			for _, key := range []string{triggersv1alpha1.SlackBotTokenKey, triggersv1alpha1.SlackAppTokenKey, triggersv1alpha1.SlackUserTokenKey} {
+				if value, ok := referenced.Data[key]; ok {
+					merged[key] = append([]byte(nil), value...)
+				}
+			}
+		}
+		maps.Copy(merged, set)
+		if clearUser {
+			delete(merged, triggersv1alpha1.SlackUserTokenKey)
+		}
+		if len(merged[triggersv1alpha1.SlackBotTokenKey]) == 0 || len(merged[triggersv1alpha1.SlackAppTokenKey]) == 0 {
 			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("slack connection requires both a bot token (xoxb-…) and an app-level token (xapp-…)"))
 		}
-		secretName := connectionSecretName(name, triggersv1alpha1.ConnectionTypeSlack)
-		if err := s.upsertConnectionSecret(ctx, namespace, secretName, name, set); err != nil {
+
+		deleteKeys := []string(nil)
+		if referencedName != secretName {
+			// Editing an externally-backed connection creates a complete managed
+			// copy before changing the reference; the external Secret is untouched.
+			set = merged
+		} else if clearUser {
+			deleteKeys = []string{triggersv1alpha1.SlackUserTokenKey}
+		}
+		if err := s.upsertConnectionSecret(ctx, namespace, secretName, name, set, deleteKeys); err != nil {
 			return err
 		}
 		sl.TokensSecret = secretName
@@ -223,7 +360,7 @@ func (s *Server) materializeConnectionSecrets(ctx context.Context, namespace, na
 			return nil
 		}
 		secretName := connectionSecretName(name, triggersv1alpha1.ConnectionTypeLinear)
-		if err := s.upsertConnectionSecret(ctx, namespace, secretName, name, map[string][]byte{linearConnectionAPIKeyKey: []byte(v)}); err != nil {
+		if err := s.upsertConnectionSecret(ctx, namespace, secretName, name, map[string][]byte{linearConnectionAPIKeyKey: []byte(v)}, nil); err != nil {
 			return err
 		}
 		l.ApiKeySecret = secretName
@@ -233,7 +370,7 @@ func (s *Server) materializeConnectionSecrets(ctx context.Context, namespace, na
 
 // upsertConnectionSecret merges the given keys into the named platform-managed
 // Secret, creating and labeling it on first use.
-func (s *Server) upsertConnectionSecret(ctx context.Context, namespace, secretName, connection string, set map[string][]byte) error {
+func (s *Server) upsertConnectionSecret(ctx context.Context, namespace, secretName, connection string, set map[string][]byte, deleteKeys []string) error {
 	secret := &corev1.Secret{}
 	err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
 	if err != nil {
@@ -253,14 +390,16 @@ func (s *Server) upsertConnectionSecret(ctx context.Context, namespace, secretNa
 		}
 		return nil
 	}
+	if secret.Labels[connectionSecretLabel] != connection {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("secret %q is not managed by connection %q", secretName, connection))
+	}
 	if secret.Data == nil {
 		secret.Data = map[string][]byte{}
 	}
 	maps.Copy(secret.Data, set)
-	if secret.Labels == nil {
-		secret.Labels = map[string]string{}
+	for _, key := range deleteKeys {
+		delete(secret.Data, key)
 	}
-	secret.Labels[connectionSecretLabel] = connection
 	if err := s.k8sClient.Update(ctx, secret); err != nil {
 		return mapK8sError("update connection secret", err)
 	}
@@ -314,7 +453,14 @@ func connectionFromProto(pb *platform.Connection) (*triggersv1alpha1.Connection,
 			return nil, fmt.Errorf("slack connection requires only slack configuration with tokens (bot_token + app_token or tokens_secret)")
 		}
 		s := pb.GetSlack()
-		connection.Spec = triggersv1alpha1.ConnectionSpec{Type: triggersv1alpha1.ConnectionTypeSlack, Slack: &triggersv1alpha1.SlackConnectionConfig{TokensSecret: strings.TrimSpace(s.GetTokensSecret()), TeamID: strings.TrimSpace(s.GetTeamId())}}
+		if err := validateSlackConnectionFields(s); err != nil {
+			return nil, err
+		}
+		connection.Spec = triggersv1alpha1.ConnectionSpec{Type: triggersv1alpha1.ConnectionTypeSlack, Slack: &triggersv1alpha1.SlackConnectionConfig{
+			TokensSecret: strings.TrimSpace(s.GetTokensSecret()),
+			TeamID:       strings.TrimSpace(s.GetTeamId()),
+			SlackUserID:  strings.TrimSpace(s.GetSlackUserId()),
+		}}
 	case triggersv1alpha1.ConnectionTypeLinear:
 		if pb.GetLinear() == nil || pb.GetGithub() != nil || pb.GetSlack() != nil || strings.TrimSpace(pb.GetLinear().GetApiKeySecret()) == "" {
 			return nil, fmt.Errorf("linear connection requires only linear configuration with an API key (api_key or api_key_secret)")
@@ -355,7 +501,7 @@ func connectionToProto(connection *triggersv1alpha1.Connection) *platform.Connec
 	}
 	if connection.Spec.Slack != nil {
 		s := connection.Spec.Slack
-		pb.Slack = &platform.SlackConnection{TokensSecret: s.TokensSecret, TeamId: s.TeamID}
+		pb.Slack = &platform.SlackConnection{TokensSecret: s.TokensSecret, TeamId: s.TeamID, SlackUserId: s.SlackUserID}
 	}
 	if connection.Spec.Linear != nil {
 		l := connection.Spec.Linear

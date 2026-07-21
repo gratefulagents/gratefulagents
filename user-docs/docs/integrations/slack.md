@@ -6,45 +6,49 @@ agentPrompt: >-
 
 # Slack
 
-Create a Slack connection and a Slack Entry point from **Project → Entry points**. The app no longer provides standalone Slack-agent, shared-workspace-app, inbox, draft-approval, or Slack detail workflows for Project setup.
+Create a Slack connection and Slack Entry point from **Project → Entry points**. A connection stores the Slack app credentials and owner identity; an Entry point controls where and how that app responds for the Project.
 
 Related pages: [Projects](../projects/projects.md), [Run defaults](../projects/run-defaults.md), [Cron schedules](../projects/cron.md), and [Linear](./linear.md).
 
 ## Create a Slack connection
 
-1. Open the Project's **Entry points** and select **Manage connections**.
-2. Select **New connection**, enter a DNS-style **Name**, and select **Slack**.
-3. Enter **Tokens Secret** and, if useful, **Team ID**.
-4. Select **Create connection**.
+1. Open the Project's **Entry points**, select **Manage connections**, then **New connection → Slack**.
+2. Select **Copy Agent view manifest**. In [Slack app management](https://api.slack.com/apps), choose **Create New App → From a manifest** and paste the YAML. The manifest enables Slack's current Agent messaging experience, Socket Mode events, and the scopes used by the Slack tools.
+3. Under **Basic Information → App-Level Tokens**, generate an `xapp-` token with `connections:write`.
+4. Under **OAuth & Permissions**, install the app and copy its `xoxb-` bot token. If the agent should search the workspace or resolve the owner automatically, also copy the optional `xoxp-` user token.
+5. Enter the credentials and owner identity, then select **Create connection**.
 
 | Field | Required | Behavior |
 | --- | --- | --- |
-| **Tokens Secret** | Yes | Name of a same-namespace Kubernetes Secret containing `bot-token` and `app-token` for Socket Mode. It can also contain optional `user-token`. See [Connection Secrets](./connection-secrets.md). |
-| **Team ID** | No | Optional Slack workspace/team identifier. |
+| **Bot token** | Yes for pasted credentials | Write-only `xoxb-` token used for bot identity, reading conversations, and posting. |
+| **App token** | Yes for pasted credentials | Write-only `xapp-` token that opens the Socket Mode connection. |
+| **User token** | No | Write-only `xoxp-` token that enables workspace search and automatic owner-ID resolution. |
+| **Owner Slack user ID** | Yes unless a user token resolves it | Slack member ID (`U…` or `W…`) authorized to DM the agent and perform owner-only actions. |
+| **Team / workspace ID** | No | Expected Slack team ID (`T…`). The connector rejects credentials for a different workspace. |
+| **Tokens Secret** | Alternative | Advanced same-namespace Kubernetes Secret containing `bot-token` and `app-token`, plus optional `user-token`. See [Connection Secrets](./connection-secrets.md). |
 
-The form stores Secret references, not token values. The bot token is the bot identity and the app token opens the Socket Mode connection. A user token is optional for Slack search and can let the connector resolve the owner when no Slack user ID is set.
-
-A connection is reusable only in its namespace. Its name and type are immutable, and it cannot be deleted while a Project Entry point references it.
+Pasted tokens are moved into a platform-managed Secret and are never returned by the API. Editing a connection with empty token fields keeps the stored values; select **Remove the stored user token** to revoke optional workspace search. A connection's name and type are immutable, and it cannot be deleted while a Project Entry point references it. Because Slack load-balances Socket Mode events across sockets, one Slack connection may be used by only one enabled Entry point.
 
 ## Create a Slack Entry point
 
-1. In **Entry points**, select **New trigger**.
-2. Enter the trigger **Name**, choose **Slack**, and select a Slack **Connection**.
-3. Enter the required **Channel** value, such as `#engineering`.
-4. Select **Create trigger**.
+1. In **Entry points**, select **New trigger → Slack** and choose a Slack connection.
+2. Enter the Slack **Conversation ID**. In Slack, open the channel details, select **About**, and copy the channel ID. Do not enter a `#channel-name`: names can change and cannot safely restrict connector ingress.
+3. Configure who may command the agent, how channel replies are posted, and how long conversations reuse a run.
+4. Enter a DNS-style trigger name and select **Create trigger**.
 
 | Field | Required | Behavior |
 | --- | --- | --- |
 | **Name** | Yes | DNS-style trigger identifier. `manual` is reserved. |
-| **Connection** | Yes | A Slack connection in the Project namespace. |
-| **Channel** | Yes | Channel value recorded for this Project Entry point. |
+| **Connection** | Yes | Slack app credentials and owner identity from the Project namespace. |
+| **Conversation ID** | Yes | Stable Slack ID beginning with `C`, `G`, or `D`. The bot must be invited to channels it watches. |
+| **Allowed commanders** | No | Additional comma-separated Slack user IDs (`U…` or `W…`) allowed to invoke the agent by mention. Empty means owner only. |
+| **Channel replies** | No | **Require owner approval** (default) holds shared-channel replies for approval; **Post directly** sends them immediately. DM and Agent-view replies remain direct. |
+| **Conversation memory** | No | Positive idle time in minutes before a new conversation starts a fresh run. Empty uses the 12-hour default. |
 
-The Entry point inherits the Project's repository defaults, provider and credentials, runtime, Skills, MCP policy, and custom instructions. It has no separate Slack run-defaults form.
-
-The current dialog does not expose Slack user ID, inbox monitoring, shared workspace apps, allowed commanders, reply mode, or conversation-memory settings. Do not expect those removed standalone configuration workflows to be available from a Project Entry point. At the generated-runtime level, channel replies default to requiring approval, no additional commanders are configured, and the default conversation idle window is 12 hours.
+The Entry point inherits the Project's repository, model/provider credentials, runtime profile, Skills, MCP policy, and custom instructions. Lifecycle (`enabled`) is controlled by the Entry-point switch. Connector images and shared-workspace topology remain operator-owned rather than per-trigger fields.
 
 ## Status and lifecycle
 
 The Entry-points rail displays the last Slack event and one of these states: **applying** before readiness is reported, **ready** when the generated connector is ready, **degraded** when it reports an error or non-ready state, or **disabled** when its switch is off.
 
-Use the switch to disable or re-enable the generated Slack connector. **Edit** can change the connection and channel but not the source type. **Delete** permanently removes the Entry point and generated connector; existing runs remain. See [Projects](../projects/projects.md#entry-points-and-connections) for shared lifecycle rules.
+Use the switch to disable or re-enable the generated Slack connector. **Edit** can change the connection, conversation, commanders, reply policy, and memory window without losing advanced settings. **Delete** permanently removes the Entry point and generated connector; existing runs remain. See [Projects](../projects/projects.md#entry-points-and-connections) for shared lifecycle rules.

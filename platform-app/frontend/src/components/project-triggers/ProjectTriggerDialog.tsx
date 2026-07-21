@@ -28,6 +28,9 @@ type FormState = {
   issueEvents: boolean;
   commentEvents: boolean;
   channel: string;
+  channelReplyMode: "require-approval" | "auto";
+  commanders: string;
+  sessionIdleMinutes: string;
   schedule: string;
   timeZone: string;
   prompt: string;
@@ -42,6 +45,20 @@ function field(source: Record<string, unknown> | undefined, name: string): strin
   return typeof value === "string" ? value : "";
 }
 
+function stringList(source: Record<string, unknown> | undefined, name: string): string[] {
+  const value = source?.[name];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function positiveNumber(source: Record<string, unknown> | undefined, name: string): string {
+  const value = source?.[name];
+  return typeof value === "number" && value > 0 ? String(value) : "";
+}
+
+function splitSlackUserIds(value: string): string[] {
+  return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+}
+
 function sourceFor(trigger: ProjectTrigger): TriggerSource {
   const type = trigger.type.toLowerCase();
   if (type.includes("slack")) return "slack";
@@ -53,6 +70,8 @@ function sourceFor(trigger: ProjectTrigger): TriggerSource {
 function initialForm(trigger?: ProjectTrigger): FormState {
   const type = trigger ? sourceFor(trigger) : "github";
   const github = trigger?.github;
+  const slack = trigger?.slack;
+  const replyMode = field(slack, "channelReplyMode");
   return {
     name: trigger?.name ?? "",
     type,
@@ -63,7 +82,10 @@ function initialForm(trigger?: ProjectTrigger): FormState {
     repository: [field(github, "owner"), field(github, "repo")].filter(Boolean).join("/"),
     issueEvents: Boolean(github?.issues),
     commentEvents: Boolean(github?.comments),
-    channel: field(trigger?.slack, "channel"),
+    channel: field(slack, "channel"),
+    channelReplyMode: replyMode === "auto" ? "auto" : "require-approval",
+    commanders: stringList(slack, "commanders").join(", "),
+    sessionIdleMinutes: positiveNumber(slack, "sessionIdleMinutes"),
     schedule: field(trigger?.cron, "schedule"),
     timeZone: field(trigger?.cron, "timeZone"),
     prompt: field(trigger?.cron, "prompt"),
@@ -91,7 +113,15 @@ function buildTrigger(form: FormState, existing?: ProjectTrigger): ProjectTrigge
         : undefined,
     slack:
       source === "slack"
-        ? { connectionRef: form.connectionRef.trim(), channel: form.channel.trim() }
+        ? {
+            connectionRef: form.connectionRef.trim(),
+            channel: form.channel.trim(),
+            channelReplyMode: form.channelReplyMode,
+            commanders: splitSlackUserIds(form.commanders),
+            sessionIdleMinutes: form.sessionIdleMinutes
+              ? Number(form.sessionIdleMinutes)
+              : undefined,
+          }
         : undefined,
     cron:
       source === "cron"
@@ -163,6 +193,23 @@ export function ProjectTriggerDialog({
     if (form.type !== "cron" && !form.connectionRef) {
       setError("Choose a connection.");
       return;
+    }
+    if (form.type === "slack") {
+      if (!/^[CGD][A-Z0-9]+$/.test(form.channel.trim())) {
+        setError("Enter a Slack conversation ID starting with C, G, or D (not a #channel name).");
+        return;
+      }
+      if (splitSlackUserIds(form.commanders).some((id) => !/^[UW][A-Z0-9]+$/.test(id))) {
+        setError("Allowed commanders must be Slack user IDs starting with U or W.");
+        return;
+      }
+      if (form.sessionIdleMinutes) {
+        const idle = Number(form.sessionIdleMinutes);
+        if (!Number.isInteger(idle) || idle <= 0) {
+          setError("Conversation memory must be a whole number greater than zero.");
+          return;
+        }
+      }
     }
     setSaving(true);
     setError(null);
@@ -504,19 +551,66 @@ function SlackDetails({
         onManageConnections={onManageConnections}
       />
       <div>
-        <Label className="mb-1.5 block text-[12.5px] font-medium">Channel</Label>
+        <Label className="mb-1.5 block text-[12.5px] font-medium">Conversation ID</Label>
         <Input
           value={form.channel}
           onChange={(e) => update("channel", e.target.value)}
-          placeholder="#engineering"
+          placeholder="C0123456789"
           autoFocus={!editing}
           autoComplete="off"
-          aria-label="Slack channel"
+          aria-label="Slack conversation ID"
         />
         <FieldHint>
-          Include the # prefix. The bot must be invited to the channel first:{" "}
-          <code className="rounded bg-muted px-1 text-[11px]">/invite @your-bot</code>
+          Use Slack&apos;s channel ID, not its #name (Channel details → About → Copy channel ID).
+          Invite the bot first with <code className="rounded bg-muted px-1 text-[11px]">/invite @your-bot</code>.
         </FieldHint>
+      </div>
+      <div>
+        <Label className="mb-1.5 block text-[12.5px] font-medium">Allowed commanders</Label>
+        <Input
+          value={form.commanders}
+          onChange={(e) => update("commanders", e.target.value)}
+          placeholder="U0123ABC, U0456DEF"
+          autoComplete="off"
+          aria-label="Allowed Slack commanders"
+        />
+        <FieldHint>
+          Additional Slack user IDs that may @mention the agent. Leave empty for owner only.
+        </FieldHint>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <Label className="mb-1.5 block text-[12.5px] font-medium">Channel replies</Label>
+          <Select
+            value={form.channelReplyMode}
+            onValueChange={(value) => update("channelReplyMode", value === "auto" ? "auto" : "require-approval")}
+          >
+            <SelectTrigger className="w-full" aria-label="Slack channel reply mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="require-approval">Require owner approval</SelectItem>
+              <SelectItem value="auto">Post directly</SelectItem>
+            </SelectContent>
+          </Select>
+          <FieldHint>DM replies are always direct. Approval is the safe default for shared channels.</FieldHint>
+        </div>
+        <div>
+          <Label className="mb-1.5 block text-[12.5px] font-medium">
+            Conversation memory <span className="font-normal text-muted-foreground">(minutes)</span>
+          </Label>
+          <Input
+            type="number"
+            min={1}
+            step={1}
+            value={form.sessionIdleMinutes}
+            onChange={(e) => update("sessionIdleMinutes", e.target.value)}
+            placeholder="720"
+            inputMode="numeric"
+            aria-label="Slack conversation memory minutes"
+          />
+          <FieldHint>Leave empty for the 12-hour default. A fresh run starts after this idle time.</FieldHint>
+        </div>
       </div>
     </div>
   );
