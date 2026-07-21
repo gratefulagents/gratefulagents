@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Code } from "@connectrpc/connect";
-import { ArrowUp, ChevronDown, FolderKanban, SlidersHorizontal } from "lucide-react";
+import { ArrowUp, ChevronDown, FolderKanban, ImagePlus, SlidersHorizontal } from "lucide-react";
 
+import { ImageAttachmentStrip } from "@/components/ImageAttachmentStrip";
 import { client } from "@/lib/client";
+import { useImageAttachments } from "@/hooks/useImageAttachments";
 import { useMyCredentials } from "@/hooks/useMyCredentials";
 import { useProjects } from "@/hooks/useWatchedList";
 import { readLastProject, writeLastProject } from "@/lib/lastProject";
@@ -149,6 +151,8 @@ export function NewChatComposer({
   const [picked, setPicked] = useState<{ namespace: string; name: string } | null>(
     fixedNamespace && fixedProject ? { namespace: fixedNamespace, name: fixedProject } : null,
   );
+  const attachments = useImageAttachments();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   const project = useMemo(() => {
@@ -187,7 +191,8 @@ export function NewChatComposer({
 
   async function submit() {
     const request = text.trim();
-    if (!request || projectsLoading || credentialsLoading || projectsError || submitting) return;
+    const hasImages = attachments.images.length > 0;
+    if ((!request && !hasImages) || projectsLoading || credentialsLoading || projectsError || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -253,7 +258,9 @@ export function NewChatComposer({
         userRequest: request,
         model: model.trim(),
         source: { kind: "Project", name: chatProject.name },
+        imageDataUrls: attachments.dataUrls(),
       });
+      attachments.clear();
       writeLastProject({ namespace: chatProject.namespace, name: chatProject.name });
       navigate(`/runs/${res.namespace}/${res.name}`);
     } catch (err) {
@@ -262,11 +269,30 @@ export function NewChatComposer({
     }
   }
 
+  const composerDisabled =
+    projectsLoading || credentialsLoading || Boolean(projectsError) || submitting;
   const canSubmit =
-    Boolean(text.trim()) && !projectsLoading && !credentialsLoading && !projectsError && !submitting;
+    (Boolean(text.trim()) || attachments.images.length > 0) && !composerDisabled;
 
   return (
     <div className="flex flex-col gap-2">
+      <ImageAttachmentStrip
+        images={attachments.images}
+        onRemove={attachments.remove}
+        className="px-0"
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        aria-label="Choose images"
+        onChange={(e) => {
+          void attachments.addFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
       <InputGroup className={className}>
         <InputGroupTextarea
           ref={taRef}
@@ -274,6 +300,9 @@ export function NewChatComposer({
           rows={variant === "hero" ? 2 : 1}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            if (attachments.onPaste(e)) e.preventDefault();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -281,13 +310,22 @@ export function NewChatComposer({
             }
           }}
           placeholder={placeholder}
-          disabled={projectsLoading || credentialsLoading || Boolean(projectsError) || submitting}
+          disabled={composerDisabled}
           className={cn(
             "px-4 pt-3.5 leading-relaxed",
             variant === "hero" ? "min-h-16" : "min-h-10",
           )}
         />
         <InputGroupAddon align="block-end">
+          <InputGroupButton
+            size="icon-xs"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={composerDisabled}
+            aria-label="Attach image"
+            title="Attach image"
+          >
+            <ImagePlus />
+          </InputGroupButton>
           {!fixedProject && (
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -358,7 +396,9 @@ export function NewChatComposer({
         </Field>
       )}
 
-      {(error || projectsError) && <FieldError>{error || projectsError}</FieldError>}
+      {(error || projectsError || attachments.error) && (
+        <FieldError>{error || projectsError || attachments.error}</FieldError>
+      )}
     </div>
   );
 }
