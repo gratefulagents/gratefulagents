@@ -22,7 +22,7 @@ type wakeAgentRunInput struct {
 
 func (t *wakeAgentRunTool) Name() string { return "wake_agent_run" }
 func (t *wakeAgentRunTool) Description() string {
-	return "Deliver maintainer context to an authorized implementer fleet run and request a wake when it is not already running."
+	return "Deliver maintainer context to an authorized implementer fleet run, revalidating the target immediately before delivery and again before requesting a wake."
 }
 func (t *wakeAgentRunTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"run_name":{"type":"string"},"message":{"type":"string","maxLength":4000}},"required":["run_name","message"]}`)
@@ -63,6 +63,19 @@ func (t *wakeAgentRunTool) Execute(ctx context.Context, input json.RawMessage, _
 	}
 	if session == nil {
 		return Result{Content: "fleet session not found", IsError: true}, nil
+	}
+	if _, err := t.currentRun(ctx); err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	run, err = t.fleetRun(ctx, name)
+	if err != nil {
+		return Result{Content: fmt.Sprintf("failed to reverify fleet AgentRun: %v", err), IsError: true}, nil
+	}
+	if maintainerIsReviewer(run) {
+		return Result{Content: "reviewer fleet runs cannot be woken by the maintainer", IsError: true}, nil
+	}
+	if run.Status.Phase == platformv1alpha1.AgentRunPhaseCancelled {
+		return Result{Content: "cancelled AgentRuns cannot be woken", IsError: true}, nil
 	}
 	metadata, err := json.Marshal(map[string]string{"source": "maintainer", "maintainer_run": t.currentRunName})
 	if err != nil {

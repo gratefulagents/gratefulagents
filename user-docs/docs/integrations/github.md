@@ -57,7 +57,9 @@ The current Entry-point dialog exposes only the fields in the table. Trigger key
 
 Project runs can still clone repositories, create pull requests, and show pull-request links, checks, review decisions, and review threads in the run view. From a run with a diff, use **Create PR**, then use its **PR** tab to monitor the pull request.
 
-The Project's **PR review loop** setting controls autonomous reviewer runs for pull requests opened by future Project runs, including pull requests in additional repositories. It is disabled by default. When enabled, the control plane records pull-request monitoring state and polls active pull requests for review feedback and authorized `@agent` conversation comments. Reviewer completion and implementation follow-up wake the next review-loop step internally. Monitoring ends when the pull request is approved, blocked, cancelled, merged, or closed.
+The Project's **PR review loop** setting controls autonomous reviewer runs for pull requests opened by future Project runs, including pull requests in additional repositories. It is disabled by default. Pull-request lifecycle monitoring is independent of that setting: the control plane continues recording authoritative lifecycle, aggregate review, and head-bound CI facts after an AI review loop becomes approved, blocked, inactive, or cancelled. Feedback dispatch remains conditional on review-loop policy. Closed pull requests are observed periodically so reopening is detected; merged pull requests are terminal.
+
+GitHub App installations used for this monitoring must grant read access to **Checks** and **Commit statuses**, in addition to Metadata, Issues, and Pull requests. Existing App installations may need their permissions accepted again before private-repository CI facts can become fresh.
 
 The Project Entry-point UI does not expose repository-maintainer configuration. This page documents only GitHub behavior that is available from Projects and runs.
 

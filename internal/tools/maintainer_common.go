@@ -29,9 +29,15 @@ type maintainerToolBase struct {
 }
 
 type maintainerDispatchLedger struct {
-	Day    string `json:"day"`
-	Count  int    `json:"count"`
-	Issues []int  `json:"issues"`
+	Day     string                          `json:"day"`
+	Count   int                             `json:"count"`
+	Issues  []int                           `json:"issues"`
+	Pending []maintainerDispatchReservation `json:"pending,omitempty"`
+}
+
+type maintainerDispatchReservation struct {
+	Issue int    `json:"issue"`
+	Mode  string `json:"mode"`
 }
 
 func (b maintainerToolBase) currentRun(ctx context.Context) (*platformv1alpha1.AgentRun, error) {
@@ -134,12 +140,28 @@ func maintainerDispatchCaps(repository *triggersv1alpha1.GitHubRepository) (int3
 }
 
 func parseMaintainerLedger(run *platformv1alpha1.AgentRun, now time.Time) maintainerDispatchLedger {
-	ledger := maintainerDispatchLedger{Day: now.UTC().Format("2006-01-02"), Issues: []int{}}
+	day := now.UTC().Format("2006-01-02")
+	ledger := maintainerDispatchLedger{Day: day, Issues: []int{}, Pending: []maintainerDispatchReservation{}}
 	if run == nil || run.Annotations == nil {
 		return ledger
 	}
-	if err := json.Unmarshal([]byte(run.Annotations[triggersv1alpha1.MaintainerDispatchLedgerAnnotation]), &ledger); err != nil || ledger.Day != now.UTC().Format("2006-01-02") || ledger.Count < 0 {
-		return maintainerDispatchLedger{Day: now.UTC().Format("2006-01-02"), Issues: []int{}}
+	if err := json.Unmarshal([]byte(run.Annotations[triggersv1alpha1.MaintainerDispatchLedgerAnnotation]), &ledger); err != nil || ledger.Day != day || ledger.Count < 0 {
+		return maintainerDispatchLedger{Day: day, Issues: []int{}, Pending: []maintainerDispatchReservation{}}
+	}
+	if ledger.Issues == nil {
+		ledger.Issues = []int{}
+	}
+	if ledger.Pending == nil {
+		ledger.Pending = []maintainerDispatchReservation{}
 	}
 	return ledger
+}
+
+func maintainerLedgerHasIssue(ledger maintainerDispatchLedger, issueNumber int) bool {
+	for _, issue := range ledger.Issues {
+		if issue == issueNumber {
+			return true
+		}
+	}
+	return false
 }

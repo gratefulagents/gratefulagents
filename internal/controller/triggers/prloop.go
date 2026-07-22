@@ -429,6 +429,8 @@ func (e *PRLoopEngine) createReviewerRun(ctx context.Context, cfg *prLoopConfig,
 		Labels: map[string]string{
 			PRLoopRoleLabel:   PRLoopRoleReviewer,
 			PRLoopNumberLabel: fmt.Sprintf("%d", loop.Number),
+			triggersv1alpha1.MaintainerWorkItemNameLabelKey: implementer.Labels[triggersv1alpha1.MaintainerWorkItemNameLabelKey],
+			triggersv1alpha1.MaintainerWorkItemUIDLabelKey:  implementer.Labels[triggersv1alpha1.MaintainerWorkItemUIDLabelKey],
 		},
 		Annotations: annotations,
 	}}

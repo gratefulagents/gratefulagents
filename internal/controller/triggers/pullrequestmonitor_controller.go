@@ -29,6 +29,7 @@ const (
 	monitorOpenInterval      = 45 * time.Second
 	monitorResolvingInterval = 90 * time.Second
 	monitorPendingInterval   = 30 * time.Second
+	monitorClosedInterval    = 15 * time.Minute
 	monitorMaxBackoff        = 15 * time.Minute
 )
 
@@ -84,10 +85,6 @@ func (r *PullRequestMonitorReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err != nil {
 		return r.fail(ctx, monitor, "ValidationFailed", err, now)
 	}
-	if state, terminal := terminalMonitorState(run, monitor); terminal {
-		return r.stop(ctx, monitor, state, "Terminal", now)
-	}
-
 	repository, token, err := r.resolveAuth(ctx, monitor, run)
 	if err != nil {
 		return r.fail(ctx, monitor, "AuthenticationFailed", err, now)
@@ -101,48 +98,122 @@ func (r *PullRequestMonitorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		poller = newPullRequestGitHubPoller(github.NewClient(nil).WithAuthToken(token))
 	}
 
+	pullETag := monitor.Status.ETags.Pull
+	if monitor.Status.Lifecycle == "" || (!monitor.Status.OpenedDispatched && feedbackDispatchEnabled(run, repository)) {
+		// Opened delivery must be retryable. Force a body until its dispatch
+		// cursor is durable instead of allowing a 304 to suppress the event.
+		pullETag = ""
+	}
 	started := time.Now()
-	pull, response, err := poller.GetPullRequest(ctx, owner, repo, int(monitor.Spec.Number), monitor.Status.ETags.Pull)
+	pull, response, err := poller.GetPullRequest(ctx, owner, repo, int(monitor.Spec.Number), pullETag)
 	observePoll("pull", pollResult(response, err), time.Since(started))
 	r.observeResponse("pull", response)
 	if err != nil {
+		if statusErr := r.updateStatus(ctx, client.ObjectKeyFromObject(monitor), func(status *triggersv1alpha1.PullRequestMonitorStatus) {
+			status.PullObservedAt, status.PullError = metav1.NewTime(now), err.Error()
+		}); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
 		return r.failPoll(ctx, monitor, "PullRequest", err, response, now)
 	}
 	if response.StatusCode == http.StatusNotModified {
 		observeNotModified("pull")
+		if err := r.updateStatus(ctx, client.ObjectKeyFromObject(monitor), func(status *triggersv1alpha1.PullRequestMonitorStatus) {
+			status.PullObservedAt, status.PullError = metav1.NewTime(now), ""
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
+		monitor.Status.PullObservedAt, monitor.Status.PullError = metav1.NewTime(now), ""
 	}
 	if pull != nil && !strings.EqualFold(pull.URL, monitor.Spec.URL) {
 		return r.fail(ctx, monitor, "IdentityMismatch", fmt.Errorf("GitHub returned pull request URL %q, expected %q", pull.URL, monitor.Spec.URL), now)
 	}
-	if pull != nil && pull.Merged {
-		return r.stop(ctx, monitor, triggersv1alpha1.PullRequestMonitorStateMerged, "PullRequestMerged", now)
+	lifecycle, headSHA := monitor.Status.Lifecycle, monitor.Status.HeadSHA
+	if pull != nil {
+		headChanged := monitor.Status.HeadSHA != "" && monitor.Status.HeadSHA != pull.HeadSHA
+		lifecycle, headSHA = pullRequestLifecycle(pull), pull.HeadSHA
+		if err := r.updateStatus(ctx, client.ObjectKeyFromObject(monitor), func(status *triggersv1alpha1.PullRequestMonitorStatus) {
+			applyPullMetadata(status, pull, response)
+			status.Lifecycle = lifecycle
+			status.MergedAt = metav1.NewTime(pull.MergedAt)
+			status.Mergeability = pullRequestMergeability(pull)
+			status.PullObservedAt, status.PullError = metav1.NewTime(now), ""
+			if headChanged {
+				status.Checks, status.Statuses = triggersv1alpha1.PullRequestMonitorHeadRollup{}, triggersv1alpha1.PullRequestMonitorHeadRollup{}
+			}
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
+		monitor.Status.HeadSHA, monitor.Status.Lifecycle = pull.HeadSHA, lifecycle
 	}
-	if pull != nil && strings.EqualFold(pull.State, "closed") {
-		return r.stop(ctx, monitor, triggersv1alpha1.PullRequestMonitorStateClosed, "PullRequestClosed", now)
+	if lifecycle == triggersv1alpha1.PullRequestLifecycleMerged || lifecycle == triggersv1alpha1.PullRequestLifecycleClosed {
+		if err := r.updateStatus(ctx, client.ObjectKeyFromObject(monitor), func(status *triggersv1alpha1.PullRequestMonitorStatus) {
+			status.LastPollTime = ptrTime(now)
+			status.LastError = ""
+			status.ConsecutiveErrors = 0
+			status.RetryAfter = nil
+			meta.SetStatusCondition(&status.Conditions, metav1.Condition{Type: triggersv1alpha1.ConditionPullRequestMonitorReady, Status: metav1.ConditionTrue, Reason: "LifecycleObserved", ObservedGeneration: monitor.Generation, LastTransitionTime: metav1.NewTime(now)})
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
+		if lifecycle == triggersv1alpha1.PullRequestLifecycleMerged {
+			return ctrl.Result{}, nil
+		}
+		// GitHub permits reopening a closed pull request, so keep its lifecycle observation alive.
+		return ctrl.Result{RequeueAfter: jitter(monitorClosedInterval)}, nil
+	}
+	if headSHA == "" {
+		return r.fail(ctx, monitor, "PullRequestNotObserved", fmt.Errorf("pull request head SHA is unavailable"), now)
 	}
 
-	if pull != nil && !monitor.Status.OpenedDispatched {
+	if pull != nil && !monitor.Status.OpenedDispatched && monitor.Status.State != triggersv1alpha1.PullRequestMonitorStateInactive && feedbackDispatchEnabled(run, repository) {
 		event := pullRequestEvent(monitor, pull, PREventOpened)
 		handled, dispatchErr := r.dispatch(ctx, repository, event)
 		if dispatchErr != nil {
 			return r.fail(ctx, monitor, "DispatchOpened", dispatchErr, now)
 		}
-		if !handled {
-			return r.stop(ctx, monitor, triggersv1alpha1.PullRequestMonitorStateInactive, "LoopInactive", now)
-		}
 		if err := r.updateStatus(ctx, client.ObjectKeyFromObject(monitor), func(status *triggersv1alpha1.PullRequestMonitorStatus) {
-			applyPullMetadata(status, pull, response)
-			status.OpenedDispatched = true
-			status.State = monitorStateForRun(run, monitor)
+			status.OpenedDispatched = handled
+			if handled {
+				status.State = monitorStateForRun(run, monitor)
+			} else {
+				status.State = triggersv1alpha1.PullRequestMonitorStateInactive
+			}
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		if r.runTerminalAfterDispatch(ctx, run, monitor) {
-			return ctrl.Result{}, nil
+		monitor.Status.OpenedDispatched = handled
+		if !handled {
+			monitor.Status.State = triggersv1alpha1.PullRequestMonitorStateInactive
 		}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(monitor), monitor); err != nil {
-			return ctrl.Result{}, err
+	}
+
+	started = time.Now()
+	checks, checksResponse, err := poller.ListCheckRuns(ctx, owner, repo, headSHA)
+	observePoll("checks", pollResult(checksResponse, err), time.Since(started))
+	r.observeResponse("checks", checksResponse)
+	if err != nil {
+		if statusErr := r.recordHeadRollup(ctx, monitor, true, polledHeadRollup{HeadSHA: headSHA}, err, now); statusErr != nil {
+			return ctrl.Result{}, statusErr
 		}
+		return r.failPoll(ctx, monitor, "Checks", err, checksResponse, now)
+	}
+	if err := r.recordHeadRollup(ctx, monitor, true, checks, nil, now); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	started = time.Now()
+	statuses, statusesResponse, err := poller.GetCommitStatus(ctx, owner, repo, headSHA)
+	observePoll("statuses", pollResult(statusesResponse, err), time.Since(started))
+	r.observeResponse("statuses", statusesResponse)
+	if err != nil {
+		if statusErr := r.recordHeadRollup(ctx, monitor, false, polledHeadRollup{HeadSHA: headSHA}, err, now); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+		return r.failPoll(ctx, monitor, "Statuses", err, statusesResponse, now)
+	}
+	if err := r.recordHeadRollup(ctx, monitor, false, statuses, nil, now); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	discoveredAt := monitor.Spec.DiscoveredAt.Time
@@ -157,23 +228,43 @@ func (r *PullRequestMonitorReconciler) Reconcile(ctx context.Context, req ctrl.R
 	commentCursor := cursorOrInitial(monitor.Status.LastIssueCommentCursor, initial)
 
 	started = time.Now()
-	reviews, reviewResponse, err := poller.ListReviews(ctx, owner, repo, int(monitor.Spec.Number), reviewCursor.Timestamp.Time.Add(-time.Nanosecond))
+	reviews, reviewResponse, err := poller.ListReviews(ctx, owner, repo, int(monitor.Spec.Number), time.Time{})
 	observePoll("reviews", pollResult(reviewResponse, err), time.Since(started))
 	r.observeResponse("reviews", reviewResponse)
+	if err := r.recordReviewObservation(ctx, monitor, err, now); err != nil {
+		return ctrl.Result{}, err
+	}
 	if err != nil {
 		return r.failPoll(ctx, monitor, "Reviews", err, reviewResponse, now)
+	}
+	started = time.Now()
+	reviewDecision, decisionResponse, err := poller.GetReviewDecision(ctx, owner, repo, int(monitor.Spec.Number))
+	observePoll("review-decision", pollResult(decisionResponse, err), time.Since(started))
+	r.observeResponse("review-decision", decisionResponse)
+	if err := r.recordReviewObservation(ctx, monitor, err, now); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err != nil {
+		return r.failPoll(ctx, monitor, "ReviewDecision", err, decisionResponse, now)
 	}
 	started = time.Now()
 	comments, commentResponse, err := poller.ListIssueComments(ctx, owner, repo, int(monitor.Spec.Number), commentCursor.Timestamp.Time.Add(-time.Nanosecond))
 	observePoll("comments", pollResult(commentResponse, err), time.Since(started))
 	r.observeResponse("comments", commentResponse)
+	if err := r.recordCommentObservation(ctx, monitor, err, now); err != nil {
+		return ctrl.Result{}, err
+	}
 	if err != nil {
 		return r.failPoll(ctx, monitor, "Comments", err, commentResponse, now)
 	}
 
 	feedback := combinedFeedback(monitor, pull, reviews, comments, reviewCursor, commentCursor)
 	for _, item := range feedback {
-		handled, dispatchErr := r.dispatch(ctx, repository, item.event)
+		handled := false
+		var dispatchErr error
+		if monitor.Status.State != triggersv1alpha1.PullRequestMonitorStateInactive && feedbackDispatchEnabled(run, repository) {
+			handled, dispatchErr = r.dispatch(ctx, repository, item.event)
+		}
 		if dispatchErr != nil {
 			return r.fail(ctx, monitor, "DispatchFeedback", dispatchErr, now)
 		}
@@ -200,14 +291,11 @@ func (r *PullRequestMonitorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		if r.runTerminalAfterDispatch(ctx, run, monitor) {
-			return ctrl.Result{}, nil
-		}
 	}
 
-	nextPoll := jitter(intervalForState(monitorStateForRun(run, monitor)))
+	nextPoll := jitter(intervalForLifecycle(lifecycle, monitorStateForRun(run, monitor)))
 	rateLimited := false
-	for _, observed := range []gitHubPollResponse{response, reviewResponse, commentResponse} {
+	for _, observed := range []gitHubPollResponse{response, checksResponse, statusesResponse, reviewResponse, decisionResponse, commentResponse} {
 		if observed.RateLimit > 0 && observed.RateRemaining == 0 && observed.RateReset.After(now) && observed.RateReset.Sub(now) > nextPoll {
 			nextPoll = observed.RateReset.Sub(now)
 			rateLimited = true
@@ -227,11 +315,12 @@ func (r *PullRequestMonitorReconciler) Reconcile(ctx context.Context, req ctrl.R
 			status.LastIssueCommentCursor = commentCursor
 		}
 		status.State = monitorStateForRun(run, monitor)
+		status.ReviewDecision = reviewDecision
 		status.LastPollTime = ptrTime(now)
 		status.LastError = ""
 		status.ConsecutiveErrors = 0
 		status.RetryAfter = nil
-		applyRate(status, response, reviewResponse, commentResponse)
+		applyRate(status, response, checksResponse, statusesResponse, reviewResponse, decisionResponse, commentResponse)
 		meta.SetStatusCondition(&status.Conditions, metav1.Condition{Type: triggersv1alpha1.ConditionPullRequestMonitorReady, Status: metav1.ConditionTrue, Reason: "Polling", ObservedGeneration: monitor.Generation, LastTransitionTime: metav1.NewTime(now)})
 	}); err != nil {
 		return ctrl.Result{}, err
@@ -367,67 +456,34 @@ func (r *PullRequestMonitorReconciler) dispatch(ctx context.Context, repository 
 	return r.Engine.HandlePullRequestEvent(ctx, repository, event)
 }
 
-func (r *PullRequestMonitorReconciler) runTerminalAfterDispatch(ctx context.Context, run *platformv1alpha1.AgentRun, monitor *triggersv1alpha1.PullRequestMonitor) bool {
-	if err := r.Get(ctx, client.ObjectKeyFromObject(run), run); err != nil {
-		return false
-	}
-	state, terminal := terminalMonitorState(run, monitor)
-	if !terminal {
-		return false
-	}
-	_, _ = r.stop(ctx, monitor, state, "TerminalAfterDispatch", time.Now())
-	return true
+func feedbackDispatchEnabled(run *platformv1alpha1.AgentRun, repository *triggersv1alpha1.GitHubRepository) bool {
+	return !reviewLoopDisabledForRun(run, repository)
 }
 
-func terminalMonitorState(run *platformv1alpha1.AgentRun, monitor *triggersv1alpha1.PullRequestMonitor) (triggersv1alpha1.PullRequestMonitorState, bool) {
+func monitorStateForRun(run *platformv1alpha1.AgentRun, monitor *triggersv1alpha1.PullRequestMonitor) triggersv1alpha1.PullRequestMonitorState {
 	if monitor != nil {
 		switch monitor.Status.State {
-		case triggersv1alpha1.PullRequestMonitorStateApproved, triggersv1alpha1.PullRequestMonitorStateBlocked, triggersv1alpha1.PullRequestMonitorStateMerged, triggersv1alpha1.PullRequestMonitorStateClosed, triggersv1alpha1.PullRequestMonitorStateCancelled, triggersv1alpha1.PullRequestMonitorStateInactive:
-			return monitor.Status.State, true
+		case triggersv1alpha1.PullRequestMonitorStateApproved, triggersv1alpha1.PullRequestMonitorStateBlocked, triggersv1alpha1.PullRequestMonitorStateCancelled, triggersv1alpha1.PullRequestMonitorStateInactive:
+			return monitor.Status.State
 		}
 	}
 	if run.Status.Phase == platformv1alpha1.AgentRunPhaseCancelled {
-		return triggersv1alpha1.PullRequestMonitorStateCancelled, true
+		return triggersv1alpha1.PullRequestMonitorStateCancelled
 	}
 	loopKey := ""
 	if monitor != nil {
 		loopKey = prLoopKey(monitor.Spec.Repository, int(monitor.Spec.Number))
 	}
 	switch loopState(run, loopKey, PRLoopStateLabel) {
-	case PRLoopStateApproved:
-		return triggersv1alpha1.PullRequestMonitorStateApproved, true
-	case PRLoopStateBlocked:
-		return triggersv1alpha1.PullRequestMonitorStateBlocked, true
-	}
-	return "", false
-}
-
-func monitorStateForRun(run *platformv1alpha1.AgentRun, monitor *triggersv1alpha1.PullRequestMonitor) triggersv1alpha1.PullRequestMonitorState {
-	loopKey := ""
-	if monitor != nil {
-		loopKey = prLoopKey(monitor.Spec.Repository, int(monitor.Spec.Number))
-	}
-	if loopState(run, loopKey, PRLoopStateLabel) == PRLoopStateResolving {
+	case PRLoopStateResolving:
 		return triggersv1alpha1.PullRequestMonitorStateResolving
+	case PRLoopStateApproved:
+		return triggersv1alpha1.PullRequestMonitorStateApproved
+	case PRLoopStateBlocked:
+		return triggersv1alpha1.PullRequestMonitorStateBlocked
+	default:
+		return triggersv1alpha1.PullRequestMonitorStateOpen
 	}
-	return triggersv1alpha1.PullRequestMonitorStateOpen
-}
-
-func (r *PullRequestMonitorReconciler) stop(ctx context.Context, monitor *triggersv1alpha1.PullRequestMonitor, state triggersv1alpha1.PullRequestMonitorState, reason string, now time.Time) (ctrl.Result, error) {
-	changed := monitor.Status.State != state
-	err := r.updateStatus(ctx, client.ObjectKeyFromObject(monitor), func(status *triggersv1alpha1.PullRequestMonitorStatus) {
-		status.State, status.RetryAfter = state, nil
-		status.LastError = ""
-		meta.SetStatusCondition(&status.Conditions, metav1.Condition{Type: triggersv1alpha1.ConditionPullRequestMonitorReady, Status: metav1.ConditionFalse, Reason: reason, ObservedGeneration: monitor.Generation, LastTransitionTime: metav1.NewTime(now)})
-	})
-	if err == nil && changed {
-		observeTerminalStop(string(state))
-		observeMonitorStopped(client.ObjectKeyFromObject(monitor).String())
-		if r.Recorder != nil {
-			r.Recorder.Eventf(monitor, corev1.EventTypeNormal, reason, "Stopped pull request monitoring in state %s", state)
-		}
-	}
-	return ctrl.Result{}, err
 }
 
 func (r *PullRequestMonitorReconciler) fail(ctx context.Context, monitor *triggersv1alpha1.PullRequestMonitor, reason string, cause error, now time.Time) (ctrl.Result, error) {
@@ -491,6 +547,91 @@ func (r *PullRequestMonitorReconciler) observeResponse(endpoint string, response
 	}
 }
 
+func pullRequestLifecycle(pull *polledPullRequest) triggersv1alpha1.PullRequestLifecycle {
+	if pull.Merged {
+		return triggersv1alpha1.PullRequestLifecycleMerged
+	}
+	if strings.EqualFold(pull.State, "closed") {
+		return triggersv1alpha1.PullRequestLifecycleClosed
+	}
+	if pull.Draft {
+		return triggersv1alpha1.PullRequestLifecycleDraft
+	}
+	return triggersv1alpha1.PullRequestLifecycleOpen
+}
+
+func pullRequestMergeability(pull *polledPullRequest) triggersv1alpha1.PullRequestMergeability {
+	if !pull.MergeableKnown || strings.EqualFold(pull.MergeableState, "unknown") {
+		return triggersv1alpha1.PullRequestMergeabilityUnknown
+	}
+	if pull.Mergeable {
+		return triggersv1alpha1.PullRequestMergeabilityMergeable
+	}
+	return triggersv1alpha1.PullRequestMergeabilityConflicting
+}
+
+func aggregateReviewDecision(reviews []polledPullRequestReview) triggersv1alpha1.PullRequestReviewDecision {
+	latest := map[string]polledPullRequestReview{}
+	for _, review := range reviews {
+		login := strings.ToLower(strings.TrimSpace(review.AuthorLogin))
+		if login == "" || review.SubmittedAt.IsZero() {
+			continue
+		}
+		current, ok := latest[login]
+		if !ok || review.SubmittedAt.After(current.SubmittedAt) || review.SubmittedAt.Equal(current.SubmittedAt) && review.ID > current.ID {
+			latest[login] = review
+		}
+	}
+	if len(latest) == 0 {
+		return triggersv1alpha1.PullRequestReviewDecisionReviewRequired
+	}
+	approved := false
+	for _, review := range latest {
+		switch strings.ToLower(review.State) {
+		case "changes_requested":
+			return triggersv1alpha1.PullRequestReviewDecisionChangesRequested
+		case "approved":
+			approved = true
+		}
+	}
+	if approved {
+		return triggersv1alpha1.PullRequestReviewDecisionApproved
+	}
+	return triggersv1alpha1.PullRequestReviewDecisionReviewRequired
+}
+
+func (r *PullRequestMonitorReconciler) recordHeadRollup(ctx context.Context, monitor *triggersv1alpha1.PullRequestMonitor, checks bool, rollup polledHeadRollup, cause error, now time.Time) error {
+	return r.updateStatus(ctx, client.ObjectKeyFromObject(monitor), func(status *triggersv1alpha1.PullRequestMonitorStatus) {
+		value := triggersv1alpha1.PullRequestMonitorHeadRollup{HeadSHA: rollup.HeadSHA, State: rollup.State, Count: int32(rollup.Count), ObservedAt: metav1.NewTime(now)}
+		if cause != nil {
+			value.Error = cause.Error()
+		}
+		if checks {
+			status.Checks = value
+		} else {
+			status.Statuses = value
+		}
+	})
+}
+
+func (r *PullRequestMonitorReconciler) recordReviewObservation(ctx context.Context, monitor *triggersv1alpha1.PullRequestMonitor, cause error, now time.Time) error {
+	return r.updateStatus(ctx, client.ObjectKeyFromObject(monitor), func(status *triggersv1alpha1.PullRequestMonitorStatus) {
+		status.ReviewsObservedAt, status.ReviewsError = metav1.NewTime(now), ""
+		if cause != nil {
+			status.ReviewsError = cause.Error()
+		}
+	})
+}
+
+func (r *PullRequestMonitorReconciler) recordCommentObservation(ctx context.Context, monitor *triggersv1alpha1.PullRequestMonitor, cause error, now time.Time) error {
+	return r.updateStatus(ctx, client.ObjectKeyFromObject(monitor), func(status *triggersv1alpha1.PullRequestMonitorStatus) {
+		status.CommentsObservedAt, status.CommentsError = metav1.NewTime(now), ""
+		if cause != nil {
+			status.CommentsError = cause.Error()
+		}
+	})
+}
+
 func applyPullMetadata(status *triggersv1alpha1.PullRequestMonitorStatus, pull *polledPullRequest, response gitHubPollResponse) {
 	status.Title, status.HeadRef, status.HeadSHA, status.BaseRef, status.AuthorLogin = pull.Title, pull.HeadRef, pull.HeadSHA, pull.BaseRef, pull.AuthorLogin
 	if response.ETag != "" {
@@ -535,11 +676,18 @@ func pollResult(response gitHubPollResponse, err error) string {
 	return "success"
 }
 
+func intervalForLifecycle(lifecycle triggersv1alpha1.PullRequestLifecycle, state triggersv1alpha1.PullRequestMonitorState) time.Duration {
+	if lifecycle == triggersv1alpha1.PullRequestLifecycleClosed {
+		return monitorClosedInterval
+	}
+	return intervalForState(state)
+}
+
 func intervalForState(state triggersv1alpha1.PullRequestMonitorState) time.Duration {
 	switch state {
 	case triggersv1alpha1.PullRequestMonitorStateResolving:
 		return monitorResolvingInterval
-	case triggersv1alpha1.PullRequestMonitorStateOpen:
+	case triggersv1alpha1.PullRequestMonitorStateOpen, triggersv1alpha1.PullRequestMonitorStateApproved, triggersv1alpha1.PullRequestMonitorStateBlocked, triggersv1alpha1.PullRequestMonitorStateCancelled, triggersv1alpha1.PullRequestMonitorStateInactive:
 		return monitorOpenInterval
 	default:
 		return monitorPendingInterval

@@ -15,6 +15,13 @@ import (
 	"time"
 )
 
+func TestPullRequestPollingPermissionsIncludeHeadBoundCI(t *testing.T) {
+	permissions := PullRequestPollingInstallationPermissions()
+	if permissions.GetChecks() != "read" || permissions.GetStatuses() != "read" || permissions.GetPullRequests() != "read" {
+		t.Fatalf("polling permissions = %#v", permissions)
+	}
+}
+
 func TestMinterMintsAndCachesInstallationToken(t *testing.T) {
 	now := time.Date(2026, 6, 10, 10, 0, 0, 0, time.UTC)
 	calls := 0

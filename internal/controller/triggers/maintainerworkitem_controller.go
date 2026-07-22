@@ -32,6 +32,7 @@ type GitHubTriageClient interface {
 	CreateIssueComment(context.Context, string, string, int, *github.IssueComment) (*github.IssueComment, *github.Response, error)
 	EditIssueComment(context.Context, string, string, int64, *github.IssueComment) (*github.IssueComment, *github.Response, error)
 	GetIssue(context.Context, string, string, int) (*github.Issue, *github.Response, error)
+	AddLabelsToIssue(context.Context, string, string, int, []string) ([]*github.Label, *github.Response, error)
 	EditIssue(context.Context, string, string, int, *github.IssueRequest) (*github.Issue, *github.Response, error)
 }
 
@@ -55,6 +56,10 @@ func (a githubTriageAdapter) GetIssue(ctx context.Context, owner, repo string, n
 	return a.issues.Get(ctx, owner, repo, number)
 }
 
+func (a githubTriageAdapter) AddLabelsToIssue(ctx context.Context, owner, repo string, number int, labels []string) ([]*github.Label, *github.Response, error) {
+	return a.issues.AddLabelsToIssue(ctx, owner, repo, number, labels)
+}
+
 func (a githubTriageAdapter) EditIssue(ctx context.Context, owner, repo string, number int, request *github.IssueRequest) (*github.Issue, *github.Response, error) {
 	return a.issues.Edit(ctx, owner, repo, number, request)
 }
@@ -76,6 +81,13 @@ func MaintainerWorkItemCommandPayloadHash(commandType triggersv1alpha1.Maintaine
 
 func maintainerWorkItemsEnabled(r *GitHubRepositoryReconciler, repository *triggersv1alpha1.GitHubRepository) bool {
 	return r != nil && r.MaintainerEnabled && repository != nil && repository.Spec.Maintainer != nil && !repository.Spec.Maintainer.Disabled
+}
+
+func (r *GitHubRepositoryReconciler) maintainerReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, issues []*github.Issue, issueListComplete bool) error {
@@ -270,6 +282,9 @@ func maintainerObservationEqual(left *triggersv1alpha1.MaintainerIssueObservatio
 }
 
 func maintainerWorkItemPhase(item *triggersv1alpha1.MaintainerWorkItem) triggersv1alpha1.MaintainerWorkItemPhase {
+	if item.Status.Phase != "" && item.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhasePendingTriage && item.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseTriaged {
+		return item.Status.Phase
+	}
 	if item.Spec.Disposition != "" {
 		return triggersv1alpha1.MaintainerWorkItemPhaseTriaged
 	}
@@ -294,22 +309,49 @@ func setMaintainerWorkItemCondition(conditions *[]metav1.Condition, desired meta
 }
 
 func maintainerWorkItemStatusSemanticallyEqual(left, right *triggersv1alpha1.MaintainerWorkItemStatus) bool {
-	if left.Phase != right.Phase || !maintainerObservationEqual(left.IssueObservation, right.IssueObservation) {
-		return false
+	if left == nil || right == nil {
+		return left == right
 	}
-	if len(left.Conditions) != len(right.Conditions) {
-		return false
-	}
-	leftConditions := append([]metav1.Condition(nil), left.Conditions...)
-	rightConditions := append([]metav1.Condition(nil), right.Conditions...)
-	sort.Slice(leftConditions, func(i, j int) bool { return leftConditions[i].Type < leftConditions[j].Type })
-	sort.Slice(rightConditions, func(i, j int) bool { return rightConditions[i].Type < rightConditions[j].Type })
-	for i := range leftConditions {
-		if leftConditions[i].Type != rightConditions[i].Type || leftConditions[i].Status != rightConditions[i].Status || leftConditions[i].Reason != rightConditions[i].Reason || leftConditions[i].Message != rightConditions[i].Message {
-			return false
+	leftCopy, rightCopy := left.DeepCopy(), right.DeepCopy()
+	normalize := func(status *triggersv1alpha1.MaintainerWorkItemStatus) {
+		status.ProjectionSequence = 0
+		if status.IssueObservation != nil {
+			status.IssueObservation.ObservedAt = metav1.Time{}
 		}
+		if status.Readiness != nil {
+			status.Readiness.ObservedAt = nil
+		}
+		for i := range status.Children {
+			status.Children[i].ObservedAt = nil
+		}
+		for i := range status.Dependencies {
+			status.Dependencies[i].ObservedAt = nil
+		}
+		for i := range status.AgentRuns {
+			status.AgentRuns[i].ObservedAt = nil
+		}
+		for i := range status.Conditions {
+			status.Conditions[i].LastTransitionTime = metav1.Time{}
+		}
+		sort.Slice(status.Conditions, func(i, j int) bool { return status.Conditions[i].Type < status.Conditions[j].Type })
 	}
-	return true
+	normalize(leftCopy)
+	normalize(rightCopy)
+	return equality.Semantic.DeepEqual(leftCopy, rightCopy)
+}
+
+func (r *GitHubRepositoryReconciler) retryMaintainerWorkItemStatusMutation(ctx context.Context, key client.ObjectKey, mutate func(*triggersv1alpha1.MaintainerWorkItem) (bool, error)) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		item := &triggersv1alpha1.MaintainerWorkItem{}
+		if err := r.maintainerReader().Get(ctx, key, item); err != nil {
+			return err
+		}
+		changed, err := mutate(item)
+		if err != nil || !changed {
+			return err
+		}
+		return r.Client.Status().Update(ctx, item)
+	})
 }
 
 func retryMaintainerWorkItemStatusUpdate(ctx context.Context, c client.Client, key client.ObjectKey, mutate func(*triggersv1alpha1.MaintainerWorkItem) bool) error {
@@ -374,6 +416,9 @@ func (r *GitHubRepositoryReconciler) processMaintainerWorkItemCommand(ctx contex
 			return err
 		}
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, rejected.message)
+	}
+	if command.Spec.Type != triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue {
+		return r.processMaintainerExecutionCommand(ctx, repository, command, item, githubClient, pending)
 	}
 
 	if pending {
@@ -440,61 +485,80 @@ func (r *GitHubRepositoryReconciler) validateMaintainerWorkItemCommand(ctx conte
 	if !metav1.IsControlledBy(command, repository) {
 		return nil, rejectMaintainerCommand("command is not controller-owned by GitHubRepository")
 	}
-	if command.Spec.Type != triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue || command.Spec.Triage == nil {
-		return nil, rejectMaintainerCommand("unsupported or incomplete command payload")
+	issueNumber, err := validateMaintainerCommandPayload(command)
+	if err != nil {
+		return nil, err
 	}
-	if command.Spec.PayloadHash != MaintainerWorkItemCommandPayloadHash(command.Spec.Type, command.Spec.Triage, command.Spec.Preconditions) {
+	expectedHash := triggersv1alpha1.MaintainerWorkItemCommandSpecPayloadHash(command.Spec)
+	if command.Spec.Type == triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue {
+		expectedHash = MaintainerWorkItemCommandPayloadHash(command.Spec.Type, command.Spec.Triage, command.Spec.Preconditions)
+	}
+	if command.Spec.PayloadHash != expectedHash {
 		return nil, rejectMaintainerCommand("payloadHash does not match command payload")
-	}
-	if command.Spec.Triage.IssueNumber < 1 {
-		return nil, rejectMaintainerCommand("triage issueNumber must be positive")
-	}
-	if strings.TrimSpace(command.Spec.Triage.EvidenceSummary) == "" {
-		return nil, rejectMaintainerCommand("triage evidenceSummary is required")
-	}
-	switch command.Spec.Triage.Disposition {
-	case triggersv1alpha1.MaintainerWorkItemDispositionNotActionable:
-		if command.Spec.Triage.CloseReason == nil {
-			return nil, rejectMaintainerCommand("NotActionable triage requires closeReason")
-		}
-	case triggersv1alpha1.MaintainerWorkItemDispositionBounded,
-		triggersv1alpha1.MaintainerWorkItemDispositionDecomposable,
-		triggersv1alpha1.MaintainerWorkItemDispositionDiscovery,
-		triggersv1alpha1.MaintainerWorkItemDispositionEscalated:
-		if command.Spec.Triage.CloseReason != nil {
-			return nil, rejectMaintainerCommand("closeReason is only valid for NotActionable triage")
-		}
-	default:
-		return nil, rejectMaintainerCommand("unsupported triage disposition")
 	}
 	if err := r.authorizeMaintainerCommand(ctx, repository, command); err != nil {
 		return nil, err
 	}
-
-	name := MaintainerWorkItemName(repository.Name, command.Spec.Triage.IssueNumber)
+	name := MaintainerWorkItemName(repository.Name, issueNumber)
 	if command.Spec.Preconditions.WorkItemName != name {
-		return nil, rejectMaintainerCommand("precondition workItemName does not match triage issue")
+		return nil, rejectMaintainerCommand("precondition workItemName does not match command issue")
 	}
 	item := &triggersv1alpha1.MaintainerWorkItem{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: name}, item); err != nil {
+	if err := r.maintainerReader().Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: name}, item); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, rejectMaintainerCommand("work item does not exist")
 		}
 		return nil, fmt.Errorf("getting maintainer work item: %w", err)
 	}
-	if item.Spec.RepositoryRef.Name != repository.Name || item.Spec.IssueNumber != command.Spec.Triage.IssueNumber {
+	if item.Spec.RepositoryRef.Name != repository.Name || item.Spec.IssueNumber != issueNumber {
 		return nil, rejectMaintainerCommand("work item does not match command issue")
 	}
-	if !requirePreconditions && !maintainerTriageAlreadyApplied(item, command) {
+	alreadyApplied := maintainerCommandAlreadyApplied(item, command)
+	if !requirePreconditions && command.Spec.Type == triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue && !alreadyApplied {
 		return nil, rejectMaintainerCommand("command was superseded by newer triage intent; " + currentProjectionMessage(item))
 	}
-	if requirePreconditions && !maintainerWorkItemObservationIsFresh(item) {
+	if requirePreconditions && !alreadyApplied && !maintainerWorkItemObservationIsFresh(item) {
 		return nil, rejectMaintainerCommand("work item issue observation is not fresh; " + currentProjectionMessage(item))
 	}
-	if requirePreconditions && !maintainerTriageAlreadyApplied(item, command) && (item.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence || item.ResourceVersion != command.Spec.Preconditions.ResourceVersion) {
+	if requirePreconditions && !alreadyApplied && (item.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence || item.ResourceVersion != command.Spec.Preconditions.ResourceVersion) {
 		return nil, rejectMaintainerCommand(currentProjectionMessage(item))
 	}
 	return item, nil
+}
+
+func validateMaintainerCommandPayload(command *triggersv1alpha1.MaintainerWorkItemCommand) (int32, error) {
+	if command == nil {
+		return 0, rejectMaintainerCommand("command is nil")
+	}
+	switch command.Spec.Type {
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue:
+		if command.Spec.Triage == nil || command.Spec.Triage.IssueNumber < 1 || strings.TrimSpace(command.Spec.Triage.EvidenceSummary) == "" {
+			return 0, rejectMaintainerCommand("incomplete triage payload")
+		}
+		return command.Spec.Triage.IssueNumber, nil
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeBreakdownIssue:
+		if command.Spec.Breakdown == nil || command.Spec.Breakdown.IssueNumber < 1 || len(command.Spec.Breakdown.Children) == 0 {
+			return 0, rejectMaintainerCommand("incomplete breakdown payload")
+		}
+		return command.Spec.Breakdown.IssueNumber, nil
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeRequestDecision:
+		if command.Spec.RequestDecision == nil || command.Spec.RequestDecision.IssueNumber < 1 || strings.TrimSpace(command.Spec.RequestDecision.DecisionID) == "" || strings.TrimSpace(command.Spec.RequestDecision.Question) == "" {
+			return 0, rejectMaintainerCommand("incomplete requestDecision payload")
+		}
+		return command.Spec.RequestDecision.IssueNumber, nil
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision:
+		if command.Spec.ResolveDecision == nil || command.Spec.ResolveDecision.IssueNumber < 1 || strings.TrimSpace(command.Spec.ResolveDecision.DecisionID) == "" || strings.TrimSpace(command.Spec.ResolveDecision.HumanAnswer.Subject) == "" || strings.TrimSpace(command.Spec.ResolveDecision.HumanAnswer.Answer) == "" {
+			return 0, rejectMaintainerCommand("incomplete authenticated resolveDecision payload")
+		}
+		return command.Spec.ResolveDecision.IssueNumber, nil
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem:
+		if command.Spec.Dispatch == nil || command.Spec.Dispatch.IssueNumber < 1 || strings.TrimSpace(command.Spec.Dispatch.Mode) == "" {
+			return 0, rejectMaintainerCommand("incomplete dispatch payload")
+		}
+		return command.Spec.Dispatch.IssueNumber, nil
+	default:
+		return 0, rejectMaintainerCommand("unsupported command type")
+	}
 }
 
 func (r *GitHubRepositoryReconciler) authorizeMaintainerCommand(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand) error {
@@ -586,6 +650,26 @@ func (r *GitHubRepositoryReconciler) applyMaintainerTriageIntent(ctx context.Con
 
 func maintainerTriageAlreadyApplied(item *triggersv1alpha1.MaintainerWorkItem, command *triggersv1alpha1.MaintainerWorkItemCommand) bool {
 	return item.Spec.TriagedByCommand != nil && item.Spec.TriagedByCommand.Name == command.Name && item.Spec.Disposition == command.Spec.Triage.Disposition && item.Spec.EvidenceSummary == command.Spec.Triage.EvidenceSummary && equality.Semantic.DeepEqual(item.Spec.AcceptedScope, &command.Spec.Triage.AcceptedScope) && equality.Semantic.DeepEqual(item.Spec.CloseReason, command.Spec.Triage.CloseReason)
+}
+
+func maintainerCommandAlreadyApplied(item *triggersv1alpha1.MaintainerWorkItem, command *triggersv1alpha1.MaintainerWorkItemCommand) bool {
+	if item == nil || command == nil {
+		return false
+	}
+	switch command.Spec.Type {
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue:
+		return command.Spec.Triage != nil && maintainerTriageAlreadyApplied(item, command)
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeBreakdownIssue:
+		return command.Spec.Breakdown != nil && equality.Semantic.DeepEqual(item.Spec.Children, command.Spec.Breakdown.Children) && equality.Semantic.DeepEqual(item.Spec.Dependencies, command.Spec.Breakdown.Dependencies)
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeRequestDecision:
+		return item.Status.PendingDecision != nil && item.Status.PendingDecision.RequestedByCommand != nil && item.Status.PendingDecision.RequestedByCommand.Name == command.Name
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision:
+		return item.Status.ResolvedDecision != nil && item.Status.ResolvedDecision.ResolvedByCommand.Name == command.Name
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem:
+		return item.Status.DispatchReservation != nil && item.Status.DispatchReservation.CommandRef.Name == command.Name
+	default:
+		return false
+	}
 }
 
 func (r *GitHubRepositoryReconciler) markMaintainerWorkItemTriaged(ctx context.Context, key client.ObjectKey, commandName string) error {

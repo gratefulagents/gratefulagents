@@ -233,6 +233,11 @@ func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifi
 			Verbs:     []string{"create", "get", "list", "watch"},
 		},
 		rbacv1.PolicyRule{
+			APIGroups: []string{"triggers.gratefulagents.dev"},
+			Resources: []string{"pullrequestmonitors"},
+			Verbs:     []string{"get", "list", "watch"},
+		},
+		rbacv1.PolicyRule{
 			APIGroups: []string{"platform.gratefulagents.dev"},
 			Resources: []string{"modetemplates"},
 			Verbs:     []string{"get", "list"},

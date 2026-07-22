@@ -70,6 +70,37 @@ func TestGetPullRequestReturnsNilValueForNotModified(t *testing.T) {
 	}
 }
 
+func TestHeadRollupsAreBoundToRequestedSHA(t *testing.T) {
+	const sha = "abc123"
+	poller, server := newGitHubPollTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/widgets/commits/abc123/check-runs":
+			fmt.Fprint(w, `{"total_count":2,"check_runs":[{"status":"completed","conclusion":"success"},{"status":"in_progress"}]}`)
+		case "/repos/acme/widgets/commits/abc123/status":
+			fmt.Fprint(w, `{"sha":"abc123","state":"success","statuses":[{"context":"legacy","state":"success"}]}`)
+		default:
+			t.Errorf("path = %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	checks, _, err := poller.ListCheckRuns(context.Background(), "acme", "widgets", sha)
+	if err != nil {
+		t.Fatalf("ListCheckRuns() error = %v", err)
+	}
+	if checks.HeadSHA != sha || checks.State != "pending" {
+		t.Fatalf("check rollup = %#v, want pending for %s", checks, sha)
+	}
+	statuses, _, err := poller.GetCommitStatus(context.Background(), "acme", "widgets", sha)
+	if err != nil {
+		t.Fatalf("GetCommitStatus() error = %v", err)
+	}
+	if statuses.HeadSHA != sha || statuses.State != "success" {
+		t.Fatalf("status rollup = %#v, want success for %s", statuses, sha)
+	}
+}
+
 func TestListIssueCommentsUsesSinceOverlapAndDoesNotRetainCollectionETag(t *testing.T) {
 	after := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	poller, server := newGitHubPollTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

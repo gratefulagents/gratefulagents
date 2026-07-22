@@ -9,7 +9,7 @@ import (
 func TestMaintainerWorkItemCRDHelmParity(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"maintainerworkitems", "maintainerworkitemcommands"} {
+	for _, name := range []string{"maintainerworkitems", "maintainerworkitemcommands", "pullrequestmonitors"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			generated, err := os.ReadFile("../../config/crd/bases/triggers.gratefulagents.dev_" + name + ".yaml")

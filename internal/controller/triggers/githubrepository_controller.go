@@ -39,6 +39,7 @@ var ghNonAlphaNum = regexp.MustCompile(`[^a-z0-9-]`)
 
 type GitHubRepositoryReconciler struct {
 	client.Client
+	APIReader         client.Reader
 	Scheme            *runtime.Scheme
 	StateStore        store.StateStore
 	GitHubAppMinter   gitHubAppTokenMinter
@@ -51,6 +52,7 @@ type GitHubRepositoryReconciler struct {
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=githubrepositories,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=githubrepositories/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=maintainerworkitems;maintainerworkitemcommands,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=pullrequestmonitors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=maintainerworkitems/status;maintainerworkitemcommands/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=agentruns,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;create;update;patch
@@ -103,7 +105,13 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if triageClient == nil {
 			triageClient = githubTriageAdapter{issues: ghClient.Issues}
 		}
+		if err := r.reconcileMaintainerExecutionProjection(ctx, gh); err != nil {
+			return ctrl.Result{}, err
+		}
 		if err := r.reconcileMaintainerWorkItemCommands(ctx, gh, triageClient); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.reconcileMaintainerExecutionProjection(ctx, gh); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -292,6 +300,12 @@ func (r *GitHubRepositoryReconciler) createAgentRun(ctx context.Context, gh *tri
 		}
 	}
 
+	workItemLabels := map[string]string{}
+	workItem := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: gh.Namespace, Name: MaintainerWorkItemName(gh.Name, int32(issueNumber))}, workItem); err == nil {
+		workItemLabels[triggersv1alpha1.MaintainerWorkItemNameLabelKey] = workItem.Name
+		workItemLabels[triggersv1alpha1.MaintainerWorkItemUIDLabelKey] = string(workItem.UID)
+	}
 	createdRun, _, err := CreateTriggerRun(ctx, r.Client, r.StateStore, TriggerRunSpec{
 		RunName:                      runName,
 		Namespace:                    gh.Namespace,
@@ -305,6 +319,7 @@ func (r *GitHubRepositoryReconciler) createAgentRun(ctx context.Context, gh *tri
 		OwnerRef:                     gh,
 		Scheme:                       r.Scheme,
 		Annotations:                  annotations,
+		Labels:                       workItemLabels,
 		Context:                      runContext,
 		ModeRef:                      modeRef,
 		GitHubTokenSecret:            gitHubTokenSecret,
