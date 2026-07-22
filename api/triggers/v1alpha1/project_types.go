@@ -6,7 +6,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // ProjectSpec defines the desired state of Project.
 type ProjectSpec struct {
@@ -276,4 +282,42 @@ type ProjectList struct {
 
 func init() {
 	SchemeBuilder.Register(&Project{}, &ProjectList{})
+}
+
+// ProjectGeneratedChildName returns the deterministic name of the child
+// resource the Project controller generates for one trigger (GitHubRepository,
+// SlackAgent, Cron, or LinearProject).
+func ProjectGeneratedChildName(projectName, triggerName string) string {
+	return projectGeneratedDNSName("project-" + projectName + "-" + triggerName)
+}
+
+// projectGeneratedDNSName lowercases and squashes the input into a DNS-1123
+// compatible resource name capped at 63 characters, disambiguating truncated
+// names with a content hash. Must stay in sync with nothing: the Project
+// controller delegates here.
+func projectGeneratedDNSName(value string) string {
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(value) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	name := strings.Trim(b.String(), "-")
+	if name == "" {
+		name = "project"
+	}
+	if len(name) <= 63 {
+		return name
+	}
+	sum := sha256.Sum256([]byte(value))
+	suffix := hex.EncodeToString(sum[:])[:8]
+	return strings.TrimRight(name[:63-len(suffix)-1], "-") + "-" + suffix
 }

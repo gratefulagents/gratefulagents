@@ -2423,6 +2423,10 @@ message ProjectTrigger {
   // Maintainer status mirrored from the generated GitHubRepository child
   // (github triggers only; empty when the maintainer is disabled).
   GitHubRepositoryMaintainerStatus maintainer_status = 13;
+  // Name of the generated child resource backing this trigger
+  // (GitHubRepository, SlackAgent, Cron, or LinearProject). Lets clients
+  // query child-scoped read models such as ListMaintainerWorkItems.
+  string generated_resource_name = 14;
 }
 
 message CreateProjectTriggerRequest {

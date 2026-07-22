@@ -62,19 +62,23 @@ func k8sProjectToProto(p *triggersv1alpha1.Project) *platform.Project {
 		statuses[status.Name] = status
 	}
 	for _, trigger := range p.Spec.Triggers {
-		pb.Triggers = append(pb.Triggers, projectTriggerToProto(trigger, statuses[trigger.Name]))
+		pb.Triggers = append(pb.Triggers, projectTriggerToProto(p.Name, trigger, statuses[trigger.Name]))
 	}
 
 	return pb
 }
 
-func projectTriggerToProto(trigger triggersv1alpha1.ProjectTrigger, status triggersv1alpha1.ProjectTriggerStatus) *platform.ProjectTrigger {
+func projectTriggerToProto(projectName string, trigger triggersv1alpha1.ProjectTrigger, status triggersv1alpha1.ProjectTriggerStatus) *platform.ProjectTrigger {
 	pb := &platform.ProjectTrigger{
 		Name:               trigger.Name,
 		Type:               string(trigger.Type),
 		ObservedGeneration: status.ObservedGeneration,
 		LastError:          status.LastError,
 		MaintainerStatus:   maintainerStatusToProto(status.Maintainer),
+		// Deterministic child name so clients can query child-scoped read
+		// models (for example ListMaintainerWorkItems) without the legacy
+		// standalone resource pages.
+		GeneratedResourceName: triggersv1alpha1.ProjectGeneratedChildName(projectName, trigger.Name),
 	}
 	if trigger.Enabled != nil {
 		enabled := *trigger.Enabled

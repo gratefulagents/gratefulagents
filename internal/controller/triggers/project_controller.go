@@ -337,7 +337,7 @@ func (r *ProjectReconciler) generatedMetadata(project *triggersv1alpha1.Project,
 }
 
 func projectGeneratedChildName(projectName, triggerName string) string {
-	return projectDNSName("project-" + projectName + "-" + triggerName)
+	return triggersv1alpha1.ProjectGeneratedChildName(projectName, triggerName)
 }
 
 func projectLabelValue(value string) string {

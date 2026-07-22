@@ -57,7 +57,7 @@ func TestGitHubProjectTriggerMaintainerProtoRoundTrip(t *testing.T) {
 		t.Fatalf("parsed maintainer = %#v", maintainer)
 	}
 
-	roundTrip := projectTriggerToProto(trigger, triggersv1alpha1.ProjectTriggerStatus{}).GetGithub()
+	roundTrip := projectTriggerToProto("project", trigger, triggersv1alpha1.ProjectTriggerStatus{}).GetGithub()
 	if roundTrip.MaintainerEnabled == nil || !roundTrip.GetMaintainerEnabled() || roundTrip.GetMaintainerMaxConcurrentDispatches() != 3 ||
 		roundTrip.GetMaintainerMaxDispatchesPerDay() != 12 || roundTrip.GetMaintainerStandupInterval() != "6h0m0s" ||
 		roundTrip.GetMaintainerModeRef() != "repository-maintainer" || roundTrip.GetMaintainerModel() != "gpt-5" || !roundTrip.GetMaintainerAllowPrMerge() {
@@ -150,7 +150,7 @@ func TestSlackProjectTriggerProtoRoundTrip(t *testing.T) {
 		t.Fatalf("parsed Slack config = %#v", trigger.Slack)
 	}
 
-	roundTrip := projectTriggerToProto(trigger, triggersv1alpha1.ProjectTriggerStatus{})
+	roundTrip := projectTriggerToProto("project", trigger, triggersv1alpha1.ProjectTriggerStatus{})
 	if !reflect.DeepEqual(roundTrip.GetSlack(), &platform.SlackProjectTrigger{
 		ConnectionRef:      "workspace-app",
 		Channel:            "C0123ABC",
