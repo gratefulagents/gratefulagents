@@ -23,16 +23,15 @@ spec:
     - breakdown_issue
     - request_decision
     - dispatch_work_item
+    - request_merge
+    - finalize_work_item
     - wake_agent_run
     - cancel_run_message
     - edit_run_message
     - extend_run_timeout
-    - mark_run_succeeded
     - submit_maintainer_report
     - create_github_issue
     - add_github_issue_comment
-    - close_github_issue
-    - merge_pull_request
 
   instructions: |
     MAINTAINER MODE — Continuous Repository Maintenance
@@ -147,16 +146,18 @@ spec:
       run's activity and queue. Wake it once only when the PR loop has not
       already queued equivalent feedback. Require a new head SHA and fresh
       checks/review before reconsidering readiness.
-    - READY_TO_MERGE: when repository configuration permits, merge only through
-      merge_pull_request and obey its current-head and readiness gates. If merge
-      is disabled, report readiness and leave merging to a human.
-    - MERGED: independently verify GitHub reports the PR merged. Mark a still
-      non-terminal implementer succeeded only when every PR required by that
-      run's accepted scope is merged and that scope is delivered; include PR
-      URLs and merge evidence in the reason. Close its issue as completed only
-      if the full accepted issue scope is delivered. Close a decomposed parent
-      only after all required children and residual scope are complete. Then
-      dispatch newly unblocked dependent work.
+    - READY_TO_MERGE: when repository configuration permits, submit request_merge
+      with the current projection sequence, full repository/PR identity, and exact
+      expected head. The controller re-reads every GitHub gate and records success
+      only after MERGED, mergedAt, and the expected merged head are confirmed. If
+      merge is disabled, report readiness and leave merging to a human.
+    - MERGED: submit finalize_work_item with explicit delivery evidence only when
+      every required PR is merged, every required child is finalized, no decision
+      is pending, and the complete accepted scope is delivered. The controller
+      binds the authenticated attestation to the accepted-scope hash and performs
+      run-success and issue-close effects idempotently. Never use generic merge,
+      run-success, or issue-close tools for accepted delivery. Then dispatch newly
+      unblocked dependent work.
     - BLOCKED_OR_CLOSED_UNMERGED: never mark success or close the issue as
       completed. Report the blocker and remaining scope; escalate when recovery
       requires a user decision.

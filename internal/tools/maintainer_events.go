@@ -93,14 +93,24 @@ type maintainerRepoPullRequestEvent struct {
 }
 
 type maintainerRepoWorkItemEvent struct {
-	Name               string                                         `json:"name"`
-	IssueNumber        int32                                          `json:"issue_number"`
-	Disposition        triggersv1alpha1.MaintainerWorkItemDisposition `json:"disposition"`
-	Phase              triggersv1alpha1.MaintainerWorkItemPhase       `json:"phase"`
-	ProjectionSequence int64                                          `json:"projection_sequence"`
-	ResourceVersion    string                                         `json:"resource_version"`
-	ObservationFresh   bool                                           `json:"observation_fresh"`
-	Removed            bool                                           `json:"removed,omitempty"`
+	Name                string                                                     `json:"name"`
+	IssueNumber         int32                                                      `json:"issue_number"`
+	Disposition         triggersv1alpha1.MaintainerWorkItemDisposition             `json:"disposition"`
+	Phase               triggersv1alpha1.MaintainerWorkItemPhase                   `json:"phase"`
+	ProjectionSequence  int64                                                      `json:"projection_sequence"`
+	ResourceVersion     string                                                     `json:"resource_version"`
+	ObservationFresh    bool                                                       `json:"observation_fresh"`
+	IssueObservation    *triggersv1alpha1.MaintainerIssueObservation               `json:"issue_observation,omitempty"`
+	AgentRuns           []triggersv1alpha1.MaintainerWorkItemAgentRunProjection    `json:"agent_runs,omitempty"`
+	PullRequests        []triggersv1alpha1.MaintainerWorkItemPullRequestProjection `json:"pull_requests,omitempty"`
+	VerifiedMerges      []triggersv1alpha1.MaintainerVerifiedPullRequestMerge      `json:"verified_merges,omitempty"`
+	DeliveryAttestation *triggersv1alpha1.MaintainerDeliveryAttestation            `json:"delivery_attestation,omitempty"`
+	LatestCommand       *triggersv1alpha1.MaintainerWorkItemCommandObservation     `json:"latest_command,omitempty"`
+	Children            []triggersv1alpha1.MaintainerWorkItemChildProjection       `json:"children,omitempty"`
+	Dependencies        []triggersv1alpha1.MaintainerWorkItemDependencyProjection  `json:"dependencies,omitempty"`
+	Readiness           *triggersv1alpha1.MaintainerWorkItemReadiness              `json:"readiness,omitempty"`
+	PendingDecision     *triggersv1alpha1.MaintainerPendingDecision                `json:"pending_decision,omitempty"`
+	Removed             bool                                                       `json:"removed,omitempty"`
 }
 
 type maintainerRepoEventsCursor struct {
@@ -158,6 +168,94 @@ func (t *waitForRepoEventsTool) NeedsApproval() bool                   { return 
 func (t *waitForRepoEventsTool) TimeoutSeconds() int                   { return 21660 }
 
 func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessage, workDir string) (Result, error) {
+	repository, err := t.repository(ctx)
+	if err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	mode := triggersv1alpha1.MaintainerWorkItemCutoverController
+	if repository.Spec.Maintainer != nil && repository.Spec.Maintainer.WorkItemCutover != "" {
+		mode = repository.Spec.Maintainer.WorkItemCutover
+	}
+	if mode == triggersv1alpha1.MaintainerWorkItemCutoverController {
+		return t.executeSemanticWorkItemWait(ctx, input)
+	}
+	result, executeErr := t.executeLegacy(ctx, input, workDir)
+	if mode != triggersv1alpha1.MaintainerWorkItemCutoverDualRead || executeErr != nil || result.IsError {
+		return result, executeErr
+	}
+	// DualRead is deliberately rollbackable: legacy remains authoritative while
+	// normalized legacy and controller-owned semantic projections are compared.
+	wd, resolveErr := resolveLocalGitRepositoryWorkDir(workDir, "")
+	var mismatches []string
+	if resolveErr == nil {
+		legacy, snapshotErr := t.repoEventsSnapshot(ctx, wd, true)
+		if snapshotErr != nil {
+			resolveErr = snapshotErr
+		} else {
+			mismatches = maintainerSemanticParityMismatches(legacy)
+		}
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Content), &payload); err == nil {
+		payload["migration_mode"] = string(mode)
+		payload["semantic_parity"] = resolveErr == nil && len(mismatches) == 0
+		if resolveErr != nil {
+			payload["semantic_parity_error"] = resolveErr.Error()
+		} else if len(mismatches) > 0 {
+			payload["semantic_parity_mismatches"] = mismatches
+		}
+		if encoded, err := json.Marshal(payload); err == nil {
+			result.Content = string(encoded)
+		}
+	}
+	return result, executeErr
+}
+
+func maintainerSemanticParityMismatches(snapshot maintainerRepoEventsSnapshot) []string {
+	legacyIssues := map[int32]string{}
+	for _, issue := range snapshot.issues {
+		labels := append([]string(nil), issue.Labels...)
+		sort.Strings(labels)
+		legacyIssues[int32(issue.Number)] = issue.Title + "|" + strings.Join(labels, ",")
+	}
+	semanticIssues := map[int32]string{}
+	semanticRuns := map[string]string{}
+	semanticPRs := map[string]string{}
+	for _, item := range snapshot.workItems {
+		if observation := item.IssueObservation; item.ObservationFresh && observation != nil && observation.State == triggersv1alpha1.MaintainerIssueStateOpen {
+			labels := append([]string(nil), observation.Labels...)
+			sort.Strings(labels)
+			semanticIssues[observation.Number] = observation.Title + "|" + strings.Join(labels, ",")
+		}
+		for _, run := range item.AgentRuns {
+			semanticRuns[run.Name] = run.Phase
+		}
+		for _, pr := range item.PullRequests {
+			semanticPRs[pr.URL] = pr.HeadSHA + "|" + string(pr.State) + "|" + strconv.FormatBool(pr.Draft) + "|" + pr.ReviewDecision
+		}
+	}
+	legacyRuns := map[string]string{}
+	for name, run := range snapshot.fleet {
+		legacyRuns[name] = string(run.Phase)
+	}
+	legacyPRs := map[string]string{}
+	for url, pr := range snapshot.pullRequests {
+		legacyPRs[url] = pr.HeadSHA + "|" + strings.ToLower(pr.State) + "|" + strconv.FormatBool(pr.Draft) + "|" + pr.ReviewDecision
+	}
+	var mismatches []string
+	if !maps.Equal(legacyIssues, semanticIssues) {
+		mismatches = append(mismatches, "open issue observations differ")
+	}
+	if !maps.Equal(legacyRuns, semanticRuns) {
+		mismatches = append(mismatches, "fleet run projections differ")
+	}
+	if !maps.Equal(legacyPRs, semanticPRs) {
+		mismatches = append(mismatches, "pull request projections differ")
+	}
+	return mismatches
+}
+
+func (t *waitForRepoEventsTool) executeLegacy(ctx context.Context, input json.RawMessage, workDir string) (Result, error) {
 	var in waitForRepoEventsInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil
@@ -487,13 +585,25 @@ func (t *waitForRepoEventsTool) workItemEventsSnapshot(ctx context.Context) (mai
 			return maintainerRepoEventsSnapshot{}, fmt.Errorf("marshal MaintainerWorkItem %q intent: %w", item.Name, err)
 		}
 		signatures[item.Name] = maintainerRepoEventSignature(strconv.FormatInt(item.Status.ProjectionSequence, 10) + "|" + item.ResourceVersion + "|" + string(intent))
-		events[item.Name] = maintainerRepoWorkItemEvent{
-			Name: item.Name, IssueNumber: item.Spec.IssueNumber, Disposition: item.Spec.Disposition, Phase: item.Status.Phase,
-			ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion,
-			ObservationFresh: maintainerWorkItemObservationFresh(item),
-		}
+		events[item.Name] = maintainerWorkItemEvent(item)
 	}
 	return maintainerRepoEventsSnapshot{workItemSignatures: signatures, workItems: events, workItemResourceVersion: items.ResourceVersion}, nil
+}
+
+func maintainerWorkItemEvent(item *triggersv1alpha1.MaintainerWorkItem) maintainerRepoWorkItemEvent {
+	return maintainerRepoWorkItemEvent{
+		Name: item.Name, IssueNumber: item.Spec.IssueNumber, Disposition: item.Spec.Disposition, Phase: item.Status.Phase,
+		ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion,
+		ObservationFresh: maintainerWorkItemObservationFresh(item), IssueObservation: item.Status.IssueObservation.DeepCopy(),
+		AgentRuns:           append([]triggersv1alpha1.MaintainerWorkItemAgentRunProjection(nil), item.Status.AgentRuns...),
+		PullRequests:        append([]triggersv1alpha1.MaintainerWorkItemPullRequestProjection(nil), item.Status.PullRequests...),
+		VerifiedMerges:      append([]triggersv1alpha1.MaintainerVerifiedPullRequestMerge(nil), item.Status.VerifiedMerges...),
+		DeliveryAttestation: item.Status.DeliveryAttestation.DeepCopy(),
+		LatestCommand:       item.Status.LatestCommand.DeepCopy(),
+		Children:            append([]triggersv1alpha1.MaintainerWorkItemChildProjection(nil), item.Status.Children...),
+		Dependencies:        append([]triggersv1alpha1.MaintainerWorkItemDependencyProjection(nil), item.Status.Dependencies...),
+		Readiness:           item.Status.Readiness.DeepCopy(), PendingDecision: item.Status.PendingDecision.DeepCopy(),
+	}
 }
 
 // workItemSnapshotAndWatch establishes the watch from the resource version of

@@ -78,6 +78,19 @@ type GitHubRepositorySpec struct {
 	Defaults AgentRunDefaults `json:"defaults"`
 }
 
+// MaintainerWorkItemCutoverMode controls the rollbackable waiter and delivery-authority migration.
+// +kubebuilder:validation:Enum=Legacy;DualRead;Controller
+type MaintainerWorkItemCutoverMode string
+
+const (
+	// MaintainerWorkItemCutoverLegacy keeps legacy waiter polling available during rollback.
+	MaintainerWorkItemCutoverLegacy MaintainerWorkItemCutoverMode = "Legacy"
+	// MaintainerWorkItemCutoverDualRead compares semantic work-item events with the legacy snapshot.
+	MaintainerWorkItemCutoverDualRead MaintainerWorkItemCutoverMode = "DualRead"
+	// MaintainerWorkItemCutoverController makes durable semantic work-item observations authoritative.
+	MaintainerWorkItemCutoverController MaintainerWorkItemCutoverMode = "Controller"
+)
+
 // MaintainerSpec configures the standing maintainer run for a repository.
 type MaintainerSpec struct {
 	// disabled turns off the maintainer without removing its configuration.
@@ -110,11 +123,18 @@ type MaintainerSpec struct {
 	// +optional
 	StandupInterval *metav1.Duration `json:"standupInterval,omitempty"`
 
-	// allowPullRequestMerge dangerously permits the maintainer's
-	// merge_pull_request tool to merge approved, non-draft pull requests in
-	// this repository. Disabled by default; merging stays human otherwise.
+	// allowPullRequestMerge permits the controller-executed RequestMerge command
+	// to merge approved, non-draft pull requests in this repository. Disabled by
+	// default; merging stays human otherwise.
 	// +optional
 	AllowPullRequestMerge bool `json:"allowPullRequestMerge,omitempty"`
+
+	// workItemCutover selects the rollbackable maintainer waiter migration mode.
+	// Legacy retains direct polling, DualRead compares legacy and semantic state,
+	// and Controller uses only durable work-item issue observations/projections.
+	// +kubebuilder:default=Controller
+	// +optional
+	WorkItemCutover MaintainerWorkItemCutoverMode `json:"workItemCutover,omitempty"`
 }
 
 // MaintainerStatus reports the observed state of the standing maintainer run.

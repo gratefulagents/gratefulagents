@@ -41,6 +41,21 @@ type maintainerDispatchReservation struct {
 	Mode  string `json:"mode"`
 }
 
+func (b maintainerToolBase) requireLegacyMutationAuthority(ctx context.Context) error {
+	repository, err := b.repository(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot prove legacy mutation authority: %w", err)
+	}
+	mode := triggersv1alpha1.MaintainerWorkItemCutoverController
+	if repository.Spec.Maintainer != nil && repository.Spec.Maintainer.WorkItemCutover != "" {
+		mode = repository.Spec.Maintainer.WorkItemCutover
+	}
+	if mode == triggersv1alpha1.MaintainerWorkItemCutoverController {
+		return fmt.Errorf("generic maintainer mutation is denied in Controller cutover")
+	}
+	return nil
+}
+
 func (b maintainerToolBase) currentRun(ctx context.Context) (*platformv1alpha1.AgentRun, error) {
 	current := &platformv1alpha1.AgentRun{}
 	if err := b.k8sClient.Get(ctx, client.ObjectKey{Name: b.currentRunName, Namespace: b.currentRunNamespace}, current); err != nil {

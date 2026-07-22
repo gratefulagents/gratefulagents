@@ -77,13 +77,13 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 	for _, name := range template.Spec.AllowedMutatingTools {
 		enabled[name] = true
 	}
-	for _, name := range []string{"close_github_issue", "triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item"} {
+	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item", "request_merge", "finalize_work_item"} {
 		if !enabled[name] {
 			t.Fatalf("maintainer allowed mutating tools = %#v, missing %s", template.Spec.AllowedMutatingTools, name)
 		}
 	}
-	if enabled["dispatch_issue"] || enabled["answer_decision"] {
-		t.Fatal("legacy dispatch and agent-supplied decision answers must not bypass controller authentication")
+	if enabled["dispatch_issue"] || enabled["answer_decision"] || enabled["merge_pull_request"] || enabled["close_github_issue"] || enabled["mark_run_succeeded"] {
+		t.Fatal("legacy dispatch, generic delivery mutations, and agent-supplied decision answers must not bypass controller authentication")
 	}
 
 	instructions := strings.Join(strings.Fields(template.Spec.Instructions), " ")
@@ -106,8 +106,9 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 		"Issue disposition, AgentRun phase, PR-loop verdict, GitHub PR lifecycle, and CI are separate facts",
 		"calling finish ends only its current execution episode",
 		"while checks are pending or an AI reviewer is active",
-		"every PR required by that run's accepted scope is merged",
-		"Close a decomposed parent only after all required children and residual scope are complete",
+		"submit request_merge with the current projection sequence",
+		"submit finalize_work_item with explicit delivery evidence",
+		"controller binds the authenticated attestation to the accepted-scope hash",
 		"BLOCKED_OR_CLOSED_UNMERGED: never mark success",
 	} {
 		if !strings.Contains(instructions, want) {

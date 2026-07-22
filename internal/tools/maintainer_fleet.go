@@ -8,6 +8,7 @@ import (
 	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
@@ -25,6 +26,22 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 		currentRunName: currentRunName, currentRunNamespace: currentRunNamespace,
 		repositoryName: repositoryName, repositoryNamespace: repositoryNamespace,
 	}
+	repository := &triggersv1alpha1.GitHubRepository{}
+	cutover := triggersv1alpha1.MaintainerWorkItemCutoverController
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: repositoryName, Namespace: repositoryNamespace}, repository); err == nil && repository.Spec.Maintainer != nil && repository.Spec.Maintainer.WorkItemCutover != "" {
+		cutover = repository.Spec.Maintainer.WorkItemCutover
+	}
+	controllerAuthority := cutover == triggersv1alpha1.MaintainerWorkItemCutoverController
+	if closeTool := registry.Get("close_github_issue"); closeTool != nil {
+		registry.Register(&maintainerCutoverGuardedTool{Tool: closeTool, base: base})
+	}
+	if controllerAuthority {
+		// Runtime deny is independent of ModeSnapshot so an already-running
+		// maintainer cannot retain generic irreversible tools after cutover.
+		registry.Remove("merge_pull_request")
+		registry.Remove("mark_run_succeeded")
+		registry.Remove("close_github_issue")
+	}
 	registry.Register(&getFleetRunsTool{maintainerToolBase: base})
 	registry.Register(&getFleetRunActivityTool{maintainerToolBase: base})
 	registry.Register(&waitForRunsTool{maintainerToolBase: base, pollInterval: 10 * time.Second})
@@ -33,8 +50,13 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&breakdownIssueTool{maintainerToolBase: base})
 	registry.Register(&requestDecisionTool{maintainerToolBase: base})
 	registry.Register(&dispatchWorkItemTool{maintainerToolBase: base})
-	registry.Register(&dispatchIssueTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
-	registry.Register(&mergePullRequestTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
+	registry.Register(&requestMergeTool{maintainerToolBase: base})
+	registry.Register(&finalizeWorkItemTool{maintainerToolBase: base})
+	if !controllerAuthority {
+		registry.Register(&dispatchIssueTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
+		// Legacy generic mutations remain available only during explicit rollback.
+		registry.Register(&mergePullRequestTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
+	}
 	registry.Register(&wakeAgentRunTool{maintainerToolBase: base})
 	registry.Register(&getRunMessagesTool{maintainerToolBase: base})
 	registry.Register(&cancelRunMessageTool{maintainerToolBase: base})
@@ -42,7 +64,21 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&getRunTranscriptTool{maintainerToolBase: base})
 	registry.Register(&submitMaintainerReportTool{maintainerToolBase: base})
 	registry.Register(&extendRunTimeoutTool{maintainerToolBase: base})
-	registry.Register(&markRunSucceededTool{maintainerToolBase: base})
+	if !controllerAuthority {
+		registry.Register(&markRunSucceededTool{maintainerToolBase: base})
+	}
+}
+
+type maintainerCutoverGuardedTool struct {
+	Tool
+	base maintainerToolBase
+}
+
+func (t *maintainerCutoverGuardedTool) Execute(ctx context.Context, input json.RawMessage, workDir string) (Result, error) {
+	if err := t.base.requireLegacyMutationAuthority(ctx); err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	return t.Tool.Execute(ctx, input, workDir)
 }
 
 type fleetRunOutput struct {
@@ -88,8 +124,7 @@ func (t *getFleetRunsTool) NeedsApproval() bool                   { return false
 func (t *getFleetRunsTool) TimeoutSeconds() int                   { return 0 }
 
 func (t *getFleetRunsTool) Execute(ctx context.Context, _ json.RawMessage, _ string) (Result, error) {
-	current, err := t.currentRun(ctx)
-	if err != nil {
+	if _, err := t.currentRun(ctx); err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
 	repository, err := t.repository(ctx)
@@ -110,14 +145,17 @@ func (t *getFleetRunsTool) Execute(ctx context.Context, _ json.RawMessage, _ str
 		out.Runs = append(out.Runs, entry)
 	}
 	maxConcurrent, maxDaily := maintainerDispatchCaps(repository)
-	ledger := parseMaintainerLedger(current, time.Now())
+	dispatchesToday := 0
+	if repository.Status.Maintainer != nil {
+		dispatchesToday = int(repository.Status.Maintainer.DispatchesToday)
+	}
 	for i := range fleet {
 		if !maintainerIsReviewer(&fleet[i]) && !maintainerTerminal(fleet[i].Status.Phase) {
 			out.Caps.ActiveDispatches++
 		}
 	}
 	out.Caps.MaxConcurrentDispatches = maxConcurrent
-	out.Caps.LedgerDispatches = ledger.Count
+	out.Caps.LedgerDispatches = dispatchesToday
 	out.Caps.MaxDispatchesPerDay = maxDaily
 	encoded, err := json.Marshal(out)
 	if err != nil {

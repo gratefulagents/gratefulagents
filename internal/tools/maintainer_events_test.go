@@ -496,6 +496,58 @@ func TestMaintainerRepoEventsCursorDecodesOlderSnapshots(t *testing.T) {
 	}
 }
 
+func TestMaintainerDualReadParityComparesSemanticContent(t *testing.T) {
+	snapshot := maintainerRepoEventsSnapshot{
+		issues:       []maintainerRepoEventIssue{{Number: 7, Title: "issue", Labels: []string{"bug"}}},
+		fleet:        map[string]maintainerRepoFleetEvent{"run": {Name: "run", Phase: platformv1alpha1.AgentRunPhasePaused}},
+		pullRequests: map[string]maintainerRepoPullRequestEvent{"https://example.test/pr/1": {URL: "https://example.test/pr/1", HeadSHA: "abc", State: "open", ReviewDecision: "APPROVED"}},
+		workItems:    map[string]maintainerRepoWorkItemEvent{"item": {ObservationFresh: true, IssueObservation: &triggersv1alpha1.MaintainerIssueObservation{Number: 7, Title: "issue", State: triggersv1alpha1.MaintainerIssueStateOpen, Labels: []string{"bug"}}, AgentRuns: []triggersv1alpha1.MaintainerWorkItemAgentRunProjection{{Name: "run", Phase: string(platformv1alpha1.AgentRunPhasePaused)}}, PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{URL: "https://example.test/pr/1", HeadSHA: "abc", State: triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen, ReviewDecision: "APPROVED"}}}},
+	}
+	if mismatches := maintainerSemanticParityMismatches(snapshot); len(mismatches) != 0 {
+		t.Fatalf("matching projections reported %v", mismatches)
+	}
+	snapshot.workItems["item"] = maintainerRepoWorkItemEvent{IssueObservation: &triggersv1alpha1.MaintainerIssueObservation{Number: 7, Title: "different", State: triggersv1alpha1.MaintainerIssueStateOpen}}
+	if mismatches := maintainerSemanticParityMismatches(snapshot); len(mismatches) == 0 {
+		t.Fatal("content mismatch was reported as parity")
+	}
+}
+
+func TestSemanticWaiterUsesPersistedProjectionWithoutGitHubPolling(t *testing.T) {
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	repository := &triggersv1alpha1.GitHubRepository{}
+	key := client.ObjectKey{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace}
+	if err := k8sClient.Get(context.Background(), key, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.WorkItemCutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	item := &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: maintainerEventsTestWorkItemName, Namespace: maintainerTestNamespace, Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: maintainerTestRepositoryName}}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 9}, Status: triggersv1alpha1.MaintainerWorkItemStatus{Phase: triggersv1alpha1.MaintainerWorkItemPhasePendingTriage, ProjectionSequence: 4, IssueObservation: &triggersv1alpha1.MaintainerIssueObservation{Number: 9, Title: "durably observed"}}}
+	if err := k8sClient.Create(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	runner := &maintainerFakeRunner{out: map[string]string{}, err: map[string]error{}}
+	result, err := (&waitForRepoEventsTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"timeout_seconds":30}`), "missing-workdir")
+	if err != nil || result.IsError {
+		t.Fatalf("semantic wait result=%#v err=%v", result, err)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("controller waiter made direct GitHub calls: %v", runner.calls)
+	}
+	var output maintainerSemanticWaitOutput
+	if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
+		t.Fatal(err)
+	}
+	if !output.Changed || len(output.WorkItems) != 1 || output.WorkItems[0].ProjectionSequence != 4 || output.WorkItems[0].IssueObservation.Title != "durably observed" {
+		t.Fatalf("semantic output = %#v", output)
+	}
+	cursor, err := decodeMaintainerSemanticCursor(output.Cursor)
+	if err != nil || cursor.Sequences[maintainerEventsTestWorkItemName] != 4 {
+		t.Fatalf("cursor=%#v err=%v", cursor, err)
+	}
+}
+
 func TestWorkItemWaitRejectsClientWithoutWatch(t *testing.T) {
 	t.Parallel()
 

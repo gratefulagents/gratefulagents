@@ -243,7 +243,18 @@ func TestMaintainerRoutesReportOnceAndMirrorsLedger(t *testing.T) {
 	}
 	standing := standingMaintainer(t, c, repository.Namespace, repository.Name)
 	standing.Annotations[triggersv1alpha1.MaintainerReportAnnotation] = `{"summary":"backlog is healthy","state":"healthy","time":"2026-03-08T12:00:00Z"}`
-	standing.Annotations[triggersv1alpha1.MaintainerDispatchLedgerAnnotation] = `{"day":"2026-03-08","count":3,"issues":[1,2,3]}`
+	currentRepository := &triggersv1alpha1.GitHubRepository{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(repository), currentRepository); err != nil {
+		t.Fatalf("Get(repository for dispatch reservations): %v", err)
+	}
+	if currentRepository.Annotations == nil {
+		currentRepository.Annotations = map[string]string{}
+	}
+	currentRepository.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation] = `{"day":"2026-03-08","count":3}`
+	if err := c.Update(context.Background(), currentRepository); err != nil {
+		t.Fatalf("Update(repository dispatch reservations): %v", err)
+	}
+	repository = currentRepository
 	if err := c.Update(context.Background(), standing); err != nil {
 		t.Fatalf("Update(maintainer annotations): %v", err)
 	}

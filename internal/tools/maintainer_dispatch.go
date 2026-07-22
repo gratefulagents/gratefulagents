@@ -41,6 +41,9 @@ func (t *dispatchIssueTool) NeedsApproval() bool                   { return fals
 func (t *dispatchIssueTool) TimeoutSeconds() int                   { return 0 }
 
 func (t *dispatchIssueTool) Execute(ctx context.Context, input json.RawMessage, workDir string) (Result, error) {
+	if err := t.requireLegacyMutationAuthority(ctx); err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
 	var in dispatchIssueInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil

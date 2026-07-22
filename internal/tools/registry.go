@@ -192,6 +192,15 @@ func (r *Registry) Register(t Tool) {
 	r.tools[t.Name()] = t
 }
 
+// Remove unregisters a tool after contextual authorization has narrowed the
+// effective mode (for example, controller-cutover maintainer delivery).
+func (r *Registry) Remove(name string) {
+	if r == nil {
+		return
+	}
+	delete(r.tools, name)
+}
+
 // isRegistryControlFlowTool returns true for tools that must always be
 // registered regardless of permission mode. These are orchestration tools
 // (not data-mutating) that the agent needs to function at all.

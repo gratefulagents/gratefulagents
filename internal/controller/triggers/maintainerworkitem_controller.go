@@ -371,6 +371,12 @@ func maintainerWorkItemStatusSemanticallyEqual(left, right *triggersv1alpha1.Mai
 		for i := range status.AgentRuns {
 			status.AgentRuns[i].ObservedAt = nil
 		}
+		for i := range status.PullRequests {
+			status.PullRequests[i].HeadObservedAt = nil
+			status.PullRequests[i].ReviewObservedAt = nil
+			status.PullRequests[i].ChecksObservedAt = nil
+			status.PullRequests[i].StatusesObservedAt = nil
+		}
 		for i := range status.Conditions {
 			status.Conditions[i].LastTransitionTime = metav1.Time{}
 		}
@@ -419,7 +425,11 @@ func retryMaintainerWorkItemCommandStatusUpdate(ctx context.Context, c client.Cl
 	})
 }
 
-func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItemCommands(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, githubClient GitHubTriageClient) error {
+func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItemCommands(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, githubClient GitHubTriageClient, deliveryClients ...maintainerGitHubDeliveryClient) error {
+	var deliveryClient maintainerGitHubDeliveryClient
+	if len(deliveryClients) > 0 {
+		deliveryClient = deliveryClients[0]
+	}
 	commands := &triggersv1alpha1.MaintainerWorkItemCommandList{}
 	if err := r.List(ctx, commands, client.InNamespace(repository.Namespace)); err != nil {
 		return fmt.Errorf("listing maintainer work item commands: %w", err)
@@ -429,7 +439,7 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItemCommands(ctx con
 		if command.Spec.RepositoryRef.Name != repository.Name || maintainerCommandTerminal(command.Status.Phase) {
 			continue
 		}
-		if err := r.processMaintainerWorkItemCommand(ctx, repository, command, githubClient); err != nil {
+		if err := r.processMaintainerWorkItemCommand(ctx, repository, command, githubClient, deliveryClient); err != nil {
 			return err
 		}
 	}
@@ -448,7 +458,7 @@ func rejectMaintainerCommand(message string) error {
 	return maintainerCommandRejectedError{message: message}
 }
 
-func (r *GitHubRepositoryReconciler) processMaintainerWorkItemCommand(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, githubClient GitHubTriageClient) error {
+func (r *GitHubRepositoryReconciler) processMaintainerWorkItemCommand(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, githubClient GitHubTriageClient, deliveryClient maintainerGitHubDeliveryClient) error {
 	pending := command.Status.Phase == "" || command.Status.Phase == triggersv1alpha1.MaintainerWorkItemCommandPhasePending
 	item, err := r.validateMaintainerWorkItemCommand(ctx, repository, command, pending)
 	if err != nil {
@@ -459,7 +469,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerWorkItemCommand(ctx contex
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, rejected.message)
 	}
 	if command.Spec.Type != triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue {
-		return r.processMaintainerExecutionCommand(ctx, repository, command, item, githubClient, pending)
+		return r.processMaintainerExecutionCommand(ctx, repository, command, item, githubClient, deliveryClient, pending)
 	}
 
 	if pending {
@@ -554,6 +564,9 @@ func (r *GitHubRepositoryReconciler) validateMaintainerWorkItemCommand(ctx conte
 	if item.Spec.RepositoryRef.Name != repository.Name || item.Spec.IssueNumber != issueNumber {
 		return nil, rejectMaintainerCommand("work item does not match command issue")
 	}
+	if command.Spec.Preconditions.WorkItemUID == "" || item.UID != command.Spec.Preconditions.WorkItemUID {
+		return nil, rejectMaintainerCommand("target work-item UID does not match command preconditions")
+	}
 	alreadyApplied := maintainerCommandAlreadyApplied(item, command)
 	if !requirePreconditions && command.Spec.Type == triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue && !alreadyApplied {
 		return nil, rejectMaintainerCommand("command was superseded by newer triage intent; " + currentProjectionMessage(item))
@@ -561,7 +574,7 @@ func (r *GitHubRepositoryReconciler) validateMaintainerWorkItemCommand(ctx conte
 	if requirePreconditions && !alreadyApplied && !maintainerWorkItemObservationIsFresh(item) {
 		return nil, rejectMaintainerCommand("work item issue observation is not fresh; " + currentProjectionMessage(item))
 	}
-	if requirePreconditions && !alreadyApplied && (item.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence || item.ResourceVersion != command.Spec.Preconditions.ResourceVersion) {
+	if requirePreconditions && !alreadyApplied && item.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence {
 		return nil, rejectMaintainerCommand(currentProjectionMessage(item))
 	}
 	return item, nil
@@ -594,6 +607,18 @@ func validateMaintainerCommandPayload(command *triggersv1alpha1.MaintainerWorkIt
 			return 0, rejectMaintainerCommand("incomplete dispatch payload")
 		}
 		return command.Spec.Dispatch.IssueNumber, nil
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeRequestMerge:
+		merge := command.Spec.RequestMerge
+		if merge == nil || merge.IssueNumber < 1 || merge.PullRequestNumber < 1 || strings.TrimSpace(merge.Repository) == "" || len(merge.ExpectedHeadSHA) != 40 || (merge.MergeMethod != triggersv1alpha1.MaintainerWorkItemMergeMethodSquash && merge.MergeMethod != triggersv1alpha1.MaintainerWorkItemMergeMethodMerge && merge.MergeMethod != triggersv1alpha1.MaintainerWorkItemMergeMethodRebase) {
+			return 0, rejectMaintainerCommand("incomplete requestMerge payload")
+		}
+		return merge.IssueNumber, nil
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem:
+		finalize := command.Spec.Finalize
+		if finalize == nil || finalize.IssueNumber < 1 || len(finalize.AcceptedScopeHash) != 64 || strings.TrimSpace(finalize.DeliverySummary) == "" || strings.TrimSpace(finalize.DeliveryEvidence) == "" {
+			return 0, rejectMaintainerCommand("incomplete finalize payload")
+		}
+		return finalize.IssueNumber, nil
 	default:
 		return 0, rejectMaintainerCommand("unsupported command type")
 	}
@@ -669,7 +694,7 @@ func (r *GitHubRepositoryReconciler) applyMaintainerTriageIntent(ctx context.Con
 			item = fresh
 			return nil
 		}
-		if fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence || fresh.ResourceVersion != command.Spec.Preconditions.ResourceVersion {
+		if fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence {
 			return rejectMaintainerCommand(currentProjectionMessage(fresh))
 		}
 		fresh.Spec.Disposition = command.Spec.Triage.Disposition
@@ -705,6 +730,10 @@ func maintainerCommandAlreadyApplied(item *triggersv1alpha1.MaintainerWorkItem, 
 		return item.Status.ResolvedDecision != nil && item.Status.ResolvedDecision.ResolvedByCommand.Name == command.Name
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem:
 		return item.Status.DispatchReservation != nil && item.Status.DispatchReservation.CommandRef.Name == command.Name
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeRequestMerge:
+		return command.Spec.RequestMerge != nil && verifiedMaintainerMerge(item, command.Spec.RequestMerge.Repository, command.Spec.RequestMerge.PullRequestNumber) != nil
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem:
+		return item.Status.DeliveryAttestation != nil && item.Status.DeliveryAttestation.FinalizedByCommand.Name == command.Name
 	default:
 		return false
 	}
@@ -748,41 +777,101 @@ func (r *GitHubRepositoryReconciler) markMaintainerWorkItemClosed(ctx context.Co
 }
 
 func (r *GitHubRepositoryReconciler) setMaintainerWorkItemCommandAccepted(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) error {
-	return retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
+	message := string(command.Spec.Type) + " command accepted; side effects are not yet verified"
+	err := retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
 		fresh.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseAccepted
 		fresh.Status.ObservedGeneration = fresh.Generation
 		fresh.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{
 			WorkItemRef: corev1.LocalObjectReference{Name: item.Name},
-			Applied:     true,
-			Message:     "triage intent accepted",
+			Applied:     false,
+			Message:     message,
 			IssueState:  observedIssueState(item),
 		}
 	})
+	return err
 }
 
 func (r *GitHubRepositoryReconciler) completeMaintainerWorkItemCommand(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, message, commentURL string, state triggersv1alpha1.MaintainerIssueState) error {
 	now := metav1.Now()
-	return retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
+	current := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(item), current); err != nil {
+		return err
+	}
+	err := retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
 		fresh.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded
 		fresh.Status.ObservedGeneration = fresh.Generation
-		fresh.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{WorkItemRef: corev1.LocalObjectReference{Name: item.Name}, Applied: true, Message: message, CommentURL: commentURL, IssueState: state, CompletedAt: &now}
+		var mergeAttemptedAt *metav1.Time
+		if fresh.Status.Result != nil {
+			mergeAttemptedAt = fresh.Status.Result.MergeAttemptedAt
+		}
+		result := &triggersv1alpha1.MaintainerWorkItemCommandResult{WorkItemRef: corev1.LocalObjectReference{Name: item.Name}, Applied: true, Message: message, CommentURL: commentURL, IssueState: state, MergeAttemptedAt: mergeAttemptedAt, CompletedAt: &now}
+		if command.Spec.RequestMerge != nil {
+			for i := range current.Status.VerifiedMerges {
+				verified := &current.Status.VerifiedMerges[i]
+				if verified.Repository == command.Spec.RequestMerge.Repository && verified.PullRequestNumber == command.Spec.RequestMerge.PullRequestNumber {
+					result.VerifiedMerge = verified.DeepCopy()
+				}
+			}
+		}
+		result.DeliveryAttestation = current.Status.DeliveryAttestation.DeepCopy()
+		fresh.Status.Result = result
 	})
+	if err != nil {
+		return err
+	}
+	return r.projectMaintainerCommandObservation(ctx, item, command, triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded, true, message)
 }
 
 func (r *GitHubRepositoryReconciler) failMaintainerWorkItemCommand(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, message string) error {
-	return retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
+	err := retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
 		fresh.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseFailed
 		fresh.Status.ObservedGeneration = fresh.Generation
-		fresh.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{WorkItemRef: corev1.LocalObjectReference{Name: item.Name}, Applied: true, Message: message, IssueState: observedIssueState(item)}
+		var mergeAttemptedAt *metav1.Time
+		if fresh.Status.Result != nil {
+			mergeAttemptedAt = fresh.Status.Result.MergeAttemptedAt
+		}
+		fresh.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{WorkItemRef: corev1.LocalObjectReference{Name: item.Name}, Applied: false, Message: message, IssueState: observedIssueState(item), MergeAttemptedAt: mergeAttemptedAt}
 	})
+	if err != nil {
+		return err
+	}
+	return r.projectMaintainerCommandObservation(ctx, item, command, triggersv1alpha1.MaintainerWorkItemCommandPhaseFailed, false, message)
 }
 
 func (r *GitHubRepositoryReconciler) rejectMaintainerWorkItemCommand(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, message string) error {
 	message = currentMaintainerProjectionMessage(ctx, r.Client, repository, command, message)
-	return retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
+	err := retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
 		fresh.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected
 		fresh.Status.ObservedGeneration = fresh.Generation
-		fresh.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{WorkItemRef: corev1.LocalObjectReference{Name: fresh.Spec.Preconditions.WorkItemName}, Message: message}
+		fresh.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{WorkItemRef: corev1.LocalObjectReference{Name: fresh.Spec.Preconditions.WorkItemName}, Applied: false, Message: message}
+	})
+	if err != nil {
+		return err
+	}
+	item := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: command.Spec.Preconditions.WorkItemName}, item); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	return r.projectMaintainerCommandObservation(ctx, item, command, triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected, false, message)
+}
+
+func (r *GitHubRepositoryReconciler) projectMaintainerCommandObservation(ctx context.Context, item *triggersv1alpha1.MaintainerWorkItem, command *triggersv1alpha1.MaintainerWorkItemCommand, phase triggersv1alpha1.MaintainerWorkItemCommandPhase, applied bool, message string) error {
+	if item == nil || command == nil {
+		return nil
+	}
+	return r.retryMaintainerWorkItemStatusMutation(ctx, client.ObjectKeyFromObject(item), func(fresh *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
+		if fresh.UID != command.Spec.Preconditions.WorkItemUID {
+			// Never project an old command receipt into a replacement object.
+			return false, nil
+		}
+		now := metav1.Now()
+		desired := &triggersv1alpha1.MaintainerWorkItemCommandObservation{Name: command.Name, Type: command.Spec.Type, Phase: phase, Applied: applied, Message: message, ObservedAt: now}
+		if fresh.Status.LatestCommand != nil && fresh.Status.LatestCommand.Name == desired.Name && fresh.Status.LatestCommand.Phase == desired.Phase && fresh.Status.LatestCommand.Applied == desired.Applied && fresh.Status.LatestCommand.Message == desired.Message {
+			return false, nil
+		}
+		fresh.Status.LatestCommand = desired
+		fresh.Status.ProjectionSequence++
+		return true, nil
 	})
 }
 

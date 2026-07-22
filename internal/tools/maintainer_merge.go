@@ -43,6 +43,9 @@ func (t *mergePullRequestTool) NeedsApproval() bool                   { return f
 func (t *mergePullRequestTool) TimeoutSeconds() int                   { return 0 }
 
 func (t *mergePullRequestTool) Execute(ctx context.Context, input json.RawMessage, workDir string) (Result, error) {
+	if err := t.requireLegacyMutationAuthority(ctx); err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
 	var in mergePullRequestInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil

@@ -47,6 +47,7 @@ type GitHubRepositoryReconciler struct {
 	MaintainerEnabled bool
 	MaintainerEngine  *MaintainerEngine
 	GitHubTriage      GitHubTriageClient
+	GitHubDelivery    maintainerGitHubDeliveryClient
 }
 
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=githubrepositories,verbs=get;list;watch;update;patch
@@ -105,10 +106,14 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if triageClient == nil {
 			triageClient = githubTriageAdapter{issues: ghClient.Issues}
 		}
+		deliveryClient := r.GitHubDelivery
+		if deliveryClient == nil {
+			deliveryClient = newMaintainerGitHubDeliveryClient(ghClient)
+		}
 		if err := r.reconcileMaintainerExecutionProjection(ctx, gh); err != nil {
 			return ctrl.Result{}, err
 		}
-		if err := r.reconcileMaintainerWorkItemCommands(ctx, gh, triageClient); err != nil {
+		if err := r.reconcileMaintainerWorkItemCommands(ctx, gh, triageClient, deliveryClient); err != nil {
 			return ctrl.Result{}, err
 		}
 		if err := r.reconcileMaintainerExecutionProjection(ctx, gh); err != nil {

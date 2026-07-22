@@ -337,6 +337,95 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              deliveryAttestation:
+                description: MaintainerDeliveryAttestation records authenticated semantic
+                  delivery evidence and finalization side effects.
+                properties:
+                  acceptedScopeHash:
+                    pattern: ^[a-f0-9]{64}$
+                    type: string
+                  completedAt:
+                    format: date-time
+                    type: string
+                  deliveryEvidence:
+                    minLength: 1
+                    type: string
+                  deliverySummary:
+                    minLength: 1
+                    type: string
+                  finalizedByCommand:
+                    description: |-
+                      LocalObjectReference contains enough information to let you locate the
+                      referenced object inside the same namespace.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  issueClosedAt:
+                    format: date-time
+                    type: string
+                  issuer:
+                    description: MaintainerWorkItemCommandIssuer identifies the run
+                      that issued a command.
+                    properties:
+                      proof:
+                        description: Proof is an HMAC from the issuer run's private
+                          command capability.
+                        pattern: ^[a-f0-9]{64}$
+                        type: string
+                      runName:
+                        minLength: 1
+                        type: string
+                      uid:
+                        description: |-
+                          UID is a type that holds unique ID values, including UUIDs.  Because we
+                          don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                          intent and helps make sure that UIDs and names do not get conflated.
+                        type: string
+                    required:
+                    - proof
+                    - runName
+                    - uid
+                    type: object
+                  runSuccessRequestedAt:
+                    format: date-time
+                    type: string
+                  runSuccessRequestedRefs:
+                    items:
+                      description: MaintainerWorkItemReference identifies a work item
+                        in the same namespace.
+                      properties:
+                        name:
+                          minLength: 1
+                          type: string
+                        uid:
+                          description: |-
+                            UID is a type that holds unique ID values, including UUIDs.  Because we
+                            don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                            intent and helps make sure that UIDs and names do not get conflated.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                required:
+                - acceptedScopeHash
+                - deliveryEvidence
+                - deliverySummary
+                - finalizedByCommand
+                - issuer
+                type: object
               dependencies:
                 items:
                   description: MaintainerWorkItemDependencyProjection summarizes a
@@ -469,6 +558,47 @@ spec:
                 - state
                 - title
                 - url
+                type: object
+              latestCommand:
+                description: MaintainerWorkItemCommandObservation projects the latest
+                  durable command receipt into waiter-v2.
+                properties:
+                  applied:
+                    type: boolean
+                  message:
+                    type: string
+                  name:
+                    type: string
+                  observedAt:
+                    format: date-time
+                    type: string
+                  phase:
+                    description: MaintainerWorkItemCommandPhase is the command receipt
+                      phase.
+                    enum:
+                    - Pending
+                    - Accepted
+                    - Succeeded
+                    - Rejected
+                    - Failed
+                    type: string
+                  type:
+                    description: MaintainerWorkItemCommandType identifies the command
+                      payload type.
+                    enum:
+                    - TriageIssue
+                    - BreakdownIssue
+                    - RequestDecision
+                    - ResolveDecision
+                    - DispatchWorkItem
+                    - RequestMerge
+                    - FinalizeWorkItem
+                    type: string
+                required:
+                - name
+                - observedAt
+                - phase
+                - type
                 type: object
               pendingDecision:
                 description: MaintainerPendingDecision records an unresolved authorized
@@ -666,6 +796,52 @@ spec:
                 - resolvedAt
                 - resolvedByCommand
                 type: object
+              verifiedMerges:
+                items:
+                  description: MaintainerVerifiedPullRequestMerge records a controller-verified
+                    pull request merge.
+                  properties:
+                    commandRef:
+                      description: |-
+                        LocalObjectReference contains enough information to let you locate the
+                        referenced object inside the same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    headSHA:
+                      minLength: 1
+                      type: string
+                    mergedAt:
+                      format: date-time
+                      type: string
+                    pullRequestNumber:
+                      format: int32
+                      minimum: 1
+                      type: integer
+                    repository:
+                      pattern: ^[^/[:space:]]+/[^/[:space:]]+$
+                      type: string
+                  required:
+                  - commandRef
+                  - headSHA
+                  - mergedAt
+                  - pullRequestNumber
+                  - repository
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - repository
+                - pullRequestNumber
+                x-kubernetes-list-type: map
             type: object
         required:
         - spec

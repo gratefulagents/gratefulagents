@@ -11,6 +11,7 @@ import (
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,7 +57,9 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerExecutionProjection(ctx 
 			projectMaintainerRunsAndPRs(fresh, runs.Items, monitors.Items, now)
 			evaluateMaintainerReadiness(fresh, now)
 			if maintainerWorkItemStatusSemanticallyEqual(before, &fresh.Status) {
-				return false
+				// Persist fresh head-bound observation heartbeats without advancing
+				// the semantic cursor. Waiter-v2 ignores same-sequence updates.
+				return !equality.Semantic.DeepEqual(before.PullRequests, fresh.Status.PullRequests)
 			}
 			fresh.Status.ProjectionSequence++
 			return true
@@ -283,7 +286,7 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 		}
 	}
 	allMerged := allProjectedPRsMerged(item.Status.PullRequests)
-	deliveryReady := allMerged && dependenciesReady && childrenReady
+	deliveryReady := item.Status.DeliveryAttestation != nil && item.Status.DeliveryAttestation.CompletedAt != nil && dependenciesReady && childrenReady && (allMerged || len(item.Status.PullRequests) == 0 && len(item.Status.Children) > 0)
 	if allMerged {
 		readyToMerge = false
 	}

@@ -71,11 +71,17 @@ func TestEvaluateMaintainerReadinessBlocksDeliveryOnGraphPrerequisites(t *testin
 	}
 }
 
-func TestEvaluateMaintainerReadinessMarksAllMergedDelivered(t *testing.T) {
+func TestEvaluateMaintainerReadinessRequiresFinalizationAfterMerge(t *testing.T) {
 	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: projectionTestMonitorName, Repository: projectionTestRepository, Number: 7, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged}}}}
 	evaluateMaintainerReadiness(item, time.Now())
-	if item.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseDelivered || item.Status.Readiness.ReadyToMerge {
-		t.Fatalf("merged readiness = %#v", item.Status)
+	if item.Status.Phase == triggersv1alpha1.MaintainerWorkItemPhaseDelivered || item.Status.Readiness.ReadyToMerge {
+		t.Fatalf("merge alone must not deliver = %#v", item.Status)
+	}
+	now := metav1.Now()
+	item.Status.DeliveryAttestation = &triggersv1alpha1.MaintainerDeliveryAttestation{CompletedAt: &now}
+	evaluateMaintainerReadiness(item, time.Now())
+	if item.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseDelivered {
+		t.Fatalf("finalized merged item phase = %s", item.Status.Phase)
 	}
 }
 

@@ -21,7 +21,7 @@ func TestRegisterMaintainerToolsRegistersTypedWorkItemCommands(t *testing.T) {
 	base, _, stateStore := newMaintainerToolBase(t, maintainerRun())
 	registry := NewRegistry(t.TempDir())
 	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
-	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item"} {
+	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item", "request_merge", "finalize_work_item"} {
 		tool := registry.Get(name)
 		if tool == nil || tool.IsReadOnly() {
 			t.Fatalf("%s = %#v", name, tool)
@@ -29,6 +29,31 @@ func TestRegisterMaintainerToolsRegistersTypedWorkItemCommands(t *testing.T) {
 	}
 	if registry.Get("answer_decision") != nil {
 		t.Fatal("agent runtime must not expose a decision-answer command")
+	}
+}
+
+func TestControllerCutoverRemovesGenericMaintainerMutations(t *testing.T) {
+	base, k8sClient, stateStore := newMaintainerToolBase(t, maintainerRun())
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: base.repositoryName, Namespace: base.repositoryNamespace}, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.WorkItemCutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry(t.TempDir())
+	registry.Register(&closeGitHubIssueTool{})
+	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
+	for _, name := range []string{"merge_pull_request", "mark_run_succeeded", "close_github_issue", "dispatch_issue"} {
+		if registry.Get(name) != nil {
+			t.Fatalf("controller cutover retained forbidden tool %s", name)
+		}
+	}
+	for _, name := range []string{"request_merge", "finalize_work_item", "dispatch_work_item"} {
+		if registry.Get(name) == nil {
+			t.Fatalf("controller cutover omitted typed tool %s", name)
+		}
 	}
 }
 
