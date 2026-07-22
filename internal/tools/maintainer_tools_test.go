@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -32,14 +33,19 @@ const (
 
 type maintainerTestStore struct {
 	store.StateStore
-	sessions    map[string]*store.Session
-	sessionErr  error
-	messages    []store.Message
-	activity    []store.ActivityEvent
-	activityErr error
+	sessions      map[string]*store.Session
+	sessionErr    error
+	beforeSession func()
+	messages      []store.Message
+	activity      []store.ActivityEvent
+	activityErr   error
 }
 
 func (s *maintainerTestStore) GetSessionByRun(_ context.Context, name, namespace string) (*store.Session, error) {
+	if s.beforeSession != nil {
+		s.beforeSession()
+		s.beforeSession = nil
+	}
 	if s.sessionErr != nil {
 		return nil, s.sessionErr
 	}
@@ -113,6 +119,8 @@ func maintainerRun() *platformv1alpha1.AgentRun {
 func fleetRun(name string, phase platformv1alpha1.AgentRunPhase) *platformv1alpha1.AgentRun {
 	return &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace}, Spec: platformv1alpha1.AgentRunSpec{Trigger: platformv1alpha1.TriggerRef{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName}}, Status: platformv1alpha1.AgentRunStatus{Phase: phase}}
 }
+
+const maintainerTestMode = "auto"
 
 func TestMaintainerAuthorizationAndFleetFiltering(t *testing.T) {
 	t.Parallel()
@@ -203,6 +211,31 @@ func TestConditionsMet(t *testing.T) {
 	}
 }
 
+func TestLegacyDispatchRoutesThroughTypedCommandWhenWorkItemExists(t *testing.T) {
+	maintainer := maintainerRun()
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainer)
+	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
+		t.Fatal(err)
+	}
+	workItem := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 2, 3)
+	runner := &fakePRReviewRunner{}
+	result, err := (&dispatchIssueTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`"}`), "")
+	if err != nil || result.IsError {
+		t.Fatalf("Execute() = (%#v, %v)", result, err)
+	}
+	if len(runner.ghCalls) != 0 {
+		t.Fatalf("legacy dispatch made direct GitHub calls: %#v", runner.ghCalls)
+	}
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	name := MaintainerWorkItemCommandName(maintainerTestRepositoryName, "legacy-dispatch-2-auto")
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: name, Namespace: maintainerTestNamespace}, command); err != nil {
+		t.Fatal(err)
+	}
+	if command.Spec.Type != triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem || command.Spec.Dispatch == nil || command.Spec.Preconditions.WorkItemName != workItem.Name {
+		t.Fatalf("typed command = %#v", command.Spec)
+	}
+}
+
 func TestDispatchCapsAndLedgerRollover(t *testing.T) {
 	t.Parallel()
 	maintainer := maintainerRun()
@@ -218,7 +251,7 @@ func TestDispatchCapsAndLedgerRollover(t *testing.T) {
 		t.Fatal(err)
 	}
 	tool := &dispatchIssueTool{maintainerToolBase: base}
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"auto"}`), "")
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`"}`), "")
 	if err != nil || !result.IsError || result.Content == "" {
 		t.Fatalf("active cap result = (%#v, %v)", result, err)
 	}
@@ -233,16 +266,115 @@ func TestDispatchCapsAndLedgerRollover(t *testing.T) {
 	}
 }
 
+func TestMaintainerLedgerParsesLegacyDispatches(t *testing.T) {
+	maintainer := maintainerRun()
+	now := metav1.Now().Time
+	maintainer.Annotations = map[string]string{triggersv1alpha1.MaintainerDispatchLedgerAnnotation: `{"day":"` + now.UTC().Format("2006-01-02") + `","count":1,"issues":[7]}`}
+
+	ledger := parseMaintainerLedger(maintainer, now)
+	if ledger.Count != 1 || len(ledger.Issues) != 1 || ledger.Issues[0] != 7 || len(ledger.Pending) != 0 {
+		t.Fatalf("legacy ledger = %#v", ledger)
+	}
+}
+
+func TestDispatchReservationConcurrentCapAndReplay(t *testing.T) {
+	maintainer := maintainerRun()
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainer)
+	tool := &dispatchIssueTool{maintainerToolBase: base}
+
+	start := make(chan struct{})
+	results := make(chan struct {
+		issue int
+		err   error
+	}, 2)
+	var wg sync.WaitGroup
+	for _, issue := range []int{2, 3} {
+		wg.Add(1)
+		go func(issue int) {
+			defer wg.Done()
+			<-start
+			results <- struct {
+				issue int
+				err   error
+			}{issue: issue, err: tool.reserveDispatch(context.Background(), issue, maintainerTestMode, nil, 1, 2)}
+		}(issue)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	reservedIssue := 0
+	for result := range results {
+		if result.err == nil {
+			successes++
+			reservedIssue = result.issue
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful reservations = %d, want 1", successes)
+	}
+	if err := tool.reserveDispatch(context.Background(), reservedIssue, maintainerTestMode, nil, 1, 2); err == nil || !strings.Contains(err.Error(), "do not replay") {
+		t.Fatalf("duplicate reservation error = %v", err)
+	}
+	fresh := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: maintainer.Name, Namespace: maintainer.Namespace}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	ledger := parseMaintainerLedger(fresh, metav1.Now().Time)
+	if ledger.Count != 1 || len(ledger.Issues) != 1 || len(ledger.Pending) != 1 || ledger.Pending[0].Issue != reservedIssue {
+		t.Fatalf("reserved ledger = %#v", ledger)
+	}
+}
+
+func TestDispatchReservationFailureHandling(t *testing.T) {
+	maintainer := maintainerRun()
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainer)
+	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
+		t.Fatal(err)
+	}
+	tool := &dispatchIssueTool{maintainerToolBase: base, runner: &fakePRReviewRunner{ghErr: map[string]error{
+		"issue edit 2 --add-label auto": errors.New("HTTP 422: Validation Failed"),
+	}}}
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`"}`), testGitRepoDir(t))
+	if err != nil || !result.IsError || !strings.Contains(result.Content, "without applying") {
+		t.Fatalf("definite failure = (%#v, %v)", result, err)
+	}
+	fresh := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: maintainer.Name, Namespace: maintainer.Namespace}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	ledger := parseMaintainerLedger(fresh, metav1.Now().Time)
+	if ledger.Count != 0 || len(ledger.Issues) != 0 || len(ledger.Pending) != 0 {
+		t.Fatalf("released ledger = %#v", ledger)
+	}
+
+	tool.runner = &fakePRReviewRunner{ghErr: map[string]error{
+		"issue edit 3 --add-label auto": errors.New("connection reset"),
+	}}
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"issue_number":3,"mode":"`+maintainerTestMode+`"}`), testGitRepoDir(t))
+	if err != nil || !result.IsError || !strings.Contains(result.Content, "reservation is retained") {
+		t.Fatalf("ambiguous failure = (%#v, %v)", result, err)
+	}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: maintainer.Name, Namespace: maintainer.Namespace}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	ledger = parseMaintainerLedger(fresh, metav1.Now().Time)
+	if ledger.Count != 1 || len(ledger.Issues) != 1 || len(ledger.Pending) != 1 || ledger.Pending[0].Issue != 3 {
+		t.Fatalf("retained ledger = %#v", ledger)
+	}
+}
+
 func TestDispatchIssueNoteHasGitHubAppAuthorization(t *testing.T) {
 	maintainer := maintainerRun()
 	base, k8sClient, _ := newMaintainerToolBase(t, maintainer)
-	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: "auto"}}); err != nil {
+	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakePRReviewRunner{}
 	tool := &dispatchIssueTool{maintainerToolBase: base, runner: runner}
 
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"auto","note":"Validated and dispatching."}`), testGitRepoDir(t))
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`","note":"Validated and dispatching."}`), testGitRepoDir(t))
 	if err != nil || result.IsError {
 		t.Fatalf("Execute() = (%#v, %v)", result, err)
 	}
@@ -287,6 +419,28 @@ func TestWakeAgentRunPhases(t *testing.T) {
 				t.Fatalf("wake=%d messages=%d", updated.Spec.WakeRequests, len(stateStore.messages))
 			}
 		})
+	}
+}
+
+func TestWakeAgentRunRevalidatesBeforeDelivery(t *testing.T) {
+	maintainer, target := maintainerRun(), fleetRun("target", platformv1alpha1.AgentRunPhasePaused)
+	base, k8sClient, stateStore := newMaintainerToolBase(t, maintainer, target)
+	var mutateErr error
+	stateStore.beforeSession = func() {
+		fresh := &platformv1alpha1.AgentRun{}
+		if mutateErr = k8sClient.Get(context.Background(), client.ObjectKey{Name: target.Name, Namespace: target.Namespace}, fresh); mutateErr != nil {
+			return
+		}
+		fresh.Spec.Trigger.Name = "different-repository"
+		mutateErr = k8sClient.Update(context.Background(), fresh)
+	}
+
+	result, err := (&wakeAgentRunTool{maintainerToolBase: base}).Execute(context.Background(), json.RawMessage(`{"run_name":"target","message":"continue"}`), "")
+	if mutateErr != nil {
+		t.Fatal(mutateErr)
+	}
+	if err != nil || !result.IsError || !strings.Contains(result.Content, "reverify") || len(stateStore.messages) != 0 {
+		t.Fatalf("Execute() = (%#v, %v), messages = %d", result, err, len(stateStore.messages))
 	}
 }
 

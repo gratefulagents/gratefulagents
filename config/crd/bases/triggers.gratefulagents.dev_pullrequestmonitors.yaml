@@ -120,6 +120,28 @@ spec:
                 type: string
               baseRef:
                 type: string
+              checks:
+                description: PullRequestMonitorHeadRollup is a check or commit-status
+                  result bound to one head SHA.
+                properties:
+                  count:
+                    format: int32
+                    type: integer
+                  error:
+                    type: string
+                  headSHA:
+                    type: string
+                  observedAt:
+                    format: date-time
+                    type: string
+                  state:
+                    type: string
+                type: object
+              commentsError:
+                type: string
+              commentsObservedAt:
+                format: date-time
+                type: string
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -227,8 +249,33 @@ spec:
                 - id
                 - timestamp
                 type: object
+              lifecycle:
+                description: PullRequestLifecycle is the GitHub lifecycle independently
+                  observed for a pull request.
+                enum:
+                - open
+                - draft
+                - merged
+                - closed
+                type: string
+              mergeability:
+                description: PullRequestMergeability is GitHub's current mergeability
+                  result.
+                enum:
+                - unknown
+                - mergeable
+                - conflicting
+                type: string
+              mergedAt:
+                format: date-time
+                type: string
               openedDispatched:
                 type: boolean
+              pullError:
+                type: string
+              pullObservedAt:
+                format: date-time
+                type: string
               rateLimitRemaining:
                 format: int32
                 type: integer
@@ -238,9 +285,23 @@ spec:
               retryAfter:
                 format: date-time
                 type: string
+              reviewDecision:
+                description: PullRequestReviewDecision is the aggregate latest review
+                  result.
+                enum:
+                - unknown
+                - approved
+                - changes_requested
+                - review_required
+                type: string
+              reviewsError:
+                type: string
+              reviewsObservedAt:
+                format: date-time
+                type: string
               state:
-                description: PullRequestMonitorState is the lifecycle state of a monitored
-                  pull request.
+                description: PullRequestMonitorState is the review-loop state associated
+                  with a monitored pull request.
                 enum:
                 - pending
                 - open
@@ -252,6 +313,23 @@ spec:
                 - cancelled
                 - inactive
                 type: string
+              statuses:
+                description: PullRequestMonitorHeadRollup is a check or commit-status
+                  result bound to one head SHA.
+                properties:
+                  count:
+                    format: int32
+                    type: integer
+                  error:
+                    type: string
+                  headSHA:
+                    type: string
+                  observedAt:
+                    format: date-time
+                    type: string
+                  state:
+                    type: string
+                type: object
               title:
                 type: string
             type: object

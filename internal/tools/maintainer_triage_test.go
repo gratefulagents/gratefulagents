@@ -15,15 +15,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestRegisterMaintainerToolsRegistersTriageIssue(t *testing.T) {
+func TestRegisterMaintainerToolsRegistersTypedWorkItemCommands(t *testing.T) {
 	t.Parallel()
 
 	base, _, stateStore := newMaintainerToolBase(t, maintainerRun())
 	registry := NewRegistry(t.TempDir())
 	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
-	tool := registry.Get("triage_issue")
-	if tool == nil || tool.IsReadOnly() {
-		t.Fatalf("triage_issue = %#v", tool)
+	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item"} {
+		tool := registry.Get(name)
+		if tool == nil || tool.IsReadOnly() {
+			t.Fatalf("%s = %#v", name, tool)
+		}
+	}
+	if registry.Get("answer_decision") != nil {
+		t.Fatal("agent runtime must not expose a decision-answer command")
 	}
 }
 

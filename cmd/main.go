@@ -334,6 +334,7 @@ func main() {
 	gitHubAppMinter := githubapp.NewKeyedMinter()
 	ghReconciler := &triggercontroller.GitHubRepositoryReconciler{
 		Client:            mgr.GetClient(),
+		APIReader:         mgr.GetAPIReader(),
 		Scheme:            mgr.GetScheme(),
 		StateStore:        sharedStateStore,
 		GitHubAppMinter:   gitHubAppMinter,

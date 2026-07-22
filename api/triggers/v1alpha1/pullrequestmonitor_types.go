@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// PullRequestMonitorState is the lifecycle state of a monitored pull request.
+// PullRequestMonitorState is the review-loop state associated with a monitored pull request.
 // +kubebuilder:validation:Enum=pending;open;resolving;approved;blocked;merged;closed;cancelled;inactive
 type PullRequestMonitorState string
 
@@ -40,6 +40,47 @@ type GitHubObjectCursor struct {
 type PullRequestMonitorETags struct {
 	// +optional
 	Pull string `json:"pull,omitempty"`
+}
+
+// PullRequestLifecycle is the GitHub lifecycle independently observed for a pull request.
+// +kubebuilder:validation:Enum=open;draft;merged;closed
+type PullRequestLifecycle string
+
+const (
+	PullRequestLifecycleOpen   PullRequestLifecycle = "open"
+	PullRequestLifecycleDraft  PullRequestLifecycle = "draft"
+	PullRequestLifecycleMerged PullRequestLifecycle = "merged"
+	PullRequestLifecycleClosed PullRequestLifecycle = "closed"
+)
+
+// PullRequestMergeability is GitHub's current mergeability result.
+// +kubebuilder:validation:Enum=unknown;mergeable;conflicting
+type PullRequestMergeability string
+
+const (
+	PullRequestMergeabilityUnknown     PullRequestMergeability = "unknown"
+	PullRequestMergeabilityMergeable   PullRequestMergeability = "mergeable"
+	PullRequestMergeabilityConflicting PullRequestMergeability = "conflicting"
+)
+
+// PullRequestReviewDecision is the aggregate latest review result.
+// +kubebuilder:validation:Enum=unknown;approved;changes_requested;review_required
+type PullRequestReviewDecision string
+
+const (
+	PullRequestReviewDecisionUnknown          PullRequestReviewDecision = "unknown"
+	PullRequestReviewDecisionApproved         PullRequestReviewDecision = "approved"
+	PullRequestReviewDecisionChangesRequested PullRequestReviewDecision = "changes_requested"
+	PullRequestReviewDecisionReviewRequired   PullRequestReviewDecision = "review_required"
+)
+
+// PullRequestMonitorHeadRollup is a check or commit-status result bound to one head SHA.
+type PullRequestMonitorHeadRollup struct {
+	HeadSHA    string      `json:"headSHA,omitempty"`
+	State      string      `json:"state,omitempty"`
+	Count      int32       `json:"count,omitempty"`
+	ObservedAt metav1.Time `json:"observedAt,omitempty"`
+	Error      string      `json:"error,omitempty"`
 }
 
 // PullRequestMonitorSpec defines the immutable identity of a pull request monitor.
@@ -75,6 +116,30 @@ type PullRequestMonitorStatus struct {
 	BaseRef string `json:"baseRef,omitempty"`
 	// +optional
 	AuthorLogin string `json:"authorLogin,omitempty"`
+	// +optional
+	Lifecycle PullRequestLifecycle `json:"lifecycle,omitempty"`
+	// +optional
+	MergedAt metav1.Time `json:"mergedAt,omitempty"`
+	// +optional
+	Mergeability PullRequestMergeability `json:"mergeability,omitempty"`
+	// +optional
+	ReviewDecision PullRequestReviewDecision `json:"reviewDecision,omitempty"`
+	// +optional
+	PullObservedAt metav1.Time `json:"pullObservedAt,omitempty"`
+	// +optional
+	PullError string `json:"pullError,omitempty"`
+	// +optional
+	ReviewsObservedAt metav1.Time `json:"reviewsObservedAt,omitempty"`
+	// +optional
+	ReviewsError string `json:"reviewsError,omitempty"`
+	// +optional
+	CommentsObservedAt metav1.Time `json:"commentsObservedAt,omitempty"`
+	// +optional
+	CommentsError string `json:"commentsError,omitempty"`
+	// +optional
+	Checks PullRequestMonitorHeadRollup `json:"checks,omitempty"`
+	// +optional
+	Statuses PullRequestMonitorHeadRollup `json:"statuses,omitempty"`
 	// +optional
 	LastPollTime *metav1.Time `json:"lastPollTime,omitempty"`
 	// +optional

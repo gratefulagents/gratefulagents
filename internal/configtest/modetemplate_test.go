@@ -73,17 +73,17 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 	if err := yaml.Unmarshal(source, &template); err != nil {
 		t.Fatalf("parse %s: %v", sourcePath, err)
 	}
-	closeEnabled, triageEnabled := false, false
+	enabled := map[string]bool{}
 	for _, name := range template.Spec.AllowedMutatingTools {
-		switch name {
-		case "close_github_issue":
-			closeEnabled = true // Legacy rollback path remains available in phase 1.
-		case "triage_issue":
-			triageEnabled = true
+		enabled[name] = true
+	}
+	for _, name := range []string{"close_github_issue", "triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item"} {
+		if !enabled[name] {
+			t.Fatalf("maintainer allowed mutating tools = %#v, missing %s", template.Spec.AllowedMutatingTools, name)
 		}
 	}
-	if !closeEnabled || !triageEnabled {
-		t.Fatalf("maintainer allowed mutating tools = %#v, want triage_issue plus legacy close_github_issue", template.Spec.AllowedMutatingTools)
+	if enabled["dispatch_issue"] || enabled["answer_decision"] {
+		t.Fatal("legacy dispatch and agent-supplied decision answers must not bypass controller authentication")
 	}
 
 	instructions := strings.Join(strings.Fields(template.Spec.Instructions), " ")

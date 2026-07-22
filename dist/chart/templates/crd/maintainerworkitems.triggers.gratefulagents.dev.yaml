@@ -69,6 +69,27 @@ spec:
                   statement:
                     type: string
                 type: object
+              children:
+                items:
+                  description: MaintainerWorkItemReference identifies a work item
+                    in the same namespace.
+                  properties:
+                    name:
+                      minLength: 1
+                      type: string
+                    uid:
+                      description: |-
+                        UID is a type that holds unique ID values, including UUIDs.  Because we
+                        don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                        intent and helps make sure that UIDs and names do not get conflated.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               closeReason:
                 description: MaintainerWorkItemCloseReason is the GitHub close reason
                   selected by triage.
@@ -76,6 +97,27 @@ spec:
                 - not_planned
                 - completed
                 type: string
+              dependencies:
+                items:
+                  description: MaintainerWorkItemReference identifies a work item
+                    in the same namespace.
+                  properties:
+                    name:
+                      minLength: 1
+                      type: string
+                    uid:
+                      description: |-
+                        UID is a type that holds unique ID values, including UUIDs.  Because we
+                        don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                        intent and helps make sure that UIDs and names do not get conflated.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               disposition:
                 description: MaintainerWorkItemDisposition is the accepted triage
                   disposition for an issue.
@@ -109,6 +151,21 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              requiredPullRequests:
+                items:
+                  description: MaintainerRequiredPullRequestIntent identifies a pull
+                    request required for delivery.
+                  properties:
+                    name:
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               triagedByCommand:
                 description: |-
                   LocalObjectReference contains enough information to let you locate the
@@ -141,8 +198,86 @@ spec:
                 == ''NotActionable'')'
           status:
             description: MaintainerWorkItemStatus defines the observed issue state
-              and triage progress.
+              and execution progress.
             properties:
+              agentRuns:
+                items:
+                  description: MaintainerWorkItemAgentRunProjection summarizes an
+                    AgentRun associated through work-item identity labels.
+                  properties:
+                    name:
+                      minLength: 1
+                      type: string
+                    observedAt:
+                      format: date-time
+                      type: string
+                    phase:
+                      type: string
+                    prLoopRound:
+                      format: int32
+                      type: integer
+                    prLoopState:
+                      type: string
+                    role:
+                      description: MaintainerWorkItemAgentRunRole identifies the role
+                        of a projected AgentRun.
+                      enum:
+                      - Implementer
+                      - Reviewer
+                      type: string
+                    uid:
+                      description: |-
+                        UID is a type that holds unique ID values, including UUIDs.  Because we
+                        don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                        intent and helps make sure that UIDs and names do not get conflated.
+                      type: string
+                  required:
+                  - name
+                  - role
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              children:
+                items:
+                  description: MaintainerWorkItemChildProjection summarizes a child
+                    work item.
+                  properties:
+                    delivered:
+                      type: boolean
+                    name:
+                      minLength: 1
+                      type: string
+                    observedAt:
+                      format: date-time
+                      type: string
+                    phase:
+                      description: MaintainerWorkItemPhase is the lifecycle phase
+                        of a work item.
+                      enum:
+                      - PendingTriage
+                      - Triaged
+                      - AwaitingDecision
+                      - ReadyToDispatch
+                      - Dispatched
+                      - Implementing
+                      - ReadyToMerge
+                      - Delivered
+                      type: string
+                    uid:
+                      description: |-
+                        UID is a type that holds unique ID values, including UUIDs.  Because we
+                        don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                        intent and helps make sure that UIDs and names do not get conflated.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -202,6 +337,95 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              dependencies:
+                items:
+                  description: MaintainerWorkItemDependencyProjection summarizes a
+                    dependency work item.
+                  properties:
+                    delivered:
+                      type: boolean
+                    name:
+                      minLength: 1
+                      type: string
+                    observedAt:
+                      format: date-time
+                      type: string
+                    phase:
+                      description: MaintainerWorkItemPhase is the lifecycle phase
+                        of a work item.
+                      enum:
+                      - PendingTriage
+                      - Triaged
+                      - AwaitingDecision
+                      - ReadyToDispatch
+                      - Dispatched
+                      - Implementing
+                      - ReadyToMerge
+                      - Delivered
+                      type: string
+                    uid:
+                      description: |-
+                        UID is a type that holds unique ID values, including UUIDs.  Because we
+                        don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                        intent and helps make sure that UIDs and names do not get conflated.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              dispatchReservation:
+                description: MaintainerDispatchReservation records capacity reserved
+                  before dispatch side effects.
+                properties:
+                  agentRunRef:
+                    description: |-
+                      LocalObjectReference contains enough information to let you locate the
+                      referenced object inside the same namespace.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  commandRef:
+                    description: |-
+                      LocalObjectReference contains enough information to let you locate the
+                      referenced object inside the same namespace.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  expiresAt:
+                    format: date-time
+                    type: string
+                  id:
+                    minLength: 1
+                    type: string
+                  reservedAt:
+                    format: date-time
+                    type: string
+                required:
+                - commandRef
+                - id
+                - reservedAt
+                type: object
               issueObservation:
                 description: MaintainerIssueObservation is a durable observation of
                   a GitHub issue.
@@ -246,16 +470,202 @@ spec:
                 - title
                 - url
                 type: object
+              pendingDecision:
+                description: MaintainerPendingDecision records an unresolved authorized
+                  decision request.
+                properties:
+                  id:
+                    minLength: 1
+                    type: string
+                  options:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  question:
+                    minLength: 1
+                    type: string
+                  requestedAt:
+                    format: date-time
+                    type: string
+                  requestedByCommand:
+                    description: |-
+                      LocalObjectReference contains enough information to let you locate the
+                      referenced object inside the same namespace.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - id
+                - question
+                - requestedAt
+                type: object
               phase:
                 description: MaintainerWorkItemPhase is the lifecycle phase of a work
                   item.
                 enum:
                 - PendingTriage
                 - Triaged
+                - AwaitingDecision
+                - ReadyToDispatch
+                - Dispatched
+                - Implementing
+                - ReadyToMerge
+                - Delivered
                 type: string
               projectionSequence:
                 format: int64
                 type: integer
+              pullRequests:
+                items:
+                  description: MaintainerWorkItemPullRequestProjection summarizes
+                    the monitor facts required for readiness.
+                  properties:
+                    checkState:
+                      description: MaintainerWorkItemCheckState summarizes CI and
+                        commit-status observations for an exact head.
+                      enum:
+                      - Unknown
+                      - Pending
+                      - Passing
+                      - Failing
+                      type: string
+                    checksObservedAt:
+                      format: date-time
+                      type: string
+                    draft:
+                      type: boolean
+                    fresh:
+                      description: Fresh is true only when every authoritative monitor
+                        source is complete for HeadSHA.
+                      type: boolean
+                    headObservedAt:
+                      format: date-time
+                      type: string
+                    headSHA:
+                      type: string
+                    intentName:
+                      description: IntentName is the stable required-PR key (normally
+                        the monitor name).
+                      minLength: 1
+                      type: string
+                    mergeable:
+                      type: boolean
+                    mergedAt:
+                      format: date-time
+                      type: string
+                    monitorRef:
+                      description: |-
+                        LocalObjectReference contains enough information to let you locate the
+                        referenced object inside the same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    number:
+                      format: int32
+                      minimum: 1
+                      type: integer
+                    observationError:
+                      type: string
+                    repository:
+                      pattern: ^[^/[:space:]]+/[^/[:space:]]+$
+                      type: string
+                    reviewDecision:
+                      type: string
+                    reviewObservedAt:
+                      format: date-time
+                      type: string
+                    state:
+                      description: MaintainerWorkItemPullRequestState is the observed
+                        GitHub lifecycle state of a pull request.
+                      enum:
+                      - open
+                      - closed
+                      - merged
+                      type: string
+                    statusesObservedAt:
+                      format: date-time
+                      type: string
+                    url:
+                      type: string
+                  required:
+                  - intentName
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - intentName
+                x-kubernetes-list-type: map
+              readiness:
+                description: MaintainerWorkItemReadiness records controller-computed
+                  dispatch and merge readiness.
+                properties:
+                  observedAt:
+                    format: date-time
+                    type: string
+                  readyToDispatch:
+                    type: boolean
+                  readyToMerge:
+                    type: boolean
+                  unmetRequirements:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                type: object
+              resolvedDecision:
+                description: MaintainerResolvedDecision audits the authenticated answer
+                  that cleared pendingDecision.
+                properties:
+                  answer:
+                    type: string
+                  humanSubject:
+                    type: string
+                  id:
+                    type: string
+                  resolvedAt:
+                    format: date-time
+                    type: string
+                  resolvedByCommand:
+                    description: |-
+                      LocalObjectReference contains enough information to let you locate the
+                      referenced object inside the same namespace.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - answer
+                - humanSubject
+                - id
+                - resolvedAt
+                - resolvedByCommand
+                type: object
             type: object
         required:
         - spec

@@ -66,9 +66,6 @@ func (r *PullRequestArtifactReconciler) Reconcile(ctx context.Context, req ctrl.
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		if reviewLoopDisabledForRun(run, repository) {
-			continue
-		}
 		if repository != nil {
 			monitor.Spec.GitHubRepositoryRef = &corev1.LocalObjectReference{Name: repository.Name}
 		}

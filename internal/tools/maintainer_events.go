@@ -527,6 +527,11 @@ func maintainerWorkItemObservationFresh(item *triggersv1alpha1.MaintainerWorkIte
 	return false
 }
 
+const (
+	maintainerRollupSuccess = "success"
+	maintainerRollupPending = "pending"
+)
+
 const maintainerPullRequestReviewDecisionQuery = "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewDecision}}}"
 
 func (t *waitForRepoEventsTool) pullRequestEventsSnapshot(ctx context.Context, workDir string, fleet map[string]maintainerRepoFleetEvent) (maintainerRepoEventsSnapshot, error) {
@@ -538,6 +543,16 @@ func (t *waitForRepoEventsTool) pullRequestEventsSnapshot(ctx context.Context, w
 	targetsByRepository := map[string][]target{}
 	events := map[string]maintainerRepoPullRequestEvent{}
 	errorsByURL := map[string]string{}
+	monitorByURL := map[string]*triggersv1alpha1.PullRequestMonitor{}
+	var monitors triggersv1alpha1.PullRequestMonitorList
+	if t.k8sClient != nil {
+		if err := t.k8sClient.List(ctx, &monitors, client.InNamespace(t.repositoryNamespace)); err == nil {
+			for i := range monitors.Items {
+				monitor := &monitors.Items[i]
+				monitorByURL[strings.ToLower(monitor.Spec.URL)] = monitor
+			}
+		}
+	}
 	for _, fleetEvent := range fleet {
 		for _, rawURL := range fleetEvent.PullRequestURLs {
 			owner, repository, number, err := parseMaintainerPullRequestURL(rawURL)
@@ -547,6 +562,10 @@ func (t *waitForRepoEventsTool) pullRequestEventsSnapshot(ctx context.Context, w
 				continue
 			}
 			value := fmt.Sprintf("https://github.com/%s/%s/pull/%d", owner, repository, number)
+			if monitor := monitorByURL[strings.ToLower(value)]; maintainerMonitorEquivalentAndFresh(monitor, time.Now()) {
+				events[value] = maintainerEventFromMonitor(monitor)
+				continue
+			}
 			key := strings.ToLower(owner + "/" + repository)
 			targetsByRepository[key] = append(targetsByRepository[key], target{url: value, owner: owner, repository: repository, number: number})
 		}
@@ -606,6 +625,61 @@ func (t *waitForRepoEventsTool) pullRequestEventsSnapshot(ctx context.Context, w
 	}
 	snapshot.pullRequestError = strings.Join(messages, "; ")
 	return snapshot, nil
+}
+
+func maintainerMonitorEquivalentAndFresh(monitor *triggersv1alpha1.PullRequestMonitor, now time.Time) bool {
+	const freshness = 5 * time.Minute
+	if monitor == nil || monitor.Status.Lifecycle == "" || monitor.Status.PullObservedAt.IsZero() || monitor.Status.PullError != "" {
+		return false
+	}
+	// Merge is irreversible; a successfully observed merged lifecycle remains
+	// authoritative after active polling stops.
+	if monitor.Status.Lifecycle == triggersv1alpha1.PullRequestLifecycleMerged {
+		return true
+	}
+	if monitor.Status.LastError != "" || now.Sub(monitor.Status.PullObservedAt.Time) > freshness {
+		return false
+	}
+	if monitor.Status.Lifecycle == triggersv1alpha1.PullRequestLifecycleClosed {
+		return true
+	}
+	return monitor.Status.HeadSHA != "" && monitor.Status.ReviewDecision != "" && monitor.Status.ReviewsError == "" && !monitor.Status.ReviewsObservedAt.IsZero() && now.Sub(monitor.Status.ReviewsObservedAt.Time) <= freshness &&
+		monitor.Status.Checks.HeadSHA == monitor.Status.HeadSHA && monitor.Status.Statuses.HeadSHA == monitor.Status.HeadSHA &&
+		!monitor.Status.Checks.ObservedAt.IsZero() && !monitor.Status.Statuses.ObservedAt.IsZero() && now.Sub(monitor.Status.Checks.ObservedAt.Time) <= freshness && now.Sub(monitor.Status.Statuses.ObservedAt.Time) <= freshness &&
+		monitor.Status.Checks.Error == "" && monitor.Status.Statuses.Error == ""
+}
+
+func maintainerEventFromMonitor(monitor *triggersv1alpha1.PullRequestMonitor) maintainerRepoPullRequestEvent {
+	event := maintainerRepoPullRequestEvent{URL: monitor.Spec.URL, HeadSHA: monitor.Status.HeadSHA, State: string(monitor.Status.Lifecycle), Draft: monitor.Status.Lifecycle == triggersv1alpha1.PullRequestLifecycleDraft, ReviewDecision: strings.ToUpper(string(monitor.Status.ReviewDecision)), MergeState: string(monitor.Status.Mergeability)}
+	switch monitor.Status.Mergeability {
+	case triggersv1alpha1.PullRequestMergeabilityMergeable:
+		value := true
+		event.Mergeable = &value
+	case triggersv1alpha1.PullRequestMergeabilityConflicting:
+		value := false
+		event.Mergeable = &value
+	}
+	rollups := []triggersv1alpha1.PullRequestMonitorHeadRollup{monitor.Status.Checks, monitor.Status.Statuses}
+	for _, rollup := range rollups {
+		count := int(rollup.Count)
+		event.Checks.Total += count
+		switch strings.ToLower(rollup.State) {
+		case maintainerRollupSuccess:
+			event.Checks.Passed += count
+		case "failure":
+			event.Checks.Failed += count
+		case maintainerRollupPending:
+			if count == 0 {
+				count = 1
+				event.Checks.Total++
+			}
+			event.Checks.Pending += count
+		}
+	}
+	if event.State == string(triggersv1alpha1.PullRequestLifecycleDraft) {
+		event.State = "open"
+	}
+	return event
 }
 
 func maintainerOpenPullRequestNumbers(ctx context.Context, runner prReviewRunner, workDir, owner, repository string) (map[int]struct{}, error) {
@@ -754,9 +828,9 @@ func maintainerPullRequestChecksSummary(checks []pullRequestCheckRun, statuses [
 	}
 	for _, status := range statuses {
 		switch status.State {
-		case "success":
+		case maintainerRollupSuccess:
 			summary.Passed++
-		case "pending":
+		case maintainerRollupPending:
 			summary.Pending++
 		default:
 			summary.Failed++

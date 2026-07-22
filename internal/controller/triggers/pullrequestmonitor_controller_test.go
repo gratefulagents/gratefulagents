@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,18 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+)
+
+const (
+	monitorTestOpen     = "open"
+	monitorTestClosed   = "closed"
+	monitorTestAlice    = "alice"
+	monitorTestToken    = "gh-token"
+	monitorTestOldSHA   = "old"
+	monitorTestNewSHA   = "new"
+	monitorTestTokenKey = "token"
+	monitorTestAgentBot = "agent-bot"
+	monitorTestBaseRef  = "main"
 )
 
 func TestArtifactPullRequestsCanonicalizesAndDeduplicatesURLs(t *testing.T) {
@@ -95,7 +108,7 @@ func TestPullRequestArtifactReconcileIdempotentlyCreatesMultipleOwnedMonitors(t 
 	}
 }
 
-func TestPullRequestArtifactSkipsMonitorByDefault(t *testing.T) {
+func TestPullRequestArtifactCreatesMonitorWithoutReviewLoop(t *testing.T) {
 	run := monitorProvenanceRun(t)
 	run.Status.Artifacts.PullRequestURL = "https://github.com/acme/widgets/pull/42"
 	delete(run.Annotations, PRLoopOptAnnotation)
@@ -111,12 +124,12 @@ func TestPullRequestArtifactSkipsMonitorByDefault(t *testing.T) {
 	if err := c.List(context.Background(), &monitors, client.InNamespace(run.Namespace)); err != nil {
 		t.Fatalf("list PullRequestMonitors: %v", err)
 	}
-	if len(monitors.Items) != 0 {
-		t.Fatalf("monitor count = %d, want 0 by default", len(monitors.Items))
+	if len(monitors.Items) != 1 {
+		t.Fatalf("monitor count = %d, want 1 without a review loop", len(monitors.Items))
 	}
 }
 
-func TestPullRequestArtifactSkipsMonitorWhenReviewLoopDisabled(t *testing.T) {
+func TestPullRequestArtifactCreatesMonitorWhenReviewLoopDisabled(t *testing.T) {
 	run := monitorProvenanceRun(t)
 	run.Status.Artifacts.PullRequestURL = "https://github.com/acme/widgets/pull/42"
 	if run.Annotations == nil {
@@ -135,8 +148,8 @@ func TestPullRequestArtifactSkipsMonitorWhenReviewLoopDisabled(t *testing.T) {
 	if err := c.List(context.Background(), &monitors, client.InNamespace(run.Namespace)); err != nil {
 		t.Fatalf("list PullRequestMonitors: %v", err)
 	}
-	if len(monitors.Items) != 0 {
-		t.Fatalf("monitor count = %d, want 0 when review loop is disabled", len(monitors.Items))
+	if len(monitors.Items) != 1 {
+		t.Fatalf("monitor count = %d, want 1 when review loop is disabled", len(monitors.Items))
 	}
 }
 
@@ -186,6 +199,41 @@ func TestCombinedFeedbackSortsByTimestampThenID(t *testing.T) {
 	}
 }
 
+func TestPullRequestFactsTrackLifecycleMergeabilityAndReviews(t *testing.T) {
+	mergedAt := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
+	cases := []struct {
+		name         string
+		pull         polledPullRequest
+		lifecycle    triggersv1alpha1.PullRequestLifecycle
+		mergeability triggersv1alpha1.PullRequestMergeability
+	}{
+		{name: "draft unknown mergeability", pull: polledPullRequest{State: monitorTestOpen, Draft: true}, lifecycle: triggersv1alpha1.PullRequestLifecycleDraft, mergeability: triggersv1alpha1.PullRequestMergeabilityUnknown},
+		{name: "open mergeable", pull: polledPullRequest{State: monitorTestOpen, MergeableKnown: true, Mergeable: true}, lifecycle: triggersv1alpha1.PullRequestLifecycleOpen, mergeability: triggersv1alpha1.PullRequestMergeabilityMergeable},
+		{name: "closed conflicting", pull: polledPullRequest{State: monitorTestClosed, MergeableKnown: true}, lifecycle: triggersv1alpha1.PullRequestLifecycleClosed, mergeability: triggersv1alpha1.PullRequestMergeabilityConflicting},
+		{name: "merged", pull: polledPullRequest{State: monitorTestClosed, Merged: true, MergedAt: mergedAt}, lifecycle: triggersv1alpha1.PullRequestLifecycleMerged, mergeability: triggersv1alpha1.PullRequestMergeabilityUnknown},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pullRequestLifecycle(&tc.pull); got != tc.lifecycle {
+				t.Fatalf("lifecycle = %q, want %q", got, tc.lifecycle)
+			}
+			if got := pullRequestMergeability(&tc.pull); got != tc.mergeability {
+				t.Fatalf("mergeability = %q, want %q", got, tc.mergeability)
+			}
+		})
+	}
+
+	now := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
+	reviews := []polledPullRequestReview{
+		{ID: 1, AuthorLogin: monitorTestAlice, State: string(triggersv1alpha1.PullRequestReviewDecisionApproved), SubmittedAt: now.Add(-time.Minute)},
+		{ID: 2, AuthorLogin: monitorTestAlice, State: string(triggersv1alpha1.PullRequestReviewDecisionChangesRequested), SubmittedAt: now},
+		{ID: 3, AuthorLogin: "bob", State: string(triggersv1alpha1.PullRequestReviewDecisionApproved), SubmittedAt: now},
+	}
+	if got, want := aggregateReviewDecision(reviews), triggersv1alpha1.PullRequestReviewDecisionChangesRequested; got != want {
+		t.Fatalf("review decision = %q, want %q", got, want)
+	}
+}
+
 func TestBackoffDoublesAndCaps(t *testing.T) {
 	if got, want := backoff(3), 2*time.Minute; got != want {
 		t.Fatalf("backoff(3) = %s, want %s", got, want)
@@ -195,21 +243,82 @@ func TestBackoffDoublesAndCaps(t *testing.T) {
 	}
 }
 
-func TestTerminalMonitorAvoidsPolling(t *testing.T) {
+func TestMonitorStateKeepsLoopOutcomeSeparateFromLifecycle(t *testing.T) {
 	run := monitorProvenanceRun(t)
-	run.Status.Artifacts.PullRequestURL = "https://github.com/acme/widgets/pull/42"
 	setLoopLabel(run, prLoopKey("acme/widgets", 42), PRLoopStateLabel, PRLoopStateApproved)
 	monitor := ownedMonitor(run)
-	poller := &monitorFakePoller{}
+
+	if got, want := monitorStateForRun(run, monitor), triggersv1alpha1.PullRequestMonitorStateApproved; got != want {
+		t.Fatalf("monitorStateForRun() = %q, want %q", got, want)
+	}
+	if got, want := intervalForLifecycle(triggersv1alpha1.PullRequestLifecycleClosed, monitor.Status.State), monitorClosedInterval; got != want {
+		t.Fatalf("closed lifecycle interval = %s, want %s", got, want)
+	}
+}
+
+func TestClosedMonitorRequeuesForReopening(t *testing.T) {
+	now := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
+	run := monitorProvenanceRun(t)
+	run.Annotations[PRLoopOptAnnotation] = PRLoopOptDisabled
+	run.Status.Artifacts.PullRequestURL = "https://github.com/acme/widgets/pull/42"
+	monitor := ownedMonitor(run)
+	gh := prLoopTestRepo()
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: monitorTestToken, Namespace: run.Namespace}, Data: map[string][]byte{monitorTestTokenKey: []byte("test-token")}}
 	scheme := prLoopTestScheme(t)
-	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.PullRequestMonitor{}).WithObjects(run, monitor).Build()
-	reconciler := &PullRequestMonitorReconciler{Client: c, Scheme: scheme, Poller: poller}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.PullRequestMonitor{}).WithObjects(run, monitor, gh, secret).Build()
+	poller := &monitorFakePoller{pull: &polledPullRequest{Number: 42, URL: monitor.Spec.URL, State: monitorTestClosed, HeadSHA: "closed-head"}}
+	reconciler := &PullRequestMonitorReconciler{Client: c, Scheme: scheme, Poller: poller, Now: func() time.Time { return now }}
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(monitor)})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter < monitorClosedInterval*9/10 || result.RequeueAfter > monitorClosedInterval*11/10 {
+		t.Fatalf("closed requeue = %s, want jittered %s", result.RequeueAfter, monitorClosedInterval)
+	}
+	updated := &triggersv1alpha1.PullRequestMonitor{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(monitor), updated); err != nil {
+		t.Fatalf("Get(monitor): %v", err)
+	}
+	if updated.Status.Lifecycle != triggersv1alpha1.PullRequestLifecycleClosed {
+		t.Fatalf("lifecycle = %q, want closed", updated.Status.Lifecycle)
+	}
+}
+
+func TestHeadChangeInvalidatesPreviousCIRollups(t *testing.T) {
+	now := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
+	run := monitorProvenanceRun(t)
+	run.Annotations[PRLoopOptAnnotation] = PRLoopOptDisabled
+	run.Status.Artifacts.PullRequestURL = "https://github.com/acme/widgets/pull/42"
+	monitor := ownedMonitor(run)
+	monitor.Status.HeadSHA = monitorTestOldSHA
+	monitor.Status.Checks = triggersv1alpha1.PullRequestMonitorHeadRollup{HeadSHA: monitorTestOldSHA, State: gitHubRollupSuccess, ObservedAt: metav1.NewTime(now.Add(-time.Minute))}
+	monitor.Status.Statuses = triggersv1alpha1.PullRequestMonitorHeadRollup{HeadSHA: monitorTestOldSHA, State: gitHubRollupSuccess, ObservedAt: metav1.NewTime(now.Add(-time.Minute))}
+	gh := prLoopTestRepo()
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: monitorTestToken, Namespace: run.Namespace}, Data: map[string][]byte{monitorTestTokenKey: []byte("test-token")}}
+	scheme := prLoopTestScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.PullRequestMonitor{}).WithObjects(run, monitor, gh, secret).Build()
+	poller := &monitorFakePoller{
+		pull:      &polledPullRequest{Number: 42, URL: monitor.Spec.URL, State: monitorTestOpen, HeadSHA: monitorTestNewSHA, MergeableKnown: true, Mergeable: true},
+		checksErr: errors.New("checks unavailable"),
+	}
+	reconciler := &PullRequestMonitorReconciler{Client: c, Scheme: scheme, Poller: poller, Now: func() time.Time { return now }}
 
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(monitor)}); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if poller.calls != 0 {
-		t.Fatalf("poll calls = %d, want 0 for terminal run", poller.calls)
+	updated := &triggersv1alpha1.PullRequestMonitor{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(monitor), updated); err != nil {
+		t.Fatalf("Get(monitor): %v", err)
+	}
+	if updated.Status.Lifecycle != triggersv1alpha1.PullRequestLifecycleOpen || updated.Status.HeadSHA != monitorTestNewSHA {
+		t.Fatalf("lifecycle facts = %#v", updated.Status)
+	}
+	if updated.Status.Checks.HeadSHA != monitorTestNewSHA || updated.Status.Checks.State != "" || updated.Status.Checks.Error == "" {
+		t.Fatalf("checks after head change = %#v, want new-head error without old rollup", updated.Status.Checks)
+	}
+	if updated.Status.Statuses.HeadSHA != "" || updated.Status.Statuses.State != "" {
+		t.Fatalf("statuses after head change = %#v, want invalidated old rollup", updated.Status.Statuses)
 	}
 }
 
@@ -220,14 +329,14 @@ func TestPullRequestMonitorReconcileStartsLoopAndPersistsFeedbackCursors(t *test
 	run.Status.Artifacts = &platformv1alpha1.AgentRunArtifacts{PullRequestURLs: []string{"https://github.com/acme/widgets/pull/42"}}
 	monitor := ownedMonitor(run)
 	gh := prLoopTestRepo()
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "gh-token", Namespace: run.Namespace}, Data: map[string][]byte{"token": []byte("test-token")}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: monitorTestToken, Namespace: run.Namespace}, Data: map[string][]byte{monitorTestTokenKey: []byte("test-token")}}
 	engine, c, stateStore := newPRLoopEngine(t, gh, run, monitor, secret)
 	if _, err := stateStore.CreateSession(context.Background(), run.Name, run.Namespace, "succeeded", "done"); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 	markSucceeded(t, c, run)
 	poller := &monitorFakePoller{
-		pull:         &polledPullRequest{Number: 42, Title: "PR", URL: monitor.Spec.URL, State: "open", HeadRef: run.Name, HeadSHA: "abc123", BaseRef: "main", AuthorLogin: "agent-bot", CreatedAt: now.Add(-time.Hour)},
+		pull:         &polledPullRequest{Number: 42, Title: "PR", URL: monitor.Spec.URL, State: monitorTestOpen, HeadRef: run.Name, HeadSHA: "abc123", BaseRef: monitorTestBaseRef, AuthorLogin: monitorTestAgentBot, CreatedAt: now.Add(-time.Hour)},
 		pullResponse: gitHubPollResponse{StatusCode: 200, ETag: `"pull-v1"`},
 		reviews:      []polledPullRequestReview{{ID: 11, State: "commented", Body: "fix the edge case", AuthorLogin: "reviewer", AuthorAssociation: "MEMBER", SubmittedAt: now.Add(-time.Minute)}},
 		comments:     []polledIssueComment{{ID: 12, Body: "@agent add a regression test", AuthorLogin: "maintainer", AuthorAssociation: "MEMBER", CreatedAt: now}},
@@ -253,6 +362,13 @@ func TestPullRequestMonitorReconcileStartsLoopAndPersistsFeedbackCursors(t *test
 	if len(runs.Items) != 2 {
 		t.Fatalf("AgentRuns = %d, want implementer plus reviewer", len(runs.Items))
 	}
+	poller.reviews = nil
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(monitor)}); err != nil {
+		t.Fatalf("second Reconcile() error = %v", err)
+	}
+	if len(poller.reviewSince) != 2 || !poller.reviewSince[1].Equal(now.Add(-time.Minute)) {
+		t.Fatalf("review cursors = %#v", poller.reviewSince)
+	}
 }
 
 func TestExternalPREventDuplicateUsesExactTypeAndSourceID(t *testing.T) {
@@ -277,16 +393,23 @@ func TestExternalPREventDuplicateUsesExactTypeAndSourceID(t *testing.T) {
 }
 
 type monitorFakePoller struct {
-	calls           int
-	pull            *polledPullRequest
-	pullResponse    gitHubPollResponse
-	pullErr         error
-	reviews         []polledPullRequestReview
-	reviewResponse  gitHubPollResponse
-	reviewErr       error
-	comments        []polledIssueComment
-	commentResponse gitHubPollResponse
-	commentErr      error
+	calls            int
+	pull             *polledPullRequest
+	pullResponse     gitHubPollResponse
+	pullErr          error
+	reviews          []polledPullRequestReview
+	reviewSince      []time.Time
+	reviewResponse   gitHubPollResponse
+	reviewErr        error
+	comments         []polledIssueComment
+	commentResponse  gitHubPollResponse
+	commentErr       error
+	checks           polledHeadRollup
+	checksResponse   gitHubPollResponse
+	checksErr        error
+	statuses         polledHeadRollup
+	statusesResponse gitHubPollResponse
+	statusesErr      error
 }
 
 func (p *monitorFakePoller) GetPullRequest(context.Context, string, string, int, string) (*polledPullRequest, gitHubPollResponse, error) {
@@ -294,14 +417,39 @@ func (p *monitorFakePoller) GetPullRequest(context.Context, string, string, int,
 	return p.pull, p.pullResponse, p.pullErr
 }
 
-func (p *monitorFakePoller) ListReviews(context.Context, string, string, int, time.Time) ([]polledPullRequestReview, gitHubPollResponse, error) {
+func (p *monitorFakePoller) ListReviews(_ context.Context, _ string, _ string, _ int, since time.Time) ([]polledPullRequestReview, gitHubPollResponse, error) {
 	p.calls++
+	p.reviewSince = append(p.reviewSince, since)
 	return p.reviews, p.reviewResponse, p.reviewErr
+}
+
+func (p *monitorFakePoller) GetReviewDecision(context.Context, string, string, int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
+	p.calls++
+	if p.reviewErr != nil {
+		return triggersv1alpha1.PullRequestReviewDecisionUnknown, p.reviewResponse, p.reviewErr
+	}
+	return aggregateReviewDecision(p.reviews), p.reviewResponse, nil
 }
 
 func (p *monitorFakePoller) ListIssueComments(context.Context, string, string, int, time.Time) ([]polledIssueComment, gitHubPollResponse, error) {
 	p.calls++
 	return p.comments, p.commentResponse, p.commentErr
+}
+
+func (p *monitorFakePoller) ListCheckRuns(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error) {
+	p.calls++
+	if p.checks.HeadSHA == "" && p.pull != nil {
+		p.checks = polledHeadRollup{HeadSHA: p.pull.HeadSHA, State: gitHubRollupSuccess, Count: 1}
+	}
+	return p.checks, p.checksResponse, p.checksErr
+}
+
+func (p *monitorFakePoller) GetCommitStatus(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error) {
+	p.calls++
+	if p.statuses.HeadSHA == "" && p.pull != nil {
+		p.statuses = polledHeadRollup{HeadSHA: p.pull.HeadSHA, State: gitHubRollupNone}
+	}
+	return p.statuses, p.statusesResponse, p.statusesErr
 }
 
 func ownedMonitor(run *platformv1alpha1.AgentRun) *triggersv1alpha1.PullRequestMonitor {

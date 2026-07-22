@@ -78,6 +78,7 @@ func TestRunRBACRulesGiveMaintainerFleetAccess(t *testing.T) {
 	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "modetemplates", "get", "list")
 	assertHasRuleVerbs(t, rules, "triggers.gratefulagents.dev", "maintainerworkitems", "get", "list", "watch")
 	assertHasRuleVerbs(t, rules, "triggers.gratefulagents.dev", "maintainerworkitemcommands", "create", "get", "list", "watch")
+	assertHasRuleVerbs(t, rules, "triggers.gratefulagents.dev", "pullrequestmonitors", "get", "list", "watch")
 	assertRuleWithGroupVerbAndNames(t, rules, "", "secrets", "get", triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name))
 	assertNoResourceVerb(t, rules, "maintainerworkitems", "patch")
 	assertNoResourceVerb(t, rules, "maintainerworkitemcommands", "update")

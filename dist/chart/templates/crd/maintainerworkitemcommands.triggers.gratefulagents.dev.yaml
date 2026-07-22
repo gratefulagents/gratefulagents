@@ -58,6 +58,93 @@ spec:
             description: MaintainerWorkItemCommandSpec defines an immutable, idempotent
               command request.
             properties:
+              breakdown:
+                description: MaintainerBreakdownCommand is the typed payload for a
+                  BreakdownIssue command.
+                properties:
+                  children:
+                    items:
+                      description: MaintainerWorkItemReference identifies a work item
+                        in the same namespace.
+                      properties:
+                        name:
+                          minLength: 1
+                          type: string
+                        uid:
+                          description: |-
+                            UID is a type that holds unique ID values, including UUIDs.  Because we
+                            don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                            intent and helps make sure that UIDs and names do not get conflated.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  dependencies:
+                    items:
+                      description: MaintainerWorkItemReference identifies a work item
+                        in the same namespace.
+                      properties:
+                        name:
+                          minLength: 1
+                          type: string
+                        uid:
+                          description: |-
+                            UID is a type that holds unique ID values, including UUIDs.  Because we
+                            don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                            intent and helps make sure that UIDs and names do not get conflated.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  issueNumber:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - children
+                - issueNumber
+                type: object
+              dispatch:
+                description: MaintainerDispatchWorkItemCommand is the typed payload
+                  for a DispatchWorkItem command.
+                properties:
+                  issueNumber:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  mode:
+                    description: Mode is the ModeTemplate label applied only after
+                      capacity is reserved.
+                    minLength: 1
+                    type: string
+                  requiredPullRequests:
+                    items:
+                      description: MaintainerRequiredPullRequestIntent identifies
+                        a pull request required for delivery.
+                      properties:
+                        name:
+                          minLength: 1
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                required:
+                - issueNumber
+                - mode
+                type: object
               idempotencyKey:
                 maxLength: 128
                 minLength: 1
@@ -124,6 +211,60 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              requestDecision:
+                description: MaintainerRequestDecisionCommand is the typed payload
+                  for a RequestDecision command.
+                properties:
+                  decisionID:
+                    minLength: 1
+                    type: string
+                  issueNumber:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  options:
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  question:
+                    minLength: 1
+                    type: string
+                required:
+                - decisionID
+                - issueNumber
+                - question
+                type: object
+              resolveDecision:
+                description: MaintainerResolveDecisionCommand is the typed payload
+                  for an authenticated ResolveDecision command.
+                properties:
+                  decisionID:
+                    minLength: 1
+                    type: string
+                  humanAnswer:
+                    description: MaintainerAuthenticatedHumanAnswer records an answer
+                      only after the controller authenticates its human subject.
+                    properties:
+                      answer:
+                        minLength: 1
+                        type: string
+                      subject:
+                        minLength: 1
+                        type: string
+                    required:
+                    - answer
+                    - subject
+                    type: object
+                  issueNumber:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - decisionID
+                - humanAnswer
+                - issueNumber
+                type: object
               triage:
                 description: MaintainerTriageCommand is the typed payload for a TriageIssue
                   command.
@@ -182,6 +323,10 @@ spec:
                   payload type.
                 enum:
                 - TriageIssue
+                - BreakdownIssue
+                - RequestDecision
+                - ResolveDecision
+                - DispatchWorkItem
                 type: string
             required:
             - idempotencyKey
@@ -192,8 +337,16 @@ spec:
             - type
             type: object
             x-kubernetes-validations:
-            - message: triage is required when type is TriageIssue
-              rule: self.type != 'TriageIssue' || has(self.triage)
+            - message: triage is required only when type is TriageIssue
+              rule: (self.type == 'TriageIssue') == has(self.triage)
+            - message: breakdown is required only when type is BreakdownIssue
+              rule: (self.type == 'BreakdownIssue') == has(self.breakdown)
+            - message: requestDecision is required only when type is RequestDecision
+              rule: (self.type == 'RequestDecision') == has(self.requestDecision)
+            - message: resolveDecision is required only when type is ResolveDecision
+              rule: (self.type == 'ResolveDecision') == has(self.resolveDecision)
+            - message: dispatch is required only when type is DispatchWorkItem
+              rule: (self.type == 'DispatchWorkItem') == has(self.dispatch)
           status:
             description: MaintainerWorkItemCommandStatus defines the durable receipt
               for a command.
@@ -274,13 +427,100 @@ spec:
                 description: MaintainerWorkItemCommandResult records the externally
                   visible command result.
                 properties:
+                  agentRunRef:
+                    description: |-
+                      LocalObjectReference contains enough information to let you locate the
+                      referenced object inside the same namespace.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
                   applied:
                     type: boolean
+                  childRefs:
+                    items:
+                      description: MaintainerWorkItemReference identifies a work item
+                        in the same namespace.
+                      properties:
+                        name:
+                          minLength: 1
+                          type: string
+                        uid:
+                          description: |-
+                            UID is a type that holds unique ID values, including UUIDs.  Because we
+                            don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                            intent and helps make sure that UIDs and names do not get conflated.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
                   commentURL:
                     type: string
                   completedAt:
                     format: date-time
                     type: string
+                  dispatchReservation:
+                    description: MaintainerDispatchReservation records capacity reserved
+                      before dispatch side effects.
+                    properties:
+                      agentRunRef:
+                        description: |-
+                          LocalObjectReference contains enough information to let you locate the
+                          referenced object inside the same namespace.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      commandRef:
+                        description: |-
+                          LocalObjectReference contains enough information to let you locate the
+                          referenced object inside the same namespace.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      expiresAt:
+                        format: date-time
+                        type: string
+                      id:
+                        minLength: 1
+                        type: string
+                      reservedAt:
+                        format: date-time
+                        type: string
+                    required:
+                    - commandRef
+                    - id
+                    - reservedAt
+                    type: object
                   issueState:
                     description: MaintainerIssueState is the observed GitHub issue
                       state.

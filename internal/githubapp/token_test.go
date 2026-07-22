@@ -15,6 +15,15 @@ import (
 	"time"
 )
 
+const testPermissionRead = "read"
+
+func TestPullRequestPollingPermissionsIncludeHeadBoundCI(t *testing.T) {
+	permissions := PullRequestPollingInstallationPermissions()
+	if permissions.GetChecks() != testPermissionRead || permissions.GetStatuses() != testPermissionRead || permissions.GetPullRequests() != testPermissionRead {
+		t.Fatalf("polling permissions = %#v", permissions)
+	}
+}
+
 func TestMinterMintsAndCachesInstallationToken(t *testing.T) {
 	now := time.Date(2026, 6, 10, 10, 0, 0, 0, time.UTC)
 	calls := 0
@@ -152,7 +161,7 @@ func TestMinterScopedMintSendsPermissionsAndCachesSeparately(t *testing.T) {
 	if !ok {
 		t.Fatalf("scoped request body missing permissions: %#v", bodies[1])
 	}
-	if perms["contents"] != "read" || perms["pull_requests"] != "write" {
+	if perms["contents"] != testPermissionRead || perms["pull_requests"] != "write" {
 		t.Fatalf("scoped permissions = %#v, want contents:read pull_requests:write", perms)
 	}
 	if _, hasPerms := bodies[0]["permissions"]; hasPerms && bodies[0]["permissions"] != nil {

@@ -8,12 +8,22 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/go-github/v68/github"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 )
 
-const gitHubPollPageLimit = 10
+const (
+	gitHubPollPageLimit = 10
+	gitHubRollupSuccess = "success"
+	gitHubRollupFailure = "failure"
+	gitHubRollupPending = "pending"
+	gitHubRollupNone    = "none"
+	gitHubOwnerVariable = "owner"
+	gitHubRepoVariable  = "repo"
+)
 
 var errGitHubPollHistoryLimit = errors.New("github poll history exceeds page limit")
 
@@ -35,17 +45,28 @@ func (e *gitHubPollHistoryLimitError) Retryable() bool {
 }
 
 type polledPullRequest struct {
-	Number      int
-	Title       string
-	URL         string
-	State       string
-	Merged      bool
-	HeadRef     string
-	HeadSHA     string
-	BaseRef     string
-	AuthorLogin string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	Number         int
+	Title          string
+	URL            string
+	State          string
+	Draft          bool
+	Merged         bool
+	MergedAt       time.Time
+	MergeableKnown bool
+	Mergeable      bool
+	MergeableState string
+	HeadRef        string
+	HeadSHA        string
+	BaseRef        string
+	AuthorLogin    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type polledHeadRollup struct {
+	HeadSHA string
+	State   string
+	Count   int
 }
 
 type polledPullRequestReview struct {
@@ -80,7 +101,10 @@ type gitHubPollResponse struct {
 type pullRequestGitHubPoller interface {
 	GetPullRequest(context.Context, string, string, int, string) (*polledPullRequest, gitHubPollResponse, error)
 	ListReviews(context.Context, string, string, int, time.Time) ([]polledPullRequestReview, gitHubPollResponse, error)
+	GetReviewDecision(context.Context, string, string, int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error)
 	ListIssueComments(context.Context, string, string, int, time.Time) ([]polledIssueComment, gitHubPollResponse, error)
+	ListCheckRuns(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error)
+	GetCommitStatus(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error)
 }
 
 type goGitHubPullRequestPoller struct {
@@ -112,17 +136,22 @@ func (p *goGitHubPullRequestPoller) GetPullRequest(ctx context.Context, owner, r
 	}
 
 	return &polledPullRequest{
-		Number:      value.GetNumber(),
-		Title:       value.GetTitle(),
-		URL:         value.GetHTMLURL(),
-		State:       value.GetState(),
-		Merged:      value.GetMerged(),
-		HeadRef:     value.GetHead().GetRef(),
-		HeadSHA:     value.GetHead().GetSHA(),
-		BaseRef:     value.GetBase().GetRef(),
-		AuthorLogin: value.GetUser().GetLogin(),
-		CreatedAt:   value.GetCreatedAt().Time,
-		UpdatedAt:   value.GetUpdatedAt().Time,
+		Number:         value.GetNumber(),
+		Title:          value.GetTitle(),
+		URL:            value.GetHTMLURL(),
+		State:          value.GetState(),
+		Draft:          value.GetDraft(),
+		Merged:         value.GetMerged(),
+		MergedAt:       value.GetMergedAt().Time,
+		MergeableKnown: value.Mergeable != nil,
+		Mergeable:      value.GetMergeable(),
+		MergeableState: value.GetMergeableState(),
+		HeadRef:        value.GetHead().GetRef(),
+		HeadSHA:        value.GetHead().GetSHA(),
+		BaseRef:        value.GetBase().GetRef(),
+		AuthorLogin:    value.GetUser().GetLogin(),
+		CreatedAt:      value.GetCreatedAt().Time,
+		UpdatedAt:      value.GetUpdatedAt().Time,
 	}, metadata, nil
 }
 
@@ -198,6 +227,47 @@ func (p *goGitHubPullRequestPoller) ListReviews(ctx context.Context, owner, repo
 	return reviews, metadata, nil
 }
 
+func (p *goGitHubPullRequestPoller) GetReviewDecision(ctx context.Context, owner, repo string, number int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
+	body := map[string]any{
+		"query":     `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewDecision}}}`,
+		"variables": map[string]any{gitHubOwnerVariable: owner, gitHubRepoVariable: repo, "number": number},
+	}
+	req, err := p.client.NewRequest(http.MethodPost, "graphql", body)
+	if err != nil {
+		return triggersv1alpha1.PullRequestReviewDecisionUnknown, gitHubPollResponse{}, err
+	}
+	var result struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewDecision string `json:"reviewDecision"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	resp, err := p.client.Do(ctx, req, &result)
+	metadata := pollResponseFromGitHub(resp)
+	if err != nil {
+		return triggersv1alpha1.PullRequestReviewDecisionUnknown, metadata, err
+	}
+	if len(result.Errors) > 0 {
+		return triggersv1alpha1.PullRequestReviewDecisionUnknown, metadata, fmt.Errorf("GitHub GraphQL review decision: %s", result.Errors[0].Message)
+	}
+	switch strings.ToUpper(strings.TrimSpace(result.Data.Repository.PullRequest.ReviewDecision)) {
+	case "APPROVED":
+		return triggersv1alpha1.PullRequestReviewDecisionApproved, metadata, nil
+	case "CHANGES_REQUESTED":
+		return triggersv1alpha1.PullRequestReviewDecisionChangesRequested, metadata, nil
+	case "REVIEW_REQUIRED":
+		return triggersv1alpha1.PullRequestReviewDecisionReviewRequired, metadata, nil
+	default:
+		return triggersv1alpha1.PullRequestReviewDecisionUnknown, metadata, nil
+	}
+}
+
 func (p *goGitHubPullRequestPoller) ListIssueComments(ctx context.Context, owner, repo string, number int, after time.Time) ([]polledIssueComment, gitHubPollResponse, error) {
 	owner, repo = url.PathEscape(owner), url.PathEscape(repo)
 	since := after.Add(-time.Second)
@@ -251,6 +321,73 @@ func (p *goGitHubPullRequestPoller) ListIssueComments(ctx context.Context, owner
 	metadata.NextPage = 0
 	metadata.ETag = ""
 	return comments, metadata, nil
+}
+
+func (p *goGitHubPullRequestPoller) ListCheckRuns(ctx context.Context, owner, repo, headSHA string) (polledHeadRollup, gitHubPollResponse, error) {
+	owner, repo = url.PathEscape(owner), url.PathEscape(repo)
+	opts := &github.ListCheckRunsOptions{Filter: new("latest"), ListOptions: github.ListOptions{Page: 1, PerPage: 100}}
+	rollup := polledHeadRollup{HeadSHA: headSHA, State: gitHubRollupSuccess}
+	var metadata gitHubPollResponse
+	seen := false
+	for pagesRead := 0; ; pagesRead++ {
+		values, resp, err := p.client.Checks.ListCheckRunsForRef(ctx, owner, repo, headSHA, opts)
+		metadata = mergeGitHubPollResponse(metadata, pollResponseFromGitHub(resp))
+		if err != nil {
+			return polledHeadRollup{HeadSHA: headSHA}, metadata, err
+		}
+		if values != nil {
+			for _, value := range values.CheckRuns {
+				if value == nil {
+					continue
+				}
+				seen = true
+				rollup.Count++
+				if !strings.EqualFold(value.GetStatus(), "completed") {
+					if rollup.State != gitHubRollupFailure {
+						rollup.State = gitHubRollupPending
+					}
+					continue
+				}
+				switch strings.ToLower(value.GetConclusion()) {
+				case gitHubRollupSuccess, "neutral", "skipped":
+				case gitHubRollupFailure, "cancelled", "timed_out", "action_required", "startup_failure", "stale":
+					rollup.State = gitHubRollupFailure
+				default:
+					if rollup.State != gitHubRollupFailure {
+						rollup.State = gitHubRollupPending
+					}
+				}
+			}
+			if resp == nil || resp.NextPage == 0 {
+				break
+			}
+			if pagesRead+1 == gitHubPollPageLimit {
+				return polledHeadRollup{HeadSHA: headSHA}, metadata, &gitHubPollHistoryLimitError{collection: "check run", pages: gitHubPollPageLimit}
+			}
+			opts.Page = resp.NextPage
+		} else {
+			break
+		}
+	}
+	if !seen {
+		rollup.State = gitHubRollupNone
+	}
+	return rollup, metadata, nil
+}
+
+func (p *goGitHubPullRequestPoller) GetCommitStatus(ctx context.Context, owner, repo, headSHA string) (polledHeadRollup, gitHubPollResponse, error) {
+	owner, repo = url.PathEscape(owner), url.PathEscape(repo)
+	value, resp, err := p.client.Repositories.GetCombinedStatus(ctx, owner, repo, headSHA, &github.ListOptions{PerPage: 100})
+	metadata := pollResponseFromGitHub(resp)
+	if err != nil {
+		return polledHeadRollup{HeadSHA: headSHA}, metadata, err
+	}
+	count := len(value.Statuses)
+	state := value.GetState()
+	if count == 0 {
+		state = gitHubRollupNone
+	}
+	return polledHeadRollup{HeadSHA: headSHA, State: state, Count: count}, metadata, nil
 }
 
 func pollResponseFromGitHub(resp *github.Response) gitHubPollResponse {
