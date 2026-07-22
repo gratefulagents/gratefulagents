@@ -21,7 +21,6 @@ import {
   MyCredentialsSchema,
   MyOpenAIUsageSchema,
   NotificationInfoSchema,
-  OpenAIModelUsageSchema,
   OpenAIUsageLimitSchema,
   ProjectSchema,
   ProjectTriggerSchema,
@@ -1071,25 +1070,8 @@ const openAIUsage = create(MyOpenAIUsageSchema, {
   longestStreakDays: 24n,
   longestRunningTurnSeconds: 5_460n,
   last30DaysTokens: 7_842_118n,
-  telemetryAvailable: true,
   lookbackDays: 30,
   fetchedAtUnix: unix(SCENARIO_NOW),
-  models: [
-    create(OpenAIModelUsageSchema, {
-      model: "openai/gpt-5.4",
-      inputTokens: 5_821_004n,
-      outputTokens: 284_112n,
-      estimatedCostUsd: 18.7421,
-      costKnown: true,
-    }),
-    create(OpenAIModelUsageSchema, {
-      model: "openai/gpt-5.3-codex",
-      inputTokens: 1_601_331n,
-      outputTokens: 135_671n,
-      estimatedCostUsd: 6.0834,
-      costKnown: true,
-    }),
-  ],
 });
 
 const soul = create(SoulSchema, {

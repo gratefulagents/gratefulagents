@@ -711,9 +711,9 @@ type PlatformServiceClient interface {
 	// Collaboration: presence
 	SendPresenceHeartbeat(context.Context, *connect.Request[platform.PresenceHeartbeatRequest]) (*connect.Response[emptypb.Empty], error)
 	GetPresence(context.Context, *connect.Request[platform.GetPresenceRequest]) (*connect.Response[platform.GetPresenceResponse], error)
-	// GetMyOpenAIUsage returns ChatGPT OAuth quota/token activity plus a
-	// platform-observed 30-day model and list-price-equivalent cost breakdown.
-	// Provider tokens and raw credential material never leave the server.
+	// GetMyOpenAIUsage returns account data available through the calling
+	// user's current ChatGPT OAuth credential. Provider tokens and raw
+	// credential material never leave the server.
 	GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error)
 }
 
@@ -2802,9 +2802,9 @@ type PlatformServiceHandler interface {
 	// Collaboration: presence
 	SendPresenceHeartbeat(context.Context, *connect.Request[platform.PresenceHeartbeatRequest]) (*connect.Response[emptypb.Empty], error)
 	GetPresence(context.Context, *connect.Request[platform.GetPresenceRequest]) (*connect.Response[platform.GetPresenceResponse], error)
-	// GetMyOpenAIUsage returns ChatGPT OAuth quota/token activity plus a
-	// platform-observed 30-day model and list-price-equivalent cost breakdown.
-	// Provider tokens and raw credential material never leave the server.
+	// GetMyOpenAIUsage returns account data available through the calling
+	// user's current ChatGPT OAuth credential. Provider tokens and raw
+	// credential material never leave the server.
 	GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error)
 }
 

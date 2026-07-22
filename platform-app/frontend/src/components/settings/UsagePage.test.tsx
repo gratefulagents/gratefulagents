@@ -8,7 +8,6 @@ import { client } from "@/lib/client";
 import {
   MyOpenAIUsageSchema,
   type MyOpenAIUsage,
-  OpenAIModelUsageSchema,
   OpenAIUsageLimitSchema,
 } from "@/rpc/platform/service_pb";
 
@@ -30,7 +29,7 @@ afterEach(() => {
 });
 
 describe("UsagePage", () => {
-  it("renders ChatGPT limits, token activity, and per-model estimated cost", async () => {
+  it("renders account data from the current ChatGPT OAuth credential", async () => {
     vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
       create(MyOpenAIUsageSchema, {
         openaiOauthPresent: true,
@@ -57,23 +56,7 @@ describe("UsagePage", () => {
         longestStreakDays: 8n,
         longestRunningTurnSeconds: 3900n,
         last30DaysTokens: 700n,
-        telemetryAvailable: true,
         lookbackDays: 30,
-        models: [
-          create(OpenAIModelUsageSchema, {
-            model: "openai/gpt-5.4",
-            inputTokens: 800n,
-            outputTokens: 200n,
-            estimatedCostUsd: 0.004,
-            costKnown: true,
-          }),
-          create(OpenAIModelUsageSchema, {
-            model: "openai/gpt-unpriced",
-            inputTokens: 40n,
-            outputTokens: 10n,
-            costKnown: false,
-          }),
-        ],
       }),
     );
 
@@ -83,11 +66,9 @@ describe("UsagePage", () => {
     expect(screen.getByText("oauth@example.com")).toBeTruthy();
     expect(screen.getByText("58% left")).toBeTruthy();
     expect(screen.getByText("10,000")).toBeTruthy();
-    expect(screen.getByText("gpt-5.4")).toBeTruthy();
-    expect(screen.getAllByText("1,000").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("$0.0040")).toHaveLength(1);
-    expect(screen.getAllByText("—")).toHaveLength(2);
-    expect(screen.getByText(/not charged at these API rates/)).toBeTruthy();
+    expect(screen.getByText("700")).toBeTruthy();
+    expect(screen.queryByText(/Observed model usage/)).toBeNull();
+    expect(screen.queryByText(/Est. cost/)).toBeNull();
   });
 
   it("points disconnected users to Credentials", async () => {

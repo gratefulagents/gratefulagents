@@ -8,7 +8,6 @@ import {
   KeyRound,
   RefreshCw,
   Sparkles,
-  WalletCards,
 } from "lucide-react";
 
 import { SettingsSection } from "@/components/settings-section";
@@ -16,14 +15,6 @@ import { SettingsSubPage } from "@/components/settings/SettingsSubPage";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import type {
@@ -72,7 +63,7 @@ export default function UsagePage() {
   return (
     <SettingsSubPage
       title="Usage"
-      description="ChatGPT allowances and the OpenAI usage observed by your runs."
+      description="Allowances and token activity from your current ChatGPT OAuth account."
     >
       {loading ? (
         <UsageSkeleton />
@@ -90,7 +81,6 @@ export default function UsagePage() {
           <AccountSummary usage={usage} refreshing={refreshing} onRefresh={() => void refresh()} />
           <AllowanceWindows limits={usage.limits} available={usage.accountStatusAvailable} />
           <TokenActivity usage={usage} />
-          <ModelUsage usage={usage} />
           {usage.warnings.length > 0 && (
             <div role="status" className="rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-[12px] text-muted-foreground">
               {usage.warnings.join(" ")}
@@ -255,66 +245,6 @@ function TokenActivity({ usage }: { usage: MyOpenAIUsage }) {
   );
 }
 
-function ModelUsage({ usage }: { usage: MyOpenAIUsage }) {
-  const totals = usage.models.reduce(
-    (sum, model) => ({
-      input: sum.input + model.inputTokens,
-      output: sum.output + model.outputTokens,
-      cost: sum.cost + (model.costKnown ? model.estimatedCostUsd : 0),
-      costKnown: sum.costKnown && model.costKnown,
-    }),
-    { input: 0n, output: 0n, cost: 0, costKnown: true },
-  );
-  return (
-    <SettingsSection
-      icon={<WalletCards />}
-      title={`Observed model usage · ${usage.lookbackDays || 30} days`}
-      description="OpenAI model calls from your runs that used this saved OAuth credential."
-    >
-      {!usage.telemetryAvailable ? (
-        <UnavailableCopy>Per-model telemetry is not available right now.</UnavailableCopy>
-      ) : usage.models.length === 0 ? (
-        <UnavailableCopy>No OpenAI model calls were recorded in this period.</UnavailableCopy>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-border/70">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Model</TableHead>
-                <TableHead className="text-right">Input</TableHead>
-                <TableHead className="text-right">Output</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Est. cost</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {usage.models.map((model) => (
-                <TableRow key={model.model}>
-                  <TableCell className="font-mono text-[11.5px]">{stripOpenAIPrefix(model.model)}</TableCell>
-                  <TableCell className="text-right font-mono text-[11.5px] tabular-nums">{formatTokens(model.inputTokens)}</TableCell>
-                  <TableCell className="text-right font-mono text-[11.5px] tabular-nums">{formatTokens(model.outputTokens)}</TableCell>
-                  <TableCell className="text-right font-mono text-[11.5px] tabular-nums">{formatTokens(model.inputTokens + model.outputTokens)}</TableCell>
-                  <TableCell className="text-right font-mono text-[11.5px] tabular-nums">{model.costKnown ? formatCost(model.estimatedCostUsd) : "—"}</TableCell>
-                </TableRow>
-              ))}
-              <TableRow className="bg-muted/25 hover:bg-muted/25">
-                <TableCell className="text-[12px] font-semibold">Total</TableCell>
-                <TableCell className="text-right font-mono text-[11.5px] font-semibold tabular-nums">{formatTokens(totals.input)}</TableCell>
-                <TableCell className="text-right font-mono text-[11.5px] font-semibold tabular-nums">{formatTokens(totals.output)}</TableCell>
-                <TableCell className="text-right font-mono text-[11.5px] font-semibold tabular-nums">{formatTokens(totals.input + totals.output)}</TableCell>
-                <TableCell className="text-right font-mono text-[11.5px] font-semibold tabular-nums">{totals.costKnown ? formatCost(totals.cost) : "—"}</TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      )}
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Estimated cost uses cache-aware public API list prices recorded with each model call. ChatGPT OAuth does not expose a bill, and subscription usage is not charged at these API rates.
-      </p>
-    </SettingsSection>
-  );
-}
-
 function DisconnectedState() {
   return (
     <SettingsSection
@@ -333,7 +263,7 @@ function UsageSkeleton() {
   return (
     <div role="status" aria-live="polite" aria-busy="true" className="space-y-5">
       <span className="sr-only">Loading usage</span>
-      {[112, 180, 138, 220].map((height) => (
+      {[112, 180, 138].map((height) => (
         <Skeleton key={height} className="w-full rounded-xl" style={{ height }} />
       ))}
     </div>
@@ -351,10 +281,6 @@ function displayPlan(plan: string): string {
   if (["enterprise", "enterprise_cbp_usage_based"].includes(normalized)) return "ChatGPT Enterprise";
   if (normalized === "prolite") return "ChatGPT Pro Lite";
   return `ChatGPT ${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
-}
-
-function stripOpenAIPrefix(model: string): string {
-  return model.replace(/^openai\//i, "");
 }
 
 function formatTokens(value: bigint): string {
@@ -377,12 +303,6 @@ function formatDuration(value: bigint | undefined): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
-}
-
-function formatCost(value: number): string {
-  if (value >= 1) return `$${value.toFixed(2)}`;
-  if (value >= 0.01) return `$${value.toFixed(3)}`;
-  return `$${value.toFixed(4)}`;
 }
 
 function formatTimestamp(value: bigint): string {

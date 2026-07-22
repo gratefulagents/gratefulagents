@@ -224,9 +224,9 @@ service PlatformService {
   rpc SendPresenceHeartbeat(PresenceHeartbeatRequest) returns (google.protobuf.Empty);
   rpc GetPresence(GetPresenceRequest) returns (GetPresenceResponse);
 
-  // GetMyOpenAIUsage returns ChatGPT OAuth quota/token activity plus a
-  // platform-observed 30-day model and list-price-equivalent cost breakdown.
-  // Provider tokens and raw credential material never leave the server.
+  // GetMyOpenAIUsage returns account data available through the calling
+  // user's current ChatGPT OAuth credential. Provider tokens and raw
+  // credential material never leave the server.
   rpc GetMyOpenAIUsage(GetMyOpenAIUsageRequest) returns (MyOpenAIUsage);
 }
 
@@ -3554,9 +3554,8 @@ message ProviderOAuthResult {
 // settings surface does not renumber existing generated message metadata.
 message GetMyOpenAIUsageRequest {}
 
-// MyOpenAIUsage combines account-level data exposed by ChatGPT OAuth with
-// usage observed by this platform. Cost values are estimates at public API
-// list prices; ChatGPT subscription usage is not billed at those rates.
+// MyOpenAIUsage contains only account-level data exposed by the user's
+// current ChatGPT OAuth credential.
 message MyOpenAIUsage {
   bool openai_oauth_present = 1;
   string account_email = 2;
@@ -3571,11 +3570,9 @@ message MyOpenAIUsage {
   optional int64 longest_streak_days = 11;
   optional int64 longest_running_turn_seconds = 12;
   int64 last_30_days_tokens = 13;
-  bool telemetry_available = 14;
-  repeated OpenAIModelUsage models = 15;
-  int32 lookback_days = 16;
-  int64 fetched_at_unix = 17;
-  repeated string warnings = 18;
+  int32 lookback_days = 14;
+  int64 fetched_at_unix = 15;
+  repeated string warnings = 16;
 }
 
 message OpenAIUsageLimit {
@@ -3583,12 +3580,4 @@ message OpenAIUsageLimit {
   double used_percent = 2;
   int64 reset_at_unix = 3;
   string details = 4;
-}
-
-message OpenAIModelUsage {
-  string model = 1;
-  int64 input_tokens = 2;
-  int64 output_tokens = 3;
-  double estimated_cost_usd = 4;
-  bool cost_known = 5;
 }

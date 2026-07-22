@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,14 +14,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 	sdkopenai "github.com/gratefulagents/sdk/pkg/agentsdk/providers/openai"
 )
 
 const (
 	chatGPTBackendBaseURL = "https://chatgpt.com/backend-api"
-	openAIUsageLookback   = 30 * 24 * time.Hour
 	openAIAccountTimeout  = 10 * time.Second
 )
 
@@ -93,9 +90,8 @@ type openAITokenUsageDailyBucket struct {
 	Tokens    int64  `json:"tokens"`
 }
 
-// GetMyOpenAIUsage reads account-level data through the calling user's saved
-// OpenAI OAuth credential, then combines it with platform-observed model usage.
-// OAuth material never leaves the server.
+// GetMyOpenAIUsage reads account-level data through the calling user's current
+// saved OpenAI OAuth credential. OAuth material never leaves the server.
 func (s *Server) GetMyOpenAIUsage(ctx context.Context, _ *platform.GetMyOpenAIUsageRequest) (*platform.MyOpenAIUsage, error) {
 	actor, err := providerOAuthActor(ctx)
 	if err != nil {
@@ -159,13 +155,6 @@ func (s *Server) GetMyOpenAIUsage(ctx context.Context, _ *platform.GetMyOpenAIUs
 		out.Warnings = append(out.Warnings, "ChatGPT token activity is temporarily unavailable.")
 	}
 
-	models, err := s.openAIModelUsageLast30Days(ctx, namespace, userCredentialSecretName("openai"), now)
-	if err != nil {
-		out.Warnings = append(out.Warnings, "Per-model platform telemetry is temporarily unavailable.")
-	} else {
-		out.TelemetryAvailable = true
-		out.Models = models
-	}
 	return out, nil
 }
 
@@ -327,71 +316,6 @@ func openAICreditsLabel(status *openAIRateLimitStatus) string {
 		return "Available"
 	}
 	return "None"
-}
-
-func (s *Server) openAIModelUsageLast30Days(ctx context.Context, namespace, oauthSecret string, now time.Time) ([]*platform.OpenAIModelUsage, error) {
-	analytics, ok := s.stateStore.(observabilityStore)
-	if !ok {
-		return nil, fmt.Errorf("historical telemetry is unavailable")
-	}
-	visible, err := s.ListAgentRuns(ctx, &platform.ListAgentRunsRequest{Namespace: namespace})
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(visible.Runs))
-	for _, run := range visible.Runs {
-		if protoRunUsesOpenAIOAuthSecret(run, oauthSecret) {
-			names = append(names, run.GetName())
-		}
-	}
-	if len(names) == 0 {
-		return nil, nil
-	}
-	overview, err := analytics.GetObservabilityOverview(ctx, store.ObservabilityQuery{
-		Namespace: namespace, Start: now.Add(-openAIUsageLookback), End: now,
-		BucketSeconds: int64((24 * time.Hour) / time.Second), AgentRunNames: names,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if overview.Completeness.ActivityTruncated {
-		return nil, fmt.Errorf("model telemetry is incomplete because the activity limit was reached")
-	}
-	models := make([]*platform.OpenAIModelUsage, 0, len(overview.Models))
-	for _, model := range overview.Models {
-		name := strings.ToLower(strings.TrimSpace(model.Name))
-		if !strings.HasPrefix(name, "openai/") && (strings.Contains(name, "/") || !strings.HasPrefix(name, "gpt-")) {
-			continue
-		}
-		models = append(models, &platform.OpenAIModelUsage{
-			Model: model.Name, InputTokens: model.InputTokens, OutputTokens: model.OutputTokens,
-			EstimatedCostUsd: model.CostUSD, CostKnown: model.CostUSD > 0,
-		})
-	}
-	sort.Slice(models, func(i, j int) bool {
-		left := models[i].InputTokens + models[i].OutputTokens
-		right := models[j].InputTokens + models[j].OutputTokens
-		if left == right {
-			return models[i].Model < models[j].Model
-		}
-		return left > right
-	})
-	return models, nil
-}
-
-func protoRunUsesOpenAIOAuthSecret(run *platform.AgentRun, secretName string) bool {
-	if run == nil || secretName == "" || !strings.EqualFold(run.GetAuthMode(), "oauth") {
-		return false
-	}
-	if run.GetOpenaiOauthSecret() == secretName {
-		return true
-	}
-	for _, ref := range run.GetProviderOauthSecrets() {
-		if strings.EqualFold(strings.TrimSpace(ref.GetProvider()), "openai") && strings.TrimSpace(ref.GetSecretName()) == secretName {
-			return true
-		}
-	}
-	return false
 }
 
 func profileTokensLast30Days(profile *openAITokenUsageProfile, now time.Time) int64 {
