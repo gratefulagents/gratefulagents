@@ -1,7 +1,7 @@
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import { lazy, Suspense, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, Check, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Clock, Download, FileDiff, FileText, GitPullRequest, Info, MessageSquare, MoreHorizontal, PanelRight, Pencil, RotateCcw, Share2, Square, Trash2, Workflow, X } from "lucide-react";
+import { Activity, Check, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Clock, Download, FileDiff, FileText, GitPullRequest, Info, MessageSquare, MoreHorizontal, PanelRight, Pencil, RotateCcw, Share2, Square, SquareTerminal, Trash2, Workflow, X } from "lucide-react";
 
 import { CreatePRDialog } from "@/components/CreatePRDialogButton";
 import { ModeSwitcher } from "@/components/ModeSwitcher";
@@ -42,6 +42,7 @@ const mainViewIcons: Record<MainView, typeof MessageSquare> = {
   diff: FileDiff,
   pr: GitPullRequest,
   errors: CircleAlert,
+  logs: SquareTerminal,
   trace: Activity,
 };
 

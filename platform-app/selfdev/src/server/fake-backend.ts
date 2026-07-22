@@ -24,6 +24,7 @@ import {
   ExportAgentRunArchiveResponseSchema,
   GetActivityLogResponseSchema,
   GetAgentRunErrorsResponseSchema,
+  GetAgentRunLogsResponseSchema,
   GetAgentRunPullRequestsResponseSchema,
   GetAgentTraceResponseSchema,
   GetDiffResponseSchema,
@@ -206,6 +207,18 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     getAgentTrace: async (req: { namespace: string; name: string }) =>
       s.traces[runKey(req.namespace, req.name)] ?? create(GetAgentTraceResponseSchema, { isComplete: true }),
     getAgentRunErrors: async () => create(GetAgentRunErrorsResponseSchema, { isComplete: true }),
+    getAgentRunLogs: async (req: { namespace: string; name: string }) =>
+      create(GetAgentRunLogsResponseSchema, {
+        content: [
+          "2026-06-18T10:14:01.021Z INFO starting worker session",
+          `2026-06-18T10:14:02.117Z INFO loading AgentRun ${req.namespace}/${req.name}`,
+          "2026-06-18T10:14:04.804Z INFO repositories ready",
+          "2026-06-18T10:14:05.392Z INFO agent runtime connected",
+        ].join("\n") + "\n",
+        podName: `${req.name}-worker`,
+        available: true,
+        isComplete: false,
+      }),
     watchAgentTrace: async function* (req: { namespace: string; name: string }, ctx: HandlerContext) {
       const trace = s.traces[runKey(req.namespace, req.name)];
       if (trace) yield trace;

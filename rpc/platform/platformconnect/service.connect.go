@@ -458,6 +458,9 @@ const (
 	// PlatformServiceGetAgentRunErrorsProcedure is the fully-qualified name of the PlatformService's
 	// GetAgentRunErrors RPC.
 	PlatformServiceGetAgentRunErrorsProcedure = "/platform.v1.PlatformService/GetAgentRunErrors"
+	// PlatformServiceGetAgentRunLogsProcedure is the fully-qualified name of the PlatformService's
+	// GetAgentRunLogs RPC.
+	PlatformServiceGetAgentRunLogsProcedure = "/platform.v1.PlatformService/GetAgentRunLogs"
 	// PlatformServiceExportAgentRunArchiveProcedure is the fully-qualified name of the
 	// PlatformService's ExportAgentRunArchive RPC.
 	PlatformServiceExportAgentRunArchiveProcedure = "/platform.v1.PlatformService/ExportAgentRunArchive"
@@ -688,6 +691,8 @@ type PlatformServiceClient interface {
 	// Returns a bounded, error-only view of durable runtime events and current
 	// worker pod logs. Successful traces and ordinary stdout are never returned.
 	GetAgentRunErrors(context.Context, *connect.Request[platform.GetAgentRunErrorsRequest]) (*connect.Response[platform.GetAgentRunErrorsResponse], error)
+	// Returns a bounded tail of the AgentRun worker container's output.
+	GetAgentRunLogs(context.Context, *connect.Request[platform.GetAgentRunLogsRequest]) (*connect.Response[platform.GetAgentRunLogsResponse], error)
 	// Bundles the run metadata, activity log and OTel trace into a zip archive
 	// for download. Works for both live and terminal runs.
 	ExportAgentRunArchive(context.Context, *connect.Request[platform.ExportAgentRunArchiveRequest]) (*connect.Response[platform.ExportAgentRunArchiveResponse], error)
@@ -1568,6 +1573,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetAgentRunErrors")),
 			connect.WithClientOptions(opts...),
 		),
+		getAgentRunLogs: connect.NewClient[platform.GetAgentRunLogsRequest, platform.GetAgentRunLogsResponse](
+			httpClient,
+			baseURL+PlatformServiceGetAgentRunLogsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetAgentRunLogs")),
+			connect.WithClientOptions(opts...),
+		),
 		exportAgentRunArchive: connect.NewClient[platform.ExportAgentRunArchiveRequest, platform.ExportAgentRunArchiveResponse](
 			httpClient,
 			baseURL+PlatformServiceExportAgentRunArchiveProcedure,
@@ -1775,6 +1786,7 @@ type platformServiceClient struct {
 	getAgentTrace                          *connect.Client[platform.GetAgentTraceRequest, platform.GetAgentTraceResponse]
 	watchAgentTrace                        *connect.Client[platform.GetAgentTraceRequest, platform.GetAgentTraceResponse]
 	getAgentRunErrors                      *connect.Client[platform.GetAgentRunErrorsRequest, platform.GetAgentRunErrorsResponse]
+	getAgentRunLogs                        *connect.Client[platform.GetAgentRunLogsRequest, platform.GetAgentRunLogsResponse]
 	exportAgentRunArchive                  *connect.Client[platform.ExportAgentRunArchiveRequest, platform.ExportAgentRunArchiveResponse]
 	shareResource                          *connect.Client[platform.ShareResourceRequest, platform.ShareResourceResponse]
 	revokeShare                            *connect.Client[platform.RevokeShareRequest, emptypb.Empty]
@@ -2501,6 +2513,11 @@ func (c *platformServiceClient) GetAgentRunErrors(ctx context.Context, req *conn
 	return c.getAgentRunErrors.CallUnary(ctx, req)
 }
 
+// GetAgentRunLogs calls platform.v1.PlatformService.GetAgentRunLogs.
+func (c *platformServiceClient) GetAgentRunLogs(ctx context.Context, req *connect.Request[platform.GetAgentRunLogsRequest]) (*connect.Response[platform.GetAgentRunLogsResponse], error) {
+	return c.getAgentRunLogs.CallUnary(ctx, req)
+}
+
 // ExportAgentRunArchive calls platform.v1.PlatformService.ExportAgentRunArchive.
 func (c *platformServiceClient) ExportAgentRunArchive(ctx context.Context, req *connect.Request[platform.ExportAgentRunArchiveRequest]) (*connect.Response[platform.ExportAgentRunArchiveResponse], error) {
 	return c.exportAgentRunArchive.CallUnary(ctx, req)
@@ -2749,6 +2766,8 @@ type PlatformServiceHandler interface {
 	// Returns a bounded, error-only view of durable runtime events and current
 	// worker pod logs. Successful traces and ordinary stdout are never returned.
 	GetAgentRunErrors(context.Context, *connect.Request[platform.GetAgentRunErrorsRequest]) (*connect.Response[platform.GetAgentRunErrorsResponse], error)
+	// Returns a bounded tail of the AgentRun worker container's output.
+	GetAgentRunLogs(context.Context, *connect.Request[platform.GetAgentRunLogsRequest]) (*connect.Response[platform.GetAgentRunLogsResponse], error)
 	// Bundles the run metadata, activity log and OTel trace into a zip archive
 	// for download. Works for both live and terminal runs.
 	ExportAgentRunArchive(context.Context, *connect.Request[platform.ExportAgentRunArchiveRequest]) (*connect.Response[platform.ExportAgentRunArchiveResponse], error)
@@ -3625,6 +3644,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetAgentRunErrors")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceGetAgentRunLogsHandler := connect.NewUnaryHandler(
+		PlatformServiceGetAgentRunLogsProcedure,
+		svc.GetAgentRunLogs,
+		connect.WithSchema(platformServiceMethods.ByName("GetAgentRunLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceExportAgentRunArchiveHandler := connect.NewUnaryHandler(
 		PlatformServiceExportAgentRunArchiveProcedure,
 		svc.ExportAgentRunArchive,
@@ -3971,6 +3996,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceWatchAgentTraceHandler.ServeHTTP(w, r)
 		case PlatformServiceGetAgentRunErrorsProcedure:
 			platformServiceGetAgentRunErrorsHandler.ServeHTTP(w, r)
+		case PlatformServiceGetAgentRunLogsProcedure:
+			platformServiceGetAgentRunLogsHandler.ServeHTTP(w, r)
 		case PlatformServiceExportAgentRunArchiveProcedure:
 			platformServiceExportAgentRunArchiveHandler.ServeHTTP(w, r)
 		case PlatformServiceShareResourceProcedure:
@@ -4566,6 +4593,10 @@ func (UnimplementedPlatformServiceHandler) WatchAgentTrace(context.Context, *con
 
 func (UnimplementedPlatformServiceHandler) GetAgentRunErrors(context.Context, *connect.Request[platform.GetAgentRunErrorsRequest]) (*connect.Response[platform.GetAgentRunErrorsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetAgentRunErrors is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetAgentRunLogs(context.Context, *connect.Request[platform.GetAgentRunLogsRequest]) (*connect.Response[platform.GetAgentRunLogsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetAgentRunLogs is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ExportAgentRunArchive(context.Context, *connect.Request[platform.ExportAgentRunArchiveRequest]) (*connect.Response[platform.ExportAgentRunArchiveResponse], error) {

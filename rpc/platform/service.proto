@@ -203,6 +203,8 @@ service PlatformService {
   // Returns a bounded, error-only view of durable runtime events and current
   // worker pod logs. Successful traces and ordinary stdout are never returned.
   rpc GetAgentRunErrors(GetAgentRunErrorsRequest) returns (GetAgentRunErrorsResponse);
+  // Returns a bounded tail of the AgentRun worker container's output.
+  rpc GetAgentRunLogs(GetAgentRunLogsRequest) returns (GetAgentRunLogsResponse);
   // Bundles the run metadata, activity log and OTel trace into a zip archive
   // for download. Works for both live and terminal runs.
   rpc ExportAgentRunArchive(ExportAgentRunArchiveRequest) returns (ExportAgentRunArchiveResponse);
@@ -3067,6 +3069,21 @@ message GetAgentRunErrorsResponse {
   repeated AgentRunError errors = 1;
   bool is_complete = 2;
   bool truncated = 3;
+}
+
+message GetAgentRunLogsRequest {
+  string namespace = 1;
+  string name = 2;
+  // Number of recent lines to return. The server applies a safe upper bound.
+  int32 tail_lines = 3;
+}
+
+message GetAgentRunLogsResponse {
+  string content = 1;
+  string pod_name = 2;
+  bool available = 3;
+  bool is_complete = 4;
+  bool truncated = 5;
 }
 
 message TraceSpan {
