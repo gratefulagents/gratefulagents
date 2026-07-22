@@ -44,6 +44,7 @@ Review the candidate final answer against the original task. Verify its claims w
 		}}, agent.RunConfig{
 			MaxTurns:              12,
 			SubAgentMaxTurns:      12,
+			ToolOutputDir:         workspaceScratchDir,
 			ToolAccessLevel:       agent.ToolAccessLevelReadOnly,
 			ForceFinalSummaryTurn: true,
 			RetryPolicy:           retryPolicy,
