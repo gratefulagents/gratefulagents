@@ -94,7 +94,7 @@ require (
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/pprof v0.0.0-20250403155104-27863c87afa6 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
-	github.com/gratefulagents/sdk v0.0.89-0.20260722042619-b4213f367cc9
+	github.com/gratefulagents/sdk v0.0.89-0.20260722043609-48cd880a4fd2
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
