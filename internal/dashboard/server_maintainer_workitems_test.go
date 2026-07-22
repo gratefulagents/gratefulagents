@@ -37,10 +37,15 @@ func newWorkItemTestServer(t *testing.T, items ...*triggersv1alpha1.MaintainerWo
 }
 
 func TestListMaintainerWorkItemsFiltersAndSorts(t *testing.T) {
+	notActionable := workItem("acme-wi-14", "acme", 14, triggersv1alpha1.MaintainerWorkItemPhaseTriaged)
+	notActionable.Spec.Disposition = triggersv1alpha1.MaintainerWorkItemDispositionNotActionable
+	closeReason := triggersv1alpha1.MaintainerWorkItemCloseReasonNotPlanned
+	notActionable.Spec.CloseReason = &closeReason
 	srv, _ := newWorkItemTestServer(t,
 		workItem("acme-wi-11", "acme", 11, triggersv1alpha1.MaintainerWorkItemPhaseDelivered),
 		workItem("acme-wi-12", "acme", 12, triggersv1alpha1.MaintainerWorkItemPhaseImplementing),
 		workItem("acme-wi-13", "acme", 13, triggersv1alpha1.MaintainerWorkItemPhaseAwaitingDecision),
+		notActionable,
 		workItem("other-wi-9", "other", 9, triggersv1alpha1.MaintainerWorkItemPhaseImplementing),
 	)
 
@@ -51,10 +56,12 @@ func TestListMaintainerWorkItemsFiltersAndSorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListMaintainerWorkItems: %v", err)
 	}
-	if len(resp.Items) != 3 {
-		t.Fatalf("want 3 items for acme, got %d", len(resp.Items))
+	if len(resp.Items) != 4 {
+		t.Fatalf("want 4 items for acme, got %d", len(resp.Items))
 	}
-	wantOrder := []string{"acme-wi-13", "acme-wi-12", "acme-wi-11"}
+	// Active phases first, then delivered, then not-actionable (terminal even
+	// though the controller leaves its phase Triaged).
+	wantOrder := []string{"acme-wi-13", "acme-wi-12", "acme-wi-11", "acme-wi-14"}
 	for i, want := range wantOrder {
 		if resp.Items[i].Name != want {
 			t.Errorf("items[%d] = %q, want %q (active phases first)", i, resp.Items[i].Name, want)

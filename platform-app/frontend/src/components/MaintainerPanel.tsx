@@ -225,8 +225,13 @@ export function MaintainerPanel({ repo }: { repo: GitHubRepository }) {
 }
 
 /** Phase presentation: tone encodes who the item is waiting on. */
-function workItemPhasePresentation(phase: string): ReportPresentation {
-  switch (phase) {
+function workItemPhasePresentation(item: MaintainerWorkItem): ReportPresentation {
+  // NotActionable is terminal: the controller closes the issue but leaves the
+  // lifecycle phase at Triaged, so present the disposition instead.
+  if (item.disposition === "NotActionable") {
+    return { label: "Not actionable", tone: "neutral" };
+  }
+  switch (item.phase) {
     case "AwaitingDecision":
       return { label: "Needs decision", tone: "warning" };
     case "ReadyToDispatch":
@@ -247,6 +252,14 @@ function workItemPhasePresentation(phase: string): ReportPresentation {
   }
 }
 
+/** Terminal work items: delivered, or closed by triage as not actionable. */
+function workItemIsTerminal(item: MaintainerWorkItem): boolean {
+  return item.phase === "Delivered" || item.disposition === "NotActionable";
+}
+
+/** How often the open panel refetches the queue to pick up controller updates. */
+const WORK_ITEM_REFRESH_MS = 30_000;
+
 function useMaintainerWorkItems(namespace: string, repositoryName: string, enabled: boolean) {
   const [items, setItems] = useState<MaintainerWorkItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -256,25 +269,32 @@ function useMaintainerWorkItems(namespace: string, repositoryName: string, enabl
     if (!enabled || !repositoryName) return;
 
     let cancelled = false;
+    let initial = true;
     async function loadItems() {
-      setLoading(true);
-      setError(null);
+      if (initial) setLoading(true);
       try {
         const response = await client.listMaintainerWorkItems({ namespace, repositoryName });
         if (cancelled) return;
         setItems(response.items);
+        setError(null);
       } catch (fetchError) {
         if (cancelled) return;
-        setItems([]);
+        // Keep showing the last good queue on background refresh failures.
+        if (initial) setItems([]);
         setError(fetchError instanceof Error ? fetchError.message : "Failed to load work items");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && initial) {
+          initial = false;
+          setLoading(false);
+        }
       }
     }
 
     void loadItems();
+    const refresh = window.setInterval(() => void loadItems(), WORK_ITEM_REFRESH_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(refresh);
     };
   }, [enabled, namespace, repositoryName]);
 
@@ -294,8 +314,21 @@ function prCheckLabel(checkState: string): string {
   }
 }
 
+function prReviewLabel(reviewDecision: string): string {
+  switch (reviewDecision) {
+    case "APPROVED":
+      return "approved";
+    case "CHANGES_REQUESTED":
+      return "changes requested";
+    case "REVIEW_REQUIRED":
+      return "review required";
+    default:
+      return "";
+  }
+}
+
 function WorkItemRow({ item, namespace }: { item: MaintainerWorkItem; namespace: string }) {
-  const presentation = workItemPhasePresentation(item.phase);
+  const presentation = workItemPhasePresentation(item);
   const title = item.issueTitle || `Issue #${item.issueNumber}`;
   const commandFailed =
     item.latestCommandPhase === "Rejected" || item.latestCommandPhase === "Failed";
@@ -350,7 +383,12 @@ function WorkItemRow({ item, namespace }: { item: MaintainerWorkItem; namespace:
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
         {item.pullRequests.map((pr) => {
-          const facts = [prCheckLabel(pr.checkState), pr.state === "merged" ? "merged" : "", pr.draft ? "draft" : ""]
+          const facts = [
+            prCheckLabel(pr.checkState),
+            prReviewLabel(pr.reviewDecision),
+            pr.state === "merged" ? "merged" : "",
+            pr.draft ? "draft" : "",
+          ]
             .filter(Boolean)
             .join(" · ");
           const label = `${pr.repository}#${pr.number}`;
@@ -407,14 +445,14 @@ function WorkItemsSection({
 }) {
   const { items, loading, error } = useMaintainerWorkItems(namespace, repositoryName, enabled);
   const needsDecision = items.filter((item) => item.phase === "AwaitingDecision").length;
-  const active = items.filter((item) => item.phase !== "Delivered").length;
+  const active = items.filter((item) => !workItemIsTerminal(item)).length;
   const summary = loading
     ? "Loading…"
     : items.length === 0
       ? "None yet"
       : needsDecision > 0
         ? `${active} active · ${needsDecision} need${needsDecision === 1 ? "s" : ""} your decision`
-        : `${active} active · ${items.length - active} delivered`;
+        : `${active} active · ${items.length - active} closed`;
   const [open, setOpen] = useState(false);
 
   return (

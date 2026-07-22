@@ -33,6 +33,16 @@ func maintainerWorkItemPhaseRank(phase string) int {
 	return maintainerWorkItemPhaseOrder[triggersv1alpha1.MaintainerWorkItemPhasePendingTriage]
 }
 
+// maintainerWorkItemRank orders the dashboard queue. NotActionable items are
+// terminal (the controller closes the issue but leaves the phase Triaged), so
+// they sink below Delivered work instead of ranking as active triage.
+func maintainerWorkItemRank(item *platform.MaintainerWorkItem) int {
+	if item.Disposition == string(triggersv1alpha1.MaintainerWorkItemDispositionNotActionable) {
+		return len(maintainerWorkItemPhaseOrder)
+	}
+	return maintainerWorkItemPhaseRank(item.Phase)
+}
+
 // ListMaintainerWorkItems returns the durable maintainer work items for one
 // GitHubRepository trigger, gated on viewer access to that repository.
 func (s *Server) ListMaintainerWorkItems(ctx context.Context, req *platform.ListMaintainerWorkItemsRequest) (*platform.ListMaintainerWorkItemsResponse, error) {
@@ -56,8 +66,8 @@ func (s *Server) ListMaintainerWorkItems(ctx context.Context, req *platform.List
 		pbItems = append(pbItems, maintainerWorkItemToProto(item))
 	}
 	sort.SliceStable(pbItems, func(a, b int) bool {
-		orderA := maintainerWorkItemPhaseRank(pbItems[a].Phase)
-		orderB := maintainerWorkItemPhaseRank(pbItems[b].Phase)
+		orderA := maintainerWorkItemRank(pbItems[a])
+		orderB := maintainerWorkItemRank(pbItems[b])
 		if orderA != orderB {
 			return orderA < orderB
 		}

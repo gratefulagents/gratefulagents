@@ -13,6 +13,7 @@ import type {
   GitHubRepository,
   GitIdentity,
   LinearProject,
+  MaintainerWorkItem,
   ModeTemplate,
   MyCredentials,
   NotificationInfo,
@@ -79,6 +80,8 @@ export interface Scenario {
   projects: Project[];
   linearProjects: LinearProject[];
   githubRepositories: GitHubRepository[];
+  /** Keyed by `${namespace}/${githubRepositoryName}`. */
+  maintainerWorkItems: Record<string, MaintainerWorkItem[]>;
   crons: Cron[];
   slackAgents: SlackAgent[];
   slackWorkspaces: SlackWorkspace[];

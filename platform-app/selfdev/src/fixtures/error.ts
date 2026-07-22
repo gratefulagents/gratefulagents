@@ -143,6 +143,7 @@ export const errorScenario: Scenario = {
       myPermission: "owner",
     }),
   ],
+  maintainerWorkItems: {},
   crons: [
     create(CronSchema, {
       namespace: NS,

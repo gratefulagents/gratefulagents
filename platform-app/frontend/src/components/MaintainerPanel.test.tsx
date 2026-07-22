@@ -175,6 +175,7 @@ describe("MaintainerPanel", () => {
               url: "https://github.com/acme/payments/pull/77",
               state: "open",
               checkState: "Passing",
+              reviewDecision: "CHANGES_REQUESTED",
             },
           ],
           childrenTotal: 0,
@@ -191,6 +192,21 @@ describe("MaintainerPanel", () => {
           issueTitle: "Shipped thing",
           phase: "Delivered",
           deliverySummary: "Fixed and released",
+          unmetRequirements: [],
+          agentRuns: [],
+          pullRequests: [],
+          childrenTotal: 0,
+          childrenDelivered: 0,
+          dependenciesTotal: 0,
+          dependenciesDelivered: 0,
+        },
+        {
+          name: "acme-wi-40",
+          issueNumber: 40,
+          issueTitle: "Rejected idea",
+          phase: "Triaged",
+          disposition: "NotActionable",
+          closeReason: "not_planned",
           unmetRequirements: [],
           agentRuns: [],
           pullRequests: [],
@@ -227,8 +243,11 @@ describe("MaintainerPanel", () => {
     expect(screen.getByRole("link", { name: "acme-wi-42-impl (Running)" }).getAttribute("href")).toBe(
       "/runs/user-alice/acme-wi-42-impl",
     );
+    expect(screen.getByText(/checks passing · changes requested/)).toBeTruthy();
     expect(screen.getByText("Delivered")).toBeTruthy();
     expect(screen.getByText("Fixed and released")).toBeTruthy();
+    // NotActionable is terminal: presented by disposition, not counted active.
+    expect(screen.getByText("Not actionable")).toBeTruthy();
   });
 
   it("shows the empty work-item state", async () => {
