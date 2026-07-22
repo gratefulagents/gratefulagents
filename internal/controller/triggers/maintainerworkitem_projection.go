@@ -176,12 +176,13 @@ func projectMaintainerRunsAndPRs(item *triggersv1alpha1.MaintainerWorkItem, runs
 	for _, intent := range item.Spec.RequiredPullRequests {
 		required[intent.Name] = intent.Name
 	}
+	hasRequiredIntents := len(required) > 0
 	for i := range monitors {
 		monitor := &monitors[i]
 		if !runNames[monitor.Spec.ImplementerRef.Name] {
 			continue
 		}
-		if len(required) > 0 {
+		if hasRequiredIntents {
 			if _, ok := required[monitor.Name]; !ok {
 				continue
 			}
@@ -254,6 +255,13 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 			unmet = append(unmet, "dependency "+dep.Name+" is not delivered")
 		}
 	}
+	childrenReady := true
+	for _, child := range item.Status.Children {
+		if !child.Delivered {
+			childrenReady = false
+			unmet = append(unmet, "child "+child.Name+" is not delivered")
+		}
+	}
 	if item.Status.PendingDecision != nil {
 		unmet = append(unmet, "pending decision "+item.Status.PendingDecision.ID)
 	}
@@ -275,6 +283,7 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 		}
 	}
 	allMerged := allProjectedPRsMerged(item.Status.PullRequests)
+	deliveryReady := allMerged && dependenciesReady && childrenReady
 	if allMerged {
 		readyToMerge = false
 	}
@@ -284,7 +293,7 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 	meta.SetStatusCondition(&item.Status.Conditions, metav1.Condition{Type: triggersv1alpha1.ConditionMaintainerWorkItemReadyToMerge, Status: boolCondition(readyToMerge), Reason: conditionReason(readyToMerge, "Ready", "RequirementsNotMet"), ObservedGeneration: item.Generation, LastTransitionTime: observed})
 	if item.Status.PendingDecision != nil {
 		item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseAwaitingDecision
-	} else if allMerged {
+	} else if deliveryReady {
 		item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseDelivered
 	} else if readyToMerge {
 		item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseReadyToMerge

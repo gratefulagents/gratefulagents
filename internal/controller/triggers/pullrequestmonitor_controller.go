@@ -228,7 +228,7 @@ func (r *PullRequestMonitorReconciler) Reconcile(ctx context.Context, req ctrl.R
 	commentCursor := cursorOrInitial(monitor.Status.LastIssueCommentCursor, initial)
 
 	started = time.Now()
-	reviews, reviewResponse, err := poller.ListReviews(ctx, owner, repo, int(monitor.Spec.Number), time.Time{})
+	reviews, reviewResponse, err := poller.ListReviews(ctx, owner, repo, int(monitor.Spec.Number), reviewCursor.Timestamp.Time)
 	observePoll("reviews", pollResult(reviewResponse, err), time.Since(started))
 	r.observeResponse("reviews", reviewResponse)
 	if err := r.recordReviewObservation(ctx, monitor, err, now); err != nil {

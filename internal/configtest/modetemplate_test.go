@@ -77,13 +77,13 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 	for _, name := range template.Spec.AllowedMutatingTools {
 		enabled[name] = true
 	}
-	for _, name := range []string{"close_github_issue", "triage_issue", "breakdown_issue", "request_decision", "answer_decision", "dispatch_work_item"} {
+	for _, name := range []string{"close_github_issue", "triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item"} {
 		if !enabled[name] {
 			t.Fatalf("maintainer allowed mutating tools = %#v, missing %s", template.Spec.AllowedMutatingTools, name)
 		}
 	}
-	if enabled["dispatch_issue"] {
-		t.Fatal("legacy dispatch_issue must not bypass the controller-scoped reservation path")
+	if enabled["dispatch_issue"] || enabled["answer_decision"] {
+		t.Fatal("legacy dispatch and agent-supplied decision answers must not bypass controller authentication")
 	}
 
 	instructions := strings.Join(strings.Fields(template.Spec.Instructions), " ")

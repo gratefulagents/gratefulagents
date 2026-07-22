@@ -83,6 +83,47 @@ func maintainerWorkItemsEnabled(r *GitHubRepositoryReconciler, repository *trigg
 	return r != nil && r.MaintainerEnabled && repository != nil && repository.Spec.Maintainer != nil && !repository.Spec.Maintainer.Disabled
 }
 
+func parseMaintainerDecisionAnswer(body, keyword string) (string, string, bool) {
+	lowerBody, lowerKeyword := strings.ToLower(body), strings.ToLower(keyword)
+	index := strings.Index(lowerBody, lowerKeyword)
+	if index < 0 {
+		return "", "", false
+	}
+	remainder := strings.TrimSpace(body[index+len(keyword):])
+	const prefix = "answer "
+	if !strings.HasPrefix(strings.ToLower(remainder), prefix) {
+		return "", "", false
+	}
+	parts := strings.SplitN(strings.TrimSpace(remainder[len(prefix):]), ":", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	decisionID, answer := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	return decisionID, answer, decisionID != "" && answer != ""
+}
+
+func (r *GitHubRepositoryReconciler) resolveMaintainerDecisionFromGitHubComment(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, issueNumber int, decisionID, answer, subject string, commentID int64) error {
+	if issueNumber < 1 || commentID < 1 {
+		return nil
+	}
+	key := client.ObjectKey{Namespace: repository.Namespace, Name: MaintainerWorkItemName(repository.Name, int32(issueNumber))}
+	err := r.retryMaintainerWorkItemStatusMutation(ctx, key, func(item *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
+		if item.Status.PendingDecision == nil || item.Status.PendingDecision.ID != decisionID {
+			return false, nil
+		}
+		now := metav1.Now()
+		item.Status.PendingDecision = nil
+		item.Status.ResolvedDecision = &triggersv1alpha1.MaintainerResolvedDecision{ID: decisionID, HumanSubject: subject, Answer: answer, ResolvedAt: now, ResolvedByCommand: corev1.LocalObjectReference{Name: fmt.Sprintf("github-comment-%d", commentID)}}
+		item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseTriaged
+		item.Status.ProjectionSequence++
+		return true, nil
+	})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
 func (r *GitHubRepositoryReconciler) maintainerReader() client.Reader {
 	if r.APIReader != nil {
 		return r.APIReader
@@ -547,10 +588,7 @@ func validateMaintainerCommandPayload(command *triggersv1alpha1.MaintainerWorkIt
 		}
 		return command.Spec.RequestDecision.IssueNumber, nil
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision:
-		if command.Spec.ResolveDecision == nil || command.Spec.ResolveDecision.IssueNumber < 1 || strings.TrimSpace(command.Spec.ResolveDecision.DecisionID) == "" || strings.TrimSpace(command.Spec.ResolveDecision.HumanAnswer.Subject) == "" || strings.TrimSpace(command.Spec.ResolveDecision.HumanAnswer.Answer) == "" {
-			return 0, rejectMaintainerCommand("incomplete authenticated resolveDecision payload")
-		}
-		return command.Spec.ResolveDecision.IssueNumber, nil
+		return 0, rejectMaintainerCommand("resolveDecision commands from AgentRuns are not authorized; answer with an authenticated GitHub issue comment")
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem:
 		if command.Spec.Dispatch == nil || command.Spec.Dispatch.IssueNumber < 1 || strings.TrimSpace(command.Spec.Dispatch.Mode) == "" {
 			return 0, rejectMaintainerCommand("incomplete dispatch payload")

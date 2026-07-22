@@ -32,7 +32,6 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&triageIssueTool{maintainerToolBase: base})
 	registry.Register(&breakdownIssueTool{maintainerToolBase: base})
 	registry.Register(&requestDecisionTool{maintainerToolBase: base})
-	registry.Register(&answerDecisionTool{maintainerToolBase: base})
 	registry.Register(&dispatchWorkItemTool{maintainerToolBase: base})
 	registry.Register(&dispatchIssueTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&mergePullRequestTool{maintainerToolBase: base, runner: prReviewExecRunner{}})

@@ -228,6 +228,12 @@ func (r *GitHubRepositoryReconciler) HandleIssueComment(ctx context.Context, gh 
 		return nil
 	}
 
+	if maintainerWorkItemsEnabled(r, gh) {
+		if decisionID, answer, ok := parseMaintainerDecisionAnswer(commentBody, keyword); ok {
+			return r.resolveMaintainerDecisionFromGitHubComment(ctx, gh, issue.GetNumber(), decisionID, answer, author, comment.GetID())
+		}
+	}
+
 	// Strip the keyword from the comment to get user request.
 	userRequest := strings.TrimSpace(strings.Replace(commentBody, keyword, "", 1))
 	if userRequest == "" {

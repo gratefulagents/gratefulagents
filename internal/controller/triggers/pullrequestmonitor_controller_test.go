@@ -362,6 +362,13 @@ func TestPullRequestMonitorReconcileStartsLoopAndPersistsFeedbackCursors(t *test
 	if len(runs.Items) != 2 {
 		t.Fatalf("AgentRuns = %d, want implementer plus reviewer", len(runs.Items))
 	}
+	poller.reviews = nil
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(monitor)}); err != nil {
+		t.Fatalf("second Reconcile() error = %v", err)
+	}
+	if len(poller.reviewSince) != 2 || !poller.reviewSince[1].Equal(now.Add(-time.Minute)) {
+		t.Fatalf("review cursors = %#v", poller.reviewSince)
+	}
 }
 
 func TestExternalPREventDuplicateUsesExactTypeAndSourceID(t *testing.T) {
@@ -391,6 +398,7 @@ type monitorFakePoller struct {
 	pullResponse     gitHubPollResponse
 	pullErr          error
 	reviews          []polledPullRequestReview
+	reviewSince      []time.Time
 	reviewResponse   gitHubPollResponse
 	reviewErr        error
 	comments         []polledIssueComment
@@ -409,8 +417,9 @@ func (p *monitorFakePoller) GetPullRequest(context.Context, string, string, int,
 	return p.pull, p.pullResponse, p.pullErr
 }
 
-func (p *monitorFakePoller) ListReviews(context.Context, string, string, int, time.Time) ([]polledPullRequestReview, gitHubPollResponse, error) {
+func (p *monitorFakePoller) ListReviews(_ context.Context, _ string, _ string, _ int, since time.Time) ([]polledPullRequestReview, gitHubPollResponse, error) {
 	p.calls++
+	p.reviewSince = append(p.reviewSince, since)
 	return p.reviews, p.reviewResponse, p.reviewErr
 }
 

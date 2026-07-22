@@ -22,7 +22,6 @@ spec:
     - triage_issue
     - breakdown_issue
     - request_decision
-    - answer_decision
     - dispatch_work_item
     - wake_agent_run
     - cancel_run_message
@@ -103,9 +102,11 @@ spec:
        or unsafe-blast-radius decision. Research the concrete boundary,
        alternatives, tradeoffs, and recommendation. Post the escalation on the
        parent, submit request_decision, and submit a blocked maintainer report;
-       then call AskUserQuestion with concise choices as the last tool call. An
-       authenticated human answer must be recorded with answer_decision before
-       pendingDecision clears. Until the user answers, do not create sub-issues,
+       then call AskUserQuestion with concise choices as the last tool call. To
+       clear pendingDecision, an actor authorized by the repository's GitHub auth
+       policy must comment `@agent answer <decision-id>: <answer>` on the issue;
+       the signed webhook supplies the audited identity. Until the user answers,
+       do not create sub-issues,
        dispatch, apply dispatch labels, or start a partial
        implementation for that issue.
 

@@ -2,21 +2,26 @@ package triggers
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/go-github/v68/github"
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 	now := time.Now()
 	observed := metav1.NewTime(now)
-	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: "monitor-7", Repository: "octo/widgets", Number: 7, MonitorRef: &coreLocalRef, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen, HeadSHA: "new-head", Mergeable: new(true), ReviewDecision: string(triggersv1alpha1.PullRequestReviewDecisionApproved), CheckState: triggersv1alpha1.MaintainerWorkItemCheckStateUnknown, Fresh: true, HeadObservedAt: &observed, ReviewObservedAt: &observed, ChecksObservedAt: &observed, StatusesObservedAt: &observed}}}}
+	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: projectionTestMonitorName, Repository: projectionTestRepository, Number: 7, MonitorRef: &coreLocalRef, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen, HeadSHA: "new-head", Mergeable: new(true), ReviewDecision: string(triggersv1alpha1.PullRequestReviewDecisionApproved), CheckState: triggersv1alpha1.MaintainerWorkItemCheckStateUnknown, Fresh: true, HeadObservedAt: &observed, ReviewObservedAt: &observed, ChecksObservedAt: &observed, StatusesObservedAt: &observed}}}}
 	evaluateMaintainerReadiness(item, now)
 	if item.Status.Readiness.ReadyToMerge {
 		t.Fatal("head change without fresh head-bound CI was merge-ready")
@@ -34,7 +39,13 @@ func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 	}
 }
 
-var coreLocalRef = structLocalRef("monitor-7")
+const (
+	projectionTestMonitorName = "monitor-7"
+	projectionTestRequired    = "required"
+	projectionTestRepository  = "octo/widgets"
+)
+
+var coreLocalRef = structLocalRef(projectionTestMonitorName)
 
 func structLocalRef(name string) (ref corev1.LocalObjectReference) { ref.Name = name; return }
 
@@ -46,11 +57,35 @@ func TestEvaluateMaintainerReadinessDoesNotRedispatchReservedItem(t *testing.T) 
 	}
 }
 
+func TestEvaluateMaintainerReadinessBlocksDeliveryOnGraphPrerequisites(t *testing.T) {
+	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionDecomposable}, Status: triggersv1alpha1.MaintainerWorkItemStatus{Children: []triggersv1alpha1.MaintainerWorkItemChildProjection{{Name: "child", Delivered: false}}, Dependencies: []triggersv1alpha1.MaintainerWorkItemDependencyProjection{{Name: "dependency", Delivered: true}}, PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: projectionTestMonitorName, Repository: projectionTestRepository, Number: 7, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged}}}}
+	evaluateMaintainerReadiness(item, time.Now())
+	if item.Status.Phase == triggersv1alpha1.MaintainerWorkItemPhaseDelivered {
+		t.Fatal("undelivered child allowed delivery")
+	}
+	item.Status.Children[0].Delivered = true
+	item.Status.Dependencies[0].Delivered = false
+	evaluateMaintainerReadiness(item, time.Now())
+	if item.Status.Phase == triggersv1alpha1.MaintainerWorkItemPhaseDelivered {
+		t.Fatal("undelivered dependency allowed delivery")
+	}
+}
+
 func TestEvaluateMaintainerReadinessMarksAllMergedDelivered(t *testing.T) {
-	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: "monitor-7", Repository: "octo/widgets", Number: 7, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged}}}}
+	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: projectionTestMonitorName, Repository: projectionTestRepository, Number: 7, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged}}}}
 	evaluateMaintainerReadiness(item, time.Now())
 	if item.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseDelivered || item.Status.Readiness.ReadyToMerge {
 		t.Fatalf("merged readiness = %#v", item.Status)
+	}
+}
+
+func TestProjectMaintainerPRsKeepsExplicitRequiredFilterAfterMatch(t *testing.T) {
+	item := &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: "item", UID: types.UID("item-uid")}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RequiredPullRequests: []triggersv1alpha1.MaintainerRequiredPullRequestIntent{{Name: projectionTestRequired}}}}
+	run := platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "implementer", Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemNameLabelKey: item.Name, triggersv1alpha1.MaintainerWorkItemUIDLabelKey: string(item.UID)}}}
+	monitors := []triggersv1alpha1.PullRequestMonitor{{ObjectMeta: metav1.ObjectMeta{Name: projectionTestRequired}, Spec: triggersv1alpha1.PullRequestMonitorSpec{ImplementerRef: corev1.LocalObjectReference{Name: run.Name}}}, {ObjectMeta: metav1.ObjectMeta{Name: "unrelated"}, Spec: triggersv1alpha1.PullRequestMonitorSpec{ImplementerRef: corev1.LocalObjectReference{Name: run.Name}}}}
+	projectMaintainerRunsAndPRs(item, []platformv1alpha1.AgentRun{run}, monitors, time.Now())
+	if len(item.Status.PullRequests) != 1 || item.Status.PullRequests[0].IntentName != projectionTestRequired {
+		t.Fatalf("projected PRs = %#v", item.Status.PullRequests)
 	}
 }
 
@@ -71,6 +106,52 @@ func TestMaintainerGraphMutationLockSerializesCommands(t *testing.T) {
 	}
 	if err := r.acquireMaintainerCommandLock(context.Background(), repository, "second"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDefiniteGitHubDispatchErrorsExcludeAmbiguousOutcomes(t *testing.T) {
+	for status, want := range map[int]bool{404: true, 422: true, 408: false, 429: false, 500: false} {
+		err := &github.ErrorResponse{Response: &http.Response{StatusCode: status}}
+		if got := isDefiniteGitHubDispatchError(err); got != want {
+			t.Fatalf("status %d definite = %t, want %t", status, got, want)
+		}
+	}
+}
+
+func TestReleaseMaintainerDispatchReturnsCapacity(t *testing.T) {
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 23)
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: "dispatch"}}
+	item.Status.DispatchReservation = &triggersv1alpha1.MaintainerDispatchReservation{ID: "dispatch", CommandRef: corev1.LocalObjectReference{Name: command.Name}, ReservedAt: metav1.Now()}
+	ledger := maintainerRepositoryDispatchLedger{Day: "2026-07-22", Count: 1, Reservations: map[string]maintainerRepositoryReservation{item.Name: {CommandName: command.Name, ReservedAt: metav1.Now()}}}
+	encoded, err := json.Marshal(ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.Annotations = map[string]string{triggersv1alpha1.MaintainerDispatchReservationsAnnotation: string(encoded)}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}).WithObjects(repository, item).Build()
+	r := &GitHubRepositoryReconciler{Client: c, APIReader: c, Scheme: scheme}
+	if err := r.releaseMaintainerDispatch(context.Background(), repository, command, item); err != nil {
+		t.Fatal(err)
+	}
+	freshItem := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(item), freshItem); err != nil {
+		t.Fatal(err)
+	}
+	if freshItem.Status.DispatchReservation != nil {
+		t.Fatalf("reservation = %#v", freshItem.Status.DispatchReservation)
+	}
+	freshRepository := &triggersv1alpha1.GitHubRepository{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(repository), freshRepository); err != nil {
+		t.Fatal(err)
+	}
+	var got maintainerRepositoryDispatchLedger
+	if err := json.Unmarshal([]byte(freshRepository.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation]), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Count != 0 || len(got.Reservations) != 0 {
+		t.Fatalf("ledger = %#v", got)
 	}
 }
 

@@ -3,11 +3,13 @@ package triggers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/google/go-github/v68/github"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -39,17 +41,30 @@ func (r *GitHubRepositoryReconciler) processMaintainerExecutionCommand(ctx conte
 	if command.Spec.Type != triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem {
 		return r.completeMaintainerWorkItemCommand(ctx, command, item, "work-item command applied", "", observedIssueState(item))
 	}
+	active, err := r.maintainerDispatchReservationActive(ctx, repository, command, item)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return r.failAndReleaseMaintainerDispatch(ctx, repository, command, item, "dispatch reservation is no longer active")
+	}
 	if githubClient == nil {
 		return fmt.Errorf("GitHub client unavailable after dispatch capacity reservation")
 	}
 	issue, _, err := githubClient.GetIssue(ctx, repository.Spec.Owner, repository.Spec.Repo, int(item.Spec.IssueNumber))
 	if err != nil {
+		if isDefiniteGitHubDispatchError(err) {
+			return r.failAndReleaseMaintainerDispatch(ctx, repository, command, item, "getting issue after dispatch reservation: "+err.Error())
+		}
 		return fmt.Errorf("getting issue after dispatch reservation: %w", err)
 	}
 	if !strings.EqualFold(issue.GetState(), "open") {
-		return fmt.Errorf("issue #%d is no longer open after dispatch reservation", item.Spec.IssueNumber)
+		return r.failAndReleaseMaintainerDispatch(ctx, repository, command, item, fmt.Sprintf("issue #%d is no longer open after dispatch reservation", item.Spec.IssueNumber))
 	}
 	if _, _, err := githubClient.AddLabelsToIssue(ctx, repository.Spec.Owner, repository.Spec.Repo, int(item.Spec.IssueNumber), []string{command.Spec.Dispatch.Mode}); err != nil {
+		if isDefiniteGitHubDispatchError(err) {
+			return r.failAndReleaseMaintainerDispatch(ctx, repository, command, item, "applying trigger label after dispatch reservation: "+err.Error())
+		}
 		return fmt.Errorf("applying trigger label after dispatch reservation: %w", err)
 	}
 	return r.completeMaintainerWorkItemCommand(ctx, command, item, "dispatch capacity reserved and trigger label applied", "", observedIssueState(item))
@@ -98,29 +113,7 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 			return true, nil
 		})
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision:
-		if item.Status.ResolvedDecision != nil && item.Status.ResolvedDecision.ResolvedByCommand.Name == command.Name {
-			return nil
-		}
-		if item.Status.PendingDecision == nil || item.Status.PendingDecision.ID != command.Spec.ResolveDecision.DecisionID {
-			return rejectMaintainerCommand("resolveDecision does not match pendingDecision")
-		}
-		return r.retryMaintainerWorkItemStatusMutation(ctx, client.ObjectKeyFromObject(item), func(fresh *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
-			if fresh.Status.ResolvedDecision != nil && fresh.Status.ResolvedDecision.ResolvedByCommand.Name == command.Name {
-				return false, nil
-			}
-			if fresh.Status.PendingDecision == nil || fresh.Status.PendingDecision.ID != command.Spec.ResolveDecision.DecisionID {
-				return false, rejectMaintainerCommand("resolveDecision does not match pendingDecision")
-			}
-			if fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence || fresh.ResourceVersion != command.Spec.Preconditions.ResourceVersion {
-				return false, rejectMaintainerCommand(currentProjectionMessage(fresh))
-			}
-			now := metav1.Now()
-			fresh.Status.PendingDecision = nil
-			fresh.Status.ResolvedDecision = &triggersv1alpha1.MaintainerResolvedDecision{ID: command.Spec.ResolveDecision.DecisionID, HumanSubject: command.Spec.ResolveDecision.HumanAnswer.Subject, Answer: command.Spec.ResolveDecision.HumanAnswer.Answer, ResolvedAt: now, ResolvedByCommand: corev1.LocalObjectReference{Name: command.Name}}
-			fresh.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseTriaged
-			fresh.Status.ProjectionSequence++
-			return true, nil
-		})
+		return rejectMaintainerCommand("resolveDecision commands from AgentRuns are not authorized")
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem:
 		if !ModeExistsFromK8s(ctx, r.Client)(strings.ToLower(strings.TrimSpace(command.Spec.Dispatch.Mode))) {
 			return rejectMaintainerCommand("dispatch ModeTemplate does not exist")
@@ -217,6 +210,88 @@ func (r *GitHubRepositoryReconciler) validateBreakdown(ctx context.Context, repo
 		return rejectMaintainerCommand("dependency cycle rejected")
 	}
 	return nil
+}
+
+func isDefiniteGitHubDispatchError(err error) bool {
+	var responseError *github.ErrorResponse
+	if !errors.As(err, &responseError) || responseError.Response == nil {
+		return false
+	}
+	status := responseError.Response.StatusCode
+	return status >= 400 && status < 500 && status != 408 && status != 409 && status != 429
+}
+
+func (r *GitHubRepositoryReconciler) maintainerDispatchReservationActive(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
+	freshItem := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(item), freshItem); err != nil {
+		return false, err
+	}
+	if freshItem.Status.DispatchReservation == nil || freshItem.Status.DispatchReservation.CommandRef.Name != command.Name {
+		return false, nil
+	}
+	freshRepository := &triggersv1alpha1.GitHubRepository{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(repository), freshRepository); err != nil {
+		return false, err
+	}
+	raw := freshRepository.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation]
+	if raw == "" {
+		return false, nil
+	}
+	ledger := maintainerRepositoryDispatchLedger{}
+	if err := json.Unmarshal([]byte(raw), &ledger); err != nil {
+		return false, err
+	}
+	reservation, ok := ledger.Reservations[item.Name]
+	return ok && reservation.CommandName == command.Name, nil
+}
+
+func (r *GitHubRepositoryReconciler) failAndReleaseMaintainerDispatch(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, message string) error {
+	if err := r.releaseMaintainerDispatch(ctx, repository, command, item); err != nil {
+		return err
+	}
+	return r.failMaintainerWorkItemCommand(ctx, command, item, message)
+}
+
+func (r *GitHubRepositoryReconciler) releaseMaintainerDispatch(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) error {
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		fresh := &triggersv1alpha1.GitHubRepository{}
+		if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(repository), fresh); err != nil {
+			return err
+		}
+		raw := fresh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation]
+		if raw == "" {
+			return nil
+		}
+		ledger := maintainerRepositoryDispatchLedger{}
+		if err := json.Unmarshal([]byte(raw), &ledger); err != nil {
+			return err
+		}
+		reservation, ok := ledger.Reservations[item.Name]
+		if !ok || reservation.CommandName != command.Name {
+			return nil
+		}
+		delete(ledger.Reservations, item.Name)
+		if ledger.Count > 0 {
+			ledger.Count--
+		}
+		encoded, err := json.Marshal(ledger)
+		if err != nil {
+			return err
+		}
+		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		fresh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation] = string(encoded)
+		return r.Patch(ctx, fresh, patch)
+	}); err != nil {
+		return err
+	}
+	return r.retryMaintainerWorkItemStatusMutation(ctx, client.ObjectKeyFromObject(item), func(fresh *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
+		if fresh.Status.DispatchReservation == nil || fresh.Status.DispatchReservation.CommandRef.Name != command.Name {
+			return false, nil
+		}
+		fresh.Status.DispatchReservation = nil
+		fresh.Status.ProjectionSequence++
+		return true, nil
+	})
 }
 
 type maintainerRepositoryCommandLock struct {

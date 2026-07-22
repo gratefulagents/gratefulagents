@@ -21,14 +21,14 @@ func TestRegisterMaintainerToolsRegistersTypedWorkItemCommands(t *testing.T) {
 	base, _, stateStore := newMaintainerToolBase(t, maintainerRun())
 	registry := NewRegistry(t.TempDir())
 	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
-	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", "answer_decision", "dispatch_work_item"} {
+	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item"} {
 		tool := registry.Get(name)
 		if tool == nil || tool.IsReadOnly() {
 			t.Fatalf("%s = %#v", name, tool)
 		}
 	}
-	if !registry.Get("answer_decision").NeedsApproval() {
-		t.Fatal("answer_decision must require authenticated human approval")
+	if registry.Get("answer_decision") != nil {
+		t.Fatal("agent runtime must not expose a decision-answer command")
 	}
 }
 

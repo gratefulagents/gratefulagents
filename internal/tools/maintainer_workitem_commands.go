@@ -75,7 +75,7 @@ type requestDecisionInput struct {
 
 func (t *requestDecisionTool) Name() string { return "request_decision" }
 func (t *requestDecisionTool) Description() string {
-	return "Submit an authenticated decision request that durably blocks the work item pending an authorized answer."
+	return "Submit an authenticated decision request that blocks the work item until an authorized GitHub actor comments '@agent answer <decision-id>: <answer>' on the issue."
 }
 func (t *requestDecisionTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"decision_id":{"type":"string","minLength":1},"question":{"type":"string","minLength":1},"options":{"type":"array","items":{"type":"string"}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","decision_id","question","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
@@ -97,44 +97,6 @@ func (t *requestDecisionTool) Execute(ctx context.Context, raw json.RawMessage, 
 		return maintainerCommandError("%v", err)
 	}
 	spec := triggersv1alpha1.MaintainerWorkItemCommandSpec{RepositoryRef: item.Spec.RepositoryRef, IdempotencyKey: in.IdempotencyKey, Preconditions: preconditions, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeRequestDecision, RequestDecision: &triggersv1alpha1.MaintainerRequestDecisionCommand{IssueNumber: in.IssueNumber, DecisionID: in.DecisionID, Question: in.Question, Options: append([]string(nil), in.Options...)}}
-	return t.submitCommand(ctx, repository, current, item, spec)
-}
-
-type answerDecisionTool struct{ maintainerToolBase }
-type answerDecisionInput struct {
-	maintainerCommandInput
-	DecisionID   string `json:"decision_id"`
-	HumanSubject string `json:"human_subject"`
-	Answer       string `json:"answer"`
-}
-
-func (t *answerDecisionTool) Name() string { return "answer_decision" }
-func (t *answerDecisionTool) Description() string {
-	return "Resolve pendingDecision through the platform's authenticated human-approval gate; the approved subject and answer are signed by the authorized standing maintainer and durably audited."
-}
-func (t *answerDecisionTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"decision_id":{"type":"string","minLength":1},"human_subject":{"type":"string","minLength":1},"answer":{"type":"string","minLength":1},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","decision_id","human_subject","answer","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
-}
-func (t *answerDecisionTool) IsReadOnly() bool                    { return false }
-func (t *answerDecisionTool) IsEnabled(*agentsdk.RunContext) bool { return true }
-
-// NeedsApproval uses the platform's authenticated human approval channel as
-// the trust boundary; the maintainer AgentRun cannot clear pendingDecision alone.
-func (t *answerDecisionTool) NeedsApproval() bool { return true }
-func (t *answerDecisionTool) TimeoutSeconds() int { return 0 }
-func (t *answerDecisionTool) Execute(ctx context.Context, raw json.RawMessage, _ string) (Result, error) {
-	var in answerDecisionInput
-	if err := json.Unmarshal(raw, &in); err != nil {
-		return maintainerCommandError("invalid input: %v", err)
-	}
-	if strings.TrimSpace(in.DecisionID) == "" || strings.TrimSpace(in.HumanSubject) == "" || strings.TrimSpace(in.Answer) == "" {
-		return maintainerCommandError("decision_id, human_subject, and answer are required")
-	}
-	item, repository, current, preconditions, err := t.commandContext(ctx, in.maintainerCommandInput)
-	if err != nil {
-		return maintainerCommandError("%v", err)
-	}
-	spec := triggersv1alpha1.MaintainerWorkItemCommandSpec{RepositoryRef: item.Spec.RepositoryRef, IdempotencyKey: in.IdempotencyKey, Preconditions: preconditions, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision, ResolveDecision: &triggersv1alpha1.MaintainerResolveDecisionCommand{IssueNumber: in.IssueNumber, DecisionID: in.DecisionID, HumanAnswer: triggersv1alpha1.MaintainerAuthenticatedHumanAnswer{Subject: in.HumanSubject, Answer: in.Answer}}}
 	return t.submitCommand(ctx, repository, current, item, spec)
 }
 
