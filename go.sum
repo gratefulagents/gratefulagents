@@ -163,6 +163,8 @@ github.com/gratefulagents/sdk v0.0.89-0.20260721135502-5e57c7fe68b9 h1:ow8VcF5LS
 github.com/gratefulagents/sdk v0.0.89-0.20260721135502-5e57c7fe68b9/go.mod h1:f4gWx6dTlmrVHQDAb5pvfbFvtTEPWZuL2yk637+6dP0=
 github.com/gratefulagents/sdk v0.0.89-0.20260721141857-af5c6bc83e8d h1:5xR109EwLQiSa295/77ywdK5Q+55UAPDegPBtleiYII=
 github.com/gratefulagents/sdk v0.0.89-0.20260721141857-af5c6bc83e8d/go.mod h1:f4gWx6dTlmrVHQDAb5pvfbFvtTEPWZuL2yk637+6dP0=
+github.com/gratefulagents/sdk v0.0.89-0.20260722042619-b4213f367cc9 h1:Ejy8bTvq2Am5AIQgLffHiN7WpFW9Sgx1Zkn5vpickO0=
+github.com/gratefulagents/sdk v0.0.89-0.20260722042619-b4213f367cc9/go.mod h1:f4gWx6dTlmrVHQDAb5pvfbFvtTEPWZuL2yk637+6dP0=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 h1:NmZ1PKzSTQbuGHw9DGPFomqkkLWMC+vZCkfs+FHv1Vg=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3/go.mod h1:zQrxl1YP88HQlA6i9c63DSVPFklWpGX4OWAc9bFuaH4=
 github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=

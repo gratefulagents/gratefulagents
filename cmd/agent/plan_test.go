@@ -163,6 +163,9 @@ func TestLoadRunConfigCarriesProviderAuthForSDK(t *testing.T) {
 	if runtimeCfg.ProviderAPIModes["openai"] != "responses" {
 		t.Fatalf("ProviderAPIModes = %#v", runtimeCfg.ProviderAPIModes)
 	}
+	if runtimeCfg.ToolOutputDir != workspaceScratchDir {
+		t.Fatalf("ToolOutputDir = %q, want scratch directory %q", runtimeCfg.ToolOutputDir, workspaceScratchDir)
+	}
 }
 
 func TestLoadRunConfigSeedsProviderDefaultsForRuntimeSwitches(t *testing.T) {

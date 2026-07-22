@@ -85,6 +85,7 @@ func sdkRuntimeProviderConfig(cfg runConfig, model string) sdkruntime.Config {
 		ProviderBaseURLs:         cloneStringMap(cfg.ProviderBaseURLs),
 		ProviderAPIModes:         cloneStringMap(cfg.ProviderAPIModes),
 		ModelFallbacks:           append([]string(nil), cfg.ModelFallbacks...),
+		ToolOutputDir:            workspaceScratchDir,
 	}
 }
 
