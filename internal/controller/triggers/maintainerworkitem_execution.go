@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -277,7 +278,9 @@ func (r *GitHubRepositoryReconciler) releaseMaintainerDispatch(ctx context.Conte
 			return nil
 		}
 		delete(ledger.Reservations, item.Name)
-		if ledger.Count > 0 {
+		// Only give back today's budget for reservations made today; a release
+		// after midnight must not discount dispatches from a previous day.
+		if ledger.Count > 0 && reservation.ReservedAt.Time.UTC().Format("2006-01-02") == ledger.Day {
 			ledger.Count--
 		}
 		encoded, err := json.Marshal(ledger)
@@ -364,6 +367,56 @@ type maintainerRepositoryReservation struct {
 	ReservedAt  metav1.Time `json:"reservedAt"`
 }
 
+// maintainerDispatchReservationTTL bounds how long an unmaterialized
+// reservation with no correlated active run may hold a capacity slot.
+const maintainerDispatchReservationTTL = 24 * time.Hour
+
+// pruneMaintainerDispatchReservations removes ledger entries that can no
+// longer legitimately hold capacity: entries whose work item was deleted,
+// entries whose bound run already finished, and unmaterialized entries older
+// than the TTL with no correlated active run. Without this, orphaned entries
+// count against the concurrency cap forever. The entry for protect (the work
+// item currently being reserved) is never pruned so an in-flight dispatch
+// cannot lose its own reservation.
+func pruneMaintainerDispatchReservations(ledger *maintainerRepositoryDispatchLedger, protect string, workItemUIDs map[string]string, materialized, activeItems map[string]bool, now time.Time) bool {
+	pruned := false
+	for name, reservation := range ledger.Reservations {
+		if name == protect {
+			continue
+		}
+		switch {
+		case workItemUIDs[name] == "":
+			// The work item no longer exists; its reservation is unreleasable.
+		case materialized[name] && !activeItems[name]:
+			// The reservation was bound to a run that is now terminal or gone.
+		case !materialized[name] && !activeItems[name] && now.Sub(reservation.ReservedAt.Time) > maintainerDispatchReservationTTL:
+			// The reservation never materialized and has no active run.
+		default:
+			continue
+		}
+		delete(ledger.Reservations, name)
+		pruned = true
+	}
+	return pruned
+}
+
+// maintainerRunWorkItemName derives the deterministic work-item name for a
+// repository-owned run that predates work-item labels, so legacy runs dedupe
+// against ledger reservations by identity instead of double-counting.
+func maintainerRunWorkItemName(repository *triggersv1alpha1.GitHubRepository, run *platformv1alpha1.AgentRun) string {
+	if run.Spec.Trigger.ExternalRef == nil {
+		return ""
+	}
+	raw := strings.TrimPrefix(strings.TrimSpace(run.Spec.Trigger.ExternalRef.Identifier), "#")
+	if number, err := strconv.ParseInt(raw, 10, 32); err == nil && number > 0 {
+		return MaintainerWorkItemName(repository.Name, int32(number))
+	}
+	if number, err := strconv.ParseInt(strings.TrimSpace(run.Spec.Trigger.ExternalRef.ID), 10, 32); err == nil && number > 0 {
+		return MaintainerWorkItemName(repository.Name, int32(number))
+	}
+	return ""
+}
+
 //nolint:gocyclo // Reservation validates all cap, replay, migration, and ownership invariants atomically.
 func (r *GitHubRepositoryReconciler) reserveMaintainerDispatch(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) error {
 	items := &triggersv1alpha1.MaintainerWorkItemList{}
@@ -380,14 +433,28 @@ func (r *GitHubRepositoryReconciler) reserveMaintainerDispatch(ctx context.Conte
 	if err := r.maintainerReader().List(ctx, runs, client.InNamespace(repository.Namespace)); err != nil {
 		return err
 	}
-	active := 0
+	// Deduplicate capacity by work-item identity: a work item must never
+	// consume one slot through its active run and a second slot through its
+	// not-yet-materialized ledger reservation.
+	activeItems := map[string]bool{}
+	legacyActive := 0
 	for i := range runs.Items {
 		run := &runs.Items[i]
+		if run.Labels[triggersv1alpha1.PRLoopRoleLabelKey] == triggersv1alpha1.PRLoopRoleReviewerValue || isTerminalAgentRunPhase(run.Status.Phase) {
+			continue
+		}
 		workItemName := run.Labels[triggersv1alpha1.MaintainerWorkItemNameLabelKey]
 		correlated := workItemUIDs[workItemName] != "" && workItemUIDs[workItemName] == run.Labels[triggersv1alpha1.MaintainerWorkItemUIDLabelKey]
 		legacyOwned := TriggerRunMatches(run, gitHubRepositoryTriggerKind, repository.Name) && runOwnedByGitHubRepository(run, repository)
-		if (correlated || legacyOwned) && run.Labels[triggersv1alpha1.PRLoopRoleLabelKey] != triggersv1alpha1.PRLoopRoleReviewerValue && !isTerminalAgentRunPhase(run.Status.Phase) {
-			active++
+		switch {
+		case correlated:
+			activeItems[workItemName] = true
+		case legacyOwned:
+			if name := maintainerRunWorkItemName(repository, run); name != "" {
+				activeItems[name] = true
+			} else {
+				legacyActive++
+			}
 		}
 	}
 	maxConcurrent, maxDaily := int32(2), int32(10)
@@ -422,36 +489,59 @@ func (r *GitHubRepositoryReconciler) reserveMaintainerDispatch(ctx context.Conte
 		if ledger.Reservations == nil {
 			ledger.Reservations = map[string]maintainerRepositoryReservation{}
 		}
+		pruned := pruneMaintainerDispatchReservations(&ledger, item.Name, workItemUIDs, materialized, activeItems, now)
+		persist := func() error {
+			encoded, err := json.Marshal(ledger)
+			if err != nil {
+				return err
+			}
+			patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
+			if fresh.Annotations == nil {
+				fresh.Annotations = map[string]string{}
+			}
+			fresh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation] = string(encoded)
+			return r.Patch(ctx, fresh, patch)
+		}
 		if existing, ok := ledger.Reservations[item.Name]; ok {
 			if existing.CommandName != command.Name {
+				if pruned {
+					if err := persist(); err != nil {
+						return err
+					}
+				}
 				return rejectMaintainerCommand("work item capacity is reserved by another command")
+			}
+			if pruned {
+				return persist()
 			}
 			return nil
 		}
 		pending := 0
 		for workItemName := range ledger.Reservations {
-			if !materialized[workItemName] {
+			if !materialized[workItemName] && !activeItems[workItemName] {
 				pending++
 			}
 		}
-		if int32(active+pending) >= maxConcurrent {
-			return rejectMaintainerCommand(fmt.Sprintf("dispatch concurrency cap reached (%d/%d)", active+pending, maxConcurrent))
+		usage := len(activeItems) + legacyActive + pending
+		if int32(usage) >= maxConcurrent {
+			if pruned {
+				if err := persist(); err != nil {
+					return err
+				}
+			}
+			return rejectMaintainerCommand(fmt.Sprintf("dispatch concurrency cap reached (%d/%d)", usage, maxConcurrent))
 		}
 		if int32(ledger.Count) >= maxDaily {
+			if pruned {
+				if err := persist(); err != nil {
+					return err
+				}
+			}
 			return rejectMaintainerCommand(fmt.Sprintf("daily dispatch cap reached (%d/%d)", ledger.Count, maxDaily))
 		}
 		ledger.Count++
 		ledger.Reservations[item.Name] = maintainerRepositoryReservation{CommandName: command.Name, ReservedAt: metav1.NewTime(now)}
-		encoded, err := json.Marshal(ledger)
-		if err != nil {
-			return err
-		}
-		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
-		if fresh.Annotations == nil {
-			fresh.Annotations = map[string]string{}
-		}
-		fresh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation] = string(encoded)
-		return r.Patch(ctx, fresh, patch)
+		return persist()
 	}); err != nil {
 		return err
 	}

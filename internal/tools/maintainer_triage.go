@@ -56,7 +56,7 @@ func (t *triageIssueTool) Description() string {
 	return "Submit an immutable, idempotent triage command for one maintained repository issue."
 }
 func (t *triageIssueTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"disposition":{"type":"string","enum":["NotActionable","Bounded","Decomposable","Discovery","Escalated"]},"evidence_summary":{"type":"string","minLength":1},"accepted_scope":{"type":"object","properties":{"statement":{"type":"string"},"acceptance_criteria":{"type":"array","items":{"type":"string"}}}},"close_reason":{"type":"string","enum":["not_planned","completed"]},"idempotency_key":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","disposition","evidence_summary","accepted_scope","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"disposition":{"type":"string","enum":["NotActionable","Bounded","Decomposable","Discovery","Escalated"]},"evidence_summary":{"type":"string","minLength":1},"accepted_scope":{"type":"object","properties":{"statement":{"type":"string"},"acceptance_criteria":{"type":"array","items":{"type":"string"}}}},"close_reason":{"type":"string","enum":["not_planned","completed"]},"idempotency_key":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","disposition","evidence_summary","accepted_scope","idempotency_key","expected_projection_sequence"]}`)
 }
 func (t *triageIssueTool) IsReadOnly() bool                      { return false }
 func (t *triageIssueTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
@@ -100,11 +100,17 @@ func (t *triageIssueTool) Execute(ctx context.Context, input json.RawMessage, _ 
 		},
 		CloseReason: in.CloseReason,
 	}
+	// The controller enforces projection-sequence preconditions; the resource
+	// version is advisory and defaults to the currently observed one.
+	resourceVersion := strings.TrimSpace(in.ExpectedResourceVersion)
+	if resourceVersion == "" {
+		resourceVersion = workItem.ResourceVersion
+	}
 	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{
 		WorkItemName:       workItem.Name,
 		WorkItemUID:        workItem.UID,
 		ProjectionSequence: *in.ExpectedProjectionSequence,
-		ResourceVersion:    in.ExpectedResourceVersion,
+		ResourceVersion:    resourceVersion,
 	}
 	payloadHash := triageIssuePayloadHash(triage, preconditions)
 	capability := &corev1.Secret{}
@@ -187,9 +193,6 @@ func validateTriageIssueInput(in triageIssueInput) error {
 	}
 	if in.ExpectedProjectionSequence == nil || *in.ExpectedProjectionSequence < 0 {
 		return fmt.Errorf("expected_projection_sequence is required and must be non-negative")
-	}
-	if strings.TrimSpace(in.ExpectedResourceVersion) == "" {
-		return fmt.Errorf("expected_resource_version is required")
 	}
 	if in.Disposition == triggersv1alpha1.MaintainerWorkItemDispositionNotActionable {
 		if in.CloseReason == nil {

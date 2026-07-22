@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/go-github/v68/github"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -131,7 +132,7 @@ func (r *GitHubRepositoryReconciler) maintainerReader() client.Reader {
 	return r.Client
 }
 
-func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, issues []*github.Issue, issueListComplete bool) error {
+func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, issues []*github.Issue, issueListComplete bool, githubClient GitHubTriageClient) error {
 	items := &triggersv1alpha1.MaintainerWorkItemList{}
 	if err := r.List(ctx, items, client.InNamespace(repository.Namespace), client.MatchingLabels{
 		triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name,
@@ -153,17 +154,34 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Co
 		if err := r.ensureMaintainerWorkItem(ctx, repository, name, issueNumber); err != nil {
 			return err
 		}
-		if err := r.observeMaintainerWorkItem(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: name}, issue); err != nil {
+		if err := r.observeMaintainerWorkItem(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: name}, issue, "Observed", "Issue observed in open issue list"); err != nil {
 			return err
 		}
 	}
 
 	if issueListComplete {
 		for i := range items.Items {
-			if _, ok := seen[items.Items[i].Name]; ok {
+			item := &items.Items[i]
+			if _, ok := seen[item.Name]; ok {
 				continue
 			}
-			if err := r.markMaintainerWorkItemObservationStale(ctx, client.ObjectKeyFromObject(&items.Items[i])); err != nil {
+			// An issue absent from the open list is usually closed (for example
+			// auto-closed by a merged pull request). Re-observe it directly so the
+			// observation stays fresh and records the real state; otherwise
+			// finalize/merge preconditions can never be satisfied again.
+			if item.Status.IssueObservation != nil && item.Status.IssueObservation.State == triggersv1alpha1.MaintainerIssueStateClosed && maintainerWorkItemObservationIsFresh(item) {
+				continue
+			}
+			if githubClient != nil {
+				issue, _, err := githubClient.GetIssue(ctx, repository.Spec.Owner, repository.Spec.Repo, int(item.Spec.IssueNumber))
+				if err == nil && issue != nil {
+					if err := r.observeMaintainerWorkItem(ctx, client.ObjectKeyFromObject(item), issue, "ObservedDirectly", "Issue observed directly after leaving the open issue list"); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+			if err := r.markMaintainerWorkItemObservationStale(ctx, client.ObjectKeyFromObject(item)); err != nil {
 				return err
 			}
 		}
@@ -226,13 +244,17 @@ func (r *GitHubRepositoryReconciler) ensureMaintainerWorkItem(ctx context.Contex
 	return nil
 }
 
-func (r *GitHubRepositoryReconciler) observeMaintainerWorkItem(ctx context.Context, key client.ObjectKey, issue *github.Issue) error {
+func (r *GitHubRepositoryReconciler) observeMaintainerWorkItem(ctx context.Context, key client.ObjectKey, issue *github.Issue, reason, message string) error {
 	now := metav1.Now()
 	return retryMaintainerWorkItemStatusUpdate(ctx, r.Client, key, func(item *triggersv1alpha1.MaintainerWorkItem) bool {
 		before := item.Status.DeepCopy()
 		observation := maintainerIssueObservation(issue, now)
 		if maintainerObservationEqual(item.Status.IssueObservation, &observation) {
 			observation.ObservedAt = item.Status.IssueObservation.ObservedAt
+			// Non-substantive GitHub activity (comments, cross-references) bumps
+			// updatedAt without changing triage-relevant facts; keep the recorded
+			// value so the projection sequence only advances on semantic change.
+			observation.GitHubUpdatedAt = item.Status.IssueObservation.GitHubUpdatedAt
 		}
 		item.Status.IssueObservation = &observation
 		item.Status.Phase = maintainerWorkItemPhase(item)
@@ -240,8 +262,8 @@ func (r *GitHubRepositoryReconciler) observeMaintainerWorkItem(ctx context.Conte
 			Type:               triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh,
 			Status:             metav1.ConditionTrue,
 			ObservedGeneration: item.Generation,
-			Reason:             "Observed",
-			Message:            "Issue observed in open issue list",
+			Reason:             reason,
+			Message:            message,
 		}, now)
 		if maintainerWorkItemStatusSemanticallyEqual(before, &item.Status) {
 			return false
@@ -299,13 +321,17 @@ func maintainerIssueObservation(issue *github.Issue, now metav1.Time) triggersv1
 	}
 	sort.Strings(labels)
 	bodyHash := sha256.Sum256([]byte(issue.GetBody()))
+	state := triggersv1alpha1.MaintainerIssueStateOpen
+	if strings.EqualFold(issue.GetState(), string(triggersv1alpha1.MaintainerIssueStateClosed)) {
+		state = triggersv1alpha1.MaintainerIssueStateClosed
+	}
 	return triggersv1alpha1.MaintainerIssueObservation{
 		Number:          int32(issue.GetNumber()),
 		URL:             issue.GetHTMLURL(),
 		Title:           issue.GetTitle(),
 		BodyHash:        hex.EncodeToString(bodyHash[:]),
 		AuthorLogin:     issue.GetUser().GetLogin(),
-		State:           triggersv1alpha1.MaintainerIssueStateOpen,
+		State:           state,
 		Labels:          labels,
 		GitHubUpdatedAt: metav1.NewTime(issue.GetUpdatedAt().UTC()),
 		ObservedAt:      now,
@@ -319,6 +345,10 @@ func maintainerObservationEqual(left *triggersv1alpha1.MaintainerIssueObservatio
 	leftCopy, rightCopy := *left, *right
 	leftCopy.ObservedAt = metav1.Time{}
 	rightCopy.ObservedAt = metav1.Time{}
+	// updatedAt moves on every comment or timeline event; only substantive
+	// fields (title, body hash, labels, state, author) drive change detection.
+	leftCopy.GitHubUpdatedAt = metav1.Time{}
+	rightCopy.GitHubUpdatedAt = metav1.Time{}
 	return equality.Semantic.DeepEqual(leftCopy, rightCopy)
 }
 
@@ -358,6 +388,7 @@ func maintainerWorkItemStatusSemanticallyEqual(left, right *triggersv1alpha1.Mai
 		status.ProjectionSequence = 0
 		if status.IssueObservation != nil {
 			status.IssueObservation.ObservedAt = metav1.Time{}
+			status.IssueObservation.GitHubUpdatedAt = metav1.Time{}
 		}
 		if status.Readiness != nil {
 			status.Readiness.ObservedAt = nil
@@ -379,6 +410,10 @@ func maintainerWorkItemStatusSemanticallyEqual(left, right *triggersv1alpha1.Mai
 		}
 		for i := range status.Conditions {
 			status.Conditions[i].LastTransitionTime = metav1.Time{}
+			// Free-form messages (for example error text with embedded rate-limit
+			// reset times) must not advance the semantic projection when the
+			// condition's type, status, and reason are unchanged.
+			status.Conditions[i].Message = ""
 		}
 		sort.Slice(status.Conditions, func(i, j int) bool { return status.Conditions[i].Type < status.Conditions[j].Type })
 	}
@@ -439,11 +474,78 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItemCommands(ctx con
 		if command.Spec.RepositoryRef.Name != repository.Name || maintainerCommandTerminal(command.Status.Phase) {
 			continue
 		}
+		if command.Status.Phase == triggersv1alpha1.MaintainerWorkItemCommandPhaseFailed && maintainerCommandFailureCount(command) >= maintainerCommandFailureBudget {
+			durable, err := r.maintainerCommandHasDurableSideEffects(ctx, repository, command)
+			if err != nil {
+				return err
+			}
+			if !durable {
+				message := "retry budget exhausted after repeated failures"
+				if command.Status.Result != nil && command.Status.Result.Message != "" {
+					message += "; last failure: " + command.Status.Result.Message
+				}
+				if err := r.rejectMaintainerWorkItemCommand(ctx, repository, command, message); err != nil {
+					return err
+				}
+				continue
+			}
+		}
 		if err := r.processMaintainerWorkItemCommand(ctx, repository, command, githubClient, deliveryClient); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// maintainerCommandFailureBudget bounds how often a Failed command is
+// reprocessed before it is terminally rejected, so persistently failing
+// commands cannot burn GitHub quota on every reconcile forever.
+const maintainerCommandFailureBudget = 5
+
+func maintainerCommandFailureCount(command *triggersv1alpha1.MaintainerWorkItemCommand) int {
+	count, err := strconv.Atoi(command.Annotations[triggersv1alpha1.MaintainerCommandFailureCountAnnotation])
+	if err != nil || count < 0 {
+		return 0
+	}
+	return count
+}
+
+// maintainerCommandHasDurableSideEffects reports whether a command already
+// crossed a durable side-effect boundary (an attempted merge or an issued
+// delivery attestation). Such commands must keep reconciling until GitHub
+// reports a conclusive outcome; terminally rejecting them would orphan the
+// side effect (for example a merge that later becomes visible would never be
+// recorded in VerifiedMerges).
+func (r *GitHubRepositoryReconciler) maintainerCommandHasDurableSideEffects(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand) (bool, error) {
+	if command.Status.Result != nil && command.Status.Result.MergeAttemptedAt != nil {
+		return true, nil
+	}
+	if command.Spec.Type != triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem {
+		return false, nil
+	}
+	item := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: command.Spec.Preconditions.WorkItemName}, item); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return item.Status.DeliveryAttestation != nil && item.Status.DeliveryAttestation.FinalizedByCommand.Name == command.Name && item.Status.DeliveryAttestation.CompletedAt == nil, nil
+}
+
+func (r *GitHubRepositoryReconciler) incrementMaintainerCommandFailureCount(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		fresh := &triggersv1alpha1.MaintainerWorkItemCommand{}
+		if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(command), fresh); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		if fresh.Annotations == nil {
+			fresh.Annotations = map[string]string{}
+		}
+		fresh.Annotations[triggersv1alpha1.MaintainerCommandFailureCountAnnotation] = strconv.Itoa(maintainerCommandFailureCount(fresh) + 1)
+		return r.Patch(ctx, fresh, patch)
+	})
 }
 
 func maintainerCommandTerminal(phase triggersv1alpha1.MaintainerWorkItemCommandPhase) bool {
@@ -823,6 +925,9 @@ func (r *GitHubRepositoryReconciler) completeMaintainerWorkItemCommand(ctx conte
 }
 
 func (r *GitHubRepositoryReconciler) failMaintainerWorkItemCommand(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, message string) error {
+	if err := r.incrementMaintainerCommandFailureCount(ctx, command); err != nil {
+		return err
+	}
 	err := retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
 		fresh.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseFailed
 		fresh.Status.ObservedGeneration = fresh.Generation
@@ -888,7 +993,17 @@ func currentMaintainerProjectionMessage(ctx context.Context, c client.Client, re
 }
 
 func currentProjectionMessage(item *triggersv1alpha1.MaintainerWorkItem) string {
-	return fmt.Sprintf("current projection sequence %d resourceVersion %s", item.Status.ProjectionSequence, item.ResourceVersion)
+	var message strings.Builder
+	fmt.Fprintf(&message, "current projection sequence %d resourceVersion %s", item.Status.ProjectionSequence, item.ResourceVersion)
+	for _, condition := range item.Status.Conditions {
+		if condition.Type == triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh && condition.Status != metav1.ConditionTrue {
+			fmt.Fprintf(&message, "; observation not fresh (%s)", condition.Reason)
+			if item.Status.IssueObservation != nil {
+				fmt.Fprintf(&message, "; last observation state %s at %s", item.Status.IssueObservation.State, item.Status.IssueObservation.ObservedAt.UTC().Format(time.RFC3339))
+			}
+		}
+	}
+	return message.String()
 }
 
 func maintainerWorkItemObservationIsFresh(item *triggersv1alpha1.MaintainerWorkItem) bool {

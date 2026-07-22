@@ -170,7 +170,11 @@ func projectMaintainerRunsAndPRs(item *triggersv1alpha1.MaintainerWorkItem, runs
 		item.Status.AgentRuns = append(item.Status.AgentRuns, triggersv1alpha1.MaintainerWorkItemAgentRunProjection{Name: run.Name, UID: run.UID, Role: role, Phase: string(run.Status.Phase), PRLoopState: run.Labels[PRLoopStateLabel], ObservedAt: &observed})
 		if role == triggersv1alpha1.MaintainerWorkItemAgentRunRoleImplementer {
 			runNames[run.Name] = true
-			if item.Status.DispatchReservation != nil && item.Status.DispatchReservation.AgentRunRef == nil {
+			// Bind only runs created for the current reservation (with a small
+			// clock-skew grace); a lingering run from an earlier dispatch must
+			// not "materialize" a fresh reservation it does not satisfy.
+			if item.Status.DispatchReservation != nil && item.Status.DispatchReservation.AgentRunRef == nil &&
+				!run.CreationTimestamp.Time.Before(item.Status.DispatchReservation.ReservedAt.Add(-time.Minute)) {
 				item.Status.DispatchReservation.AgentRunRef = &corev1.LocalObjectReference{Name: run.Name}
 			}
 		}

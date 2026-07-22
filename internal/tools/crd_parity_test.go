@@ -23,6 +23,12 @@ func TestMaintainerWorkItemCRDHelmParity(t *testing.T) {
 			wrapped := strings.TrimSpace(string(chart))
 			wrapped = strings.TrimPrefix(wrapped, "{{- if .Values.crd.enable }}")
 			wrapped = strings.TrimSuffix(wrapped, "{{- end }}")
+			// The chart adds a Helm-only keep policy so uninstall/reinstall and
+			// crd.enable toggles cannot delete durable maintainer state.
+			if !strings.Contains(wrapped, "helm.sh/resource-policy: keep") {
+				t.Fatal("Helm CRD copy must carry helm.sh/resource-policy: keep to protect durable maintainer state")
+			}
+			wrapped = strings.ReplaceAll(wrapped, "\n    helm.sh/resource-policy: keep", "")
 			if strings.TrimSpace(string(generated)) != strings.TrimSpace(wrapped) {
 				t.Fatalf("Helm %s CRD differs from generated base; regenerate and sync the chart copy", name)
 			}

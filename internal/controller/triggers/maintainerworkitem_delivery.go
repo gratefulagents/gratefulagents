@@ -106,7 +106,12 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "pre-merge GitHub read no longer satisfies open, non-draft, mergeable, expected-head/base gates")
 	}
 	policy, err := githubClient.GetMergePolicy(ctx, owner, repo, pull.BaseRef)
-	if err != nil || !policy.RequiredReviews || !policy.RequiredChecks || !policy.CanMerge || policy.ActorCanBypass {
+	if err != nil {
+		// A transient read failure is retryable; only a successfully read but
+		// unproven policy is a terminal rejection.
+		return r.failMaintainerWorkItemCommand(ctx, command, fresh, "pre-merge GitHub merge policy read failed: "+err.Error())
+	}
+	if !policy.RequiredReviews || !policy.RequiredChecks || !policy.CanMerge || policy.ActorCanBypass {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "server-enforced required-review/check policy and repository merge permission for a non-bypass actor could not be proven")
 	}
 	review, _, err := githubClient.GetReviewDecision(ctx, owner, repo, int(request.PullRequestNumber))
