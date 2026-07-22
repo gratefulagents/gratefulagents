@@ -182,6 +182,7 @@ service PlatformService {
   rpc DeleteProjectContent(DeleteProjectContentRequest) returns (google.protobuf.Empty);
   rpc ListGitHubRepositories(ListGitHubRepositoriesRequest) returns (ListGitHubRepositoriesResponse);
   rpc GetGitHubRepository(GetGitHubRepositoryRequest) returns (GitHubRepository);
+  rpc ListMaintainerWorkItems(ListMaintainerWorkItemsRequest) returns (ListMaintainerWorkItemsResponse);
   rpc WatchGitHubRepositories(WatchGitHubRepositoriesRequest) returns (stream GitHubRepositoryEvent);
   rpc GetGitHubAppConfig(google.protobuf.Empty) returns (GitHubAppConfig);
   rpc ListGitHubAppInstallations(google.protobuf.Empty) returns (ListGitHubAppInstallationsResponse);
@@ -2658,6 +2659,77 @@ message GitHubRepositoryMaintainerStatus {
   int64 last_report_time_unix = 4;
   string last_report_state = 5; // healthy | needs_attention | blocked
   string last_report_summary = 6;
+}
+
+// ListMaintainerWorkItemsRequest lists durable maintainer work items for one
+// GitHubRepository trigger.
+message ListMaintainerWorkItemsRequest {
+  string namespace = 1;
+  // GitHubRepository resource name (spec.repositoryRef.name on work items).
+  string repository_name = 2;
+}
+
+message ListMaintainerWorkItemsResponse {
+  repeated MaintainerWorkItem items = 1;
+}
+
+// MaintainerWorkItemAgentRun summarizes an AgentRun projected onto a work item.
+message MaintainerWorkItemAgentRun {
+  string name = 1;
+  string role = 2; // implementer | reviewer
+  string phase = 3; // AgentRun phase
+  string pr_loop_state = 4;
+}
+
+// MaintainerWorkItemPullRequest summarizes a required pull request projection.
+message MaintainerWorkItemPullRequest {
+  string repository = 1; // owner/repo
+  int32 number = 2;
+  string url = 3;
+  string state = 4; // open | closed | merged
+  string check_state = 5; // Unknown | Pending | Passing | Failing
+  string review_decision = 6;
+  bool draft = 7;
+}
+
+// MaintainerWorkItemDecision is an unresolved authorized decision request.
+message MaintainerWorkItemDecision {
+  string id = 1;
+  string question = 2;
+  repeated string options = 3;
+  int64 requested_at_unix = 4;
+}
+
+// MaintainerWorkItem is the dashboard read model of a durable triage work item.
+message MaintainerWorkItem {
+  string namespace = 1;
+  string name = 2;
+  string repository_name = 3;
+  int32 issue_number = 4;
+  string issue_title = 5;
+  string issue_url = 6;
+  string issue_state = 7; // open | closed
+  string disposition = 8; // Bounded | Decomposable | Discovery | Escalated | NotActionable
+  string close_reason = 9; // not_planned | completed (NotActionable only)
+  string phase = 10; // PendingTriage ... Delivered
+  string evidence_summary = 11;
+  bool ready_to_dispatch = 12;
+  bool ready_to_merge = 13;
+  repeated string unmet_requirements = 14;
+  MaintainerWorkItemDecision pending_decision = 15;
+  repeated MaintainerWorkItemAgentRun agent_runs = 16;
+  repeated MaintainerWorkItemPullRequest pull_requests = 17;
+  string delivery_summary = 18;
+  int64 delivered_at_unix = 19;
+  int64 created_at_unix = 20;
+  int32 children_total = 21;
+  int32 children_delivered = 22;
+  int32 dependencies_total = 23;
+  int32 dependencies_delivered = 24;
+  // Latest durable command receipt (surfaces rejected/failed commands).
+  string latest_command_type = 25;
+  string latest_command_phase = 26; // Pending | Accepted | Succeeded | Rejected | Failed
+  string latest_command_message = 27;
 }
 
 message GitHubRepository {
