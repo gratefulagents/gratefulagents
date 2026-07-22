@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-github/v68/github"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -441,6 +442,11 @@ func (r *GitHubRepositoryReconciler) reserveMaintainerDispatch(ctx context.Conte
 	for i := range runs.Items {
 		run := &runs.Items[i]
 		if run.Labels[triggersv1alpha1.PRLoopRoleLabelKey] == triggersv1alpha1.PRLoopRoleReviewerValue || isTerminalAgentRunPhase(run.Status.Phase) {
+			continue
+		}
+		// Standing runs (the maintainer itself) are supervisors, not dispatched
+		// work; counting them would permanently consume a capacity slot.
+		if run.Labels[orchestration.StandingRunRoleLabel] != "" {
 			continue
 		}
 		workItemName := run.Labels[triggersv1alpha1.MaintainerWorkItemNameLabelKey]
