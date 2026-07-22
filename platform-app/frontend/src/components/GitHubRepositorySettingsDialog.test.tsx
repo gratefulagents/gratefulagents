@@ -174,6 +174,28 @@ describe("GitHubRepositorySettingsDialog", () => {
     expect(request.triggerSettings?.maintainerModeRef).toBe("repository-maintainer");
     expect(request.triggerSettings?.maintainerModel).toBe("claude-opus-4-6");
     expect(request.triggerSettings?.maintainerAllowPrMerge).toBe(true);
+    expect(request.triggerSettings?.maintainerWorkItemCutover).toBe("Controller");
+  });
+
+  it("preserves a staged maintainer cutover when saving other settings", async () => {
+    const configured = repo();
+    configured.triggerSettings = create(GitHubRepositoryTriggerSettingsSchema, {
+      triggerKeyword: "@agent",
+      pollInterval: "60s",
+      maintainerEnabled: true,
+      maintainerWorkItemCutover: "DualRead",
+    });
+    render(<GitHubRepositorySettingsDialog repo={configured} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Settings/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Maintainer/ }));
+    expect(screen.getByRole("combobox", { name: /Work-item cutover/ }).textContent).toContain("DualRead");
+    fireEvent.change(screen.getByLabelText(/Maintainer model/), { target: { value: "claude-opus-4-6" } });
+    submitForm();
+
+    await waitFor(() => expect(client.updateGitHubRepository).toHaveBeenCalledTimes(1));
+    const request = vi.mocked(client.updateGitHubRepository).mock.calls[0][0];
+    expect(request.triggerSettings?.maintainerWorkItemCutover).toBe("DualRead");
   });
 
   it("does not offer caller secrets when editing a shared repository namespace", async () => {

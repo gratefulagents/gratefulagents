@@ -8,7 +8,6 @@ import (
 	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
-	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
@@ -16,6 +15,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const (
+	maintainerLegacyDispatchToolName = "dispatch_issue"
+	maintainerLegacyMergeToolName    = "merge_pull_request"
+	maintainerLegacyRunToolName      = "mark_run_succeeded"
+	maintainerLegacyCloseToolName    = "close_github_issue"
+)
+
+// MaintainerLegacyMutationToolNames returns the live-cutover-controlled tool
+// candidates retained for rollback without restarting the standing run.
+func MaintainerLegacyMutationToolNames() []string {
+	return []string{maintainerLegacyDispatchToolName, maintainerLegacyMergeToolName, maintainerLegacyRunToolName, maintainerLegacyCloseToolName}
+}
 
 func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8sClient client.Client, currentRunName, currentRunNamespace, repositoryName, repositoryNamespace string) {
 	if registry == nil || stateStore == nil || k8sClient == nil || strings.TrimSpace(currentRunName) == "" || strings.TrimSpace(currentRunNamespace) == "" || strings.TrimSpace(repositoryName) == "" || strings.TrimSpace(repositoryNamespace) == "" {
@@ -26,21 +38,8 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 		currentRunName: currentRunName, currentRunNamespace: currentRunNamespace,
 		repositoryName: repositoryName, repositoryNamespace: repositoryNamespace,
 	}
-	repository := &triggersv1alpha1.GitHubRepository{}
-	cutover := triggersv1alpha1.MaintainerWorkItemCutoverController
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: repositoryName, Namespace: repositoryNamespace}, repository); err == nil && repository.Spec.Maintainer != nil && repository.Spec.Maintainer.WorkItemCutover != "" {
-		cutover = repository.Spec.Maintainer.WorkItemCutover
-	}
-	controllerAuthority := cutover == triggersv1alpha1.MaintainerWorkItemCutoverController
-	if closeTool := registry.Get("close_github_issue"); closeTool != nil {
+	if closeTool := registry.Get(maintainerLegacyCloseToolName); closeTool != nil {
 		registry.Register(&maintainerCutoverGuardedTool{Tool: closeTool, base: base})
-	}
-	if controllerAuthority {
-		// Runtime deny is independent of ModeSnapshot so an already-running
-		// maintainer cannot retain generic irreversible tools after cutover.
-		registry.Remove("merge_pull_request")
-		registry.Remove("mark_run_succeeded")
-		registry.Remove("close_github_issue")
 	}
 	registry.Register(&getFleetRunsTool{maintainerToolBase: base})
 	registry.Register(&getFleetRunActivityTool{maintainerToolBase: base})
@@ -52,11 +51,8 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&dispatchWorkItemTool{maintainerToolBase: base})
 	registry.Register(&requestMergeTool{maintainerToolBase: base})
 	registry.Register(&finalizeWorkItemTool{maintainerToolBase: base})
-	if !controllerAuthority {
-		registry.Register(&dispatchIssueTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
-		// Legacy generic mutations remain available only during explicit rollback.
-		registry.Register(&mergePullRequestTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
-	}
+	registry.Register(&dispatchIssueTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
+	registry.Register(&mergePullRequestTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&wakeAgentRunTool{maintainerToolBase: base})
 	registry.Register(&getRunMessagesTool{maintainerToolBase: base})
 	registry.Register(&cancelRunMessageTool{maintainerToolBase: base})
@@ -64,9 +60,7 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&getRunTranscriptTool{maintainerToolBase: base})
 	registry.Register(&submitMaintainerReportTool{maintainerToolBase: base})
 	registry.Register(&extendRunTimeoutTool{maintainerToolBase: base})
-	if !controllerAuthority {
-		registry.Register(&markRunSucceededTool{maintainerToolBase: base})
-	}
+	registry.Register(&markRunSucceededTool{maintainerToolBase: base})
 }
 
 type maintainerCutoverGuardedTool struct {

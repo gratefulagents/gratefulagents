@@ -18649,8 +18649,11 @@ type GitHubRepositoryTriggerSettings struct {
 	MaintainerModel                   string `protobuf:"bytes,17,opt,name=maintainer_model,json=maintainerModel,proto3" json:"maintainer_model,omitempty"`                                                            // Empty inherits the repository defaults' model.
 	// Dangerous: allows the maintainer to merge approved, non-draft PRs.
 	MaintainerAllowPrMerge bool `protobuf:"varint,18,opt,name=maintainer_allow_pr_merge,json=maintainerAllowPrMerge,proto3" json:"maintainer_allow_pr_merge,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Rollbackable waiter/delivery migration mode: Controller, DualRead, or Legacy.
+	// Omission preserves the current mode on update for older clients.
+	MaintainerWorkItemCutover *string `protobuf:"bytes,19,opt,name=maintainer_work_item_cutover,json=maintainerWorkItemCutover,proto3,oneof" json:"maintainer_work_item_cutover,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *GitHubRepositoryTriggerSettings) Reset() {
@@ -18807,6 +18810,13 @@ func (x *GitHubRepositoryTriggerSettings) GetMaintainerAllowPrMerge() bool {
 		return x.MaintainerAllowPrMerge
 	}
 	return false
+}
+
+func (x *GitHubRepositoryTriggerSettings) GetMaintainerWorkItemCutover() string {
+	if x != nil && x.MaintainerWorkItemCutover != nil {
+		return *x.MaintainerWorkItemCutover
+	}
+	return ""
 }
 
 // GitHubRepositoryMaintainerStatus mirrors GitHubRepositoryStatus.maintainer.
@@ -27570,7 +27580,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12=\n" +
 	"\n" +
 	"repository\x18\x02 \x01(\v2\x1d.platform.v1.GitHubRepositoryR\n" +
-	"repository\"\xfd\a\n" +
+	"repository\"\xe4\b\n" +
 	"\x1fGitHubRepositoryTriggerSettings\x12#\n" +
 	"\rpoll_interval\x18\x01 \x01(\tR\fpollInterval\x12%\n" +
 	"\x0ewebhook_secret\x18\x02 \x01(\tR\rwebhookSecret\x12'\n" +
@@ -27590,9 +27600,11 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x1bmaintainer_standup_interval\x18\x0f \x01(\tR\x19maintainerStandupInterval\x12.\n" +
 	"\x13maintainer_mode_ref\x18\x10 \x01(\tR\x11maintainerModeRef\x12)\n" +
 	"\x10maintainer_model\x18\x11 \x01(\tR\x0fmaintainerModel\x129\n" +
-	"\x19maintainer_allow_pr_merge\x18\x12 \x01(\bR\x16maintainerAllowPrMergeB\x17\n" +
+	"\x19maintainer_allow_pr_merge\x18\x12 \x01(\bR\x16maintainerAllowPrMerge\x12D\n" +
+	"\x1cmaintainer_work_item_cutover\x18\x13 \x01(\tH\x02R\x19maintainerWorkItemCutover\x88\x01\x01B\x17\n" +
 	"\x15_review_loop_disabledB\x15\n" +
-	"\x13_maintainer_enabled\"\x9d\x02\n" +
+	"\x13_maintainer_enabledB\x1f\n" +
+	"\x1d_maintainer_work_item_cutover\"\x9d\x02\n" +
 	" GitHubRepositoryMaintainerStatus\x12\x19\n" +
 	"\brun_name\x18\x01 \x01(\tR\arunName\x12$\n" +
 	"\x0elast_wake_unix\x18\x02 \x01(\x03R\flastWakeUnix\x12)\n" +

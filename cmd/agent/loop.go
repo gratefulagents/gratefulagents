@@ -111,6 +111,8 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	}
 
 	// Build tool registry with all platform tools.
+	maintainedRepositoryName := strings.TrimSpace(os.Getenv("AGENTRUN_MAINTAINED_REPOSITORY_NAME"))
+	maintainedRepositoryNamespace := strings.TrimSpace(os.Getenv("AGENTRUN_MAINTAINED_REPOSITORY_NAMESPACE"))
 	var registryOpts []tools.RegistryOption
 	registryOpts = append(registryOpts,
 		tools.WithPermissionMode(cfg.PermissionMode),
@@ -120,6 +122,12 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		// the configured OpenAI vision analyzer when it builds the agent.
 		tools.WithVisionTools(nil),
 	)
+
+	if maintainedRepositoryName != "" && maintainedRepositoryNamespace != "" {
+		registryOpts = append(registryOpts,
+			tools.WithContextualMutatingToolCandidates(tools.MaintainerLegacyMutationToolNames()...),
+		)
+	}
 
 	// Mode templates may allowlist specific mutating tools that survive both
 	// the registry and per-turn SDK read-only clamps (e.g. GitHub review tools).
@@ -193,8 +201,6 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 			supervisedRunNamespace,
 		)
 	}
-	maintainedRepositoryName := strings.TrimSpace(os.Getenv("AGENTRUN_MAINTAINED_REPOSITORY_NAME"))
-	maintainedRepositoryNamespace := strings.TrimSpace(os.Getenv("AGENTRUN_MAINTAINED_REPOSITORY_NAMESPACE"))
 	if maintainedRepositoryName != "" && maintainedRepositoryNamespace != "" {
 		tools.RegisterMaintainerTools(
 			toolRegistry,
@@ -338,7 +344,9 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	runtimeCfg.ModeSnapshot = platformModeSnapshotForSDK(modeSnapshot)
 	runtimeCfg.RoleCatalog = roleCatalog.Roles
 	runtimeCfg.ToolAccess = runtimeToolAccess
-	runtimeCfg.AllowedMutatingTools = effectiveAllowedMutatingTools(run)
+	runtimeCfg.AllowedMutatingTools = effectiveRuntimeAllowedMutatingTools(
+		ctx, crdClient, run, maintainedRepositoryName, maintainedRepositoryNamespace,
+	)
 	runtimeCfg.PermissionMode = cfg.PermissionMode
 	runtimeCfg.GitRemoteWrites = cfg.GitRemoteWrites
 	// Explicit feature selection (SDK v0.0.7+): the operator brings its own
@@ -1120,6 +1128,9 @@ messageLoop:
 			if mcpPromptBlock != "" {
 				modeDirectiveText = strings.TrimSpace(modeDirectiveText + "\n\n" + mcpPromptBlock)
 			}
+			allowedMutatingTools := effectiveRuntimeAllowedMutatingTools(
+				ctx, crdClient, activeRun, maintainedRepositoryName, maintainedRepositoryNamespace,
+			)
 			runCfg := sdkruntime.BuildRunConfig(sdkruntime.Config{
 				Provider:               provider,
 				Model:                  model,
@@ -1131,7 +1142,7 @@ messageLoop:
 				SubAgentMaxTurns:       int(subAgentMaxTurns),
 				MaxConcurrentSubAgents: mo.MaxConcurrentSubAgents,
 				ToolAccess:             toolAccessLevel,
-				AllowedMutatingTools:   effectiveAllowedMutatingTools(activeRun),
+				AllowedMutatingTools:   allowedMutatingTools,
 				GitRemoteWrites:        cfg.GitRemoteWrites,
 				TracingProcessor:       tp,
 				Debug:                  cfg.Debug,

@@ -50,10 +50,14 @@ func (b maintainerToolBase) requireLegacyMutationAuthority(ctx context.Context) 
 	if repository.Spec.Maintainer != nil && repository.Spec.Maintainer.WorkItemCutover != "" {
 		mode = repository.Spec.Maintainer.WorkItemCutover
 	}
-	if mode == triggersv1alpha1.MaintainerWorkItemCutoverController {
+	switch mode {
+	case triggersv1alpha1.MaintainerWorkItemCutoverLegacy, triggersv1alpha1.MaintainerWorkItemCutoverDualRead:
+		return nil
+	case triggersv1alpha1.MaintainerWorkItemCutoverController:
 		return fmt.Errorf("generic maintainer mutation is denied in Controller cutover")
+	default:
+		return fmt.Errorf("generic maintainer mutation is denied for unknown cutover mode %q", mode)
 	}
-	return nil
 }
 
 func (b maintainerToolBase) currentRun(ctx context.Context) (*platformv1alpha1.AgentRun, error) {

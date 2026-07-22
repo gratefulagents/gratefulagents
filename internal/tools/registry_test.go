@@ -275,6 +275,18 @@ func TestRegistry_RegisterAllowsExplicitMutatingToolException(t *testing.T) {
 	}
 }
 
+func TestRegistry_ContextualCandidateExceptionIsNarrow(t *testing.T) {
+	r := NewRegistry("/tmp/test", WithReadOnlyTools(), WithContextualMutatingToolCandidates("NonReadOnlyTestTool"))
+	r.Register(&nonReadOnlyTestTool{})
+	if r.Get("NonReadOnlyTestTool") == nil {
+		t.Fatal("expected contextual mutating candidate to remain registered")
+	}
+	r.Register(&duplicateNameTool{name: "unrelated", readOnly: false})
+	if r.Get("unrelated") != nil {
+		t.Fatal("contextual candidate exception admitted an unrelated mutating tool")
+	}
+}
+
 func TestRegistry_ReviewerToolsSurviveReadOnlyClamp(t *testing.T) {
 	r := NewRegistry("/tmp/test", WithReadOnlyTools(), WithAllowedMutatingTools(ReviewerMutatingToolNames()...))
 	RegisterPRReviewTools(r, "/tmp/test")

@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	internaltools "github.com/gratefulagents/gratefulagents/internal/tools"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
@@ -297,6 +298,43 @@ func effectiveAllowedMutatingTools(run *platformv1alpha1.AgentRun) []string {
 		return internaltools.ReviewerMutatingToolNames()
 	}
 	return nil
+}
+
+// effectiveRuntimeAllowedMutatingTools adds rollback-only maintainer tools from
+// the live repository cutover. Repository read failures and Controller/default
+// mode fail closed by retaining only the ModeTemplate's normal exceptions.
+func effectiveRuntimeAllowedMutatingTools(
+	ctx context.Context,
+	c client.Client,
+	run *platformv1alpha1.AgentRun,
+	repositoryName, repositoryNamespace string,
+) []string {
+	allowed := effectiveAllowedMutatingTools(run)
+	if c == nil || strings.TrimSpace(repositoryName) == "" || strings.TrimSpace(repositoryNamespace) == "" {
+		return allowed
+	}
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := c.Get(ctx, client.ObjectKey{Name: repositoryName, Namespace: repositoryNamespace}, repository); err != nil {
+		return allowed
+	}
+	cutover := triggersv1alpha1.MaintainerWorkItemCutoverController
+	if repository.Spec.Maintainer != nil && repository.Spec.Maintainer.WorkItemCutover != "" {
+		cutover = repository.Spec.Maintainer.WorkItemCutover
+	}
+	if cutover != triggersv1alpha1.MaintainerWorkItemCutoverLegacy &&
+		cutover != triggersv1alpha1.MaintainerWorkItemCutoverDualRead {
+		return allowed
+	}
+	seen := make(map[string]struct{}, len(allowed)+len(internaltools.MaintainerLegacyMutationToolNames()))
+	out := make([]string, 0, len(allowed)+len(internaltools.MaintainerLegacyMutationToolNames()))
+	for _, name := range append(allowed, internaltools.MaintainerLegacyMutationToolNames()...) {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 // isActiveReviewerRun applies the legacy allowlist only to the current mode.
