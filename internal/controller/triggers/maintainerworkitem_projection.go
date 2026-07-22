@@ -174,7 +174,7 @@ func projectMaintainerRunsAndPRs(item *triggersv1alpha1.MaintainerWorkItem, runs
 			// clock-skew grace); a lingering run from an earlier dispatch must
 			// not "materialize" a fresh reservation it does not satisfy.
 			if item.Status.DispatchReservation != nil && item.Status.DispatchReservation.AgentRunRef == nil &&
-				!run.CreationTimestamp.Time.Before(item.Status.DispatchReservation.ReservedAt.Time.Add(-time.Minute)) {
+				!run.CreationTimestamp.Time.Before(item.Status.DispatchReservation.ReservedAt.Add(-time.Minute)) {
 				item.Status.DispatchReservation.AgentRunRef = &corev1.LocalObjectReference{Name: run.Name}
 			}
 		}

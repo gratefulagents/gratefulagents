@@ -993,16 +993,17 @@ func currentMaintainerProjectionMessage(ctx context.Context, c client.Client, re
 }
 
 func currentProjectionMessage(item *triggersv1alpha1.MaintainerWorkItem) string {
-	message := fmt.Sprintf("current projection sequence %d resourceVersion %s", item.Status.ProjectionSequence, item.ResourceVersion)
+	var message strings.Builder
+	fmt.Fprintf(&message, "current projection sequence %d resourceVersion %s", item.Status.ProjectionSequence, item.ResourceVersion)
 	for _, condition := range item.Status.Conditions {
 		if condition.Type == triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh && condition.Status != metav1.ConditionTrue {
-			message += "; observation not fresh (" + condition.Reason + ")"
+			fmt.Fprintf(&message, "; observation not fresh (%s)", condition.Reason)
 			if item.Status.IssueObservation != nil {
-				message += fmt.Sprintf("; last observation state %s at %s", item.Status.IssueObservation.State, item.Status.IssueObservation.ObservedAt.UTC().Format(time.RFC3339))
+				fmt.Fprintf(&message, "; last observation state %s at %s", item.Status.IssueObservation.State, item.Status.IssueObservation.ObservedAt.UTC().Format(time.RFC3339))
 			}
 		}
 	}
-	return message
+	return message.String()
 }
 
 func maintainerWorkItemObservationIsFresh(item *triggersv1alpha1.MaintainerWorkItem) bool {
