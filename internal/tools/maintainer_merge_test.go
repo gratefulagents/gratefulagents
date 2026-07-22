@@ -108,7 +108,7 @@ func setMaintainerMergeEnabled(t *testing.T, k8sClient client.Client, enabled bo
 	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: "repo", Namespace: "default"}, repository); err != nil {
 		t.Fatal(err)
 	}
-	repository.Spec.Maintainer = &triggersv1alpha1.MaintainerSpec{AllowPullRequestMerge: enabled}
+	repository.Spec.Maintainer = &triggersv1alpha1.MaintainerSpec{AllowPullRequestMerge: enabled, WorkItemCutover: triggersv1alpha1.MaintainerWorkItemCutoverLegacy}
 	if err := k8sClient.Update(context.Background(), repository); err != nil {
 		t.Fatal(err)
 	}

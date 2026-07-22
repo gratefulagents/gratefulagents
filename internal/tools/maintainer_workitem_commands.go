@@ -2,8 +2,11 @@ package tools
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -14,6 +17,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	requestMergeToolName     = "request_merge"
+	finalizeWorkItemToolName = "finalize_work_item"
 )
 
 type maintainerCommandInput struct {
@@ -143,6 +151,102 @@ func (t *dispatchWorkItemTool) Execute(ctx context.Context, raw json.RawMessage,
 	return t.submitCommand(ctx, repository, current, item, spec)
 }
 
+type requestMergeTool struct{ maintainerToolBase }
+type requestMergeInput struct {
+	maintainerCommandInput
+	Repository      string `json:"repository"`
+	PullRequest     int32  `json:"pull_request_number"`
+	ExpectedHeadSHA string `json:"expected_head_sha"`
+	MergeMethod     string `json:"merge_method,omitempty"`
+}
+
+func (t *requestMergeTool) Name() string { return requestMergeToolName }
+func (t *requestMergeTool) Description() string {
+	return "Submit an authenticated merge request. The controller re-reads GitHub immediately, fails closed on stale/blank/zero-check evidence, merges only the expected head, and records success only after MERGED verification."
+}
+func (t *requestMergeTool) InputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"repository":{"type":"string","pattern":"^[^/\\s]+/[^/\\s]+$"},"pull_request_number":{"type":"integer","minimum":1},"expected_head_sha":{"type":"string","pattern":"^[a-f0-9]{40}$"},"merge_method":{"type":"string","enum":["squash","merge","rebase"]},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","repository","pull_request_number","expected_head_sha","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
+}
+func (t *requestMergeTool) IsReadOnly() bool                    { return false }
+func (t *requestMergeTool) IsEnabled(*agentsdk.RunContext) bool { return true }
+func (t *requestMergeTool) NeedsApproval() bool                 { return false }
+func (t *requestMergeTool) TimeoutSeconds() int                 { return 0 }
+func (t *requestMergeTool) Execute(ctx context.Context, raw json.RawMessage, _ string) (Result, error) {
+	var in requestMergeInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return maintainerCommandError("invalid input: %v", err)
+	}
+	method := triggersv1alpha1.MaintainerWorkItemMergeMethod(strings.ToLower(strings.TrimSpace(in.MergeMethod)))
+	if method == "" {
+		method = triggersv1alpha1.MaintainerWorkItemMergeMethodSquash
+	}
+	if in.PullRequest < 1 || len(in.ExpectedHeadSHA) != 40 || (method != triggersv1alpha1.MaintainerWorkItemMergeMethodSquash && method != triggersv1alpha1.MaintainerWorkItemMergeMethodMerge && method != triggersv1alpha1.MaintainerWorkItemMergeMethodRebase) {
+		return maintainerCommandError("pull_request_number, a 40-character expected_head_sha, and a valid merge_method are required")
+	}
+	item, repository, current, preconditions, err := t.commandContext(ctx, in.maintainerCommandInput)
+	if err != nil {
+		return maintainerCommandError("%v", err)
+	}
+	expectedRepository := repository.Spec.Owner + "/" + repository.Spec.Repo
+	if strings.TrimSpace(in.Repository) != expectedRepository {
+		return maintainerCommandError("repository must exactly match %s", expectedRepository)
+	}
+	spec := triggersv1alpha1.MaintainerWorkItemCommandSpec{RepositoryRef: item.Spec.RepositoryRef, IdempotencyKey: in.IdempotencyKey, Preconditions: preconditions, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeRequestMerge, RequestMerge: &triggersv1alpha1.MaintainerRequestMergeCommand{IssueNumber: in.IssueNumber, Repository: expectedRepository, PullRequestNumber: in.PullRequest, ExpectedHeadSHA: in.ExpectedHeadSHA, MergeMethod: method}}
+	return t.submitCommand(ctx, repository, current, item, spec)
+}
+
+type finalizeWorkItemTool struct{ maintainerToolBase }
+type finalizeWorkItemInput struct {
+	maintainerCommandInput
+	DeliverySummary     string   `json:"delivery_summary"`
+	DeliveryEvidence    string   `json:"delivery_evidence"`
+	ImplementerRunNames []string `json:"implementer_run_names,omitempty"`
+}
+
+func (t *finalizeWorkItemTool) Name() string { return finalizeWorkItemToolName }
+func (t *finalizeWorkItemTool) Description() string {
+	return "Submit an authenticated durable delivery attestation. The controller finalizes only after all required PRs, children, decisions, and run predicates pass, then idempotently requests run success and closes the issue."
+}
+func (t *finalizeWorkItemTool) InputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"delivery_summary":{"type":"string","minLength":1},"delivery_evidence":{"type":"string","minLength":1},"implementer_run_names":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","delivery_summary","delivery_evidence","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
+}
+func (t *finalizeWorkItemTool) IsReadOnly() bool                    { return false }
+func (t *finalizeWorkItemTool) IsEnabled(*agentsdk.RunContext) bool { return true }
+func (t *finalizeWorkItemTool) NeedsApproval() bool                 { return false }
+func (t *finalizeWorkItemTool) TimeoutSeconds() int                 { return 0 }
+func (t *finalizeWorkItemTool) Execute(ctx context.Context, raw json.RawMessage, _ string) (Result, error) {
+	var in finalizeWorkItemInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return maintainerCommandError("invalid input: %v", err)
+	}
+	if strings.TrimSpace(in.DeliverySummary) == "" || strings.TrimSpace(in.DeliveryEvidence) == "" {
+		return maintainerCommandError("delivery_summary and delivery_evidence are required")
+	}
+	item, repository, current, preconditions, err := t.commandContext(ctx, in.maintainerCommandInput)
+	if err != nil {
+		return maintainerCommandError("%v", err)
+	}
+	if item.Spec.AcceptedScope == nil {
+		return maintainerCommandError("work item has no accepted scope to attest")
+	}
+	encoded, _ := json.Marshal(item.Spec.AcceptedScope)
+	sum := sha256.Sum256(encoded)
+	scopeHash := hex.EncodeToString(sum[:])
+	runNames := make([]string, 0, len(in.ImplementerRunNames))
+	seen := map[string]bool{}
+	for _, name := range in.ImplementerRunNames {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			return maintainerCommandError("implementer_run_names must be non-empty and unique")
+		}
+		seen[name] = true
+		runNames = append(runNames, name)
+	}
+	sort.Strings(runNames)
+	spec := triggersv1alpha1.MaintainerWorkItemCommandSpec{RepositoryRef: item.Spec.RepositoryRef, IdempotencyKey: in.IdempotencyKey, Preconditions: preconditions, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem, Finalize: &triggersv1alpha1.MaintainerFinalizeWorkItemCommand{IssueNumber: in.IssueNumber, AcceptedScopeHash: scopeHash, DeliverySummary: strings.TrimSpace(in.DeliverySummary), DeliveryEvidence: strings.TrimSpace(in.DeliveryEvidence), ImplementerRunNames: runNames}}
+	return t.submitCommand(ctx, repository, current, item, spec)
+}
+
 func (t maintainerToolBase) commandContext(ctx context.Context, in maintainerCommandInput) (*triggersv1alpha1.MaintainerWorkItem, *triggersv1alpha1.GitHubRepository, *platformv1alpha1.AgentRun, triggersv1alpha1.MaintainerWorkItemCommandPreconditions, error) {
 	if in.IssueNumber < 1 || strings.TrimSpace(in.IdempotencyKey) == "" || len(in.IdempotencyKey) > 128 || !maintainerIdempotencyValid.MatchString(in.IdempotencyKey) || in.ExpectedProjectionSequence == nil || *in.ExpectedProjectionSequence < 0 || strings.TrimSpace(in.ExpectedResourceVersion) == "" {
 		return nil, nil, nil, triggersv1alpha1.MaintainerWorkItemCommandPreconditions{}, fmt.Errorf("issue_number, valid idempotency_key, expected_projection_sequence, and expected_resource_version are required")
@@ -160,7 +264,7 @@ func (t maintainerToolBase) commandContext(ctx context.Context, in maintainerCom
 	if err := t.k8sClient.Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: name}, item); err != nil {
 		return nil, nil, nil, triggersv1alpha1.MaintainerWorkItemCommandPreconditions{}, fmt.Errorf("failed to get maintainer work item: %w", err)
 	}
-	return item, repository, current, triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, ProjectionSequence: *in.ExpectedProjectionSequence, ResourceVersion: in.ExpectedResourceVersion}, nil
+	return item, repository, current, triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: *in.ExpectedProjectionSequence, ResourceVersion: in.ExpectedResourceVersion}, nil
 }
 
 func (t maintainerToolBase) workItemRefs(ctx context.Context, repository, namespace string, issues []int32) ([]triggersv1alpha1.MaintainerWorkItemReference, error) {

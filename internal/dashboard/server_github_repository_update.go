@@ -108,6 +108,11 @@ func (s *Server) UpdateGitHubRepository(ctx context.Context, req *platform.Updat
 		priorReviewerDefaults = existing.Spec.ReviewLoop.ReviewerDefaults.DeepCopy()
 	}
 	if req.TriggerSettings != nil {
+		if maintainer != nil && maintainer.WorkItemCutover == "" && existing.Spec.Maintainer != nil {
+			// Older clients omit this optional migration field. Preserve the
+			// operator-selected rollback mode rather than defaulting to Controller.
+			maintainer.WorkItemCutover = existing.Spec.Maintainer.WorkItemCutover
+		}
 		existing.Spec.PollInterval = pollInterval
 		existing.Spec.WebhookSecret = webhookSecret
 		existing.Spec.TriggerKeyword = triggerKeyword

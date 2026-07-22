@@ -79,7 +79,7 @@ func newMaintainerToolBase(t *testing.T, runs ...*platformv1alpha1.AgentRun) (ma
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace, UID: types.UID("repo-uid")}}
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace, UID: types.UID("repo-uid")}, Spec: triggersv1alpha1.GitHubRepositorySpec{Maintainer: &triggersv1alpha1.MaintainerSpec{WorkItemCutover: triggersv1alpha1.MaintainerWorkItemCutoverLegacy}}}
 	objects := make([]client.Object, 0, len(runs)+1)
 	objects = append(objects, repository)
 	for _, run := range runs {

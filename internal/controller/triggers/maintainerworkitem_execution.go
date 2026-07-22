@@ -19,7 +19,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *GitHubRepositoryReconciler) processMaintainerExecutionCommand(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, githubClient GitHubTriageClient, pending bool) error {
+func (r *GitHubRepositoryReconciler) processMaintainerExecutionCommand(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, githubClient GitHubTriageClient, deliveryClient maintainerGitHubDeliveryClient, pending bool) error {
+	switch command.Spec.Type {
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeRequestMerge:
+		return r.processMaintainerRequestMerge(ctx, repository, command, item, deliveryClient, pending)
+	case triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem:
+		return r.processMaintainerFinalizeWorkItem(ctx, repository, command, item, githubClient, deliveryClient, pending)
+	}
 	if pending {
 		if command.Spec.Type == triggersv1alpha1.MaintainerWorkItemCommandTypeBreakdownIssue {
 			if err := r.acquireMaintainerCommandLock(ctx, repository, command.Name); err != nil {
@@ -82,7 +88,7 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 			if equality.Semantic.DeepEqual(fresh.Spec.Children, command.Spec.Breakdown.Children) && equality.Semantic.DeepEqual(fresh.Spec.Dependencies, command.Spec.Breakdown.Dependencies) {
 				return nil
 			}
-			if fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence || fresh.ResourceVersion != command.Spec.Preconditions.ResourceVersion {
+			if fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence {
 				return rejectMaintainerCommand(currentProjectionMessage(fresh))
 			}
 			if err := r.validateBreakdown(ctx, repository, item.Name, command.Spec.Breakdown.Children, command.Spec.Breakdown.Dependencies); err != nil {
@@ -103,7 +109,7 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 				}
 				return false, rejectMaintainerCommand("work item already has a pending decision")
 			}
-			if fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence || fresh.ResourceVersion != command.Spec.Preconditions.ResourceVersion {
+			if fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence {
 				return false, rejectMaintainerCommand(currentProjectionMessage(fresh))
 			}
 			now := metav1.Now()
@@ -135,7 +141,7 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 		if fresh.Status.Readiness == nil || !fresh.Status.Readiness.ReadyToDispatch {
 			return rejectMaintainerCommand("dependencies are not delivered")
 		}
-		if !replay && (fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence || fresh.ResourceVersion != command.Spec.Preconditions.ResourceVersion) {
+		if !replay && fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence {
 			return rejectMaintainerCommand(currentProjectionMessage(fresh))
 		}
 		item = fresh

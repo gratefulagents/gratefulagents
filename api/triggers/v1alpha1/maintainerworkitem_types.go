@@ -349,6 +349,51 @@ type MaintainerDispatchReservation struct {
 	AgentRunRef *corev1.LocalObjectReference `json:"agentRunRef,omitempty"`
 }
 
+// MaintainerVerifiedPullRequestMerge records a controller-verified pull request merge.
+type MaintainerVerifiedPullRequestMerge struct {
+	// +kubebuilder:validation:Pattern=`^[^/[:space:]]+/[^/[:space:]]+$`
+	Repository string `json:"repository"`
+	// +kubebuilder:validation:Minimum=1
+	PullRequestNumber int32 `json:"pullRequestNumber"`
+	// +kubebuilder:validation:MinLength=1
+	HeadSHA    string                      `json:"headSHA"`
+	MergedAt   metav1.Time                 `json:"mergedAt"`
+	CommandRef corev1.LocalObjectReference `json:"commandRef"`
+}
+
+// MaintainerDeliveryAttestation records authenticated semantic delivery evidence and finalization side effects.
+type MaintainerDeliveryAttestation struct {
+	Issuer MaintainerWorkItemCommandIssuer `json:"issuer"`
+	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
+	AcceptedScopeHash string `json:"acceptedScopeHash"`
+	// +kubebuilder:validation:MinLength=1
+	DeliverySummary string `json:"deliverySummary"`
+	// +kubebuilder:validation:MinLength=1
+	DeliveryEvidence string `json:"deliveryEvidence"`
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	RunSuccessRequestedRefs []MaintainerWorkItemReference `json:"runSuccessRequestedRefs,omitempty"`
+	// +optional
+	RunSuccessRequestedAt *metav1.Time `json:"runSuccessRequestedAt,omitempty"`
+	// +optional
+	IssueClosedAt *metav1.Time `json:"issueClosedAt,omitempty"`
+	// +optional
+	CompletedAt        *metav1.Time                `json:"completedAt,omitempty"`
+	FinalizedByCommand corev1.LocalObjectReference `json:"finalizedByCommand"`
+}
+
+// MaintainerWorkItemCommandObservation projects the latest durable command receipt into waiter-v2.
+type MaintainerWorkItemCommandObservation struct {
+	Name    string                         `json:"name"`
+	Type    MaintainerWorkItemCommandType  `json:"type"`
+	Phase   MaintainerWorkItemCommandPhase `json:"phase"`
+	Applied bool                           `json:"applied,omitempty"`
+	// +optional
+	Message    string      `json:"message,omitempty"`
+	ObservedAt metav1.Time `json:"observedAt"`
+}
+
 // MaintainerWorkItemStatus defines the observed issue state and execution progress.
 type MaintainerWorkItemStatus struct {
 	// +optional
@@ -371,6 +416,15 @@ type MaintainerWorkItemStatus struct {
 	// +listMapKey=intentName
 	// +optional
 	PullRequests []MaintainerWorkItemPullRequestProjection `json:"pullRequests,omitempty"`
+	// +listType=map
+	// +listMapKey=repository
+	// +listMapKey=pullRequestNumber
+	// +optional
+	VerifiedMerges []MaintainerVerifiedPullRequestMerge `json:"verifiedMerges,omitempty"`
+	// +optional
+	DeliveryAttestation *MaintainerDeliveryAttestation `json:"deliveryAttestation,omitempty"`
+	// +optional
+	LatestCommand *MaintainerWorkItemCommandObservation `json:"latestCommand,omitempty"`
 	// +optional
 	Readiness *MaintainerWorkItemReadiness `json:"readiness,omitempty"`
 	// +optional
@@ -420,7 +474,7 @@ type MaintainerWorkItemList struct {
 }
 
 // MaintainerWorkItemCommandType identifies the command payload type.
-// +kubebuilder:validation:Enum=TriageIssue;BreakdownIssue;RequestDecision;ResolveDecision;DispatchWorkItem
+// +kubebuilder:validation:Enum=TriageIssue;BreakdownIssue;RequestDecision;ResolveDecision;DispatchWorkItem;RequestMerge;FinalizeWorkItem
 type MaintainerWorkItemCommandType string
 
 const (
@@ -434,6 +488,20 @@ const (
 	MaintainerWorkItemCommandTypeResolveDecision MaintainerWorkItemCommandType = "ResolveDecision"
 	// MaintainerWorkItemCommandTypeDispatchWorkItem reserves capacity and dispatches implementation.
 	MaintainerWorkItemCommandTypeDispatchWorkItem MaintainerWorkItemCommandType = "DispatchWorkItem"
+	// MaintainerWorkItemCommandTypeRequestMerge requests a guarded merge of a ready pull request.
+	MaintainerWorkItemCommandTypeRequestMerge MaintainerWorkItemCommandType = "RequestMerge"
+	// MaintainerWorkItemCommandTypeFinalizeWorkItem requests final delivery side effects.
+	MaintainerWorkItemCommandTypeFinalizeWorkItem MaintainerWorkItemCommandType = "FinalizeWorkItem"
+)
+
+// MaintainerWorkItemMergeMethod identifies the GitHub merge method.
+// +kubebuilder:validation:Enum=squash;merge;rebase
+type MaintainerWorkItemMergeMethod string
+
+const (
+	MaintainerWorkItemMergeMethodSquash MaintainerWorkItemMergeMethod = "squash"
+	MaintainerWorkItemMergeMethodMerge  MaintainerWorkItemMergeMethod = "merge"
+	MaintainerWorkItemMergeMethodRebase MaintainerWorkItemMergeMethod = "rebase"
 )
 
 // MaintainerWorkItemCommandPhase is the command receipt phase.
@@ -467,6 +535,8 @@ type MaintainerWorkItemCommandIssuer struct {
 type MaintainerWorkItemCommandPreconditions struct {
 	// +kubebuilder:validation:MinLength=1
 	WorkItemName string `json:"workItemName"`
+	// WorkItemUID prevents accepted/retryable commands from surviving target recreation.
+	WorkItemUID types.UID `json:"workItemUID"`
 	// +kubebuilder:validation:Minimum=0
 	ProjectionSequence int64 `json:"projectionSequence"`
 	// +kubebuilder:validation:MinLength=1
@@ -544,12 +614,44 @@ type MaintainerDispatchWorkItemCommand struct {
 	RequiredPullRequests []MaintainerRequiredPullRequestIntent `json:"requiredPullRequests,omitempty"`
 }
 
+// MaintainerRequestMergeCommand is the typed payload for a RequestMerge command.
+type MaintainerRequestMergeCommand struct {
+	// +kubebuilder:validation:Minimum=1
+	IssueNumber int32 `json:"issueNumber"`
+	// +kubebuilder:validation:Pattern=`^[^/[:space:]]+/[^/[:space:]]+$`
+	Repository string `json:"repository"`
+	// +kubebuilder:validation:Minimum=1
+	PullRequestNumber int32 `json:"pullRequestNumber"`
+	// +kubebuilder:validation:Pattern=`^[a-f0-9]{40}$`
+	ExpectedHeadSHA string                        `json:"expectedHeadSHA"`
+	MergeMethod     MaintainerWorkItemMergeMethod `json:"mergeMethod"`
+}
+
+// MaintainerFinalizeWorkItemCommand is the typed payload for a FinalizeWorkItem command.
+type MaintainerFinalizeWorkItemCommand struct {
+	// +kubebuilder:validation:Minimum=1
+	IssueNumber int32 `json:"issueNumber"`
+	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
+	AcceptedScopeHash string `json:"acceptedScopeHash"`
+	// +kubebuilder:validation:MinLength=1
+	DeliverySummary string `json:"deliverySummary"`
+	// +kubebuilder:validation:MinLength=1
+	DeliveryEvidence string `json:"deliveryEvidence"`
+	// +listType=set
+	// +kubebuilder:validation:items:MinLength=1
+	// +optional
+	ImplementerRunNames []string `json:"implementerRunNames,omitempty"`
+}
+
 // MaintainerWorkItemCommandSpec defines an immutable, idempotent command request.
+// +kubebuilder:validation:XValidation:rule="self.preconditions.workItemUID.size() > 0",message="workItemUID is required"
 // +kubebuilder:validation:XValidation:rule="(self.type == 'TriageIssue') == has(self.triage)",message="triage is required only when type is TriageIssue"
 // +kubebuilder:validation:XValidation:rule="(self.type == 'BreakdownIssue') == has(self.breakdown)",message="breakdown is required only when type is BreakdownIssue"
 // +kubebuilder:validation:XValidation:rule="(self.type == 'RequestDecision') == has(self.requestDecision)",message="requestDecision is required only when type is RequestDecision"
 // +kubebuilder:validation:XValidation:rule="(self.type == 'ResolveDecision') == has(self.resolveDecision)",message="resolveDecision is required only when type is ResolveDecision"
 // +kubebuilder:validation:XValidation:rule="(self.type == 'DispatchWorkItem') == has(self.dispatch)",message="dispatch is required only when type is DispatchWorkItem"
+// +kubebuilder:validation:XValidation:rule="(self.type == 'RequestMerge') == has(self.requestMerge)",message="requestMerge is required only when type is RequestMerge"
+// +kubebuilder:validation:XValidation:rule="(self.type == 'FinalizeWorkItem') == has(self.finalize)",message="finalize is required only when type is FinalizeWorkItem"
 type MaintainerWorkItemCommandSpec struct {
 	RepositoryRef corev1.LocalObjectReference `json:"repositoryRef"`
 	// +kubebuilder:validation:MinLength=1
@@ -571,6 +673,10 @@ type MaintainerWorkItemCommandSpec struct {
 	ResolveDecision *MaintainerResolveDecisionCommand `json:"resolveDecision,omitempty"`
 	// +optional
 	Dispatch *MaintainerDispatchWorkItemCommand `json:"dispatch,omitempty"`
+	// +optional
+	RequestMerge *MaintainerRequestMergeCommand `json:"requestMerge,omitempty"`
+	// +optional
+	Finalize *MaintainerFinalizeWorkItemCommand `json:"finalize,omitempty"`
 }
 
 // MaintainerWorkItemName returns the deterministic DNS-safe identity for a
@@ -648,6 +754,8 @@ func MaintainerWorkItemCommandSpecPayloadHash(spec MaintainerWorkItemCommandSpec
 		RequestDecision *MaintainerRequestDecisionCommand      `json:"requestDecision"`
 		ResolveDecision *MaintainerResolveDecisionCommand      `json:"resolveDecision"`
 		Dispatch        *MaintainerDispatchWorkItemCommand     `json:"dispatch"`
+		RequestMerge    *MaintainerRequestMergeCommand         `json:"requestMerge"`
+		Finalize        *MaintainerFinalizeWorkItemCommand     `json:"finalize"`
 		Preconditions   MaintainerWorkItemCommandPreconditions `json:"preconditions"`
 	}{
 		Type:            spec.Type,
@@ -656,6 +764,8 @@ func MaintainerWorkItemCommandSpecPayloadHash(spec MaintainerWorkItemCommandSpec
 		RequestDecision: spec.RequestDecision,
 		ResolveDecision: spec.ResolveDecision,
 		Dispatch:        spec.Dispatch,
+		RequestMerge:    spec.RequestMerge,
+		Finalize:        spec.Finalize,
 		Preconditions:   spec.Preconditions,
 	}
 	encoded, _ := json.Marshal(payload) // The typed payload contains no fallible JSON values.
@@ -710,6 +820,14 @@ type MaintainerWorkItemCommandResult struct {
 	DispatchReservation *MaintainerDispatchReservation `json:"dispatchReservation,omitempty"`
 	// +optional
 	AgentRunRef *corev1.LocalObjectReference `json:"agentRunRef,omitempty"`
+	// MergeAttemptedAt is reserved before the irreversible GitHub call. Retries
+	// only verify the expected head and never automatically submit it again.
+	// +optional
+	MergeAttemptedAt *metav1.Time `json:"mergeAttemptedAt,omitempty"`
+	// +optional
+	VerifiedMerge *MaintainerVerifiedPullRequestMerge `json:"verifiedMerge,omitempty"`
+	// +optional
+	DeliveryAttestation *MaintainerDeliveryAttestation `json:"deliveryAttestation,omitempty"`
 	// +optional
 	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
 }

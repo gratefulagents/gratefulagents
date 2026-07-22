@@ -90,7 +90,7 @@ func (e *MaintainerEngine) Reconcile(ctx context.Context, gh *triggersv1alpha1.G
 	}
 
 	modeRef := configuredMaintainerModeRef(gh)
-	if err := e.validateMaintainerMode(ctx, modeRef); err != nil {
+	if err := e.validateMaintainerMode(ctx, gh, modeRef); err != nil {
 		e.recordError(ctx, gh, err)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -136,15 +136,17 @@ func (e *MaintainerEngine) Reconcile(ctx context.Context, gh *triggersv1alpha1.G
 	if err := e.routeReport(ctx, gh, standing); err != nil {
 		return ctrl.Result{}, err
 	}
-	ledger, err := parseMaintainerDispatchLedger(standing.Annotations[triggersv1alpha1.MaintainerDispatchLedgerAnnotation])
-	if err != nil {
-		e.recordError(ctx, gh, err)
-		return ctrl.Result{}, err
+	ledger := maintainerRepositoryDispatchLedger{}
+	if raw := gh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &ledger); err != nil {
+			e.recordError(ctx, gh, err)
+			return ctrl.Result{}, fmt.Errorf("invalid controller dispatch reservation ledger: %w", err)
+		}
 	}
 	if _, err := e.updateStatus(ctx, gh, func(status *triggersv1alpha1.MaintainerStatus) {
 		status.RunName = standing.Name
 		if ledger.Day == e.now().UTC().Format("2006-01-02") {
-			status.DispatchesToday = ledger.Count
+			status.DispatchesToday = int32(ledger.Count)
 		} else {
 			status.DispatchesToday = 0
 		}
@@ -273,13 +275,21 @@ func configuredMaintainerModeRef(gh *triggersv1alpha1.GitHubRepository) *platfor
 	return &platformv1alpha1.ModeRef{Name: defaultMaintainerModeName}
 }
 
-func (e *MaintainerEngine) validateMaintainerMode(ctx context.Context, ref *platformv1alpha1.ModeRef) error {
+func (e *MaintainerEngine) validateMaintainerMode(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, ref *platformv1alpha1.ModeRef) error {
 	if ref == nil || strings.TrimSpace(ref.Name) == "" {
 		return fmt.Errorf("maintainer ModeTemplate reference is required")
 	}
 	mode := &platformv1alpha1.ModeTemplate{}
 	if err := e.Client.Get(ctx, client.ObjectKey{Name: strings.TrimSpace(ref.Name)}, mode); err != nil {
 		return fmt.Errorf("getting maintainer ModeTemplate %q: %w", ref.Name, err)
+	}
+	if effectiveMaintainerCutover(repository) == triggersv1alpha1.MaintainerWorkItemCutoverController {
+		forbidden := map[string]bool{"merge_pull_request": true, "mark_run_succeeded": true, "close_github_issue": true}
+		for _, name := range mode.Spec.AllowedMutatingTools {
+			if forbidden[name] {
+				return fmt.Errorf("maintainer ModeTemplate %q cannot allow %q in Controller cutover", mode.Name, name)
+			}
+		}
 	}
 	return nil
 }

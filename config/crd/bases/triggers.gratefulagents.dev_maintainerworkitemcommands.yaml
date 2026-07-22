@@ -144,6 +144,35 @@ spec:
                 - issueNumber
                 - mode
                 type: object
+              finalize:
+                description: MaintainerFinalizeWorkItemCommand is the typed payload
+                  for a FinalizeWorkItem command.
+                properties:
+                  acceptedScopeHash:
+                    pattern: ^[a-f0-9]{64}$
+                    type: string
+                  deliveryEvidence:
+                    minLength: 1
+                    type: string
+                  deliverySummary:
+                    minLength: 1
+                    type: string
+                  implementerRunNames:
+                    items:
+                      minLength: 1
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                  issueNumber:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - acceptedScopeHash
+                - deliveryEvidence
+                - deliverySummary
+                - issueNumber
+                type: object
               idempotencyKey:
                 maxLength: 128
                 minLength: 1
@@ -189,10 +218,15 @@ spec:
                   workItemName:
                     minLength: 1
                     type: string
+                  workItemUID:
+                    description: WorkItemUID prevents accepted/retryable commands
+                      from surviving target recreation.
+                    type: string
                 required:
                 - projectionSequence
                 - resourceVersion
                 - workItemName
+                - workItemUID
                 type: object
               repositoryRef:
                 description: |-
@@ -233,6 +267,39 @@ spec:
                 - decisionID
                 - issueNumber
                 - question
+                type: object
+              requestMerge:
+                description: MaintainerRequestMergeCommand is the typed payload for
+                  a RequestMerge command.
+                properties:
+                  expectedHeadSHA:
+                    pattern: ^[a-f0-9]{40}$
+                    type: string
+                  issueNumber:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  mergeMethod:
+                    description: MaintainerWorkItemMergeMethod identifies the GitHub
+                      merge method.
+                    enum:
+                    - squash
+                    - merge
+                    - rebase
+                    type: string
+                  pullRequestNumber:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  repository:
+                    pattern: ^[^/[:space:]]+/[^/[:space:]]+$
+                    type: string
+                required:
+                - expectedHeadSHA
+                - issueNumber
+                - mergeMethod
+                - pullRequestNumber
+                - repository
                 type: object
               resolveDecision:
                 description: MaintainerResolveDecisionCommand is the typed payload
@@ -326,6 +393,8 @@ spec:
                 - RequestDecision
                 - ResolveDecision
                 - DispatchWorkItem
+                - RequestMerge
+                - FinalizeWorkItem
                 type: string
             required:
             - idempotencyKey
@@ -336,6 +405,8 @@ spec:
             - type
             type: object
             x-kubernetes-validations:
+            - message: workItemUID is required
+              rule: self.preconditions.workItemUID.size() > 0
             - message: triage is required only when type is TriageIssue
               rule: (self.type == 'TriageIssue') == has(self.triage)
             - message: breakdown is required only when type is BreakdownIssue
@@ -346,6 +417,10 @@ spec:
               rule: (self.type == 'ResolveDecision') == has(self.resolveDecision)
             - message: dispatch is required only when type is DispatchWorkItem
               rule: (self.type == 'DispatchWorkItem') == has(self.dispatch)
+            - message: requestMerge is required only when type is RequestMerge
+              rule: (self.type == 'RequestMerge') == has(self.requestMerge)
+            - message: finalize is required only when type is FinalizeWorkItem
+              rule: (self.type == 'FinalizeWorkItem') == has(self.finalize)
           status:
             description: MaintainerWorkItemCommandStatus defines the durable receipt
               for a command.
@@ -470,6 +545,95 @@ spec:
                   completedAt:
                     format: date-time
                     type: string
+                  deliveryAttestation:
+                    description: MaintainerDeliveryAttestation records authenticated
+                      semantic delivery evidence and finalization side effects.
+                    properties:
+                      acceptedScopeHash:
+                        pattern: ^[a-f0-9]{64}$
+                        type: string
+                      completedAt:
+                        format: date-time
+                        type: string
+                      deliveryEvidence:
+                        minLength: 1
+                        type: string
+                      deliverySummary:
+                        minLength: 1
+                        type: string
+                      finalizedByCommand:
+                        description: |-
+                          LocalObjectReference contains enough information to let you locate the
+                          referenced object inside the same namespace.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      issueClosedAt:
+                        format: date-time
+                        type: string
+                      issuer:
+                        description: MaintainerWorkItemCommandIssuer identifies the
+                          run that issued a command.
+                        properties:
+                          proof:
+                            description: Proof is an HMAC from the issuer run's private
+                              command capability.
+                            pattern: ^[a-f0-9]{64}$
+                            type: string
+                          runName:
+                            minLength: 1
+                            type: string
+                          uid:
+                            description: |-
+                              UID is a type that holds unique ID values, including UUIDs.  Because we
+                              don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                              intent and helps make sure that UIDs and names do not get conflated.
+                            type: string
+                        required:
+                        - proof
+                        - runName
+                        - uid
+                        type: object
+                      runSuccessRequestedAt:
+                        format: date-time
+                        type: string
+                      runSuccessRequestedRefs:
+                        items:
+                          description: MaintainerWorkItemReference identifies a work
+                            item in the same namespace.
+                          properties:
+                            name:
+                              minLength: 1
+                              type: string
+                            uid:
+                              description: |-
+                                UID is a type that holds unique ID values, including UUIDs.  Because we
+                                don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                                intent and helps make sure that UIDs and names do not get conflated.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                    required:
+                    - acceptedScopeHash
+                    - deliveryEvidence
+                    - deliverySummary
+                    - finalizedByCommand
+                    - issuer
+                    type: object
                   dispatchReservation:
                     description: MaintainerDispatchReservation records capacity reserved
                       before dispatch side effects.
@@ -527,8 +691,54 @@ spec:
                     - open
                     - closed
                     type: string
+                  mergeAttemptedAt:
+                    description: |-
+                      MergeAttemptedAt is reserved before the irreversible GitHub call. Retries
+                      only verify the expected head and never automatically submit it again.
+                    format: date-time
+                    type: string
                   message:
                     type: string
+                  verifiedMerge:
+                    description: MaintainerVerifiedPullRequestMerge records a controller-verified
+                      pull request merge.
+                    properties:
+                      commandRef:
+                        description: |-
+                          LocalObjectReference contains enough information to let you locate the
+                          referenced object inside the same namespace.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      headSHA:
+                        minLength: 1
+                        type: string
+                      mergedAt:
+                        format: date-time
+                        type: string
+                      pullRequestNumber:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      repository:
+                        pattern: ^[^/[:space:]]+/[^/[:space:]]+$
+                        type: string
+                    required:
+                    - commandRef
+                    - headSHA
+                    - mergedAt
+                    - pullRequestNumber
+                    - repository
+                    type: object
                   workItemRef:
                     description: |-
                       LocalObjectReference contains enough information to let you locate the

@@ -16,6 +16,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	maintainerLegacyDispatchToolName = "dispatch_issue"
+	maintainerLegacyMergeToolName    = "merge_pull_request"
+	maintainerLegacyRunToolName      = "mark_run_succeeded"
+	maintainerLegacyCloseToolName    = "close_github_issue"
+)
+
+// MaintainerLegacyMutationToolNames returns the live-cutover-controlled tool
+// candidates retained for rollback without restarting the standing run.
+func MaintainerLegacyMutationToolNames() []string {
+	return []string{maintainerLegacyDispatchToolName, maintainerLegacyMergeToolName, maintainerLegacyRunToolName, maintainerLegacyCloseToolName}
+}
+
 func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8sClient client.Client, currentRunName, currentRunNamespace, repositoryName, repositoryNamespace string) {
 	if registry == nil || stateStore == nil || k8sClient == nil || strings.TrimSpace(currentRunName) == "" || strings.TrimSpace(currentRunNamespace) == "" || strings.TrimSpace(repositoryName) == "" || strings.TrimSpace(repositoryNamespace) == "" {
 		return
@@ -25,6 +38,9 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 		currentRunName: currentRunName, currentRunNamespace: currentRunNamespace,
 		repositoryName: repositoryName, repositoryNamespace: repositoryNamespace,
 	}
+	if closeTool := registry.Get(maintainerLegacyCloseToolName); closeTool != nil {
+		registry.Register(&maintainerCutoverGuardedTool{Tool: closeTool, base: base})
+	}
 	registry.Register(&getFleetRunsTool{maintainerToolBase: base})
 	registry.Register(&getFleetRunActivityTool{maintainerToolBase: base})
 	registry.Register(&waitForRunsTool{maintainerToolBase: base, pollInterval: 10 * time.Second})
@@ -33,6 +49,8 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&breakdownIssueTool{maintainerToolBase: base})
 	registry.Register(&requestDecisionTool{maintainerToolBase: base})
 	registry.Register(&dispatchWorkItemTool{maintainerToolBase: base})
+	registry.Register(&requestMergeTool{maintainerToolBase: base})
+	registry.Register(&finalizeWorkItemTool{maintainerToolBase: base})
 	registry.Register(&dispatchIssueTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&mergePullRequestTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&wakeAgentRunTool{maintainerToolBase: base})
@@ -43,6 +61,18 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&submitMaintainerReportTool{maintainerToolBase: base})
 	registry.Register(&extendRunTimeoutTool{maintainerToolBase: base})
 	registry.Register(&markRunSucceededTool{maintainerToolBase: base})
+}
+
+type maintainerCutoverGuardedTool struct {
+	Tool
+	base maintainerToolBase
+}
+
+func (t *maintainerCutoverGuardedTool) Execute(ctx context.Context, input json.RawMessage, workDir string) (Result, error) {
+	if err := t.base.requireLegacyMutationAuthority(ctx); err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	return t.Tool.Execute(ctx, input, workDir)
 }
 
 type fleetRunOutput struct {
@@ -88,8 +118,7 @@ func (t *getFleetRunsTool) NeedsApproval() bool                   { return false
 func (t *getFleetRunsTool) TimeoutSeconds() int                   { return 0 }
 
 func (t *getFleetRunsTool) Execute(ctx context.Context, _ json.RawMessage, _ string) (Result, error) {
-	current, err := t.currentRun(ctx)
-	if err != nil {
+	if _, err := t.currentRun(ctx); err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
 	repository, err := t.repository(ctx)
@@ -110,14 +139,17 @@ func (t *getFleetRunsTool) Execute(ctx context.Context, _ json.RawMessage, _ str
 		out.Runs = append(out.Runs, entry)
 	}
 	maxConcurrent, maxDaily := maintainerDispatchCaps(repository)
-	ledger := parseMaintainerLedger(current, time.Now())
+	dispatchesToday := 0
+	if repository.Status.Maintainer != nil {
+		dispatchesToday = int(repository.Status.Maintainer.DispatchesToday)
+	}
 	for i := range fleet {
 		if !maintainerIsReviewer(&fleet[i]) && !maintainerTerminal(fleet[i].Status.Phase) {
 			out.Caps.ActiveDispatches++
 		}
 	}
 	out.Caps.MaxConcurrentDispatches = maxConcurrent
-	out.Caps.LedgerDispatches = ledger.Count
+	out.Caps.LedgerDispatches = dispatchesToday
 	out.Caps.MaxDispatchesPerDay = maxDaily
 	encoded, err := json.Marshal(out)
 	if err != nil {

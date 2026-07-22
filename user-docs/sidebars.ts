@@ -43,6 +43,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'integrations/connection-secrets',
         'integrations/github',
+        'integrations/maintainer-work-item-cutover',
         'integrations/linear',
         'integrations/slack',
       ],

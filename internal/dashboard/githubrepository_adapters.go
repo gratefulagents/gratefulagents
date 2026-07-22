@@ -114,6 +114,11 @@ func crdGitHubTriggerSettingsToProto(spec triggersv1alpha1.GitHubRepositorySpec)
 		settings.MaintainerMaxDispatchesPerDay = spec.Maintainer.MaxDispatchesPerDay
 		settings.MaintainerModel = spec.Maintainer.Model
 		settings.MaintainerAllowPrMerge = spec.Maintainer.AllowPullRequestMerge
+		cutover := spec.Maintainer.WorkItemCutover
+		if cutover == "" {
+			cutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+		}
+		settings.MaintainerWorkItemCutover = new(string(cutover))
 		if spec.Maintainer.StandupInterval != nil {
 			settings.MaintainerStandupInterval = spec.Maintainer.StandupInterval.Duration.String()
 		}
@@ -188,6 +193,18 @@ func protoGitHubTriggerSettingsToCRD(pb *platform.GitHubRepositoryTriggerSetting
 			MaxConcurrentDispatches: pb.GetMaintainerMaxConcurrentDispatches(),
 			MaxDispatchesPerDay:     pb.GetMaintainerMaxDispatchesPerDay(),
 			AllowPullRequestMerge:   pb.GetMaintainerAllowPrMerge(),
+		}
+		if pb.MaintainerWorkItemCutover != nil {
+			cutover := triggersv1alpha1.MaintainerWorkItemCutoverMode(trim(pb.GetMaintainerWorkItemCutover()))
+			if cutover == "" {
+				cutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+			}
+			switch cutover {
+			case triggersv1alpha1.MaintainerWorkItemCutoverController, triggersv1alpha1.MaintainerWorkItemCutoverDualRead, triggersv1alpha1.MaintainerWorkItemCutoverLegacy:
+				maintainer.WorkItemCutover = cutover
+			default:
+				return metav1.Duration{}, "", "", false, nil, nil, nil, fmt.Errorf("invalid maintainer_work_item_cutover %q", cutover)
+			}
 		}
 		if modeRef := trim(pb.GetMaintainerModeRef()); modeRef != "" {
 			maintainer.ModeRef = &platformv1alpha1.ModeRef{Name: modeRef}

@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -248,6 +249,34 @@ func TestFailedMaintainerCommandCannotApplyAfterNewerTriage(t *testing.T) {
 	}
 }
 
+func TestRetryableMaintainerCommandRejectsRecreatedWorkItemUID(t *testing.T) {
+	t.Parallel()
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	original := testMaintainerWorkItem(repository, 14)
+	issuer := testMaintainerIssuer(repository)
+	command := testMaintainerCommand(repository, original, "uid-bound", issuer.UID)
+	command.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseFailed
+	recreated := original.DeepCopy()
+	recreated.UID = types.UID("replacement-uid")
+	githubClient := &fakeMaintainerGitHub{issue: &github.Issue{State: new("open")}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).WithObjects(repository, recreated, issuer, testMaintainerCapability(repository, issuer), command).Build()
+	reconciler := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+	if err := reconciler.reconcileMaintainerWorkItemCommands(context.Background(), repository, githubClient); err != nil {
+		t.Fatalf("reconcile commands: %v", err)
+	}
+	receipt := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(command), receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected || receipt.Status.Result == nil || !strings.Contains(receipt.Status.Result.Message, "UID") {
+		t.Fatalf("command receipt = %#v result=%#v", receipt.Status, receipt.Status.Result)
+	}
+	if githubClient.created != 0 || githubClient.editedIssue != 0 {
+		t.Fatal("UID-mismatched command performed GitHub effects")
+	}
+}
+
 func TestMaintainerCommandRejectsStaleProjection(t *testing.T) {
 	t.Parallel()
 
@@ -255,7 +284,6 @@ func TestMaintainerCommandRejectsStaleProjection(t *testing.T) {
 	repository := testMaintainerRepository()
 	item := testMaintainerWorkItem(repository, 9)
 	item.Status.ProjectionSequence = 2
-	item.ResourceVersion = "stale"
 	issuer := testMaintainerIssuer(repository)
 	command := testMaintainerCommand(repository, item, "command", issuer.UID)
 	command.Spec.Preconditions.ProjectionSequence = 1
@@ -286,7 +314,7 @@ func TestAgentRunResolveDecisionCannotClearPendingDecision(t *testing.T) {
 	item.Status.PendingDecision = &triggersv1alpha1.MaintainerPendingDecision{ID: "policy", Question: "Proceed?", RequestedAt: metav1.Now()}
 	item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseAwaitingDecision
 	issuer := testMaintainerIssuer(repository)
-	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion}
+	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion}
 	command := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: MaintainerWorkItemCommandName(repository.Name, "answer-1"), Namespace: repository.Namespace, OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(repository, triggersv1alpha1.GroupVersion.WithKind(gitHubRepositoryTriggerKind))}}, Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IdempotencyKey: "answer-1", Preconditions: preconditions, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision, ResolveDecision: &triggersv1alpha1.MaintainerResolveDecisionCommand{IssueNumber: 11, DecisionID: "policy", HumanAnswer: triggersv1alpha1.MaintainerAuthenticatedHumanAnswer{Subject: "user:42", Answer: "proceed"}}}}
 	command.Spec.PayloadHash = triggersv1alpha1.MaintainerWorkItemCommandSpecPayloadHash(command.Spec)
 	command.Spec.Issuer = triggersv1alpha1.MaintainerWorkItemCommandIssuer{RunName: issuer.Name, UID: issuer.UID, Proof: triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, issuer.Name, issuer.UID)}
@@ -355,7 +383,7 @@ func testMaintainerIssue(number int) *github.Issue {
 }
 
 func testMaintainerWorkItem(repository *triggersv1alpha1.GitHubRepository, issue int32) *triggersv1alpha1.MaintainerWorkItem {
-	return &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: MaintainerWorkItemName(repository.Name, issue), Namespace: repository.Namespace}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IssueNumber: issue}, Status: triggersv1alpha1.MaintainerWorkItemStatus{
+	return &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: MaintainerWorkItemName(repository.Name, issue), Namespace: repository.Namespace, UID: types.UID(fmt.Sprintf("item-%d", issue))}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IssueNumber: issue}, Status: triggersv1alpha1.MaintainerWorkItemStatus{
 		ProjectionSequence: 1,
 		IssueObservation:   &triggersv1alpha1.MaintainerIssueObservation{Number: issue, State: triggersv1alpha1.MaintainerIssueStateOpen},
 		Conditions:         []metav1.Condition{{Type: triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh, Status: metav1.ConditionTrue}},
@@ -405,7 +433,7 @@ func testMaintainerCapability(repository *triggersv1alpha1.GitHubRepository, iss
 
 func testMaintainerCommand(repository *triggersv1alpha1.GitHubRepository, item *triggersv1alpha1.MaintainerWorkItem, idempotencyKey string, issuerUID types.UID) *triggersv1alpha1.MaintainerWorkItemCommand {
 	triage := &triggersv1alpha1.MaintainerTriageCommand{IssueNumber: item.Spec.IssueNumber, Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded, EvidenceSummary: "evidence", AcceptedScope: triggersv1alpha1.MaintainerAcceptedScope{Statement: "scope"}}
-	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion}
+	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion}
 	payloadHash := MaintainerWorkItemCommandPayloadHash(triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue, triage, preconditions)
 	proof := triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, idempotencyKey, payloadHash, defaultMaintainerModeName, issuerUID)
 	controller := true

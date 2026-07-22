@@ -61,6 +61,8 @@ The Project's **PR review loop** setting controls autonomous reviewer runs for p
 
 GitHub App installations used for this monitoring must grant read access to **Checks** and **Commit statuses**, in addition to Metadata, Issues, and Pull requests. Existing App installations may need their permissions accepted again before private-repository CI facts can become fresh.
 
+Controller-guarded maintainer merges additionally require **Administration: read** so branch-protection requirements can be verified, plus repository merge permission through **Contents: write** (and **Pull requests: write** for PR operations). The App must not have repository `admin` permission and must not be placed on a ruleset bypass list; guarded merge fails closed when server-enforced reviews/checks or non-bypass merge authority cannot be proven.
+
 The Project Entry-point UI does not expose repository-maintainer configuration. This page documents only GitHub behavior that is available from Projects and runs.
 
 ## Status and lifecycle

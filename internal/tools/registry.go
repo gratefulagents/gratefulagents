@@ -29,16 +29,17 @@ type ToolDef struct {
 
 // Registry holds all available tools.
 type Registry struct {
-	tools               map[string]Tool
-	permissionMode      policy.PermissionMode
-	signals             bool
-	allowMutating       map[string]struct{}
-	gitRemoteWrites     policy.GitRemoteWrites
-	browser             bool
-	interactiveTerminal bool
-	vision              bool
-	visionAnalyze       sdkvision.AnalyzeFn
-	closers             []io.Closer
+	tools                map[string]Tool
+	permissionMode       policy.PermissionMode
+	signals              bool
+	allowMutating        map[string]struct{}
+	contextualCandidates map[string]struct{}
+	gitRemoteWrites      policy.GitRemoteWrites
+	browser              bool
+	interactiveTerminal  bool
+	vision               bool
+	visionAnalyze        sdkvision.AnalyzeFn
+	closers              []io.Closer
 }
 
 // RegistryOption configures the registry.
@@ -98,6 +99,22 @@ func WithAllowedMutatingTools(names ...string) RegistryOption {
 				continue
 			}
 			r.allowMutating[name] = struct{}{}
+		}
+	}
+}
+
+// WithContextualMutatingToolCandidates retains a narrow set of mutating tool
+// candidates in read-only registries. Callers must apply live per-run policy
+// and each candidate must enforce contextual authorization during Execute.
+func WithContextualMutatingToolCandidates(names ...string) RegistryOption {
+	return func(r *Registry) {
+		if r.contextualCandidates == nil {
+			r.contextualCandidates = make(map[string]struct{}, len(names))
+		}
+		for _, name := range names {
+			if name != "" {
+				r.contextualCandidates[name] = struct{}{}
+			}
 		}
 	}
 }
@@ -185,11 +202,22 @@ func (r *Registry) Register(t Tool) {
 	// Control-flow tools are always registered regardless of permission mode.
 	// They are needed for phase transitions, finishing, mode switching, etc.
 	if !t.IsReadOnly() && !isRegistryControlFlowTool(t.Name()) && !r.permissionMode.AllowsWriteTools() {
-		if _, ok := r.allowMutating[t.Name()]; !ok {
+		_, allowed := r.allowMutating[t.Name()]
+		_, contextualCandidate := r.contextualCandidates[t.Name()]
+		if !allowed && !contextualCandidate {
 			return
 		}
 	}
 	r.tools[t.Name()] = t
+}
+
+// Remove unregisters a tool after contextual authorization has narrowed the
+// effective mode (for example, controller-cutover maintainer delivery).
+func (r *Registry) Remove(name string) {
+	if r == nil {
+		return
+	}
+	delete(r.tools, name)
 }
 
 // isRegistryControlFlowTool returns true for tools that must always be

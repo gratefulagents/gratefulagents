@@ -124,6 +124,9 @@ func (t *markRunSucceededTool) NeedsApproval() bool                   { return f
 func (t *markRunSucceededTool) TimeoutSeconds() int                   { return 0 }
 
 func (t *markRunSucceededTool) Execute(ctx context.Context, input json.RawMessage, _ string) (Result, error) {
+	if err := t.requireLegacyMutationAuthority(ctx); err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
 	var in markRunSucceededInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil

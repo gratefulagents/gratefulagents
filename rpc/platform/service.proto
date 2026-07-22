@@ -2645,6 +2645,9 @@ message GitHubRepositoryTriggerSettings {
   string maintainer_model = 17; // Empty inherits the repository defaults' model.
   // Dangerous: allows the maintainer to merge approved, non-draft PRs.
   bool maintainer_allow_pr_merge = 18;
+  // Rollbackable waiter/delivery migration mode: Controller, DualRead, or Legacy.
+  // Omission preserves the current mode on update for older clients.
+  optional string maintainer_work_item_cutover = 19;
 }
 
 // GitHubRepositoryMaintainerStatus mirrors GitHubRepositoryStatus.maintainer.

@@ -15,13 +15,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const maintainerTestDispatchWorkTool = "dispatch_work_item"
+
 func TestRegisterMaintainerToolsRegistersTypedWorkItemCommands(t *testing.T) {
 	t.Parallel()
 
 	base, _, stateStore := newMaintainerToolBase(t, maintainerRun())
 	registry := NewRegistry(t.TempDir())
 	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
-	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item"} {
+	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", maintainerTestDispatchWorkTool, requestMergeToolName, finalizeWorkItemToolName} {
 		tool := registry.Get(name)
 		if tool == nil || tool.IsReadOnly() {
 			t.Fatalf("%s = %#v", name, tool)
@@ -29,6 +31,61 @@ func TestRegisterMaintainerToolsRegistersTypedWorkItemCommands(t *testing.T) {
 	}
 	if registry.Get("answer_decision") != nil {
 		t.Fatal("agent runtime must not expose a decision-answer command")
+	}
+}
+
+func TestMaintainerLegacyToolCandidatesFollowLiveCutover(t *testing.T) {
+	base, k8sClient, stateStore := newMaintainerToolBase(t, maintainerRun())
+	repository := &triggersv1alpha1.GitHubRepository{}
+	key := client.ObjectKey{Name: base.repositoryName, Namespace: base.repositoryNamespace}
+	if err := k8sClient.Get(context.Background(), key, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.WorkItemCutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry(t.TempDir(), WithReadOnlyTools(), WithAllowedMutatingTools(requestMergeToolName, finalizeWorkItemToolName, maintainerTestDispatchWorkTool), WithContextualMutatingToolCandidates(MaintainerLegacyMutationToolNames()...))
+	RegisterGitHubIssueManagementTools(registry, t.TempDir())
+	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
+	for _, name := range MaintainerLegacyMutationToolNames() {
+		tool := registry.Get(name)
+		if tool == nil {
+			t.Fatalf("legacy candidate %s was not retained", name)
+		}
+		result, err := tool.Execute(context.Background(), json.RawMessage(`{}`), t.TempDir())
+		if err != nil || !result.IsError || !strings.Contains(result.Content, "denied in Controller") {
+			t.Fatalf("Controller invocation %s = %#v, err=%v", name, result, err)
+		}
+	}
+
+	for _, cutover := range []triggersv1alpha1.MaintainerWorkItemCutoverMode{triggersv1alpha1.MaintainerWorkItemCutoverLegacy, triggersv1alpha1.MaintainerWorkItemCutoverDualRead} {
+		if err := k8sClient.Get(context.Background(), key, repository); err != nil {
+			t.Fatal(err)
+		}
+		repository.Spec.Maintainer.WorkItemCutover = cutover
+		if err := k8sClient.Update(context.Background(), repository); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range MaintainerLegacyMutationToolNames() {
+			result, err := registry.Get(name).Execute(context.Background(), json.RawMessage(`{}`), t.TempDir())
+			if err != nil || strings.Contains(result.Content, "denied in Controller") {
+				t.Fatalf("%s rollback invocation %s remained cutover-denied: %#v, err=%v", cutover, name, result, err)
+			}
+		}
+	}
+	if err := k8sClient.Get(context.Background(), key, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.WorkItemCutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range MaintainerLegacyMutationToolNames() {
+		result, err := registry.Get(name).Execute(context.Background(), json.RawMessage(`{}`), t.TempDir())
+		if err != nil || !result.IsError || !strings.Contains(result.Content, "denied in Controller") {
+			t.Fatalf("Controller re-entry invocation %s = %#v, err=%v", name, result, err)
+		}
 	}
 }
 

@@ -438,6 +438,7 @@ func TestUpdateGitHubRepositoryReplacesTriggerSettings(t *testing.T) {
 			MaintainerModeRef:                 "repository-maintainer",
 			MaintainerModel:                   "claude-opus-4-6",
 			MaintainerAllowPrMerge:            true,
+			MaintainerWorkItemCutover:         new("Legacy"),
 		},
 	})
 	if err != nil {
@@ -478,7 +479,8 @@ func TestUpdateGitHubRepositoryReplacesTriggerSettings(t *testing.T) {
 		gh.Spec.Maintainer.MaxConcurrentDispatches != 4 || gh.Spec.Maintainer.MaxDispatchesPerDay != 12 ||
 		gh.Spec.Maintainer.StandupInterval == nil || gh.Spec.Maintainer.StandupInterval.Duration.String() != "6h0m0s" ||
 		gh.Spec.Maintainer.ModeRef == nil || gh.Spec.Maintainer.ModeRef.Name != "repository-maintainer" ||
-		gh.Spec.Maintainer.Model != "claude-opus-4-6" || !gh.Spec.Maintainer.AllowPullRequestMerge {
+		gh.Spec.Maintainer.Model != "claude-opus-4-6" || !gh.Spec.Maintainer.AllowPullRequestMerge ||
+		gh.Spec.Maintainer.WorkItemCutover != triggersv1alpha1.MaintainerWorkItemCutoverLegacy {
 		t.Fatalf("Maintainer = %+v", gh.Spec.Maintainer)
 	}
 	if resp.ReviewerDefaults == nil || resp.ReviewerDefaults.Model != "claude-sonnet-4-6" {
@@ -487,8 +489,39 @@ func TestUpdateGitHubRepositoryReplacesTriggerSettings(t *testing.T) {
 	if resp.TriggerSettings == nil || !resp.TriggerSettings.GetMaintainerEnabled() ||
 		resp.TriggerSettings.MaintainerMaxConcurrentDispatches != 4 || resp.TriggerSettings.MaintainerMaxDispatchesPerDay != 12 ||
 		resp.TriggerSettings.MaintainerStandupInterval != "6h0m0s" || resp.TriggerSettings.MaintainerModeRef != "repository-maintainer" ||
-		resp.TriggerSettings.MaintainerModel != "claude-opus-4-6" || !resp.TriggerSettings.MaintainerAllowPrMerge {
+		resp.TriggerSettings.MaintainerModel != "claude-opus-4-6" || !resp.TriggerSettings.MaintainerAllowPrMerge ||
+		resp.TriggerSettings.GetMaintainerWorkItemCutover() != string(triggersv1alpha1.MaintainerWorkItemCutoverLegacy) {
 		t.Fatalf("response maintainer settings = %+v", resp.TriggerSettings)
+	}
+}
+
+func TestUpdateGitHubRepositoryPreservesMaintainerCutoverWhenClientOmitsField(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.GitHubRepository{
+		ObjectMeta: metav1.ObjectMeta{Name: "acme-payments", Namespace: ns},
+		Spec: triggersv1alpha1.GitHubRepositorySpec{
+			Owner: "acme", Repo: "payments", GitHubTokenSecret: "trigger-token",
+			Defaults:   triggersv1alpha1.AgentRunDefaults{RepoURL: "https://github.com/acme/payments.git", Provider: triggersv1alpha1.ProviderAnthropic, Secrets: triggersv1alpha1.AgentRunSecrets{GithubToken: "trigger-token", ProviderKeys: []platformv1alpha1.ProviderKeyRef{{Provider: "anthropic", SecretName: "anthropic-key", SecretKey: "api-key"}}}},
+			Maintainer: &triggersv1alpha1.MaintainerSpec{WorkItemCutover: triggersv1alpha1.MaintainerWorkItemCutoverDualRead},
+		},
+	}
+	srv, c := newCronTestServer(t, existing)
+	enabled := true
+	_, err := srv.UpdateGitHubRepository(projectActorCtx(), &platform.UpdateGitHubRepositoryRequest{
+		Namespace:       ns,
+		Name:            existing.Name,
+		Defaults:        &platform.AgentRunDefaults{Provider: "anthropic", AuthMode: "api-key", Model: "claude-sonnet-4-6", ProviderKeys: []*platform.ProviderKeyRef{{Provider: "anthropic", SecretName: "anthropic-key", SecretKey: "api-key"}}},
+		TriggerSettings: &platform.GitHubRepositoryTriggerSettings{MaintainerEnabled: &enabled, MaintainerModel: "claude-opus-4-6"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateGitHubRepository() error = %v", err)
+	}
+	updated := &triggersv1alpha1.GitHubRepository{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(existing), updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Spec.Maintainer == nil || updated.Spec.Maintainer.WorkItemCutover != triggersv1alpha1.MaintainerWorkItemCutoverDualRead {
+		t.Fatalf("maintainer cutover = %+v, want preserved DualRead", updated.Spec.Maintainer)
 	}
 }
 

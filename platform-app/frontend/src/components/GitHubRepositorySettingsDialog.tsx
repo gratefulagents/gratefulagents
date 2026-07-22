@@ -15,6 +15,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   FlowField,
   FlowSwitchRow,
   OptionRow,
@@ -116,6 +123,7 @@ function normalizeTriggerSettings(settings: GitHubRepositoryTriggerSettings): Gi
     maintainerModeRef: settings.maintainerModeRef.trim(),
     maintainerModel: settings.maintainerModel.trim(),
     maintainerAllowPrMerge: settings.maintainerAllowPrMerge,
+    maintainerWorkItemCutover: settings.maintainerWorkItemCutover || "Controller",
   });
 }
 
@@ -168,7 +176,8 @@ function maintainerSummary(settings: GitHubRepositoryTriggerSettings): string {
     ? settings.maintainerMaxConcurrentDispatches
     : 2;
   const interval = settings.maintainerStandupInterval.trim() || "12h";
-  return `${cap} concurrent · every ${interval}`;
+  const cutover = settings.maintainerWorkItemCutover || "Controller";
+  return `${cap} concurrent · every ${interval} · ${cutover}`;
 }
 
 function maintainerModified(settings: GitHubRepositoryTriggerSettings): boolean {
@@ -179,7 +188,8 @@ function maintainerModified(settings: GitHubRepositoryTriggerSettings): boolean 
       settings.maintainerStandupInterval.trim() ||
       settings.maintainerModeRef.trim() ||
       settings.maintainerModel.trim() ||
-      settings.maintainerAllowPrMerge,
+      settings.maintainerAllowPrMerge ||
+      (settings.maintainerWorkItemCutover && settings.maintainerWorkItemCutover !== "Controller"),
   );
 }
 
@@ -605,6 +615,32 @@ export function GitHubRepositorySettingsDialog({
                           />
                         </FlowField>
                       </div>
+                    </div>
+                    <div className="space-y-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                        Delivery migration
+                      </p>
+                      <FlowField
+                        id="github-settings-maintainer-cutover"
+                        label="Work-item cutover"
+                        hint="Controller is authoritative. Use DualRead to verify parity before cutover, or Legacy for rollback."
+                      >
+                        <Select
+                          value={triggerSettings.maintainerWorkItemCutover || "Controller"}
+                          onValueChange={(value) =>
+                            updateTriggerSettings({ maintainerWorkItemCutover: value ?? "Controller" })
+                          }
+                        >
+                          <SelectTrigger id="github-settings-maintainer-cutover" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Controller">Controller</SelectItem>
+                            <SelectItem value="DualRead">DualRead</SelectItem>
+                            <SelectItem value="Legacy">Legacy</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FlowField>
                     </div>
                     <div className="space-y-3">
                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">

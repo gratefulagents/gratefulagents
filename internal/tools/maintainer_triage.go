@@ -102,6 +102,7 @@ func (t *triageIssueTool) Execute(ctx context.Context, input json.RawMessage, _ 
 	}
 	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{
 		WorkItemName:       workItem.Name,
+		WorkItemUID:        workItem.UID,
 		ProjectionSequence: *in.ExpectedProjectionSequence,
 		ResourceVersion:    in.ExpectedResourceVersion,
 	}
