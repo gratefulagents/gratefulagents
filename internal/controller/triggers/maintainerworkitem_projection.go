@@ -215,20 +215,21 @@ func maintainerPRProjection(monitor *triggersv1alpha1.PullRequestMonitor) trigge
 	default:
 		p.State = triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen
 	}
-	if monitor.Status.Mergeability == triggersv1alpha1.PullRequestMergeabilityMergeable {
+	switch monitor.Status.Mergeability {
+	case triggersv1alpha1.PullRequestMergeabilityMergeable:
 		value := true
 		p.Mergeable = &value
-	} else if monitor.Status.Mergeability == triggersv1alpha1.PullRequestMergeabilityConflicting {
+	case triggersv1alpha1.PullRequestMergeabilityConflicting:
 		value := false
 		p.Mergeable = &value
 	}
 	if monitor.Status.Checks.HeadSHA != monitor.Status.HeadSHA || monitor.Status.Statuses.HeadSHA != monitor.Status.HeadSHA {
 		p.CheckState = triggersv1alpha1.MaintainerWorkItemCheckStateUnknown
-	} else if monitor.Status.Checks.Error != "" || monitor.Status.Statuses.Error != "" || monitor.Status.Checks.State == "failure" || monitor.Status.Statuses.State == "failure" {
+	} else if monitor.Status.Checks.Error != "" || monitor.Status.Statuses.Error != "" || monitor.Status.Checks.State == gitHubRollupFailure || monitor.Status.Statuses.State == gitHubRollupFailure {
 		p.CheckState = triggersv1alpha1.MaintainerWorkItemCheckStateFailing
-	} else if monitor.Status.Checks.State == "pending" || monitor.Status.Statuses.State == "pending" {
+	} else if monitor.Status.Checks.State == gitHubRollupPending || monitor.Status.Statuses.State == gitHubRollupPending {
 		p.CheckState = triggersv1alpha1.MaintainerWorkItemCheckStatePending
-	} else if (monitor.Status.Checks.State == "success" || monitor.Status.Checks.State == "none") && (monitor.Status.Statuses.State == "success" || monitor.Status.Statuses.State == "none") && monitor.Status.Checks.Count+monitor.Status.Statuses.Count > 0 {
+	} else if (monitor.Status.Checks.State == gitHubRollupSuccess || monitor.Status.Checks.State == gitHubRollupNone) && (monitor.Status.Statuses.State == gitHubRollupSuccess || monitor.Status.Statuses.State == gitHubRollupNone) && monitor.Status.Checks.Count+monitor.Status.Statuses.Count > 0 {
 		p.CheckState = triggersv1alpha1.MaintainerWorkItemCheckStatePassing
 	} else {
 		p.CheckState = triggersv1alpha1.MaintainerWorkItemCheckStateUnknown
@@ -243,6 +244,7 @@ func timePtr(value metav1.Time) *metav1.Time {
 	return &result
 }
 
+//nolint:gocyclo // Readiness is a fail-closed conjunction over independently projected facts.
 func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now time.Time) {
 	unmet := []string{}
 	dependenciesReady := true

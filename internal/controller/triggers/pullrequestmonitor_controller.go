@@ -588,9 +588,9 @@ func aggregateReviewDecision(reviews []polledPullRequestReview) triggersv1alpha1
 	approved := false
 	for _, review := range latest {
 		switch strings.ToLower(review.State) {
-		case "changes_requested":
+		case string(triggersv1alpha1.PullRequestReviewDecisionChangesRequested):
 			return triggersv1alpha1.PullRequestReviewDecisionChangesRequested
-		case "approved":
+		case string(triggersv1alpha1.PullRequestReviewDecisionApproved):
 			approved = true
 		}
 	}

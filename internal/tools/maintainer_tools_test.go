@@ -120,6 +120,8 @@ func fleetRun(name string, phase platformv1alpha1.AgentRunPhase) *platformv1alph
 	return &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace}, Spec: platformv1alpha1.AgentRunSpec{Trigger: platformv1alpha1.TriggerRef{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName}}, Status: platformv1alpha1.AgentRunStatus{Phase: phase}}
 }
 
+const maintainerTestMode = "auto"
+
 func TestMaintainerAuthorizationAndFleetFiltering(t *testing.T) {
 	t.Parallel()
 	maintainer := maintainerRun()
@@ -212,12 +214,12 @@ func TestConditionsMet(t *testing.T) {
 func TestLegacyDispatchRoutesThroughTypedCommandWhenWorkItemExists(t *testing.T) {
 	maintainer := maintainerRun()
 	base, k8sClient, _ := newMaintainerToolBase(t, maintainer)
-	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: "auto"}}); err != nil {
+	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
 		t.Fatal(err)
 	}
 	workItem := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 2, 3)
 	runner := &fakePRReviewRunner{}
-	result, err := (&dispatchIssueTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"auto"}`), "")
+	result, err := (&dispatchIssueTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`"}`), "")
 	if err != nil || result.IsError {
 		t.Fatalf("Execute() = (%#v, %v)", result, err)
 	}
@@ -249,7 +251,7 @@ func TestDispatchCapsAndLedgerRollover(t *testing.T) {
 		t.Fatal(err)
 	}
 	tool := &dispatchIssueTool{maintainerToolBase: base}
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"auto"}`), "")
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`"}`), "")
 	if err != nil || !result.IsError || result.Content == "" {
 		t.Fatalf("active cap result = (%#v, %v)", result, err)
 	}
@@ -294,7 +296,7 @@ func TestDispatchReservationConcurrentCapAndReplay(t *testing.T) {
 			results <- struct {
 				issue int
 				err   error
-			}{issue: issue, err: tool.reserveDispatch(context.Background(), issue, "auto", nil, 1, 2)}
+			}{issue: issue, err: tool.reserveDispatch(context.Background(), issue, maintainerTestMode, nil, 1, 2)}
 		}(issue)
 	}
 	close(start)
@@ -312,7 +314,7 @@ func TestDispatchReservationConcurrentCapAndReplay(t *testing.T) {
 	if successes != 1 {
 		t.Fatalf("successful reservations = %d, want 1", successes)
 	}
-	if err := tool.reserveDispatch(context.Background(), reservedIssue, "auto", nil, 1, 2); err == nil || !strings.Contains(err.Error(), "do not replay") {
+	if err := tool.reserveDispatch(context.Background(), reservedIssue, maintainerTestMode, nil, 1, 2); err == nil || !strings.Contains(err.Error(), "do not replay") {
 		t.Fatalf("duplicate reservation error = %v", err)
 	}
 	fresh := &platformv1alpha1.AgentRun{}
@@ -328,13 +330,13 @@ func TestDispatchReservationConcurrentCapAndReplay(t *testing.T) {
 func TestDispatchReservationFailureHandling(t *testing.T) {
 	maintainer := maintainerRun()
 	base, k8sClient, _ := newMaintainerToolBase(t, maintainer)
-	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: "auto"}}); err != nil {
+	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
 		t.Fatal(err)
 	}
 	tool := &dispatchIssueTool{maintainerToolBase: base, runner: &fakePRReviewRunner{ghErr: map[string]error{
 		"issue edit 2 --add-label auto": errors.New("HTTP 422: Validation Failed"),
 	}}}
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"auto"}`), testGitRepoDir(t))
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`"}`), testGitRepoDir(t))
 	if err != nil || !result.IsError || !strings.Contains(result.Content, "without applying") {
 		t.Fatalf("definite failure = (%#v, %v)", result, err)
 	}
@@ -350,7 +352,7 @@ func TestDispatchReservationFailureHandling(t *testing.T) {
 	tool.runner = &fakePRReviewRunner{ghErr: map[string]error{
 		"issue edit 3 --add-label auto": errors.New("connection reset"),
 	}}
-	result, err = tool.Execute(context.Background(), json.RawMessage(`{"issue_number":3,"mode":"auto"}`), testGitRepoDir(t))
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"issue_number":3,"mode":"`+maintainerTestMode+`"}`), testGitRepoDir(t))
 	if err != nil || !result.IsError || !strings.Contains(result.Content, "reservation is retained") {
 		t.Fatalf("ambiguous failure = (%#v, %v)", result, err)
 	}
@@ -366,13 +368,13 @@ func TestDispatchReservationFailureHandling(t *testing.T) {
 func TestDispatchIssueNoteHasGitHubAppAuthorization(t *testing.T) {
 	maintainer := maintainerRun()
 	base, k8sClient, _ := newMaintainerToolBase(t, maintainer)
-	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: "auto"}}); err != nil {
+	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakePRReviewRunner{}
 	tool := &dispatchIssueTool{maintainerToolBase: base, runner: runner}
 
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"auto","note":"Validated and dispatching."}`), testGitRepoDir(t))
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`","note":"Validated and dispatching."}`), testGitRepoDir(t))
 	if err != nil || result.IsError {
 		t.Fatalf("Execute() = (%#v, %v)", result, err)
 	}

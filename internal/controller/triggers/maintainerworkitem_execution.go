@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -54,6 +55,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerExecutionCommand(ctx conte
 	return r.completeMaintainerWorkItemCommand(ctx, command, item, "dispatch capacity reserved and trigger label applied", "", observedIssueState(item))
 }
 
+//nolint:gocyclo // Typed command variants intentionally share one authorization and idempotency entrypoint.
 func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) error {
 	switch command.Spec.Type {
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeBreakdownIssue:
@@ -204,10 +206,8 @@ func (r *GitHubRepositoryReconciler) validateBreakdown(ctx context.Context, repo
 			return false
 		}
 		visiting[name] = true
-		for _, next := range graph[name] {
-			if visit(next) {
-				return true
-			}
+		if slices.ContainsFunc(graph[name], visit) {
+			return true
 		}
 		visiting[name] = false
 		visited[name] = true
@@ -283,6 +283,7 @@ type maintainerRepositoryReservation struct {
 	ReservedAt  metav1.Time `json:"reservedAt"`
 }
 
+//nolint:gocyclo // Reservation validates all cap, replay, migration, and ownership invariants atomically.
 func (r *GitHubRepositoryReconciler) reserveMaintainerDispatch(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) error {
 	items := &triggersv1alpha1.MaintainerWorkItemList{}
 	if err := r.maintainerReader().List(ctx, items, client.InNamespace(repository.Namespace), client.MatchingLabels{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name}); err != nil {

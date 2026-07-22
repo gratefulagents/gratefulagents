@@ -15,7 +15,15 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 )
 
-const gitHubPollPageLimit = 10
+const (
+	gitHubPollPageLimit = 10
+	gitHubRollupSuccess = "success"
+	gitHubRollupFailure = "failure"
+	gitHubRollupPending = "pending"
+	gitHubRollupNone    = "none"
+	gitHubOwnerVariable = "owner"
+	gitHubRepoVariable  = "repo"
+)
 
 var errGitHubPollHistoryLimit = errors.New("github poll history exceeds page limit")
 
@@ -222,7 +230,7 @@ func (p *goGitHubPullRequestPoller) ListReviews(ctx context.Context, owner, repo
 func (p *goGitHubPullRequestPoller) GetReviewDecision(ctx context.Context, owner, repo string, number int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
 	body := map[string]any{
 		"query":     `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewDecision}}}`,
-		"variables": map[string]any{"owner": owner, "repo": repo, "number": number},
+		"variables": map[string]any{gitHubOwnerVariable: owner, gitHubRepoVariable: repo, "number": number},
 	}
 	req, err := p.client.NewRequest(http.MethodPost, "graphql", body)
 	if err != nil {
@@ -317,8 +325,8 @@ func (p *goGitHubPullRequestPoller) ListIssueComments(ctx context.Context, owner
 
 func (p *goGitHubPullRequestPoller) ListCheckRuns(ctx context.Context, owner, repo, headSHA string) (polledHeadRollup, gitHubPollResponse, error) {
 	owner, repo = url.PathEscape(owner), url.PathEscape(repo)
-	opts := &github.ListCheckRunsOptions{Filter: github.String("latest"), ListOptions: github.ListOptions{Page: 1, PerPage: 100}}
-	rollup := polledHeadRollup{HeadSHA: headSHA, State: "success"}
+	opts := &github.ListCheckRunsOptions{Filter: new("latest"), ListOptions: github.ListOptions{Page: 1, PerPage: 100}}
+	rollup := polledHeadRollup{HeadSHA: headSHA, State: gitHubRollupSuccess}
 	var metadata gitHubPollResponse
 	seen := false
 	for pagesRead := 0; ; pagesRead++ {
@@ -335,18 +343,18 @@ func (p *goGitHubPullRequestPoller) ListCheckRuns(ctx context.Context, owner, re
 				seen = true
 				rollup.Count++
 				if !strings.EqualFold(value.GetStatus(), "completed") {
-					if rollup.State != "failure" {
-						rollup.State = "pending"
+					if rollup.State != gitHubRollupFailure {
+						rollup.State = gitHubRollupPending
 					}
 					continue
 				}
 				switch strings.ToLower(value.GetConclusion()) {
-				case "success", "neutral", "skipped":
-				case "failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale":
-					rollup.State = "failure"
+				case gitHubRollupSuccess, "neutral", "skipped":
+				case gitHubRollupFailure, "cancelled", "timed_out", "action_required", "startup_failure", "stale":
+					rollup.State = gitHubRollupFailure
 				default:
-					if rollup.State != "failure" {
-						rollup.State = "pending"
+					if rollup.State != gitHubRollupFailure {
+						rollup.State = gitHubRollupPending
 					}
 				}
 			}
@@ -362,7 +370,7 @@ func (p *goGitHubPullRequestPoller) ListCheckRuns(ctx context.Context, owner, re
 		}
 	}
 	if !seen {
-		rollup.State = "none"
+		rollup.State = gitHubRollupNone
 	}
 	return rollup, metadata, nil
 }
@@ -377,7 +385,7 @@ func (p *goGitHubPullRequestPoller) GetCommitStatus(ctx context.Context, owner, 
 	count := len(value.Statuses)
 	state := value.GetState()
 	if count == 0 {
-		state = "none"
+		state = gitHubRollupNone
 	}
 	return polledHeadRollup{HeadSHA: headSHA, State: state, Count: count}, metadata, nil
 }

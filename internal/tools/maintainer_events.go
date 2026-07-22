@@ -527,6 +527,11 @@ func maintainerWorkItemObservationFresh(item *triggersv1alpha1.MaintainerWorkIte
 	return false
 }
 
+const (
+	maintainerRollupSuccess = "success"
+	maintainerRollupPending = "pending"
+)
+
 const maintainerPullRequestReviewDecisionQuery = "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewDecision}}}"
 
 func (t *waitForRepoEventsTool) pullRequestEventsSnapshot(ctx context.Context, workDir string, fleet map[string]maintainerRepoFleetEvent) (maintainerRepoEventsSnapshot, error) {
@@ -646,10 +651,11 @@ func maintainerMonitorEquivalentAndFresh(monitor *triggersv1alpha1.PullRequestMo
 
 func maintainerEventFromMonitor(monitor *triggersv1alpha1.PullRequestMonitor) maintainerRepoPullRequestEvent {
 	event := maintainerRepoPullRequestEvent{URL: monitor.Spec.URL, HeadSHA: monitor.Status.HeadSHA, State: string(monitor.Status.Lifecycle), Draft: monitor.Status.Lifecycle == triggersv1alpha1.PullRequestLifecycleDraft, ReviewDecision: strings.ToUpper(string(monitor.Status.ReviewDecision)), MergeState: string(monitor.Status.Mergeability)}
-	if monitor.Status.Mergeability == triggersv1alpha1.PullRequestMergeabilityMergeable {
+	switch monitor.Status.Mergeability {
+	case triggersv1alpha1.PullRequestMergeabilityMergeable:
 		value := true
 		event.Mergeable = &value
-	} else if monitor.Status.Mergeability == triggersv1alpha1.PullRequestMergeabilityConflicting {
+	case triggersv1alpha1.PullRequestMergeabilityConflicting:
 		value := false
 		event.Mergeable = &value
 	}
@@ -658,11 +664,11 @@ func maintainerEventFromMonitor(monitor *triggersv1alpha1.PullRequestMonitor) ma
 		count := int(rollup.Count)
 		event.Checks.Total += count
 		switch strings.ToLower(rollup.State) {
-		case "success":
+		case maintainerRollupSuccess:
 			event.Checks.Passed += count
 		case "failure":
 			event.Checks.Failed += count
-		case "pending":
+		case maintainerRollupPending:
 			if count == 0 {
 				count = 1
 				event.Checks.Total++
@@ -822,9 +828,9 @@ func maintainerPullRequestChecksSummary(checks []pullRequestCheckRun, statuses [
 	}
 	for _, status := range statuses {
 		switch status.State {
-		case "success":
+		case maintainerRollupSuccess:
 			summary.Passed++
-		case "pending":
+		case maintainerRollupPending:
 			summary.Pending++
 		default:
 			summary.Failed++

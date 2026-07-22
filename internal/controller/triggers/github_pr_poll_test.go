@@ -76,9 +76,9 @@ func TestHeadRollupsAreBoundToRequestedSHA(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/repos/acme/widgets/commits/abc123/check-runs":
-			fmt.Fprint(w, `{"total_count":2,"check_runs":[{"status":"completed","conclusion":"success"},{"status":"in_progress"}]}`)
+			_, _ = fmt.Fprint(w, `{"total_count":2,"check_runs":[{"status":"completed","conclusion":"success"},{"status":"in_progress"}]}`)
 		case "/repos/acme/widgets/commits/abc123/status":
-			fmt.Fprint(w, `{"sha":"abc123","state":"success","statuses":[{"context":"legacy","state":"success"}]}`)
+			_, _ = fmt.Fprint(w, `{"sha":"abc123","state":"success","statuses":[{"context":"legacy","state":"success"}]}`)
 		default:
 			t.Errorf("path = %q", r.URL.Path)
 		}
@@ -89,14 +89,14 @@ func TestHeadRollupsAreBoundToRequestedSHA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListCheckRuns() error = %v", err)
 	}
-	if checks.HeadSHA != sha || checks.State != "pending" {
+	if checks.HeadSHA != sha || checks.State != gitHubRollupPending {
 		t.Fatalf("check rollup = %#v, want pending for %s", checks, sha)
 	}
 	statuses, _, err := poller.GetCommitStatus(context.Background(), "acme", "widgets", sha)
 	if err != nil {
 		t.Fatalf("GetCommitStatus() error = %v", err)
 	}
-	if statuses.HeadSHA != sha || statuses.State != "success" {
+	if statuses.HeadSHA != sha || statuses.State != gitHubRollupSuccess {
 		t.Fatalf("status rollup = %#v, want success for %s", statuses, sha)
 	}
 }

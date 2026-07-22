@@ -61,8 +61,8 @@ func PullRequestPollingInstallationPermissions() *github.InstallationPermissions
 		Metadata:     github.Ptr("read"),
 		Issues:       github.Ptr("read"),
 		PullRequests: github.Ptr("read"),
-		Checks:       github.Ptr("read"),
-		Statuses:     github.Ptr("read"),
+		Checks:       new("read"),
+		Statuses:     new("read"),
 	}
 }
 

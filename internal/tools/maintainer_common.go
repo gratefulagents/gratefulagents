@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -158,10 +159,5 @@ func parseMaintainerLedger(run *platformv1alpha1.AgentRun, now time.Time) mainta
 }
 
 func maintainerLedgerHasIssue(ledger maintainerDispatchLedger, issueNumber int) bool {
-	for _, issue := range ledger.Issues {
-		if issue == issueNumber {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ledger.Issues, issueNumber)
 }

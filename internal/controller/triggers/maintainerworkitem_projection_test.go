@@ -16,7 +16,7 @@ import (
 func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 	now := time.Now()
 	observed := metav1.NewTime(now)
-	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: "monitor-7", Repository: "octo/widgets", Number: 7, MonitorRef: &coreLocalRef, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen, HeadSHA: "new-head", Mergeable: boolPointer(true), ReviewDecision: string(triggersv1alpha1.PullRequestReviewDecisionApproved), CheckState: triggersv1alpha1.MaintainerWorkItemCheckStateUnknown, Fresh: true, HeadObservedAt: &observed, ReviewObservedAt: &observed, ChecksObservedAt: &observed, StatusesObservedAt: &observed}}}}
+	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: "monitor-7", Repository: "octo/widgets", Number: 7, MonitorRef: &coreLocalRef, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen, HeadSHA: "new-head", Mergeable: new(true), ReviewDecision: string(triggersv1alpha1.PullRequestReviewDecisionApproved), CheckState: triggersv1alpha1.MaintainerWorkItemCheckStateUnknown, Fresh: true, HeadObservedAt: &observed, ReviewObservedAt: &observed, ChecksObservedAt: &observed, StatusesObservedAt: &observed}}}}
 	evaluateMaintainerReadiness(item, now)
 	if item.Status.Readiness.ReadyToMerge {
 		t.Fatal("head change without fresh head-bound CI was merge-ready")
@@ -37,7 +37,6 @@ func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 var coreLocalRef = structLocalRef("monitor-7")
 
 func structLocalRef(name string) (ref corev1.LocalObjectReference) { ref.Name = name; return }
-func boolPointer(value bool) *bool                                 { return &value }
 
 func TestEvaluateMaintainerReadinessDoesNotRedispatchReservedItem(t *testing.T) {
 	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{DispatchReservation: &triggersv1alpha1.MaintainerDispatchReservation{ID: "once"}}}

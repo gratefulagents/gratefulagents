@@ -80,6 +80,11 @@ func maintainerTestGitRepoDir(t *testing.T) string {
 	return dir
 }
 
+const (
+	maintainerTestMergedState = "merged"
+	maintainerTestHeadSHA     = "abc123"
+)
+
 func TestMaintainerBacklogFingerprintAndCursorRoundTrip(t *testing.T) {
 	issues := []maintainerBacklogIssue{
 		{Number: 2, UpdatedAt: "2026-01-02T00:00:00Z", Labels: []maintainerBacklogLabel{{Name: "z"}, {Name: "a"}}},
@@ -304,7 +309,7 @@ const maintainerTestPullRequestURL = "https://github.com/octo/widgets/pull/7"
 func maintainerPullRequestRunnerOutputs(checkStatus, conclusion, reviewDecision string) map[string]string {
 	return map[string]string{
 		"api repos/octo/widgets/pulls?state=open&per_page=100 --paginate":                                                 `[{"number":7}]`,
-		"api repos/octo/widgets/pulls/7":                                                                                  `{"head":{"sha":"abc123"},"state":"OPEN","draft":false,"mergeable":true,"mergeable_state":"clean"}`,
+		"api repos/octo/widgets/pulls/7":                                                                                  `{"head":{"sha":"` + maintainerTestHeadSHA + `"},"state":"OPEN","draft":false,"mergeable":true,"mergeable_state":"clean"}`,
 		"api graphql -f query=" + maintainerPullRequestReviewDecisionQuery + " -f owner=octo -f repo=widgets -F number=7": `{"data":{"repository":{"pullRequest":{"reviewDecision":"` + reviewDecision + `"}}}}`,
 		"api repos/octo/widgets/commits/abc123/check-runs --paginate":                                                     `{"check_runs":[{"name":"build","status":"` + checkStatus + `","conclusion":"` + conclusion + `"}]}`,
 		"api repos/octo/widgets/commits/abc123/status":                                                                    `{"statuses":[]}`,
@@ -348,7 +353,7 @@ func TestMergedMonitorRemainsAuthoritativeAfterPollingStops(t *testing.T) {
 	if !maintainerMonitorEquivalentAndFresh(monitor, time.Now()) {
 		t.Fatal("irreversible merged observation became stale")
 	}
-	if event := maintainerEventFromMonitor(monitor); event.State != "merged" {
+	if event := maintainerEventFromMonitor(monitor); event.State != maintainerTestMergedState {
 		t.Fatalf("event = %#v", event)
 	}
 }
@@ -362,7 +367,7 @@ func TestRepoEventsUsesFreshMonitorWithoutDirectGitHubCalls(t *testing.T) {
 	monitor := &triggersv1alpha1.PullRequestMonitor{
 		ObjectMeta: metav1.ObjectMeta{Name: "monitor-7", Namespace: maintainerTestNamespace},
 		Spec:       triggersv1alpha1.PullRequestMonitorSpec{Repository: "octo/widgets", Number: 7, URL: maintainerTestPullRequestURL, ImplementerRef: corev1.LocalObjectReference{Name: maintainerTestFleetRunName}},
-		Status:     triggersv1alpha1.PullRequestMonitorStatus{Lifecycle: triggersv1alpha1.PullRequestLifecycleOpen, HeadSHA: "abc123", Mergeability: triggersv1alpha1.PullRequestMergeabilityMergeable, ReviewDecision: triggersv1alpha1.PullRequestReviewDecisionApproved, PullObservedAt: now, ReviewsObservedAt: now, Checks: triggersv1alpha1.PullRequestMonitorHeadRollup{HeadSHA: "abc123", State: "success", Count: 1, ObservedAt: now}, Statuses: triggersv1alpha1.PullRequestMonitorHeadRollup{HeadSHA: "abc123", State: "none", ObservedAt: now}},
+		Status:     triggersv1alpha1.PullRequestMonitorStatus{Lifecycle: triggersv1alpha1.PullRequestLifecycleOpen, HeadSHA: maintainerTestHeadSHA, Mergeability: triggersv1alpha1.PullRequestMergeabilityMergeable, ReviewDecision: triggersv1alpha1.PullRequestReviewDecisionApproved, PullObservedAt: now, ReviewsObservedAt: now, Checks: triggersv1alpha1.PullRequestMonitorHeadRollup{HeadSHA: maintainerTestHeadSHA, State: maintainerRollupSuccess, Count: 1, ObservedAt: now}, Statuses: triggersv1alpha1.PullRequestMonitorHeadRollup{HeadSHA: maintainerTestHeadSHA, State: "none", ObservedAt: now}},
 	}
 	runner := &maintainerFakeRunner{out: map[string]string{}}
 	tool := &waitForRepoEventsTool{maintainerToolBase: maintainerToolBase{k8sClient: fake.NewClientBuilder().WithScheme(scheme).WithObjects(monitor).Build(), repositoryNamespace: maintainerTestNamespace}, runner: runner}
@@ -375,7 +380,7 @@ func TestRepoEventsUsesFreshMonitorWithoutDirectGitHubCalls(t *testing.T) {
 		t.Fatalf("fresh monitor caused duplicate GitHub calls: %#v", runner.calls)
 	}
 	got := snapshot.pullRequests[maintainerTestPullRequestURL]
-	if got.HeadSHA != "abc123" || got.ReviewDecision != "APPROVED" || got.Checks.Passed != 1 {
+	if got.HeadSHA != maintainerTestHeadSHA || got.ReviewDecision != "APPROVED" || got.Checks.Passed != 1 {
 		t.Fatalf("monitor projection = %#v", got)
 	}
 }
@@ -720,7 +725,7 @@ func TestChangedRepoEventIssuesEmitsRemovals(t *testing.T) {
 
 func TestPullRequestEventKeepsUnknownMergeabilityDistinct(t *testing.T) {
 	outputs := maintainerPullRequestRunnerOutputs("completed", "success", "APPROVED")
-	outputs["api repos/octo/widgets/pulls/7"] = `{"head":{"sha":"abc123"},"state":"OPEN","draft":false,"mergeable":null,"mergeable_state":"unknown"}`
+	outputs["api repos/octo/widgets/pulls/7"] = `{"head":{"sha":"` + maintainerTestHeadSHA + `"},"state":"OPEN","draft":false,"mergeable":null,"mergeable_state":"unknown"}`
 	runner := &maintainerFakeRunner{out: outputs}
 	tool := &waitForRepoEventsTool{runner: runner}
 	event, err := tool.pullRequestEvent(context.Background(), maintainerTestGitRepoDir(t), maintainerTestPullRequestURL)
@@ -738,7 +743,7 @@ func TestPullRequestEventKeepsUnknownMergeabilityDistinct(t *testing.T) {
 		t.Fatalf("encoded event = %s, want explicit null mergeable", encoded)
 	}
 
-	runner.out["api repos/octo/widgets/pulls/7"] = `{"head":{"sha":"abc123"},"state":"OPEN","draft":false,"mergeable":true,"mergeable_state":"clean"}`
+	runner.out["api repos/octo/widgets/pulls/7"] = `{"head":{"sha":"` + maintainerTestHeadSHA + `"},"state":"OPEN","draft":false,"mergeable":true,"mergeable_state":"clean"}`
 	computed, err := tool.pullRequestEvent(context.Background(), maintainerTestGitRepoDir(t), maintainerTestPullRequestURL)
 	if err != nil {
 		t.Fatal(err)
