@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-github/v68/github"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -209,5 +210,49 @@ func TestCurrentProjectionMessageIncludesStaleObservationFacts(t *testing.T) {
 	message := currentProjectionMessage(item)
 	if !strings.Contains(message, "NotInOpenIssueList") || !strings.Contains(message, "observation not fresh") {
 		t.Fatalf("message %q does not explain the failing observation", message)
+	}
+}
+
+// Commands that already crossed a durable side-effect boundary must stay
+// retryable so a later-visible outcome is still recorded.
+func TestRetryBudgetExemptsDurableSideEffects(t *testing.T) {
+	t.Parallel()
+
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 7)
+	attempted := metav1.Now()
+	mergeCommand := &triggersv1alpha1.MaintainerWorkItemCommand{
+		ObjectMeta: metav1.ObjectMeta{Name: "merge-cmd", Namespace: repository.Namespace},
+		Spec:       triggersv1alpha1.MaintainerWorkItemCommandSpec{Type: triggersv1alpha1.MaintainerWorkItemCommandTypeRequestMerge, Preconditions: triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name}},
+		Status:     triggersv1alpha1.MaintainerWorkItemCommandStatus{Result: &triggersv1alpha1.MaintainerWorkItemCommandResult{MergeAttemptedAt: &attempted}},
+	}
+	finalizeCommand := &triggersv1alpha1.MaintainerWorkItemCommand{
+		ObjectMeta: metav1.ObjectMeta{Name: "finalize-cmd", Namespace: repository.Namespace},
+		Spec:       triggersv1alpha1.MaintainerWorkItemCommandSpec{Type: triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem, Preconditions: triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name}},
+	}
+	plainCommand := &triggersv1alpha1.MaintainerWorkItemCommand{
+		ObjectMeta: metav1.ObjectMeta{Name: "dispatch-cmd", Namespace: repository.Namespace},
+		Spec:       triggersv1alpha1.MaintainerWorkItemCommandSpec{Type: triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem, Preconditions: triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name}},
+	}
+	item.Status.DeliveryAttestation = &triggersv1alpha1.MaintainerDeliveryAttestation{FinalizedByCommand: corev1.LocalObjectReference{Name: finalizeCommand.Name}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}).WithObjects(repository, item).Build()
+	reconciler := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+
+	for _, tc := range []struct {
+		command *triggersv1alpha1.MaintainerWorkItemCommand
+		durable bool
+	}{
+		{mergeCommand, true},
+		{finalizeCommand, true},
+		{plainCommand, false},
+	} {
+		durable, err := reconciler.maintainerCommandHasDurableSideEffects(context.Background(), repository, tc.command)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.command.Name, err)
+		}
+		if durable != tc.durable {
+			t.Fatalf("%s durable = %v, want %v", tc.command.Name, durable, tc.durable)
+		}
 	}
 }

@@ -475,14 +475,20 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItemCommands(ctx con
 			continue
 		}
 		if command.Status.Phase == triggersv1alpha1.MaintainerWorkItemCommandPhaseFailed && maintainerCommandFailureCount(command) >= maintainerCommandFailureBudget {
-			message := "retry budget exhausted after repeated failures"
-			if command.Status.Result != nil && command.Status.Result.Message != "" {
-				message += "; last failure: " + command.Status.Result.Message
-			}
-			if err := r.rejectMaintainerWorkItemCommand(ctx, repository, command, message); err != nil {
+			durable, err := r.maintainerCommandHasDurableSideEffects(ctx, repository, command)
+			if err != nil {
 				return err
 			}
-			continue
+			if !durable {
+				message := "retry budget exhausted after repeated failures"
+				if command.Status.Result != nil && command.Status.Result.Message != "" {
+					message += "; last failure: " + command.Status.Result.Message
+				}
+				if err := r.rejectMaintainerWorkItemCommand(ctx, repository, command, message); err != nil {
+					return err
+				}
+				continue
+			}
 		}
 		if err := r.processMaintainerWorkItemCommand(ctx, repository, command, githubClient, deliveryClient); err != nil {
 			return err
@@ -502,6 +508,29 @@ func maintainerCommandFailureCount(command *triggersv1alpha1.MaintainerWorkItemC
 		return 0
 	}
 	return count
+}
+
+// maintainerCommandHasDurableSideEffects reports whether a command already
+// crossed a durable side-effect boundary (an attempted merge or an issued
+// delivery attestation). Such commands must keep reconciling until GitHub
+// reports a conclusive outcome; terminally rejecting them would orphan the
+// side effect (for example a merge that later becomes visible would never be
+// recorded in VerifiedMerges).
+func (r *GitHubRepositoryReconciler) maintainerCommandHasDurableSideEffects(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand) (bool, error) {
+	if command.Status.Result != nil && command.Status.Result.MergeAttemptedAt != nil {
+		return true, nil
+	}
+	if command.Spec.Type != triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem {
+		return false, nil
+	}
+	item := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: command.Spec.Preconditions.WorkItemName}, item); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return item.Status.DeliveryAttestation != nil && item.Status.DeliveryAttestation.FinalizedByCommand.Name == command.Name && item.Status.DeliveryAttestation.CompletedAt == nil, nil
 }
 
 func (r *GitHubRepositoryReconciler) incrementMaintainerCommandFailureCount(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand) error {
