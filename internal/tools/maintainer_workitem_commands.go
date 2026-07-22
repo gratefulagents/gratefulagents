@@ -19,6 +19,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	requestMergeToolName     = "request_merge"
+	finalizeWorkItemToolName = "finalize_work_item"
+)
+
 type maintainerCommandInput struct {
 	IssueNumber                int32  `json:"issue_number"`
 	IdempotencyKey             string `json:"idempotency_key"`
@@ -155,7 +160,7 @@ type requestMergeInput struct {
 	MergeMethod     string `json:"merge_method,omitempty"`
 }
 
-func (t *requestMergeTool) Name() string { return "request_merge" }
+func (t *requestMergeTool) Name() string { return requestMergeToolName }
 func (t *requestMergeTool) Description() string {
 	return "Submit an authenticated merge request. The controller re-reads GitHub immediately, fails closed on stale/blank/zero-check evidence, merges only the expected head, and records success only after MERGED verification."
 }
@@ -198,7 +203,7 @@ type finalizeWorkItemInput struct {
 	ImplementerRunNames []string `json:"implementer_run_names,omitempty"`
 }
 
-func (t *finalizeWorkItemTool) Name() string { return "finalize_work_item" }
+func (t *finalizeWorkItemTool) Name() string { return finalizeWorkItemToolName }
 func (t *finalizeWorkItemTool) Description() string {
 	return "Submit an authenticated durable delivery attestation. The controller finalizes only after all required PRs, children, decisions, and run predicates pass, then idempotently requests run success and closes the issue."
 }

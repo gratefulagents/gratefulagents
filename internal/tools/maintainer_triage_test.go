@@ -15,13 +15,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	maintainerTestCloseIssueTool   = "close_github_issue"
+	maintainerTestDispatchWorkTool = "dispatch_work_item"
+)
+
 func TestRegisterMaintainerToolsRegistersTypedWorkItemCommands(t *testing.T) {
 	t.Parallel()
 
 	base, _, stateStore := newMaintainerToolBase(t, maintainerRun())
 	registry := NewRegistry(t.TempDir())
 	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
-	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", "dispatch_work_item", "request_merge", "finalize_work_item"} {
+	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", maintainerTestDispatchWorkTool, requestMergeToolName, finalizeWorkItemToolName} {
 		tool := registry.Get(name)
 		if tool == nil || tool.IsReadOnly() {
 			t.Fatalf("%s = %#v", name, tool)
@@ -45,12 +50,12 @@ func TestControllerCutoverRemovesGenericMaintainerMutations(t *testing.T) {
 	registry := NewRegistry(t.TempDir())
 	registry.Register(&closeGitHubIssueTool{})
 	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
-	for _, name := range []string{"merge_pull_request", "mark_run_succeeded", "close_github_issue", "dispatch_issue"} {
+	for _, name := range []string{"merge_pull_request", "mark_run_succeeded", maintainerTestCloseIssueTool, "dispatch_issue"} {
 		if registry.Get(name) != nil {
 			t.Fatalf("controller cutover retained forbidden tool %s", name)
 		}
 	}
-	for _, name := range []string{"request_merge", "finalize_work_item", "dispatch_work_item"} {
+	for _, name := range []string{requestMergeToolName, finalizeWorkItemToolName, maintainerTestDispatchWorkTool} {
 		if registry.Get(name) == nil {
 			t.Fatalf("controller cutover omitted typed tool %s", name)
 		}

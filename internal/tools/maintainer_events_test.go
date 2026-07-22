@@ -83,6 +83,7 @@ func maintainerTestGitRepoDir(t *testing.T) string {
 const (
 	maintainerTestMergedState = "merged"
 	maintainerTestHeadSHA     = "abc123"
+	maintainerTestPRURL       = "https://example.test/pr/1"
 )
 
 func TestMaintainerBacklogFingerprintAndCursorRoundTrip(t *testing.T) {
@@ -500,8 +501,8 @@ func TestMaintainerDualReadParityComparesSemanticContent(t *testing.T) {
 	snapshot := maintainerRepoEventsSnapshot{
 		issues:       []maintainerRepoEventIssue{{Number: 7, Title: "issue", Labels: []string{"bug"}}},
 		fleet:        map[string]maintainerRepoFleetEvent{"run": {Name: "run", Phase: platformv1alpha1.AgentRunPhasePaused}},
-		pullRequests: map[string]maintainerRepoPullRequestEvent{"https://example.test/pr/1": {URL: "https://example.test/pr/1", HeadSHA: "abc", State: "open", ReviewDecision: "APPROVED"}},
-		workItems:    map[string]maintainerRepoWorkItemEvent{"item": {ObservationFresh: true, IssueObservation: &triggersv1alpha1.MaintainerIssueObservation{Number: 7, Title: "issue", State: triggersv1alpha1.MaintainerIssueStateOpen, Labels: []string{"bug"}}, AgentRuns: []triggersv1alpha1.MaintainerWorkItemAgentRunProjection{{Name: "run", Phase: string(platformv1alpha1.AgentRunPhasePaused)}}, PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{URL: "https://example.test/pr/1", HeadSHA: "abc", State: triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen, ReviewDecision: "APPROVED"}}}},
+		pullRequests: map[string]maintainerRepoPullRequestEvent{maintainerTestPRURL: {URL: maintainerTestPRURL, HeadSHA: "abc", State: "open", ReviewDecision: "APPROVED"}},
+		workItems:    map[string]maintainerRepoWorkItemEvent{"item": {ObservationFresh: true, IssueObservation: &triggersv1alpha1.MaintainerIssueObservation{Number: 7, Title: "issue", State: triggersv1alpha1.MaintainerIssueStateOpen, Labels: []string{"bug"}}, AgentRuns: []triggersv1alpha1.MaintainerWorkItemAgentRunProjection{{Name: "run", Phase: string(platformv1alpha1.AgentRunPhasePaused)}}, PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{URL: maintainerTestPRURL, HeadSHA: "abc", State: triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen, ReviewDecision: "APPROVED"}}}},
 	}
 	if mismatches := maintainerSemanticParityMismatches(snapshot); len(mismatches) != 0 {
 		t.Fatalf("matching projections reported %v", mismatches)

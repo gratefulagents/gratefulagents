@@ -214,18 +214,18 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 func maintainerSemanticParityMismatches(snapshot maintainerRepoEventsSnapshot) []string {
 	legacyIssues := map[int32]string{}
 	for _, issue := range snapshot.issues {
-		labels := append([]string(nil), issue.Labels...)
-		sort.Strings(labels)
-		legacyIssues[int32(issue.Number)] = issue.Title + "|" + strings.Join(labels, ",")
+		issueLabels := append([]string(nil), issue.Labels...)
+		sort.Strings(issueLabels)
+		legacyIssues[int32(issue.Number)] = issue.Title + "|" + strings.Join(issueLabels, ",")
 	}
 	semanticIssues := map[int32]string{}
 	semanticRuns := map[string]string{}
 	semanticPRs := map[string]string{}
 	for _, item := range snapshot.workItems {
 		if observation := item.IssueObservation; item.ObservationFresh && observation != nil && observation.State == triggersv1alpha1.MaintainerIssueStateOpen {
-			labels := append([]string(nil), observation.Labels...)
-			sort.Strings(labels)
-			semanticIssues[observation.Number] = observation.Title + "|" + strings.Join(labels, ",")
+			observationLabels := append([]string(nil), observation.Labels...)
+			sort.Strings(observationLabels)
+			semanticIssues[observation.Number] = observation.Title + "|" + strings.Join(observationLabels, ",")
 		}
 		for _, run := range item.AgentRuns {
 			semanticRuns[run.Name] = run.Phase
@@ -239,8 +239,8 @@ func maintainerSemanticParityMismatches(snapshot maintainerRepoEventsSnapshot) [
 		legacyRuns[name] = string(run.Phase)
 	}
 	legacyPRs := map[string]string{}
-	for url, pr := range snapshot.pullRequests {
-		legacyPRs[url] = pr.HeadSHA + "|" + strings.ToLower(pr.State) + "|" + strconv.FormatBool(pr.Draft) + "|" + pr.ReviewDecision
+	for prURL, pr := range snapshot.pullRequests {
+		legacyPRs[prURL] = pr.HeadSHA + "|" + strings.ToLower(pr.State) + "|" + strconv.FormatBool(pr.Draft) + "|" + pr.ReviewDecision
 	}
 	var mismatches []string
 	if !maps.Equal(legacyIssues, semanticIssues) {
@@ -255,6 +255,7 @@ func maintainerSemanticParityMismatches(snapshot maintainerRepoEventsSnapshot) [
 	return mismatches
 }
 
+//nolint:gocyclo // Legacy polling remains intact only as the rollback/parity baseline during cutover.
 func (t *waitForRepoEventsTool) executeLegacy(ctx context.Context, input json.RawMessage, workDir string) (Result, error) {
 	var in waitForRepoEventsInput
 	if err := json.Unmarshal(input, &in); err != nil {

@@ -24,6 +24,7 @@ import (
 const (
 	maintainerPromoteSucceededAnnotation = "platform.gratefulagents.dev/promote-succeeded-requested"
 	maintainerPromoteSucceededReason     = "platform.gratefulagents.dev/promote-succeeded-reason"
+	maintainerGitHubIssueStateClosed     = "closed"
 )
 
 func effectiveMaintainerCutover(repository *triggersv1alpha1.GitHubRepository) triggersv1alpha1.MaintainerWorkItemCutoverMode {
@@ -33,6 +34,7 @@ func effectiveMaintainerCutover(repository *triggersv1alpha1.GitHubRepository) t
 	return triggersv1alpha1.MaintainerWorkItemCutoverController
 }
 
+//nolint:gocyclo // Guard ordering is intentionally centralized around the irreversible merge boundary.
 func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, githubClient maintainerGitHubDeliveryClient, pending bool) error {
 	request := command.Spec.RequestMerge
 	if effectiveMaintainerCutover(repository) != triggersv1alpha1.MaintainerWorkItemCutoverController {
@@ -243,6 +245,7 @@ func maintainerAcceptedScopeHash(scope *triggersv1alpha1.MaintainerAcceptedScope
 	return hex.EncodeToString(sum[:])
 }
 
+//nolint:gocyclo // Finalization keeps structural gates and ordered idempotent side effects in one state machine.
 func (r *GitHubRepositoryReconciler) processMaintainerFinalizeWorkItem(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, githubClient GitHubTriageClient, deliveryClient maintainerGitHubDeliveryClient, pending bool) error {
 	request := command.Spec.Finalize
 	if effectiveMaintainerCutover(repository) != triggersv1alpha1.MaintainerWorkItemCutoverController {
@@ -301,7 +304,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerFinalizeWorkItem(ctx conte
 	if err != nil {
 		return r.failMaintainerWorkItemCommand(ctx, command, fresh, "reading issue before finalization: "+err.Error())
 	}
-	closedState, completedReason := "closed", string(triggersv1alpha1.MaintainerWorkItemCloseReasonCompleted)
+	closedState, completedReason := maintainerGitHubIssueStateClosed, string(triggersv1alpha1.MaintainerWorkItemCloseReasonCompleted)
 	if !strings.EqualFold(issue.GetState(), closedState) || !strings.EqualFold(issue.GetStateReason(), completedReason) {
 		if _, _, err := githubClient.EditIssue(ctx, repository.Spec.Owner, repository.Spec.Repo, int(fresh.Spec.IssueNumber), &github.IssueRequest{State: &closedState, StateReason: &completedReason}); err != nil {
 			return r.failMaintainerWorkItemCommand(ctx, command, fresh, "closing issue after run-success requests: "+err.Error())
@@ -321,6 +324,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerFinalizeWorkItem(ctx conte
 	return r.completeMaintainerWorkItemCommand(ctx, command, fresh, "all structural predicates, authenticated delivery attestation, run-success requests, and issue closure were verified", "", triggersv1alpha1.MaintainerIssueStateClosed)
 }
 
+//nolint:gocyclo // Each fail-closed predicate is reported independently to preserve actionable audit output.
 func (r *GitHubRepositoryReconciler) maintainerFinalizationUnmet(ctx context.Context, item *triggersv1alpha1.MaintainerWorkItem, request *triggersv1alpha1.MaintainerFinalizeWorkItemCommand) ([]string, error) {
 	var unmet []string
 	if item.Spec.AcceptedScope == nil || maintainerAcceptedScopeHash(item.Spec.AcceptedScope) != request.AcceptedScopeHash {
