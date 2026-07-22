@@ -30,6 +30,7 @@ export const emptyScenario: Scenario = {
   projects: [],
   linearProjects: [],
   githubRepositories: [],
+  maintainerWorkItems: {},
   crons: [],
   slackAgents: [],
   slackWorkspaces: [],

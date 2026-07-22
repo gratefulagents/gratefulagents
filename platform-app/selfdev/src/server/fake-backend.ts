@@ -38,6 +38,7 @@ import {
   ListCronsResponseSchema,
   ListGitHubRepositoriesResponseSchema,
   ListLinearProjectsResponseSchema,
+  ListMaintainerWorkItemsResponseSchema,
   ListNotificationsResponseSchema,
   ListProjectsResponseSchema,
   ListRepositoriesResponseSchema,
@@ -350,6 +351,10 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       }
       await clientGone(ctx);
     },
+    listMaintainerWorkItems: async (req: { namespace: string; repositoryName: string }) =>
+      create(ListMaintainerWorkItemsResponseSchema, {
+        items: s.maintainerWorkItems[runKey(req.namespace, req.repositoryName)] ?? [],
+      }),
     getGitHubAppConfig: async () =>
       create(GitHubAppConfigSchema, {
         configured: true,

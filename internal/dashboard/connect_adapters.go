@@ -976,6 +976,14 @@ func (h *PlatformServiceConnectHandler) GetGitHubRepository(ctx context.Context,
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) ListMaintainerWorkItems(ctx context.Context, req *connect.Request[platform.ListMaintainerWorkItemsRequest]) (*connect.Response[platform.ListMaintainerWorkItemsResponse], error) {
+	resp, err := h.srv.ListMaintainerWorkItems(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) WatchGitHubRepositories(ctx context.Context, req *connect.Request[platform.WatchGitHubRepositoriesRequest], stream *connect.ServerStream[platform.GitHubRepositoryEvent]) error {
 	return h.srv.WatchGitHubRepositories(ctx, req.Msg, stream)
 }

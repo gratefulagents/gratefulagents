@@ -11,12 +11,13 @@ import {
   GitHubRepositoryTriggerSettingsSchema,
 } from "@/rpc/platform/service_pb";
 
-const { getActivityLog } = vi.hoisted(() => ({
+const { getActivityLog, listMaintainerWorkItems } = vi.hoisted(() => ({
   getActivityLog: vi.fn(),
+  listMaintainerWorkItems: vi.fn(),
 }));
 
 vi.mock("@/lib/client", () => ({
-  client: { getActivityLog },
+  client: { getActivityLog, listMaintainerWorkItems },
 }));
 
 afterEach(() => {
@@ -45,6 +46,7 @@ function repository(state = "healthy", enabled = true) {
 
 function renderPanel(state = "healthy", enabled = true) {
   getActivityLog.mockResolvedValue({ entries: [] });
+  listMaintainerWorkItems.mockResolvedValue({ items: [] });
   render(
     <MemoryRouter>
       <MaintainerPanel repo={repository(state, enabled)} />
@@ -65,6 +67,7 @@ describe("MaintainerPanel", () => {
 
   it("loads parsed maintainer report events and expands their decisions", async () => {
     const decisions = "The issue lacks reproduction steps, so I left it unassigned for now.";
+    listMaintainerWorkItems.mockResolvedValue({ items: [] });
     getActivityLog
       .mockResolvedValueOnce({
         entries: [
@@ -140,6 +143,7 @@ describe("MaintainerPanel", () => {
     renderPanel("healthy", false);
     expect(screen.getByText("Enable it in repository settings.")).toBeTruthy();
     expect(getActivityLog).not.toHaveBeenCalled();
+    expect(listMaintainerWorkItems).not.toHaveBeenCalled();
   });
 
   it("links to the standing maintainer run", () => {
@@ -147,5 +151,111 @@ describe("MaintainerPanel", () => {
     expect(screen.getByRole("link", { name: "acme-payments-maintainer" }).getAttribute("href")).toBe(
       "/runs/user-alice/acme-payments-maintainer",
     );
+  });
+
+  it("lists work items with phase, decision, PR facts, and run links", async () => {
+    getActivityLog.mockResolvedValue({ entries: [] });
+    listMaintainerWorkItems.mockResolvedValue({
+      items: [
+        {
+          name: "acme-wi-42",
+          issueNumber: 42,
+          issueTitle: "Fix login bug",
+          issueUrl: "https://github.com/acme/payments/issues/42",
+          phase: "AwaitingDecision",
+          readyToDispatch: false,
+          readyToMerge: false,
+          unmetRequirements: [],
+          pendingDecision: { id: "d-1", question: "Merge now?", options: ["yes", "no"] },
+          agentRuns: [{ name: "acme-wi-42-impl", role: "implementer", phase: "Running" }],
+          pullRequests: [
+            {
+              repository: "acme/payments",
+              number: 77,
+              url: "https://github.com/acme/payments/pull/77",
+              state: "open",
+              checkState: "Passing",
+              reviewDecision: "CHANGES_REQUESTED",
+            },
+          ],
+          childrenTotal: 0,
+          childrenDelivered: 0,
+          dependenciesTotal: 0,
+          dependenciesDelivered: 0,
+          latestCommandPhase: "Rejected",
+          latestCommandType: "RequestMerge",
+          latestCommandMessage: "capacity exhausted",
+        },
+        {
+          name: "acme-wi-41",
+          issueNumber: 41,
+          issueTitle: "Shipped thing",
+          phase: "Delivered",
+          deliverySummary: "Fixed and released",
+          unmetRequirements: [],
+          agentRuns: [],
+          pullRequests: [],
+          childrenTotal: 0,
+          childrenDelivered: 0,
+          dependenciesTotal: 0,
+          dependenciesDelivered: 0,
+        },
+        {
+          name: "acme-wi-40",
+          issueNumber: 40,
+          issueTitle: "Rejected idea",
+          phase: "Triaged",
+          disposition: "NotActionable",
+          closeReason: "not_planned",
+          unmetRequirements: [],
+          agentRuns: [],
+          pullRequests: [],
+          childrenTotal: 0,
+          childrenDelivered: 0,
+          dependenciesTotal: 0,
+          dependenciesDelivered: 0,
+        },
+      ],
+    });
+    render(
+      <MemoryRouter>
+        <MaintainerPanel repo={repository()} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/1 active · 1 needs your decision/)).toBeTruthy();
+    expect(listMaintainerWorkItems).toHaveBeenCalledWith({
+      namespace: "user-alice",
+      repositoryName: "acme-payments",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Work items/ }));
+    expect(await screen.findByText("Needs decision")).toBeTruthy();
+    expect(screen.getByText("Merge now?")).toBeTruthy();
+    expect(screen.getByText("Options: yes · no")).toBeTruthy();
+    expect(screen.getByText(/RequestMerge command rejected: capacity exhausted/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Fix login bug" }).getAttribute("href")).toBe(
+      "https://github.com/acme/payments/issues/42",
+    );
+    expect(screen.getByRole("link", { name: "acme/payments#77" }).getAttribute("href")).toBe(
+      "https://github.com/acme/payments/pull/77",
+    );
+    expect(screen.getByRole("link", { name: "acme-wi-42-impl (Running)" }).getAttribute("href")).toBe(
+      "/runs/user-alice/acme-wi-42-impl",
+    );
+    expect(screen.getByText(/checks passing · changes requested/)).toBeTruthy();
+    expect(screen.getByText("Delivered")).toBeTruthy();
+    expect(screen.getByText("Fixed and released")).toBeTruthy();
+    // NotActionable is terminal: presented by disposition, not counted active.
+    expect(screen.getByText("Not actionable")).toBeTruthy();
+  });
+
+  it("shows the empty work-item state", async () => {
+    renderPanel();
+    expect(await screen.findByText("None yet")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Work items/ }));
+    expect(
+      await screen.findByText("No work items yet — the maintainer files each triaged issue here."),
+    ).toBeTruthy();
   });
 });

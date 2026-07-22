@@ -18,6 +18,7 @@ import {
   GitHubRepositorySchema,
   GitIdentitySchema,
   LinearProjectSchema,
+  MaintainerWorkItemSchema,
   MyCredentialsSchema,
   MyOpenAIUsageSchema,
   NotificationInfoSchema,
@@ -901,8 +902,127 @@ const githubRepositories = [
     metrics: metrics({ totalRuns: 54, successfulRuns: 49, failedRuns: 3, runningRuns: 2 }),
     resourceOwner: OWNER,
     myPermission: "owner",
+    triggerSettings: {
+      maintainerEnabled: true,
+      maintainerMaxDispatchesPerDay: 10,
+    },
+    maintainerStatus: {
+      runName: "project-operator-app-github-issues-maintainer",
+      lastWakeUnix: unix(minutesAgo(42)),
+      dispatchesToday: 3,
+      lastReportTimeUnix: unix(hoursAgo(2)),
+      lastReportState: "healthy",
+      lastReportSummary:
+        "Backlog triaged: dispatched 2 issues, 1 PR awaiting human review, no blocked work.",
+    },
   }),
 ];
+
+// Durable maintainer work items for gh-operator, covering every dashboard
+// state: pending decision, implementing with a rejected command, ready to
+// merge, delivered, and closed as not actionable.
+const maintainerWorkItems = {
+  [`${NS}/gh-operator`]: [
+    create(MaintainerWorkItemSchema, {
+      namespace: NS,
+      name: "gh-operator-wi-214",
+      repositoryName: "gh-operator",
+      issueNumber: 214,
+      issueTitle: "Support SSO login for the operator console",
+      issueUrl: "https://github.com/acme/operator-app/issues/214",
+      issueState: "open",
+      disposition: "Bounded",
+      phase: "AwaitingDecision",
+      evidenceSummary: "Feature is bounded to the auth module; needs a product call on the IdP.",
+      pendingDecision: {
+        id: "sso-idp",
+        question: "Which identity provider should SSO target first?",
+        options: ["Okta", "Azure AD", "Both"],
+        requestedAtUnix: unix(hoursAgo(3)),
+      },
+      createdAtUnix: unix(daysAgo(2)),
+    }),
+    create(MaintainerWorkItemSchema, {
+      namespace: NS,
+      name: "gh-operator-wi-209",
+      repositoryName: "gh-operator",
+      issueNumber: 209,
+      issueTitle: "Retry webhook deliveries with exponential backoff",
+      issueUrl: "https://github.com/acme/operator-app/issues/209",
+      issueState: "open",
+      disposition: "Bounded",
+      phase: "Implementing",
+      agentRuns: [
+        { name: "gh-operator-wi-209-impl", role: "implementer", phase: "Running", prLoopState: "reviewing" },
+      ],
+      pullRequests: [
+        {
+          repository: "acme/operator-app",
+          number: 512,
+          url: "https://github.com/acme/operator-app/pull/512",
+          state: "open",
+          checkState: "Pending",
+          reviewDecision: "CHANGES_REQUESTED",
+        },
+      ],
+      latestCommandType: "RequestMerge",
+      latestCommandPhase: "Rejected",
+      latestCommandMessage: "pull request has changes requested; merge readiness not met",
+      createdAtUnix: unix(daysAgo(3)),
+    }),
+    create(MaintainerWorkItemSchema, {
+      namespace: NS,
+      name: "gh-operator-wi-198",
+      repositoryName: "gh-operator",
+      issueNumber: 198,
+      issueTitle: "Fix flaky namespace cleanup in e2e suite",
+      issueUrl: "https://github.com/acme/operator-app/issues/198",
+      issueState: "open",
+      disposition: "Bounded",
+      phase: "ReadyToMerge",
+      readyToMerge: true,
+      pullRequests: [
+        {
+          repository: "acme/operator-app",
+          number: 508,
+          url: "https://github.com/acme/operator-app/pull/508",
+          state: "open",
+          checkState: "Passing",
+          reviewDecision: "APPROVED",
+        },
+      ],
+      createdAtUnix: unix(daysAgo(5)),
+    }),
+    create(MaintainerWorkItemSchema, {
+      namespace: NS,
+      name: "gh-operator-wi-186",
+      repositoryName: "gh-operator",
+      issueNumber: 186,
+      issueTitle: "Expose run cost totals in the usage API",
+      issueUrl: "https://github.com/acme/operator-app/issues/186",
+      issueState: "closed",
+      disposition: "Bounded",
+      phase: "Delivered",
+      deliverySummary: "Merged #501; usage API now returns per-run cost totals.",
+      deliveredAtUnix: unix(daysAgo(1)),
+      createdAtUnix: unix(daysAgo(9)),
+    }),
+    create(MaintainerWorkItemSchema, {
+      namespace: NS,
+      name: "gh-operator-wi-201",
+      repositoryName: "gh-operator",
+      issueNumber: 201,
+      issueTitle: "Rewrite the operator in Haskell",
+      issueUrl: "https://github.com/acme/operator-app/issues/201",
+      issueState: "closed",
+      disposition: "NotActionable",
+      closeReason: "not_planned",
+      phase: "Triaged",
+      evidenceSummary: "Out of scope for the project; closed as not planned.",
+      createdAtUnix: unix(daysAgo(4)),
+    }),
+  ],
+};
 
 const crons = [
   create(CronSchema, {
@@ -1223,6 +1343,7 @@ export const defaultScenario: Scenario = {
   projects,
   linearProjects,
   githubRepositories,
+  maintainerWorkItems,
   crons,
   slackAgents,
   slackWorkspaces,

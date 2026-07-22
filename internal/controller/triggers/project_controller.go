@@ -417,7 +417,7 @@ func (r *ProjectReconciler) upsertGeneratedChild(ctx context.Context, desired cl
 		return nil
 	}
 	current.SetLabels(desired.GetLabels())
-	current.SetAnnotations(desired.GetAnnotations())
+	current.SetAnnotations(mergeGeneratedAnnotations(current.GetAnnotations(), desired.GetAnnotations()))
 	current.SetOwnerReferences(desired.GetOwnerReferences())
 	switch current := current.(type) {
 	case *triggersv1alpha1.GitHubRepository:
@@ -438,7 +438,7 @@ func (r *ProjectReconciler) upsertGeneratedChild(ctx context.Context, desired cl
 }
 
 func generatedChildEqual(current, desired client.Object) bool {
-	if !reflect.DeepEqual(current.GetLabels(), desired.GetLabels()) || !reflect.DeepEqual(current.GetAnnotations(), desired.GetAnnotations()) || !reflect.DeepEqual(current.GetOwnerReferences(), desired.GetOwnerReferences()) {
+	if !reflect.DeepEqual(current.GetLabels(), desired.GetLabels()) || !generatedAnnotationsCurrent(current.GetAnnotations(), desired.GetAnnotations()) || !reflect.DeepEqual(current.GetOwnerReferences(), desired.GetOwnerReferences()) {
 		return false
 	}
 	switch current := current.(type) {
@@ -453,6 +453,35 @@ func generatedChildEqual(current, desired client.Object) bool {
 	default:
 		panic(fmt.Sprintf("unsupported generated child type %T", current))
 	}
+}
+
+// generatedAnnotationsCurrent reports whether every project-managed annotation
+// on the desired child is already present with the same value. Annotations the
+// project controller does not manage (for example the maintainer dispatch
+// reservation ledger written at runtime) are ignored so drift detection does
+// not fight runtime state.
+func generatedAnnotationsCurrent(current, desired map[string]string) bool {
+	for key, value := range desired {
+		if current[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+// mergeGeneratedAnnotations overlays the project-managed annotations onto the
+// child's existing annotations. Runtime-owned annotations (such as the
+// maintainer dispatch reservation ledger) must survive regeneration: wiping
+// them cancels in-flight dispatch reservations and hard-blocks the maintainer.
+func mergeGeneratedAnnotations(current, desired map[string]string) map[string]string {
+	merged := make(map[string]string, len(current)+len(desired))
+	for key, value := range current {
+		merged[key] = value
+	}
+	for key, value := range desired {
+		merged[key] = value
+	}
+	return merged
 }
 
 func (r *ProjectReconciler) cleanupGeneratedChildren(ctx context.Context, project *triggersv1alpha1.Project, desired map[string]client.Object) error {
