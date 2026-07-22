@@ -1,0 +1,325 @@
+{{- if .Values.crd.enable }}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: maintainerworkitemcommands.triggers.gratefulagents.dev
+spec:
+  group: triggers.gratefulagents.dev
+  names:
+    kind: MaintainerWorkItemCommand
+    listKind: MaintainerWorkItemCommandList
+    plural: maintainerworkitemcommands
+    singular: maintainerworkitemcommand
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.repositoryRef.name
+      name: Repository
+      type: string
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.result.workItemRef.name
+      name: WorkItem
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: MaintainerWorkItemCommand is an immutable command submitted for
+          maintainer triage.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MaintainerWorkItemCommandSpec defines an immutable, idempotent
+              command request.
+            properties:
+              idempotencyKey:
+                maxLength: 128
+                minLength: 1
+                pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]*$
+                type: string
+              issuer:
+                description: MaintainerWorkItemCommandIssuer identifies the run that
+                  issued a command.
+                properties:
+                  proof:
+                    description: Proof is an HMAC from the issuer run's private command
+                      capability.
+                    pattern: ^[a-f0-9]{64}$
+                    type: string
+                  runName:
+                    minLength: 1
+                    type: string
+                  uid:
+                    description: |-
+                      UID is a type that holds unique ID values, including UUIDs.  Because we
+                      don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                      intent and helps make sure that UIDs and names do not get conflated.
+                    type: string
+                required:
+                - proof
+                - runName
+                - uid
+                type: object
+              payloadHash:
+                pattern: ^[a-f0-9]{64}$
+                type: string
+              preconditions:
+                description: MaintainerWorkItemCommandPreconditions identify the projection
+                  expected by a command.
+                properties:
+                  projectionSequence:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  resourceVersion:
+                    minLength: 1
+                    type: string
+                  workItemName:
+                    minLength: 1
+                    type: string
+                required:
+                - projectionSequence
+                - resourceVersion
+                - workItemName
+                type: object
+              repositoryRef:
+                description: |-
+                  LocalObjectReference contains enough information to let you locate the
+                  referenced object inside the same namespace.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              triage:
+                description: MaintainerTriageCommand is the typed payload for a TriageIssue
+                  command.
+                properties:
+                  acceptedScope:
+                    description: MaintainerAcceptedScope records the scope accepted
+                      by triage.
+                    properties:
+                      acceptanceCriteria:
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      statement:
+                        type: string
+                    type: object
+                  closeReason:
+                    description: MaintainerWorkItemCloseReason is the GitHub close
+                      reason selected by triage.
+                    enum:
+                    - not_planned
+                    - completed
+                    type: string
+                  disposition:
+                    description: MaintainerWorkItemDisposition is the accepted triage
+                      disposition for an issue.
+                    enum:
+                    - NotActionable
+                    - Bounded
+                    - Decomposable
+                    - Discovery
+                    - Escalated
+                    type: string
+                  evidenceSummary:
+                    minLength: 1
+                    type: string
+                  issueNumber:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - acceptedScope
+                - disposition
+                - evidenceSummary
+                - issueNumber
+                type: object
+                x-kubernetes-validations:
+                - message: closeReason is required when disposition is NotActionable
+                  rule: '!has(self.disposition) || self.disposition != ''NotActionable''
+                    || has(self.closeReason)'
+                - message: closeReason is only valid when disposition is NotActionable
+                  rule: '!has(self.closeReason) || (has(self.disposition) && self.disposition
+                    == ''NotActionable'')'
+              type:
+                description: MaintainerWorkItemCommandType identifies the command
+                  payload type.
+                enum:
+                - TriageIssue
+                type: string
+            required:
+            - idempotencyKey
+            - issuer
+            - payloadHash
+            - preconditions
+            - repositoryRef
+            - type
+            type: object
+            x-kubernetes-validations:
+            - message: triage is required when type is TriageIssue
+              rule: self.type != 'TriageIssue' || has(self.triage)
+          status:
+            description: MaintainerWorkItemCommandStatus defines the durable receipt
+              for a command.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                description: MaintainerWorkItemCommandPhase is the command receipt
+                  phase.
+                enum:
+                - Pending
+                - Accepted
+                - Succeeded
+                - Rejected
+                - Failed
+                type: string
+              result:
+                description: MaintainerWorkItemCommandResult records the externally
+                  visible command result.
+                properties:
+                  applied:
+                    type: boolean
+                  commentURL:
+                    type: string
+                  completedAt:
+                    format: date-time
+                    type: string
+                  issueState:
+                    description: MaintainerIssueState is the observed GitHub issue
+                      state.
+                    enum:
+                    - open
+                    - closed
+                    type: string
+                  message:
+                    type: string
+                  workItemRef:
+                    description: |-
+                      LocalObjectReference contains enough information to let you locate the
+                      referenced object inside the same namespace.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - applied
+                - message
+                - workItemRef
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: spec is immutable
+          rule: self.spec == oldSelf.spec
+    served: true
+    storage: true
+    subresources:
+      status: {}
+{{- end }}

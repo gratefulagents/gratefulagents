@@ -14,9 +14,45 @@ import (
 	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const maintainerEventsTestWorkItemName = "issue-7"
+
+type noWatchClient struct{ client.Client }
+
+type gapSafeWatchClient struct {
+	client.WithWatch
+	resourceVersion string
+	replay          runtime.Object
+}
+
+func (c *gapSafeWatchClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if err := c.WithWatch.List(ctx, list, opts...); err != nil {
+		return err
+	}
+	list.SetResourceVersion(c.resourceVersion)
+	return nil
+}
+
+func (c *gapSafeWatchClient) Watch(_ context.Context, _ client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
+	options := &client.ListOptions{}
+	for _, option := range opts {
+		option.ApplyToList(options)
+	}
+	if options.Raw == nil || options.Raw.ResourceVersion != c.resourceVersion {
+		return nil, errors.New("watch did not start at snapshot resourceVersion")
+	}
+	watcher := watch.NewRaceFreeFake()
+	watcher.Add(c.replay)
+	return watcher, nil
+}
 
 type maintainerFakeRunner struct {
 	out   map[string]string
@@ -65,6 +101,7 @@ func TestMaintainerBacklogFingerprintAndCursorRoundTrip(t *testing.T) {
 		IssueSignatures:       baseline.issueSignatures,
 		FleetSignatures:       map[string]string{"run": "signature"},
 		PullRequestSignatures: map[string]string{},
+		WorkItemSignatures:    map[string]string{},
 	}
 	encoded, err := encodeMaintainerRepoEventsCursor(want)
 	if err != nil {
@@ -81,9 +118,9 @@ func TestMaintainerBacklogFingerprintAndCursorRoundTrip(t *testing.T) {
 
 func TestWaitForRepoEventsReturnsCursorDeltaWithoutSleeping(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
-	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: "implementer", AgentRunNS: "default"}
+	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: maintainerTestFleetRunName, AgentRunNS: maintainerTestNamespace}
 	runner := &maintainerFakeRunner{out: map[string]string{
 		"issue list --state open --json number,title,labels,updatedAt,url --limit 200": `[{"number":4,"title":"new work","labels":[{"name":"bug"}],"updatedAt":"2026-01-04T00:00:00Z","url":"https://example.test/issues/4"}]`,
 	}}
@@ -126,25 +163,25 @@ func TestWaitForRepoEventsReturnsCursorDeltaWithoutSleeping(t *testing.T) {
 
 func TestFleetEventConditionIncludesPendingInput(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
-	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: "implementer", AgentRunNS: "default", PendingInputType: "question", PendingRequestID: "request"}
+	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: maintainerTestFleetRunName, AgentRunNS: maintainerTestNamespace, PendingInputType: "question", PendingRequestID: "request"}
 	tool := &waitForRepoEventsTool{maintainerToolBase: base}
 	snapshot, err := tool.fleetEventsSnapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := snapshot.fleet["implementer"]
-	if !event.PendingInput || snapshot.fleetSignatures["implementer"] == "" {
+	event := snapshot.fleet[maintainerTestFleetRunName]
+	if !event.PendingInput || snapshot.fleetSignatures[maintainerTestFleetRunName] == "" {
 		t.Fatalf("fleet event = %#v, signatures = %#v", event, snapshot.fleetSignatures)
 	}
 }
 
 func TestWaitForRepoEventsFirstCallReturnsCurrentStateImmediately(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseSucceeded)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseSucceeded)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
-	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: "implementer", AgentRunNS: "default"}
+	stateStore.sessions["default/implementer"] = &store.Session{AgentRunName: maintainerTestFleetRunName, AgentRunNS: maintainerTestNamespace}
 	runner := &maintainerFakeRunner{out: map[string]string{
 		"issue list --state open --json number,title,labels,updatedAt,url --limit 200": `[{"number":9,"title":"open work","labels":[{"name":"autopilot"}],"updatedAt":"2026-01-09T00:00:00Z","url":"https://example.test/issues/9"}]`,
 	}}
@@ -172,7 +209,7 @@ func TestWaitForRepoEventsFirstCallReturnsCurrentStateImmediately(t *testing.T) 
 	if len(output.ChangedIssues) != 1 || output.ChangedIssues[0].Number != 9 {
 		t.Fatalf("changed issues = %#v", output.ChangedIssues)
 	}
-	if len(output.FleetChanges) != 1 || output.FleetChanges[0].Name != "implementer" {
+	if len(output.FleetChanges) != 1 || output.FleetChanges[0].Name != maintainerTestFleetRunName {
 		t.Fatalf("fleet changes = %#v", output.FleetChanges)
 	}
 	if _, err := decodeMaintainerRepoEventsCursor(output.Cursor); err != nil {
@@ -191,7 +228,7 @@ func TestRepoEventsCursorAcknowledgesOnlyEmittedIssues(t *testing.T) {
 
 	// Emit only the first 25 issues, as a cap or byte-budget trim would.
 	emitted := append([]maintainerRepoEventIssue(nil), current.issues[:25]...)
-	cursor := repoEventsCursorForEmitted(maintainerRepoEventsSnapshot{}, current, emitted, nil, nil)
+	cursor := repoEventsCursorForEmitted(maintainerRepoEventsSnapshot{}, current, emitted, nil, nil, nil)
 	if cursor.BacklogFingerprint == current.backlogFingerprint {
 		t.Fatal("suppressed issues must keep the cursor distinct from the live snapshot")
 	}
@@ -216,7 +253,7 @@ func TestRepoEventsCursorAcknowledgesOnlyEmittedIssues(t *testing.T) {
 
 	// Once everything is emitted the cursor converges with the live snapshot
 	// and a further wait blocks instead of spinning.
-	fullCursor := repoEventsCursorForEmitted(previous, current, remaining, nil, nil)
+	fullCursor := repoEventsCursorForEmitted(previous, current, remaining, nil, nil, nil)
 	if fullCursor.BacklogFingerprint != current.backlogFingerprint {
 		t.Fatal("fully acknowledged cursor must match the live fingerprint")
 	}
@@ -276,7 +313,7 @@ func maintainerPullRequestRunnerOutputs(checkStatus, conclusion, reviewDecision 
 func TestRepoEventsDetectsPullRequestCIPendingToPassed(t *testing.T) {
 	runner := &maintainerFakeRunner{out: maintainerPullRequestRunnerOutputs("in_progress", "", "REVIEW_REQUIRED")}
 	tool := &waitForRepoEventsTool{runner: runner}
-	fleet := map[string]maintainerRepoFleetEvent{"implementer": {PullRequestURLs: []string{maintainerTestPullRequestURL}}}
+	fleet := map[string]maintainerRepoFleetEvent{maintainerTestFleetRunName: {PullRequestURLs: []string{maintainerTestPullRequestURL}}}
 
 	pending, err := tool.pullRequestEventsSnapshot(context.Background(), maintainerTestGitRepoDir(t), fleet)
 	if err != nil {
@@ -410,11 +447,137 @@ func TestMaintainerRepoEventsCursorDecodesOlderSnapshots(t *testing.T) {
 	if cursor.PullRequestSignatures == nil || len(cursor.PullRequestSignatures) != 0 {
 		t.Fatalf("pull request signatures = %#v", cursor.PullRequestSignatures)
 	}
+	if cursor.WorkItemSignatures == nil || len(cursor.WorkItemSignatures) != 0 {
+		t.Fatalf("work item signatures = %#v", cursor.WorkItemSignatures)
+	}
+}
+
+func TestWorkItemWaitRejectsClientWithoutWatch(t *testing.T) {
+	t.Parallel()
+
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	base.k8sClient = &noWatchClient{Client: k8sClient}
+	_, watcher, err := (&waitForRepoEventsTool{maintainerToolBase: base}).workItemSnapshotAndWatch(context.Background())
+	if err == nil || watcher != nil || !strings.Contains(err.Error(), "does not support") {
+		t.Fatalf("watcher=%#v err=%v", watcher, err)
+	}
+}
+
+func TestWorkItemCurrentSnapshotPlusWatchCannotLoseCreate(t *testing.T) {
+	maintainer := maintainerRun()
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainer)
+	watchClient, ok := k8sClient.(client.WithWatch)
+	if !ok {
+		t.Fatal("fake Kubernetes client does not support watch")
+	}
+	gapClient := &gapSafeWatchClient{WithWatch: watchClient, resourceVersion: "snapshot-rv"}
+	base.k8sClient = gapClient
+	tool := &waitForRepoEventsTool{maintainerToolBase: base}
+
+	baseline, err := tool.workItemEventsSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor, err := encodeMaintainerRepoEventsCursor(maintainerRepoEventsCursor{
+		IssueSignatures: map[string]string{}, FleetSignatures: map[string]string{}, WorkItemSignatures: baseline.workItemSignatures,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeMaintainerRepoEventsCursor(cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := snapshotFromMaintainerRepoEventsCursor(decoded)
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: maintainerEventsTestWorkItemName, Namespace: maintainerTestNamespace,
+			Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: maintainerTestRepositoryName},
+		},
+		Spec: triggersv1alpha1.MaintainerWorkItemSpec{
+			RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 7,
+			Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded,
+		},
+		Status: triggersv1alpha1.MaintainerWorkItemStatus{
+			Phase: triggersv1alpha1.MaintainerWorkItemPhaseTriaged, ProjectionSequence: 3,
+			Conditions: []metav1.Condition{{Type: triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh, Status: metav1.ConditionTrue}},
+		},
+	}
+	gapClient.replay = item
+	var createErr error
+	tool.beforeWorkItemWatch = func() {
+		// This mutation lands after the current snapshot List but before Watch.
+		// Starting the watch from that List's resourceVersion must replay it.
+		createErr = k8sClient.Create(context.Background(), item)
+	}
+	currentBeforeCreate, watcher, err := tool.workItemSnapshotAndWatch(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+	if watcher == nil {
+		t.Fatal("fake Kubernetes client does not support watch")
+	}
+	defer watcher.Stop()
+	if repoEventsChanged(previous, currentBeforeCreate) {
+		t.Fatal("snapshot unexpectedly included the between-list-and-watch create")
+	}
+	select {
+	case event := <-watcher.ResultChan():
+		if event.Type != watch.Added {
+			t.Fatalf("watch event = %s, want Added", event.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("create between List and Watch was lost")
+	}
+
+	current, err := tool.workItemEventsSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repoEventsChanged(previous, current) {
+		t.Fatal("watched work-item snapshot did not detect creation")
+	}
+	changes := changedRepoWorkItemEvents(previous, current)
+	if len(changes) != 1 || changes[0].Name != maintainerEventsTestWorkItemName || changes[0].IssueNumber != 7 || !changes[0].ObservationFresh || changes[0].ProjectionSequence != 3 {
+		t.Fatalf("work item changes = %#v", changes)
+	}
+	initial, err := tool.repoEventsResult(maintainerRepoEventsSnapshot{}, current, true, false, time.Time{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var initialOutput waitForRepoEventsOutput
+	if err := json.Unmarshal([]byte(initial.Content), &initialOutput); err != nil {
+		t.Fatal(err)
+	}
+	if len(initialOutput.WorkItemChanges) != 1 || initialOutput.WorkItemChanges[0].Name != maintainerEventsTestWorkItemName {
+		t.Fatalf("initial work item output = %#v", initialOutput.WorkItemChanges)
+	}
+	result, err := tool.repoEventsResult(previous, current, true, false, time.Time{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output waitForRepoEventsOutput
+	if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.WorkItemChanges) != 1 || output.WorkItemChanges[0].Name != maintainerEventsTestWorkItemName {
+		t.Fatalf("work item output = %#v", output.WorkItemChanges)
+	}
+	acknowledged, err := decodeMaintainerRepoEventsCursor(output.Cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repoEventsChanged(snapshotFromMaintainerRepoEventsCursor(acknowledged), current) {
+		t.Fatal("emitted work item must be acknowledged by the cursor")
+	}
 }
 
 func TestWaitForRepoEventsFirstSnapshotIncludesPullRequestChanges(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	run.Status.Artifacts = &platformv1alpha1.AgentRunArtifacts{PullRequestURLs: []string{maintainerTestPullRequestURL}}
 	base, _, _ := newMaintainerToolBase(t, maintainer, run)
 	runner := &maintainerFakeRunner{out: maintainerPullRequestRunnerOutputs("completed", "success", "APPROVED")}
@@ -446,7 +609,7 @@ func TestWaitForRepoEventsFirstSnapshotIncludesPullRequestChanges(t *testing.T) 
 
 func TestWaitForRepoEventsDegradesOnFleetSnapshotError(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
 	stateStore.sessionErr = errors.New("state store unavailable")
 	runner := &maintainerFakeRunner{out: map[string]string{
@@ -500,7 +663,7 @@ func TestChangedRepoEventIssuesEmitsRemovals(t *testing.T) {
 	}
 
 	// An emitted removal is acknowledged; the cursor converges with live state.
-	cursor := repoEventsCursorForEmitted(previous, current, changes, nil, nil)
+	cursor := repoEventsCursorForEmitted(previous, current, changes, nil, nil, nil)
 	if cursor.BacklogFingerprint != current.backlogFingerprint {
 		t.Fatalf("cursor fingerprint = %q, want live %q", cursor.BacklogFingerprint, current.backlogFingerprint)
 	}
@@ -510,7 +673,7 @@ func TestChangedRepoEventIssuesEmitsRemovals(t *testing.T) {
 
 	// A trimmed (not emitted) removal stays pending instead of being silently
 	// acknowledged.
-	trimmed := repoEventsCursorForEmitted(previous, current, nil, nil, nil)
+	trimmed := repoEventsCursorForEmitted(previous, current, nil, nil, nil, nil)
 	if !repoEventsChanged(snapshotFromMaintainerRepoEventsCursor(trimmed), current) {
 		t.Fatal("suppressed removal was silently acknowledged")
 	}
@@ -548,7 +711,7 @@ func TestPullRequestEventKeepsUnknownMergeabilityDistinct(t *testing.T) {
 
 func TestWaitForRepoEventsSkipsPullRequestPollingWhileFleetDegraded(t *testing.T) {
 	maintainer := maintainerRun()
-	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	run := fleetRun(maintainerTestFleetRunName, platformv1alpha1.AgentRunPhaseRunning)
 	base, _, stateStore := newMaintainerToolBase(t, maintainer, run)
 	stateStore.sessionErr = errors.New("state store unavailable")
 	runner := &maintainerFakeRunner{out: map[string]string{

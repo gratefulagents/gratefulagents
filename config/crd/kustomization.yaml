@@ -18,6 +18,8 @@ resources:
 - bases/platform.gratefulagents.dev_skills.yaml
 
 - bases/triggers.gratefulagents.dev_githubrepositories.yaml
+- bases/triggers.gratefulagents.dev_maintainerworkitems.yaml
+- bases/triggers.gratefulagents.dev_maintainerworkitemcommands.yaml
 - bases/triggers.gratefulagents.dev_pullrequestmonitors.yaml
 - bases/triggers.gratefulagents.dev_projects.yaml
 - bases/triggers.gratefulagents.dev_slackagents.yaml

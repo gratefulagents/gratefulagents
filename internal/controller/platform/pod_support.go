@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -216,6 +217,22 @@ func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifi
 			Verbs:         []string{"get"},
 		},
 		rbacv1.PolicyRule{
+			APIGroups:     []string{""},
+			Resources:     []string{"secrets"},
+			ResourceNames: []string{triggersv1alpha1.MaintainerCommandCapabilitySecretName(currentName)},
+			Verbs:         []string{"get"},
+		},
+		rbacv1.PolicyRule{
+			APIGroups: []string{"triggers.gratefulagents.dev"},
+			Resources: []string{"maintainerworkitems"},
+			Verbs:     []string{"get", "list", "watch"},
+		},
+		rbacv1.PolicyRule{
+			APIGroups: []string{"triggers.gratefulagents.dev"},
+			Resources: []string{"maintainerworkitemcommands"},
+			Verbs:     []string{"create", "get", "list", "watch"},
+		},
+		rbacv1.PolicyRule{
 			APIGroups: []string{"platform.gratefulagents.dev"},
 			Resources: []string{"modetemplates"},
 			Verbs:     []string{"get", "list"},
@@ -267,6 +284,11 @@ func ensureRunRBAC(ctx context.Context, c client.Client, run *platformv1alpha1.A
 	if err != nil {
 		return fmt.Errorf("verifying maintained GitHubRepository RBAC scope: %w", err)
 	}
+	if maintainedRepositoryName != "" {
+		if err := ensureMaintainerCommandCapability(ctx, c, run, ownerRef, maintainedRepositoryName); err != nil {
+			return fmt.Errorf("ensuring maintainer command capability: %w", err)
+		}
+	}
 	roleName := saName + "-role"
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: run.Namespace, OwnerReferences: []metav1.OwnerReference{ownerRef}},
@@ -304,6 +326,50 @@ func ensureRunRBAC(ctx context.Context, c client.Client, run *platformv1alpha1.A
 		return fmt.Errorf("creating cluster-scoped RBAC: %w", err)
 	}
 
+	return nil
+}
+
+func ensureMaintainerCommandCapability(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun, ownerRef metav1.OwnerReference, repositoryName string) error {
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: repositoryName}, repository); err != nil {
+		return fmt.Errorf("getting maintained GitHubRepository %s/%s: %w", run.Namespace, repositoryName, err)
+	}
+	name := triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name)
+	existing := &corev1.Secret{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, existing); err == nil {
+		key := existing.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey]
+		if len(key) < 32 {
+			return fmt.Errorf("secret %s/%s has a missing or invalid %q", run.Namespace, name, triggersv1alpha1.MaintainerCommandCapabilitySecretKey)
+		}
+		if !metav1.IsControlledBy(existing, run) {
+			return fmt.Errorf("secret %s/%s is not controlled by AgentRun %s", run.Namespace, name, run.Name)
+		}
+		if string(existing.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey]) != repository.Name || string(existing.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey]) != string(repository.UID) {
+			return fmt.Errorf("secret %s/%s is bound to a different GitHubRepository", run.Namespace, name)
+		}
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return fmt.Errorf("generating capability key: %w", err)
+	}
+	immutable := true
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: run.Namespace, OwnerReferences: []metav1.OwnerReference{ownerRef}},
+		Immutable:  &immutable,
+		Type:       corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			triggersv1alpha1.MaintainerCommandCapabilitySecretKey:         key,
+			triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey: []byte(repository.Name),
+			triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey:  []byte(repository.UID),
+		},
+	}
+	if err := c.Create(ctx, secret); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
 	return nil
 }
 

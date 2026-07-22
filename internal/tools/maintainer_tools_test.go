@@ -12,11 +12,22 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+)
+
+const (
+	maintainerTestNamespace      = "default"
+	maintainerTestRepositoryName = "repo"
+	maintainerTestRepositoryKind = "GitHubRepository"
+	maintainerTestRunUID         = "maintainer"
+	maintainerTestOther          = "other"
+	maintainerTestRunName        = "repo-maintainer"
+	maintainerTestFleetRunName   = "implementer"
 )
 
 type maintainerTestStore struct {
@@ -59,31 +70,48 @@ func newMaintainerToolBase(t *testing.T, runs ...*platformv1alpha1.AgentRun) (ma
 	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default"}}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace, UID: types.UID("repo-uid")}}
 	objects := make([]client.Object, 0, len(runs)+1)
 	objects = append(objects, repository)
 	for _, run := range runs {
 		objects = append(objects, run)
+		if run.Labels[orchestration.StandingRunRoleLabel] == orchestration.StandingRunRoleMaintainer {
+			controller := true
+			objects = append(objects, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name), Namespace: run.Namespace,
+					OwnerReferences: []metav1.OwnerReference{{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller}},
+				},
+				Data: map[string][]byte{
+					triggersv1alpha1.MaintainerCommandCapabilitySecretKey:         []byte("01234567890123456789012345678901"),
+					triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey: []byte(repository.Name),
+					triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey:  []byte(repository.UID),
+				},
+			})
+		}
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 	stateStore := &maintainerTestStore{sessions: map[string]*store.Session{}}
 	for _, run := range runs {
 		stateStore.sessions[run.Namespace+"/"+run.Name] = &store.Session{ID: uuid.New(), AgentRunName: run.Name, AgentRunNS: run.Namespace}
 	}
-	return maintainerToolBase{stateStore: stateStore, k8sClient: k8sClient, currentRunName: "repo-maintainer", currentRunNamespace: "default", repositoryName: "repo", repositoryNamespace: "default"}, k8sClient, stateStore
+	return maintainerToolBase{stateStore: stateStore, k8sClient: k8sClient, currentRunName: maintainerTestRunName, currentRunNamespace: maintainerTestNamespace, repositoryName: maintainerTestRepositoryName, repositoryNamespace: maintainerTestNamespace}, k8sClient, stateStore
 }
 
 func maintainerRun() *platformv1alpha1.AgentRun {
 	controller := true
 	return &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
-		Name: "repo-maintainer", Namespace: "default", UID: types.UID("maintainer"),
-		Labels:          map[string]string{orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleMaintainer, orchestration.SupervisedRunLabel: "repo"},
-		OwnerReferences: []metav1.OwnerReference{{Kind: "GitHubRepository", Name: "repo", Controller: &controller}},
+		Name: maintainerTestRunName, Namespace: maintainerTestNamespace, UID: types.UID(maintainerTestRunUID),
+		Labels:          map[string]string{orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleMaintainer, orchestration.SupervisedRunLabel: maintainerTestRepositoryName},
+		OwnerReferences: []metav1.OwnerReference{{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName, Controller: &controller}},
 	}}
 }
 
 func fleetRun(name string, phase platformv1alpha1.AgentRunPhase) *platformv1alpha1.AgentRun {
-	return &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}, Spec: platformv1alpha1.AgentRunSpec{Trigger: platformv1alpha1.TriggerRef{Kind: "GitHubRepository", Name: "repo"}}, Status: platformv1alpha1.AgentRunStatus{Phase: phase}}
+	return &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace}, Spec: platformv1alpha1.AgentRunSpec{Trigger: platformv1alpha1.TriggerRef{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName}}, Status: platformv1alpha1.AgentRunStatus{Phase: phase}}
 }
 
 func TestMaintainerAuthorizationAndFleetFiltering(t *testing.T) {
@@ -182,7 +210,7 @@ func TestDispatchCapsAndLedgerRollover(t *testing.T) {
 	active := fleetRun("active", platformv1alpha1.AgentRunPhaseRunning)
 	base, k8sClient, _ := newMaintainerToolBase(t, maintainer, active)
 	repository := &triggersv1alpha1.GitHubRepository{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: "repo", Namespace: "default"}, repository); err != nil {
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace}, repository); err != nil {
 		t.Fatal(err)
 	}
 	repository.Spec.Maintainer = &triggersv1alpha1.MaintainerSpec{MaxConcurrentDispatches: 1}
@@ -277,7 +305,7 @@ func TestMaintainerReportValidation(t *testing.T) {
 		t.Fatalf("Execute() = (%#v, %v)", result, err)
 	}
 	run := &platformv1alpha1.AgentRun{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: "repo-maintainer", Namespace: "default"}, run); err != nil {
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: maintainerTestRunName, Namespace: maintainerTestNamespace}, run); err != nil {
 		t.Fatal(err)
 	}
 	var report maintainerReport
