@@ -112,15 +112,6 @@ export function CommandPalette({ open, onOpenChange, extraItems = [], runLabels 
         action: () => navigate("/observability"),
       },
       {
-        id: "action.new-cron",
-        group: "Go to",
-        label: "New cron trigger",
-        hint: "Schedule recurring runs",
-        icon: <Clock3 className="size-4" />,
-        keywords: ["new", "cron", "schedule", "trigger", "create"],
-        action: () => navigate("/cron?new=1"),
-      },
-      {
         id: "nav.shared",
         group: "Go to",
         label: "Shared with me",
