@@ -96,7 +96,7 @@ func TestMaintainerWorkItemProjectionNoopAndFreshness(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}).WithObjects(repository).Build()
 	reconciler := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
 	issue := testMaintainerIssue(7)
-	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, []*github.Issue{issue}, true); err != nil {
+	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, []*github.Issue{issue}, true, nil); err != nil {
 		t.Fatalf("first projection: %v", err)
 	}
 	item := getMaintainerWorkItem(t, c, repository, 7)
@@ -104,7 +104,7 @@ func TestMaintainerWorkItemProjectionNoopAndFreshness(t *testing.T) {
 	observedAt := item.Status.IssueObservation.ObservedAt
 
 	time.Sleep(time.Millisecond)
-	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, []*github.Issue{issue}, true); err != nil {
+	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, []*github.Issue{issue}, true, nil); err != nil {
 		t.Fatalf("second projection: %v", err)
 	}
 	item = getMaintainerWorkItem(t, c, repository, 7)
@@ -112,7 +112,7 @@ func TestMaintainerWorkItemProjectionNoopAndFreshness(t *testing.T) {
 		t.Fatalf("no-op projection changed sequence or observedAt: %#v", item.Status)
 	}
 
-	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, nil, false); err != nil {
+	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, nil, false, nil); err != nil {
 		t.Fatalf("incomplete projection: %v", err)
 	}
 	item = getMaintainerWorkItem(t, c, repository, 7)
@@ -120,7 +120,7 @@ func TestMaintainerWorkItemProjectionNoopAndFreshness(t *testing.T) {
 		t.Fatalf("incomplete issue list changed freshness: %#v", item.Status)
 	}
 
-	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, nil, true); err != nil {
+	if err := reconciler.reconcileMaintainerWorkItems(context.Background(), repository, nil, true, nil); err != nil {
 		t.Fatalf("stale projection: %v", err)
 	}
 	item = getMaintainerWorkItem(t, c, repository, 7)

@@ -99,12 +99,12 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	if maintainerWorkItemsEnabled(r, gh) {
-		if err := r.reconcileMaintainerWorkItems(ctx, gh, issues, issueListComplete); err != nil {
-			return ctrl.Result{}, err
-		}
 		triageClient := r.GitHubTriage
 		if triageClient == nil {
 			triageClient = githubTriageAdapter{issues: ghClient.Issues}
+		}
+		if err := r.reconcileMaintainerWorkItems(ctx, gh, issues, issueListComplete, triageClient); err != nil {
+			return ctrl.Result{}, err
 		}
 		deliveryClient := r.GitHubDelivery
 		if deliveryClient == nil {

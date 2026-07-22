@@ -43,7 +43,7 @@ func (t *breakdownIssueTool) Description() string {
 	return "Submit an authenticated, idempotent command that records existing child work items and validated acyclic dependencies."
 }
 func (t *breakdownIssueTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"child_issue_numbers":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"integer","minimum":1}},"dependency_issue_numbers":{"type":"array","uniqueItems":true,"items":{"type":"integer","minimum":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","child_issue_numbers","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"child_issue_numbers":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"integer","minimum":1}},"dependency_issue_numbers":{"type":"array","uniqueItems":true,"items":{"type":"integer","minimum":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","child_issue_numbers","idempotency_key","expected_projection_sequence"]}`)
 }
 func (t *breakdownIssueTool) IsReadOnly() bool                    { return false }
 func (t *breakdownIssueTool) IsEnabled(*agentsdk.RunContext) bool { return true }
@@ -86,7 +86,7 @@ func (t *requestDecisionTool) Description() string {
 	return "Submit an authenticated decision request that blocks the work item until an authorized GitHub actor comments '@agent answer <decision-id>: <answer>' on the issue."
 }
 func (t *requestDecisionTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"decision_id":{"type":"string","minLength":1},"question":{"type":"string","minLength":1},"options":{"type":"array","items":{"type":"string"}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","decision_id","question","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"decision_id":{"type":"string","minLength":1},"question":{"type":"string","minLength":1},"options":{"type":"array","items":{"type":"string"}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","decision_id","question","idempotency_key","expected_projection_sequence"]}`)
 }
 func (t *requestDecisionTool) IsReadOnly() bool                    { return false }
 func (t *requestDecisionTool) IsEnabled(*agentsdk.RunContext) bool { return true }
@@ -120,7 +120,7 @@ func (t *dispatchWorkItemTool) Description() string {
 	return "Submit an authenticated work-item dispatch command. The controller atomically reserves daily/concurrent capacity before applying the GitHub trigger label."
 }
 func (t *dispatchWorkItemTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"mode":{"type":"string","minLength":1},"required_pull_requests":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","mode","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"mode":{"type":"string","minLength":1},"required_pull_requests":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","mode","idempotency_key","expected_projection_sequence"]}`)
 }
 func (t *dispatchWorkItemTool) IsReadOnly() bool                    { return false }
 func (t *dispatchWorkItemTool) IsEnabled(*agentsdk.RunContext) bool { return true }
@@ -165,7 +165,7 @@ func (t *requestMergeTool) Description() string {
 	return "Submit an authenticated merge request. The controller re-reads GitHub immediately, fails closed on stale/blank/zero-check evidence, merges only the expected head, and records success only after MERGED verification."
 }
 func (t *requestMergeTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"repository":{"type":"string","pattern":"^[^/\\s]+/[^/\\s]+$"},"pull_request_number":{"type":"integer","minimum":1},"expected_head_sha":{"type":"string","pattern":"^[a-f0-9]{40}$"},"merge_method":{"type":"string","enum":["squash","merge","rebase"]},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","repository","pull_request_number","expected_head_sha","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"repository":{"type":"string","pattern":"^[^/\\s]+/[^/\\s]+$"},"pull_request_number":{"type":"integer","minimum":1},"expected_head_sha":{"type":"string","pattern":"^[a-f0-9]{40}$"},"merge_method":{"type":"string","enum":["squash","merge","rebase"]},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","repository","pull_request_number","expected_head_sha","idempotency_key","expected_projection_sequence"]}`)
 }
 func (t *requestMergeTool) IsReadOnly() bool                    { return false }
 func (t *requestMergeTool) IsEnabled(*agentsdk.RunContext) bool { return true }
@@ -208,7 +208,7 @@ func (t *finalizeWorkItemTool) Description() string {
 	return "Submit an authenticated durable delivery attestation. The controller finalizes only after all required PRs, children, decisions, and run predicates pass, then idempotently requests run success and closes the issue."
 }
 func (t *finalizeWorkItemTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"delivery_summary":{"type":"string","minLength":1},"delivery_evidence":{"type":"string","minLength":1},"implementer_run_names":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","delivery_summary","delivery_evidence","idempotency_key","expected_projection_sequence","expected_resource_version"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"delivery_summary":{"type":"string","minLength":1},"delivery_evidence":{"type":"string","minLength":1},"implementer_run_names":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","delivery_summary","delivery_evidence","idempotency_key","expected_projection_sequence"]}`)
 }
 func (t *finalizeWorkItemTool) IsReadOnly() bool                    { return false }
 func (t *finalizeWorkItemTool) IsEnabled(*agentsdk.RunContext) bool { return true }
@@ -248,8 +248,8 @@ func (t *finalizeWorkItemTool) Execute(ctx context.Context, raw json.RawMessage,
 }
 
 func (t maintainerToolBase) commandContext(ctx context.Context, in maintainerCommandInput) (*triggersv1alpha1.MaintainerWorkItem, *triggersv1alpha1.GitHubRepository, *platformv1alpha1.AgentRun, triggersv1alpha1.MaintainerWorkItemCommandPreconditions, error) {
-	if in.IssueNumber < 1 || strings.TrimSpace(in.IdempotencyKey) == "" || len(in.IdempotencyKey) > 128 || !maintainerIdempotencyValid.MatchString(in.IdempotencyKey) || in.ExpectedProjectionSequence == nil || *in.ExpectedProjectionSequence < 0 || strings.TrimSpace(in.ExpectedResourceVersion) == "" {
-		return nil, nil, nil, triggersv1alpha1.MaintainerWorkItemCommandPreconditions{}, fmt.Errorf("issue_number, valid idempotency_key, expected_projection_sequence, and expected_resource_version are required")
+	if in.IssueNumber < 1 || strings.TrimSpace(in.IdempotencyKey) == "" || len(in.IdempotencyKey) > 128 || !maintainerIdempotencyValid.MatchString(in.IdempotencyKey) || in.ExpectedProjectionSequence == nil || *in.ExpectedProjectionSequence < 0 {
+		return nil, nil, nil, triggersv1alpha1.MaintainerWorkItemCommandPreconditions{}, fmt.Errorf("issue_number, valid idempotency_key, and expected_projection_sequence are required")
 	}
 	current, err := t.currentRun(ctx)
 	if err != nil {
@@ -264,7 +264,13 @@ func (t maintainerToolBase) commandContext(ctx context.Context, in maintainerCom
 	if err := t.k8sClient.Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: name}, item); err != nil {
 		return nil, nil, nil, triggersv1alpha1.MaintainerWorkItemCommandPreconditions{}, fmt.Errorf("failed to get maintainer work item: %w", err)
 	}
-	return item, repository, current, triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: *in.ExpectedProjectionSequence, ResourceVersion: in.ExpectedResourceVersion}, nil
+	// The controller enforces projection-sequence preconditions; the resource
+	// version is advisory and defaults to the currently observed one.
+	resourceVersion := strings.TrimSpace(in.ExpectedResourceVersion)
+	if resourceVersion == "" {
+		resourceVersion = item.ResourceVersion
+	}
+	return item, repository, current, triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: *in.ExpectedProjectionSequence, ResourceVersion: resourceVersion}, nil
 }
 
 func (t maintainerToolBase) workItemRefs(ctx context.Context, repository, namespace string, issues []int32) ([]triggersv1alpha1.MaintainerWorkItemReference, error) {

@@ -32,6 +32,10 @@ const (
 	MaintainerDispatchReservationsAnnotation = "triggers.gratefulagents.dev/maintainer-dispatch-reservations"
 	// MaintainerCommandLockAnnotation serializes cross-work-item graph mutations.
 	MaintainerCommandLockAnnotation = "triggers.gratefulagents.dev/maintainer-command-lock"
+	// MaintainerCommandFailureCountAnnotation counts failed processing attempts
+	// so persistently failing commands are terminally rejected instead of being
+	// retried on every reconcile forever.
+	MaintainerCommandFailureCountAnnotation = "triggers.gratefulagents.dev/maintainer-command-failures"
 	// MaintainerCommandCapabilitySecretKey is the data key holding the per-run HMAC capability.
 	MaintainerCommandCapabilitySecretKey = "key"
 	// MaintainerCommandCapabilityRepositoryNameKey binds a capability to one repository name.
