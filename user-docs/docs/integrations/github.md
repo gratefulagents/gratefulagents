@@ -1,5 +1,7 @@
 ---
 title: GitHub
+seoTitle: GitHub Issue and PR Coding-Agent Automation | GratefulAgents
+description: Connect GitHub issues and comments to GratefulAgents runs, configure repository triggers, and monitor pull requests, checks, reviews, and feedback.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/integrations/github/ and explain what the gratefulagents GitHub connection does, then help me set it up so issues and pull-request comments can create and steer runs.
 ---

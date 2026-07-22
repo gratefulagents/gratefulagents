@@ -6,14 +6,63 @@ interface Props {
   title: string;
   description: string;
   bodyClass?: string;
+  image?: string;
+  imageAlt?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  imageType?: string;
+  type?: 'website' | 'article';
+  noindex?: boolean;
+  structuredData?: Record<string, unknown> | Record<string, unknown>[];
 }
 
-const {title, description, bodyClass = ''} = Astro.props;
+const {
+  title,
+  description,
+  bodyClass = '',
+  image = '/og-default.png',
+  imageAlt = 'GratefulAgents — self-hosted coding agents for Kubernetes teams',
+  imageWidth = 1200,
+  imageHeight = 630,
+  imageType = 'image/png',
+  type = 'website',
+  noindex = false,
+  structuredData = [],
+} = Astro.props;
 const nav = [
   {href: '/docs/', label: 'User guide'},
   {href: '/docs/getting-started/quick-start/', label: 'Quick start'},
 ];
 const current = Astro.url.pathname;
+const siteUrl = Astro.site ?? Astro.url;
+const canonical = new URL(Astro.url.pathname, siteUrl).toString();
+const socialImage = new URL(image, siteUrl).toString();
+const organizationId = new URL('/#organization', siteUrl).toString();
+const websiteId = new URL('/#website', siteUrl).toString();
+const pageStructuredData = Array.isArray(structuredData) ? structuredData : [structuredData];
+const schema = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': organizationId,
+      name: 'GratefulAgents',
+      url: new URL('/', siteUrl).toString(),
+      logo: new URL('/logo.png', siteUrl).toString(),
+      sameAs: [repositoryUrl],
+    },
+    {
+      '@type': 'WebSite',
+      '@id': websiteId,
+      name: 'GratefulAgents',
+      url: new URL('/', siteUrl).toString(),
+      publisher: {'@id': organizationId},
+    },
+    ...pageStructuredData,
+  ],
+};
+// Prevent trusted page copy from prematurely closing the JSON-LD script element.
+const serializedSchema = JSON.stringify(schema).replace(/</g, '\\u003c');
 ---
 
 <!doctype html>
@@ -23,13 +72,38 @@ const current = Astro.url.pathname;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    <link rel="icon" href="/logo.png" />
+    <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'} />
+    <link rel="canonical" href={canonical} />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content="GratefulAgents" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={socialImage} />
+    <meta property="og:image:secure_url" content={socialImage} />
+    <meta property="og:image:type" content={imageType} />
+    <meta property="og:image:width" content={String(imageWidth)} />
+    <meta property="og:image:height" content={String(imageHeight)} />
+    <meta property="og:image:alt" content={imageAlt} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={socialImage} />
+    <meta name="twitter:image:alt" content={imageAlt} />
+    <meta name="theme-color" content="#0e171b" />
+
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
+    <script type="application/ld+json" set:html={serializedSchema} />
   </head>
   <body class={bodyClass}>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -40,7 +114,7 @@ const current = Astro.url.pathname;
       </a>
       <nav class="topnav" aria-label="Primary">
         {nav.map((item) => (
-          <a href={item.href} aria-current={current.startsWith(item.href) ? 'page' : undefined}>
+          <a href={item.href} aria-current={current === item.href ? 'page' : undefined}>
             {item.label}
           </a>
         ))}
@@ -53,6 +127,9 @@ const current = Astro.url.pathname;
         <span><span class="foot-key">Project</span><b>gratefulagents</b></span>
         <span><span class="foot-key">License</span><b>AGPL-3.0 · open source</b></span>
         <span><span class="foot-key">Source</span><a href={repositoryUrl}>github.com/gratefulagents</a></span>
+        <span><span class="foot-key">Security</span><a href={`${repositoryUrl}/security/policy`}>report vulnerabilities</a></span>
+        <span><span class="foot-key">Releases</span><a href={`${repositoryUrl}/releases`}>changelog</a></span>
+        <span><span class="foot-key">Support</span><a href={`${repositoryUrl}/issues`}>GitHub issues</a></span>
         <span><span class="foot-key">Docs source</span><a href={`${repositoryUrl}/tree/main/user-docs`}>user-docs/</a></span>
       </p>
     </footer>

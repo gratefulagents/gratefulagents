@@ -1,5 +1,7 @@
 ---
 title: Review run activity, graph, errors, trace, and usage
+seoTitle: Monitor Agent Runs, Traces, Errors, and Usage | GratefulAgents
+description: Follow live agent activity, subagent graphs, errors, traces, token use, and cost from a GratefulAgents run session.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/runs/review-activity/ and explain how to review a gratefulagents run end to end: the activity feed, subagent graph, errors, trace, and usage tabs.
 ---

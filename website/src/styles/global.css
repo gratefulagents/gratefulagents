@@ -717,6 +717,18 @@ img { max-width: 100%; height: auto; }
 .nav-group li a:hover { color: var(--chalk); }
 .nav-group li a[aria-current='page'] { border-left-color: var(--redline); color: var(--chalk-bright); font-weight: 600; }
 .doc { min-width: 0; padding: 2.8rem 3rem 4rem; }
+.doc-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.65rem;
+  color: var(--faded);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.doc-breadcrumb a { color: var(--faded); }
+.doc-breadcrumb a:hover { color: var(--chalk); }
+.doc-breadcrumb [aria-current="page"] { color: var(--chalk); }
 .doc-eyebrow { margin: 0 0 0.4rem; color: var(--redline-soft); font-family: var(--font-mono); font-size: 0.7rem; }
 .prose { max-width: var(--measure); color: var(--chalk); }
 .prose h1, .prose h2, .prose h3 { color: var(--chalk-bright); font-family: var(--font-display); }

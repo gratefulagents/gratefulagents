@@ -1,5 +1,7 @@
 ---
 title: Pull request feedback
+seoTitle: Coding-Agent Pull Request Review and Feedback | GratefulAgents
+description: Review pull-request checks and feedback, send reviewer comments back to an agent, and follow GratefulAgents autonomous PR review loop.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/results/pull-request-feedback/ and explain how gratefulagents handles pull-request review feedback, including the autonomous review loop.
 ---

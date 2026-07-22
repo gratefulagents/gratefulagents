@@ -1,5 +1,6 @@
 // @ts-check
 import {defineConfig} from 'astro/config';
+import sitemap from '@astrojs/sitemap';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -33,6 +34,7 @@ function rewriteDocLinks() {
 export default defineConfig({
   site: 'https://gratefulagents.dev',
   trailingSlash: 'always',
+  integrations: [sitemap()],
   markdown: {
     remarkPlugins: [rewriteDocLinks],
   },
