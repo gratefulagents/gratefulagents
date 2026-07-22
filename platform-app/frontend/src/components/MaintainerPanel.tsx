@@ -12,7 +12,11 @@ import { formatAge } from "@/lib/format";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneSoft, type StatusTone } from "@/lib/status";
-import type { ActivityEntry, GitHubRepository } from "@/rpc/platform/service_pb";
+import type {
+  ActivityEntry,
+  GitHubRepository,
+  MaintainerWorkItem,
+} from "@/rpc/platform/service_pb";
 
 type MaintainerReport = {
   id: string;
@@ -214,8 +218,252 @@ export function MaintainerPanel({ repo }: { repo: GitHubRepository }) {
       maintainer={repo.maintainerStatus}
       maxDispatchesPerDay={settings?.maintainerMaxDispatchesPerDay}
       allowPrMerge={settings?.maintainerAllowPrMerge}
+      repositoryName={repo.name}
       disabledHint="Enable it in repository settings."
     />
+  );
+}
+
+/** Phase presentation: tone encodes who the item is waiting on. */
+function workItemPhasePresentation(phase: string): ReportPresentation {
+  switch (phase) {
+    case "AwaitingDecision":
+      return { label: "Needs decision", tone: "warning" };
+    case "ReadyToDispatch":
+      return { label: "Ready to dispatch", tone: "info" };
+    case "Dispatched":
+      return { label: "Dispatched", tone: "running" };
+    case "Implementing":
+      return { label: "Implementing", tone: "running" };
+    case "ReadyToMerge":
+      return { label: "Ready to merge", tone: "purple" };
+    case "Delivered":
+      return { label: "Delivered", tone: "success" };
+    case "Triaged":
+      return { label: "Triaged", tone: "neutral" };
+    case "PendingTriage":
+    default:
+      return { label: "Pending triage", tone: "neutral" };
+  }
+}
+
+function useMaintainerWorkItems(namespace: string, repositoryName: string, enabled: boolean) {
+  const [items, setItems] = useState<MaintainerWorkItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !repositoryName) return;
+
+    let cancelled = false;
+    async function loadItems() {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await client.listMaintainerWorkItems({ namespace, repositoryName });
+        if (cancelled) return;
+        setItems(response.items);
+      } catch (fetchError) {
+        if (cancelled) return;
+        setItems([]);
+        setError(fetchError instanceof Error ? fetchError.message : "Failed to load work items");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadItems();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, namespace, repositoryName]);
+
+  return { items, loading, error };
+}
+
+function prCheckLabel(checkState: string): string {
+  switch (checkState) {
+    case "Passing":
+      return "checks passing";
+    case "Failing":
+      return "checks failing";
+    case "Pending":
+      return "checks pending";
+    default:
+      return "";
+  }
+}
+
+function WorkItemRow({ item, namespace }: { item: MaintainerWorkItem; namespace: string }) {
+  const presentation = workItemPhasePresentation(item.phase);
+  const title = item.issueTitle || `Issue #${item.issueNumber}`;
+  const commandFailed =
+    item.latestCommandPhase === "Rejected" || item.latestCommandPhase === "Failed";
+  const blocked =
+    !item.readyToDispatch && !item.readyToMerge && item.unmetRequirements.length > 0;
+
+  return (
+    <li className="space-y-2 px-4 py-3.5 first:pt-3 last:pb-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-[11.5px] font-medium tabular-nums text-muted-foreground">
+          #{item.issueNumber}
+        </span>
+        {item.issueUrl ? (
+          <a
+            href={item.issueUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
+          >
+            {title}
+          </a>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{title}</span>
+        )}
+        <Badge variant="secondary" className={cn("gap-1.5 text-[11px]", toneSoft[presentation.tone])}>
+          <span className="size-1.5 rounded-full bg-current" aria-hidden />
+          {presentation.label}
+        </Badge>
+      </div>
+
+      {item.pendingDecision ? (
+        <div className={cn("space-y-1 rounded-[6px] px-2.5 py-2", toneSoft.warning)}>
+          <p className="text-[12px] font-medium leading-relaxed">{item.pendingDecision.question}</p>
+          {item.pendingDecision.options.length > 0 ? (
+            <p className="text-[11px] opacity-80">Options: {item.pendingDecision.options.join(" · ")}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {commandFailed ? (
+        <p className={cn("rounded-[6px] px-2.5 py-1.5 text-[11.5px] leading-relaxed", toneSoft.danger)}>
+          {item.latestCommandType} command {item.latestCommandPhase.toLowerCase()}
+          {item.latestCommandMessage ? `: ${item.latestCommandMessage}` : ""}
+        </p>
+      ) : null}
+
+      {blocked ? (
+        <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+          Blocked on: {item.unmetRequirements.join("; ")}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
+        {item.pullRequests.map((pr) => {
+          const facts = [prCheckLabel(pr.checkState), pr.state === "merged" ? "merged" : "", pr.draft ? "draft" : ""]
+            .filter(Boolean)
+            .join(" · ");
+          const label = `${pr.repository}#${pr.number}`;
+          return (
+            <span key={label} className="inline-flex items-center gap-1">
+              {pr.url ? (
+                <a href={pr.url} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">
+                  {label}
+                </a>
+              ) : (
+                <span>{label}</span>
+              )}
+              {facts ? <span>· {facts}</span> : null}
+            </span>
+          );
+        })}
+        {item.agentRuns.map((run) => (
+          <Link
+            key={run.name}
+            to={`/runs/${namespace}/${run.name}`}
+            className="text-primary underline-offset-2 hover:underline"
+          >
+            {run.name}
+            {run.phase ? ` (${run.phase})` : ""}
+          </Link>
+        ))}
+        {item.childrenTotal > 0 ? (
+          <span className="tabular-nums">
+            {item.childrenDelivered}/{item.childrenTotal} children delivered
+          </span>
+        ) : null}
+        {item.dependenciesTotal > 0 && item.dependenciesDelivered < item.dependenciesTotal ? (
+          <span className="tabular-nums">
+            waiting on {item.dependenciesTotal - item.dependenciesDelivered} dependenc
+            {item.dependenciesTotal - item.dependenciesDelivered === 1 ? "y" : "ies"}
+          </span>
+        ) : null}
+        {item.phase === "Delivered" && item.deliverySummary ? (
+          <span className="min-w-0 truncate">{item.deliverySummary}</span>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function WorkItemsSection({
+  namespace,
+  repositoryName,
+  enabled,
+}: {
+  namespace: string;
+  repositoryName: string;
+  enabled: boolean;
+}) {
+  const { items, loading, error } = useMaintainerWorkItems(namespace, repositoryName, enabled);
+  const needsDecision = items.filter((item) => item.phase === "AwaitingDecision").length;
+  const active = items.filter((item) => item.phase !== "Delivered").length;
+  const summary = loading
+    ? "Loading…"
+    : items.length === 0
+      ? "None yet"
+      : needsDecision > 0
+        ? `${active} active · ${needsDecision} need${needsDecision === 1 ? "s" : ""} your decision`
+        : `${active} active · ${items.length - active} delivered`;
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger
+        render={
+          <button
+            type="button"
+            className="group flex w-full items-center gap-2 border-t border-border/60 px-4 py-3 text-left transition-colors hover:bg-muted/35"
+          />
+        }
+      >
+        <ChevronRight
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground transition-transform duration-[var(--dur-fast)]",
+            open && "rotate-90",
+          )}
+        />
+        <span className="text-[12.5px] font-medium">Work items</span>
+        {!loading && needsDecision > 0 ? (
+          <Badge variant="secondary" className={cn("text-[10.5px]", toneSoft.warning)}>
+            {needsDecision}
+          </Badge>
+        ) : null}
+        <span className="ml-auto text-[11px] text-muted-foreground">{summary}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="border-t border-border/60">
+          {loading ? (
+            <div className="flex items-center gap-2 px-4 py-5 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Loading work items…
+            </div>
+          ) : error ? (
+            <p className="px-4 py-5 text-sm text-destructive">{error}</p>
+          ) : items.length === 0 ? (
+            <p className="px-4 py-5 text-sm leading-relaxed text-muted-foreground">
+              No work items yet — the maintainer files each triaged issue here.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border/60">
+              {items.map((item) => (
+                <WorkItemRow key={item.name} item={item} namespace={namespace} />
+              ))}
+            </ul>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -238,6 +486,11 @@ export type MaintainerCardProps = {
   maintainer?: MaintainerStatusLike;
   maxDispatchesPerDay?: number;
   allowPrMerge?: boolean;
+  /**
+   * GitHubRepository resource name backing this maintainer. When set, the
+   * card lists the durable work-item queue for that repository.
+   */
+  repositoryName?: string;
   /** Where to enable the maintainer when it is off. */
   disabledHint?: string;
 };
@@ -248,6 +501,7 @@ export function MaintainerCard({
   maintainer,
   maxDispatchesPerDay,
   allowPrMerge,
+  repositoryName,
   disabledHint,
 }: MaintainerCardProps) {
   const { reports, loading, error } = useMaintainerReports(namespace, maintainer?.runName ?? "", enabled);
@@ -318,6 +572,10 @@ export function MaintainerCard({
           ) : null}
         </dl>
       </div>
+
+      {repositoryName ? (
+        <WorkItemsSection namespace={namespace} repositoryName={repositoryName} enabled={enabled} />
+      ) : null}
 
       <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
         <CollapsibleTrigger
