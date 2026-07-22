@@ -1,5 +1,7 @@
 ---
 title: Observability
+seoTitle: Coding-Agent Observability, Cost, and Reliability | GratefulAgents
+description: Analyze coding-agent spend, token use, tool calls, subagents, errors, reliability, and model performance across GratefulAgents runs.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/results/observability/ and explain what the gratefulagents Observability dashboard shows and how to use it to compare cost, tokens, and reliability across runs.
 ---

@@ -21,6 +21,26 @@ const providers: {mark: MarkName; name: string}[] = [
 
 const kindGuidePath = '/docs/getting-started/self-hosting-kind/';
 const kindInstallPrompt = 'Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install gratefulagents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.';
+const homepageDescription = 'Run open-source coding agents in your Kubernetes cluster. Trigger work from GitHub, Linear, Slack, or schedules; bring your own models and inspect every run.';
+const structuredData = {
+  '@type': 'SoftwareApplication',
+  '@id': 'https://gratefulagents.dev/#software',
+  name: 'GratefulAgents',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Kubernetes, Web, macOS, Windows, Linux, iOS, Android',
+  url: 'https://gratefulagents.dev/',
+  description: homepageDescription,
+  codeRepository: repositoryUrl,
+  license: 'https://www.gnu.org/licenses/agpl-3.0.html',
+  isAccessibleForFree: true,
+  featureList: [
+    'Self-hosted coding agent execution on Kubernetes',
+    'GitHub, Linear, Slack, and scheduled triggers',
+    'Bring-your-own model providers',
+    'Run traces, cost, token, and reliability observability',
+    'Web, desktop, iOS, and Android clients',
+  ],
+};
 
 const slides = [
   {
@@ -78,8 +98,9 @@ const stations = [
 ---
 
 <Base
-  title="gratefulagents - self-hosted cloud-based agent harness"
-  description="GratefulAgents is an open-source, self-hosted coding agent harness. Trigger work from your tools, run it on your Kubernetes cluster, and inspect every turn."
+  title="Self-Hosted Coding Agents for Kubernetes | GratefulAgents"
+  description={homepageDescription}
+  {structuredData}
   bodyClass="is-home"
 >
   <main id="main">
@@ -88,7 +109,8 @@ const stations = [
         <div class="hero-copy">
           <img class="hero-logo" src="/logo.png" alt="" width="72" height="72" loading="eager" decoding="async" />
           <p class="eyebrow"><span class="signal"></span> Open source · Kubernetes native</p>
-          <h1 id="hero-title">self-hosted cloud-based <span>agent harness</span></h1>
+          <h1 id="hero-title">self-hosted coding agents <span>for Kubernetes teams</span></h1>
+          <p class="hero-sub">Run, steer, and audit agent work in your own infrastructure. Connect engineering tools and your preferred model providers to one observable execution platform.</p>
           <div class="cta-row">
             <a class="btn btn-primary" href={kindGuidePath}>Run the Kind demo <span aria-hidden="true">→</span></a>
             <a class="btn btn-quiet" href={repositoryUrl}>View source <span aria-hidden="true">↗</span></a>

@@ -24,9 +24,57 @@ const prevId = idx > 0 ? orderedIds[idx - 1] : undefined;
 const nextId = idx >= 0 && idx < orderedIds.length - 1 ? orderedIds[idx + 1] : undefined;
 const section = sectionOf(entry.id);
 const title = titles.get(entry.id) ?? entry.id;
+
+function plainText(markdown: string): string {
+  return markdown
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+    .replace(/[`*_>#]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function summarize(markdown: string): string {
+  const paragraph = markdown
+    .split(/\n\s*\n/)
+    .map((part) => part.trim())
+    .find((part) => part && !part.startsWith('#') && !part.startsWith('-') && !/^\d+\./.test(part));
+  const summary = plainText(paragraph ?? `Learn how to use ${title} in GratefulAgents.`);
+  if (summary.length <= 160) return summary;
+  const shortened = summary.slice(0, 157).replace(/\s+\S*$/, '');
+  return `${shortened}…`;
+}
+
+const description = entry.data.description ?? summarize(entry.body ?? '');
+const pageTitle = entry.data.seoTitle ?? `${title} | GratefulAgents Docs`;
+const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).toString();
+const breadcrumbItems = [
+  {name: 'GratefulAgents', item: new URL('/', Astro.site ?? Astro.url).toString()},
+  {name: 'Documentation', item: new URL('/docs/', Astro.site ?? Astro.url).toString()},
+];
+if (entry.id !== 'intro') breadcrumbItems.push({name: title, item: canonical});
+const structuredData = [
+  {
+    '@type': 'TechArticle',
+    '@id': `${canonical}#article`,
+    headline: title,
+    description,
+    url: canonical,
+    isPartOf: {'@id': new URL('/#website', Astro.site ?? Astro.url).toString()},
+    author: {'@id': new URL('/#organization', Astro.site ?? Astro.url).toString()},
+    publisher: {'@id': new URL('/#organization', Astro.site ?? Astro.url).toString()},
+  },
+  {
+    '@type': 'BreadcrumbList',
+    itemListElement: breadcrumbItems.map((item, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      ...item,
+    })),
+  },
+];
 ---
 
-<Base title={`${title} · gratefulagents docs`} description={`gratefulagents user guide: ${title}`} bodyClass="is-docs">
+<Base title={pageTitle} {description} type="article" {structuredData} bodyClass="is-docs">
   <button class="menu-toggle" aria-expanded="false" data-menu-toggle>kind: Navigation ▾</button>
   <div class="docs-layout" data-docs-layout>
     <nav class="sidebar" aria-label="User guide">
@@ -46,6 +94,13 @@ const title = titles.get(entry.id) ?? entry.id;
       ))}
     </nav>
     <main class="doc" id="main">
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">GratefulAgents</a>
+        <span aria-hidden="true">/</span>
+        {entry.id === 'intro' ? <span aria-current="page">Documentation</span> : <a href="/docs/">Documentation</a>}
+        {entry.id !== 'intro' && <span aria-hidden="true">/</span>}
+        {entry.id !== 'intro' && <span aria-current="page">{title}</span>}
+      </nav>
       {section && <p class="doc-eyebrow">{section.label}</p>}
       {entry.data.agentPrompt && (
         <aside class="agent-prompt" aria-label="Prompt for your coding agent">
@@ -73,6 +128,8 @@ const title = titles.get(entry.id) ?? entry.id;
         )}
       </nav>
       <footer class="doc-foot">
+        <span>Maintained by GratefulAgents</span>
+        <span aria-hidden="true"> · </span>
         <a href={`${repositoryUrl}/edit/main/user-docs/docs/${entry.id}.md`}>Edit this page on GitHub</a>
       </footer>
     </main>

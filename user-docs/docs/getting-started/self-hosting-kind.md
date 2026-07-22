@@ -1,5 +1,7 @@
 ---
 title: Run locally with Kind
+seoTitle: Run Self-Hosted Coding Agents Locally with Kind | GratefulAgents
+description: Deploy GratefulAgents on macOS or Linux with Kind and Docker to start a local, Kubernetes-based coding-agent evaluation.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install gratefulagents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.
 ---

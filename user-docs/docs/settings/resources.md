@@ -1,5 +1,7 @@
 ---
 title: Resources
+seoTitle: Agent Skills, MCP Servers, Policies, and Roles | GratefulAgents
+description: Configure reusable agent skills, MCP servers, runtime profiles, policies, modes, guardrails, and specialist roles in GratefulAgents.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/resources/ and explain gratefulagents resources — skills, MCP servers, runtime profiles, policies, modes, and roles — and how I attach them to runs.
 ---

@@ -10,10 +10,12 @@
     "build": "astro build",
     "preview": "astro preview",
     "check": "astro build && node scripts/check-links.mjs",
+    "social-card": "node scripts/generate-social-card.mjs",
     "shots": "node scripts/prepare-shots.mjs",
     "video": "node scripts/prepare-video.mjs"
   },
   "dependencies": {
+    "@astrojs/sitemap": "^3.7.3",
     "astro": "^5.0.0"
   },
   "devDependencies": {

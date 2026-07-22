@@ -11,6 +11,8 @@ const docs = defineCollection({
   }),
   schema: z.object({
     title: z.string().optional(),
+    seoTitle: z.string().max(70).optional(),
+    description: z.string().max(160).optional(),
     slug: z.string().optional(),
     agentPrompt: z.string().optional(),
   }),

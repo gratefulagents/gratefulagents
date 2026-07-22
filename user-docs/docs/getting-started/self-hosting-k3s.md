@@ -1,5 +1,7 @@
 ---
 title: Self-host on k3s
+seoTitle: Self-Host Coding Agents on k3s | GratefulAgents
+description: Install GratefulAgents on Debian or Ubuntu with k3s, persistent state, and a secure, self-hosted coding-agent workspace.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/getting-started/self-hosting-k3s/ and install gratefulagents on my server with k3s. Confirm the prerequisites, run the install, and finish by handing me the URL and sign-in credentials.
 ---
