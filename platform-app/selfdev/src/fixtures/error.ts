@@ -10,6 +10,7 @@ import {
   GitIdentitySchema,
   LinearProjectSchema,
   MyCredentialsSchema,
+  MyOpenAIUsageSchema,
   ProjectSchema,
   ProjectTriggerConditionSchema,
   ProjectTriggerSchema,
@@ -249,6 +250,7 @@ export const errorScenario: Scenario = {
   modes: modeCatalog(),
   models: MODEL_LIST,
   credentials: create(MyCredentialsSchema, { namespace: NS }),
+  openAIUsage: create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
   soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
 
@@ -277,5 +279,6 @@ export const errorScenario: Scenario = {
     { name: "cron-detail", path: "/cron/demo/nightly-triage" },
     { name: "slack-agent", path: "/slack/demo/ops-agent" },
     { name: "settings-credentials", path: "/settings/credentials" },
+    { name: "settings-usage", path: "/settings/usage" },
   ],
 };

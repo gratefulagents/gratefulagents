@@ -21,6 +21,7 @@ function renderAt(path: string) {
         <Route path="/settings" element={<SettingsLayout />}>
           <Route index element={<div>general-pane</div>} />
           <Route path="credentials" element={<div>credentials-pane</div>} />
+          <Route path="usage" element={<div>usage-pane</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -38,6 +39,7 @@ describe("SettingsLayout", () => {
     expect(screen.getByText("@alice")).toBeTruthy();
     expect(screen.getByRole("link", { name: /General/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Credentials/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Usage/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Skills/ })).toBeTruthy();
     expect(screen.getByText("general-pane")).toBeTruthy();
     // Web build: desktop-only sections stay hidden.
@@ -45,8 +47,8 @@ describe("SettingsLayout", () => {
   });
 
   it("renders the section route in the content pane", () => {
-    renderAt("/settings/credentials");
-    expect(screen.getByText("credentials-pane")).toBeTruthy();
+    renderAt("/settings/usage");
+    expect(screen.getByText("usage-pane")).toBeTruthy();
     expect(screen.queryByText("general-pane")).toBeNull();
   });
 
