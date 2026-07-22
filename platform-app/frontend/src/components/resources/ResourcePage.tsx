@@ -14,7 +14,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { MCPServersSection } from "@/components/MCPServersSection";
 import { SkillsSection } from "@/components/SkillsSection";
 import { RuntimeProfileSchema, MCPPolicySchema, MCPAllowedServerSchema, MCPBreakGlassSchema, GuardrailPolicySchema, GuardrailRuleSchema, ModeConstraintsSchema, ModeTemplateSchema, RoleInstructionSchema } from "@/rpc/platform/service_pb";
-import { canMutateResource, formatProviderModels, parseProviderModels, resourceTabs, type ResourceKind } from "@/components/resources/resource-helpers";
+import { canCreateResource, canDeleteResource, canMutateResource, formatProviderModels, parseProviderModels, resourceTabs, type ResourceKind } from "@/components/resources/resource-helpers";
 import { parseStringList, parseStringMap, runtimeProfileFormFromRow } from "@/components/resources/runtime-profile-form";
 
 type Row = { name: string; namespace?: string; [key: string]: unknown };
@@ -72,14 +72,16 @@ export function ResourcePage() {
     return <Navigate to="/resources/skills" replace />;
   }
   const kind = rawKind as ResourceKind;
+  const creatable = canCreateResource(kind, user?.role);
   const mutable = canMutateResource(kind, user?.role);
+  const deletable = canDeleteResource(kind, user?.role);
   return <div className="space-y-5"><header><h1 className="text-[22px] font-semibold">Resources</h1><p className="text-[13px] text-muted-foreground">Configure reusable building blocks for agents and runs.</p></header>
     <nav aria-label="Resource types" className="flex gap-1 overflow-x-auto border-b">{resourceTabs.map(([id,label]) => <Link key={id} to={`/resources/${id}`} className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${kind === id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{label}</Link>)}</nav>
-    {kind === "skills" ? <SkillsSection /> : kind === "mcp-servers" ? <MCPServersSection /> : <ManagedResources kind={kind} mutable={mutable} />}
+    {kind === "skills" ? <SkillsSection /> : kind === "mcp-servers" ? <MCPServersSection /> : <ManagedResources kind={kind} creatable={creatable} mutable={mutable} deletable={deletable} />}
   </div>;
 }
 
-function ManagedResources({ kind, mutable }: { kind: Exclude<ResourceKind,"skills"|"mcp-servers">; mutable: boolean }) {
+function ManagedResources({ kind, creatable, mutable, deletable }: { kind: Exclude<ResourceKind,"skills"|"mcp-servers">; creatable: boolean; mutable: boolean; deletable: boolean }) {
   const [rows,setRows] = useState<Row[]>([]), [loading,setLoading] = useState(true), [error,setError] = useState<string|null>(null);
   const [editing,setEditing] = useState<Row|null|undefined>(), [deleting,setDeleting] = useState<Row|null>(null);
   const load = useCallback(async () => { setLoading(true); setError(null); try {
@@ -98,8 +100,13 @@ function ManagedResources({ kind, mutable }: { kind: Exclude<ResourceKind,"skill
     else await client.deleteRoleInstruction({name:row.name});
     await load();
   }
-  return <section className="space-y-4"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{resourceTabs.find(([id])=>id===kind)?.[1]}</h2><p className="text-sm text-muted-foreground">{descriptions[kind]}</p>{!mutable && <p className="mt-1 text-xs text-muted-foreground">Only administrators can change these resources.</p>}</div>{mutable && <Button onClick={()=>setEditing(null)}><Plus className="size-4"/>Create</Button>}</div>
-    {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : error ? <div className="text-sm text-destructive">{error} <Button variant="outline" size="sm" onClick={()=>void load()}>Retry</Button></div> : rows.length === 0 ? <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No resources found.{mutable && <div className="mt-3"><Button variant="outline" onClick={()=>setEditing(null)}>Create the first one</Button></div>}</div> : <div className="divide-y rounded-lg border">{rows.map(row=><div key={row.name} className="flex items-start justify-between gap-4 p-4"><div className="min-w-0"><div className="font-medium">{String(row.displayName || row.name)}</div><div className="font-mono text-xs text-muted-foreground">{row.namespace ? `${row.namespace}/` : ""}{row.name}</div><div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{summary(kind,row)}</div></div>{mutable && <div className="flex shrink-0 gap-1"><Button variant="ghost" size="icon" aria-label={`Edit ${row.name}`} onClick={()=>setEditing(row)}><Pencil className="size-4"/></Button><Button variant="ghost" size="icon" aria-label={`Delete ${row.name}`} onClick={()=>setDeleting(row)}><Trash2 className="size-4"/></Button></div>}</div>)}</div>}
+  const permissionHint = kind === "modes" && !deletable
+    ? "You can create and edit mode templates. Only administrators can delete them."
+    : !mutable
+      ? "Only administrators can change these resources."
+      : null;
+  return <section className="space-y-4"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{resourceTabs.find(([id])=>id===kind)?.[1]}</h2><p className="text-sm text-muted-foreground">{descriptions[kind]}</p>{permissionHint && <p className="mt-1 text-xs text-muted-foreground">{permissionHint}</p>}</div>{creatable && <Button onClick={()=>setEditing(null)}><Plus className="size-4"/>Create</Button>}</div>
+    {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : error ? <div className="text-sm text-destructive">{error} <Button variant="outline" size="sm" onClick={()=>void load()}>Retry</Button></div> : rows.length === 0 ? <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No resources found.{creatable && <div className="mt-3"><Button variant="outline" onClick={()=>setEditing(null)}>Create the first one</Button></div>}</div> : <div className="divide-y rounded-lg border">{rows.map(row=><div key={row.name} className="flex items-start justify-between gap-4 p-4"><div className="min-w-0"><div className="font-medium">{String(row.displayName || row.name)}</div><div className="font-mono text-xs text-muted-foreground">{row.namespace ? `${row.namespace}/` : ""}{row.name}</div><div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{summary(kind,row)}</div></div>{(mutable || deletable) && <div className="flex shrink-0 gap-1">{mutable && <Button variant="ghost" size="icon" aria-label={`Edit ${row.name}`} onClick={()=>setEditing(row)}><Pencil className="size-4"/></Button>}{deletable && <Button variant="ghost" size="icon" aria-label={`Delete ${row.name}`} onClick={()=>setDeleting(row)}><Trash2 className="size-4"/></Button>}</div>}</div>)}</div>}
     {editing !== undefined && <ResourceDialog kind={kind} row={editing} onClose={()=>setEditing(undefined)} onSaved={async()=>{setEditing(undefined);await load();}}/>}
     <ConfirmDialog open={Boolean(deleting)} onOpenChange={(o)=>!o&&setDeleting(null)} title={`Delete ${deleting?.name}?`} description="This cannot be undone." confirmLabel="Delete" destructive onConfirm={async()=>{if(deleting) await remove(deleting);}} />
   </section>;

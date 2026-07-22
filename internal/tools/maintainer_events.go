@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"sort"
 	"strconv"
@@ -14,8 +15,13 @@ import (
 	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/watch"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -34,6 +40,7 @@ type waitForRepoEventsTool struct {
 	backlogPollInterval     time.Duration
 	fleetPollInterval       time.Duration
 	pullRequestPollInterval time.Duration
+	beforeWorkItemWatch     func()
 }
 
 type waitForRepoEventsInput struct {
@@ -85,25 +92,41 @@ type maintainerRepoPullRequestEvent struct {
 	Removed        bool                     `json:"removed,omitempty"`
 }
 
+type maintainerRepoWorkItemEvent struct {
+	Name               string                                         `json:"name"`
+	IssueNumber        int32                                          `json:"issue_number"`
+	Disposition        triggersv1alpha1.MaintainerWorkItemDisposition `json:"disposition"`
+	Phase              triggersv1alpha1.MaintainerWorkItemPhase       `json:"phase"`
+	ProjectionSequence int64                                          `json:"projection_sequence"`
+	ResourceVersion    string                                         `json:"resource_version"`
+	ObservationFresh   bool                                           `json:"observation_fresh"`
+	Removed            bool                                           `json:"removed,omitempty"`
+}
+
 type maintainerRepoEventsCursor struct {
 	BacklogFingerprint    string            `json:"backlog_fingerprint"`
 	IssueSignatures       map[string]string `json:"issue_signatures"`
 	FleetSignatures       map[string]string `json:"fleet_signatures"`
 	PullRequestSignatures map[string]string `json:"pull_request_signatures,omitempty"`
+	WorkItemSignatures    map[string]string `json:"work_item_signatures,omitempty"`
 }
 
 type maintainerRepoEventsSnapshot struct {
-	backlogFingerprint    string
-	issueSignatures       map[string]string
-	issues                []maintainerRepoEventIssue
-	backlogAvailable      bool
-	backlogError          string
-	fleetSignatures       map[string]string
-	fleet                 map[string]maintainerRepoFleetEvent
-	fleetError            string
-	pullRequestSignatures map[string]string
-	pullRequests          map[string]maintainerRepoPullRequestEvent
-	pullRequestError      string
+	backlogFingerprint      string
+	issueSignatures         map[string]string
+	issues                  []maintainerRepoEventIssue
+	backlogAvailable        bool
+	backlogError            string
+	fleetSignatures         map[string]string
+	fleet                   map[string]maintainerRepoFleetEvent
+	fleetError              string
+	pullRequestSignatures   map[string]string
+	pullRequests            map[string]maintainerRepoPullRequestEvent
+	pullRequestError        string
+	workItemSignatures      map[string]string
+	workItems               map[string]maintainerRepoWorkItemEvent
+	workItemResourceVersion string
+	workItemError           string
 }
 
 type waitForRepoEventsOutput struct {
@@ -114,15 +137,17 @@ type waitForRepoEventsOutput struct {
 	ChangedIssues      []maintainerRepoEventIssue       `json:"changed_issues"`
 	FleetChanges       []maintainerRepoFleetEvent       `json:"fleet_changes"`
 	PullRequestChanges []maintainerRepoPullRequestEvent `json:"pull_request_changes"`
+	WorkItemChanges    []maintainerRepoWorkItemEvent    `json:"work_item_changes"`
 	Cursor             string                           `json:"cursor"`
 	BacklogError       string                           `json:"backlog_error,omitempty"`
 	FleetError         string                           `json:"fleet_error,omitempty"`
 	PullRequestError   string                           `json:"pull_request_error,omitempty"`
+	WorkItemError      string                           `json:"work_item_error,omitempty"`
 }
 
 func (t *waitForRepoEventsTool) Name() string { return "wait_for_repo_events" }
 func (t *waitForRepoEventsTool) Description() string {
-	return "Watch the maintained repository. Without a cursor it returns current open-issue, fleet-run, and attached pull-request state immediately; with the previous cursor it blocks until issues, run lifecycle, PR head/open/draft/review/mergeability, or aggregate CI changes. A closed event does not prove merge; inspect the PR before finalization. Always pass the cursor when waiting."
+	return "Watch the maintained repository. Without a cursor it returns current open-issue, fleet-run, attached pull-request, and durable work-item state immediately; with the previous cursor it blocks until issues, run lifecycle, PR head/open/draft/review/mergeability, aggregate CI, or work-item changes. A closed event does not prove merge; inspect the PR before finalization. Always pass the cursor when waiting."
 }
 func (t *waitForRepoEventsTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"timeout_seconds":{"type":"integer","minimum":30,"maximum":21600},"cursor":{"type":"string"}}}`)
@@ -174,6 +199,10 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 		current = previous
 		current.fleetError = err.Error()
 	}
+	if cursorProvided && current.workItemError != "" {
+		current.workItemSignatures = previous.workItemSignatures
+		current.workItems = previous.workItems
+	}
 	if !cursorProvided {
 		// First call of an episode: return the current backlog and fleet state
 		// immediately instead of arming a delta wait. A "wait for change from
@@ -198,12 +227,46 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 	pullRequestTicker := time.NewTicker(t.effectivePullRequestPollInterval())
 	defer pullRequestTicker.Stop()
 	latest := current
+	workItems, workItemWatcher, workItemErr := t.workItemSnapshotAndWatch(ctx)
+	var workItemEvents <-chan watch.Event
+	if workItemErr != nil {
+		return Result{Content: fmt.Sprintf("failed to establish MaintainerWorkItem watch: %v", workItemErr), IsError: true}, nil
+	} else {
+		latest.workItemSignatures = workItems.workItemSignatures
+		latest.workItems = workItems.workItems
+		latest.workItemResourceVersion = workItems.workItemResourceVersion
+		latest.workItemError = ""
+		if workItemWatcher != nil {
+			defer workItemWatcher.Stop()
+			workItemEvents = workItemWatcher.ResultChan()
+		}
+	}
+	if repoEventsChanged(previous, latest) {
+		return t.repoEventsResult(previous, latest, true, false, started, cursorProvided)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return Result{Content: fmt.Sprintf("wait cancelled: %v", ctx.Err()), IsError: true}, nil
 		case <-deadline.C:
 			return t.repoEventsResult(previous, latest, false, true, started, cursorProvided)
+		case _, ok := <-workItemEvents:
+			if !ok {
+				workItemEvents = nil
+				continue
+			}
+			workItems, workItemErr := t.workItemEventsSnapshot(ctx)
+			if workItemErr != nil {
+				latest.workItemError = workItemErr.Error()
+			} else {
+				latest.workItemSignatures = workItems.workItemSignatures
+				latest.workItems = workItems.workItems
+				latest.workItemResourceVersion = workItems.workItemResourceVersion
+				latest.workItemError = ""
+			}
+			if repoEventsChanged(previous, latest) {
+				return t.repoEventsResult(previous, latest, true, false, started, cursorProvided)
+			}
 		case <-backlogTicker.C:
 			backlog, backlogErr := t.backlogSnapshot(ctx, wd)
 			if backlogErr != nil {
@@ -226,6 +289,15 @@ func (t *waitForRepoEventsTool) Execute(ctx context.Context, input json.RawMessa
 				latest.fleetSignatures = fleet.fleetSignatures
 				latest.fleet = fleet.fleet
 				latest.fleetError = ""
+			}
+			workItems, workItemErr := t.workItemEventsSnapshot(ctx)
+			if workItemErr != nil {
+				latest.workItemError = workItemErr.Error()
+			} else {
+				latest.workItemSignatures = workItems.workItemSignatures
+				latest.workItems = workItems.workItems
+				latest.workItemResourceVersion = workItems.workItemResourceVersion
+				latest.workItemError = ""
 			}
 			if repoEventsChanged(previous, latest) {
 				return t.repoEventsResult(previous, latest, true, false, started, cursorProvided)
@@ -286,6 +358,14 @@ func (t *waitForRepoEventsTool) repoEventsSnapshot(ctx context.Context, workDir 
 		fleet.pullRequestSignatures = pullRequests.pullRequestSignatures
 		fleet.pullRequests = pullRequests.pullRequests
 		fleet.pullRequestError = pullRequests.pullRequestError
+	}
+	workItems, workItemErr := t.workItemEventsSnapshot(ctx)
+	if workItemErr != nil {
+		fleet.workItemError = workItemErr.Error()
+	} else {
+		fleet.workItemSignatures = workItems.workItemSignatures
+		fleet.workItems = workItems.workItems
+		fleet.workItemResourceVersion = workItems.workItemResourceVersion
 	}
 	if !includeBacklog {
 		return fleet, nil
@@ -375,6 +455,76 @@ func (t *waitForRepoEventsTool) fleetEventsSnapshot(ctx context.Context) (mainta
 		events[run.Name] = maintainerRepoFleetEvent{Name: run.Name, Phase: run.Status.Phase, PullRequestURLs: urls, BlockedReason: blockedReason, PendingInput: pendingInput, PRLoopState: loopState, PRLoopRound: loopRound}
 	}
 	return maintainerRepoEventsSnapshot{fleetSignatures: signatures, fleet: events, pullRequestSignatures: map[string]string{}, pullRequests: map[string]maintainerRepoPullRequestEvent{}}, nil
+}
+
+func (t *waitForRepoEventsTool) workItemListOptions(resourceVersion string) *client.ListOptions {
+	options := &client.ListOptions{
+		Namespace:     t.repositoryNamespace,
+		LabelSelector: labels.SelectorFromSet(labels.Set{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: t.repositoryName}),
+	}
+	if resourceVersion != "" {
+		options.Raw = &metav1.ListOptions{ResourceVersion: resourceVersion, LabelSelector: options.LabelSelector.String()}
+	}
+	return options
+}
+
+func (t *waitForRepoEventsTool) workItemEventsSnapshot(ctx context.Context) (maintainerRepoEventsSnapshot, error) {
+	var items triggersv1alpha1.MaintainerWorkItemList
+	options := t.workItemListOptions("")
+	if err := t.k8sClient.List(ctx, &items, options); err != nil {
+		return maintainerRepoEventsSnapshot{}, fmt.Errorf("failed to list repository MaintainerWorkItems: %w", err)
+	}
+
+	signatures := make(map[string]string, len(items.Items))
+	events := make(map[string]maintainerRepoWorkItemEvent, len(items.Items))
+	for i := range items.Items {
+		item := &items.Items[i]
+		if item.Spec.RepositoryRef.Name != t.repositoryName {
+			continue
+		}
+		intent, err := json.Marshal(item.Spec)
+		if err != nil {
+			return maintainerRepoEventsSnapshot{}, fmt.Errorf("marshal MaintainerWorkItem %q intent: %w", item.Name, err)
+		}
+		signatures[item.Name] = maintainerRepoEventSignature(strconv.FormatInt(item.Status.ProjectionSequence, 10) + "|" + item.ResourceVersion + "|" + string(intent))
+		events[item.Name] = maintainerRepoWorkItemEvent{
+			Name: item.Name, IssueNumber: item.Spec.IssueNumber, Disposition: item.Spec.Disposition, Phase: item.Status.Phase,
+			ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion,
+			ObservationFresh: maintainerWorkItemObservationFresh(item),
+		}
+	}
+	return maintainerRepoEventsSnapshot{workItemSignatures: signatures, workItems: events, workItemResourceVersion: items.ResourceVersion}, nil
+}
+
+// workItemSnapshotAndWatch establishes the watch from the resource version of
+// the returned list. An update committed between the list and Watch call is
+// therefore replayed by the API server instead of falling into a waiter gap.
+func (t *waitForRepoEventsTool) workItemSnapshotAndWatch(ctx context.Context) (maintainerRepoEventsSnapshot, watch.Interface, error) {
+	snapshot, err := t.workItemEventsSnapshot(ctx)
+	if err != nil {
+		return maintainerRepoEventsSnapshot{}, nil, err
+	}
+	watchClient, ok := t.k8sClient.(client.WithWatch)
+	if !ok {
+		return snapshot, nil, fmt.Errorf("kubernetes client does not support MaintainerWorkItem watches")
+	}
+	if t.beforeWorkItemWatch != nil {
+		t.beforeWorkItemWatch()
+	}
+	watcher, err := watchClient.Watch(ctx, &triggersv1alpha1.MaintainerWorkItemList{}, t.workItemListOptions(snapshot.workItemResourceVersion))
+	if err != nil {
+		return snapshot, nil, fmt.Errorf("watch repository MaintainerWorkItems from resourceVersion %q: %w", snapshot.workItemResourceVersion, err)
+	}
+	return snapshot, watcher, nil
+}
+
+func maintainerWorkItemObservationFresh(item *triggersv1alpha1.MaintainerWorkItem) bool {
+	for _, condition := range item.Status.Conditions {
+		if condition.Type == triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh && condition.Status == metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 const maintainerPullRequestReviewDecisionQuery = "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewDecision}}}"
@@ -625,7 +775,8 @@ func repoEventsChanged(previous, current maintainerRepoEventsSnapshot) bool {
 		return true
 	}
 	return !maintainerRepoEventSignaturesEqual(previous.fleetSignatures, current.fleetSignatures) ||
-		!maintainerRepoEventSignaturesEqual(previous.pullRequestSignatures, current.pullRequestSignatures)
+		!maintainerRepoEventSignaturesEqual(previous.pullRequestSignatures, current.pullRequestSignatures) ||
+		!maintainerRepoEventSignaturesEqual(previous.workItemSignatures, current.workItemSignatures)
 }
 
 func maintainerRepoEventSignaturesEqual(left, right map[string]string) bool {
@@ -649,10 +800,12 @@ func (t *waitForRepoEventsTool) repoEventsResult(previous, current maintainerRep
 	changedIssues := changedRepoEventIssues(previous, current)
 	fleetChanges := changedRepoFleetEvents(previous, current)
 	pullRequestChanges := changedRepoPullRequestEvents(previous, current)
+	workItemChanges := changedRepoWorkItemEvents(previous, current)
 	if !changed {
 		changedIssues = []maintainerRepoEventIssue{}
 		fleetChanges = []maintainerRepoFleetEvent{}
 		pullRequestChanges = []maintainerRepoPullRequestEvent{}
+		workItemChanges = []maintainerRepoWorkItemEvent{}
 	} else if !cursorKnown {
 		changedIssues = append([]maintainerRepoEventIssue(nil), current.issues...)
 	}
@@ -664,14 +817,14 @@ func (t *waitForRepoEventsTool) repoEventsResult(previous, current maintainerRep
 	// an emitted-only cursor the next call detects the remaining difference
 	// immediately and pages through the rest.
 	for {
-		cursor, err := encodeMaintainerRepoEventsCursor(repoEventsCursorForEmitted(previous, current, changedIssues, fleetChanges, pullRequestChanges))
+		cursor, err := encodeMaintainerRepoEventsCursor(repoEventsCursorForEmitted(previous, current, changedIssues, fleetChanges, pullRequestChanges, workItemChanges))
 		if err != nil {
 			return Result{}, err
 		}
 		out := waitForRepoEventsOutput{
 			Changed: changed, TimedOut: timedOut, BacklogChanged: current.backlogAvailable && (!previous.backlogAvailable || previous.backlogFingerprint != current.backlogFingerprint),
-			ChangedIssues: changedIssues, FleetChanges: fleetChanges, PullRequestChanges: pullRequestChanges, Cursor: cursor,
-			BacklogError: truncateUTF8(current.backlogError, 1024), FleetError: truncateUTF8(current.fleetError, 1024), PullRequestError: truncateUTF8(current.pullRequestError, 1024),
+			ChangedIssues: changedIssues, FleetChanges: fleetChanges, PullRequestChanges: pullRequestChanges, WorkItemChanges: workItemChanges, Cursor: cursor,
+			BacklogError: truncateUTF8(current.backlogError, 1024), FleetError: truncateUTF8(current.fleetError, 1024), PullRequestError: truncateUTF8(current.pullRequestError, 1024), WorkItemError: truncateUTF8(current.workItemError, 1024),
 		}
 		if !started.IsZero() {
 			out.ElapsedSeconds = int(time.Since(started).Seconds())
@@ -680,7 +833,7 @@ func (t *waitForRepoEventsTool) repoEventsResult(previous, current maintainerRep
 		if err != nil {
 			return Result{}, err
 		}
-		if len(encoded) <= maintainerRepoEventsResultLimit || (len(changedIssues) == 0 && len(fleetChanges) == 0 && len(pullRequestChanges) == 0) {
+		if len(encoded) <= maintainerRepoEventsResultLimit || (len(changedIssues) == 0 && len(fleetChanges) == 0 && len(pullRequestChanges) == 0 && len(workItemChanges) == 0) {
 			return Result{Content: string(encoded)}, nil
 		}
 		if len(changedIssues) > 0 {
@@ -691,19 +844,23 @@ func (t *waitForRepoEventsTool) repoEventsResult(previous, current maintainerRep
 			fleetChanges = fleetChanges[:len(fleetChanges)-1]
 			continue
 		}
-		pullRequestChanges = pullRequestChanges[:len(pullRequestChanges)-1]
+		if len(pullRequestChanges) > 0 {
+			pullRequestChanges = pullRequestChanges[:len(pullRequestChanges)-1]
+			continue
+		}
+		workItemChanges = workItemChanges[:len(workItemChanges)-1]
 	}
 }
 
 // repoEventsCursorForEmitted advances the previous cursor by only the emitted
-// deltas: emitted issues, fleet runs, and pull requests adopt their current
+// deltas: emitted issues, fleet runs, pull requests, and work items adopt their current
 // signatures, removed entries are dropped, and everything else keeps the
 // previously seen signature so it still registers as a pending change. The
 // backlog fingerprint matches the live snapshot only when nothing was
 // suppressed; otherwise a fingerprint derived from the acknowledged
 // signatures keeps the cursor distinct from the live state so the next call
 // returns immediately.
-func repoEventsCursorForEmitted(previous, current maintainerRepoEventsSnapshot, emittedIssues []maintainerRepoEventIssue, emittedFleet []maintainerRepoFleetEvent, emittedPullRequests []maintainerRepoPullRequestEvent) maintainerRepoEventsCursor {
+func repoEventsCursorForEmitted(previous, current maintainerRepoEventsSnapshot, emittedIssues []maintainerRepoEventIssue, emittedFleet []maintainerRepoFleetEvent, emittedPullRequests []maintainerRepoPullRequestEvent, emittedWorkItems []maintainerRepoWorkItemEvent) maintainerRepoEventsCursor {
 	issueSignatures := map[string]string{}
 	for number, signature := range previous.issueSignatures {
 		// Keep removed-but-not-yet-emitted issues pending so a trimmed
@@ -747,11 +904,22 @@ func repoEventsCursorForEmitted(previous, current maintainerRepoEventsSnapshot, 
 			delete(pullRequestSignatures, event.URL)
 		}
 	}
+
+	workItemSignatures := map[string]string{}
+	maps.Copy(workItemSignatures, previous.workItemSignatures)
+	for _, event := range emittedWorkItems {
+		if signature, exists := current.workItemSignatures[event.Name]; exists {
+			workItemSignatures[event.Name] = signature
+		} else {
+			delete(workItemSignatures, event.Name)
+		}
+	}
 	return maintainerRepoEventsCursor{
 		BacklogFingerprint:    backlogFingerprint,
 		IssueSignatures:       issueSignatures,
 		FleetSignatures:       fleetSignatures,
 		PullRequestSignatures: pullRequestSignatures,
+		WorkItemSignatures:    workItemSignatures,
 	}
 }
 
@@ -841,6 +1009,30 @@ func changedRepoPullRequestEvents(previous, current maintainerRepoEventsSnapshot
 	return events
 }
 
+func changedRepoWorkItemEvents(previous, current maintainerRepoEventsSnapshot) []maintainerRepoWorkItemEvent {
+	names := make([]string, 0)
+	for name, signature := range current.workItemSignatures {
+		if previous.workItemSignatures[name] != signature {
+			names = append(names, name)
+		}
+	}
+	for name := range previous.workItemSignatures {
+		if _, exists := current.workItemSignatures[name]; !exists {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	events := make([]maintainerRepoWorkItemEvent, 0, len(names))
+	for _, name := range names {
+		if event, exists := current.workItems[name]; exists {
+			events = append(events, event)
+			continue
+		}
+		events = append(events, maintainerRepoWorkItemEvent{Name: name, Removed: true})
+	}
+	return events
+}
+
 func encodeMaintainerRepoEventsCursor(cursor maintainerRepoEventsCursor) (string, error) {
 	if cursor.IssueSignatures == nil {
 		cursor.IssueSignatures = map[string]string{}
@@ -850,6 +1042,9 @@ func encodeMaintainerRepoEventsCursor(cursor maintainerRepoEventsCursor) (string
 	}
 	if cursor.PullRequestSignatures == nil {
 		cursor.PullRequestSignatures = map[string]string{}
+	}
+	if cursor.WorkItemSignatures == nil {
+		cursor.WorkItemSignatures = map[string]string{}
 	}
 	encoded, err := json.Marshal(cursor)
 	if err != nil {
@@ -873,6 +1068,9 @@ func decodeMaintainerRepoEventsCursor(value string) (maintainerRepoEventsCursor,
 	if cursor.PullRequestSignatures == nil {
 		cursor.PullRequestSignatures = map[string]string{}
 	}
+	if cursor.WorkItemSignatures == nil {
+		cursor.WorkItemSignatures = map[string]string{}
+	}
 	return cursor, nil
 }
 
@@ -881,5 +1079,6 @@ func snapshotFromMaintainerRepoEventsCursor(cursor maintainerRepoEventsCursor) m
 		backlogFingerprint: cursor.BacklogFingerprint, issueSignatures: cursor.IssueSignatures, backlogAvailable: cursor.BacklogFingerprint != "",
 		fleetSignatures: cursor.FleetSignatures, fleet: map[string]maintainerRepoFleetEvent{},
 		pullRequestSignatures: cursor.PullRequestSignatures, pullRequests: map[string]maintainerRepoPullRequestEvent{},
+		workItemSignatures: cursor.WorkItemSignatures, workItems: map[string]maintainerRepoWorkItemEvent{},
 	}
 }

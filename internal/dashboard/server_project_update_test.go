@@ -41,6 +41,7 @@ func TestUpdateProjectEditsDefaultsWithoutAutoCreatingPolicies(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 	srv := &Server{k8sClient: c, scheme: scheme}
 	disableReviewLoop := true
+	modeRef := "review"
 
 	resp, err := srv.UpdateProject(projectActorCtx(), &platform.UpdateProjectRequest{
 		Namespace:          ns,
@@ -56,6 +57,7 @@ func TestUpdateProjectEditsDefaultsWithoutAutoCreatingPolicies(t *testing.T) {
 		AllowedModels:      []string{"gpt-5", "gpt-5-mini"},
 		AuthMode:           "api-key",
 		ReasoningLevel:     "medium",
+		ModeRef:            &modeRef,
 		ReviewLoopDisabled: &disableReviewLoop,
 		GithubTokenSecret:  "github-secret",
 		ProviderKeys: []*platform.ProviderKeyRef{{
@@ -69,8 +71,8 @@ func TestUpdateProjectEditsDefaultsWithoutAutoCreatingPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateProject() error = %v", err)
 	}
-	if resp.DisplayName != "Payments API" || resp.RuntimeProfileRef != "shared-runtime" || resp.McpPolicyRef != "shared-policy" {
-		t.Fatalf("response = %#v, want updated display/runtime/mcp refs", resp)
+	if resp.DisplayName != "Payments API" || resp.RuntimeProfileRef != "shared-runtime" || resp.McpPolicyRef != "shared-policy" || resp.ModeRef != "review" {
+		t.Fatalf("response = %#v, want updated display/runtime/mcp/mode refs", resp)
 	}
 	if !resp.ReviewLoopDisabled {
 		t.Fatalf("ReviewLoopDisabled = false, want true")
@@ -102,6 +104,9 @@ func TestUpdateProjectEditsDefaultsWithoutAutoCreatingPolicies(t *testing.T) {
 	if defaults.ReasoningLevel != platformv1alpha1.ReasoningMedium {
 		t.Fatalf("ReasoningLevel = %q, want medium", defaults.ReasoningLevel)
 	}
+	if defaults.ModeRef == nil || defaults.ModeRef.Name != "review" {
+		t.Fatalf("ModeRef = %#v, want review", defaults.ModeRef)
+	}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: projectRuntimeProfileName("payments")}, &platformv1alpha1.RuntimeProfile{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("default RuntimeProfile lookup err = %v, want not found", err)
 	}
@@ -122,6 +127,7 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 			Defaults: triggersv1alpha1.AgentRunDefaults{
 				Provider: triggersv1alpha1.ProviderOpenAI,
 				AuthMode: platformv1alpha1.AgentRunAuthModeAPIKey,
+				ModeRef:  &platformv1alpha1.ModeRef{Name: "autopilot", Version: "v2", Channel: "stable"},
 				Secrets:  triggersv1alpha1.AgentRunSecrets{ProviderKeys: []platformv1alpha1.ProviderKeyRef{{Provider: triggersv1alpha1.ProviderOpenAI, SecretName: "openai-secret"}}},
 			},
 		},
@@ -146,6 +152,16 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 	if !resp.ReviewLoopDisabled {
 		t.Fatalf("ReviewLoopDisabled after omitted update = false, want preserved true")
 	}
+	if resp.ModeRef != "autopilot" {
+		t.Fatalf("ModeRef after omitted update = %q, want preserved autopilot", resp.ModeRef)
+	}
+	preserved := &triggersv1alpha1.Project{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "payments"}, preserved); err != nil {
+		t.Fatalf("Get(Project) after omitted mode update: %v", err)
+	}
+	if got := preserved.Spec.Defaults.ModeRef; got == nil || got.Name != "autopilot" || got.Version != "v2" || got.Channel != "stable" {
+		t.Fatalf("ModeRef after omitted update = %#v, want autopilot@v2 (stable)", got)
+	}
 
 	clear := false
 	_, err = srv.UpdateProject(projectActorCtx(), &platform.UpdateProjectRequest{
@@ -161,6 +177,7 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 		t.Fatalf("UpdateProject() non-admin change error = %v, want PermissionDenied", err)
 	}
 
+	clearMode := ""
 	resp, err = srv.UpdateProject(actorContext("admin-1", "admin", "", ""), &platform.UpdateProjectRequest{
 		Namespace:       ns,
 		Name:            "payments",
@@ -169,12 +186,16 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 		AuthMode:        "api-key",
 		ProviderKeys:    []*platform.ProviderKeyRef{{Provider: "openai", SecretName: "openai-secret"}},
 		KubernetesAdmin: &clear,
+		ModeRef:         &clearMode,
 	})
 	if err != nil {
 		t.Fatalf("UpdateProject() admin clear error = %v", err)
 	}
 	if resp.KubernetesAdmin {
 		t.Fatalf("KubernetesAdmin after admin clear = true, want false")
+	}
+	if resp.ModeRef != "" {
+		t.Fatalf("ModeRef after explicit clear = %q, want empty", resp.ModeRef)
 	}
 }
 

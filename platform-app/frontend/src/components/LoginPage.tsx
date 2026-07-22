@@ -6,6 +6,7 @@ import { isTauri } from '@/lib/platform';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { WorkspaceSwitcher } from '@/components/shell/WorkspaceSwitcher';
 import { useTheme } from '@/lib/theme';
+import { APP_VERSION } from '@/lib/build-info';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -380,6 +381,13 @@ export function LoginPage() {
             </div>
           </>
         )}
+
+        <p
+          className="mt-6 text-center font-mono text-xs text-muted-foreground"
+          title={`App version ${APP_VERSION}`}
+        >
+          build v{APP_VERSION}
+        </p>
       </div>
     </div>
   );

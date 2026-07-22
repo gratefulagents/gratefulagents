@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { LoginPage } from "@/components/LoginPage";
+import { APP_VERSION } from "@/lib/build-info";
 
 const authState = {
   connectToServer: vi.fn(),
@@ -42,6 +43,12 @@ afterEach(() => {
 });
 
 describe("LoginPage", () => {
+  it("shows the app version", () => {
+    render(<LoginPage />);
+
+    expect(screen.getByText(`build v${APP_VERSION}`)).toBeTruthy();
+  });
+
   it("renders and submits the username/password form", async () => {
     render(<LoginPage />);
 

@@ -43,10 +43,23 @@ export function workspaceAuthStoreKeys(workspaceId: string): {
 // In-memory cache so sync getters (required by Connect) never block.
 let accessTokenCache: string | null = null;
 let refreshTokenCache: string | null = null;
+const sessionGenerations = new Map<string, number>();
+
+function sessionGeneration(workspaceId: string): number {
+  return sessionGenerations.get(workspaceId) ?? 0;
+}
+
+function advanceSessionGeneration(workspaceId: string): number {
+  const next = sessionGeneration(workspaceId) + 1;
+  sessionGenerations.set(workspaceId, next);
+  return next;
+}
 
 export async function hydrateTokens(): Promise<void> {
-  accessTokenCache = (await storeGet<string>(nsKey(ACCESS_KEY))) ?? null;
-  refreshTokenCache = (await storeGet<string>(nsKey(REFRESH_KEY))) ?? null;
+  const workspaceId = getActiveWorkspaceId();
+  advanceSessionGeneration(workspaceId);
+  accessTokenCache = (await storeGet<string>(nsKeyForWorkspace(ACCESS_KEY, workspaceId))) ?? null;
+  refreshTokenCache = (await storeGet<string>(nsKeyForWorkspace(REFRESH_KEY, workspaceId))) ?? null;
 }
 
 export function getAccessToken(): string | null {
@@ -57,20 +70,24 @@ export function getRefreshToken(): string | null {
 }
 
 export async function setTokens(access: string, refresh?: string): Promise<void> {
+  const workspaceId = getActiveWorkspaceId();
+  advanceSessionGeneration(workspaceId);
   accessTokenCache = access;
-  await storeSet(nsKey(ACCESS_KEY), access);
+  await storeSet(nsKeyForWorkspace(ACCESS_KEY, workspaceId), access);
   if (refresh) {
     refreshTokenCache = refresh;
-    await storeSet(nsKey(REFRESH_KEY), refresh);
+    await storeSet(nsKeyForWorkspace(REFRESH_KEY, workspaceId), refresh);
   }
 }
 
 export async function clearTokens(): Promise<void> {
+  const workspaceId = getActiveWorkspaceId();
+  advanceSessionGeneration(workspaceId);
   accessTokenCache = null;
   refreshTokenCache = null;
-  await storeDelete(nsKey(ACCESS_KEY));
-  await storeDelete(nsKey(REFRESH_KEY));
-  await storeDelete(nsKey(USER_KEY));
+  await storeDelete(nsKeyForWorkspace(ACCESS_KEY, workspaceId));
+  await storeDelete(nsKeyForWorkspace(REFRESH_KEY, workspaceId));
+  await storeDelete(nsKeyForWorkspace(USER_KEY, workspaceId));
 }
 
 export async function getWorkspaceRefreshToken(workspaceId: string): Promise<string | null> {
@@ -78,6 +95,7 @@ export async function getWorkspaceRefreshToken(workspaceId: string): Promise<str
 }
 
 export async function clearWorkspaceSecrets(workspaceId: string): Promise<void> {
+  advanceSessionGeneration(workspaceId);
   const keys = workspaceAuthStoreKeys(workspaceId);
   await Promise.all([
     storeDelete(keys.accessToken),
@@ -99,15 +117,28 @@ export async function clearWorkspaceSecrets(workspaceId: string): Promise<void> 
  * transient: the session is kept so callers can retry later. This is the
  * difference between "sign in again" and "a proxy blipped for one request".
  */
-export async function refreshAccessToken(): Promise<RefreshOutcome> {
-  const refreshToken = refreshTokenCache ?? (await storeGet<string>(nsKey(REFRESH_KEY)));
+type RefreshScope = {
+  workspaceId: string;
+  sessionGeneration: number;
+  baseUrl: string;
+  cloudflareHeaders: Record<string, string>;
+};
+
+const refreshesInFlight = new Map<string, Promise<RefreshOutcome>>();
+
+async function performRefreshAccessToken(scope: RefreshScope): Promise<RefreshOutcome> {
+  const keys = workspaceAuthStoreKeys(scope.workspaceId);
+  const refreshToken = await storeGet<string>(keys.refreshToken);
+  if (sessionGeneration(scope.workspaceId) !== scope.sessionGeneration) {
+    return { token: null, sessionInvalid: false };
+  }
   if (!refreshToken) return { token: null, sessionInvalid: true };
   try {
-    const resp = await runtimeFetch(`${backendBaseUrl()}/auth.v1.AuthService/RefreshToken`, {
+    const resp = await runtimeFetch(`${scope.baseUrl}/auth.v1.AuthService/RefreshToken`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...getCloudflareAccessHeaders(),
+        ...scope.cloudflareHeaders,
       },
       body: JSON.stringify({ refreshToken }),
     });
@@ -122,15 +153,55 @@ export async function refreshAccessToken(): Promise<RefreshOutcome> {
       // 2xx with an unexpected body (proxy interception) — treat as transient.
       return { token: null, sessionInvalid: false };
     }
-    await setTokens(
-      data.accessToken,
-      typeof data.refreshToken === "string" && data.refreshToken ? data.refreshToken : undefined,
-    );
+    // A logout or newer login may have replaced this session while the request
+    // was in flight. Never let the stale response resurrect or overwrite it.
+    if (
+      sessionGeneration(scope.workspaceId) !== scope.sessionGeneration ||
+      (await storeGet<string>(keys.refreshToken)) !== refreshToken
+    ) {
+      return { token: null, sessionInvalid: false };
+    }
+    const nextRefreshToken =
+      typeof data.refreshToken === "string" && data.refreshToken ? data.refreshToken : refreshToken;
+    await Promise.all([
+      storeSet(keys.accessToken, data.accessToken),
+      storeSet(keys.refreshToken, nextRefreshToken),
+    ]);
+    if (
+      sessionGeneration(scope.workspaceId) !== scope.sessionGeneration
+    ) {
+      return { token: null, sessionInvalid: false };
+    }
+    if (scope.workspaceId === getActiveWorkspaceId()) {
+      accessTokenCache = data.accessToken;
+      refreshTokenCache = nextRefreshToken;
+    }
     return { token: data.accessToken, sessionInvalid: false };
   } catch {
     // Network failure or non-JSON body — transient, keep the session.
     return { token: null, sessionInvalid: false };
   }
+}
+
+export function refreshAccessToken(): Promise<RefreshOutcome> {
+  const workspaceId = getActiveWorkspaceId();
+  const generation = sessionGeneration(workspaceId);
+  const refreshKey = `${workspaceId}:${generation}`;
+  const existing = refreshesInFlight.get(refreshKey);
+  if (existing) return existing;
+  const scope: RefreshScope = {
+    workspaceId,
+    sessionGeneration: generation,
+    baseUrl: backendBaseUrl(),
+    cloudflareHeaders: { ...getCloudflareAccessHeaders() },
+  };
+  const refresh = performRefreshAccessToken(scope).finally(() => {
+    if (refreshesInFlight.get(refreshKey) === refresh) {
+      refreshesInFlight.delete(refreshKey);
+    }
+  });
+  refreshesInFlight.set(refreshKey, refresh);
+  return refresh;
 }
 
 /**

@@ -220,15 +220,36 @@ func TestResourceCRDValidation(t *testing.T) {
 func TestCatalogAuthorization(t *testing.T) {
 	scheme := testProjectScheme(t)
 	srv := &Server{k8sClient: fake.NewClientBuilder().WithScheme(scheme).Build(), scheme: scheme}
-	if _, err := srv.ListModeTemplates(context.WithValue(context.Background(), requestActorContextKey{}, requestActor{}), &platform.ListModeTemplatesRequest{}); connect.CodeOf(err) != connect.CodeUnauthenticated {
+	unauthenticated := context.WithValue(context.Background(), requestActorContextKey{}, requestActor{})
+	if _, err := srv.ListModeTemplates(unauthenticated, &platform.ListModeTemplatesRequest{}); connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Fatalf("empty recorded actor: got %v", err)
+	}
+	if _, err := srv.CreateModeTemplate(unauthenticated, &platform.CreateModeTemplateRequest{Template: &platform.ModeTemplate{Name: "anonymous-mode", Version: "v1", Category: "direct", ExecutionStrategy: "serial"}}); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("unauthenticated mode create: got %v", err)
 	}
 	member := resourceActorContext("alice", "member", "Alice")
 	if _, err := srv.ListRoleInstructions(member, &platform.ListRoleInstructionsRequest{}); err != nil {
 		t.Fatalf("authenticated list error = %v", err)
 	}
+	createdMode, err := srv.CreateModeTemplate(member, &platform.CreateModeTemplateRequest{Template: &platform.ModeTemplate{Name: "alice-mode", Version: "v1", Category: "direct", ExecutionStrategy: "serial"}})
+	if err != nil {
+		t.Fatalf("member mode create error = %v", err)
+	}
+	if createdMode.Name != "alice-mode" {
+		t.Fatalf("created mode name = %q", createdMode.Name)
+	}
+	updatedMode, err := srv.UpdateModeTemplate(member, &platform.UpdateModeTemplateRequest{Template: &platform.ModeTemplate{Name: "alice-mode", Version: "v2", Category: "direct", ExecutionStrategy: "serial"}})
+	if err != nil {
+		t.Fatalf("member mode update error = %v", err)
+	}
+	if updatedMode.Version != "v2" {
+		t.Fatalf("updated mode version = %q, want v2", updatedMode.Version)
+	}
+	if err := srv.DeleteModeTemplate(member, &platform.DeleteModeTemplateRequest{Name: "alice-mode"}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("member mode delete: got %v", err)
+	}
 	if _, err := srv.CreateRoleInstruction(member, &platform.CreateRoleInstructionRequest{Instruction: &platform.RoleInstruction{Name: "executor", Instructions: "do work", ToolAccess: "execution"}}); connect.CodeOf(err) != connect.CodePermissionDenied {
-		t.Fatalf("member create: got %v", err)
+		t.Fatalf("member role create: got %v", err)
 	}
 	admin := resourceActorContext("admin", "admin", "Admin")
 	if _, err := srv.CreateRoleInstruction(admin, &platform.CreateRoleInstructionRequest{Instruction: &platform.RoleInstruction{Name: "executor", Instructions: "do work", ToolAccess: "execution"}}); err != nil {

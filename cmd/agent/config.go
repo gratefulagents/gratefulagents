@@ -75,13 +75,9 @@ func loadRunConfig() (runConfig, error) {
 	if err != nil {
 		return runConfig{}, err
 	}
-	// GH_PAT is optional: repoless chats run in an empty sandbox with no git
-	// remote, so they never receive a GitHub token. Require it only when a
-	// repository is attached (clone/push need credentials).
+	// GH_PAT is optional. Public repositories can be cloned anonymously;
+	// authenticated operations fail at the point of use when no token is set.
 	ghPAT := strings.TrimSpace(os.Getenv("GH_PAT"))
-	if (repoURL != "" || len(additionalRepoURLs) > 0) && ghPAT == "" {
-		return runConfig{}, fmt.Errorf("required env var GH_PAT is not set")
-	}
 	taskName, err := agentinfra.MustEnv("PLANTASK_NAME")
 	if err != nil {
 		return runConfig{}, err

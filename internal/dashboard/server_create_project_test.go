@@ -56,6 +56,7 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	srv := &Server{k8sClient: c, scheme: scheme}
 	ns := testUserNS()
+	modeRef := "autopilot"
 
 	resp, err := srv.CreateProject(projectActorCtx(), &platform.CreateProjectRequest{
 		Name:                    "payments",
@@ -70,6 +71,7 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 		AllowedModels:           []string{"gpt-4.1", "gpt-4o"},
 		AuthMode:                "api-key",
 		ReasoningLevel:          "high",
+		ModeRef:                 &modeRef,
 		GithubToken:             "gh-token",
 		OpenaiApiKey:            "sk-test",
 		ConfigureRuntimeProfile: true,
@@ -101,6 +103,9 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 	}
 	if resp.ReasoningLevel != "high" {
 		t.Fatalf("ReasoningLevel = %q, want high", resp.ReasoningLevel)
+	}
+	if resp.ModeRef != "autopilot" {
+		t.Fatalf("ModeRef = %q, want autopilot", resp.ModeRef)
 	}
 	if !resp.ReviewLoopDisabled {
 		t.Fatalf("ReviewLoopDisabled = false, want true")
@@ -140,6 +145,9 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 	}
 	if project.Spec.Defaults.ReasoningLevel != platformv1alpha1.ReasoningHigh {
 		t.Fatalf("ReasoningLevel = %q, want high", project.Spec.Defaults.ReasoningLevel)
+	}
+	if project.Spec.Defaults.ModeRef == nil || project.Spec.Defaults.ModeRef.Name != "autopilot" {
+		t.Fatalf("ModeRef = %#v, want autopilot", project.Spec.Defaults.ModeRef)
 	}
 
 	profile := &platformv1alpha1.RuntimeProfile{}
@@ -228,6 +236,40 @@ func TestCreateGratefulAgentsBootstrapShapePinsIssueMode(t *testing.T) {
 	}
 	if ownership == nil || ownership.OwnerID != testProjectSubject {
 		t.Fatalf("Grateful Agents project ownership = %#v, want owner %q", ownership, testProjectSubject)
+	}
+}
+
+func TestCreateGratefulAgentsBootstrapAllowsExplicitInteractiveMode(t *testing.T) {
+	scheme := testProjectScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	srv := &Server{k8sClient: c, scheme: scheme}
+	ns := testUserNS()
+	interactiveDefault := ""
+
+	_, err := srv.CreateProject(projectActorCtx(), &platform.CreateProjectRequest{
+		Name:                    gratefulAgentsProjectName,
+		DisplayName:             "Grateful Agents",
+		RepoUrl:                 gratefulAgentsRepoURL,
+		AdditionalRepoUrls:      []string{gratefulAgentsSDKRepoURL},
+		BaseBranch:              "main",
+		Provider:                "openai",
+		AuthMode:                "api-key",
+		OpenaiApiKey:            "test-openai-key",
+		ModeRef:                 &interactiveDefault,
+		ConfigureRuntimeProfile: true,
+		PermissionMode:          "workspace-write",
+		EgressMode:              "unrestricted",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	project := &triggersv1alpha1.Project{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: gratefulAgentsProjectName}, project); err != nil {
+		t.Fatalf("Get(Grateful Agents project) error = %v", err)
+	}
+	if project.Spec.Defaults.ModeRef != nil {
+		t.Fatalf("ModeRef = %#v, want nil for explicit interactive default", project.Spec.Defaults.ModeRef)
 	}
 }
 

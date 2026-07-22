@@ -3,7 +3,16 @@ export const resourceTabs = [
   ["mcp-policies", "MCP policies"], ["guardrails", "Guardrails"], ["modes", "Modes"], ["roles", "Roles"],
 ] as const;
 export type ResourceKind = (typeof resourceTabs)[number][0];
+
+export function canCreateResource(kind: ResourceKind, role?: string) {
+  return kind !== "roles" || role === "admin";
+}
+
 export function canMutateResource(kind: ResourceKind, role?: string) {
+  return kind !== "roles" || role === "admin";
+}
+
+export function canDeleteResource(kind: ResourceKind, role?: string) {
   return (kind !== "modes" && kind !== "roles") || role === "admin";
 }
 

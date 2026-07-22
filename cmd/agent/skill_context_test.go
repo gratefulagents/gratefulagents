@@ -29,6 +29,20 @@ func TestAttachLoadedSkillInstructionsUsesProgressiveDisclosure(t *testing.T) {
 	}
 }
 
+func TestAttachLoadedSkillInstructionsSkipsTypedNilSource(t *testing.T) {
+	var source *stubLoadedSkills
+	target := &agent.Agent{Instructions: "base instructions"}
+
+	attachLoadedSkillInstructions(target, source)
+
+	if target.InstructionsFn != nil {
+		t.Fatal("InstructionsFn was installed for a typed nil source")
+	}
+	if got := target.GetInstructions(&agent.RunContext{}); got != "base instructions" {
+		t.Fatalf("instructions = %q", got)
+	}
+}
+
 func TestAttachLoadedSkillInstructionsPreservesDynamicBase(t *testing.T) {
 	source := &stubLoadedSkills{instructions: "loaded guidance"}
 	target := &agent.Agent{

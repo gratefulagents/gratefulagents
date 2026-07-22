@@ -63,9 +63,12 @@ func TestListOpenGitHubIssuesConsumesMultiplePages(t *testing.T) {
 		},
 	}
 
-	issues, err := listOpenGitHubIssues(context.Background(), lister, "owner", "repo", logr.Discard())
+	issues, complete, err := listOpenGitHubIssues(context.Background(), lister, "owner", "repo", logr.Discard())
 	if err != nil {
 		t.Fatalf("listOpenGitHubIssues() error = %v", err)
+	}
+	if !complete {
+		t.Fatal("complete listing reported incomplete")
 	}
 	if len(issues) != 2 {
 		t.Fatalf("len(issues) = %d, want 2", len(issues))
@@ -75,6 +78,34 @@ func TestListOpenGitHubIssuesConsumesMultiplePages(t *testing.T) {
 	}
 	if len(lister.seen) != 2 || lister.seen[0] != 1 || lister.seen[1] != 2 {
 		t.Fatalf("seen pages = %#v, want [1 2]", lister.seen)
+	}
+}
+
+func TestListOpenGitHubIssuesReportsPaginationCapIncomplete(t *testing.T) {
+	t.Parallel()
+
+	issueNumber := 1
+	batch := make([]*github.Issue, maxGitHubIssues)
+	for i := range batch {
+		batch[i] = &github.Issue{Number: &issueNumber}
+	}
+	lister := &fakeGitHubIssueLister{pages: []githubIssuePage{{issues: batch, nextPage: 2}}}
+
+	issues, complete, err := listOpenGitHubIssues(context.Background(), lister, maintainerWorkItemTestOwner, maintainerWorkItemTestRepo, logr.Discard())
+	if err != nil {
+		t.Fatalf("listOpenGitHubIssues() error = %v", err)
+	}
+	if complete || len(issues) != maxGitHubIssues {
+		t.Fatalf("complete=%t len(issues)=%d, want false and %d", complete, len(issues), maxGitHubIssues)
+	}
+
+	completeLister := &fakeGitHubIssueLister{pages: []githubIssuePage{{issues: batch}}}
+	issues, complete, err = listOpenGitHubIssues(context.Background(), completeLister, maintainerWorkItemTestOwner, maintainerWorkItemTestRepo, logr.Discard())
+	if err != nil {
+		t.Fatalf("listOpenGitHubIssues() exact-cap error = %v", err)
+	}
+	if !complete || len(issues) != maxGitHubIssues {
+		t.Fatalf("exact-cap complete=%t len(issues)=%d, want true and %d", complete, len(issues), maxGitHubIssues)
 	}
 }
 
