@@ -50,6 +50,12 @@ export interface ProjectTrigger {
   lastActivityTime?: Record<string, unknown>;
   nextActivityTime?: Record<string, unknown>;
   lastError?: string;
+  /**
+   * Name of the generated child resource backing this trigger
+   * (GitHubRepository, SlackAgent, Cron, or LinearProject). Used to query
+   * child-scoped read models such as ListMaintainerWorkItems.
+   */
+  generatedResourceName?: string;
   /** Maintainer status mirrored from the generated GitHubRepository child. */
   maintainerStatus?: {
     runName?: string;

@@ -786,6 +786,7 @@ const projects = [
           maintainerEnabled: true,
           maintainerMaxDispatchesPerDay: 10,
         },
+        generatedResourceName: "project-operator-app-github-issues",
         maintainerStatus: {
           runName: "project-operator-app-github-issues-maintainer",
           lastWakeUnix: unix(minutesAgo(42)),
@@ -921,8 +922,7 @@ const githubRepositories = [
 // Durable maintainer work items for gh-operator, covering every dashboard
 // state: pending decision, implementing with a rejected command, ready to
 // merge, delivered, and closed as not actionable.
-const maintainerWorkItems = {
-  [`${NS}/gh-operator`]: [
+const ghOperatorWorkItems = [
     create(MaintainerWorkItemSchema, {
       namespace: NS,
       name: "gh-operator-wi-214",
@@ -1021,7 +1021,13 @@ const maintainerWorkItems = {
       evidenceSummary: "Out of scope for the project; closed as not planned.",
       createdAtUnix: unix(daysAgo(4)),
     }),
-  ],
+];
+
+// Both the standalone repository page and the project-generated child (the
+// project page's canonical maintainer surface) share the same queue fixtures.
+const maintainerWorkItems = {
+  [`${NS}/gh-operator`]: ghOperatorWorkItems,
+  [`${NS}/project-operator-app-github-issues`]: ghOperatorWorkItems,
 };
 
 const crons = [
@@ -1383,13 +1389,9 @@ export const defaultScenario: Scenario = {
     { name: "observability", path: "/observability" },
     { name: "projects", path: "/projects" },
     { name: "project-detail", path: "/projects/demo/operator-app" },
-    { name: "linear", path: "/linear" },
     { name: "linear-project", path: "/linear/demo/linear-ops" },
-    { name: "github", path: "/github" },
     { name: "github-repo", path: "/github/demo/gh-operator" },
-    { name: "cron", path: "/cron" },
     { name: "cron-detail", path: "/cron/demo/nightly-triage" },
-    { name: "slack", path: "/slack" },
     { name: "slack-agent", path: "/slack/demo/ops-agent" },
     { name: "slack-agent-settings", path: "/slack/demo/ops-agent?tab=settings" },
     { name: "shared", path: "/shared" },

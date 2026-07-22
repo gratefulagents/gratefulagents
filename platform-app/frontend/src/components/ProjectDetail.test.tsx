@@ -28,6 +28,7 @@ vi.mock("@/lib/client", () => ({
   client: {
     listConnections: vi.fn().mockResolvedValue({ connections: [] }),
     getActivityLog: vi.fn().mockResolvedValue({ entries: [], hasMoreBefore: false }),
+    listMaintainerWorkItems: vi.fn().mockResolvedValue({ items: [] }),
   },
 }));
 

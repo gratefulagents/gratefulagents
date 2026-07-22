@@ -16899,8 +16899,12 @@ type ProjectTrigger struct {
 	// Maintainer status mirrored from the generated GitHubRepository child
 	// (github triggers only; empty when the maintainer is disabled).
 	MaintainerStatus *GitHubRepositoryMaintainerStatus `protobuf:"bytes,13,opt,name=maintainer_status,json=maintainerStatus,proto3" json:"maintainer_status,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Name of the generated child resource backing this trigger
+	// (GitHubRepository, SlackAgent, Cron, or LinearProject). Lets clients
+	// query child-scoped read models such as ListMaintainerWorkItems.
+	GeneratedResourceName string `protobuf:"bytes,14,opt,name=generated_resource_name,json=generatedResourceName,proto3" json:"generated_resource_name,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ProjectTrigger) Reset() {
@@ -17022,6 +17026,13 @@ func (x *ProjectTrigger) GetMaintainerStatus() *GitHubRepositoryMaintainerStatus
 		return x.MaintainerStatus
 	}
 	return nil
+}
+
+func (x *ProjectTrigger) GetGeneratedResourceName() string {
+	if x != nil {
+		return x.GeneratedResourceName
+	}
+	return ""
 }
 
 type CreateProjectTriggerRequest struct {
@@ -28278,7 +28289,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x0eapproved_label\x18\x04 \x01(\tR\rapprovedLabel\x12#\n" +
 	"\rpoll_interval\x18\x05 \x01(\tR\fpollInterval\x12\x1f\n" +
 	"\vauto_create\x18\x06 \x01(\bR\n" +
-	"autoCreate\"\xcc\x05\n" +
+	"autoCreate\"\x84\x06\n" +
 	"\x0eProjectTrigger\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1d\n" +
@@ -28296,7 +28307,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x12next_activity_time\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x10nextActivityTime\x12\x1d\n" +
 	"\n" +
 	"last_error\x18\f \x01(\tR\tlastError\x12Z\n" +
-	"\x11maintainer_status\x18\r \x01(\v2-.platform.v1.GitHubRepositoryMaintainerStatusR\x10maintainerStatusB\n" +
+	"\x11maintainer_status\x18\r \x01(\v2-.platform.v1.GitHubRepositoryMaintainerStatusR\x10maintainerStatus\x126\n" +
+	"\x17generated_resource_name\x18\x0e \x01(\tR\x15generatedResourceNameB\n" +
 	"\n" +
 	"\b_enabled\"\xa0\x01\n" +
 	"\x1bCreateProjectTriggerRequest\x12\x1c\n" +
