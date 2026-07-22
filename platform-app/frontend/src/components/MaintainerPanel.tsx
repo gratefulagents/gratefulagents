@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight, LayoutGrid, List, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  MaintainerWorkItemBoard,
+  prCheckLabel,
+  prReviewLabel,
+  workItemCommandFailed,
+  workItemIsTerminal,
+  workItemPhasePresentation,
+} from "@/components/MaintainerWorkItemBoard";
 import { formatAge } from "@/lib/format";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
@@ -222,39 +231,6 @@ export function MaintainerPanel({ repo }: { repo: GitHubRepository }) {
       disabledHint="Enable it in repository settings."
     />
   );
-}
-
-/** Phase presentation: tone encodes who the item is waiting on. */
-function workItemPhasePresentation(item: MaintainerWorkItem): ReportPresentation {
-  // NotActionable is terminal: the controller closes the issue but leaves the
-  // lifecycle phase at Triaged, so present the disposition instead.
-  if (item.disposition === "NotActionable") {
-    return { label: "Not actionable", tone: "neutral" };
-  }
-  switch (item.phase) {
-    case "AwaitingDecision":
-      return { label: "Needs decision", tone: "warning" };
-    case "ReadyToDispatch":
-      return { label: "Ready to dispatch", tone: "info" };
-    case "Dispatched":
-      return { label: "Dispatched", tone: "running" };
-    case "Implementing":
-      return { label: "Implementing", tone: "running" };
-    case "ReadyToMerge":
-      return { label: "Ready to merge", tone: "purple" };
-    case "Delivered":
-      return { label: "Delivered", tone: "success" };
-    case "Triaged":
-      return { label: "Triaged", tone: "neutral" };
-    case "PendingTriage":
-    default:
-      return { label: "Pending triage", tone: "neutral" };
-  }
-}
-
-/** Terminal work items: delivered, or closed by triage as not actionable. */
-function workItemIsTerminal(item: MaintainerWorkItem): boolean {
-  return item.phase === "Delivered" || item.disposition === "NotActionable";
 }
 
 /** How often the open panel refetches the queue to pick up controller updates. */

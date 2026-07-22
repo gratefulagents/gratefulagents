@@ -154,6 +154,74 @@ func TestProjectReconcilerRemovesDisabledAndStaleGeneratedChildren(t *testing.T)
 	}
 }
 
+func TestProjectReconcilerPreservesRuntimeChildAnnotations(t *testing.T) {
+	t.Parallel()
+	scheme := projectTestScheme(t)
+	project := &triggersv1alpha1.Project{
+		ObjectMeta: metav1.ObjectMeta{Name: "project", Namespace: "default", UID: types.UID("project-uid")},
+		Spec: triggersv1alpha1.ProjectSpec{Triggers: []triggersv1alpha1.ProjectTrigger{{
+			Name: "nightly", Type: triggersv1alpha1.ProjectTriggerTypeCron, Cron: &triggersv1alpha1.CronProjectTriggerConfig{Schedule: "0 2 * * *", Prompt: "Review the queue"},
+		}}},
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&triggersv1alpha1.Project{}).
+		WithObjects(project).
+		Build()
+	reconciler := &ProjectReconciler{Client: k8sClient, Scheme: scheme}
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(project)}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	// Simulate runtime state written onto the generated child after creation,
+	// like the maintainer dispatch reservation ledger.
+	childKey := types.NamespacedName{Namespace: project.Namespace, Name: projectGeneratedChildName(project.Name, "nightly")}
+	child := &triggersv1alpha1.Cron{}
+	if err := k8sClient.Get(context.Background(), childKey, child); err != nil {
+		t.Fatalf("Get(child) error = %v", err)
+	}
+	child.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation] = `{"day":"2026-07-22","count":1}`
+	if err := k8sClient.Update(context.Background(), child); err != nil {
+		t.Fatalf("Update(child annotation) error = %v", err)
+	}
+
+	// A no-drift reconcile must not rewrite the child at all.
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(project)}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if err := k8sClient.Get(context.Background(), childKey, child); err != nil {
+		t.Fatalf("Get(child) error = %v", err)
+	}
+	if child.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation] == "" {
+		t.Fatal("no-drift reconcile wiped the runtime annotation")
+	}
+
+	// A real spec drift forces a rewrite; the runtime annotation must survive.
+	project = project.DeepCopy()
+	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(project), project); err != nil {
+		t.Fatalf("Get(project) error = %v", err)
+	}
+	project.Spec.Triggers[0].Cron.Schedule = "0 3 * * *"
+	if err := k8sClient.Update(context.Background(), project); err != nil {
+		t.Fatalf("Update(project) error = %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(project)}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if err := k8sClient.Get(context.Background(), childKey, child); err != nil {
+		t.Fatalf("Get(child) error = %v", err)
+	}
+	if child.Spec.Schedule != "0 3 * * *" {
+		t.Fatalf("child schedule = %q, want spec drift applied", child.Spec.Schedule)
+	}
+	if got := child.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation]; got != `{"day":"2026-07-22","count":1}` {
+		t.Fatalf("runtime annotation after regeneration = %q, want preserved ledger", got)
+	}
+	if child.Annotations[projectNameAnnotation] != project.Name {
+		t.Fatal("project-managed annotations missing after merge")
+	}
+}
+
 func TestProjectReconcilerNormalizesChildStatus(t *testing.T) {
 	t.Parallel()
 	scheme := projectTestScheme(t)
