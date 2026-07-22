@@ -223,6 +223,11 @@ service PlatformService {
   // Collaboration: presence
   rpc SendPresenceHeartbeat(PresenceHeartbeatRequest) returns (google.protobuf.Empty);
   rpc GetPresence(GetPresenceRequest) returns (GetPresenceResponse);
+
+  // GetMyOpenAIUsage returns ChatGPT OAuth quota/token activity plus a
+  // platform-observed 30-day model and list-price-equivalent cost breakdown.
+  // Provider tokens and raw credential material never leave the server.
+  rpc GetMyOpenAIUsage(GetMyOpenAIUsageRequest) returns (MyOpenAIUsage);
 }
 
 message ListAgentRunsRequest {
@@ -3543,4 +3548,47 @@ message ProviderOAuthResult {
   // Populated after completion so the UI can update credential presence
   // without receiving any provider token material.
   MyCredentials credentials = 5;
+}
+
+// OpenAI OAuth usage messages live at the end of this file so adding this
+// settings surface does not renumber existing generated message metadata.
+message GetMyOpenAIUsageRequest {}
+
+// MyOpenAIUsage combines account-level data exposed by ChatGPT OAuth with
+// usage observed by this platform. Cost values are estimates at public API
+// list prices; ChatGPT subscription usage is not billed at those rates.
+message MyOpenAIUsage {
+  bool openai_oauth_present = 1;
+  string account_email = 2;
+  string plan_type = 3;
+  bool account_status_available = 4;
+  repeated OpenAIUsageLimit limits = 5;
+  string credits = 6;
+  bool token_activity_available = 7;
+  optional int64 lifetime_tokens = 8;
+  optional int64 peak_daily_tokens = 9;
+  optional int64 current_streak_days = 10;
+  optional int64 longest_streak_days = 11;
+  optional int64 longest_running_turn_seconds = 12;
+  int64 last_30_days_tokens = 13;
+  bool telemetry_available = 14;
+  repeated OpenAIModelUsage models = 15;
+  int32 lookback_days = 16;
+  int64 fetched_at_unix = 17;
+  repeated string warnings = 18;
+}
+
+message OpenAIUsageLimit {
+  string label = 1;
+  double used_percent = 2;
+  int64 reset_at_unix = 3;
+  string details = 4;
+}
+
+message OpenAIModelUsage {
+  string model = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  double estimated_cost_usd = 4;
+  bool cost_known = 5;
 }

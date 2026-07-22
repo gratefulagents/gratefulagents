@@ -155,6 +155,14 @@ func (h *PlatformServiceConnectHandler) UpdateMyCredentials(ctx context.Context,
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) GetMyOpenAIUsage(ctx context.Context, req *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error) {
+	resp, err := h.srv.GetMyOpenAIUsage(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) StartProviderOAuth(ctx context.Context, req *connect.Request[platform.StartProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthStart], error) {
 	resp, err := h.srv.StartProviderOAuth(ctx, req.Msg)
 	if err != nil {

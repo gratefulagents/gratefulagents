@@ -19,7 +19,10 @@ import {
   GitIdentitySchema,
   LinearProjectSchema,
   MyCredentialsSchema,
+  MyOpenAIUsageSchema,
   NotificationInfoSchema,
+  OpenAIModelUsageSchema,
+  OpenAIUsageLimitSchema,
   ProjectSchema,
   ProjectTriggerSchema,
   ProjectTriggerConditionSchema,
@@ -1034,12 +1037,58 @@ const credentials = create(MyCredentialsSchema, {
   anthropicApiKeyPresent: true,
   anthropicOauthPresent: true,
   openaiApiKeyPresent: false,
-  openaiOauthPresent: false,
+  openaiOauthPresent: true,
   copilotOauthPresent: false,
   githubTokenPresent: true,
   integrations: [
     { name: "linear", keys: ["api-key"] },
     { name: "notion", keys: ["api-key", "workspace-id"] },
+  ],
+});
+
+const openAIUsage = create(MyOpenAIUsageSchema, {
+  openaiOauthPresent: true,
+  accountEmail: "dana@example.com",
+  planType: "pro",
+  accountStatusAvailable: true,
+  credits: "12.50",
+  limits: [
+    create(OpenAIUsageLimitSchema, {
+      label: "5 hour",
+      usedPercent: 42,
+      resetAtUnix: unix(hoursAgo(-2)),
+    }),
+    create(OpenAIUsageLimitSchema, {
+      label: "Weekly",
+      usedPercent: 68,
+      resetAtUnix: unix(daysAgo(-3)),
+    }),
+  ],
+  tokenActivityAvailable: true,
+  lifetimeTokens: 18_742_901n,
+  peakDailyTokens: 1_208_440n,
+  currentStreakDays: 9n,
+  longestStreakDays: 24n,
+  longestRunningTurnSeconds: 5_460n,
+  last30DaysTokens: 7_842_118n,
+  telemetryAvailable: true,
+  lookbackDays: 30,
+  fetchedAtUnix: unix(SCENARIO_NOW),
+  models: [
+    create(OpenAIModelUsageSchema, {
+      model: "openai/gpt-5.4",
+      inputTokens: 5_821_004n,
+      outputTokens: 284_112n,
+      estimatedCostUsd: 18.7421,
+      costKnown: true,
+    }),
+    create(OpenAIModelUsageSchema, {
+      model: "openai/gpt-5.3-codex",
+      inputTokens: 1_601_331n,
+      outputTokens: 135_671n,
+      estimatedCostUsd: 6.0834,
+      costKnown: true,
+    }),
   ],
 });
 
@@ -1202,6 +1251,7 @@ export const defaultScenario: Scenario = {
   modes: modeCatalog(),
   models: MODEL_LIST,
   credentials,
+  openAIUsage,
   soul,
   gitIdentity,
 
@@ -1248,6 +1298,7 @@ export const defaultScenario: Scenario = {
     { name: "settings", path: "/settings" },
     { name: "settings-connection", path: "/settings/connection" },
     { name: "settings-credentials", path: "/settings/credentials" },
+    { name: "settings-usage", path: "/settings/usage" },
     { name: "settings-skills", path: "/settings/skills" },
     { name: "settings-soul", path: "/settings/soul" },
     { name: "settings-git", path: "/settings/git" },

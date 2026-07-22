@@ -491,6 +491,9 @@ const (
 	// PlatformServiceGetPresenceProcedure is the fully-qualified name of the PlatformService's
 	// GetPresence RPC.
 	PlatformServiceGetPresenceProcedure = "/platform.v1.PlatformService/GetPresence"
+	// PlatformServiceGetMyOpenAIUsageProcedure is the fully-qualified name of the PlatformService's
+	// GetMyOpenAIUsage RPC.
+	PlatformServiceGetMyOpenAIUsageProcedure = "/platform.v1.PlatformService/GetMyOpenAIUsage"
 )
 
 // PlatformServiceClient is a client for the platform.v1.PlatformService service.
@@ -708,6 +711,10 @@ type PlatformServiceClient interface {
 	// Collaboration: presence
 	SendPresenceHeartbeat(context.Context, *connect.Request[platform.PresenceHeartbeatRequest]) (*connect.Response[emptypb.Empty], error)
 	GetPresence(context.Context, *connect.Request[platform.GetPresenceRequest]) (*connect.Response[platform.GetPresenceResponse], error)
+	// GetMyOpenAIUsage returns ChatGPT OAuth quota/token activity plus a
+	// platform-observed 30-day model and list-price-equivalent cost breakdown.
+	// Provider tokens and raw credential material never leave the server.
+	GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error)
 }
 
 // NewPlatformServiceClient constructs a client for the platform.v1.PlatformService service. By
@@ -1639,6 +1646,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetPresence")),
 			connect.WithClientOptions(opts...),
 		),
+		getMyOpenAIUsage: connect.NewClient[platform.GetMyOpenAIUsageRequest, platform.MyOpenAIUsage](
+			httpClient,
+			baseURL+PlatformServiceGetMyOpenAIUsageProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetMyOpenAIUsage")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -1797,6 +1810,7 @@ type platformServiceClient struct {
 	markNotificationRead                   *connect.Client[platform.MarkNotificationReadRequest, emptypb.Empty]
 	sendPresenceHeartbeat                  *connect.Client[platform.PresenceHeartbeatRequest, emptypb.Empty]
 	getPresence                            *connect.Client[platform.GetPresenceRequest, platform.GetPresenceResponse]
+	getMyOpenAIUsage                       *connect.Client[platform.GetMyOpenAIUsageRequest, platform.MyOpenAIUsage]
 }
 
 // ListAgentRuns calls platform.v1.PlatformService.ListAgentRuns.
@@ -2568,6 +2582,11 @@ func (c *platformServiceClient) GetPresence(ctx context.Context, req *connect.Re
 	return c.getPresence.CallUnary(ctx, req)
 }
 
+// GetMyOpenAIUsage calls platform.v1.PlatformService.GetMyOpenAIUsage.
+func (c *platformServiceClient) GetMyOpenAIUsage(ctx context.Context, req *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error) {
+	return c.getMyOpenAIUsage.CallUnary(ctx, req)
+}
+
 // PlatformServiceHandler is an implementation of the platform.v1.PlatformService service.
 type PlatformServiceHandler interface {
 	ListAgentRuns(context.Context, *connect.Request[platform.ListAgentRunsRequest]) (*connect.Response[platform.ListAgentRunsResponse], error)
@@ -2783,6 +2802,10 @@ type PlatformServiceHandler interface {
 	// Collaboration: presence
 	SendPresenceHeartbeat(context.Context, *connect.Request[platform.PresenceHeartbeatRequest]) (*connect.Response[emptypb.Empty], error)
 	GetPresence(context.Context, *connect.Request[platform.GetPresenceRequest]) (*connect.Response[platform.GetPresenceResponse], error)
+	// GetMyOpenAIUsage returns ChatGPT OAuth quota/token activity plus a
+	// platform-observed 30-day model and list-price-equivalent cost breakdown.
+	// Provider tokens and raw credential material never leave the server.
+	GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error)
 }
 
 // NewPlatformServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -3710,6 +3733,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetPresence")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceGetMyOpenAIUsageHandler := connect.NewUnaryHandler(
+		PlatformServiceGetMyOpenAIUsageProcedure,
+		svc.GetMyOpenAIUsage,
+		connect.WithSchema(platformServiceMethods.ByName("GetMyOpenAIUsage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/platform.v1.PlatformService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PlatformServiceListAgentRunsProcedure:
@@ -4018,6 +4047,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceSendPresenceHeartbeatHandler.ServeHTTP(w, r)
 		case PlatformServiceGetPresenceProcedure:
 			platformServiceGetPresenceHandler.ServeHTTP(w, r)
+		case PlatformServiceGetMyOpenAIUsageProcedure:
+			platformServiceGetMyOpenAIUsageHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -4637,4 +4668,8 @@ func (UnimplementedPlatformServiceHandler) SendPresenceHeartbeat(context.Context
 
 func (UnimplementedPlatformServiceHandler) GetPresence(context.Context, *connect.Request[platform.GetPresenceRequest]) (*connect.Response[platform.GetPresenceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetPresence is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetMyOpenAIUsage is not implemented"))
 }

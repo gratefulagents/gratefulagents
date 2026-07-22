@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import {
   Bot,
   Cable,
+  ChartNoAxesCombined,
   DownloadCloud,
   GitCommitHorizontal,
   KeyRound,
@@ -84,6 +85,12 @@ export default function SettingsLayout() {
           label: "Credentials",
           icon: <KeyRound />,
           keywords: "api key oauth token provider anthropic openai sign in",
+        },
+        {
+          to: "/settings/usage",
+          label: "Usage",
+          icon: <ChartNoAxesCombined />,
+          keywords: "openai chatgpt oauth tokens quota limits cost spend monthly",
         },
         {
           to: "/settings/soul",

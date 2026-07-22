@@ -10,6 +10,7 @@ import {
   GitIdentitySchema,
   LinearProjectSchema,
   MyCredentialsSchema,
+  MyOpenAIUsageSchema,
   SlackAgentSchema,
   SoulSchema,
 } from "../../../frontend/src/rpc/platform/service_pb";
@@ -183,6 +184,7 @@ export const errorScenario: Scenario = {
   modes: modeCatalog(),
   models: MODEL_LIST,
   credentials: create(MyCredentialsSchema, { namespace: NS }),
+  openAIUsage: create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
   soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
 
@@ -210,5 +212,6 @@ export const errorScenario: Scenario = {
     { name: "cron", path: "/cron" },
     { name: "slack", path: "/slack" },
     { name: "settings-credentials", path: "/settings/credentials" },
+    { name: "settings-usage", path: "/settings/usage" },
   ],
 };
