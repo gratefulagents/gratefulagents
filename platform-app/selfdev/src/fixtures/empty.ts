@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   GitIdentitySchema,
   MyCredentialsSchema,
+  MyOpenAIUsageSchema,
   SoulSchema,
 } from "../../../frontend/src/rpc/platform/service_pb";
 import type { Scenario } from "../scenario";
@@ -40,6 +41,7 @@ export const emptyScenario: Scenario = {
   modes: modeCatalog(),
   models: MODEL_LIST,
   credentials: create(MyCredentialsSchema, { namespace: NS }),
+  openAIUsage: create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
   soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
 
@@ -66,6 +68,7 @@ export const emptyScenario: Scenario = {
     { name: "shared", path: "/shared" },
     { name: "settings", path: "/settings" },
     { name: "settings-credentials", path: "/settings/credentials" },
+    { name: "settings-usage", path: "/settings/usage" },
     { name: "settings-skills", path: "/settings/skills" },
     { name: "settings-soul", path: "/settings/soul" },
     { name: "settings-git", path: "/settings/git" },

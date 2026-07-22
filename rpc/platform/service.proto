@@ -224,6 +224,11 @@ service PlatformService {
   // Collaboration: presence
   rpc SendPresenceHeartbeat(PresenceHeartbeatRequest) returns (google.protobuf.Empty);
   rpc GetPresence(GetPresenceRequest) returns (GetPresenceResponse);
+
+  // GetMyOpenAIUsage returns account data available through the calling
+  // user's current ChatGPT OAuth credential. Provider tokens and raw
+  // credential material never leave the server.
+  rpc GetMyOpenAIUsage(GetMyOpenAIUsageRequest) returns (MyOpenAIUsage);
 }
 
 message ListAgentRunsRequest {
@@ -3615,4 +3620,36 @@ message ProviderOAuthResult {
   // Populated after completion so the UI can update credential presence
   // without receiving any provider token material.
   MyCredentials credentials = 5;
+}
+
+// OpenAI OAuth usage messages live at the end of this file so adding this
+// settings surface does not renumber existing generated message metadata.
+message GetMyOpenAIUsageRequest {}
+
+// MyOpenAIUsage contains only account-level data exposed by the user's
+// current ChatGPT OAuth credential.
+message MyOpenAIUsage {
+  bool openai_oauth_present = 1;
+  string account_email = 2;
+  string plan_type = 3;
+  bool account_status_available = 4;
+  repeated OpenAIUsageLimit limits = 5;
+  string credits = 6;
+  bool token_activity_available = 7;
+  optional int64 lifetime_tokens = 8;
+  optional int64 peak_daily_tokens = 9;
+  optional int64 current_streak_days = 10;
+  optional int64 longest_streak_days = 11;
+  optional int64 longest_running_turn_seconds = 12;
+  int64 last_30_days_tokens = 13;
+  int32 lookback_days = 14;
+  int64 fetched_at_unix = 15;
+  repeated string warnings = 16;
+}
+
+message OpenAIUsageLimit {
+  string label = 1;
+  double used_percent = 2;
+  int64 reset_at_unix = 3;
+  string details = 4;
 }

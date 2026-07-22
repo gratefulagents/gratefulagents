@@ -399,6 +399,7 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     // ---- Settings ----------------------------------------------------------
     listMyCredentials: async () => s.credentials,
     updateMyCredentials: async () => s.credentials,
+    getMyOpenAIUsage: async () => s.openAIUsage,
     startProviderOAuth: async (req: { provider: string }) =>
       req.provider === "openai"
         ? create(ProviderOAuthStartSchema, {

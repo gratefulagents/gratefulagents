@@ -16,6 +16,7 @@ import type {
   MaintainerWorkItem,
   ModeTemplate,
   MyCredentials,
+  MyOpenAIUsage,
   NotificationInfo,
   Project,
   PullRequestDetails,
@@ -92,6 +93,7 @@ export interface Scenario {
   modes: ModeTemplate[];
   models: { provider: string; baseUrl: string; models: string[] };
   credentials: MyCredentials;
+  openAIUsage: MyOpenAIUsage;
   soul: Soul;
   gitIdentity: GitIdentity;
 
