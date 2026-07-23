@@ -197,15 +197,16 @@ img { max-width: 100%; height: auto; }
   font-family: var(--font-display);
   /* cqw: headline scales with the copy column, which flexes around the
      viewport-sized plate. */
-  font-size: clamp(2.6rem, 14cqw, 4.9rem);
+  font-size: clamp(2.4rem, 11.6cqw, 4.1rem);
   font-weight: 800;
   letter-spacing: -0.045em;
-  line-height: 0.98;
+  line-height: 1.02;
+  text-wrap: balance;
 }
 .hero h1 span { color: var(--faded); }
 .hero-sub {
   max-width: 34rem;
-  margin: clamp(1.1rem, 2.3vh, 1.6rem) 0 1.5rem;
+  margin: clamp(0.9rem, 2vh, 1.3rem) 0 0;
   color: var(--faded);
   font-size: clamp(0.98rem, 1.2vw, 1.1rem);
   line-height: 1.58;
@@ -213,7 +214,7 @@ img { max-width: 100%; height: auto; }
 .hero-sub b { color: var(--chalk); font-weight: 500; }
 
 .cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; }
-.hero-copy .cta-row { margin-top: clamp(1.4rem, 3vh, 2rem); }
+.hero-copy .cta-row { margin-top: clamp(1.2rem, 2.6vh, 1.7rem); }
 .btn {
   display: inline-flex;
   min-height: 44px;
@@ -758,7 +759,7 @@ img { max-width: 100%; height: auto; }
 
 @media (max-width: 74rem) {
   .hero-main { gap: 2rem; }
-  .hero h1 { font-size: clamp(2.4rem, 14cqw, 4rem); }
+  .hero h1 { font-size: clamp(2.2rem, 11.6cqw, 3.6rem); }
   .station-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
