@@ -2109,7 +2109,7 @@ func TestSendAgentRunMessageApprovePlanContinuesInCurrentMode(t *testing.T) {
 	if updated.Status.ModeName != "plan" {
 		t.Fatalf("ModeName = %q, want plan", updated.Status.ModeName)
 	}
-	if updated.Status.ModeSnapshot == nil || updated.Status.ModeSnapshot.PermissionMode == platformv1alpha1.PermissionModeReadOnly || updated.Status.ModeVersion != "v2" {
+	if updated.Status.ModeSnapshot == nil || !updated.Status.ModeSnapshot.Autonomous || updated.Status.ModeSnapshot.PermissionMode == platformv1alpha1.PermissionModeReadOnly || updated.Status.ModeVersion != "v2" {
 		t.Fatalf("ModeSnapshot = %#v version %q, want refreshed write-capable plan v2", updated.Status.ModeSnapshot, updated.Status.ModeVersion)
 	}
 	msgs := ms.messagesFor(sess.ID)

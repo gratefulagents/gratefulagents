@@ -34,6 +34,9 @@ func RefreshCurrentSnapshot(ctx context.Context, c client.Client, key client.Obj
 		}
 		next := tmpl.Spec.DeepCopy()
 		next.Name = modeName
+		// Match normal mode resolution: all runs use autonomous pacing even when
+		// an older template omits the legacy autonomous field.
+		next.Autonomous = true
 		if reflect.DeepEqual(run.Status.ModeSnapshot, next) {
 			return nil
 		}

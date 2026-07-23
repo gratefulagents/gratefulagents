@@ -685,6 +685,26 @@ func TestAgentRunOverseerDoesNotClearReplacementRacingReservation(t *testing.T) 
 	}
 }
 
+func TestManagedInputNeedsPlanSnapshotRefresh(t *testing.T) {
+	t.Parallel()
+	approved := managedInputResolutionRecord{PlanApproval: true}
+	for _, tc := range []struct {
+		name string
+		run  *platformv1alpha1.AgentRun
+		want bool
+	}{
+		{name: "plan", run: &platformv1alpha1.AgentRun{Status: platformv1alpha1.AgentRunStatus{ModeName: "plan"}}, want: true},
+		{name: "legacy chat alias", run: &platformv1alpha1.AgentRun{Status: platformv1alpha1.AgentRunStatus{ModeName: "chat"}}, want: false},
+		{name: "autopilot", run: &platformv1alpha1.AgentRun{Status: platformv1alpha1.AgentRunStatus{ModeName: "autopilot"}}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := managedInputNeedsPlanSnapshotRefresh(approved, tc.run); got != tc.want {
+				t.Fatalf("managedInputNeedsPlanSnapshotRefresh() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestManagedInputIsPlanApproval(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -742,7 +762,7 @@ func TestAgentRunOverseerLegacyPlanApprovalStaysInCurrentMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	messages := stateStore.messages[session.ID]
-	if fresh.Status.ModeName != "plan" || fresh.Status.ModeRevision != 5 || fresh.Status.ModeVersion != "v2" || fresh.Status.ModeSnapshot == nil || fresh.Status.ModeSnapshot.PermissionMode == platformv1alpha1.PermissionModeReadOnly {
+	if fresh.Status.ModeName != "plan" || fresh.Status.ModeRevision != 5 || fresh.Status.ModeVersion != "v2" || fresh.Status.ModeSnapshot == nil || !fresh.Status.ModeSnapshot.Autonomous || fresh.Status.ModeSnapshot.PermissionMode == platformv1alpha1.PermissionModeReadOnly {
 		t.Fatalf("plan mode refresh = %q revision %d version %q snapshot %#v", fresh.Status.ModeName, fresh.Status.ModeRevision, fresh.Status.ModeVersion, fresh.Status.ModeSnapshot)
 	}
 	if len(messages) != 1 || messages[0].Content != "Plan approved. Continue with implementation. Notes: Keep the migration backwards compatible." {

@@ -839,9 +839,9 @@ func (r *AgentRunOverseerReconciler) resolvePendingInput(ctx context.Context, pr
 		return false, "The supervised run was cancelled; its reserved overseer response was discarded.", nil
 	}
 
-	if record.PlanApproval {
+	if managedInputNeedsPlanSnapshotRefresh(record, freshBeforeEffects) {
 		if _, err := mode.RefreshCurrentSnapshot(ctx, r.Client, client.ObjectKeyFromObject(primary)); err != nil {
-			return false, "", fmt.Errorf("refreshing current mode after plan approval: %w", err)
+			return false, "", fmt.Errorf("refreshing plan mode after approval: %w", err)
 		}
 	}
 	if record.MCP != nil {
@@ -917,6 +917,10 @@ func decodeManagedInputResolution(metadata json.RawMessage, out *managedInputRes
 		return fmt.Errorf("decoding reserved overseer response metadata: %w", err)
 	}
 	return nil
+}
+
+func managedInputNeedsPlanSnapshotRefresh(record managedInputResolutionRecord, run *platformv1alpha1.AgentRun) bool {
+	return record.PlanApproval && run != nil && strings.EqualFold(strings.TrimSpace(run.Status.ModeName), "plan")
 }
 
 func managedInputIsPlanApproval(inputType string, action *orchestration.PendingUserAction) bool {
