@@ -20,7 +20,7 @@ export type QuickAction = {
 export type TimelineItem =
   | { kind: "user-request"; key: string; content: string }
   | { kind: "message"; key: string; role: string; content: string; timestamp: bigint; imageDataUrls?: string[] }
-  | { kind: "activity"; key: string; entries: ActivityEntry[]; isLive: boolean }
+  | { kind: "activity"; key: string; entries: ActivityEntry[]; isLive: boolean; planContent?: string }
   | { kind: "pending"; key: string; content: string; actions?: QuickAction[] }
   | { kind: "thinking"; key: string; phase: string };
 
@@ -372,6 +372,28 @@ export function bucketActivityByMessage(
     else segments[seg].push(e);
   }
   return { segments, trailing };
+}
+
+export function findLatestPlanPresentation(
+  entries: ActivityEntry[],
+): ActivityEntry | undefined {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (entry.type === "tool_use" && entry.tool === "present_plan") {
+      return entry;
+    }
+  }
+  return undefined;
+}
+
+export function planContentForPresentationGroup(
+  entries: ActivityEntry[],
+  latestPresentation: ActivityEntry | undefined,
+  planContent: string,
+): string | undefined {
+  return latestPresentation && entries.includes(latestPresentation)
+    ? planContent
+    : undefined;
 }
 
 export function activityEntryIdentity(entry: ActivityEntry): string {

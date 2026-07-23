@@ -75,8 +75,8 @@ export function PlanCard({
   use: ActivityEntry;
   planContent?: string;
 }) {
-  const { summary, plan, recommended } = parsePlan(use);
-  const popupContent = planContent || plan;
+  const { summary, plan, capturedPlan, recommended } = parsePlan(use);
+  const popupContent = capturedPlan || planContent || plan;
 
   return (
     <div className="space-y-2 py-0.5">

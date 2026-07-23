@@ -125,6 +125,10 @@ export const ActivityFeed = memo(function ActivityFeed({
   const hiddenCount = keyedFeed.length > 150 && !showAll ? keyedFeed.length - 150 : 0;
   const visibleFeed = hiddenCount > 0 ? keyedFeed.slice(hiddenCount) : keyedFeed;
   const liveIndex = isLive ? keyedFeed.length - 1 : -1;
+  const latestPlanIndex = keyedFeed.reduce(
+    (latest, { item }, index) => (item.kind === "plan" ? index : latest),
+    -1,
+  );
 
   return (
     <ul className="list-none space-y-2.5 m-0 p-0">
@@ -144,7 +148,7 @@ export const ActivityFeed = memo(function ActivityFeed({
           <FeedItemView
             item={item}
             live={i + hiddenCount === liveIndex && item.kind === "work"}
-            planContent={planContent}
+            planContent={i + hiddenCount === latestPlanIndex ? planContent : undefined}
           />
         </li>
       ))}

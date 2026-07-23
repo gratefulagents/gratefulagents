@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import { messageForQuickAction } from "@/components/quickActions";
-import { bucketActivityByMessage } from "@/components/run-session/helpers";
+import {
+  bucketActivityByMessage,
+  findLatestPlanPresentation,
+  planContentForPresentationGroup,
+} from "@/components/run-session/helpers";
 import { ActivityEntrySchema } from "@/rpc/platform/service_pb";
 
 describe("messageForQuickAction", () => {
@@ -16,6 +20,43 @@ describe("messageForQuickAction", () => {
 
   it("routes mode-switch actions through the structured action channel", () => {
     expect(messageForQuickAction({ id: "approve_execute" })).toBe("__action:approve_execute");
+  });
+});
+
+describe("plan presentation activity groups", () => {
+  it("associates the durable plan only with the latest presentation's group", () => {
+    const oldPresentation = create(ActivityEntrySchema, {
+      type: "tool_use",
+      tool: "present_plan",
+      toolUseId: "old-plan",
+    });
+    const unrelated = create(ActivityEntrySchema, {
+      type: "assistant_text",
+      message: "Plan revised",
+    });
+    const latestPresentation = create(ActivityEntrySchema, {
+      type: "tool_use",
+      tool: "present_plan",
+      toolUseId: "latest-plan",
+    });
+    const allEntries = [oldPresentation, unrelated, latestPresentation];
+    const latest = findLatestPlanPresentation(allEntries);
+
+    expect(latest).toBe(latestPresentation);
+    expect(
+      planContentForPresentationGroup(
+        [oldPresentation],
+        latest,
+        "## Current plan",
+      ),
+    ).toBeUndefined();
+    expect(
+      planContentForPresentationGroup(
+        [unrelated, latestPresentation],
+        latest,
+        "## Current plan",
+      ),
+    ).toBe("## Current plan");
   });
 });
 

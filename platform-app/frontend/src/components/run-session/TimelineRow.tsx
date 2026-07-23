@@ -35,7 +35,11 @@ function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
     }
     case "activity": {
       const other = b as typeof a;
-      return a.isLive === other.isLive && sameRefs(a.entries as ActivityEntry[], other.entries);
+      return (
+        a.isLive === other.isLive &&
+        a.planContent === other.planContent &&
+        sameRefs(a.entries as ActivityEntry[], other.entries)
+      );
     }
     case "pending": {
       const other = b as typeof a;
@@ -53,15 +57,7 @@ function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
 }
 
 export const TimelineRow = memo(
-  function TimelineRow({
-    item,
-    thinkingStep,
-    planContent,
-  }: {
-    item: TimelineItem;
-    thinkingStep: string;
-    planContent?: string;
-  }) {
+  function TimelineRow({ item, thinkingStep }: { item: TimelineItem; thinkingStep: string }) {
     switch (item.kind) {
       case "user-request":
         return (
@@ -124,7 +120,7 @@ export const TimelineRow = memo(
           <InlineActivityLog
             entries={item.entries}
             isLive={item.isLive}
-            planContent={planContent}
+            planContent={item.planContent}
           />
         );
       case "pending":
@@ -149,7 +145,5 @@ export const TimelineRow = memo(
     }
   },
   (prev, next) =>
-    prev.thinkingStep === next.thinkingStep &&
-    prev.planContent === next.planContent &&
-    sameTimelineItem(prev.item, next.item),
+    prev.thinkingStep === next.thinkingStep && sameTimelineItem(prev.item, next.item),
 );
