@@ -53,7 +53,15 @@ function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
 }
 
 export const TimelineRow = memo(
-  function TimelineRow({ item, thinkingStep }: { item: TimelineItem; thinkingStep: string }) {
+  function TimelineRow({
+    item,
+    thinkingStep,
+    planContent,
+  }: {
+    item: TimelineItem;
+    thinkingStep: string;
+    planContent?: string;
+  }) {
     switch (item.kind) {
       case "user-request":
         return (
@@ -112,7 +120,13 @@ export const TimelineRow = memo(
           </div>
         );
       case "activity":
-        return <InlineActivityLog entries={item.entries} isLive={item.isLive} />;
+        return (
+          <InlineActivityLog
+            entries={item.entries}
+            isLive={item.isLive}
+            planContent={planContent}
+          />
+        );
       case "pending":
         return (
           <div className="flex items-center gap-2 py-1 text-xs text-amber-600 dark:text-amber-400">
@@ -135,5 +149,7 @@ export const TimelineRow = memo(
     }
   },
   (prev, next) =>
-    prev.thinkingStep === next.thinkingStep && sameTimelineItem(prev.item, next.item),
+    prev.thinkingStep === next.thinkingStep &&
+    prev.planContent === next.planContent &&
+    sameTimelineItem(prev.item, next.item),
 );

@@ -949,6 +949,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                       <TimelineRow
                         item={item}
                         thinkingStep={item.kind === "thinking" ? currentStep : ""}
+                        planContent={planContent}
                       />
                     </div>
                   )}

@@ -65,7 +65,15 @@ function sameFeedItem(a: FeedItem, b: FeedItem): boolean {
 }
 
 export const FeedItemView = memo(
-  function FeedItemView({ item, live }: { item: FeedItem; live: boolean }) {
+  function FeedItemView({
+    item,
+    live,
+    planContent,
+  }: {
+    item: FeedItem;
+    live: boolean;
+    planContent?: string;
+  }) {
     switch (item.kind) {
       case "prose":
         return (
@@ -86,22 +94,27 @@ export const FeedItemView = memo(
       case "question":
         return <QuestionCard use={item.use} result={item.result} />;
       case "plan":
-        return <PlanCard use={item.use} />;
+        return <PlanCard use={item.use} planContent={planContent} />;
       case "phase":
         return <PhaseDivider entry={item.entry} />;
       case "meta":
         return <MetaLine entry={item.entry} />;
     }
   },
-  (prev, next) => prev.live === next.live && sameFeedItem(prev.item, next.item),
+  (prev, next) =>
+    prev.live === next.live &&
+    prev.planContent === next.planContent &&
+    sameFeedItem(prev.item, next.item),
 );
 
 export const ActivityFeed = memo(function ActivityFeed({
   entries,
   isLive,
+  planContent,
 }: {
   entries: ActivityEntry[];
   isLive: boolean;
+  planContent?: string;
 }) {
   const feed = useMemo(
     () => buildFeed(groupActivityEntries(entries)),
@@ -128,7 +141,11 @@ export const ActivityFeed = memo(function ActivityFeed({
       )}
       {visibleFeed.map(({ item, key }, i) => (
         <li key={key}>
-          <FeedItemView item={item} live={i + hiddenCount === liveIndex && item.kind === "work"} />
+          <FeedItemView
+            item={item}
+            live={i + hiddenCount === liveIndex && item.kind === "work"}
+            planContent={planContent}
+          />
         </li>
       ))}
     </ul>
@@ -207,10 +224,18 @@ export function FullActivityLog({
 export function InlineActivityLog({
   entries,
   isLive,
+  planContent,
 }: {
   entries: ActivityEntry[];
   isLive?: boolean;
+  planContent?: string;
 }) {
   if (!entries.length) return null;
-  return <ActivityFeed entries={entries} isLive={Boolean(isLive)} />;
+  return (
+    <ActivityFeed
+      entries={entries}
+      isLive={Boolean(isLive)}
+      planContent={planContent}
+    />
+  );
 }
