@@ -128,7 +128,7 @@ type AgentRunDefaults struct {
 	OpenAIAPI string `json:"openaiApi,omitempty"`
 
 	// timeout is the maximum duration for created AgentRuns.
-	// +kubebuilder:default="30m"
+	// +kubebuilder:default="2h"
 	// +optional
 	Timeout metav1.Duration `json:"timeout,omitempty"`
 

@@ -21,14 +21,14 @@ These names describe the supplied template, not a platform-wide contract. Check 
 
 Plan mode is intended for research and planning before implementation. Use `/plan` in the composer to request it.
 
-When a plan is available, the session shows **Plan ready**. You can open the plan with **View plan**. **Accept & build** approves the plan and requests a switch to `autopilot`.
+When a plan is available, the session shows **Plan ready**. You can open the plan with **View plan**. **Approve & continue** approves the plan and resumes implementation with the current mode template unchanged.
 
 ```text
 /plan
 Investigate the flaky checkout test, identify the smallest safe fix, and list the exact tests you would run.
 ```
 
-Use `/chat` only while in plan mode to request `autopilot`. The command is an exit from plan mode, not a general-purpose chat command. A workspace can deny the requested mode switch; read the resulting timeline notice before continuing.
+Plan approval itself does not switch modes. Use `/chat` only when you explicitly want to leave plan mode and request `autopilot`; that separate mode switch can still be denied by workspace policy.
 
 ## Stop the current turn
 

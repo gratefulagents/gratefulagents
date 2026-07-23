@@ -38,24 +38,24 @@ describe("PlanApprovalPanel", () => {
     expect(screen.queryByText("View plan")).toBeNull();
   });
 
-  it("renders one autonomous build action", () => {
+  it("renders one in-place plan approval action", () => {
     renderPanel();
 
-    expect(screen.getByRole("button", { name: "Accept & build" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Approve & continue" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Build on auto mode" })).toBeNull();
   });
 
-  it("sends the accept-build action when accepting the plan", () => {
+  it("sends the accept-plan action when approving the plan", () => {
     const { onSendMessage } = renderPanel();
 
-    fireEvent.click(screen.getByRole("button", { name: "Accept & build" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve & continue" }));
 
-    expect(onSendMessage).toHaveBeenCalledWith("__action:accept_build");
+    expect(onSendMessage).toHaveBeenCalledWith("__action:accept_plan");
   });
 
-  it("disables the build action when disabled", () => {
+  it("disables the approval action when disabled", () => {
     renderPanel({ disabled: true });
 
-    expect((screen.getByRole("button", { name: "Accept & build" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Approve & continue" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

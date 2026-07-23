@@ -40,7 +40,7 @@ type createRunOptions struct {
 	// repoless creates the run with no repository attached; the repository
 	// URL/branch are forced empty regardless of any source defaults.
 	repoless bool
-	// planMode starts the run in the read-only plan ModeTemplate.
+	// planMode starts the run in the plan-first ModeTemplate.
 	planMode bool
 }
 
@@ -240,7 +240,7 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 	userRequest := strings.TrimSpace(req.UserRequest)
 
 	// Every run uses autonomous pacing. Mode templates may still specialize
-	// instructions and permissions (for example read-only planning), but a plain
+	// instructions and permissions, but a plain
 	// model response never yields the run; only an explicit input request,
 	// safety stop, or finish does.
 	workflowMode := platformv1alpha1.WorkflowModeAuto

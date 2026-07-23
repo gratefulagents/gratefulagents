@@ -716,11 +716,12 @@ func attributedOverseerGuidance(sequence int64, guidance string) string {
 }
 
 type managedInputResolutionRecord struct {
-	RequestID  string                       `json:"request_id"`
-	InputType  string                       `json:"input_type,omitempty"`
-	ActionID   string                       `json:"action_id,omitempty"`
-	TargetMode string                       `json:"target_mode,omitempty"`
-	MCP        *mcppolicy.BreakGlassRequest `json:"mcp_request,omitempty"`
+	RequestID    string                       `json:"request_id"`
+	InputType    string                       `json:"input_type,omitempty"`
+	ActionID     string                       `json:"action_id,omitempty"`
+	PlanApproval bool                         `json:"plan_approval,omitempty"`
+	TargetMode   string                       `json:"target_mode,omitempty"`
+	MCP          *mcppolicy.BreakGlassRequest `json:"mcp_request,omitempty"`
 }
 
 func (r *AgentRunOverseerReconciler) resolvePendingInput(ctx context.Context, primary, standing *platformv1alpha1.AgentRun, sequence int64) (bool, string, error) {
@@ -766,7 +767,13 @@ func (r *AgentRunOverseerReconciler) resolvePendingInput(ctx context.Context, pr
 			}
 		}
 		message = managedInputMessage(action, response.Response)
-		record.TargetMode = managedInputTargetMode(action)
+		record.PlanApproval = managedInputIsPlanApproval(request.Type, action)
+		// Plan approval resumes the current mode. Ignore legacy or agent-authored
+		// target modes so overseer-mediated approval follows the same contract as
+		// direct user approval.
+		if !record.PlanApproval {
+			record.TargetMode = managedInputTargetMode(action)
+		}
 		if record.TargetMode != "" {
 			if reason, err := r.validateManagedInputMode(ctx, record.TargetMode); err != nil || reason != "" {
 				return false, reason, err
@@ -832,6 +839,11 @@ func (r *AgentRunOverseerReconciler) resolvePendingInput(ctx context.Context, pr
 		return false, "The supervised run was cancelled; its reserved overseer response was discarded.", nil
 	}
 
+	if record.PlanApproval {
+		if _, err := mode.RefreshCurrentSnapshot(ctx, r.Client, client.ObjectKeyFromObject(primary)); err != nil {
+			return false, "", fmt.Errorf("refreshing current mode after plan approval: %w", err)
+		}
+	}
 	if record.MCP != nil {
 		if err := r.applyMCPInput(ctx, primary, standing, record.MCP, record.ActionID); err != nil {
 			return false, "", err
@@ -907,21 +919,25 @@ func decodeManagedInputResolution(metadata json.RawMessage, out *managedInputRes
 	return nil
 }
 
+func managedInputIsPlanApproval(inputType string, action *orchestration.PendingUserAction) bool {
+	if action == nil {
+		return false
+	}
+	switch action.ID {
+	case "reject", "request_changes":
+		return false
+	case "accept_plan", "accept_build", "accept_build_auto":
+		return true
+	default:
+		return strings.EqualFold(strings.TrimSpace(inputType), string(platformv1alpha1.UserInputPlanReview))
+	}
+}
+
 func managedInputTargetMode(action *orchestration.PendingUserAction) string {
 	if action == nil {
 		return ""
 	}
-	if target := strings.TrimSpace(action.Mode); target != "" {
-		return target
-	}
-	switch action.ID {
-	case "accept_build":
-		return "chat"
-	case "accept_build_auto":
-		return "autopilot"
-	default:
-		return ""
-	}
+	return strings.TrimSpace(action.Mode)
 }
 
 func managedInputMessage(action *orchestration.PendingUserAction, response string) string {
@@ -931,10 +947,8 @@ func managedInputMessage(action *orchestration.PendingUserAction, response strin
 	}
 	var message string
 	switch action.ID {
-	case "accept_build":
-		message = "Accepted plan. Start building."
-	case "accept_build_auto":
-		message = "Accepted plan. Build on autopilot."
+	case "accept_plan", "accept_build", "accept_build_auto":
+		message = "Plan approved. Continue with implementation."
 	case "approve":
 		message = "approve"
 	case "reject":
@@ -951,7 +965,7 @@ func managedInputMessage(action *orchestration.PendingUserAction, response strin
 		return message
 	}
 	switch action.ID {
-	case "accept_build", "accept_build_auto":
+	case "accept_plan", "accept_build", "accept_build_auto":
 		return message + " Notes: " + response
 	case "request_changes", "reject":
 		return message + " Feedback: " + response

@@ -10,9 +10,9 @@ type PlanApprovalPanelProps = {
   onSendMessage: (message: string) => void | Promise<void>;
 };
 
-// Compact inline bar shown while a run is in plan mode. The plan itself is read
-// in the shared Plan dialog (the same one opened from the header) rather than
-// being embedded here, so the bar stays small.
+// Compact inline bar shown while a run has a plan ready for approval. The plan
+// itself is read in the shared Plan dialog (the same one opened from the header)
+// rather than being embedded here, so the bar stays small.
 export function PlanApprovalPanel({
   planContent,
   disabled = false,
@@ -28,7 +28,7 @@ export function PlanApprovalPanel({
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <span className="text-xs text-muted-foreground">
         <span className="font-medium text-foreground">Plan ready</span> · review the plan, then
-        approve to start building.
+        approve to continue in this mode.
       </span>
       <div className="ml-auto flex items-center gap-2">
         {planContent
@@ -44,10 +44,10 @@ export function PlanApprovalPanel({
           ref={approveButtonRef}
           type="button"
           size="sm"
-          onClick={() => void onSendMessage("__action:accept_build")}
+          onClick={() => void onSendMessage("__action:accept_plan")}
           disabled={disabled}
         >
-          Accept &amp; build
+          Approve &amp; continue
         </Button>
       </div>
     </div>

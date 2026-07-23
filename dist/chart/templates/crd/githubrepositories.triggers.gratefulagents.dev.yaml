@@ -420,7 +420,7 @@ spec:
                                                 x-kubernetes-list-type: atomic
                                         type: object
                                     timeout:
-                                        default: 30m
+                                        default: 2h
                                         description: timeout is the maximum duration for created AgentRuns.
                                         type: string
                                     workflowMode:
@@ -907,7 +907,7 @@ spec:
                                                         x-kubernetes-list-type: atomic
                                                 type: object
                                             timeout:
-                                                default: 30m
+                                                default: 2h
                                                 description: timeout is the maximum duration for created AgentRuns.
                                                 type: string
                                             workflowMode:
