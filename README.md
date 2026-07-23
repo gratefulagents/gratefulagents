@@ -57,7 +57,7 @@ The k3s installer resolves the latest GitHub release tag, deploys the matching p
 
 ## Develop from source
 
-Read [AGENTS.md](AGENTS.md) before changing backend, API, chart, or generated artifacts. For the frontend, read [platform-app/AGENTS.md](platform-app/AGENTS.md); it is a separate pnpm workspace. The root Makefile currently exposes supported self-hosting commands:
+Read [AGENTS.md](AGENTS.md) before changing backend, API, chart, or generated artifacts. For the frontend, read [platform-app/AGENTS.md](platform-app/AGENTS.md); it is a separate pnpm workspace. The root Makefile exposes Kubebuilder development, build, test, deployment, and supported self-hosting commands:
 
 ```sh
 make help
