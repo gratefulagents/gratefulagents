@@ -609,8 +609,8 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   }
 
   // executeSlashCommand runs a palette command as a control action. Every
-  // command is a mode switch (plan included — it is a regular read-only
-  // ModeTemplate). The raw command is never persisted as a chat message.
+  // command is a mode switch (plan included — it is a regular ModeTemplate).
+  // The raw command is never persisted as a chat message.
   async function executeSlashCommand(command: SlashCommand) {
     if (sending || !canSendMessage) {
       return;
@@ -978,8 +978,8 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                     <FileText className={cn("size-3", toneText.info)} />
                   </span>
                   <span>
-                    <span className="font-medium text-foreground">Plan mode</span> · read-only. The
-                    agent is preparing a plan — you'll be able to review and approve it here.
+                    <span className="font-medium text-foreground">Plan mode</span> · the agent is
+                    preparing a plan. You can review and approve it here before implementation.
                   </span>
                 </div>
               )}

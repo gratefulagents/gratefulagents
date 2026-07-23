@@ -1,8 +1,8 @@
 import type { AgentRun, ModeTemplate } from "@/rpc/platform/service_pb";
 
 // SlashCommandKind selects which RPC executes the command. All commands are
-// mode switches — plan is a regular ModeTemplate (read-only) with dedicated
-// /plan and /chat triggers.
+// mode switches — plan is a regular ModeTemplate with dedicated /plan and
+// /chat triggers.
 export type SlashCommandAction = { kind: "mode"; target: string };
 
 export interface SlashCommand {
@@ -33,7 +33,7 @@ export function buildSlashCommands(
       id: "exit-plan",
       trigger: "/chat",
       title: "Exit plan mode",
-      description: "Leave read-only planning and start building autonomously.",
+      description: "Leave plan mode and switch to autonomous execution.",
       keywords: ["build", "exit-plan", "approve", "code"],
       action: { kind: "mode", target: "autopilot" },
     });
@@ -42,8 +42,8 @@ export function buildSlashCommands(
       id: "plan",
       trigger: "/plan",
       title: "Plan mode",
-      description: "Read-only planning. Review and approve before building.",
-      keywords: ["read-only", "design"],
+      description: "Plan first, then implement here after approval.",
+      keywords: ["planning", "design", "approve"],
       action: { kind: "mode", target: "plan" },
     });
   }

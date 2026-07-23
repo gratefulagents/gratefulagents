@@ -13,12 +13,13 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
+	"github.com/gratefulagents/gratefulagents/internal/mode"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
 
-// planModeName is the ModeTemplate that hosts the read-only planning phase.
+// planModeName is the ModeTemplate that hosts the plan-first workflow.
 // Plan is a regular mode: entering and leaving it goes through the standard
 // mode-switch machinery (RBAC, audit, snapshot pinning).
 const planModeName = "plan"
@@ -122,8 +123,9 @@ type pendingAction struct {
 }
 
 const (
-	planAcceptBuildActionID     = "accept_build"
-	planAcceptBuildAutoActionID = "accept_build_auto"
+	planAcceptActionID            = "accept_plan"
+	legacyAcceptBuildActionID     = "accept_build"
+	legacyAcceptBuildAutoActionID = "accept_build_auto"
 )
 
 func findPendingAction(pendingActions json.RawMessage, id string) *pendingAction {
@@ -146,18 +148,22 @@ func findPendingAction(pendingActions json.RawMessage, id string) *pendingAction
 	return nil
 }
 
-func isPlanAcceptAction(id string) bool {
+func isPlanAcceptAction(inputType, id string) bool {
 	switch id {
-	case planAcceptBuildActionID, planAcceptBuildAutoActionID:
+	case planAcceptActionID, legacyAcceptBuildActionID, legacyAcceptBuildAutoActionID:
 		return true
-	default:
+	case "reject", "request_changes":
 		return false
+	default:
+		// Agent-authored plan actions historically used arbitrary IDs and could
+		// attach a nonexistent target mode such as "build". Any affirmative
+		// action on a plan-review request approves in place; its mode is ignored.
+		return strings.EqualFold(strings.TrimSpace(inputType), string(platformv1alpha1.UserInputPlanReview))
 	}
 }
 
 // runInPlanMode reports whether the run's active mode template is the plan
-// mode. Plan is a regular ModeTemplate (read-only permission mode); there is
-// no separate per-session plan state.
+// mode. There is no separate per-session plan state.
 func runInPlanMode(run *platformv1alpha1.AgentRun) bool {
 	return run != nil && strings.EqualFold(strings.TrimSpace(run.Status.ModeName), planModeName)
 }
@@ -171,7 +177,7 @@ func (s *Server) runHasSavedPlan(ctx context.Context, run *platformv1alpha1.Agen
 	return run != nil && run.Status.Artifacts != nil && run.Status.Artifacts.PlanRef != nil && strings.TrimSpace(run.Status.Artifacts.PlanRef.Name) != ""
 }
 
-func (s *Server) handlePlanAcceptAction(ctx context.Context, req *platform.SendAgentRunMessageRequest, run *platformv1alpha1.AgentRun, sess *store.Session, actionID string, action *pendingAction, freeform string) error {
+func (s *Server) handlePlanAcceptAction(ctx context.Context, req *platform.SendAgentRunMessageRequest, run *platformv1alpha1.AgentRun, sess *store.Session, action *pendingAction, freeform string) error {
 	// Inline plan approval buttons are intentionally not tied to a pending
 	// present_plan action. When no pending action matches, require the run to
 	// still be in plan mode and have a saved/current plan before accepting.
@@ -184,35 +190,15 @@ func (s *Server) handlePlanAcceptAction(ctx context.Context, req *platform.SendA
 		}
 	}
 
-	// Accepting a plan always resumes in autopilot. The switch restores write
-	// access; plan's read-only clamp lives on its ModeTemplate.
-	targetMode := "autopilot"
-	resumeMessage := "Accepted plan. Start building autonomously."
-	switchResp, err := s.SwitchAgentRunMode(ctx, &platform.SwitchAgentRunModeRequest{
-		Namespace:  req.Namespace,
-		Name:       req.Name,
-		TargetMode: targetMode,
-		Source:     "action-button",
-	})
-	if err != nil {
-		return err
-	}
-	switch strings.ToLower(strings.TrimSpace(switchResp.Result)) {
-	case "applied", "noop":
-	case "denied":
-		msg := strings.TrimSpace(switchResp.DenialReason)
-		if msg == "" {
-			msg = "mode switch denied"
+	// Plan approval is a continuation signal, not a mode transition. Refresh a
+	// plan run in place so sessions paused under the former read-only template
+	// receive the current template permissions before implementation resumes.
+	if runInPlanMode(run) {
+		if _, err := mode.RefreshCurrentSnapshot(ctx, s.k8sClient, client.ObjectKey{Namespace: req.Namespace, Name: req.Name}); err != nil {
+			return connect.NewError(connect.CodeUnavailable, fmt.Errorf("refreshing plan mode for implementation: %w", err))
 		}
-		msg = "Mode switch denied: " + msg
-		if _, appendErr := s.stateStore.AppendMessage(ctx, sess.ID, "system", msg, nil); appendErr != nil {
-			log.Printf("WARN: recording denied plan accept action (session %s): %v", sess.ID, appendErr)
-		}
-		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s", msg))
-	default:
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("unexpected mode switch result %q", switchResp.Result))
 	}
-
+	resumeMessage := "Plan approved. Continue with implementation."
 	if trimmed := strings.TrimSpace(freeform); trimmed != "" {
 		resumeMessage = fmt.Sprintf("%s Notes: %s", resumeMessage, trimmed)
 	}
@@ -247,8 +233,8 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		return nil
 	}
 
-	// Handle /plan and /exit-plan (or /chat) as mode switches into and out of
-	// the read-only plan ModeTemplate.
+	// Handle /plan and /exit-plan (or /chat) as explicit mode switches into and
+	// out of the plan ModeTemplate. Plan approval itself never uses this path.
 	if targetMode, ok := parseSessionModeCommand(req.Message); ok {
 		if err := readinessErr(); err != nil {
 			return nil, err
@@ -312,8 +298,8 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 
 		answerMetadata := userMessageMetadataForPendingRequest(req.GetMessageMode(), sess.PendingRequestID)
 		switch {
-		case isPlanAcceptAction(actionID):
-			if err := s.handlePlanAcceptAction(ctx, req, run, sess, actionID, action, freeform); err != nil {
+		case isPlanAcceptAction(sess.PendingInputType, actionID):
+			if err := s.handlePlanAcceptAction(ctx, req, run, sess, action, freeform); err != nil {
 				return nil, err
 			}
 
@@ -341,7 +327,7 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 				}
 				msg := fmt.Sprintf("Mode switch to %q denied: %s", action.Mode, reason)
 				if runInPlanMode(run) {
-					msg += " The run is still in plan mode (read-only) — use the plan approval buttons or the mode menu to continue."
+					msg += " The run remains in plan mode; choose an available mode from the mode menu if you want to switch."
 				}
 				if _, appendErr := s.stateStore.AppendMessage(ctx, sess.ID, "system", msg, nil); appendErr != nil {
 					log.Printf("WARN: recording denied mode-switch action (session %s): %v", sess.ID, appendErr)

@@ -45,7 +45,7 @@ func browserToolsEnabled() bool {
 
 // runChatLoop is the main conversational loop.
 // It polls Postgres for user messages, runs the agent, and writes results.
-// In plan mode (toggled via /plan slash command), the agent switches to read-only tools.
+// In plan mode (toggled via /plan), the agent plans first and implements after approval.
 func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8sClient *kubernetes.Clientset, tracker *agent.RunProgress, sc *sessionclient.Client, metricsBaseline progressMetricsBaseline, tp agent.TracingProcessor, eventStream *agent.EventWriter, metaharnessWriter *metaharness.TraceWriter) (result runResult) {
 	modelMetadata := newOpenAIModelMetadataResolver(cfg)
 	// Per-model compaction thresholds (models.dev catalog → backend metadata →
@@ -868,11 +868,11 @@ messageLoop:
 			}
 			prevModeName = currentModeName
 
-			// Read-only modes (plan, review, …) clamp the turn's tool access:
+			// Read-only modes (review, overseer, …) clamp the turn's tool access:
 			// the runner adapts write tools to their read-only variants and the
 			// command sandbox enforces the filesystem boundary. The pod-level
-			// registry stays write-capable so switching to a write mode
-			// upgrades without a pod restart.
+			// registry stays write-capable so a write-capable snapshot takes effect
+			// without a pod restart.
 			if snapshotClampsReadOnly(activeRun) {
 				toolAccessLevel = agent.ToolAccessLevelReadOnly
 				log.Printf("Turn %d: mode %q is read-only — tools clamped for this turn", turnNumber, currentModeName)
@@ -1451,6 +1451,9 @@ messageLoop:
 			if inputPause.Requested {
 				log.Printf("User interaction requested — breaking to await user response")
 				inputType := platformv1alpha1.UserInputQuestion
+				if inputPause.PlanReview {
+					inputType = platformv1alpha1.UserInputPlanReview
+				}
 				if len(inputPause.Actions) > 0 {
 					if err := sc.SetUserInputRequest(ctx, inputType, strings.TrimSpace(inputPause.Question), inputPause.Actions); err != nil {
 						return runResult{Status: "failed", Error: fmt.Sprintf("writing user input request: %v", err)}

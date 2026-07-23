@@ -130,7 +130,7 @@ func TestReleaseMaintainerDispatchReturnsCapacity(t *testing.T) {
 	item := testMaintainerWorkItem(repository, 23)
 	command := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: "dispatch"}}
 	item.Status.DispatchReservation = &triggersv1alpha1.MaintainerDispatchReservation{ID: "dispatch", CommandRef: corev1.LocalObjectReference{Name: command.Name}, ReservedAt: metav1.Now()}
-	ledger := maintainerRepositoryDispatchLedger{Day: "2026-07-22", Count: 1, Reservations: map[string]maintainerRepositoryReservation{item.Name: {CommandName: command.Name, ReservedAt: metav1.Now()}}}
+	ledger := maintainerRepositoryDispatchLedger{Day: time.Now().UTC().Format("2006-01-02"), Count: 1, Reservations: map[string]maintainerRepositoryReservation{item.Name: {CommandName: command.Name, ReservedAt: metav1.Now()}}}
 	encoded, err := json.Marshal(ledger)
 	if err != nil {
 		t.Fatal(err)

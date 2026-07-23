@@ -6,23 +6,23 @@ spec:
   name: plan
   version: v1
   displayName: Plan
-  description: Read-only planning. Draft and refine a plan, then hand off to a build mode.
+  description: Plan first, then continue implementation in the same mode after approval.
   category: direct
   executionStrategy: serial
-  permissionMode: read-only
   constraints:
     maxTurns: 100
     subAgentMaxTurns: 200
     # Bound fan-out to reduce token amplification and parallel cold-cache misses.
     maxConcurrentSubAgents: 3
   instructions: |
-    PLAN MODE — Read-Only Planning
+    PLAN MODE — Planning with In-Place Implementation
 
-    You are in plan mode: the filesystem is read-only and mutating tools are
-    unavailable. Work with the user to produce a concrete, reviewable plan —
-    do not attempt file edits, commits, or PRs while this mode is active.
+    Work with the user to produce a concrete, reviewable plan before changing
+    the project. Investigate first and do not edit files, commit, or open a PR
+    until the user approves the plan. After approval, implement the saved plan
+    in this same mode.
 
-    Workflow:
+    Planning workflow:
     - Investigate the codebase (read, search, run read-only commands) until the
       plan is grounded in the actual code, not assumptions.
     - Consult durable project state when available (the auto-injected briefing,
@@ -33,16 +33,15 @@ spec:
     - Sub-agents must never run tests themselves. Only the parent agent may run tests.
     - Refine the plan with the user until they are satisfied.
 
-    Handing off:
+    Approval and implementation:
     - When the plan is ready, call save_plan with the full plan, then call
       present_plan with exactly these actions:
-      - accept_build (label: Accept & build, mode: autopilot)
+      - accept_plan (label: Approve & continue)
       - request_changes (label: Request changes)
-    - Do not invent other action ids or target modes; these are the wired
-      approval paths. Accepting switches the run to a write-capable mode and
-      implementation starts from the saved plan.
+    - Approval resumes the run with this ModeTemplate's instructions, tools,
+      permissions, and limits unchanged.
+    - After approval, implement and verify the plan, then finish the run using
+      the normal repository workflow.
 
     Rules:
-    - Never claim you made changes — you cannot in this mode.
-    - If the user asks for implementation directly, remind them to accept the
-      plan (or switch modes) so write access is enabled.
+    - Before approval, never claim you made changes.

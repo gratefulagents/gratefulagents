@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
@@ -21,6 +22,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+func TestEffectiveTimeoutDefaultsToTwoHours(t *testing.T) {
+	if got := effectiveTimeout(&platformv1alpha1.AgentRun{}); got != 2*time.Hour {
+		t.Fatalf("effectiveTimeout() = %s, want 2h", got)
+	}
+}
 
 func addSandboxSupportSchemes(t *testing.T, scheme *runtime.Scheme) {
 	t.Helper()

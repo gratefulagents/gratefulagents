@@ -685,7 +685,50 @@ func TestAgentRunOverseerDoesNotClearReplacementRacingReservation(t *testing.T) 
 	}
 }
 
-func TestAgentRunOverseerApprovesPlanThroughModeTransition(t *testing.T) {
+func TestManagedInputNeedsPlanSnapshotRefresh(t *testing.T) {
+	t.Parallel()
+	approved := managedInputResolutionRecord{PlanApproval: true}
+	for _, tc := range []struct {
+		name string
+		run  *platformv1alpha1.AgentRun
+		want bool
+	}{
+		{name: "plan", run: &platformv1alpha1.AgentRun{Status: platformv1alpha1.AgentRunStatus{ModeName: "plan"}}, want: true},
+		{name: "legacy chat alias", run: &platformv1alpha1.AgentRun{Status: platformv1alpha1.AgentRunStatus{ModeName: "chat"}}, want: false},
+		{name: "autopilot", run: &platformv1alpha1.AgentRun{Status: platformv1alpha1.AgentRunStatus{ModeName: "autopilot"}}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := managedInputNeedsPlanSnapshotRefresh(approved, tc.run); got != tc.want {
+				t.Fatalf("managedInputNeedsPlanSnapshotRefresh() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestManagedInputIsPlanApproval(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		inputType string
+		actionID  string
+		want      bool
+	}{
+		{name: "new approval", inputType: string(platformv1alpha1.UserInputPlanReview), actionID: "accept_plan", want: true},
+		{name: "agent-authored approval", inputType: string(platformv1alpha1.UserInputPlanReview), actionID: "implement_pr", want: true},
+		{name: "request changes", inputType: string(platformv1alpha1.UserInputPlanReview), actionID: "request_changes", want: false},
+		{name: "reject", inputType: string(platformv1alpha1.UserInputPlanReview), actionID: "reject", want: false},
+		{name: "legacy approval stored as question", inputType: string(platformv1alpha1.UserInputQuestion), actionID: "accept_build_auto", want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			action := &orchestration.PendingUserAction{ID: tc.actionID}
+			if got := managedInputIsPlanApproval(tc.inputType, action); got != tc.want {
+				t.Fatalf("managedInputIsPlanApproval(%q, %q) = %v, want %v", tc.inputType, tc.actionID, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAgentRunOverseerLegacyPlanApprovalStaysInCurrentMode(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	reconciler, primary, standing, k8sClient, stateStore := newVerdictFixture(t, platformv1alpha1.OverseerVerdictResolveInput, platformv1alpha1.AgentRunOverseerAuthorityEnforce, platformv1alpha1.AgentRunPhaseQuestion)
@@ -695,18 +738,20 @@ func TestAgentRunOverseerApprovesPlanThroughModeTransition(t *testing.T) {
 	if err := k8sClient.Status().Update(ctx, primary); err != nil {
 		t.Fatal(err)
 	}
-	chatMode := &platformv1alpha1.ModeTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "chat"},
-		Spec:       platformv1alpha1.ModeTemplateSpec{Name: "chat", Version: "v1"},
+	planMode := &platformv1alpha1.ModeTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "plan"},
+		Spec:       platformv1alpha1.ModeTemplateSpec{Name: "plan", Version: "v2"},
 	}
-	if err := k8sClient.Create(ctx, chatMode); err != nil {
+	if err := k8sClient.Create(ctx, planMode); err != nil {
 		t.Fatal(err)
 	}
 	session := stateStore.sessions[overseerStoreKey(primary.Name, primary.Namespace)]
-	session.PendingInputType = string(platformv1alpha1.UserInputPlanReview)
+	// Older SDKs persisted present_plan as a question and allowed a mode target.
+	// The legacy action must still be treated as in-place plan approval.
+	session.PendingInputType = string(platformv1alpha1.UserInputQuestion)
 	session.PendingQuestion = "Approve the implementation plan?"
-	session.PendingActions = json.RawMessage(`[{"id":"accept_build","label":"Accept & build"},{"id":"request_changes","label":"Request changes"}]`)
-	setOverseerInputResponse(t, standing, session, "accept_build", "Keep the migration backwards compatible.")
+	session.PendingActions = json.RawMessage(`[{"id":"accept_build_auto","label":"Build on auto mode","mode":"autopilot"},{"id":"request_changes","label":"Request changes"}]`)
+	setOverseerInputResponse(t, standing, session, "accept_build_auto", "Keep the migration backwards compatible.")
 
 	handled, wait, err := reconciler.routeCompletedCheckpoint(ctx, primary, standing)
 	if err != nil || !handled || wait {
@@ -717,10 +762,10 @@ func TestAgentRunOverseerApprovesPlanThroughModeTransition(t *testing.T) {
 		t.Fatal(err)
 	}
 	messages := stateStore.messages[session.ID]
-	if fresh.Status.ModeName != "chat" || fresh.Status.ModeRevision != 5 {
-		t.Fatalf("plan mode transition = %q revision %d", fresh.Status.ModeName, fresh.Status.ModeRevision)
+	if fresh.Status.ModeName != "plan" || fresh.Status.ModeRevision != 5 || fresh.Status.ModeVersion != "v2" || fresh.Status.ModeSnapshot == nil || !fresh.Status.ModeSnapshot.Autonomous || fresh.Status.ModeSnapshot.PermissionMode == platformv1alpha1.PermissionModeReadOnly {
+		t.Fatalf("plan mode refresh = %q revision %d version %q snapshot %#v", fresh.Status.ModeName, fresh.Status.ModeRevision, fresh.Status.ModeVersion, fresh.Status.ModeSnapshot)
 	}
-	if len(messages) != 1 || messages[0].Content != "Accepted plan. Start building. Notes: Keep the migration backwards compatible." {
+	if len(messages) != 1 || messages[0].Content != "Plan approved. Continue with implementation. Notes: Keep the migration backwards compatible." {
 		t.Fatalf("plan approval messages = %#v", messages)
 	}
 	if session.PendingInputType != "" || fresh.Status.OverseerSummary.InterventionsUsed != 1 {

@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	defaultRunTimeout         = 60 * time.Minute
+	defaultRunTimeout         = 2 * time.Hour
 	awaitingUserStep          = "awaiting-user"
 	teamParentLabelName       = "platform.gratefulagents.dev/team-parent"
 	childAutonomousAnnotation = "platform.gratefulagents.dev/child-autonomous"

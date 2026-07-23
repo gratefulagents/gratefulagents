@@ -1958,10 +1958,9 @@ func TestSendAgentRunMessagePlanCommandSwitchesToPlanMode(t *testing.T) {
 	planTmpl := &platformv1alpha1.ModeTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "plan"},
 		Spec: platformv1alpha1.ModeTemplateSpec{
-			Name:           "plan",
-			Version:        "v1",
-			Category:       platformv1alpha1.ModeCategoryDirect,
-			PermissionMode: platformv1alpha1.PermissionModeReadOnly,
+			Name:     "plan",
+			Version:  "v1",
+			Category: platformv1alpha1.ModeCategoryDirect,
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run, planTmpl).Build()
@@ -1986,8 +1985,8 @@ func TestSendAgentRunMessagePlanCommandSwitchesToPlanMode(t *testing.T) {
 	if updated.Status.ModeName != "plan" {
 		t.Fatalf("ModeName = %q, want plan", updated.Status.ModeName)
 	}
-	if updated.Status.ModeSnapshot == nil || updated.Status.ModeSnapshot.PermissionMode != platformv1alpha1.PermissionModeReadOnly {
-		t.Fatalf("ModeSnapshot = %#v, want read-only plan snapshot", updated.Status.ModeSnapshot)
+	if updated.Status.ModeSnapshot == nil || updated.Status.ModeSnapshot.Name != "plan" {
+		t.Fatalf("ModeSnapshot = %#v, want plan snapshot", updated.Status.ModeSnapshot)
 	}
 	// The raw slash command is never persisted as a user chat bubble; only a
 	// subtle system notice marks the transition.
@@ -2063,7 +2062,7 @@ func TestSendAgentRunMessageExitPlanCommandSwitchesToAutopilot(t *testing.T) {
 	}
 }
 
-func TestSendAgentRunMessageAcceptBuildActionExitsPlanMode(t *testing.T) {
+func TestSendAgentRunMessageApprovePlanContinuesInCurrentMode(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme(platform): %v", err)
@@ -2085,16 +2084,11 @@ func TestSendAgentRunMessageAcceptBuildActionExitsPlanMode(t *testing.T) {
 			},
 		},
 	}
-	autopilotTmpl := &platformv1alpha1.ModeTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "autopilot"},
-		Spec: platformv1alpha1.ModeTemplateSpec{
-			Name:       "autopilot",
-			Version:    "v1",
-			Category:   platformv1alpha1.ModeCategoryOrchestrated,
-			Autonomous: true,
-		},
+	planTmpl := &platformv1alpha1.ModeTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "plan"},
+		Spec:       platformv1alpha1.ModeTemplateSpec{Name: "plan", Version: "v2", Category: platformv1alpha1.ModeCategoryDirect},
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run, autopilotTmpl).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run, planTmpl).Build()
 	ms := newMockStateStore()
 	sess, _ := ms.CreateSession(context.Background(), "run-plan-accept", "default", "question", "awaiting-user")
 	ms.getArtifact = &store.Artifact{ID: uuid.New(), SessionID: sess.ID, Kind: "plan", Content: "# Plan\n\nBuild it."}
@@ -2103,38 +2097,37 @@ func TestSendAgentRunMessageAcceptBuildActionExitsPlanMode(t *testing.T) {
 	if _, err := srv.SendAgentRunMessage(actorContext("member-1", "member", "", ""), &platform.SendAgentRunMessageRequest{
 		Namespace: "default",
 		Name:      "run-plan-accept",
-		Message:   "__action:accept_build",
+		Message:   "__action:accept_plan",
 	}); err != nil {
 		t.Fatalf("SendAgentRunMessage() error = %v", err)
 	}
 
-	// Accepting the plan switches the run to autonomous, write-capable execution.
 	var updated platformv1alpha1.AgentRun
 	if err := c.Get(context.Background(), client.ObjectKey{Name: "run-plan-accept", Namespace: "default"}, &updated); err != nil {
 		t.Fatalf("Get(updated run) error = %v", err)
 	}
-	if updated.Status.ModeName != "autopilot" {
-		t.Fatalf("ModeName = %q, want autopilot", updated.Status.ModeName)
+	if updated.Status.ModeName != "plan" {
+		t.Fatalf("ModeName = %q, want plan", updated.Status.ModeName)
+	}
+	if updated.Status.ModeSnapshot == nil || !updated.Status.ModeSnapshot.Autonomous || updated.Status.ModeSnapshot.PermissionMode == platformv1alpha1.PermissionModeReadOnly || updated.Status.ModeVersion != "v2" {
+		t.Fatalf("ModeSnapshot = %#v version %q, want refreshed write-capable plan v2", updated.Status.ModeSnapshot, updated.Status.ModeVersion)
 	}
 	msgs := ms.messagesFor(sess.ID)
-	if len(msgs) != 2 {
-		t.Fatalf("messages = %#v, want mode-switch notice and resume message", msgs)
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %#v, want one resume message", msgs)
 	}
-	if msgs[0].Role != "system" || !strings.Contains(msgs[0].Content, "Switched to autopilot mode") {
-		t.Fatalf("first message = %#v, want autopilot mode-switch notice", msgs[0])
+	if msgs[0].Role != "user" || !strings.Contains(msgs[0].Content, "Plan approved. Continue with implementation.") {
+		t.Fatalf("message = %#v, want plan approval resume message", msgs[0])
 	}
-	if msgs[1].Role != "user" || !strings.Contains(msgs[1].Content, "Accepted plan. Start building autonomously.") {
-		t.Fatalf("second message = %#v, want plan acceptance resume message", msgs[1])
-	}
-	if strings.Contains(msgs[1].Content, "__action:accept_build") {
-		t.Fatalf("raw action command must not be persisted: %q", msgs[1].Content)
+	if strings.Contains(msgs[0].Content, "__action:accept_plan") {
+		t.Fatalf("raw action command must not be persisted: %q", msgs[0].Content)
 	}
 	if got := strings.TrimSpace(string(sess.PendingActions)); got != "[]" {
 		t.Fatalf("PendingActions = %s, want []", got)
 	}
 }
 
-func TestSendAgentRunMessageAcceptBuildAutoSwitchesAutopilotAndExitsPlanMode(t *testing.T) {
+func TestSendAgentRunMessageLegacyAcceptBuildAutoContinuesInCurrentMode(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme(platform): %v", err)
@@ -2187,152 +2180,73 @@ func TestSendAgentRunMessageAcceptBuildAutoSwitchesAutopilotAndExitsPlanMode(t *
 	if err := c.Get(context.Background(), client.ObjectKey{Name: "run-plan-auto", Namespace: "default"}, &updated); err != nil {
 		t.Fatalf("Get(updated run) error = %v", err)
 	}
-	if updated.Status.ModeName != "autopilot" {
-		t.Fatalf("ModeName = %q, want autopilot", updated.Status.ModeName)
-	}
-	if updated.Status.ModeSnapshot == nil || !updated.Status.ModeSnapshot.Autonomous {
-		t.Fatalf("ModeSnapshot = %#v, want autonomous autopilot snapshot", updated.Status.ModeSnapshot)
-	}
-
-	msgs := ms.messagesFor(sess.ID)
-	if len(msgs) != 2 {
-		t.Fatalf("messages = %#v, want mode switch notice and resume message", msgs)
-	}
-	if msgs[0].Role != "system" || !strings.Contains(msgs[0].Content, "Switched to autopilot mode") {
-		t.Fatalf("first message = %#v, want autopilot mode-switch notice", msgs[0])
-	}
-	if msgs[1].Role != "user" || !strings.Contains(msgs[1].Content, "Accepted plan. Start building autonomously.") {
-		t.Fatalf("second message = %#v, want autonomous resume message", msgs[1])
-	}
-}
-
-func TestSendAgentRunMessageAcceptBuildAutoDeniedKeepsPlanModeAndPendingAction(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("AddToScheme(platform): %v", err)
-	}
-
-	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "run-plan-auto-denied", Namespace: "default"},
-		Spec: platformv1alpha1.AgentRunSpec{
-			WorkflowMode: platformv1alpha1.WorkflowModeChat,
-		},
-		Status: platformv1alpha1.AgentRunStatus{
-			Phase:    platformv1alpha1.AgentRunPhaseQuestion,
-			ModeName: "chat",
-			ModeSnapshot: &platformv1alpha1.ModeTemplateSpec{
-				Name:     "chat",
-				Version:  "v1",
-				Category: platformv1alpha1.ModeCategoryDirect,
-			},
-		},
-	}
-	autopilot := &platformv1alpha1.ModeTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "autopilot"},
-		Spec: platformv1alpha1.ModeTemplateSpec{
-			Name:       "autopilot",
-			Version:    "v1",
-			Category:   platformv1alpha1.ModeCategoryOrchestrated,
-			Autonomous: true,
-		},
-	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run, autopilot).Build()
-	ms := newMockStateStore()
-	sess, _ := ms.CreateSession(context.Background(), "run-plan-auto-denied", "default", "question", "awaiting-user")
-	sess.PendingActions = json.RawMessage(`[{"id":"accept_build_auto","label":"Build on auto mode","mode":"autopilot"}]`)
-	srv := &Server{k8sClient: c, scheme: scheme, stateStore: ms}
-
-	_, err := srv.SendAgentRunMessage(actorContext("viewer-1", "viewer", "", ""), &platform.SendAgentRunMessageRequest{
-		Namespace: "default",
-		Name:      "run-plan-auto-denied",
-		Message:   "__action:accept_build_auto",
-	})
-	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("connect.CodeOf(err) = %v, want FailedPrecondition (err=%v)", connect.CodeOf(err), err)
-	}
-
-	if got := string(sess.PendingActions); !strings.Contains(got, "accept_build_auto") {
-		t.Fatalf("PendingActions = %s, want action to remain pending", got)
-	}
-
-	var updated platformv1alpha1.AgentRun
-	if err := c.Get(context.Background(), client.ObjectKey{Name: "run-plan-auto-denied", Namespace: "default"}, &updated); err != nil {
-		t.Fatalf("Get(updated run) error = %v", err)
-	}
 	if updated.Status.ModeName != "chat" {
 		t.Fatalf("ModeName = %q, want chat", updated.Status.ModeName)
 	}
 
 	msgs := ms.messagesFor(sess.ID)
-	if len(msgs) != 1 || msgs[0].Role != "system" || !strings.Contains(msgs[0].Content, "Mode switch denied") {
-		t.Fatalf("messages = %#v, want one mode-switch denial system message", msgs)
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %#v, want one resume message", msgs)
+	}
+	if msgs[0].Role != "user" || !strings.Contains(msgs[0].Content, "Plan approved. Continue with implementation.") {
+		t.Fatalf("message = %#v, want in-place plan resume message", msgs[0])
 	}
 }
 
-// Agent-authored plan buttons can target modes that don't exist (e.g.
-// "build"). The click must fail loudly and keep the session's pending
-// actions instead of silently resuming a plan-clamped (read-only) session.
-func TestSendAgentRunMessageModeActionDeniedSurfacesDenial(t *testing.T) {
+// Agent-authored plan buttons may carry a stale or nonexistent target mode. A
+// plan-review approval ignores that field and continues in the current mode.
+func TestSendAgentRunMessagePlanActionIgnoresTargetMode(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme(platform): %v", err)
 	}
 
 	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "run-mode-action-denied", Namespace: "default"},
-		Spec: platformv1alpha1.AgentRunSpec{
-			WorkflowMode: platformv1alpha1.WorkflowModeChat,
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "run-plan-action", Namespace: "default"},
+		Spec:       platformv1alpha1.AgentRunSpec{WorkflowMode: platformv1alpha1.WorkflowModeChat},
 		Status: platformv1alpha1.AgentRunStatus{
 			Phase:    platformv1alpha1.AgentRunPhaseQuestion,
 			ModeName: "plan",
 			ModeSnapshot: &platformv1alpha1.ModeTemplateSpec{
-				Name:           "plan",
-				Version:        "v1",
-				Category:       platformv1alpha1.ModeCategoryDirect,
-				PermissionMode: platformv1alpha1.PermissionModeReadOnly,
+				Name: "plan", Version: "v1", Category: platformv1alpha1.ModeCategoryDirect,
 			},
 		},
 	}
-	// No "build" ModeTemplate exists — the switch must be denied.
-	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run).Build()
+	planTmpl := &platformv1alpha1.ModeTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "plan"},
+		Spec:       platformv1alpha1.ModeTemplateSpec{Name: "plan", Version: "v1", Category: platformv1alpha1.ModeCategoryDirect},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run, planTmpl).Build()
 	ms := newMockStateStore()
-	sess, _ := ms.CreateSession(context.Background(), "run-mode-action-denied", "default", "question", "awaiting-user")
+	sess, _ := ms.CreateSession(context.Background(), "run-plan-action", "default", "question", "awaiting-user")
+	sess.PendingInputType = string(platformv1alpha1.UserInputPlanReview)
 	sess.PendingActions = json.RawMessage(`[{"id":"implement_pr","label":"Implement & open PR","mode":"build"}]`)
 	srv := &Server{k8sClient: c, scheme: scheme, stateStore: ms}
 
-	_, err := srv.SendAgentRunMessage(actorContext("admin-1", "admin", "", ""), &platform.SendAgentRunMessageRequest{
-		Namespace: "default",
-		Name:      "run-mode-action-denied",
-		Message:   "__action:implement_pr",
-	})
-	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("connect.CodeOf(err) = %v, want FailedPrecondition (err=%v)", connect.CodeOf(err), err)
+	if _, err := srv.SendAgentRunMessage(actorContext("admin-1", "admin", "", ""), &platform.SendAgentRunMessageRequest{
+		Namespace: "default", Name: "run-plan-action", Message: "__action:implement_pr",
+	}); err != nil {
+		t.Fatalf("SendAgentRunMessage() error = %v", err)
 	}
 
 	var updated platformv1alpha1.AgentRun
-	if err := c.Get(context.Background(), client.ObjectKey{Name: "run-mode-action-denied", Namespace: "default"}, &updated); err != nil {
+	if err := c.Get(context.Background(), client.ObjectKey{Name: "run-plan-action", Namespace: "default"}, &updated); err != nil {
 		t.Fatalf("Get(updated run) error = %v", err)
 	}
 	if updated.Status.ModeName != "plan" {
-		t.Fatalf("ModeName = %q, want plan (denied switch must not change mode)", updated.Status.ModeName)
+		t.Fatalf("ModeName = %q, want plan", updated.Status.ModeName)
 	}
-	if got := string(sess.PendingActions); !strings.Contains(got, "implement_pr") {
-		t.Fatalf("PendingActions = %s, want action to remain pending", got)
+	if got := strings.TrimSpace(string(sess.PendingActions)); got != "[]" {
+		t.Fatalf("PendingActions = %s, want []", got)
 	}
-
 	msgs := ms.messagesFor(sess.ID)
-	if len(msgs) != 1 || msgs[0].Role != "system" || !strings.Contains(msgs[0].Content, `Mode switch to "build" denied`) {
-		t.Fatalf("messages = %#v, want one mode-switch denial system message", msgs)
-	}
-	if !strings.Contains(msgs[0].Content, "plan mode") {
-		t.Fatalf("denial message = %q, want plan-mode hint", msgs[0].Content)
+	if len(msgs) != 1 || msgs[0].Role != "user" || !strings.Contains(msgs[0].Content, "Plan approved. Continue with implementation.") {
+		t.Fatalf("messages = %#v, want one in-place plan approval message", msgs)
 	}
 }
 
-// A successful mode switch triggered by an agent-authored action button moves
-// the run out of the read-only plan ModeTemplate — no separate session state
-// can be left behind to keep turns clamped.
+// Non-plan actions with an explicit mode retain the generic mode-switch
+// behavior; only plan-review approval is guaranteed to continue in place.
 func TestSendAgentRunMessageModeActionAppliedSwitchesMode(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
@@ -2487,10 +2401,9 @@ func TestSendAgentRunMessageSessionModeCommandDenied(t *testing.T) {
 	planTmpl := &platformv1alpha1.ModeTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "plan"},
 		Spec: platformv1alpha1.ModeTemplateSpec{
-			Name:           "plan",
-			Version:        "v1",
-			Category:       platformv1alpha1.ModeCategoryDirect,
-			PermissionMode: platformv1alpha1.PermissionModeReadOnly,
+			Name:     "plan",
+			Version:  "v1",
+			Category: platformv1alpha1.ModeCategoryDirect,
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run, planTmpl).Build()

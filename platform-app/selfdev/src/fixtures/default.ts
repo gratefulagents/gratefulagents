@@ -183,12 +183,12 @@ const runPlanReview = create(AgentRunSchema, {
     type: "plan_review",
     message: "The implementation plan is ready for your review.",
     actions: [
-      { id: "accept_build", label: "Accept & build", style: "primary" },
+      { id: "accept_plan", label: "Approve & continue", style: "primary" },
       { id: "request_changes", label: "Request changes", style: "secondary" },
     ],
   },
   pendingActions: [
-    { id: "accept_build", label: "Accept & build", style: "primary" },
+    { id: "accept_plan", label: "Approve & continue", style: "primary" },
     { id: "request_changes", label: "Request changes", style: "secondary" },
   ],
   conversation: [
