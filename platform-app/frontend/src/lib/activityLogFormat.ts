@@ -187,11 +187,18 @@ export function parseQuestion(e: ActivityEntry): {
   return { question: e.message || e.input || "", choices: [] };
 }
 
-export function parsePlan(e: ActivityEntry): { summary: string; plan: string; recommended: string } {
+export function parsePlan(e: ActivityEntry): {
+  summary: string;
+  plan: string;
+  capturedPlan: string;
+  recommended: string;
+} {
   const parsed = parseInput(e);
+  const capturedPlan = (parsed?.plan as string) || "";
   return {
     summary: (parsed?.summary as string) || "",
-    plan: (parsed?.plan as string) || e.message || e.input || "",
+    plan: capturedPlan || e.message || e.input || "",
+    capturedPlan,
     recommended: (parsed?.recommended as string) || "",
   };
 }

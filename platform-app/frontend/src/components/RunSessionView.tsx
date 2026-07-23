@@ -41,7 +41,7 @@ import { RunPullRequestPanel } from "@/components/run-session/RunPullRequestPane
 import { ChatScrollControls } from "@/components/run-session/ChatScrollControls";
 import { buildSlashCommands, type SlashCommand } from "@/components/run-session/slashCommands";
 import { useAvailableModes } from "@/hooks/useAvailableModes";
-import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, getActionButtonVariant, isMainView, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, PRLoopCard, renderPlanDialogButton, type MainView, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
+import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, findLatestPlanPresentation, getActionButtonVariant, isMainView, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, PRLoopCard, renderPlanDialogButton, type MainView, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
 import { isActionableInputType, isRunComputing, visibleInputType } from "@/lib/runStatus";
 import { TimelineRow } from "@/components/run-session/TimelineRow";
 import { PendingMessages } from "@/components/run-session/PendingMessages";
@@ -289,6 +289,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const intentTitle = run?.intentTitle ?? "";
   const currentStep = run?.currentStep ?? "";
   const runPendingActions = run?.pendingActions;
+  const timelinePlanContent = run?.currentPlan || run?.planSummary || "";
 
   const timeline = useMemo<TimelineItem[]>(() => {
     if (!hasRun) {
@@ -298,6 +299,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     const items: TimelineItem[] = [];
     const messages = orderDeliveredMessages(conversationParts.delivered);
     const messageOccurrences = new Map<string, number>();
+    const latestPlanPresentation = findLatestPlanPresentation(activityEntries);
     // The original user request is seeded as the first Postgres conversation
     // message (intentTitle is always empty), so only render a dedicated
     // user-request bubble when a non-empty title is actually present. Without
@@ -340,7 +342,17 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
           );
         }
         if (deduped.length > 0) {
-          items.push({ kind: "activity", key: activityGroupKey(deduped), entries: deduped, isLive: false });
+          items.push({
+            kind: "activity",
+            key: activityGroupKey(deduped),
+            entries: deduped,
+            isLive: false,
+            planContent: planContentForPresentationGroup(
+              deduped,
+              latestPlanPresentation,
+              timelinePlanContent,
+            ),
+          });
         }
       }
 
@@ -364,6 +376,11 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
         key: activityGroupKey(trailingBucket),
         entries: trailingBucket,
         isLive: isActive && !activityComplete,
+        planContent: planContentForPresentationGroup(
+          trailingBucket,
+          latestPlanPresentation,
+          timelinePlanContent,
+        ),
       });
     }
 
@@ -398,6 +415,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     runPendingActions,
     phase,
     currentStep,
+    timelinePlanContent,
   ]);
 
   const liveAnnouncement = useMemo(() => {
@@ -480,7 +498,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     prUrls.push(prUrl);
   }
   const showCreatePRButton = hasDiff && run.reviewArtifactKind !== "PullRequest";
-  const planContent = run.currentPlan || run.planSummary || "";
+  const planContent = timelinePlanContent;
   const hasPlan = Boolean(planContent);
   const inPlanMode = run.modeName === "plan";
   const showPlanApprovalPanel = inPlanMode && hasPlan;

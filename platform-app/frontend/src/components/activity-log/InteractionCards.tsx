@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Check, ChevronDown, CornerDownRight, FileText, Layers, MessageCircleQuestion, Sparkles } from "lucide-react";
 
 import { MarkdownViewer } from "@/components/MarkdownViewer";
+import { renderPlanDialogButton } from "@/components/run-session/helpers";
+import { Button } from "@/components/ui/button";
 import { extractUserAnswer, firstLine, formatClock, formatUsd, formatWall, isCostKnown, parsePlan, parseQuestion, wallSeconds } from "@/lib/activityLogFormat";
 import { formatDuration, formatTokens } from "@/lib/activityGrouping";
 import type { ActivityEntry } from "@/rpc/platform/service_pb";
@@ -66,36 +68,36 @@ export function QuestionCard({
   );
 }
 
-export function PlanCard({ use }: { use: ActivityEntry }) {
-  const { summary, plan, recommended } = parsePlan(use);
-  const [open, setOpen] = useState(false);
-  const hasBody = Boolean(plan && plan !== summary);
+export function PlanCard({
+  use,
+  planContent,
+}: {
+  use: ActivityEntry;
+  planContent?: string;
+}) {
+  const { summary, plan, capturedPlan, recommended } = parsePlan(use);
+  const popupContent = capturedPlan || planContent || plan;
 
   return (
     <div className="space-y-2 py-0.5">
       <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         <FileText className="size-3.5" />
         Plan
-        {hasBody && (
-          <button
-            type="button"
-            onClick={() => setOpen(!open)}
-            aria-expanded={open}
-            className="ml-auto flex cursor-pointer items-center gap-1 text-[11px] font-normal text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {open ? "Hide full plan" : "Show full plan"}
-            <ChevronDown
-              className={`size-3 transition-transform ${open ? "rotate-180" : ""}`}
-            />
-          </button>
-        )}
+        {popupContent &&
+          renderPlanDialogButton(
+            popupContent,
+            <Button variant="ghost" size="xs" className="ml-auto gap-1.5">
+              <FileText className="size-3" />
+              View plan
+            </Button>,
+          )}
       </div>
       {summary && (
         <div className="text-sm leading-relaxed text-foreground">
           <MarkdownViewer content={summary} />
         </div>
       )}
-      {(open || !summary) && plan && (
+      {!summary && plan && (
         <div className="border-l-2 border-border/50 pl-3 text-sm">
           <MarkdownViewer content={plan} />
         </div>

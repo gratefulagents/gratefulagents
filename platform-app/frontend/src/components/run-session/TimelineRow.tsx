@@ -35,7 +35,11 @@ function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
     }
     case "activity": {
       const other = b as typeof a;
-      return a.isLive === other.isLive && sameRefs(a.entries as ActivityEntry[], other.entries);
+      return (
+        a.isLive === other.isLive &&
+        a.planContent === other.planContent &&
+        sameRefs(a.entries as ActivityEntry[], other.entries)
+      );
     }
     case "pending": {
       const other = b as typeof a;
@@ -112,7 +116,13 @@ export const TimelineRow = memo(
           </div>
         );
       case "activity":
-        return <InlineActivityLog entries={item.entries} isLive={item.isLive} />;
+        return (
+          <InlineActivityLog
+            entries={item.entries}
+            isLive={item.isLive}
+            planContent={item.planContent}
+          />
+        );
       case "pending":
         return (
           <div className="flex items-center gap-2 py-1 text-xs text-amber-600 dark:text-amber-400">
