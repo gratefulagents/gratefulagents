@@ -17,6 +17,7 @@ import { SettingsSubPage } from "@/components/settings/SettingsSubPage";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import type {
@@ -33,110 +34,122 @@ const CLAUDE_USAGE_URL = "https://claude.ai/settings/usage";
 const COPILOT_USAGE_URL = "https://github.com/settings/copilot/features";
 
 type ProviderUsage<T> = { data: T | null; error: string; loading: boolean };
+type UsageProvider = "anthropic" | "openai" | "copilot";
+
+const EMPTY_USAGE = { data: null, error: "", loading: false };
 
 export default function UsagePage() {
-  const [openAI, setOpenAI] = React.useState<ProviderUsage<MyOpenAIUsage>>({ data: null, error: "", loading: true });
-  const [copilot, setCopilot] = React.useState<ProviderUsage<MyCopilotUsage>>({ data: null, error: "", loading: true });
-  const [anthropic, setAnthropic] = React.useState<ProviderUsage<MyAnthropicUsage>>({ data: null, error: "", loading: true });
+  const [activeProvider, setActiveProvider] = React.useState<UsageProvider>("anthropic");
+  const [openAI, setOpenAI] = React.useState<ProviderUsage<MyOpenAIUsage>>(EMPTY_USAGE);
+  const [copilot, setCopilot] = React.useState<ProviderUsage<MyCopilotUsage>>(EMPTY_USAGE);
+  const [anthropic, setAnthropic] = React.useState<ProviderUsage<MyAnthropicUsage>>(EMPTY_USAGE);
   const [refreshing, setRefreshing] = React.useState(false);
+  const requestedProviders = React.useRef(new Set<UsageProvider>());
+  const mounted = React.useRef(true);
 
-  const refresh = React.useCallback(async () => {
-    setRefreshing(true);
-    const openAIRequest = client.getMyOpenAIUsage({})
-      .then((data) => setOpenAI({ data, error: "", loading: false }))
-      .catch((error: unknown) => setOpenAI(errorState(error)));
-    const copilotRequest = client.getMyCopilotUsage({})
-      .then((data) => setCopilot({ data, error: "", loading: false }))
-      .catch((error: unknown) => setCopilot(errorState(error)));
-    const anthropicRequest = client.getMyAnthropicUsage({})
-      .then((data) => setAnthropic({ data, error: "", loading: false }))
-      .catch((error: unknown) => setAnthropic(errorState(error)));
+  React.useEffect(() => () => {
+    mounted.current = false;
+  }, []);
+
+  const loadProvider = React.useCallback(async (provider: UsageProvider, refresh = false) => {
+    if (!refresh && requestedProviders.current.has(provider)) return;
+    requestedProviders.current.add(provider);
+    if (refresh) setRefreshing(true);
+
     try {
-      await Promise.all([openAIRequest, copilotRequest, anthropicRequest]);
+      if (provider === "anthropic") {
+        if (!refresh) setAnthropic((current) => ({ ...current, error: "", loading: true }));
+        const data = await client.getMyAnthropicUsage({});
+        if (mounted.current) setAnthropic({ data, error: "", loading: false });
+      } else if (provider === "openai") {
+        if (!refresh) setOpenAI((current) => ({ ...current, error: "", loading: true }));
+        const data = await client.getMyOpenAIUsage({});
+        if (mounted.current) setOpenAI({ data, error: "", loading: false });
+      } else {
+        if (!refresh) setCopilot((current) => ({ ...current, error: "", loading: true }));
+        const data = await client.getMyCopilotUsage({});
+        if (mounted.current) setCopilot({ data, error: "", loading: false });
+      }
+    } catch (error: unknown) {
+      if (!mounted.current) return;
+      if (provider === "anthropic") setAnthropic(errorState(error));
+      else if (provider === "openai") setOpenAI(errorState(error));
+      else setCopilot(errorState(error));
     } finally {
-      setRefreshing(false);
+      if (refresh && mounted.current) setRefreshing(false);
     }
   }, []);
 
   React.useEffect(() => {
-    let active = true;
-    void client.getMyOpenAIUsage({})
-      .then((data) => {
-        if (active) setOpenAI({ data, error: "", loading: false });
-      })
-      .catch((error: unknown) => {
-        if (active) setOpenAI(errorState(error));
-      });
-    void client.getMyCopilotUsage({})
-      .then((data) => {
-        if (active) setCopilot({ data, error: "", loading: false });
-      })
-      .catch((error: unknown) => {
-        if (active) setCopilot(errorState(error));
-      });
-    void client.getMyAnthropicUsage({})
-      .then((data) => {
-        if (active) setAnthropic({ data, error: "", loading: false });
-      })
-      .catch((error: unknown) => {
-        if (active) setAnthropic(errorState(error));
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch only when the selected provider tab opens
+    void loadProvider(activeProvider);
+  }, [activeProvider, loadProvider]);
+
+  const refresh = React.useCallback(() => loadProvider(activeProvider, true), [activeProvider, loadProvider]);
 
   return (
     <SettingsSubPage
       title="Usage"
       description="Allowances and account activity from your connected AI subscriptions."
     >
-      <ProviderHeading name="Claude" />
-      {anthropic.loading ? (
-        <ProviderSkeleton />
-      ) : anthropic.error ? (
-        <ProviderError provider="Claude" error={anthropic.error} refreshing={refreshing} onRefresh={() => void refresh()} />
-      ) : anthropic.data && !anthropic.data.anthropicOauthPresent ? (
-        <DisconnectedState provider="Anthropic" />
-      ) : anthropic.data?.reconnectRequired ? (
-        <ReconnectAnthropicState />
-      ) : anthropic.data ? (
-        <>
-          <AnthropicAccountSummary usage={anthropic.data} refreshing={refreshing} onRefresh={() => void refresh()} />
-          <AnthropicAllowanceWindows usage={anthropic.data} />
-          <AnthropicExtraUsage usage={anthropic.data} />
-          <UsageWarnings warnings={anthropic.data.warnings} />
-        </>
-      ) : null}
+      <Tabs value={activeProvider} onValueChange={(value) => setActiveProvider(value as UsageProvider)}>
+        <TabsList className="w-full sm:w-fit" aria-label="Usage provider">
+          <TabsTrigger value="anthropic" className="px-4">Anthropic</TabsTrigger>
+          <TabsTrigger value="openai" className="px-4">OpenAI</TabsTrigger>
+          <TabsTrigger value="copilot" className="px-4">Copilot</TabsTrigger>
+        </TabsList>
 
-      <ProviderHeading name="ChatGPT" />
-      {openAI.loading ? (
-        <ProviderSkeleton />
-      ) : openAI.error ? (
-        <ProviderError provider="ChatGPT" error={openAI.error} refreshing={refreshing} onRefresh={() => void refresh()} />
-      ) : openAI.data && !openAI.data.openaiOauthPresent ? (
-        <DisconnectedState provider="OpenAI" />
-      ) : openAI.data ? (
-        <>
-          <OpenAIAccountSummary usage={openAI.data} refreshing={refreshing} onRefresh={() => void refresh()} />
-          <OpenAIAllowanceWindows limits={openAI.data.limits} available={openAI.data.accountStatusAvailable} />
-          <TokenActivity usage={openAI.data} />
-        </>
-      ) : null}
+        <TabsContent value="anthropic" className="space-y-5 pt-3">
+          {anthropic.loading ? (
+            <ProviderSkeleton />
+          ) : anthropic.error ? (
+            <ProviderError provider="Claude" error={anthropic.error} refreshing={refreshing} onRefresh={() => void refresh()} />
+          ) : anthropic.data && !anthropic.data.anthropicOauthPresent ? (
+            <DisconnectedState provider="Anthropic" />
+          ) : anthropic.data?.reconnectRequired ? (
+            <ReconnectAnthropicState />
+          ) : anthropic.data ? (
+            <>
+              <AnthropicAccountSummary usage={anthropic.data} refreshing={refreshing} onRefresh={() => void refresh()} />
+              <AnthropicAllowanceWindows usage={anthropic.data} />
+              <AnthropicExtraUsage usage={anthropic.data} />
+              <UsageWarnings warnings={anthropic.data.warnings} />
+            </>
+          ) : null}
+        </TabsContent>
 
-      <UsageWarnings warnings={openAI.data?.warnings ?? []} />
+        <TabsContent value="openai" className="space-y-5 pt-3">
+          {openAI.loading ? (
+            <ProviderSkeleton />
+          ) : openAI.error ? (
+            <ProviderError provider="ChatGPT" error={openAI.error} refreshing={refreshing} onRefresh={() => void refresh()} />
+          ) : openAI.data && !openAI.data.openaiOauthPresent ? (
+            <DisconnectedState provider="OpenAI" />
+          ) : openAI.data ? (
+            <>
+              <OpenAIAccountSummary usage={openAI.data} refreshing={refreshing} onRefresh={() => void refresh()} />
+              <OpenAIAllowanceWindows limits={openAI.data.limits} available={openAI.data.accountStatusAvailable} />
+              <TokenActivity usage={openAI.data} />
+              <UsageWarnings warnings={openAI.data.warnings} />
+            </>
+          ) : null}
+        </TabsContent>
 
-      <ProviderHeading name="GitHub Copilot" />
-      {copilot.loading ? (
-        <ProviderSkeleton />
-      ) : copilot.error ? (
-        <ProviderError provider="GitHub Copilot" error={copilot.error} refreshing={refreshing} onRefresh={() => void refresh()} />
-      ) : copilot.data && !copilot.data.copilotOauthPresent ? (
-        <DisconnectedState provider="Copilot" />
-      ) : copilot.data ? (
-        <CopilotUsage usage={copilot.data} refreshing={refreshing} onRefresh={() => void refresh()} />
-      ) : null}
-      <UsageWarnings warnings={copilot.data?.warnings ?? []} />
+        <TabsContent value="copilot" className="space-y-5 pt-3">
+          {copilot.loading ? (
+            <ProviderSkeleton />
+          ) : copilot.error ? (
+            <ProviderError provider="GitHub Copilot" error={copilot.error} refreshing={refreshing} onRefresh={() => void refresh()} />
+          ) : copilot.data && !copilot.data.copilotOauthPresent ? (
+            <DisconnectedState provider="Copilot" />
+          ) : copilot.data ? (
+            <>
+              <CopilotUsage usage={copilot.data} refreshing={refreshing} onRefresh={() => void refresh()} />
+              <UsageWarnings warnings={copilot.data.warnings} />
+            </>
+          ) : null}
+        </TabsContent>
+      </Tabs>
     </SettingsSubPage>
   );
 }
@@ -147,15 +160,6 @@ function errorState(error: unknown): ProviderUsage<never> {
     error: error instanceof Error ? error.message : "Usage could not be loaded.",
     loading: false,
   };
-}
-
-function ProviderHeading({ name }: { name: string }) {
-  return (
-    <div className="flex items-center gap-3 pt-1 first:pt-0" aria-label={`${name} usage`}>
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{name}</span>
-      <span className="h-px flex-1 bg-border/70" />
-    </div>
-  );
 }
 
 function AnthropicAccountSummary({
