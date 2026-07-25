@@ -43,6 +43,13 @@ func browserToolsEnabled() bool {
 	return false
 }
 
+func browserRegistryOptions() []tools.RegistryOption {
+	return []tools.RegistryOption{
+		tools.WithBrowserTools(),
+		tools.WithBrowserScreenshotDir(workspaceScratchDir),
+	}
+}
+
 // runChatLoop is the main conversational loop.
 // It polls Postgres for user messages, runs the agent, and writes results.
 // In plan mode (toggled via /plan), the agent plans first and implements after approval.
@@ -140,7 +147,7 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	// Browser tools are on by default when the selected runtime image includes
 	// Chromium. Operators can opt out with ENABLE_BROWSER_TOOLS=false.
 	if browserToolsEnabled() {
-		registryOpts = append(registryOpts, tools.WithBrowserTools())
+		registryOpts = append(registryOpts, browserRegistryOptions()...)
 		log.Printf("Browser tools enabled (disable with ENABLE_BROWSER_TOOLS=false)")
 	} else if envFlagEnabled("ENABLE_BROWSER_TOOLS", true) {
 		log.Printf("Browser tools unavailable: no Chromium executable found in the runtime image")
