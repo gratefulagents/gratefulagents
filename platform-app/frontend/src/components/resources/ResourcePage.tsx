@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useScrollEdgeFade } from "@/hooks/useScrollEdgeFade";
 import { MCPServersSection } from "@/components/MCPServersSection";
 import { SkillsSection } from "@/components/SkillsSection";
 import { RuntimeProfileSchema, MCPPolicySchema, MCPAllowedServerSchema, MCPBreakGlassSchema, GuardrailPolicySchema, GuardrailRuleSchema, ModeConstraintsSchema, ModeTemplateSchema, RoleInstructionSchema } from "@/rpc/platform/service_pb";
@@ -68,6 +69,9 @@ function formFromRow(kind: ResourceKind, row: Row): Form {
 export function ResourcePage() {
   const rawKind = useParams().kind;
   const { user } = useAuth();
+  // Seven resource tabs need ~640px and a phone gives ~358px, so the trailing
+  // tabs scrolled out of view behind a hidden scrollbar.
+  const [tabsRef, tabsFadeStyle] = useScrollEdgeFade<HTMLElement>();
   if (!resourceTabs.some(([id]) => id === rawKind)) {
     return <Navigate to="/resources/skills" replace />;
   }
@@ -76,7 +80,7 @@ export function ResourcePage() {
   const mutable = canMutateResource(kind, user?.role);
   const deletable = canDeleteResource(kind, user?.role);
   return <div className="space-y-5"><header><h1 className="text-[22px] font-semibold">Resources</h1><p className="text-[13px] text-muted-foreground">Configure reusable building blocks for agents and runs.</p></header>
-    <nav aria-label="Resource types" className="flex gap-1 overflow-x-auto border-b">{resourceTabs.map(([id,label]) => <Link key={id} to={`/resources/${id}`} className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${kind === id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{label}</Link>)}</nav>
+    <nav aria-label="Resource types" ref={tabsRef} style={tabsFadeStyle} className="flex gap-1 overflow-x-auto border-b">{resourceTabs.map(([id,label]) => <Link key={id} to={`/resources/${id}`} className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${kind === id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{label}</Link>)}</nav>
     {kind === "skills" ? <SkillsSection /> : kind === "mcp-servers" ? <MCPServersSection /> : <ManagedResources kind={kind} creatable={creatable} mutable={mutable} deletable={deletable} />}
   </div>;
 }

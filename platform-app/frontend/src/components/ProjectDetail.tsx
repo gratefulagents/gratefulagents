@@ -40,6 +40,7 @@ import {
 import { useProjects } from "@/hooks/useWatchedList";
 import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { formatAge, formatCount, formatRepoShort, formatSuccessRate } from "@/lib/format";
+import { useScrollEdgeFade } from "@/hooks/useScrollEdgeFade";
 import { cn } from "@/lib/utils";
 import type { AgentRun, Project, ProjectMetrics } from "@/rpc/platform/service_pb";
 
@@ -74,6 +75,9 @@ export function ProjectDetail() {
   const { runs, loading: runsLoading } = useAgentRuns(namespace || "", name || "", "Project");
   const [shareOpen, setShareOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+  // Six project tabs need ~567px; a phone leaves ~358px, so the trailing
+  // tabs scrolled off with no cue.
+  const [projectTabsRef, projectTabsFadeStyle] = useScrollEdgeFade<HTMLDivElement>();
 
   const project = projects.find((p) => p.namespace === namespace && p.name === name);
   const canEdit = project?.myPermission !== "viewer";
@@ -165,6 +169,8 @@ export function ProjectDetail() {
 
           <Tabs value={tab} onValueChange={(value) => setTab(value as ProjectTab)}>
             <TabsList
+              ref={projectTabsRef}
+              style={projectTabsFadeStyle}
               variant="line"
               className="w-full justify-start gap-5 overflow-x-auto border-b border-border/60"
             >

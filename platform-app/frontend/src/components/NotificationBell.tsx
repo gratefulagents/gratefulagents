@@ -34,7 +34,11 @@ export function NotificationBell() {
             <Bell className="size-4" />
             {unreadCount > 0 && (
               <span
-                className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground"
+                // Keep the badge inside the button box. Anchored outside it
+                // (`-top-1`) the badge rendered at y=-1 in the 44px title bar
+                // and was clipped by the top of the viewport on phones and on
+                // iPad web, where there is no safe-area inset to absorb it.
+                className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground"
                 aria-hidden="true"
               >
                 {unreadCount > 9 ? "9+" : unreadCount}

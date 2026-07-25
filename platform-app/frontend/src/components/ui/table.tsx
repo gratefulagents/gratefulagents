@@ -1,10 +1,18 @@
 import * as React from "react"
 
+import { useScrollEdgeFade } from "@/hooks/useScrollEdgeFade"
 import { cn } from "@/lib/utils"
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
+  // Run and resource tables keep their desktop column set on phones and
+  // iPads, where the trailing columns (state, cost, actions) scroll out of
+  // view. Fade the clipped edge so the cut-off column reads as scrollable
+  // rather than as a broken half-rendered badge.
+  const [containerRef, fadeStyle] = useScrollEdgeFade<HTMLDivElement>()
   return (
     <div
+      ref={containerRef}
+      style={fadeStyle}
       data-slot="table-container"
       className="relative w-full overflow-x-auto rounded-xl border border-border/60 bg-card/30 shadow-[var(--elevation-low)]"
     >

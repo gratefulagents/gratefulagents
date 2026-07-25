@@ -224,7 +224,11 @@ export function RunUsageSummary({
 
   return (
     <dl
-      className="flex shrink-0 items-center gap-2 whitespace-nowrap font-mono text-[11px] tabular-nums text-muted-foreground sm:gap-3"
+      // The run title is the header's primary content, but this strip is
+      // `shrink-0` and ~120px wide, which squeezed the title to a few
+      // characters on phones. The same cost and token figures live in the
+      // status chip popover, so drop the inline copy on narrow viewports.
+      className="hidden shrink-0 items-center gap-2 whitespace-nowrap font-mono text-[11px] tabular-nums text-muted-foreground sm:flex sm:gap-3"
       aria-label="Run usage"
     >
       <div className="flex items-baseline gap-1" title="Cost">
