@@ -310,7 +310,8 @@ func TestAuthenticatedRedispatchReplacesOrphanAndRecreatesRun(t *testing.T) {
 			Dispatch:       &triggersv1alpha1.MaintainerDispatchWorkItemCommand{IssueNumber: 7, Mode: "implementer"},
 		},
 	}
-	c := buildTriggerFakeClient(fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).WithObjects(repository, item, command))
+	mode := &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: "implementer"}}
+	c := buildTriggerFakeClient(fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).WithObjects(repository, item, command, mode))
 	reconciler := &GitHubRepositoryReconciler{Client: c, APIReader: c, Scheme: scheme}
 
 	if err := reconciler.replaceOrphanedMaintainerDispatch(context.Background(), repository, command, item); err != nil {
@@ -332,6 +333,12 @@ func TestAuthenticatedRedispatchReplacesOrphanAndRecreatesRun(t *testing.T) {
 	}
 	if command.Status.Result == nil || command.Status.Result.AgentRunRef == nil || command.Status.Result.AgentRunRef.Name != runName {
 		t.Fatalf("validated recovery result = %#v", command.Status.Result)
+	}
+	// A crash after reservation transfer leaves the command Pending. Its replay
+	// must cross the durable reservation boundary without consulting the false
+	// ReadyToDispatch projection caused by that reservation.
+	if err := reconciler.applyMaintainerExecutionIntent(context.Background(), repository, command, freshItem); err != nil {
+		t.Fatalf("replay transferred recovery: %v", err)
 	}
 	if err := reconciler.setMaintainerWorkItemCommandAccepted(context.Background(), command, freshItem); err != nil {
 		t.Fatalf("accept recovery command: %v", err)
@@ -380,6 +387,33 @@ func TestRedispatchRejectsMissingCapacityReservation(t *testing.T) {
 
 	if err := reconciler.replaceOrphanedMaintainerDispatch(context.Background(), repository, command, item); err == nil || !strings.Contains(err.Error(), "capacity reservation") {
 		t.Fatalf("missing-ledger recovery error = %v", err)
+	}
+}
+
+func TestRecoveryActiveImplementerCheckIncludesLegacyRepositoryRuns(t *testing.T) {
+	t.Parallel()
+
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 9)
+	controller := true
+	legacy := platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "legacy-implementer", Namespace: repository.Namespace,
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: gitHubRepositoryTriggerKind, Name: repository.Name, UID: repository.UID, Controller: &controller}},
+		},
+		Spec: platformv1alpha1.AgentRunSpec{Trigger: platformv1alpha1.TriggerRef{
+			Kind: gitHubRepositoryTriggerKind, Name: repository.Name,
+			ExternalRef: &platformv1alpha1.ExternalRef{Identifier: "#9"},
+		}},
+		Status: platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseRunning},
+	}
+	expectedRunName := ghIssueName(repository.Spec.Owner, repository.Spec.Repo, "9")
+	if !hasOtherActiveMaintainerImplementer(repository, item, expectedRunName, []platformv1alpha1.AgentRun{legacy}) {
+		t.Fatal("active legacy implementer was not correlated to the work item")
+	}
+	legacy.Labels = map[string]string{triggersv1alpha1.PRLoopRoleLabelKey: triggersv1alpha1.PRLoopRoleReviewerValue}
+	if hasOtherActiveMaintainerImplementer(repository, item, expectedRunName, []platformv1alpha1.AgentRun{legacy}) {
+		t.Fatal("legacy reviewer was treated as an active implementer")
 	}
 }
 
