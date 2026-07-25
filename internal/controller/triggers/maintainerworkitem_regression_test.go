@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -9,7 +10,9 @@ import (
 	"github.com/google/go-github/v68/github"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -17,6 +20,24 @@ import (
 type stubTriageClient struct {
 	getIssue     func(ctx context.Context, owner, repo string, number int) (*github.Issue, *github.Response, error)
 	getIssueHits int
+}
+
+type cacheOnlyDeletedMaintainerReader struct {
+	client.Reader
+	deletedKey  client.ObjectKey
+	liveKey     client.ObjectKey
+	deletedSeen bool
+}
+
+func (r *cacheOnlyDeletedMaintainerReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if key == r.deletedKey {
+		r.deletedSeen = true
+		return apierrors.NewNotFound(schema.GroupResource{Group: triggersv1alpha1.GroupVersion.Group, Resource: "maintainerworkitems"}, key.Name)
+	}
+	if key == r.liveKey && !r.deletedSeen {
+		return errors.New("live item read before cache-only deleted item")
+	}
+	return r.Reader.Get(ctx, key, obj, opts...)
 }
 
 func (s *stubTriageClient) ListIssueComments(context.Context, string, string, int, *github.IssueListCommentsOptions) ([]*github.IssueComment, *github.Response, error) {
@@ -42,6 +63,64 @@ func (s *stubTriageClient) AddLabelsToIssue(context.Context, string, string, int
 
 func (s *stubTriageClient) EditIssue(context.Context, string, string, int, *github.IssueRequest) (*github.Issue, *github.Response, error) {
 	return nil, nil, nil
+}
+
+func TestMaintainerObservationPassesIgnoreCacheOnlyDeletedItems(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		reason string
+		run    func(context.Context, *GitHubRepositoryReconciler, *triggersv1alpha1.GitHubRepository) error
+	}{
+		{
+			name:   "complete issue list",
+			reason: "NotInOpenIssueList",
+			run: func(ctx context.Context, reconciler *GitHubRepositoryReconciler, repository *triggersv1alpha1.GitHubRepository) error {
+				return reconciler.reconcileMaintainerWorkItems(ctx, repository, nil, true, nil)
+			},
+		},
+		{
+			name:   "observations unavailable",
+			reason: "IssuePollUnavailable",
+			run: func(ctx context.Context, reconciler *GitHubRepositoryReconciler, repository *triggersv1alpha1.GitHubRepository) error {
+				return reconciler.markMaintainerWorkItemObservationsUnavailable(ctx, repository, "IssuePollUnavailable", "issue poll failed")
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			scheme := maintainerWorkItemScheme(t)
+			repository := testMaintainerRepository()
+			staleItem := testMaintainerWorkItem(repository, 7)
+			staleItem.Labels = map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name}
+			liveItem := testMaintainerWorkItem(repository, 8)
+			liveItem.Labels = map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name}
+			cachedClient := fake.NewClientBuilder().WithScheme(scheme).
+				WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}).
+				WithObjects(repository, staleItem, liveItem).
+				Build()
+			apiReader := &cacheOnlyDeletedMaintainerReader{
+				Reader:     cachedClient,
+				deletedKey: client.ObjectKeyFromObject(staleItem),
+				liveKey:    client.ObjectKeyFromObject(liveItem),
+			}
+			reconciler := &GitHubRepositoryReconciler{Client: cachedClient, APIReader: apiReader, Scheme: scheme}
+
+			if err := test.run(context.Background(), reconciler, repository); err != nil {
+				t.Fatalf("observation pass returned an error for a cache-only deleted item: %v", err)
+			}
+			stored := &triggersv1alpha1.MaintainerWorkItem{}
+			if err := cachedClient.Get(context.Background(), client.ObjectKeyFromObject(liveItem), stored); err != nil {
+				t.Fatal(err)
+			}
+			condition := findMaintainerWorkItemCondition(stored, triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh)
+			if condition == nil || condition.Status != metav1.ConditionFalse || condition.Reason != test.reason {
+				t.Fatalf("live item freshness condition = %#v, want false with reason %q", condition, test.reason)
+			}
+		})
+	}
 }
 
 // A merged pull request auto-closes its issue; the issue leaves the open list
