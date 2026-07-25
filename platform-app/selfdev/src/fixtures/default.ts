@@ -20,7 +20,10 @@ import {
   GitIdentitySchema,
   LinearProjectSchema,
   MaintainerWorkItemSchema,
+  AnthropicUsageLimitSchema,
+  MyAnthropicUsageSchema,
   MyCredentialsSchema,
+  MyCopilotUsageSchema,
   MyOpenAIUsageSchema,
   NotificationInfoSchema,
   OpenAIUsageLimitSchema,
@@ -1211,12 +1214,16 @@ const openAIUsage = create(MyOpenAIUsageSchema, {
   last30DaysTokens: 7_842_118n,
   lookbackDays: 30,
   fetchedAtUnix: unix(SCENARIO_NOW),
+});
+
+const copilotUsage = create(MyCopilotUsageSchema, {
   copilotOauthPresent: true,
-  copilotAccountLogin: "dana-demo",
-  copilotPlan: "individual_pro",
-  copilotUsageAvailable: true,
-  copilotQuotaResetDate: "2026-08-01",
-  copilotQuotas: [
+  accountLogin: "dana-demo",
+  plan: "individual_pro",
+  usageAvailable: true,
+  quotaResetDate: "2026-08-01",
+  fetchedAtUnix: unix(SCENARIO_NOW),
+  quotas: [
     create(CopilotUsageQuotaSchema, {
       name: "premium_interactions",
       entitlement: 300n,
@@ -1227,6 +1234,38 @@ const openAIUsage = create(MyOpenAIUsageSchema, {
       unlimited: true,
     }),
   ],
+});
+
+const anthropicUsage = create(MyAnthropicUsageSchema, {
+  anthropicOauthPresent: true,
+  accountEmail: "dana@example.com",
+  accountUuid: "acc_01J7DEMO9QF3",
+  credentialExpiresAtUnix: unix(hoursAgo(-5)),
+  credentialLastRefreshedAtUnix: unix(hoursAgo(3)),
+  usageAvailable: true,
+  limits: [
+    create(AnthropicUsageLimitSchema, {
+      label: "5 hour",
+      usedPercent: 31,
+      resetAtUnix: unix(hoursAgo(-2)),
+    }),
+    create(AnthropicUsageLimitSchema, {
+      label: "Weekly",
+      usedPercent: 54,
+      resetAtUnix: unix(daysAgo(-4)),
+    }),
+    create(AnthropicUsageLimitSchema, {
+      label: "Weekly Sonnet",
+      usedPercent: 63,
+      resetAtUnix: unix(daysAgo(-4)),
+    }),
+  ],
+  extraUsageAvailable: true,
+  extraUsageEnabled: true,
+  extraUsageMonthlyLimitUsdCents: 5000,
+  extraUsageUsedCreditsUsdCents: 1248.5,
+  extraUsageUtilization: 24.97,
+  fetchedAtUnix: unix(SCENARIO_NOW),
 });
 
 const soul = create(SoulSchema, {
@@ -1390,6 +1429,8 @@ export const defaultScenario: Scenario = {
   models: MODEL_LIST,
   credentials,
   openAIUsage,
+  copilotUsage,
+  anthropicUsage,
   soul,
   gitIdentity,
 

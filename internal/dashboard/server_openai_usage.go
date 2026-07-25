@@ -108,8 +108,7 @@ type copilotQuotaUsage struct {
 }
 
 // GetMyOpenAIUsage reads account-level data through the calling user's current
-// saved OpenAI and GitHub Copilot OAuth credentials. OAuth material never
-// leaves the server.
+// saved OpenAI OAuth credential. OAuth material never leaves the server.
 func (s *Server) GetMyOpenAIUsage(ctx context.Context, _ *platform.GetMyOpenAIUsageRequest) (*platform.MyOpenAIUsage, error) {
 	actor, err := providerOAuthActor(ctx)
 	if err != nil {
@@ -119,45 +118,24 @@ func (s *Server) GetMyOpenAIUsage(ctx context.Context, _ *platform.GetMyOpenAIUs
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().UTC()
-	type usageResult struct {
-		usage *platform.MyOpenAIUsage
-		err   error
-	}
-	openAIResult := make(chan usageResult, 1)
-	copilotResult := make(chan usageResult, 1)
-	go func() {
-		usage, loadErr := s.loadOpenAIUsage(ctx, namespace, now)
-		openAIResult <- usageResult{usage: usage, err: loadErr}
-	}()
-	go func() {
-		usage := &platform.MyOpenAIUsage{}
-		loadErr := s.populateCopilotUsage(ctx, namespace, usage)
-		copilotResult <- usageResult{usage: usage, err: loadErr}
-	}()
+	return s.loadOpenAIUsage(ctx, namespace, time.Now().UTC())
+}
 
-	openAI := <-openAIResult
-	copilot := <-copilotResult
-	var out *platform.MyOpenAIUsage
-	if openAI.err != nil {
-		if !copilot.usage.CopilotUsageAvailable {
-			return nil, openAI.err
-		}
-		out = &platform.MyOpenAIUsage{LookbackDays: 30, FetchedAtUnix: now.Unix()}
-		out.Warnings = append(out.Warnings, "ChatGPT usage data is temporarily unavailable.")
-	} else {
-		out = openAI.usage
+// GetMyCopilotUsage reads account-level quota data through the calling user's
+// saved GitHub Copilot OAuth credential. OAuth material never leaves the server.
+func (s *Server) GetMyCopilotUsage(ctx context.Context, _ *platform.GetMyCopilotUsageRequest) (*platform.MyCopilotUsage, error) {
+	actor, err := providerOAuthActor(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if copilot.err != nil {
-		out.Warnings = append(out.Warnings, "GitHub Copilot quota data is temporarily unavailable.")
+	namespace, err := s.ensureUserNamespace(ctx, actor)
+	if err != nil {
+		return nil, err
 	}
-	out.CopilotOauthPresent = copilot.usage.CopilotOauthPresent
-	out.CopilotAccountLogin = copilot.usage.CopilotAccountLogin
-	out.CopilotPlan = copilot.usage.CopilotPlan
-	out.CopilotUsageAvailable = copilot.usage.CopilotUsageAvailable
-	out.CopilotQuotas = copilot.usage.CopilotQuotas
-	out.CopilotQuotaResetDate = copilot.usage.CopilotQuotaResetDate
-	out.Warnings = append(out.Warnings, copilot.usage.Warnings...)
+	out := &platform.MyCopilotUsage{FetchedAtUnix: time.Now().UTC().Unix()}
+	if err := s.populateCopilotUsage(ctx, namespace, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -217,7 +195,7 @@ func (s *Server) loadOpenAIUsage(ctx context.Context, namespace string, now time
 	return out, nil
 }
 
-func (s *Server) populateCopilotUsage(ctx context.Context, namespace string, out *platform.MyOpenAIUsage) error {
+func (s *Server) populateCopilotUsage(ctx context.Context, namespace string, out *platform.MyCopilotUsage) error {
 	secret, err := s.readSecret(ctx, namespace, userCredentialSecretName("copilot"))
 	if k8serrors.IsNotFound(err) {
 		return nil
@@ -245,10 +223,10 @@ func (s *Server) populateCopilotUsage(ctx context.Context, namespace string, out
 		out.Warnings = append(out.Warnings, "GitHub Copilot quota data is temporarily unavailable.")
 		return nil
 	}
-	out.CopilotUsageAvailable = true
-	out.CopilotAccountLogin = strings.TrimSpace(usage.Login)
-	out.CopilotPlan = strings.TrimSpace(usage.CopilotPlan)
-	out.CopilotQuotaResetDate = strings.TrimSpace(usage.QuotaResetDate)
+	out.UsageAvailable = true
+	out.AccountLogin = strings.TrimSpace(usage.Login)
+	out.Plan = strings.TrimSpace(usage.CopilotPlan)
+	out.QuotaResetDate = strings.TrimSpace(usage.QuotaResetDate)
 
 	names := make([]string, 0, len(usage.QuotaSnapshots))
 	for name := range usage.QuotaSnapshots {
@@ -257,7 +235,7 @@ func (s *Server) populateCopilotUsage(ctx context.Context, namespace string, out
 	sort.Strings(names)
 	for _, name := range names {
 		quota := usage.QuotaSnapshots[name]
-		out.CopilotQuotas = append(out.CopilotQuotas, &platform.CopilotUsageQuota{
+		out.Quotas = append(out.Quotas, &platform.CopilotUsageQuota{
 			Name: name, Entitlement: quota.Entitlement, Remaining: quota.Remaining,
 			OverageCount: quota.OverageCount, Unlimited: quota.Unlimited,
 		})

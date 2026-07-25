@@ -9,7 +9,9 @@ import {
   GitHubRepositorySchema,
   GitIdentitySchema,
   LinearProjectSchema,
+  MyAnthropicUsageSchema,
   MyCredentialsSchema,
+  MyCopilotUsageSchema,
   MyOpenAIUsageSchema,
   ProjectSchema,
   ProjectTriggerConditionSchema,
@@ -251,6 +253,8 @@ export const errorScenario: Scenario = {
   models: MODEL_LIST,
   credentials: create(MyCredentialsSchema, { namespace: NS }),
   openAIUsage: create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
+  copilotUsage: create(MyCopilotUsageSchema, { copilotOauthPresent: false }),
+  anthropicUsage: create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
   soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
 

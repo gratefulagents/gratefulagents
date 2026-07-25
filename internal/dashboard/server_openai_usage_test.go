@@ -88,7 +88,7 @@ func TestGetMyOpenAIUsageReadsCurrentOAuthAccount(t *testing.T) {
 	}
 }
 
-func TestGetMyOpenAIUsageIncludesCopilotOAuthQuotas(t *testing.T) {
+func TestGetMyCopilotUsageIncludesOAuthQuotas(t *testing.T) {
 	scheme := testProjectScheme(t)
 	transport := providerOAuthRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Path != "/copilot_internal/user" {
@@ -110,22 +110,22 @@ func TestGetMyOpenAIUsageIncludesCopilotOAuthQuotas(t *testing.T) {
 		t.Fatalf("UpdateMyCredentials() error = %v", err)
 	}
 
-	got, err := srv.GetMyOpenAIUsage(ctx, &platform.GetMyOpenAIUsageRequest{})
+	got, err := srv.GetMyCopilotUsage(ctx, &platform.GetMyCopilotUsageRequest{})
 	if err != nil {
-		t.Fatalf("GetMyOpenAIUsage() error = %v", err)
+		t.Fatalf("GetMyCopilotUsage() error = %v", err)
 	}
-	if !got.CopilotOauthPresent || !got.CopilotUsageAvailable {
+	if !got.CopilotOauthPresent || !got.UsageAvailable {
 		t.Fatalf("Copilot availability = %#v", got)
 	}
-	if got.CopilotAccountLogin != "octocat" || got.CopilotPlan != "individual_pro" || got.CopilotQuotaResetDate != "2026-08-01" {
+	if got.AccountLogin != "octocat" || got.Plan != "individual_pro" || got.QuotaResetDate != "2026-08-01" {
 		t.Fatalf("Copilot account fields = %#v", got)
 	}
-	if len(got.CopilotQuotas) != 2 || got.CopilotQuotas[1].Name != "premium_interactions" || got.CopilotQuotas[1].Remaining != 225 || got.CopilotQuotas[1].OverageCount != 2 {
-		t.Fatalf("Copilot quotas = %#v", got.CopilotQuotas)
+	if len(got.Quotas) != 2 || got.Quotas[1].Name != "premium_interactions" || got.Quotas[1].Remaining != 225 || got.Quotas[1].OverageCount != 2 {
+		t.Fatalf("Copilot quotas = %#v", got.Quotas)
 	}
 }
 
-func TestGetMyOpenAIUsageKeepsCopilotDataWhenOpenAICredentialIsInvalid(t *testing.T) {
+func TestProviderUsageKeepsCopilotIndependentWhenOpenAICredentialIsInvalid(t *testing.T) {
 	scheme := testProjectScheme(t)
 	transport := providerOAuthRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Path != "/copilot_internal/user" {
@@ -147,22 +147,22 @@ func TestGetMyOpenAIUsageKeepsCopilotDataWhenOpenAICredentialIsInvalid(t *testin
 		t.Fatalf("writeCredentialData() error = %v", err)
 	}
 
-	got, err := srv.GetMyOpenAIUsage(ctx, &platform.GetMyOpenAIUsageRequest{})
+	got, err := srv.GetMyCopilotUsage(ctx, &platform.GetMyCopilotUsageRequest{})
 	if err != nil {
-		t.Fatalf("GetMyOpenAIUsage() error = %v", err)
+		t.Fatalf("GetMyCopilotUsage() error = %v", err)
 	}
-	if got.OpenaiOauthPresent || !got.CopilotOauthPresent || !got.CopilotUsageAvailable || got.CopilotAccountLogin != "octocat" {
-		t.Fatalf("partial usage = %#v", got)
+	if !got.CopilotOauthPresent || !got.UsageAvailable || got.AccountLogin != "octocat" {
+		t.Fatalf("Copilot usage = %#v", got)
 	}
-	if len(got.CopilotQuotas) != 1 || got.CopilotQuotas[0].Remaining != 225 {
-		t.Fatalf("Copilot quotas = %#v", got.CopilotQuotas)
+	if len(got.Quotas) != 1 || got.Quotas[0].Remaining != 225 {
+		t.Fatalf("Copilot quotas = %#v", got.Quotas)
 	}
-	if len(got.Warnings) == 0 || !strings.Contains(got.Warnings[0], "ChatGPT") {
-		t.Fatalf("warnings = %#v", got.Warnings)
+	if _, err := srv.GetMyOpenAIUsage(ctx, &platform.GetMyOpenAIUsageRequest{}); err == nil {
+		t.Fatal("GetMyOpenAIUsage() unexpectedly accepted invalid OpenAI credential")
 	}
 }
 
-func TestGetMyOpenAIUsageKeepsOpenAIDataWhenCopilotCredentialIsInvalid(t *testing.T) {
+func TestProviderUsageKeepsOpenAIIndependentWhenCopilotCredentialIsInvalid(t *testing.T) {
 	scheme := testProjectScheme(t)
 	transport := providerOAuthRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"stats":{}}`
@@ -188,11 +188,11 @@ func TestGetMyOpenAIUsageKeepsOpenAIDataWhenCopilotCredentialIsInvalid(t *testin
 	if err != nil {
 		t.Fatalf("GetMyOpenAIUsage() error = %v", err)
 	}
-	if !got.OpenaiOauthPresent || got.PlanType != "pro" || !got.CopilotOauthPresent {
-		t.Fatalf("partial usage = %#v", got)
+	if !got.OpenaiOauthPresent || got.PlanType != "pro" {
+		t.Fatalf("OpenAI usage = %#v", got)
 	}
-	if len(got.Warnings) == 0 || !strings.Contains(got.Warnings[len(got.Warnings)-1], "Copilot") {
-		t.Fatalf("warnings = %#v", got.Warnings)
+	if _, err := srv.GetMyCopilotUsage(ctx, &platform.GetMyCopilotUsageRequest{}); err == nil {
+		t.Fatal("GetMyCopilotUsage() unexpectedly accepted invalid Copilot credential")
 	}
 }
 

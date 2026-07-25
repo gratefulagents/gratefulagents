@@ -4,7 +4,9 @@
 import { create } from "@bufbuild/protobuf";
 import {
   GitIdentitySchema,
+  MyAnthropicUsageSchema,
   MyCredentialsSchema,
+  MyCopilotUsageSchema,
   MyOpenAIUsageSchema,
   SoulSchema,
 } from "../../../frontend/src/rpc/platform/service_pb";
@@ -42,6 +44,8 @@ export const emptyScenario: Scenario = {
   models: MODEL_LIST,
   credentials: create(MyCredentialsSchema, { namespace: NS }),
   openAIUsage: create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
+  copilotUsage: create(MyCopilotUsageSchema, { copilotOauthPresent: false }),
+  anthropicUsage: create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
   soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
 
