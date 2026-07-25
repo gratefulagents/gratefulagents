@@ -177,10 +177,16 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 			return err
 		}
 		replay := fresh.Status.DispatchReservation != nil && fresh.Status.DispatchReservation.CommandRef.Name == command.Name
-		if fresh.Status.DispatchReservation != nil && !replay {
+		if replay {
+			// The reservation is the durable application boundary. Replays must
+			// proceed to verify or finish side effects even though readiness is
+			// intentionally false while that reservation exists.
+			return nil
+		}
+		if fresh.Status.DispatchReservation != nil {
 			return r.replaceOrphanedMaintainerDispatch(ctx, repository, command, fresh)
 		}
-		if !replay && fresh.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseReadyToDispatch {
+		if fresh.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseReadyToDispatch {
 			return rejectMaintainerCommand("work item is not in the pre-dispatch phase")
 		}
 		if fresh.Spec.GraphConfiguredByCommand == nil {
@@ -382,17 +388,11 @@ func (r *GitHubRepositoryReconciler) recreateMaintainerDispatchRun(ctx context.C
 		return rejectMaintainerCommand("work item is no longer ready for recovery dispatch")
 	}
 	runs := &platformv1alpha1.AgentRunList{}
-	if err := r.maintainerReader().List(ctx, runs, client.InNamespace(repository.Namespace), client.MatchingLabels{
-		triggersv1alpha1.MaintainerWorkItemNameLabelKey: fresh.Name,
-		triggersv1alpha1.MaintainerWorkItemUIDLabelKey:  string(fresh.UID),
-	}); err != nil {
+	if err := r.maintainerReader().List(ctx, runs, client.InNamespace(repository.Namespace)); err != nil {
 		return err
 	}
-	for i := range runs.Items {
-		run := &runs.Items[i]
-		if run.Name != expectedRunName && run.Labels[triggersv1alpha1.PRLoopRoleLabelKey] != triggersv1alpha1.PRLoopRoleReviewerValue && !isTerminalAgentRunPhase(run.Status.Phase) {
-			return rejectMaintainerCommand("another implementer is already active for this work item")
-		}
+	if hasOtherActiveMaintainerImplementer(repository, fresh, expectedRunName, runs.Items) {
+		return rejectMaintainerCommand("another implementer is already active for this work item")
 	}
 	active, err := r.maintainerDispatchReservationActive(ctx, repository, command, fresh)
 	if err != nil {
@@ -407,6 +407,21 @@ func (r *GitHubRepositoryReconciler) recreateMaintainerDispatchRun(ctx context.C
 		return fmt.Errorf("recreating deleted implementer %s: %w", expectedRunName, err)
 	}
 	return nil
+}
+
+func hasOtherActiveMaintainerImplementer(repository *triggersv1alpha1.GitHubRepository, item *triggersv1alpha1.MaintainerWorkItem, expectedRunName string, runs []platformv1alpha1.AgentRun) bool {
+	for i := range runs {
+		run := &runs[i]
+		if run.Name == expectedRunName || run.Labels[triggersv1alpha1.PRLoopRoleLabelKey] == triggersv1alpha1.PRLoopRoleReviewerValue || isTerminalAgentRunPhase(run.Status.Phase) {
+			continue
+		}
+		correlated := run.Labels[triggersv1alpha1.MaintainerWorkItemNameLabelKey] == item.Name && run.Labels[triggersv1alpha1.MaintainerWorkItemUIDLabelKey] == string(item.UID)
+		legacyCorrelated := TriggerRunMatches(run, gitHubRepositoryTriggerKind, repository.Name) && runOwnedByGitHubRepository(run, repository) && maintainerRunWorkItemName(repository, run) == item.Name
+		if correlated || legacyCorrelated {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *GitHubRepositoryReconciler) validateBreakdown(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, itemName string, children, dependencies []triggersv1alpha1.MaintainerWorkItemReference) error {
