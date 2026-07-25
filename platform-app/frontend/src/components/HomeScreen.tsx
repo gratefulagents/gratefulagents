@@ -106,12 +106,21 @@ function Row({
   );
 }
 
-/** Quiet status dot + label — reads calmer than a filled pill in a list. */
+/**
+ * Quiet status dot + label — reads calmer than a filled pill in a list.
+ * The dot always renders (including narrow/iOS widths); only the text label
+ * collapses below `sm`, and the accessible label is kept via `title`/sr-only
+ * so status stays distinguishable everywhere.
+ */
 function RunStatus({ run }: { run: AgentRun }) {
   const tone = runStatusTone(run);
   const live = isRunComputing(run);
+  const label = runStatusLabel(run);
   return (
-    <span className="hidden shrink-0 items-center gap-1.5 text-[11.5px] text-muted-foreground sm:inline-flex">
+    <span
+      title={label}
+      className="inline-flex shrink-0 items-center gap-1.5 text-[11.5px] text-muted-foreground"
+    >
       <span
         className="relative inline-flex size-[6px] rounded-full"
         style={{ backgroundColor: toneColor[tone] }}
@@ -123,7 +132,8 @@ function RunStatus({ run }: { run: AgentRun }) {
           />
         )}
       </span>
-      {runStatusLabel(run)}
+      <span className="hidden sm:inline">{label}</span>
+      <span className="sr-only sm:hidden">{label}</span>
     </span>
   );
 }
