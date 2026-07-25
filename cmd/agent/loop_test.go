@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +13,9 @@ import (
 
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
+	internaltools "github.com/gratefulagents/gratefulagents/internal/tools"
+	"github.com/gratefulagents/sdk/pkg/agentsdk/sandbox"
+	sdkbrowser "github.com/gratefulagents/sdk/pkg/agentsdk/tools/browser"
 )
 
 // A failed model call (provider outage, rate limit) must produce a notice
@@ -107,6 +113,64 @@ func TestShouldPublishStartupIdle(t *testing.T) {
 				t.Fatalf("shouldPublishStartupIdle() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+type screenshotExecutor struct {
+	data []byte
+}
+
+func (e *screenshotExecutor) Build(context.Context, sandbox.Request) (*exec.Cmd, error) {
+	return nil, nil
+}
+
+func (e *screenshotExecutor) Run(_ context.Context, req sandbox.Request) (sandbox.Result, error) {
+	for _, arg := range req.Argv {
+		if path, ok := strings.CutPrefix(arg, "--screenshot="); ok {
+			if err := os.WriteFile(path, e.data, 0o600); err != nil {
+				return sandbox.Result{ExitCode: -1}, err
+			}
+		}
+	}
+	return sandbox.Result{}, nil
+}
+
+func TestBrowserRegistryUsesWorkspaceScratchAndKeepsExplicitOutputInWorkspace(t *testing.T) {
+	workDir := t.TempDir()
+	registry := internaltools.NewRegistry(workDir, browserRegistryOptions()...)
+	browserTool, ok := registry.Get("Browser").(*sdkbrowser.Tool)
+	if !ok {
+		t.Fatalf("Browser tool = %T, want *browser.Tool", registry.Get("Browser"))
+	}
+	if browserTool.ScreenshotDir != workspaceScratchDir {
+		t.Fatalf("Browser ScreenshotDir = %q, want %q", browserTool.ScreenshotDir, workspaceScratchDir)
+	}
+
+	binDir := t.TempDir()
+	chromium := filepath.Join(binDir, "chromium")
+	if err := os.WriteFile(chromium, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake Chromium: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+	browserTool.Executor = &screenshotExecutor{data: []byte("png-data")}
+
+	result, err := browserTool.Execute(
+		context.Background(),
+		json.RawMessage(`{"action":"screenshot","url":"http://127.0.0.1","output_path":"artifacts/browser.png"}`),
+		workDir,
+	)
+	if err != nil || result.IsError {
+		t.Fatalf("Browser.Execute() result=%#v err=%v", result, err)
+	}
+	got, err := os.ReadFile(filepath.Join(workDir, "artifacts", "browser.png"))
+	if err != nil {
+		t.Fatalf("read explicit workspace screenshot: %v", err)
+	}
+	if string(got) != "png-data" {
+		t.Fatalf("explicit workspace screenshot = %q, want png-data", got)
+	}
+	if !strings.Contains(result.Content, filepath.Join("artifacts", "browser.png")) {
+		t.Fatalf("Browser result = %q, want workspace-relative artifact path", result.Content)
 	}
 }
 

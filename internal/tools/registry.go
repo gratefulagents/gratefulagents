@@ -36,6 +36,7 @@ type Registry struct {
 	contextualCandidates map[string]struct{}
 	gitRemoteWrites      policy.GitRemoteWrites
 	browser              bool
+	browserScreenshotDir string
 	interactiveTerminal  bool
 	vision               bool
 	visionAnalyze        sdkvision.AnalyzeFn
@@ -69,6 +70,13 @@ func WithSignalTools() RegistryOption {
 // WithBrowserTools enables the headless browser tool in the registry.
 func WithBrowserTools() RegistryOption {
 	return func(r *Registry) { r.browser = true }
+}
+
+// WithBrowserScreenshotDir configures the host-managed ephemeral directory for
+// screenshots whose calls omit output_path. Explicit paths remain relative to
+// the registry workspace.
+func WithBrowserScreenshotDir(dir string) RegistryOption {
+	return func(r *Registry) { r.browserScreenshotDir = strings.TrimSpace(dir) }
 }
 
 // WithInteractiveTerminal enables the persistent PTY terminal tool for
@@ -146,6 +154,7 @@ func NewRegistry(workDir string, opts ...RegistryOption) *Registry {
 		// the RuntimeProfile egress policy remains the outer boundary.
 		sdkOpts = append(sdkOpts,
 			sdktools.WithBrowserTools(),
+			sdktools.WithBrowserScreenshotDir(r.browserScreenshotDir),
 			sdktools.WithPrivateNetworkURLs(true),
 		)
 	}
