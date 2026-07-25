@@ -186,27 +186,18 @@ func projectMaintainerRunsAndPRs(item *triggersv1alpha1.MaintainerWorkItem, runs
 			}
 		}
 	}
-	required := map[string]string{}
-	for _, intent := range item.Spec.RequiredPullRequests {
-		required[intent.Name] = intent.Name
-	}
-	hasRequiredIntents := len(required) > 0
+	// Every monitor created by a bound implementer run is delivery evidence.
+	// Nothing is filtered by a pre-dispatch intent list: monitor names are
+	// derived from the implementer run UID and the pull request URL, so an
+	// intent recorded before dispatch can never match a real monitor and would
+	// otherwise hide merged pull requests behind an unsatisfiable placeholder.
 	for i := range monitors {
 		monitor := &monitors[i]
 		if !runNames[monitor.Spec.ImplementerRef.Name] {
 			continue
 		}
-		if hasRequiredIntents {
-			if _, ok := required[monitor.Name]; !ok {
-				continue
-			}
-			delete(required, monitor.Name)
-		}
 		projection := maintainerPRProjection(monitor)
 		item.Status.PullRequests = append(item.Status.PullRequests, projection)
-	}
-	for name := range required {
-		item.Status.PullRequests = append(item.Status.PullRequests, triggersv1alpha1.MaintainerWorkItemPullRequestProjection{IntentName: name})
 	}
 	sort.Slice(item.Status.AgentRuns, func(i, j int) bool { return item.Status.AgentRuns[i].Name < item.Status.AgentRuns[j].Name })
 	sort.Slice(item.Status.PullRequests, func(i, j int) bool {
@@ -300,27 +291,34 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 		unmet = append(unmet, "work-item graph has not been explicitly configured")
 	}
 	readyToDispatch := graphConfigured && dependenciesReady && item.Status.PendingDecision == nil && item.Status.DispatchReservation == nil && item.Spec.Disposition != "" && item.Spec.Disposition != triggersv1alpha1.MaintainerWorkItemDispositionNotActionable
-	readyToMerge := len(item.Status.PullRequests) > 0
+	openCandidate, mergeBlocked := false, false
 	for _, pr := range item.Status.PullRequests {
 		identity := fmt.Sprintf("%s#%d", pr.Repository, pr.Number)
 		if pr.MonitorRef == nil || pr.Repository == "" || pr.Number < 1 {
-			readyToMerge = false
-			unmet = append(unmet, "required pull request monitor is missing")
+			mergeBlocked = true
+			unmet = append(unmet, "pull request projection "+pr.IntentName+" has no usable monitor")
 			continue
 		}
 		if pr.State == triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged {
 			continue
 		}
+		// A closed, unmerged pull request was superseded or abandoned. It is not
+		// merge work and must not permanently block merge or delivery.
+		if pr.State == triggersv1alpha1.MaintainerWorkItemPullRequestStateClosed {
+			continue
+		}
+		openCandidate = true
 		approvalMissing := requireApproval && !strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionApproved))
 		changesRequested := strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionChangesRequested))
 		// A zero-check projection is only a candidate for controller-side policy
 		// verification. It must not make asynchronous readiness true on its own.
 		checksSatisfied := pr.CheckState == triggersv1alpha1.MaintainerWorkItemCheckStatePassing
-		if !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || changesRequested || !checksSatisfied || pr.HeadObservedAt == nil || pr.ReviewObservedAt == nil || pr.ChecksObservedAt == nil || pr.StatusesObservedAt == nil || now.Sub(pr.HeadObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ReviewObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ChecksObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.StatusesObservedAt.Time) > maintainerProjectionFreshness {
-			readyToMerge = false
+		if !pr.Fresh || pr.ObservationError != "" || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || changesRequested || !checksSatisfied || pr.HeadObservedAt == nil || pr.ReviewObservedAt == nil || pr.ChecksObservedAt == nil || pr.StatusesObservedAt == nil || now.Sub(pr.HeadObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ReviewObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ChecksObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.StatusesObservedAt.Time) > maintainerProjectionFreshness {
+			mergeBlocked = true
 			unmet = append(unmet, identity+" is incomplete, stale, or not merge-ready")
 		}
 	}
+	readyToMerge := openCandidate && !mergeBlocked
 	allMerged := allProjectedPRsMerged(item.Status.PullRequests)
 	deliveryReady := item.Status.DeliveryAttestation != nil && item.Status.DeliveryAttestation.CompletedAt != nil && dependenciesReady && childrenReady && (allMerged || len(item.Status.PullRequests) == 0 && len(item.Status.Children) > 0)
 	if allMerged {
@@ -360,16 +358,21 @@ func conditionReason(value bool, yes, no string) string {
 	}
 	return no
 }
+// allProjectedPRsMerged reports whether the work item shipped: at least one
+// projected pull request is merged and none is still open. Closed, unmerged
+// pull requests were superseded and are not delivery obligations.
 func allProjectedPRsMerged(prs []triggersv1alpha1.MaintainerWorkItemPullRequestProjection) bool {
-	if len(prs) == 0 {
-		return false
-	}
+	merged := false
 	for _, pr := range prs {
-		if pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged {
+		switch pr.State {
+		case triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged:
+			merged = true
+		case triggersv1alpha1.MaintainerWorkItemPullRequestStateClosed:
+		default:
 			return false
 		}
 	}
-	return true
+	return merged
 }
 func hasActiveImplementer(runs []triggersv1alpha1.MaintainerWorkItemAgentRunProjection) bool {
 	for _, run := range runs {

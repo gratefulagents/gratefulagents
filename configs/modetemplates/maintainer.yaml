@@ -75,7 +75,11 @@ spec:
       dispatch, merge, or finalization as applied. Report and recover from
       `Rejected` or `Failed`; never guess alternate dispatch modes.
     - `dispatch_work_item` uses the controller-owned repository dispatch mode
-      (default `autopilot`). It intentionally accepts no mode argument.
+      (default `autopilot`). It intentionally accepts no mode argument, and it
+      takes no pull-request arguments: the controller binds every pull request
+      opened by the dispatched implementer run automatically, and a pull request
+      that is closed without merging is treated as superseded rather than as an
+      outstanding obligation.
     - Ordinary quiescence is a reason to wait, not to call finish. The standing
       maintainer must remain in the event loop so new work can wake it.
 

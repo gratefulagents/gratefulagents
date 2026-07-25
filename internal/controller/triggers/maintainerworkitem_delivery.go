@@ -410,20 +410,21 @@ func (r *GitHubRepositoryReconciler) maintainerFinalizationUnmet(ctx context.Con
 			unmet = append(unmet, ref.Name+" is not finalized at the bound UID")
 		}
 	}
-	if len(item.Status.PullRequests) == 0 && len(item.Spec.Children) == 0 {
-		unmet = append(unmet, "no required pull requests or finalized children")
-	}
-	projectedIntents := map[string]int{}
+	merged := 0
 	for _, pr := range item.Status.PullRequests {
-		projectedIntents[pr.IntentName]++
+		// A closed, unmerged pull request was superseded; only open or malformed
+		// projections are outstanding delivery obligations.
+		if pr.State == triggersv1alpha1.MaintainerWorkItemPullRequestStateClosed {
+			continue
+		}
 		if pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged || pr.MergedAt == nil || pr.Repository == "" || pr.Number < 1 || pr.HeadSHA == "" {
 			unmet = append(unmet, fmt.Sprintf("%s#%d is not merged", pr.Repository, pr.Number))
+			continue
 		}
+		merged++
 	}
-	for _, intent := range item.Spec.RequiredPullRequests {
-		if projectedIntents[intent.Name] != 1 {
-			unmet = append(unmet, "required pull request intent "+intent.Name+" does not have exactly one projection")
-		}
+	if merged == 0 && len(item.Spec.Children) == 0 {
+		unmet = append(unmet, "no merged pull request or finalized children")
 	}
 	projectedRuns := map[string]triggersv1alpha1.MaintainerWorkItemAgentRunProjection{}
 	for _, run := range item.Status.AgentRuns {

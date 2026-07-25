@@ -185,13 +185,58 @@ func TestEvaluateMaintainerReadinessRequiresFinalizationAfterMerge(t *testing.T)
 	}
 }
 
-func TestProjectMaintainerPRsKeepsExplicitRequiredFilterAfterMatch(t *testing.T) {
+func TestProjectMaintainerPRsIgnoresLegacyRequiredIntents(t *testing.T) {
+	// A pre-dispatch intent can never match a generated monitor name, so it must
+	// neither hide a real monitor nor add an unsatisfiable placeholder.
 	item := &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: "item", UID: types.UID("item-uid")}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RequiredPullRequests: []triggersv1alpha1.MaintainerRequiredPullRequestIntent{{Name: projectionTestRequired}}}}
 	run := platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "implementer", Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemNameLabelKey: item.Name, triggersv1alpha1.MaintainerWorkItemUIDLabelKey: string(item.UID)}}}
-	monitors := []triggersv1alpha1.PullRequestMonitor{{ObjectMeta: metav1.ObjectMeta{Name: projectionTestRequired}, Spec: triggersv1alpha1.PullRequestMonitorSpec{ImplementerRef: corev1.LocalObjectReference{Name: run.Name}}}, {ObjectMeta: metav1.ObjectMeta{Name: "unrelated"}, Spec: triggersv1alpha1.PullRequestMonitorSpec{ImplementerRef: corev1.LocalObjectReference{Name: run.Name}}}}
+	monitors := []triggersv1alpha1.PullRequestMonitor{
+		{ObjectMeta: metav1.ObjectMeta{Name: "pr-monitor-aaa"}, Spec: triggersv1alpha1.PullRequestMonitorSpec{Repository: projectionTestRepository, Number: 25, ImplementerRef: corev1.LocalObjectReference{Name: run.Name}}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "pr-monitor-bbb"}, Spec: triggersv1alpha1.PullRequestMonitorSpec{Repository: projectionTestRepository, Number: 26, ImplementerRef: corev1.LocalObjectReference{Name: run.Name}}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "pr-monitor-other"}, Spec: triggersv1alpha1.PullRequestMonitorSpec{Repository: projectionTestRepository, Number: 99, ImplementerRef: corev1.LocalObjectReference{Name: "another-run"}}},
+	}
 	projectMaintainerRunsAndPRs(item, []platformv1alpha1.AgentRun{run}, monitors, time.Now())
-	if len(item.Status.PullRequests) != 1 || item.Status.PullRequests[0].IntentName != projectionTestRequired {
+	if len(item.Status.PullRequests) != 2 {
 		t.Fatalf("projected PRs = %#v", item.Status.PullRequests)
+	}
+	for _, pr := range item.Status.PullRequests {
+		if pr.MonitorRef == nil || pr.Number < 1 {
+			t.Fatalf("phantom projection %#v", pr)
+		}
+	}
+}
+
+func TestMigrateLegacyMaintainerWorkItemUnblocksPreGateItems(t *testing.T) {
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{Name: "item"},
+		Spec: triggersv1alpha1.MaintainerWorkItemSpec{
+			Disposition:          triggersv1alpha1.MaintainerWorkItemDispositionBounded,
+			TriagedByCommand:     &corev1.LocalObjectReference{Name: "triage-command"},
+			RequiredPullRequests: []triggersv1alpha1.MaintainerRequiredPullRequestIntent{{Name: projectionTestRequired}},
+		},
+	}
+	migrateLegacyMaintainerWorkItem(item)
+	if item.Spec.GraphConfiguredByCommand == nil || item.Spec.GraphConfiguredByCommand.Name != "triage-command" {
+		t.Fatalf("graph configuration = %#v", item.Spec.GraphConfiguredByCommand)
+	}
+	if item.Spec.RequiredPullRequests != nil {
+		t.Fatalf("legacy required pull requests survived migration: %#v", item.Spec.RequiredPullRequests)
+	}
+	if item.Annotations[triggersv1alpha1.MaintainerWorkItemGraphGateAnnotation] != triggersv1alpha1.MaintainerWorkItemGraphGateVersion {
+		t.Fatalf("graph gate annotation = %q", item.Annotations[triggersv1alpha1.MaintainerWorkItemGraphGateAnnotation])
+	}
+	evaluateMaintainerReadiness(item, time.Now(), false)
+	if !item.Status.Readiness.ReadyToDispatch {
+		t.Fatalf("migrated item is still not dispatchable: %#v", item.Status.Readiness.UnmetRequirements)
+	}
+	// A work item already configured under the current gate is never rewritten.
+	configured := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{Name: "item", Annotations: map[string]string{triggersv1alpha1.MaintainerWorkItemGraphGateAnnotation: triggersv1alpha1.MaintainerWorkItemGraphGateVersion}},
+		Spec:       triggersv1alpha1.MaintainerWorkItemSpec{TriagedByCommand: &corev1.LocalObjectReference{Name: "triage-command"}},
+	}
+	migrateLegacyMaintainerWorkItem(configured)
+	if configured.Spec.GraphConfiguredByCommand != nil {
+		t.Fatalf("gated item was migrated: %#v", configured.Spec.GraphConfiguredByCommand)
 	}
 }
 
@@ -314,5 +359,27 @@ func TestValidateBreakdownRejectsDependencyCycle(t *testing.T) {
 	err := r.validateBreakdown(context.Background(), repository, a.Name, []triggersv1alpha1.MaintainerWorkItemReference{{Name: b.Name, UID: b.UID}}, []triggersv1alpha1.MaintainerWorkItemReference{{Name: b.Name, UID: b.UID}})
 	if err == nil {
 		t.Fatal("dependency cycle was accepted")
+	}
+}
+
+func TestEvaluateMaintainerReadinessIgnoresSupersededPullRequests(t *testing.T) {
+	now := metav1.Now()
+	monitorRef := corev1.LocalObjectReference{Name: projectionTestMonitorName}
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded, GraphConfiguredByCommand: &corev1.LocalObjectReference{Name: "graph"}},
+		Status: triggersv1alpha1.MaintainerWorkItemStatus{
+			DeliveryAttestation: &triggersv1alpha1.MaintainerDeliveryAttestation{CompletedAt: &now},
+			PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{
+				{IntentName: "pr-monitor-aaa", Repository: projectionTestRepository, Number: 24, MonitorRef: &monitorRef, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateClosed},
+				{IntentName: "pr-monitor-bbb", Repository: projectionTestRepository, Number: 25, MonitorRef: &monitorRef, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged},
+			},
+		},
+	}
+	evaluateMaintainerReadiness(item, time.Now(), false)
+	if item.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseDelivered {
+		t.Fatalf("phase = %s, unmet = %#v", item.Status.Phase, item.Status.Readiness.UnmetRequirements)
+	}
+	if item.Status.Readiness.ReadyToMerge {
+		t.Fatal("a fully shipped work item must not stay merge-ready")
 	}
 }

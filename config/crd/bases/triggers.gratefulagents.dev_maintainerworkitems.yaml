@@ -168,6 +168,12 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               requiredPullRequests:
+                description: |-
+                  RequiredPullRequests is deprecated and ignored. Pull requests are
+                  discovered from the PullRequestMonitors bound to this work item's
+                  implementer runs; they cannot be named before dispatch because monitor
+                  names are derived from the implementer run UID and the pull request URL.
+                  Retained only so existing objects remain decodable.
                 items:
                   description: MaintainerRequiredPullRequestIntent identifies a pull
                     request required for delivery.

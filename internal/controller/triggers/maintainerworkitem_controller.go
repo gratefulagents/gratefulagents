@@ -196,7 +196,7 @@ func (r *GitHubRepositoryReconciler) ensureMaintainerWorkItem(ctx context.Contex
 		if item.Spec.RepositoryRef.Name != repository.Name || item.Spec.IssueNumber != issueNumber {
 			return fmt.Errorf("maintainer work item %s has a conflicting identity", name)
 		}
-		if metav1.IsControlledBy(item, repository) && item.Labels[triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey] == repository.Name && item.Labels[triggersv1alpha1.MaintainerWorkItemIssueNumberLabelKey] == strconv.FormatInt(int64(issueNumber), 10) {
+		if metav1.IsControlledBy(item, repository) && item.Labels[triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey] == repository.Name && item.Labels[triggersv1alpha1.MaintainerWorkItemIssueNumberLabelKey] == strconv.FormatInt(int64(issueNumber), 10) && item.Annotations[triggersv1alpha1.MaintainerWorkItemGraphGateAnnotation] == triggersv1alpha1.MaintainerWorkItemGraphGateVersion {
 			return nil
 		}
 		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -212,6 +212,7 @@ func (r *GitHubRepositoryReconciler) ensureMaintainerWorkItem(ctx context.Contex
 			}
 			fresh.Labels[triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey] = repository.Name
 			fresh.Labels[triggersv1alpha1.MaintainerWorkItemIssueNumberLabelKey] = strconv.FormatInt(int64(issueNumber), 10)
+			migrateLegacyMaintainerWorkItem(fresh)
 			if err := ctrl.SetControllerReference(repository, fresh, r.Scheme); err != nil {
 				return fmt.Errorf("setting owner reference on maintainer work item %s: %w", name, err)
 			}
@@ -229,6 +230,9 @@ func (r *GitHubRepositoryReconciler) ensureMaintainerWorkItem(ctx context.Contex
 				triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey:  repository.Name,
 				triggersv1alpha1.MaintainerWorkItemIssueNumberLabelKey: strconv.FormatInt(int64(issueNumber), 10),
 			},
+			Annotations: map[string]string{
+				triggersv1alpha1.MaintainerWorkItemGraphGateAnnotation: triggersv1alpha1.MaintainerWorkItemGraphGateVersion,
+			},
 		},
 		Spec: triggersv1alpha1.MaintainerWorkItemSpec{
 			RepositoryRef: corev1.LocalObjectReference{Name: repository.Name},
@@ -242,6 +246,32 @@ func (r *GitHubRepositoryReconciler) ensureMaintainerWorkItem(ctx context.Contex
 		return fmt.Errorf("creating maintainer work item %s: %w", name, err)
 	}
 	return nil
+}
+
+// migrateLegacyMaintainerWorkItem brings a work item created before the current
+// contract up to date exactly once, marked by the graph-gate annotation.
+//
+// An item triaged before the explicit graph-configuration gate existed has no
+// GraphConfiguredByCommand, and after an upgrade every such item would become
+// undispatchable with "work-item graph has not been explicitly configured"
+// until an agent blindly re-submitted a breakdown it had already reviewed. The
+// triage command that accepted the scope is treated as that review instead.
+//
+// Legacy required-pull-request intents are also dropped: they were recorded
+// before any pull request existed, can never match a generated monitor name,
+// and would otherwise hide merged pull requests behind a phantom projection.
+func migrateLegacyMaintainerWorkItem(item *triggersv1alpha1.MaintainerWorkItem) {
+	if item.Annotations[triggersv1alpha1.MaintainerWorkItemGraphGateAnnotation] == triggersv1alpha1.MaintainerWorkItemGraphGateVersion {
+		return
+	}
+	if item.Annotations == nil {
+		item.Annotations = map[string]string{}
+	}
+	item.Annotations[triggersv1alpha1.MaintainerWorkItemGraphGateAnnotation] = triggersv1alpha1.MaintainerWorkItemGraphGateVersion
+	if item.Spec.GraphConfiguredByCommand == nil && item.Spec.TriagedByCommand != nil {
+		item.Spec.GraphConfiguredByCommand = item.Spec.TriagedByCommand.DeepCopy()
+	}
+	item.Spec.RequiredPullRequests = nil
 }
 
 func (r *GitHubRepositoryReconciler) observeMaintainerWorkItem(ctx context.Context, key client.ObjectKey, issue *github.Issue, reason, message string) error {
