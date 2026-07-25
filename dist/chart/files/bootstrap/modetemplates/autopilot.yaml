@@ -13,8 +13,8 @@ spec:
   executionStrategy: parallel
 
   constraints:
-    maxTurns: 200
-    subAgentMaxTurns: 200
+    maxTurns: 400
+    subAgentMaxTurns: 100
     maxRetries: 1
     maxConcurrentSubAgents: 5
 
