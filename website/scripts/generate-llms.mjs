@@ -68,7 +68,7 @@ const lines = [
   '',
   '> Self-hosted control plane for running AI coding agents in your own Kubernetes cluster.',
   '',
-  'GratefulAgents is an open-source (AGPL-3.0) self-hostable alternative to cloud-based AI coding harnesses like GitHub Copilot coding agent, Devin, and OpenHands. It runs entirely in your own Kubernetes cluster — your credentials, your data, full audit trails of every agent turn.',
+  'GratefulAgents is an open-source (AGPL-3.0) self-hosted alternative to cloud coding agents such as Devin and the GitHub Copilot coding agent. It runs entirely in your own Kubernetes cluster — your credentials, your data, full audit trails of every agent turn.',
   '',
 ];
 

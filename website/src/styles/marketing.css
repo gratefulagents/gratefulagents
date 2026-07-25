@@ -119,6 +119,7 @@
   color: var(--chalk);
   font-family: var(--font-mono);
   font-size: 0.84em;
+  overflow-wrap: break-word;
 }
 
 /* ── Two-column layout for comparison pages ─────────────────────── */
@@ -128,6 +129,14 @@
   grid-template-columns: minmax(0, var(--measure)) minmax(0, 22rem);
   gap: clamp(2rem, 4vw, 4rem);
   align-items: start;
+}
+
+/* Grid items default to `min-width: auto`, which floors a track at the item's
+   min-content width. `.mk-table-scroll` scrolls horizontally but still reports
+   the full table width as its min-content, so without this the single-column
+   track is forced to ~610px and the whole page scrolls sideways on a phone. */
+.mk-layout-2col > * {
+  min-width: 0;
 }
 
 .mk-sidebar-card {
@@ -225,6 +234,14 @@
   border-left: 2px solid var(--redline);
   background: rgba(228, 89, 59, 0.04);
 }
+
+/* Four-column variant: the extra column needs more room, and the dimension
+   labels are too long to stay on one line inside a narrower first column.
+   Kept just under --measure (734px) so it does not create a 2px phantom
+   scroller on desktop. */
+.mk-compare-table.mk-compare-wide { min-width: 44rem; }
+.mk-compare-table.mk-compare-wide thead th:first-child { width: 22%; }
+.mk-compare-table.mk-compare-wide td:first-child { white-space: normal; }
 
 /* ── Section separator ──────────────────────────────────────────── */
 
@@ -407,62 +424,6 @@
   line-height: 1.7;
 }
 
-/* ── Hub card grid (alternatives index) ─────────────────────────── */
-
-.mk-alt-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
-  gap: 1px;
-  border: 1px solid var(--line-strong);
-  background: var(--line-strong);
-  margin-block: 2rem;
-}
-
-.mk-alt-card {
-  display: flex;
-  flex-direction: column;
-  padding: 1.6rem;
-  background: var(--blue-panel);
-  text-decoration: none;
-  color: inherit;
-  transition: background 160ms ease;
-}
-
-.mk-alt-card:hover { background: var(--blue-panel-raised); }
-
-.mk-alt-card h3 {
-  margin: 0 0 0.5rem;
-  color: var(--chalk-bright);
-  font-family: var(--font-display);
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.mk-alt-card .mk-alt-tagline {
-  margin: 0 0 0.85rem;
-  color: var(--faded);
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.mk-alt-card p {
-  margin: 0 0 1.1rem;
-  color: var(--faded);
-  font-size: 0.9rem;
-  line-height: 1.62;
-  flex: 1;
-}
-
-.mk-alt-card .mk-alt-link {
-  color: var(--redline-soft);
-  font-size: 0.84rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-}
-
 /* ── Breadcrumb ─────────────────────────────────────────────────── */
 
 .mk-breadcrumb {
@@ -553,7 +514,7 @@
 
 @media (max-width: 72rem) {
   .mk-layout-2col {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .mk-sidebar-card {
     position: static;
@@ -567,9 +528,6 @@
     padding-block: 1.5rem 4rem;
   }
   .mk-feature-grid {
-    grid-template-columns: 1fr;
-  }
-  .mk-alt-grid {
     grid-template-columns: 1fr;
   }
   .mk-axis-list {
@@ -586,5 +544,4 @@
 /* Reduced-motion: suppress the live-pulse on .signal inside marketing pages */
 @media (prefers-reduced-motion: reduce) {
   .mk-steps li::before { transition: none; }
-  .mk-alt-card { transition: none; }
 }

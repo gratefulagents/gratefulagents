@@ -35,6 +35,10 @@ html { scroll-behavior: smooth; background: var(--blue-deep); }
 @media (min-width: 110rem) { html { font-size: 118%; } }
 body {
   margin: 0;
+  /* `html` paints its own background, so a body shorter than the viewport
+     stops painting mid-screen and the html colour plus the fixed drafting
+     grid show through as a hard seam (visible on /404/). */
+  min-height: 100svh;
   background: var(--blue-field);
   color: var(--chalk);
   font-family: var(--font-body);
@@ -655,6 +659,9 @@ img { max-width: 100%; height: auto; }
   font-family: var(--font-mono);
   font-size: 0.74rem;
   line-height: 1.7;
+  /* The prompt starts with a full docs URL, which has no break opportunity and
+     otherwise runs out through the card border on narrow screens. */
+  overflow-wrap: break-word;
 }
 .agent-prompt-text::before {
   content: '❯';
@@ -738,7 +745,7 @@ img { max-width: 100%; height: auto; }
 .prose h3 { margin: 1.8rem 0 0.5rem; font-size: 1.12rem; }
 .prose p, .prose ul, .prose ol { margin: 0 0 1rem; }
 .prose li { margin-bottom: 0.35rem; }
-.prose code { padding: 0.1em 0.35em; background: rgba(232, 232, 234, 0.1); color: var(--chalk-bright); font-family: var(--font-mono); font-size: 0.85em; }
+.prose code { padding: 0.1em 0.35em; background: rgba(232, 232, 234, 0.1); color: var(--chalk-bright); font-family: var(--font-mono); font-size: 0.85em; overflow-wrap: break-word; }
 .prose pre { overflow-x: auto; padding: 1rem 1.2rem; border: 1px solid var(--line); background: var(--blue-deep); color: var(--chalk); font-size: 0.84rem; line-height: 1.55; }
 .prose pre code { padding: 0; background: none; color: inherit; font-size: inherit; }
 .prose table { display: block; width: 100%; overflow-x: auto; margin: 0 0 1.2rem; border-collapse: collapse; font-size: 0.9rem; }
@@ -849,7 +856,7 @@ img { max-width: 100%; height: auto; }
     min-height: calc(100svh - 58px);
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: safe center;
     padding-top: 0;
     padding-bottom: 1.5rem;
     scroll-snap-align: start;
@@ -875,14 +882,13 @@ img { max-width: 100%; height: auto; }
 }
 
 /* ============================================================
-   Sections: Why self-hosted · Comparison · FAQ
-   All new selectors are prefixed .why-, .cmp-, .faq- to avoid
+   Sections: Why self-hosted · FAQ
+   All new selectors are prefixed .why- and .faq- to avoid
    collision with existing rules.
    ============================================================ */
 
 /* ---- Shared section shell ---------------------------------- */
 .why-section,
-.cmp-section,
 .faq-section {
   width: min(calc(100% - 3rem), var(--shell));
   margin-inline: auto;
@@ -952,75 +958,7 @@ img { max-width: 100%; height: auto; }
 .why-card a { color: var(--chalk-bright); }
 .why-card a:hover { color: var(--redline-soft); }
 
-/* ---- Sheet 09: Comparison table ---------------------------- */
-.cmp-table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--line-strong);
-  -webkit-overflow-scrolling: touch;
-}
-.cmp-table {
-  width: 100%;
-  min-width: 42rem;
-  border-collapse: collapse;
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-.cmp-table thead tr {
-  background: var(--blue-deep);
-  border-bottom: 1px solid var(--line-strong);
-}
-.cmp-table thead th {
-  padding: 0.7rem 1rem;
-  color: var(--faded);
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-align: left;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.cmp-table thead th.cmp-ours,
-.cmp-table tbody td.cmp-ours {
-  background: var(--blue-panel-raised);
-  border-left: 2px solid var(--line-frame);
-}
-.cmp-table thead th.cmp-ours { color: var(--chalk); }
-.cmp-table tbody tr { border-bottom: 1px solid var(--line); }
-.cmp-table tbody tr:last-child { border-bottom: 0; }
-.cmp-table tbody tr:hover td,
-.cmp-table tbody tr:hover th[scope='row'] { background: rgba(232, 232, 234, 0.03); }
-.cmp-table tbody tr:hover td.cmp-ours { background: var(--blue-panel-raised); }
-.cmp-table tbody th[scope='row'] {
-  padding: 0.7rem 1rem;
-  background: var(--blue-panel);
-  color: var(--faded);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-align: left;
-  white-space: nowrap;
-}
-.cmp-table tbody td {
-  padding: 0.7rem 1rem;
-  background: var(--blue-field);
-  color: var(--chalk);
-  vertical-align: top;
-}
-.cmp-table tbody td.cmp-ours { color: var(--chalk-bright); }
-.cmp-table a { color: var(--chalk-bright); text-decoration-color: var(--line-strong); }
-.cmp-table a:hover { color: var(--redline-soft); }
-.cmp-note {
-  margin-top: 0.9rem;
-  color: var(--faded-dim);
-  font-size: 0.8rem;
-  line-height: 1.55;
-}
-.cmp-note a { color: var(--faded); }
-.cmp-note a:hover { color: var(--chalk); }
-
-/* ---- Sheet 10: FAQ ----------------------------------------- */
+/* ---- Sheet 09: FAQ ----------------------------------------- */
 .faq-list {
   display: flex;
   flex-direction: column;
@@ -1078,26 +1016,27 @@ img { max-width: 100%; height: auto; }
 .faq-a a { color: var(--chalk-bright); }
 .faq-a a:hover { color: var(--redline-soft); }
 
-/* ---- Desktop scroll-snap inclusion for new sections -------- */
+/* ---- Desktop scroll-snap inclusion for new sections --------
+   These sections are long-form copy, so they are allowed to grow past one
+   viewport: `min-height` fills the screen when the content is short, and
+   `safe center` degrades to top-alignment once it is not, instead of
+   centring the overflow out through the top edge. A snap area taller than
+   the snapport stays freely scrollable, so nothing is skipped. */
 @media (min-width: 60rem) {
   .is-home .why-section,
-  .is-home .cmp-section,
   .is-home .faq-section {
     box-sizing: border-box;
     min-height: calc(100svh - 58px);
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: safe center;
     scroll-snap-align: start;
     scroll-margin-top: 58px;
     padding-top: 0;
     padding-bottom: 0;
   }
   .is-home .why-inner,
-  .is-home .cmp-inner,
   .is-home .faq-inner {
-    max-height: calc(100svh - 58px - 3rem);
-    overflow-y: auto;
     padding-block: clamp(2rem, 4vw, 4rem);
   }
 }
@@ -1110,7 +1049,6 @@ img { max-width: 100%; height: auto; }
 /* ---- Responsive: narrow tablet / large phone --------------- */
 @media (max-width: 60rem) {
   .why-section,
-  .cmp-section,
   .faq-section {
     width: min(calc(100% - 1.6rem), var(--shell));
     padding-top: 3.5rem;
@@ -1122,10 +1060,8 @@ img { max-width: 100%; height: auto; }
 /* ---- Responsive: small phone (360px floor) ----------------- */
 @media (max-width: 40rem) {
   .why-section,
-  .cmp-section,
   .faq-section { width: min(calc(100% - 1.6rem), var(--shell)); }
   .why-header h2 { font-size: clamp(1.7rem, 8vw, 2.4rem); }
   .faq-q { font-size: 0.9rem; padding: 0.85rem 0.9rem; }
   .faq-a { padding-inline: 0.9rem; }
-  .cmp-table { font-size: 0.82rem; }
 }

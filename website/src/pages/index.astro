@@ -41,10 +41,6 @@ const faqItems: {q: string; a: string}[] = [
     a: 'Copilot\'s coding agent is a cloud SaaS feature. Your code and prompts are processed on GitHub\'s infrastructure, and you cannot inspect the execution harness. GratefulAgents runs entirely in your cluster — you own the sandbox, the model credentials, the traces, and the execution logs. You can also trigger work from Linear, Slack, or cron, not just GitHub issues.',
   },
   {
-    q: 'How is this different from OpenHands?',
-    a: 'OpenHands is an open-source single-agent harness focused on the execution loop. GratefulAgents is a complete Kubernetes-native platform: a controller manager with CRDs, multi-client apps (web, desktop, iOS, Android), trigger integrations (GitHub, Linear, Slack, cron), RBAC and workspace sharing, an Agent Ops console, and per-run observability across cost, tokens, traces, and subagent graphs.',
-  },
-  {
     q: 'Can agents open pull requests and interact with GitHub?',
     a: 'Yes. Agents run with your configured GitHub credentials and can read issues, create branches, commit, open pull requests, and post review comments — the same actions a developer would take. You can also trigger runs automatically when a GitHub issue or PR comment matches a pattern and have the agent respond or open a PR directly.',
   },
@@ -358,114 +354,24 @@ const stations = [
           </article>
           <article class="why-card">
             <h3>The harness itself is inspectable and auditable</h3>
-            <p>GratefulAgents is <a href={repositoryUrl}>open source under AGPL-3.0</a>. You can read every line of the controller, the CRD logic, and the sandbox configuration. Combined with the per-run <a href="/docs/results/observability/">observability console</a> — which records every tool call, every LLM request, and every token — you always know what the agent did and why. A black-box harness cannot offer that. For a detailed comparison, see <a href="/alternatives/">alternatives to cloud coding agents</a>.</p>
+            <p>GratefulAgents is <a href={repositoryUrl}>open source under AGPL-3.0</a>. You can read every line of the controller, the CRD logic, and the sandbox configuration. Combined with the per-run <a href="/docs/results/observability/">observability console</a> — which records every tool call, every LLM request, and every token — you always know what the agent did and why. A black-box harness cannot offer that. See <a href="/differences/">how this differs from cloud coding agents</a>.</p>
           </article>
           <article class="why-card">
             <h3>Agent compute sits next to your private infrastructure</h3>
-            <p>Agents frequently need to read internal packages, query private databases, or call APIs that are not reachable from the public internet. When the agent sandbox runs inside the same cluster (or the same VPC) as those resources, latency is low and no ingress rules or tunnels are required. You apply the same Kubernetes network policies, RBAC, and pod security standards you already use for the rest of your workloads. For on-premise or air-gapped environments, this is the only viable option.</p>
+            <p>Agents frequently need to read internal packages, query private databases, or call APIs that are not reachable from the public internet. When the agent sandbox runs inside the same cluster (or the same VPC) as those resources, latency is low and no ingress rules or tunnels are required. You apply the same Kubernetes network policies, RBAC, and pod security standards you already use for the rest of your workloads. For on-premise or air-gapped environments, this is the only viable option. See <a href="/self-hosted-coding-agents/">the full case for self-hosted coding agents</a>.</p>
           </article>
         </div>
         <p class="why-links">
-          Get started with the <a href="/docs/getting-started/self-hosting-kind/">Kind local demo</a> (macOS or Linux laptop, five minutes) or the <a href="/docs/getting-started/self-hosting-k3s/">k3s server install</a> for a persistent deployment. Read more about <a href="/self-hosted-coding-agents/">self-hosted coding agents</a> and what makes them different from cloud alternatives.
+          Devin and GitHub Copilot's coding agent are cloud services: the checkout, the agent process, and the model credentials live on the vendor's infrastructure. GratefulAgents is the <a href="/differences/">self-hosted alternative</a> — all three stay inside your cluster. Get started with the <a href="/docs/getting-started/self-hosting-kind/">Kind local demo</a> (macOS or Linux laptop, five minutes) or the <a href="/docs/getting-started/self-hosting-k3s/">k3s server install</a> for a persistent deployment.
         </p>
       </div>
     </section>
 
-    <!-- Sheet 09: Compared to cloud harnesses -->
-    <section class="cmp-section" aria-labelledby="cmp-title">
-      <div class="cmp-inner">
-        <header class="why-header">
-          <p class="section-kicker">Sheet 09 · Comparison</p>
-          <h2 id="cmp-title">How GratefulAgents compares to cloud harnesses</h2>
-          <p class="why-lead">Cloud products like GitHub Copilot's coding agent and Devin are more mature and have larger teams behind them. GratefulAgents is earlier-stage software that trades managed convenience for ownership and transparency. OpenHands is a fellow open-source project, but it occupies a different layer of the stack. <a href="/alternatives/">See the full alternatives guide →</a></p>
-        </header>
-        <div class="cmp-table-wrap" role="region" aria-label="Feature comparison table" tabindex="0">
-          <table class="cmp-table">
-            <thead>
-              <tr>
-                <th scope="col">Dimension</th>
-                <th scope="col">GitHub Copilot agent</th>
-                <th scope="col">Devin</th>
-                <th scope="col">OpenHands</th>
-                <th scope="col" class="cmp-ours">GratefulAgents</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <th scope="row">Where code executes</th>
-                <td>GitHub cloud</td>
-                <td>Cognition cloud</td>
-                <td>Your machine / server</td>
-                <td class="cmp-ours">Your Kubernetes cluster</td>
-              </tr>
-              <tr>
-                <th scope="row">Model credential ownership</th>
-                <td>GitHub / Microsoft</td>
-                <td>Cognition</td>
-                <td>Yours (configurable)</td>
-                <td class="cmp-ours">Yours — stored in your workspace</td>
-              </tr>
-              <tr>
-                <th scope="row">Model choice</th>
-                <td>Copilot-selected</td>
-                <td>Proprietary</td>
-                <td>Configurable</td>
-                <td class="cmp-ours">Claude, OpenAI, OpenRouter, Grok, Copilot</td>
-              </tr>
-              <tr>
-                <th scope="row">Trigger surface</th>
-                <td>GitHub issues / PRs</td>
-                <td>Web UI, Slack</td>
-                <td>Web UI</td>
-                <td class="cmp-ours">GitHub, Linear, Slack, cron, web, desktop, mobile</td>
-              </tr>
-              <tr>
-                <th scope="row">Run observability</th>
-                <td>Basic logs</td>
-                <td>Replay UI</td>
-                <td>Minimal</td>
-                <td class="cmp-ours"><a href="/docs/results/observability/">Cost, tokens, traces, subagent graphs, errors</a></td>
-              </tr>
-              <tr>
-                <th scope="row">Client surface</th>
-                <td>GitHub web</td>
-                <td>Web, Slack</td>
-                <td>Web UI</td>
-                <td class="cmp-ours">Web, desktop (macOS, Linux), iOS, Android</td>
-              </tr>
-              <tr>
-                <th scope="row">Trigger integrations</th>
-                <td>GitHub only</td>
-                <td>Slack, web</td>
-                <td>None built-in</td>
-                <td class="cmp-ours"><a href="/docs/integrations/github/">GitHub</a>, Linear, Slack, cron</td>
-              </tr>
-              <tr>
-                <th scope="row">Licence</th>
-                <td>Proprietary SaaS</td>
-                <td>Proprietary SaaS</td>
-                <td>MIT</td>
-                <td class="cmp-ours">AGPL-3.0</td>
-              </tr>
-              <tr>
-                <th scope="row">Maturity</th>
-                <td>GA</td>
-                <td>GA</td>
-                <td>Active / stable</td>
-                <td class="cmp-ours">Early development — expect bugs</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="cmp-note">Cloud products are evaluated on publicly available information and may have changed. For a full analysis see <a href="/alternatives/">the alternatives guide</a>.</p>
-      </div>
-    </section>
-
-    <!-- Sheet 10: FAQ -->
+    <!-- Sheet 09: FAQ -->
     <section class="faq-section" aria-labelledby="faq-title">
       <div class="faq-inner">
         <header class="why-header">
-          <p class="section-kicker">Sheet 10 · Field notes</p>
+          <p class="section-kicker">Sheet 09 · Field notes</p>
           <h2 id="faq-title">Frequently asked questions</h2>
         </header>
         <div class="faq-list">

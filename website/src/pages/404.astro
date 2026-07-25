@@ -25,9 +25,16 @@ import Base from '../layouts/Base.astro';
 
 <style>
   .notfound-main {
+    box-sizing: border-box;
     width: min(calc(100% - 3rem), 40rem);
+    /* Fill the gap between the topbar and the footer so the footer lands near
+       the bottom of the viewport instead of floating in the middle. */
+    min-height: calc(100svh - 58px - 11rem);
+    display: flex;
+    flex-direction: column;
+    justify-content: safe center;
     margin: 0 auto;
-    padding: clamp(4rem, 12vh, 8rem) 0;
+    padding: clamp(2rem, 8vh, 5rem) 0;
   }
   .notfound-main h1 {
     margin: 0.4rem 0 1rem;

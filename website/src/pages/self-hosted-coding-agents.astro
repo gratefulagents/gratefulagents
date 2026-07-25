@@ -109,7 +109,7 @@ const structuredData = [
           <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-primary">
             Try GratefulAgents locally →
           </a>
-          <a href="/alternatives/" class="btn btn-quiet">Compare alternatives</a>
+          <a href="/differences/" class="btn btn-quiet">What’s different</a>
         </div>
       </div>
 
@@ -299,9 +299,8 @@ const structuredData = [
           </div>
 
           <p>
-            For a structured comparison of specific products, see the
-            <a href="/alternatives/">alternatives overview</a>—it covers GitHub Copilot's coding
-            agent, Devin, and OpenHands across these dimensions.
+            For how GratefulAgents sits against the cloud harnesses on these dimensions, see
+            <a href="/differences/">the self-hosted alternative to Devin and GitHub Copilot</a>.
           </p>
 
           <h2>How GratefulAgents implements self-hosted coding agents</h2>
@@ -438,31 +437,13 @@ const structuredData = [
             SLA. Treat it as early-adopter software and test it thoroughly before relying on it.
           </div>
 
-          <h2>Comparing your options</h2>
+          <h2>Where GratefulAgents sits</h2>
           <p>
-            GratefulAgents is one option in a growing space. Depending on your constraints, a
-            different tool may be the right choice:
-          </p>
-          <ul>
-            <li>
-              <strong><a href="/alternatives/github-copilot/">GitHub Copilot coding agent</a></strong>
-              — the zero-ops option if your code lives on GitHub.com and you have no
-              data-residency constraints.
-            </li>
-            <li>
-              <strong><a href="/alternatives/devin/">Devin</a></strong>
-              — a polished, managed autonomous agent if you want a fully handled cloud product
-              and are comfortable with code leaving your network.
-            </li>
-            <li>
-              <strong><a href="/alternatives/openhands/">OpenHands</a></strong>
-              — an open-source, Docker-first alternative with a large community and strong
-              research track record, if Kubernetes is not a constraint you want to take on.
-            </li>
-          </ul>
-          <p>
-            For a full side-by-side evaluation, see the
-            <a href="/alternatives/">alternatives overview</a>.
+            The best-known coding agents — Devin and GitHub Copilot's coding agent — are cloud
+            services: the checkout, the agent process, and the model credentials all live on the
+            vendor's infrastructure. GratefulAgents puts all three inside a cluster you run. The
+            <a href="/differences/">differences page</a> lays the architecture out
+            side by side.
           </p>
 
         </article>
@@ -485,10 +466,10 @@ const structuredData = [
           </div>
 
           <div class="mk-sidebar-card" style="margin-top: 1rem;">
-            <h3>Compare alternatives</h3>
-            <p>See how GratefulAgents fits alongside cloud and open-source alternatives.</p>
+            <h3>What’s different</h3>
+            <p>How self-hosting changes the picture against Devin and GitHub Copilot’s coding agent.</p>
             <div class="cta-row">
-              <a href="/alternatives/" class="btn btn-quiet">Alternatives overview →</a>
+              <a href="/differences/" class="btn btn-quiet">See the differences →</a>
             </div>
           </div>
 
