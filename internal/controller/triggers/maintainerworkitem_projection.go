@@ -286,7 +286,8 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 			continue
 		}
 		approvalMissing := requireApproval && !strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionApproved))
-		if !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || pr.CheckState != triggersv1alpha1.MaintainerWorkItemCheckStatePassing || pr.HeadObservedAt == nil || pr.ReviewObservedAt == nil || pr.ChecksObservedAt == nil || pr.StatusesObservedAt == nil || now.Sub(pr.HeadObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ReviewObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ChecksObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.StatusesObservedAt.Time) > maintainerProjectionFreshness {
+		changesRequested := strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionChangesRequested))
+		if !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || changesRequested || pr.CheckState != triggersv1alpha1.MaintainerWorkItemCheckStatePassing || pr.HeadObservedAt == nil || pr.ReviewObservedAt == nil || pr.ChecksObservedAt == nil || pr.StatusesObservedAt == nil || now.Sub(pr.HeadObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ReviewObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ChecksObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.StatusesObservedAt.Time) > maintainerProjectionFreshness {
 			readyToMerge = false
 			unmet = append(unmet, identity+" is incomplete, stale, or not merge-ready")
 		}

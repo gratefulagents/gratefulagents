@@ -40,6 +40,11 @@ func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 	if !item.Status.Readiness.ReadyToMerge {
 		t.Fatal("full control still required human approval")
 	}
+	item.Status.PullRequests[0].ReviewDecision = string(triggersv1alpha1.PullRequestReviewDecisionChangesRequested)
+	evaluateMaintainerReadiness(item, now, true)
+	if item.Status.Readiness.ReadyToMerge {
+		t.Fatal("full control ignored an explicit changes-requested review")
+	}
 	item.Status.PullRequests[0].ReviewDecision = string(triggersv1alpha1.PullRequestReviewDecisionApproved)
 	stale := metav1.NewTime(now.Add(-maintainerProjectionFreshness - time.Second))
 	item.Status.PullRequests[0].ChecksObservedAt = &stale
