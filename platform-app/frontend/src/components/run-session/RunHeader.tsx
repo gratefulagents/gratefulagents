@@ -44,6 +44,7 @@ import { RunContextSheet } from "./RunContextSheet";
 import { fmtTokens, fmtUsd, PlanDialogContent, runtimeExtensionPresets, sourceHref } from "./helpers";
 import { OverseerSettings } from "./OverseerSettings";
 import { InspectorToggle } from "./RunInspector";
+import { resolveRunUsageTokens } from "./runUsage";
 
 const OverseerPresence = lazy(() =>
   import("./OverseerPresence").then((module) => ({ default: module.OverseerPresence })),
@@ -447,8 +448,11 @@ export function RunHeader({
           : canStop
             ? "stop"
             : null;
-  const inputTokens = sessionMetrics?.hasUsage ? sessionMetrics.inputTokens : Number(run.inputTokens);
-  const outputTokens = sessionMetrics?.hasUsage ? sessionMetrics.outputTokens : Number(run.outputTokens);
+  const { inputTokens, outputTokens } = resolveRunUsageTokens(
+    run.inputTokens,
+    run.outputTokens,
+    sessionMetrics,
+  );
 
   const sourceName = run.project?.name || run.trigger?.name || "";
   const sourceKind = run.project?.kind || run.trigger?.kind || "";
