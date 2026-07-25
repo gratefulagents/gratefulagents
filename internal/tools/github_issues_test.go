@@ -13,6 +13,7 @@ const (
 	issueViewCall     = "issue view 7 --json number,url,title,body,state,stateReason,author,assignees,labels,milestone,createdAt,updatedAt,closedAt"
 	issueCommentsCall = "api repos/{owner}/{repo}/issues/7/comments --paginate --slurp"
 	issueGuardCall    = "api repos/{owner}/{repo}/issues/7"
+	labelListCall     = "label list --limit 1000 --json name"
 )
 
 func TestRegisterGitHubIssueManagementTools(t *testing.T) {
@@ -112,6 +113,7 @@ func TestUpdateGitHubIssueLabelsToolAddsRemovesAndReturnsIssue(t *testing.T) {
 	editCall := "issue edit 7 --add-label bug --add-label sdk --remove-label triage"
 	runner := &fakePRReviewRunner{ghOut: map[string]string{
 		issueGuardCall:    `{"number":7}`,
+		labelListCall:     `[{"name":"bug"},{"name":"SDK"}]`,
 		editCall:          "https://github.com/acme/repo/issues/7\n",
 		issueViewCall:     `{"number":7,"labels":[{"name":"bug"},{"name":"sdk"}]}`,
 		issueCommentsCall: `[]`,
@@ -130,7 +132,34 @@ func TestUpdateGitHubIssueLabelsToolAddsRemovesAndReturnsIssue(t *testing.T) {
 	if result.IsError || !strings.Contains(result.Content, `"labels"`) {
 		t.Fatalf("result = %+v", result)
 	}
-	want := []string{issueGuardCall, editCall, issueViewCall, issueCommentsCall}
+	want := []string{issueGuardCall, labelListCall, editCall, issueViewCall, issueCommentsCall}
+	if !reflect.DeepEqual(runner.ghCalls, want) {
+		t.Fatalf("gh calls = %#v, want %#v", runner.ghCalls, want)
+	}
+}
+
+func TestUpdateGitHubIssueLabelsToolCreatesMissingLabels(t *testing.T) {
+	repo := testGitRepoDir(t)
+	createCall := "label create sdk --color " + defaultGitHubLabelColor
+	editCall := "issue edit 7 --add-label sdk"
+	runner := &fakePRReviewRunner{ghOut: map[string]string{
+		issueGuardCall:    `{"number":7}`,
+		labelListCall:     `[{"name":"bug"}]`,
+		createCall:        "",
+		editCall:          "https://github.com/acme/repo/issues/7\n",
+		issueViewCall:     `{"number":7,"labels":[{"name":"sdk"}]}`,
+		issueCommentsCall: `[]`,
+	}}
+	tool := &updateGitHubIssueLabelsTool{githubIssueToolBase: githubIssueToolBase{runner: runner}}
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":7,"add_labels":["sdk","SDK"]}`), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("result = %+v", result)
+	}
+	want := []string{issueGuardCall, labelListCall, createCall, editCall, issueViewCall, issueCommentsCall}
 	if !reflect.DeepEqual(runner.ghCalls, want) {
 		t.Fatalf("gh calls = %#v, want %#v", runner.ghCalls, want)
 	}

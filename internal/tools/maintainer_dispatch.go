@@ -103,6 +103,12 @@ func (t *dispatchIssueTool) Execute(ctx context.Context, input json.RawMessage, 
 		runner = prReviewExecRunner{}
 	}
 	issueNumber := strconv.Itoa(in.IssueNumber)
+	if err := ensureGitHubLabels(ctx, runner, wd, []string{mode}); err != nil {
+		if releaseErr := t.releaseDispatchReservation(ctx, in.IssueNumber); releaseErr != nil {
+			return Result{Content: fmt.Sprintf("ensuring dispatch label failed: %v\nfailed to release the dispatch reservation: %v", err, releaseErr), IsError: true}, nil
+		}
+		return Result{Content: fmt.Sprintf("ensuring dispatch label failed: %v", err), IsError: true}, nil
+	}
 	out, err := runner.RunGH(ctx, wd, "issue", "edit", issueNumber, "--add-label", mode)
 	if err != nil {
 		if isDefiniteIssueLabelFailure(out, err) {

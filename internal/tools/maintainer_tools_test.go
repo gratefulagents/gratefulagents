@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -428,9 +429,12 @@ func TestDispatchReservationFailureHandling(t *testing.T) {
 	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
 		t.Fatal(err)
 	}
-	tool := &dispatchIssueTool{maintainerToolBase: base, runner: &fakePRReviewRunner{ghErr: map[string]error{
-		"issue edit 2 --add-label auto": errors.New("HTTP 422: Validation Failed"),
-	}}}
+	tool := &dispatchIssueTool{maintainerToolBase: base, runner: &fakePRReviewRunner{
+		ghOut: map[string]string{labelListCall: `[{"name":"auto"}]`},
+		ghErr: map[string]error{
+			"issue edit 2 --add-label auto": errors.New("HTTP 422: Validation Failed"),
+		},
+	}}
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`"}`), testGitRepoDir(t))
 	if err != nil || !result.IsError || !strings.Contains(result.Content, "without applying") {
 		t.Fatalf("definite failure = (%#v, %v)", result, err)
@@ -444,9 +448,12 @@ func TestDispatchReservationFailureHandling(t *testing.T) {
 		t.Fatalf("released ledger = %#v", ledger)
 	}
 
-	tool.runner = &fakePRReviewRunner{ghErr: map[string]error{
-		"issue edit 3 --add-label auto": errors.New("connection reset"),
-	}}
+	tool.runner = &fakePRReviewRunner{
+		ghOut: map[string]string{labelListCall: `[{"name":"auto"}]`},
+		ghErr: map[string]error{
+			"issue edit 3 --add-label auto": errors.New("connection reset"),
+		},
+	}
 	result, err = tool.Execute(context.Background(), json.RawMessage(`{"issue_number":3,"mode":"`+maintainerTestMode+`"}`), testGitRepoDir(t))
 	if err != nil || !result.IsError || !strings.Contains(result.Content, "reservation is retained") {
 		t.Fatalf("ambiguous failure = (%#v, %v)", result, err)
@@ -466,12 +473,17 @@ func TestDispatchIssueNoteHasGitHubAppAuthorization(t *testing.T) {
 	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
 		t.Fatal(err)
 	}
-	runner := &fakePRReviewRunner{}
+	createLabelCall := "label create auto --color " + defaultGitHubLabelColor
+	runner := &fakePRReviewRunner{ghOut: map[string]string{labelListCall: `[]`, createLabelCall: ""}}
 	tool := &dispatchIssueTool{maintainerToolBase: base, runner: runner}
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`","note":"Validated and dispatching."}`), testGitRepoDir(t))
 	if err != nil || result.IsError {
 		t.Fatalf("Execute() = (%#v, %v)", result, err)
+	}
+	wantCalls := []string{labelListCall, createLabelCall, "issue edit 2 --add-label auto"}
+	if !reflect.DeepEqual(runner.ghCalls, wantCalls) {
+		t.Fatalf("gh calls = %#v, want %#v", runner.ghCalls, wantCalls)
 	}
 	if len(runner.ghInputs) != 1 {
 		t.Fatalf("comment payloads = %#v, want one", runner.ghInputs)
