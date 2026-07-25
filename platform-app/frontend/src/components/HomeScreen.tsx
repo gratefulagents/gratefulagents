@@ -1,40 +1,21 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import {
-  ArrowUpRight,
-  FolderKanban,
-  MessageSquarePlus,
-  Sparkles,
-} from "lucide-react";
+import { ChevronRight, FolderKanban, MessageSquarePlus, Plus } from "lucide-react";
 
 import { NewChatComposer } from "@/components/NewChatComposer";
-import { StatusBadge } from "@/components/StatusBadge";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { SetupChecklist } from "@/components/onboarding/SetupChecklist";
-import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useProjects } from "@/hooks/useWatchedList";
 import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatAge } from "@/lib/format";
 import { runSourceLabel } from "@/lib/runSource";
+import { isRunComputing, runStatusLabel, runStatusTone } from "@/lib/runStatus";
+import { toneColor } from "@/lib/status";
+import { cn } from "@/lib/utils";
+import type { AgentRun } from "@/rpc/platform/service_pb";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -45,34 +26,121 @@ function greeting(): string {
 
 /** Shared entrance motion — gentle rise, staggered per section. */
 const rise = (order: number) => ({
-  initial: { opacity: 0, y: 10 },
+  initial: { opacity: 0, y: 8 },
   animate: { opacity: 1, y: 0 },
   transition: {
-    duration: 0.35,
+    duration: 0.3,
     ease: [0.25, 1, 0.5, 1] as const,
-    delay: order * 0.06,
+    delay: order * 0.05,
   },
 });
 
-function EmptyHint({
-  icon: Icon,
+/**
+ * macOS "inset grouped" list section: a quiet header label above a hairline
+ * card whose rows are separated by dividers (System Settings / Finder style).
+ */
+function Section({
   title,
+  action,
   children,
 }: {
-  icon: typeof Sparkles;
   title: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <Empty className="border border-dashed p-6">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Icon />
-        </EmptyMedia>
-        <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>{children}</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    <section className="flex min-w-0 flex-col">
+      <div className="mb-2 flex h-6 items-center justify-between gap-2 px-1">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">
+          {title}
+        </h2>
+        {action}
+      </div>
+      <div className="overflow-hidden rounded-[10px] border border-border/70 bg-card/60 shadow-[var(--elevation-low)] backdrop-blur-[6px]">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/** A single grouped-list row: pressable, hairline-separated, chevron affordance. */
+function Row({
+  to,
+  icon,
+  title,
+  subtitle,
+  trailing,
+}: {
+  to: string;
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <Link
+      to={to}
+      className={cn(
+        "group/row flex items-center gap-2.5 px-3 py-[9px] outline-none",
+        "border-b border-border/50 last:border-b-0",
+        "transition-colors duration-75 hover:bg-foreground/[0.045] active:bg-foreground/[0.075]",
+        "focus-visible:bg-foreground/[0.045]",
+      )}
+    >
+      <span className="grid size-[22px] shrink-0 place-items-center rounded-[6px] bg-foreground/[0.06] text-muted-foreground [&_svg]:size-[13px]">
+        {icon}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-[13px] font-medium leading-[1.35] tracking-[-0.006em]">
+          {title}
+        </span>
+        {subtitle && (
+          <span className="truncate text-[11.5px] leading-[1.35] text-muted-foreground/80">
+            {subtitle}
+          </span>
+        )}
+      </span>
+      {trailing}
+      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover/row:text-muted-foreground/70" />
+    </Link>
+  );
+}
+
+/**
+ * Quiet status dot + label — reads calmer than a filled pill in a list.
+ * The dot always renders (including narrow/iOS widths); only the text label
+ * collapses below `sm`, and the accessible label is kept via `title`/sr-only
+ * so status stays distinguishable everywhere.
+ */
+function RunStatus({ run }: { run: AgentRun }) {
+  const tone = runStatusTone(run);
+  const live = isRunComputing(run);
+  const label = runStatusLabel(run);
+  return (
+    <span
+      title={label}
+      className="inline-flex shrink-0 items-center gap-1.5 text-[11.5px] text-muted-foreground"
+    >
+      <span
+        className="relative inline-flex size-[6px] rounded-full"
+        style={{ backgroundColor: toneColor[tone] }}
+      >
+        {live && (
+          <span
+            className="absolute inset-0 rounded-full opacity-60 motion-safe:animate-ping"
+            style={{ backgroundColor: toneColor[tone] }}
+          />
+        )}
+      </span>
+      <span className="hidden sm:inline">{label}</span>
+      <span className="sr-only sm:hidden">{label}</span>
+    </span>
+  );
+}
+
+function EmptyRow({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-3 py-5 text-center text-[12.5px] text-muted-foreground/80">{children}</p>
   );
 }
 
@@ -88,25 +156,31 @@ export function HomeScreen() {
   const firstName = (user?.name || user?.username || "").split(" ")[0];
 
   return (
-    <div className="mx-auto flex min-h-full max-w-[860px] flex-col px-6 pt-[8vh] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
-      <motion.div {...rise(0)} className="mb-5 flex items-center gap-2.5">
-        <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
-          <Sparkles className="size-4" />
-        </div>
-        <div>
-          <h1 className="text-[24px] font-semibold tracking-[-0.02em] leading-none">
-            {greeting()}{firstName ? `, ${firstName}` : ""}
-          </h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">What should the agent work on?</p>
-        </div>
+    <div className="mx-auto flex min-h-full max-w-[760px] flex-col px-6 pt-[7vh] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+      <motion.div {...rise(0)} className="mb-5 flex flex-col items-center text-center">
+        <img
+          src="/logo.png"
+          alt="Grateful Agents"
+          draggable={false}
+          className="mb-3 size-12 rounded-[11px] shadow-[0_1px_2px_oklch(0_0_0_/_0.25),inset_0_0_0_1px_oklch(1_0_0_/_0.14)]"
+        />
+        <h1 className="text-[21px] font-semibold leading-tight tracking-[-0.02em]">
+          {greeting()}
+          {firstName ? `, ${firstName}` : ""}
+        </h1>
+        <p className="mt-0.5 text-[12.5px] text-muted-foreground">
+          What should the agent work on?
+        </p>
       </motion.div>
 
       <motion.div {...rise(1)}>
         <NewChatComposer variant="hero" autoFocus className="shadow-[var(--elevation-mid)]" />
-        <p className="mt-2 flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
+        <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70">
           <Kbd>⏎</Kbd>
           to start
-          <span aria-hidden>·</span>
+          <span aria-hidden className="opacity-50">
+            ·
+          </span>
           <KbdGroup>
             <Kbd>⇧</Kbd>
             <Kbd>⏎</Kbd>
@@ -117,105 +191,85 @@ export function HomeScreen() {
 
       <SetupChecklist className="mt-6" />
 
-      <div className="mt-8 grid gap-x-10 gap-y-8 sm:grid-cols-[1fr_1fr]">
-        <motion.section {...rise(2)} className="flex min-w-0 flex-col gap-3">
-          <div className="flex h-7 items-center">
-            <h2 className="text-[13px] font-medium text-muted-foreground">Recent chats</h2>
-          </div>
-          {recent.length === 0 ? (
-            <EmptyHint icon={MessageSquarePlus} title="No chats yet">
-              Describe a task above to start your first one.
-            </EmptyHint>
-          ) : (
-            <ItemGroup className="gap-1">
-              {recent.map((r) => {
-                const source = runSourceLabel(r);
-                return (
-                  <Item
-                    key={`${r.namespace}/${r.name}`}
-                    size="xs"
-                    render={<Link to={`/runs/${r.namespace}/${r.name}`} />}
-                  >
-                    <ItemMedia variant="icon">
-                      <MessageSquarePlus className="text-muted-foreground" />
-                    </ItemMedia>
-                    <ItemContent className="min-w-0">
-                      <ItemTitle>{r.displayName || r.intentTitle || r.name}</ItemTitle>
-                      {source && <ItemDescription>{source}</ItemDescription>}
-                    </ItemContent>
-                    <ItemActions>
-                      <StatusBadge phase={r.phase} run={r} />
-                      <span className="w-9 text-right font-mono text-xs tabular-nums text-muted-foreground group-hover/item:hidden">
-                        {formatAge(r.createdAtUnix)}
-                      </span>
-                      <span className="hidden w-9 justify-end group-hover/item:flex">
-                        <ArrowUpRight className="size-3.5 text-muted-foreground" />
-                      </span>
-                    </ItemActions>
-                  </Item>
-                );
-              })}
-            </ItemGroup>
-          )}
-        </motion.section>
+      <div className="mt-8 grid gap-x-6 gap-y-7 sm:grid-cols-2">
+        <motion.div {...rise(2)} className="min-w-0">
+          <Section title="Recent">
+            {recent.length === 0 ? (
+              <EmptyRow>Describe a task above to start your first chat.</EmptyRow>
+            ) : (
+              recent.map((r) => (
+                <Row
+                  key={`${r.namespace}/${r.name}`}
+                  to={`/runs/${r.namespace}/${r.name}`}
+                  icon={<MessageSquarePlus />}
+                  title={r.displayName || r.intentTitle || r.name}
+                  subtitle={
+                    [runSourceLabel(r), formatAge(r.createdAtUnix)]
+                      .filter(Boolean)
+                      .join(" · ") || undefined
+                  }
+                  trailing={<RunStatus run={r} />}
+                />
+              ))
+            )}
+          </Section>
+        </motion.div>
 
-        <motion.section {...rise(3)} className="flex min-w-0 flex-col gap-3">
-          <div className="flex h-7 items-center justify-between">
-            <h2 className="text-[13px] font-medium text-muted-foreground">Projects</h2>
-            <CreateProjectDialog />
-          </div>
-          {projects.length === 0 ? (
-            <EmptyHint
-              icon={FolderKanban}
-              title={projectsLoading ? "Loading projects…" : "No projects yet"}
-            >
-              {projectsLoading
-                ? "Hang tight while we fetch your workspaces."
-                : "Projects keep chats, files, instructions, and shared work together."}
-            </EmptyHint>
-          ) : (
-            <>
-              <ItemGroup className="gap-1">
-                {projects.slice(0, 6).map((p) => {
-                  const total = p.metrics?.totalRuns ?? 0;
-                  return (
-                    <Item
-                      key={`${p.namespace}/${p.name}`}
-                      size="xs"
-                      render={<Link to={`/projects/${p.namespace}/${p.name}`} />}
+        <motion.div {...rise(3)} className="min-w-0">
+          <Section
+            title="Projects"
+            action={
+              <span className="flex items-center gap-3">
+                {projects.length > 6 && (
+                  <Link
+                    to="/projects"
+                    className="text-[11.5px] text-muted-foreground hover:text-foreground"
+                  >
+                    All
+                  </Link>
+                )}
+                <CreateProjectDialog
+                  trigger={
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
                     >
-                      <ItemMedia variant="icon">
-                        <FolderKanban className="text-primary" />
-                      </ItemMedia>
-                      <ItemContent className="min-w-0">
-                        <ItemTitle>{p.displayName || p.name}</ItemTitle>
-                      </ItemContent>
-                      <ItemActions>
-                        {total > 0 && (
-                          <span className="font-mono text-xs tabular-nums text-muted-foreground group-hover/item:hidden">
-                            {total} {total === 1 ? "run" : "runs"}
-                          </span>
-                        )}
-                        <ArrowUpRight className="hidden size-3.5 text-muted-foreground group-hover/item:block" />
-                      </ItemActions>
-                    </Item>
-                  );
-                })}
-              </ItemGroup>
-              {projects.length > 6 && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="self-start text-muted-foreground"
-                  render={<Link to="/projects" />}
-                >
-                  All projects
-                  <ArrowUpRight data-icon="inline-end" />
-                </Button>
-              )}
-            </>
-          )}
-        </motion.section>
+                      <Plus className="size-3" />
+                      New
+                    </button>
+                  }
+                />
+              </span>
+            }
+          >
+            {projects.length === 0 ? (
+              <EmptyRow>
+                {projectsLoading
+                  ? "Loading projects…"
+                  : "Projects keep chats, files, and instructions together."}
+              </EmptyRow>
+            ) : (
+              projects.slice(0, 6).map((p) => {
+                const total = p.metrics?.totalRuns ?? 0;
+                return (
+                  <Row
+                    key={`${p.namespace}/${p.name}`}
+                    to={`/projects/${p.namespace}/${p.name}`}
+                    icon={<FolderKanban className="text-primary" />}
+                    title={p.displayName || p.name}
+                    trailing={
+                      total > 0 ? (
+                        <span className="shrink-0 text-[11.5px] tabular-nums text-muted-foreground/80">
+                          {total} {total === 1 ? "run" : "runs"}
+                        </span>
+                      ) : undefined
+                    }
+                  />
+                );
+              })
+            )}
+          </Section>
+        </motion.div>
       </div>
     </div>
   );
