@@ -277,7 +277,7 @@ describe("ProjectDetail maintainer", () => {
       </MemoryRouter>,
     );
 
-  it("shows the maintainer card for github triggers with the maintainer enabled", () => {
+  it("moves the maintainer card from Overview into its own tab", () => {
     useProjects.mockReturnValue({
       projects: [projectWithMaintainer(true)],
       loading: false,
@@ -285,6 +285,11 @@ describe("ProjectDetail maintainer", () => {
       refetch: vi.fn(),
     });
     renderProject();
+
+    expect(screen.queryByRole("heading", { name: "Maintainer" })).toBeNull();
+    expect(screen.queryByText("Two PRs await review.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Maintainer" }));
 
     expect(screen.getByRole("heading", { name: "Maintainer" })).toBeTruthy();
     expect(screen.getByText("Two PRs await review.")).toBeTruthy();
@@ -306,6 +311,7 @@ describe("ProjectDetail maintainer", () => {
     });
     renderProject();
 
+    expect(screen.queryByRole("tab", { name: "Maintainer" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Maintainer" })).toBeNull();
   });
 
@@ -318,6 +324,7 @@ describe("ProjectDetail maintainer", () => {
     });
     renderProject();
 
+    expect(screen.queryByRole("tab", { name: "Maintainer" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Maintainer" })).toBeNull();
   });
 });

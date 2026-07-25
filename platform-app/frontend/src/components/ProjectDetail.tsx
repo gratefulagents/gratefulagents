@@ -57,7 +57,7 @@ import type { AgentRun, Project, ProjectMetrics } from "@/rpc/platform/service_p
  *     outrank the timestamps underneath them.
  */
 
-const TAB_VALUES = ["overview", "runs", "entry-points", "files", "configuration"] as const;
+const TAB_VALUES = ["overview", "runs", "entry-points", "maintainer", "files", "configuration"] as const;
 type ProjectTab = (typeof TAB_VALUES)[number];
 
 function isProjectTab(value: string | null): value is ProjectTab {
@@ -75,8 +75,17 @@ export function ProjectDetail() {
   const [shareOpen, setShareOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const project = projects.find((p) => p.namespace === namespace && p.name === name);
+  const canEdit = project?.myPermission !== "viewer";
+  const canShare = project?.myPermission === "owner" || project?.myPermission === "admin";
+  const triggers = project ? triggersOf(project) : [];
+  const maintainerTriggers = maintainerTriggersOf(triggers);
+
   const rawTab = searchParams.get("tab");
-  const tab: ProjectTab = isProjectTab(rawTab) ? rawTab : "overview";
+  const requestedTab: ProjectTab = isProjectTab(rawTab) ? rawTab : "overview";
+  const tab = requestedTab === "maintainer" && maintainerTriggers.length === 0
+    ? "overview"
+    : requestedTab;
   const setTab = (next: ProjectTab) => {
     setSearchParams(
       (prev) => {
@@ -87,11 +96,6 @@ export function ProjectDetail() {
       { replace: true },
     );
   };
-
-  const project = projects.find((p) => p.namespace === namespace && p.name === name);
-  const canEdit = project?.myPermission !== "viewer";
-  const canShare = project?.myPermission === "owner" || project?.myPermission === "admin";
-  const triggers = project ? triggersOf(project) : [];
 
   return (
     <ListState
@@ -175,6 +179,11 @@ export function ProjectDetail() {
                 Entry points
                 <TabCount value={triggers.length + 1} />
               </TabsTrigger>
+              {maintainerTriggers.length > 0 && (
+                <TabsTrigger value="maintainer" className="flex-none px-0.5">
+                  Maintainer
+                </TabsTrigger>
+              )}
               <TabsTrigger value="files" className="flex-none px-0.5">
                 Files
               </TabsTrigger>
@@ -197,7 +206,6 @@ export function ProjectDetail() {
                   triggers={triggers}
                   onManage={() => setTab("entry-points")}
                 />
-                <ProjectMaintainerSection namespace={project.namespace} triggers={triggers} />
               </div>
             </TabsContent>
 
@@ -227,6 +235,15 @@ export function ProjectDetail() {
                 onChanged={() => void refetch()}
               />
             </TabsContent>
+
+            {maintainerTriggers.length > 0 && (
+              <TabsContent value="maintainer" className="pt-6">
+                <ProjectMaintainerSection
+                  namespace={project.namespace}
+                  triggers={maintainerTriggers}
+                />
+              </TabsContent>
+            )}
 
             <TabsContent value="files" className="pt-6">
               <ProjectContentSection
@@ -537,19 +554,8 @@ function RecentActivityRow({ run }: { run: AgentRun }) {
   );
 }
 
-/**
- * Standing maintainer(s) for the project's GitHub triggers. Rendered only when
- * at least one github trigger opted into the maintainer, so the Overview stays
- * quiet for projects without one.
- */
-function ProjectMaintainerSection({
-  namespace,
-  triggers,
-}: {
-  namespace: string;
-  triggers: ProjectTriggerModel[];
-}) {
-  const maintainerTriggers = triggers.filter(
+function maintainerTriggersOf(triggers: ProjectTriggerModel[]): ProjectTriggerModel[] {
+  return triggers.filter(
     (trigger) =>
       trigger.type === "github" &&
       // A disabled project trigger tears down its generated runtime, so its
@@ -557,15 +563,23 @@ function ProjectMaintainerSection({
       trigger.enabled !== false &&
       Boolean(trigger.github?.maintainerEnabled),
   );
-  if (maintainerTriggers.length === 0) return null;
+}
 
+/** Standing maintainer(s) for the project's enabled GitHub triggers. */
+function ProjectMaintainerSection({
+  namespace,
+  triggers,
+}: {
+  namespace: string;
+  triggers: ProjectTriggerModel[];
+}) {
   return (
     <section className="flex flex-col gap-2" aria-labelledby="maintainer">
       <SectionHeader id="maintainer" title="Maintainer" />
       <div className="flex flex-col gap-4">
-        {maintainerTriggers.map((trigger) => (
+        {triggers.map((trigger) => (
           <div key={trigger.name} className="flex flex-col gap-1.5">
-            {maintainerTriggers.length > 1 && (
+            {triggers.length > 1 && (
               <p className="font-mono text-[11.5px] text-muted-foreground">{trigger.name}</p>
             )}
             <MaintainerCard

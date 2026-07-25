@@ -285,6 +285,16 @@ func TestPullRequestMonitorProjectionChangesEnqueueMaintainedRepository(t *testi
 	if !pullRequestMonitorProjectionChanged(monitor, checked) {
 		t.Fatal("check rollup change did not enqueue work-item projection")
 	}
+	reviewFeedback := monitor.DeepCopy()
+	reviewFeedback.Status.LastReviewCursor = &triggersv1alpha1.GitHubObjectCursor{ID: 41}
+	if !pullRequestMonitorProjectionChanged(monitor, reviewFeedback) {
+		t.Fatal("new review did not enqueue work-item projection")
+	}
+	commentFeedback := monitor.DeepCopy()
+	commentFeedback.Status.LastIssueCommentCursor = &triggersv1alpha1.GitHubObjectCursor{ID: 42}
+	if !pullRequestMonitorProjectionChanged(monitor, commentFeedback) {
+		t.Fatal("new PR comment did not enqueue work-item projection")
+	}
 	heartbeat := monitor.DeepCopy()
 	heartbeat.Status.Checks.ObservedAt = metav1.Now()
 	if pullRequestMonitorProjectionChanged(monitor, heartbeat) {

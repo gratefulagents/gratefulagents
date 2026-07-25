@@ -183,6 +183,7 @@ service PlatformService {
   rpc ListGitHubRepositories(ListGitHubRepositoriesRequest) returns (ListGitHubRepositoriesResponse);
   rpc GetGitHubRepository(GetGitHubRepositoryRequest) returns (GitHubRepository);
   rpc ListMaintainerWorkItems(ListMaintainerWorkItemsRequest) returns (ListMaintainerWorkItemsResponse);
+  rpc IssueMaintainerCommand(IssueMaintainerCommandRequest) returns (IssueMaintainerCommandResponse);
   rpc WatchGitHubRepositories(WatchGitHubRepositoriesRequest) returns (stream GitHubRepositoryEvent);
   rpc GetGitHubAppConfig(google.protobuf.Empty) returns (GitHubAppConfig);
   rpc ListGitHubAppInstallations(google.protobuf.Empty) returns (ListGitHubAppInstallationsResponse);
@@ -2699,6 +2700,7 @@ message ListMaintainerWorkItemsRequest {
 
 message ListMaintainerWorkItemsResponse {
   repeated MaintainerWorkItem items = 1;
+  MaintainerBoardCapacity capacity = 2;
 }
 
 // MaintainerWorkItemAgentRun summarizes an AgentRun projected onto a work item.
@@ -2718,6 +2720,7 @@ message MaintainerWorkItemPullRequest {
   string check_state = 5; // Unknown | Pending | Passing | Failing
   string review_decision = 6;
   bool draft = 7;
+  string head_sha = 8;
 }
 
 // MaintainerWorkItemDecision is an unresolved authorized decision request.
@@ -2758,6 +2761,99 @@ message MaintainerWorkItem {
   string latest_command_type = 25;
   string latest_command_phase = 26; // Pending | Accepted | Succeeded | Rejected | Failed
   string latest_command_message = 27;
+  // Extended read model fields (added for human-issuer command support).
+  int64 projection_sequence = 28;
+  string resource_version = 29;
+  string accepted_scope_statement = 30;
+  repeated string accepted_scope_criteria = 31;
+  repeated MaintainerWorkItemLink children = 32;
+  repeated MaintainerWorkItemLink dependencies = 33;
+  bool graph_configured = 34;
+  bool observation_fresh = 35;
+}
+
+// MaintainerWorkItemLink is a lightweight projection of a child or dependency.
+message MaintainerWorkItemLink {
+  string work_item_name = 1;
+  int32 issue_number = 2;
+  string title = 3;
+  bool delivered = 4;
+}
+
+// MaintainerBoardCapacity summarises dispatch limits for the board header.
+message MaintainerBoardCapacity {
+  int32 dispatches_today = 1;
+  int32 daily_cap = 2;
+  int32 active_dispatches = 3;
+  int32 concurrency_cap = 4;
+}
+
+// --- IssueMaintainerCommand ---
+
+message MaintainerAcceptedScopeInput {
+  string statement = 1;
+  repeated string acceptance_criteria = 2;
+}
+
+message MaintainerTriageInput {
+  string disposition = 1;
+  string evidence_summary = 2;
+  MaintainerAcceptedScopeInput accepted_scope = 3;
+  string close_reason = 4; // not_planned | completed (NotActionable only)
+}
+
+message MaintainerBreakdownInput {
+  repeated string child_work_item_names = 1;
+  repeated string dependency_work_item_names = 2;
+}
+
+message MaintainerRequestDecisionInput {
+  string decision_id = 1;
+  string question = 2;
+  repeated string options = 3;
+}
+
+message MaintainerResolveDecisionInput {
+  string decision_id = 1;
+  string answer = 2;
+}
+
+message MaintainerDispatchInput {
+  string mode = 1;
+}
+
+message MaintainerRequestMergeInput {
+  int32 pull_request_number = 1;
+  string expected_head_sha = 2;
+  string merge_method = 3; // squash | merge | rebase
+}
+
+message MaintainerFinalizeInput {
+  string delivery_summary = 1;
+  string delivery_evidence = 2;
+}
+
+message IssueMaintainerCommandRequest {
+  string namespace = 1;
+  string repository_name = 2;
+  string work_item_name = 3;
+  int64 expected_projection_sequence = 4;
+  string type = 5; // TriageIssue | BreakdownIssue | RequestDecision | ResolveDecision | DispatchWorkItem | RequestMerge | FinalizeWorkItem
+  string idempotency_key = 6; // auto-derived when empty
+  MaintainerTriageInput triage = 10;
+  MaintainerBreakdownInput breakdown = 11;
+  MaintainerRequestDecisionInput request_decision = 12;
+  MaintainerResolveDecisionInput resolve_decision = 13;
+  MaintainerDispatchInput dispatch = 14;
+  MaintainerRequestMergeInput request_merge = 15;
+  MaintainerFinalizeInput finalize = 16;
+}
+
+message IssueMaintainerCommandResponse {
+  string command_name = 1;
+  string phase = 2;
+  string message = 3;
+  MaintainerWorkItem item = 4;
 }
 
 message GitHubRepository {

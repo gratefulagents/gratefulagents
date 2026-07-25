@@ -277,16 +277,14 @@ func TestRetryableMaintainerCommandRejectsRecreatedWorkItemUID(t *testing.T) {
 	}
 }
 
-func TestMaintainerCommandRejectsStaleProjection(t *testing.T) {
+func TestMaintainerCommandRejectsStaleResourceVersion(t *testing.T) {
 	t.Parallel()
 
 	scheme := maintainerWorkItemScheme(t)
 	repository := testMaintainerRepository()
 	item := testMaintainerWorkItem(repository, 9)
-	item.Status.ProjectionSequence = 2
 	issuer := testMaintainerIssuer(repository)
 	command := testMaintainerCommand(repository, item, "command", issuer.UID)
-	command.Spec.Preconditions.ProjectionSequence = 1
 	command.Spec.Preconditions.ResourceVersion = "other"
 	command.Spec.PayloadHash = MaintainerWorkItemCommandPayloadHash(command.Spec.Type, command.Spec.Triage, command.Spec.Preconditions)
 	command.Spec.Issuer.Proof = triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, command.Spec.Issuer.RunName, command.Spec.Issuer.UID)
@@ -299,7 +297,7 @@ func TestMaintainerCommandRejectsStaleProjection(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKeyFromObject(command), current); err != nil {
 		t.Fatal(err)
 	}
-	if current.Status.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected || !strings.Contains(current.Status.Result.Message, "current projection sequence") {
+	if current.Status.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected || !strings.Contains(current.Status.Result.Message, "resourceVersion") {
 		t.Fatalf("status = %#v", current.Status)
 	}
 }
@@ -317,7 +315,7 @@ func TestAgentRunResolveDecisionCannotClearPendingDecision(t *testing.T) {
 	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion}
 	command := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: MaintainerWorkItemCommandName(repository.Name, "answer-1"), Namespace: repository.Namespace, OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(repository, triggersv1alpha1.GroupVersion.WithKind(gitHubRepositoryTriggerKind))}}, Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IdempotencyKey: "answer-1", Preconditions: preconditions, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision, ResolveDecision: &triggersv1alpha1.MaintainerResolveDecisionCommand{IssueNumber: 11, DecisionID: "policy", HumanAnswer: triggersv1alpha1.MaintainerAuthenticatedHumanAnswer{Subject: "user:42", Answer: "proceed"}}}}
 	command.Spec.PayloadHash = triggersv1alpha1.MaintainerWorkItemCommandSpecPayloadHash(command.Spec)
-	command.Spec.Issuer = triggersv1alpha1.MaintainerWorkItemCommandIssuer{RunName: issuer.Name, UID: issuer.UID, Proof: triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, issuer.Name, issuer.UID)}
+	command.Spec.Issuer = &triggersv1alpha1.MaintainerWorkItemCommandIssuer{RunName: issuer.Name, UID: issuer.UID, Proof: triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, issuer.Name, issuer.UID)}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).WithObjects(repository, item, issuer, testMaintainerCapability(repository, issuer), command).Build()
 	r := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
 	if err := r.reconcileMaintainerWorkItemCommands(context.Background(), repository, &fakeMaintainerGitHub{}); err != nil {
@@ -358,6 +356,209 @@ func TestNotActionableTriageReusesDecisionMarker(t *testing.T) {
 	}
 }
 
+func TestHumanResolveDecisionUnwedgesWorkItem(t *testing.T) {
+	t.Parallel()
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 5)
+	item.Spec.Disposition = triggersv1alpha1.MaintainerWorkItemDispositionEscalated
+	item.Status.PendingDecision = &triggersv1alpha1.MaintainerPendingDecision{ID: "escalate-42", Question: "Proceed?", RequestedAt: metav1.Now()}
+	item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseAwaitingDecision
+	item.Status.ProjectionSequence = 3
+	humanKey := testMaintainerHumanCapabilityKey()
+	humanCap := testMaintainerHumanCapability(repository, humanKey)
+	subject := "user:dashboard-alice"
+	idempotencyKey := "resolve-escalate-42"
+	resolve := &triggersv1alpha1.MaintainerResolveDecisionCommand{IssueNumber: 5, DecisionID: "escalate-42", HumanAnswer: triggersv1alpha1.MaintainerAuthenticatedHumanAnswer{Subject: subject, Answer: "proceed with caution"}}
+	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: 3, ResourceVersion: item.ResourceVersion}
+	cmdSpec := triggersv1alpha1.MaintainerWorkItemCommandSpec{
+		RepositoryRef:   corev1.LocalObjectReference{Name: repository.Name},
+		IdempotencyKey:  idempotencyKey,
+		Type:            triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision,
+		ResolveDecision: resolve,
+		Preconditions:   preconditions,
+	}
+	cmdSpec.PayloadHash = triggersv1alpha1.MaintainerWorkItemCommandSpecPayloadHash(cmdSpec)
+	cmdSpec.HumanIssuer = &triggersv1alpha1.MaintainerWorkItemCommandHumanIssuer{
+		Subject: subject,
+		Proof:   triggersv1alpha1.MaintainerHumanCommandProof(humanKey, repository.Name, repository.UID, idempotencyKey, cmdSpec.PayloadHash, subject),
+	}
+	controller := true
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      MaintainerWorkItemCommandName(repository.Name, idempotencyKey),
+			Namespace: repository.Namespace,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: gitHubRepositoryTriggerKind, Name: repository.Name, UID: repository.UID, Controller: &controller,
+			}},
+		},
+		Spec: cmdSpec,
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).
+		WithObjects(repository, item, humanCap, command).Build()
+	r := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+	if err := r.reconcileMaintainerWorkItemCommands(context.Background(), repository, &fakeMaintainerGitHub{}); err != nil {
+		t.Fatal(err)
+	}
+	current := getMaintainerWorkItem(t, c, repository, 5)
+	if current.Status.PendingDecision != nil {
+		t.Fatalf("pending decision not cleared: %#v", current.Status.PendingDecision)
+	}
+	if current.Status.ResolvedDecision == nil || current.Status.ResolvedDecision.ID != "escalate-42" || current.Status.ResolvedDecision.Answer != "proceed with caution" || current.Status.ResolvedDecision.HumanSubject != subject {
+		t.Fatalf("resolved decision = %#v", current.Status.ResolvedDecision)
+	}
+	if current.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseTriaged {
+		t.Fatalf("phase = %q, want Triaged", current.Status.Phase)
+	}
+	receipt := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(command), receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded {
+		t.Fatalf("command phase = %q, want Succeeded", receipt.Status.Phase)
+	}
+}
+
+func TestHumanResolveDecisionForgedProofIsRejected(t *testing.T) {
+	t.Parallel()
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 6)
+	item.Status.PendingDecision = &triggersv1alpha1.MaintainerPendingDecision{ID: "decision-x", Question: "Go?", RequestedAt: metav1.Now()}
+	item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseAwaitingDecision
+	humanKey := testMaintainerHumanCapabilityKey()
+	humanCap := testMaintainerHumanCapability(repository, humanKey)
+	subject := "user:forger"
+	idempotencyKey := "forged-resolve"
+	resolve := &triggersv1alpha1.MaintainerResolveDecisionCommand{IssueNumber: 6, DecisionID: "decision-x", HumanAnswer: triggersv1alpha1.MaintainerAuthenticatedHumanAnswer{Subject: subject, Answer: "yes"}}
+	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion}
+	cmdSpec := triggersv1alpha1.MaintainerWorkItemCommandSpec{
+		RepositoryRef:   corev1.LocalObjectReference{Name: repository.Name},
+		IdempotencyKey:  idempotencyKey,
+		Type:            triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision,
+		ResolveDecision: resolve,
+		Preconditions:   preconditions,
+	}
+	cmdSpec.PayloadHash = triggersv1alpha1.MaintainerWorkItemCommandSpecPayloadHash(cmdSpec)
+	cmdSpec.HumanIssuer = &triggersv1alpha1.MaintainerWorkItemCommandHumanIssuer{
+		Subject: subject,
+		Proof:   strings.Repeat("f", 64), // forged
+	}
+	controller := true
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      MaintainerWorkItemCommandName(repository.Name, idempotencyKey),
+			Namespace: repository.Namespace,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: gitHubRepositoryTriggerKind, Name: repository.Name, UID: repository.UID, Controller: &controller,
+			}},
+		},
+		Spec: cmdSpec,
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).
+		WithObjects(repository, item, humanCap, command).Build()
+	r := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+	if err := r.reconcileMaintainerWorkItemCommands(context.Background(), repository, &fakeMaintainerGitHub{}); err != nil {
+		t.Fatal(err)
+	}
+	current := getMaintainerWorkItem(t, c, repository, 6)
+	if current.Status.PendingDecision == nil || current.Status.ResolvedDecision != nil {
+		t.Fatalf("forged proof cleared decision: %#v", current.Status)
+	}
+	receipt := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(command), receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected || !strings.Contains(receipt.Status.Result.Message, "proof is invalid") {
+		t.Fatalf("receipt = %#v", receipt.Status)
+	}
+}
+
+func TestHumanResolveDecisionMismatchedSubjectRejected(t *testing.T) {
+	t.Parallel()
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 7)
+	item.Status.PendingDecision = &triggersv1alpha1.MaintainerPendingDecision{ID: "decision-y", Question: "OK?", RequestedAt: metav1.Now()}
+	item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseAwaitingDecision
+	humanKey := testMaintainerHumanCapabilityKey()
+	humanCap := testMaintainerHumanCapability(repository, humanKey)
+	issuerSubject := "user:alice"
+	answerSubject := "user:bob" // different from issuer
+	idempotencyKey := "mismatched-subject"
+	resolve := &triggersv1alpha1.MaintainerResolveDecisionCommand{IssueNumber: 7, DecisionID: "decision-y", HumanAnswer: triggersv1alpha1.MaintainerAuthenticatedHumanAnswer{Subject: answerSubject, Answer: "yes"}}
+	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: item.Status.ProjectionSequence, ResourceVersion: item.ResourceVersion}
+	cmdSpec := triggersv1alpha1.MaintainerWorkItemCommandSpec{
+		RepositoryRef:   corev1.LocalObjectReference{Name: repository.Name},
+		IdempotencyKey:  idempotencyKey,
+		Type:            triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision,
+		ResolveDecision: resolve,
+		Preconditions:   preconditions,
+	}
+	cmdSpec.PayloadHash = triggersv1alpha1.MaintainerWorkItemCommandSpecPayloadHash(cmdSpec)
+	cmdSpec.HumanIssuer = &triggersv1alpha1.MaintainerWorkItemCommandHumanIssuer{
+		Subject: issuerSubject,
+		Proof:   triggersv1alpha1.MaintainerHumanCommandProof(humanKey, repository.Name, repository.UID, idempotencyKey, cmdSpec.PayloadHash, issuerSubject),
+	}
+	controller := true
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      MaintainerWorkItemCommandName(repository.Name, idempotencyKey),
+			Namespace: repository.Namespace,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: gitHubRepositoryTriggerKind, Name: repository.Name, UID: repository.UID, Controller: &controller,
+			}},
+		},
+		Spec: cmdSpec,
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).
+		WithObjects(repository, item, humanCap, command).Build()
+	r := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+	if err := r.reconcileMaintainerWorkItemCommands(context.Background(), repository, &fakeMaintainerGitHub{}); err != nil {
+		t.Fatal(err)
+	}
+	current := getMaintainerWorkItem(t, c, repository, 7)
+	if current.Status.PendingDecision == nil || current.Status.ResolvedDecision != nil {
+		t.Fatalf("mismatched subject cleared decision: %#v", current.Status)
+	}
+	receipt := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(command), receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected || !strings.Contains(receipt.Status.Result.Message, "subject") {
+		t.Fatalf("receipt = %#v", receipt.Status)
+	}
+}
+
+func testMaintainerHumanCapabilityKey() []byte {
+	return []byte("humankey0123456789012345678901ab")
+}
+
+func testMaintainerHumanCapability(repository *triggersv1alpha1.GitHubRepository, key []byte) *corev1.Secret {
+	controller := true
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      triggersv1alpha1.MaintainerHumanCommandCapabilitySecretName(repository.Name),
+			Namespace: repository.Namespace,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: triggersv1alpha1.GroupVersion.String(),
+				Kind:       gitHubRepositoryTriggerKind,
+				Name:       repository.Name,
+				UID:        repository.UID,
+				Controller: &controller,
+			}},
+		},
+		Data: map[string][]byte{
+			triggersv1alpha1.MaintainerCommandCapabilitySecretKey:         key,
+			triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey: []byte(repository.Name),
+			triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey:  []byte(repository.UID),
+		},
+	}
+}
+
 func maintainerWorkItemScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()
@@ -383,7 +584,7 @@ func testMaintainerIssue(number int) *github.Issue {
 }
 
 func testMaintainerWorkItem(repository *triggersv1alpha1.GitHubRepository, issue int32) *triggersv1alpha1.MaintainerWorkItem {
-	return &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: MaintainerWorkItemName(repository.Name, issue), Namespace: repository.Namespace, UID: types.UID(fmt.Sprintf("item-%d", issue))}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IssueNumber: issue}, Status: triggersv1alpha1.MaintainerWorkItemStatus{
+	return &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: MaintainerWorkItemName(repository.Name, issue), Namespace: repository.Namespace, UID: types.UID(fmt.Sprintf("item-%d", issue)), ResourceVersion: "999"}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IssueNumber: issue}, Status: triggersv1alpha1.MaintainerWorkItemStatus{
 		ProjectionSequence: 1,
 		IssueObservation:   &triggersv1alpha1.MaintainerIssueObservation{Number: issue, State: triggersv1alpha1.MaintainerIssueStateOpen},
 		Conditions:         []metav1.Condition{{Type: triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh, Status: metav1.ConditionTrue}},
@@ -447,7 +648,7 @@ func testMaintainerCommand(repository *triggersv1alpha1.GitHubRepository, item *
 		},
 		Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{
 			RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IdempotencyKey: idempotencyKey,
-			Issuer: triggersv1alpha1.MaintainerWorkItemCommandIssuer{RunName: defaultMaintainerModeName, UID: issuerUID, Proof: proof},
+			Issuer: &triggersv1alpha1.MaintainerWorkItemCommandIssuer{RunName: defaultMaintainerModeName, UID: issuerUID, Proof: proof},
 			Type:   triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue, Triage: triage, Preconditions: preconditions,
 			PayloadHash: payloadHash,
 		},

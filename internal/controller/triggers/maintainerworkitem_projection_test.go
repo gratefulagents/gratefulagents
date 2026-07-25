@@ -63,6 +63,32 @@ func TestMaintainerProjectionTreatsCheckAndReviewChangesAsWaiterEvents(t *testin
 	if !maintainerWorkItemStatusSemanticallyEqual(before, heartbeat) {
 		t.Fatal("timestamp-only heartbeat would churn the waiter projection sequence")
 	}
+	feedback := before.DeepCopy()
+	feedback.PullRequests[0].LastReviewID = 41
+	if maintainerWorkItemStatusSemanticallyEqual(before, feedback) {
+		t.Fatal("new review with unchanged aggregate decision would not advance the waiter projection sequence")
+	}
+	feedback = before.DeepCopy()
+	feedback.PullRequests[0].LastCommentID = 42
+	if maintainerWorkItemStatusSemanticallyEqual(before, feedback) {
+		t.Fatal("new PR comment would not advance the waiter projection sequence")
+	}
+}
+
+func TestMaintainerPRProjectionIncludesFeedbackCursors(t *testing.T) {
+	monitor := &triggersv1alpha1.PullRequestMonitor{
+		ObjectMeta: metav1.ObjectMeta{Name: projectionTestMonitorName},
+		Spec:       triggersv1alpha1.PullRequestMonitorSpec{Repository: projectionTestRepository, Number: 7, URL: "https://github.com/octo/widgets/pull/7"},
+		Status: triggersv1alpha1.PullRequestMonitorStatus{
+			LastReviewCursor:       &triggersv1alpha1.GitHubObjectCursor{ID: 41},
+			LastIssueCommentCursor: &triggersv1alpha1.GitHubObjectCursor{ID: 42},
+		},
+	}
+
+	projection := maintainerPRProjection(monitor)
+	if projection.LastReviewID != 41 || projection.LastCommentID != 42 {
+		t.Fatalf("feedback cursors = (%d, %d), want (41, 42)", projection.LastReviewID, projection.LastCommentID)
+	}
 }
 
 func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {

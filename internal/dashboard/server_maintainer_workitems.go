@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"connectrpc.com/connect"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
@@ -43,6 +44,11 @@ func maintainerWorkItemRank(item *platform.MaintainerWorkItem) int {
 	return maintainerWorkItemPhaseRank(item.Phase)
 }
 
+const (
+	maintainerDefaultDailyCap       = int32(10)
+	maintainerDefaultConcurrencyCap = int32(2)
+)
+
 // ListMaintainerWorkItems returns the durable maintainer work items for one
 // GitHubRepository trigger, gated on viewer access to that repository.
 func (s *Server) ListMaintainerWorkItems(ctx context.Context, req *platform.ListMaintainerWorkItemsRequest) (*platform.ListMaintainerWorkItemsResponse, error) {
@@ -52,18 +58,35 @@ func (s *Server) ListMaintainerWorkItems(ctx context.Context, req *platform.List
 	if err := s.requireResourceAccess(ctx, githubRepositoryResourceType, req.RepositoryName, req.Namespace, AccessViewer, "view this repository"); err != nil {
 		return nil, err
 	}
+
+	// Load the repository for capacity fields (best-effort: missing repo is not fatal).
+	repo := &triggersv1alpha1.GitHubRepository{}
+	repoErr := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: req.RepositoryName}, repo)
+
 	items := &triggersv1alpha1.MaintainerWorkItemList{}
 	if err := s.k8sClient.List(ctx, items, client.InNamespace(req.Namespace)); err != nil {
 		return nil, mapK8sError(fmt.Sprintf("list MaintainerWorkItems in %s", req.Namespace), err)
 	}
 
+	// Build an index for child/dependency link enrichment.
+	itemIndex := make(map[string]*triggersv1alpha1.MaintainerWorkItem, len(items.Items))
+	for i := range items.Items {
+		itemIndex[items.Items[i].Name] = &items.Items[i]
+	}
+
 	var pbItems []*platform.MaintainerWorkItem
+	activeDispatches := int32(0)
 	for i := range items.Items {
 		item := &items.Items[i]
 		if item.Spec.RepositoryRef.Name != req.RepositoryName {
 			continue
 		}
-		pbItems = append(pbItems, maintainerWorkItemToProto(item))
+		pb := maintainerWorkItemToProto(item, itemIndex)
+		pbItems = append(pbItems, pb)
+		if item.Status.Phase == triggersv1alpha1.MaintainerWorkItemPhaseDispatched ||
+			item.Status.Phase == triggersv1alpha1.MaintainerWorkItemPhaseImplementing {
+			activeDispatches++
+		}
 	}
 	sort.SliceStable(pbItems, func(a, b int) bool {
 		orderA := maintainerWorkItemRank(pbItems[a])
@@ -73,27 +96,62 @@ func (s *Server) ListMaintainerWorkItems(ctx context.Context, req *platform.List
 		}
 		return pbItems[a].IssueNumber > pbItems[b].IssueNumber
 	})
-	return &platform.ListMaintainerWorkItemsResponse{Items: pbItems}, nil
+
+	capacity := &platform.MaintainerBoardCapacity{
+		ActiveDispatches: activeDispatches,
+		DailyCap:         maintainerDefaultDailyCap,
+		ConcurrencyCap:   maintainerDefaultConcurrencyCap,
+	}
+	if repoErr == nil {
+		if ms := repo.Spec.Maintainer; ms != nil {
+			if ms.MaxDispatchesPerDay > 0 {
+				capacity.DailyCap = ms.MaxDispatchesPerDay
+			}
+			if ms.MaxConcurrentDispatches > 0 {
+				capacity.ConcurrencyCap = ms.MaxConcurrentDispatches
+			}
+		}
+		if repo.Status.Maintainer != nil {
+			capacity.DispatchesToday = repo.Status.Maintainer.DispatchesToday
+		}
+	}
+
+	return &platform.ListMaintainerWorkItemsResponse{Items: pbItems, Capacity: capacity}, nil
 }
 
 // maintainerWorkItemToProto projects the MaintainerWorkItem CRD into the
-// dashboard read model.
-func maintainerWorkItemToProto(item *triggersv1alpha1.MaintainerWorkItem) *platform.MaintainerWorkItem {
+// dashboard read model. idx may be nil; it is used only for child/dependency
+// link enrichment (issue number + title).
+func maintainerWorkItemToProto(item *triggersv1alpha1.MaintainerWorkItem, idx map[string]*triggersv1alpha1.MaintainerWorkItem) *platform.MaintainerWorkItem {
 	pb := &platform.MaintainerWorkItem{
-		Namespace:       item.Namespace,
-		Name:            item.Name,
-		RepositoryName:  item.Spec.RepositoryRef.Name,
-		IssueNumber:     item.Spec.IssueNumber,
-		Disposition:     string(item.Spec.Disposition),
-		Phase:           string(item.Status.Phase),
-		EvidenceSummary: item.Spec.EvidenceSummary,
-		CreatedAtUnix:   item.CreationTimestamp.Unix(),
+		Namespace:          item.Namespace,
+		Name:               item.Name,
+		RepositoryName:     item.Spec.RepositoryRef.Name,
+		IssueNumber:        item.Spec.IssueNumber,
+		Disposition:        string(item.Spec.Disposition),
+		Phase:              string(item.Status.Phase),
+		EvidenceSummary:    item.Spec.EvidenceSummary,
+		CreatedAtUnix:      item.CreationTimestamp.Unix(),
+		ProjectionSequence: item.Status.ProjectionSequence,
+		ResourceVersion:    item.ResourceVersion,
+		GraphConfigured:    item.Spec.GraphConfiguredByCommand != nil,
 	}
 	if pb.Phase == "" {
 		pb.Phase = string(triggersv1alpha1.MaintainerWorkItemPhasePendingTriage)
 	}
 	if item.Spec.CloseReason != nil {
 		pb.CloseReason = string(*item.Spec.CloseReason)
+	}
+	if scope := item.Spec.AcceptedScope; scope != nil {
+		pb.AcceptedScopeStatement = scope.Statement
+		pb.AcceptedScopeCriteria = append([]string(nil), scope.AcceptanceCriteria...)
+	}
+	// ObservationFresh from the conditions list.
+	for _, cond := range item.Status.Conditions {
+		if cond.Type == triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh {
+			pb.ObservationFresh = cond.Status == metav1.ConditionTrue
+			break
+		}
 	}
 	if issue := item.Status.IssueObservation; issue != nil {
 		pb.IssueTitle = issue.Title
@@ -130,6 +188,7 @@ func maintainerWorkItemToProto(item *triggersv1alpha1.MaintainerWorkItem) *platf
 			CheckState:     string(pr.CheckState),
 			ReviewDecision: pr.ReviewDecision,
 			Draft:          pr.Draft,
+			HeadSha:        pr.HeadSHA,
 		})
 	}
 	if delivery := item.Status.DeliveryAttestation; delivery != nil {
@@ -146,6 +205,34 @@ func maintainerWorkItemToProto(item *triggersv1alpha1.MaintainerWorkItem) *platf
 		if child.Delivered {
 			pb.ChildrenDelivered++
 		}
+		link := &platform.MaintainerWorkItemLink{
+			WorkItemName: child.Name,
+			Delivered:    child.Delivered,
+		}
+		if idx != nil {
+			if linked := idx[child.Name]; linked != nil {
+				link.IssueNumber = linked.Spec.IssueNumber
+				if linked.Status.IssueObservation != nil {
+					link.Title = linked.Status.IssueObservation.Title
+				}
+			}
+		}
+		pb.Children = append(pb.Children, link)
+	}
+	// Fall back to spec.Children when status has no projections yet.
+	if len(pb.Children) == 0 {
+		for _, ch := range item.Spec.Children {
+			link := &platform.MaintainerWorkItemLink{WorkItemName: ch.Name}
+			if idx != nil {
+				if linked := idx[ch.Name]; linked != nil {
+					link.IssueNumber = linked.Spec.IssueNumber
+					if linked.Status.IssueObservation != nil {
+						link.Title = linked.Status.IssueObservation.Title
+					}
+				}
+			}
+			pb.Children = append(pb.Children, link)
+		}
 	}
 	pb.DependenciesTotal = int32(len(item.Status.Dependencies))
 	if pb.DependenciesTotal == 0 {
@@ -154,6 +241,34 @@ func maintainerWorkItemToProto(item *triggersv1alpha1.MaintainerWorkItem) *platf
 	for _, dep := range item.Status.Dependencies {
 		if dep.Delivered {
 			pb.DependenciesDelivered++
+		}
+		link := &platform.MaintainerWorkItemLink{
+			WorkItemName: dep.Name,
+			Delivered:    dep.Delivered,
+		}
+		if idx != nil {
+			if linked := idx[dep.Name]; linked != nil {
+				link.IssueNumber = linked.Spec.IssueNumber
+				if linked.Status.IssueObservation != nil {
+					link.Title = linked.Status.IssueObservation.Title
+				}
+			}
+		}
+		pb.Dependencies = append(pb.Dependencies, link)
+	}
+	// Fall back to spec.Dependencies when status has no projections yet.
+	if len(pb.Dependencies) == 0 {
+		for _, dep := range item.Spec.Dependencies {
+			link := &platform.MaintainerWorkItemLink{WorkItemName: dep.Name}
+			if idx != nil {
+				if linked := idx[dep.Name]; linked != nil {
+					link.IssueNumber = linked.Spec.IssueNumber
+					if linked.Status.IssueObservation != nil {
+						link.Title = linked.Status.IssueObservation.Title
+					}
+				}
+			}
+			pb.Dependencies = append(pb.Dependencies, link)
 		}
 	}
 	if command := item.Status.LatestCommand; command != nil {

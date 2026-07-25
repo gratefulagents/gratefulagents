@@ -1000,6 +1000,14 @@ func (h *PlatformServiceConnectHandler) ListMaintainerWorkItems(ctx context.Cont
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) IssueMaintainerCommand(ctx context.Context, req *connect.Request[platform.IssueMaintainerCommandRequest]) (*connect.Response[platform.IssueMaintainerCommandResponse], error) {
+	resp, err := h.srv.IssueMaintainerCommand(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) WatchGitHubRepositories(ctx context.Context, req *connect.Request[platform.WatchGitHubRepositoriesRequest], stream *connect.ServerStream[platform.GitHubRepositoryEvent]) error {
 	return h.srv.WatchGitHubRepositories(ctx, req.Msg, stream)
 }

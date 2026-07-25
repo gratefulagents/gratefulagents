@@ -164,7 +164,7 @@ func TestMaintainerWorkItemToProtoMapsStatus(t *testing.T) {
 		},
 	}
 
-	pb := maintainerWorkItemToProto(item)
+	pb := maintainerWorkItemToProto(item, nil)
 	if pb.IssueNumber != 42 || pb.IssueTitle != "Fix login bug" || pb.IssueState != "open" {
 		t.Errorf("issue mapping wrong: %+v", pb)
 	}
@@ -204,7 +204,97 @@ func TestMaintainerWorkItemToProtoMapsStatus(t *testing.T) {
 
 	// Empty status phase defaults to PendingTriage.
 	bare := workItem("bare", "acme", 1, "")
-	if got := maintainerWorkItemToProto(bare).Phase; got != "PendingTriage" {
+	if got := maintainerWorkItemToProto(bare, nil).Phase; got != "PendingTriage" {
 		t.Errorf("empty phase = %q, want PendingTriage", got)
+	}
+}
+
+func TestMaintainerWorkItemToProtoNewFields(t *testing.T) {
+	now := metav1.NewTime(time.Unix(1_760_000_000, 0))
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "acme-wi-10",
+			Namespace:         "default",
+			ResourceVersion:   "rv-42",
+			CreationTimestamp: now,
+		},
+		Spec: triggersv1alpha1.MaintainerWorkItemSpec{
+			RepositoryRef: corev1.LocalObjectReference{Name: "acme"},
+			IssueNumber:   10,
+			AcceptedScope: &triggersv1alpha1.MaintainerAcceptedScope{
+				Statement:          "Fix the bug",
+				AcceptanceCriteria: []string{"no regressions", "unit tests pass"},
+			},
+			GraphConfiguredByCommand: &corev1.LocalObjectReference{Name: "cmd-1"},
+		},
+		Status: triggersv1alpha1.MaintainerWorkItemStatus{
+			Phase:              triggersv1alpha1.MaintainerWorkItemPhaseReadyToDispatch,
+			ProjectionSequence: 3,
+			Conditions: []metav1.Condition{{
+				Type:   triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh,
+				Status: metav1.ConditionTrue,
+			}},
+			PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{
+				IntentName: "pr-1",
+				Repository: "acme/payments",
+				Number:     5,
+				HeadSHA:    "deadbeef" + "deadbeefdeadbeefdeadbeefdeadbeef",
+			}},
+		},
+	}
+
+	pb := maintainerWorkItemToProto(item, nil)
+
+	if pb.ProjectionSequence != 3 {
+		t.Errorf("ProjectionSequence = %d, want 3", pb.ProjectionSequence)
+	}
+	if pb.ResourceVersion != "rv-42" {
+		t.Errorf("ResourceVersion = %q, want rv-42", pb.ResourceVersion)
+	}
+	if pb.AcceptedScopeStatement != "Fix the bug" {
+		t.Errorf("AcceptedScopeStatement = %q, want 'Fix the bug'", pb.AcceptedScopeStatement)
+	}
+	if len(pb.AcceptedScopeCriteria) != 2 || pb.AcceptedScopeCriteria[0] != "no regressions" {
+		t.Errorf("AcceptedScopeCriteria = %v", pb.AcceptedScopeCriteria)
+	}
+	if !pb.GraphConfigured {
+		t.Errorf("GraphConfigured = false, want true")
+	}
+	if !pb.ObservationFresh {
+		t.Errorf("ObservationFresh = false, want true")
+	}
+	if len(pb.PullRequests) != 1 {
+		t.Fatalf("PullRequests len = %d, want 1", len(pb.PullRequests))
+	}
+	wantSHA := "deadbeef" + "deadbeefdeadbeefdeadbeefdeadbeef"
+	if pb.PullRequests[0].HeadSha != wantSHA {
+		t.Errorf("PullRequests[0].HeadSha = %q, want %q", pb.PullRequests[0].HeadSha, wantSHA)
+	}
+}
+
+func TestListMaintainerWorkItemsReturnsCapacity(t *testing.T) {
+	dispatched := workItem("acme-wi-1", "acme", 1, triggersv1alpha1.MaintainerWorkItemPhaseDispatched)
+	implementing := workItem("acme-wi-2", "acme", 2, triggersv1alpha1.MaintainerWorkItemPhaseImplementing)
+	triaged := workItem("acme-wi-3", "acme", 3, triggersv1alpha1.MaintainerWorkItemPhaseTriaged)
+	srv, _ := newWorkItemTestServer(t, dispatched, implementing, triaged)
+
+	resp, err := srv.ListMaintainerWorkItems(context.Background(), &platform.ListMaintainerWorkItemsRequest{
+		Namespace:      "default",
+		RepositoryName: "acme",
+	})
+	if err != nil {
+		t.Fatalf("ListMaintainerWorkItems: %v", err)
+	}
+	if resp.Capacity == nil {
+		t.Fatal("Capacity is nil")
+	}
+	if resp.Capacity.ActiveDispatches != 2 {
+		t.Errorf("ActiveDispatches = %d, want 2", resp.Capacity.ActiveDispatches)
+	}
+	if resp.Capacity.DailyCap != maintainerDefaultDailyCap {
+		t.Errorf("DailyCap = %d, want %d", resp.Capacity.DailyCap, maintainerDefaultDailyCap)
+	}
+	if resp.Capacity.ConcurrencyCap != maintainerDefaultConcurrencyCap {
+		t.Errorf("ConcurrencyCap = %d, want %d", resp.Capacity.ConcurrencyCap, maintainerDefaultConcurrencyCap)
 	}
 }

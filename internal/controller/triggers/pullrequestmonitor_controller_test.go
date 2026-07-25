@@ -423,7 +423,7 @@ func (p *monitorFakePoller) ListReviews(_ context.Context, _ string, _ string, _
 	return p.reviews, p.reviewResponse, p.reviewErr
 }
 
-func (p *monitorFakePoller) GetReviewDecision(context.Context, string, string, int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
+func (p *monitorFakePoller) GetReviewDecision(context.Context, string, string, int, string) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
 	p.calls++
 	if p.reviewErr != nil {
 		return triggersv1alpha1.PullRequestReviewDecisionUnknown, p.reviewResponse, p.reviewErr

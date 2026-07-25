@@ -76,6 +76,10 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if err := r.ensureMaintainerHumanCommandCapability(ctx, gh); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// PullRequestMonitor status is already a durable GitHub observation. Project
 	// it before any remote issue/auth call so check and review changes advance the
 	// work-item semantic cursor—and wake wait_for_repo_events—even while unrelated
@@ -698,6 +702,13 @@ func (r *GitHubRepositoryReconciler) mapPullRequestMonitorToRepository(ctx conte
 	return nil
 }
 
+func githubObjectCursorID(cursor *triggersv1alpha1.GitHubObjectCursor) int64 {
+	if cursor == nil {
+		return 0
+	}
+	return cursor.ID
+}
+
 func pullRequestMonitorProjectionChanged(oldMonitor, newMonitor *triggersv1alpha1.PullRequestMonitor) bool {
 	if oldMonitor == nil || newMonitor == nil {
 		return oldMonitor != newMonitor
@@ -709,6 +720,8 @@ func pullRequestMonitorProjectionChanged(oldMonitor, newMonitor *triggersv1alpha
 		oldStatus.Lifecycle != newStatus.Lifecycle ||
 		oldStatus.Mergeability != newStatus.Mergeability ||
 		oldStatus.ReviewDecision != newStatus.ReviewDecision ||
+		githubObjectCursorID(oldStatus.LastReviewCursor) != githubObjectCursorID(newStatus.LastReviewCursor) ||
+		githubObjectCursorID(oldStatus.LastIssueCommentCursor) != githubObjectCursorID(newStatus.LastIssueCommentCursor) ||
 		oldStatus.PullError != newStatus.PullError ||
 		oldStatus.ReviewsError != newStatus.ReviewsError ||
 		oldStatus.Checks.HeadSHA != newStatus.Checks.HeadSHA ||
@@ -719,6 +732,49 @@ func pullRequestMonitorProjectionChanged(oldMonitor, newMonitor *triggersv1alpha
 		oldStatus.Statuses.State != newStatus.Statuses.State ||
 		oldStatus.Statuses.Count != newStatus.Statuses.Count ||
 		oldStatus.Statuses.Error != newStatus.Statuses.Error
+}
+
+func (r *GitHubRepositoryReconciler) ensureMaintainerHumanCommandCapability(ctx context.Context, repository *triggersv1alpha1.GitHubRepository) error {
+	name := triggersv1alpha1.MaintainerHumanCommandCapabilitySecretName(repository.Name)
+	existing := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: name}, existing); err == nil {
+		key := existing.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey]
+		if len(key) < 32 {
+			return fmt.Errorf("human capability secret %s/%s has a missing or invalid %q", repository.Namespace, name, triggersv1alpha1.MaintainerCommandCapabilitySecretKey)
+		}
+		if !metav1.IsControlledBy(existing, repository) {
+			return fmt.Errorf("human capability secret %s/%s is not controlled by GitHubRepository %s", repository.Namespace, name, repository.Name)
+		}
+		if string(existing.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey]) != repository.Name || string(existing.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey]) != string(repository.UID) {
+			return fmt.Errorf("human capability secret %s/%s is bound to a different GitHubRepository", repository.Namespace, name)
+		}
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return fmt.Errorf("generating human capability key: %w", err)
+	}
+	immutable := true
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       repository.Namespace,
+			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(repository, triggersv1alpha1.GroupVersion.WithKind(gitHubRepositoryTriggerKind))},
+		},
+		Immutable: &immutable,
+		Type:      corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			triggersv1alpha1.MaintainerCommandCapabilitySecretKey:         key,
+			triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey: []byte(repository.Name),
+			triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey:  []byte(repository.UID),
+		},
+	}
+	if err := r.Create(ctx, secret); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
 }
 
 func (r *GitHubRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {

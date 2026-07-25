@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,7 +24,7 @@ type maintainerMergePolicy struct {
 
 type maintainerGitHubDeliveryClient interface {
 	GetPullRequest(context.Context, string, string, int, string) (*polledPullRequest, gitHubPollResponse, error)
-	GetReviewDecision(context.Context, string, string, int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error)
+	GetReviewDecision(context.Context, string, string, int, string) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error)
 	ListCheckRuns(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error)
 	GetCommitStatus(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error)
 	GetMergePolicy(context.Context, string, string, string) (maintainerMergePolicy, error)
@@ -44,8 +45,8 @@ func (c *goGitHubMaintainerDeliveryClient) GetPullRequest(ctx context.Context, o
 	return c.poller.GetPullRequest(ctx, owner, repo, number, etag)
 }
 
-func (c *goGitHubMaintainerDeliveryClient) GetReviewDecision(ctx context.Context, owner, repo string, number int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
-	return c.poller.GetReviewDecision(ctx, owner, repo, number)
+func (c *goGitHubMaintainerDeliveryClient) GetReviewDecision(ctx context.Context, owner, repo string, number int, expectedHead string) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
+	return c.poller.GetReviewDecision(ctx, owner, repo, number, expectedHead)
 }
 
 func (c *goGitHubMaintainerDeliveryClient) ListCheckRuns(ctx context.Context, owner, repo, head string) (polledHeadRollup, gitHubPollResponse, error) {
@@ -62,6 +63,13 @@ func (c *goGitHubMaintainerDeliveryClient) GetMergePolicy(ctx context.Context, o
 		return maintainerMergePolicy{}, err
 	}
 	protection, protectionResponse, err := c.repositories.GetBranchProtection(ctx, owner, repo, branch)
+	if err != nil && isGitHubBranchProtectionUnavailable(err, protectionResponse) {
+		// GitHub returns 403 for private repositories on plans that do not offer
+		// branch protection. In that case there is no server policy to inspect;
+		// the delivery path still verifies the current PR approval and checks.
+		permissions := repository.GetPermissions()
+		return maintainerMergePolicy{CanMerge: permissions["push"] || permissions["maintain"] || permissions["admin"]}, nil
+	}
 	if err != nil && (protectionResponse == nil || protectionResponse.StatusCode != http.StatusNotFound) {
 		return maintainerMergePolicy{}, err
 	}
@@ -102,6 +110,14 @@ func (c *goGitHubMaintainerDeliveryClient) GetMergePolicy(ctx context.Context, o
 		CanMerge:        permissions["push"] || permissions["maintain"] || permissions["admin"],
 		ActorCanBypass:  actorCanBypass,
 	}, nil
+}
+
+func isGitHubBranchProtectionUnavailable(err error, response *github.Response) bool {
+	if response == nil || response.StatusCode != http.StatusForbidden {
+		return false
+	}
+	var responseError *github.ErrorResponse
+	return errors.As(err, &responseError) && strings.Contains(strings.ToLower(responseError.Message), "upgrade to github pro or make this repository public")
 }
 
 func maintainerRulesetMergeRequirements(rules []*github.RepositoryRule) (requiredReviews, requiredChecks bool, err error) {

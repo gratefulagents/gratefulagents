@@ -319,6 +319,14 @@ type MaintainerWorkItemPullRequestProjection struct {
 	Mergeable *bool `json:"mergeable,omitempty"`
 	// +optional
 	ReviewDecision string `json:"reviewDecision,omitempty"`
+	// LastReviewID is the latest processed GitHub review. It advances the
+	// maintainer event cursor even when aggregate ReviewDecision is unchanged.
+	// +optional
+	LastReviewID int64 `json:"lastReviewID,omitempty"`
+	// LastCommentID is the latest processed GitHub pull-request conversation
+	// comment. It advances the maintainer event cursor without retaining content.
+	// +optional
+	LastCommentID int64 `json:"lastCommentID,omitempty"`
 	// +optional
 	CheckState MaintainerWorkItemCheckState `json:"checkState,omitempty"`
 	// +optional
@@ -397,8 +405,12 @@ type MaintainerVerifiedPullRequestMerge struct {
 }
 
 // MaintainerDeliveryAttestation records authenticated semantic delivery evidence and finalization side effects.
+// +kubebuilder:validation:XValidation:rule="has(self.issuer) != has(self.humanIssuer)",message="exactly one of issuer or humanIssuer is required"
 type MaintainerDeliveryAttestation struct {
-	Issuer MaintainerWorkItemCommandIssuer `json:"issuer"`
+	// +optional
+	Issuer *MaintainerWorkItemCommandIssuer `json:"issuer,omitempty"`
+	// +optional
+	HumanIssuer *MaintainerWorkItemCommandHumanIssuer `json:"humanIssuer,omitempty"`
 	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
 	AcceptedScopeHash string `json:"acceptedScopeHash"`
 	// +kubebuilder:validation:MinLength=1
@@ -573,6 +585,22 @@ type MaintainerWorkItemCommandIssuer struct {
 	Proof string `json:"proof"`
 }
 
+// MaintainerWorkItemCommandHumanIssuer identifies a dashboard user that issued a command.
+type MaintainerWorkItemCommandHumanIssuer struct {
+	// Subject is the authenticated dashboard identity (e.g. OIDC sub claim).
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Subject string `json:"subject"`
+	// DisplayName is a human-readable label for audit and UI purposes only.
+	// It is NOT covered by the proof and must not be trusted for authorization.
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	DisplayName string `json:"displayName,omitempty"`
+	// Proof is an HMAC from the repository's human command capability secret.
+	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
+	Proof string `json:"proof"`
+}
+
 // MaintainerWorkItemCommandPreconditions identify the projection expected by a command.
 type MaintainerWorkItemCommandPreconditions struct {
 	// +kubebuilder:validation:MinLength=1
@@ -696,6 +724,7 @@ type MaintainerFinalizeWorkItemCommand struct {
 // +kubebuilder:validation:XValidation:rule="(self.type == 'DispatchWorkItem') == has(self.dispatch)",message="dispatch is required only when type is DispatchWorkItem"
 // +kubebuilder:validation:XValidation:rule="(self.type == 'RequestMerge') == has(self.requestMerge)",message="requestMerge is required only when type is RequestMerge"
 // +kubebuilder:validation:XValidation:rule="(self.type == 'FinalizeWorkItem') == has(self.finalize)",message="finalize is required only when type is FinalizeWorkItem"
+// +kubebuilder:validation:XValidation:rule="has(self.issuer) != has(self.humanIssuer)",message="exactly one of issuer or humanIssuer is required"
 type MaintainerWorkItemCommandSpec struct {
 	RepositoryRef corev1.LocalObjectReference `json:"repositoryRef"`
 	// +kubebuilder:validation:MinLength=1
@@ -703,8 +732,11 @@ type MaintainerWorkItemCommandSpec struct {
 	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9._:-]*$`
 	IdempotencyKey string `json:"idempotencyKey"`
 	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
-	PayloadHash   string                                 `json:"payloadHash"`
-	Issuer        MaintainerWorkItemCommandIssuer        `json:"issuer"`
+	PayloadHash string `json:"payloadHash"`
+	// +optional
+	Issuer *MaintainerWorkItemCommandIssuer `json:"issuer,omitempty"`
+	// +optional
+	HumanIssuer   *MaintainerWorkItemCommandHumanIssuer  `json:"humanIssuer,omitempty"`
 	Preconditions MaintainerWorkItemCommandPreconditions `json:"preconditions"`
 	Type          MaintainerWorkItemCommandType          `json:"type"`
 	// +optional
@@ -831,6 +863,34 @@ func MaintainerCommandCapabilitySecretName(runName string) string {
 	return base + "-" + hash + suffix
 }
 
+// MaintainerHumanCommandCapabilitySecretName returns the deterministic Secret
+// name containing the shared HMAC capability for dashboard human commands on a
+// given repository. The suffix -maintainer-human-command ensures this name
+// never collides with the per-run secret produced by
+// MaintainerCommandCapabilitySecretName.
+func MaintainerHumanCommandCapabilitySecretName(repositoryName string) string {
+	const suffix = "-maintainer-human-command"
+	base := strings.Trim(strings.ToLower(repositoryName), "-")
+	if len(base)+len(suffix) <= 63 {
+		return base + suffix
+	}
+	sum := sha256.Sum256([]byte(repositoryName))
+	hash := hex.EncodeToString(sum[:])[:8]
+	base = strings.TrimRight(base[:63-len(suffix)-len(hash)-1], "-")
+	return base + "-" + hash + suffix
+}
+
+// MaintainerAcceptedScopeHash is the canonical attestation hash of an accepted
+// scope. Finalization is gated on the issuer having attested the exact scope
+// the controller still holds, so every issuer (the agent finalize tool, the
+// dashboard human command path) and the controller's verification must derive
+// this value here rather than reimplementing it.
+func MaintainerAcceptedScopeHash(scope *MaintainerAcceptedScope) string {
+	encoded, _ := json.Marshal(scope)
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
+}
+
 // MaintainerWorkItemCommandProof authenticates a command to the private
 // capability of its declared issuer run.
 func MaintainerWorkItemCommandProof(key []byte, repositoryName string, repositoryUID types.UID, idempotencyKey, payloadHash, runName string, uid types.UID) string {
@@ -842,6 +902,24 @@ func MaintainerWorkItemCommandProof(key []byte, repositoryName string, repositor
 		RunName        string    `json:"runName"`
 		UID            types.UID `json:"uid"`
 	}{repositoryName, repositoryUID, idempotencyKey, payloadHash, runName, uid})
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(message)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// MaintainerHumanCommandProof authenticates a human-issued command to the
+// repository's shared human command capability. The issuerKind field provides
+// domain separation so an AgentRun proof can never be replayed as a human
+// proof, and vice versa.
+func MaintainerHumanCommandProof(key []byte, repositoryName string, repositoryUID types.UID, idempotencyKey, payloadHash, subject string) string {
+	message, _ := json.Marshal(struct {
+		IssuerKind     string    `json:"issuerKind"`
+		RepositoryName string    `json:"repositoryName"`
+		RepositoryUID  types.UID `json:"repositoryUID"`
+		IdempotencyKey string    `json:"idempotencyKey"`
+		PayloadHash    string    `json:"payloadHash"`
+		Subject        string    `json:"subject"`
+	}{"Human", repositoryName, repositoryUID, idempotencyKey, payloadHash, subject})
 	mac := hmac.New(sha256.New, key)
 	_, _ = mac.Write(message)
 	return hex.EncodeToString(mac.Sum(nil))

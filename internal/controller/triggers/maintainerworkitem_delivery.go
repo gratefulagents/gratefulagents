@@ -2,9 +2,6 @@ package triggers
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -123,10 +120,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 	if fullControl && policy.RequiredReviews {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "full control requires branch protection or rulesets without required approving reviews")
 	}
-	if !fullControl && !policy.RequiredReviews {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "server-enforced required-review policy could not be proven")
-	}
-	review, _, err := githubClient.GetReviewDecision(ctx, owner, repo, int(request.PullRequestNumber))
+	review, _, err := githubClient.GetReviewDecision(ctx, owner, repo, int(request.PullRequestNumber), request.ExpectedHeadSHA)
 	if err != nil {
 		return r.failMaintainerWorkItemCommand(ctx, command, fresh, "pre-merge GitHub review read failed: "+err.Error())
 	}
@@ -282,12 +276,6 @@ func (r *GitHubRepositoryReconciler) verifyAndRecordMaintainerMerge(ctx context.
 	return r.completeMaintainerWorkItemCommand(ctx, command, item, "GitHub confirmed pull request MERGED at the expected head", "", observedIssueState(item))
 }
 
-func maintainerAcceptedScopeHash(scope *triggersv1alpha1.MaintainerAcceptedScope) string {
-	encoded, _ := json.Marshal(scope)
-	sum := sha256.Sum256(encoded)
-	return hex.EncodeToString(sum[:])
-}
-
 //nolint:gocyclo // Finalization keeps structural gates and ordered idempotent side effects in one state machine.
 func (r *GitHubRepositoryReconciler) processMaintainerFinalizeWorkItem(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, githubClient GitHubTriageClient, deliveryClient maintainerGitHubDeliveryClient, pending bool) error {
 	request := command.Spec.Finalize
@@ -370,7 +358,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerFinalizeWorkItem(ctx conte
 //nolint:gocyclo // Each fail-closed predicate is reported independently to preserve actionable audit output.
 func (r *GitHubRepositoryReconciler) maintainerFinalizationUnmet(ctx context.Context, item *triggersv1alpha1.MaintainerWorkItem, request *triggersv1alpha1.MaintainerFinalizeWorkItemCommand) ([]string, error) {
 	var unmet []string
-	if item.Spec.AcceptedScope == nil || maintainerAcceptedScopeHash(item.Spec.AcceptedScope) != request.AcceptedScopeHash {
+	if item.Spec.AcceptedScope == nil || triggersv1alpha1.MaintainerAcceptedScopeHash(item.Spec.AcceptedScope) != request.AcceptedScopeHash {
 		unmet = append(unmet, "accepted scope hash mismatch")
 	}
 	if item.Status.PendingDecision != nil {
@@ -464,7 +452,15 @@ func (r *GitHubRepositoryReconciler) ensureMaintainerDeliveryAttestation(ctx con
 			}
 			return false, nil
 		}
-		fresh.Status.DeliveryAttestation = &triggersv1alpha1.MaintainerDeliveryAttestation{Issuer: command.Spec.Issuer, AcceptedScopeHash: request.AcceptedScopeHash, DeliverySummary: request.DeliverySummary, DeliveryEvidence: request.DeliveryEvidence, FinalizedByCommand: corev1.LocalObjectReference{Name: command.Name}}
+		attestation := &triggersv1alpha1.MaintainerDeliveryAttestation{AcceptedScopeHash: request.AcceptedScopeHash, DeliverySummary: request.DeliverySummary, DeliveryEvidence: request.DeliveryEvidence, FinalizedByCommand: corev1.LocalObjectReference{Name: command.Name}}
+		if command.Spec.Issuer != nil {
+			issuer := *command.Spec.Issuer
+			attestation.Issuer = &issuer
+		} else if command.Spec.HumanIssuer != nil {
+			humanIssuer := *command.Spec.HumanIssuer
+			attestation.HumanIssuer = &humanIssuer
+		}
+		fresh.Status.DeliveryAttestation = attestation
 		fresh.Status.ProjectionSequence++
 		return true, nil
 	})
