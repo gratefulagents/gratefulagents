@@ -120,9 +120,6 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 	if fullControl && policy.RequiredReviews {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "full control requires branch protection or rulesets without required approving reviews")
 	}
-	if !fullControl && !policy.RequiredReviews {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "server-enforced required-review policy could not be proven")
-	}
 	review, _, err := githubClient.GetReviewDecision(ctx, owner, repo, int(request.PullRequestNumber))
 	if err != nil {
 		return r.failMaintainerWorkItemCommand(ctx, command, fresh, "pre-merge GitHub review read failed: "+err.Error())

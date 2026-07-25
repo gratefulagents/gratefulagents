@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -62,6 +63,13 @@ func (c *goGitHubMaintainerDeliveryClient) GetMergePolicy(ctx context.Context, o
 		return maintainerMergePolicy{}, err
 	}
 	protection, protectionResponse, err := c.repositories.GetBranchProtection(ctx, owner, repo, branch)
+	if err != nil && isGitHubBranchProtectionUnavailable(err, protectionResponse) {
+		// GitHub returns 403 for private repositories on plans that do not offer
+		// branch protection. In that case there is no server policy to inspect;
+		// the delivery path still verifies the current PR approval and checks.
+		permissions := repository.GetPermissions()
+		return maintainerMergePolicy{CanMerge: permissions["push"] || permissions["maintain"] || permissions["admin"]}, nil
+	}
 	if err != nil && (protectionResponse == nil || protectionResponse.StatusCode != http.StatusNotFound) {
 		return maintainerMergePolicy{}, err
 	}
@@ -102,6 +110,14 @@ func (c *goGitHubMaintainerDeliveryClient) GetMergePolicy(ctx context.Context, o
 		CanMerge:        permissions["push"] || permissions["maintain"] || permissions["admin"],
 		ActorCanBypass:  actorCanBypass,
 	}, nil
+}
+
+func isGitHubBranchProtectionUnavailable(err error, response *github.Response) bool {
+	if response == nil || response.StatusCode != http.StatusForbidden {
+		return false
+	}
+	var responseError *github.ErrorResponse
+	return errors.As(err, &responseError) && strings.Contains(strings.ToLower(responseError.Message), "upgrade to github pro or make this repository public")
 }
 
 func maintainerRulesetMergeRequirements(rules []*github.RepositoryRule) (requiredReviews, requiredChecks bool, err error) {
