@@ -12,6 +12,7 @@ import {
   AgentRunSchema,
   AgentRunUsageResponseSchema,
   ChatMessageSchema,
+  CopilotUsageQuotaSchema,
   CronSchema,
   GetActivityLogResponseSchema,
   GetAgentTraceResponseSchema,
@@ -22,6 +23,7 @@ import {
   AnthropicUsageLimitSchema,
   MyAnthropicUsageSchema,
   MyCredentialsSchema,
+  MyCopilotUsageSchema,
   MyOpenAIUsageSchema,
   NotificationInfoSchema,
   OpenAIUsageLimitSchema,
@@ -1177,7 +1179,7 @@ const credentials = create(MyCredentialsSchema, {
   anthropicOauthPresent: true,
   openaiApiKeyPresent: false,
   openaiOauthPresent: true,
-  copilotOauthPresent: false,
+  copilotOauthPresent: true,
   githubTokenPresent: true,
   integrations: [
     { name: "linear", keys: ["api-key"] },
@@ -1212,6 +1214,26 @@ const openAIUsage = create(MyOpenAIUsageSchema, {
   last30DaysTokens: 7_842_118n,
   lookbackDays: 30,
   fetchedAtUnix: unix(SCENARIO_NOW),
+});
+
+const copilotUsage = create(MyCopilotUsageSchema, {
+  copilotOauthPresent: true,
+  accountLogin: "dana-demo",
+  plan: "individual_pro",
+  usageAvailable: true,
+  quotaResetDate: "2026-08-01",
+  fetchedAtUnix: unix(SCENARIO_NOW),
+  quotas: [
+    create(CopilotUsageQuotaSchema, {
+      name: "premium_interactions",
+      entitlement: 300n,
+      remaining: 184n,
+    }),
+    create(CopilotUsageQuotaSchema, {
+      name: "chat",
+      unlimited: true,
+    }),
+  ],
 });
 
 const anthropicUsage = create(MyAnthropicUsageSchema, {
@@ -1407,6 +1429,7 @@ export const defaultScenario: Scenario = {
   models: MODEL_LIST,
   credentials,
   openAIUsage,
+  copilotUsage,
   anthropicUsage,
   soul,
   gitIdentity,

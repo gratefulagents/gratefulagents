@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,11 +16,13 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
+	sdkoauth "github.com/gratefulagents/sdk/pkg/agentsdk/providers/oauth"
 	sdkopenai "github.com/gratefulagents/sdk/pkg/agentsdk/providers/openai"
 )
 
 const (
 	chatGPTBackendBaseURL = "https://chatgpt.com/backend-api"
+	copilotUserURL        = "https://api.github.com/copilot_internal/user"
 	openAIAccountTimeout  = 10 * time.Second
 )
 
@@ -90,6 +93,20 @@ type openAITokenUsageDailyBucket struct {
 	Tokens    int64  `json:"tokens"`
 }
 
+type copilotUserUsage struct {
+	Login          string                       `json:"login"`
+	CopilotPlan    string                       `json:"copilot_plan"`
+	QuotaResetDate string                       `json:"quota_reset_date"`
+	QuotaSnapshots map[string]copilotQuotaUsage `json:"quota_snapshots"`
+}
+
+type copilotQuotaUsage struct {
+	Entitlement  int64 `json:"entitlement"`
+	Remaining    int64 `json:"remaining"`
+	OverageCount int64 `json:"overage_count"`
+	Unlimited    bool  `json:"unlimited"`
+}
+
 // GetMyOpenAIUsage reads account-level data through the calling user's current
 // saved OpenAI OAuth credential. OAuth material never leaves the server.
 func (s *Server) GetMyOpenAIUsage(ctx context.Context, _ *platform.GetMyOpenAIUsageRequest) (*platform.MyOpenAIUsage, error) {
@@ -101,7 +118,28 @@ func (s *Server) GetMyOpenAIUsage(ctx context.Context, _ *platform.GetMyOpenAIUs
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().UTC()
+	return s.loadOpenAIUsage(ctx, namespace, time.Now().UTC())
+}
+
+// GetMyCopilotUsage reads account-level quota data through the calling user's
+// saved GitHub Copilot OAuth credential. OAuth material never leaves the server.
+func (s *Server) GetMyCopilotUsage(ctx context.Context, _ *platform.GetMyCopilotUsageRequest) (*platform.MyCopilotUsage, error) {
+	actor, err := providerOAuthActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	namespace, err := s.ensureUserNamespace(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	out := &platform.MyCopilotUsage{FetchedAtUnix: time.Now().UTC().Unix()}
+	if err := s.populateCopilotUsage(ctx, namespace, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Server) loadOpenAIUsage(ctx context.Context, namespace string, now time.Time) (*platform.MyOpenAIUsage, error) {
 	out := &platform.MyOpenAIUsage{LookbackDays: 30, FetchedAtUnix: now.Unix()}
 	secret, err := s.readSecret(ctx, namespace, userCredentialSecretName("openai"))
 	if k8serrors.IsNotFound(err) {
@@ -154,8 +192,83 @@ func (s *Server) GetMyOpenAIUsage(ctx context.Context, _ *platform.GetMyOpenAIUs
 	} else {
 		out.Warnings = append(out.Warnings, "ChatGPT token activity is temporarily unavailable.")
 	}
-
 	return out, nil
+}
+
+func (s *Server) populateCopilotUsage(ctx context.Context, namespace string, out *platform.MyCopilotUsage) error {
+	secret, err := s.readSecret(ctx, namespace, userCredentialSecretName("copilot"))
+	if k8serrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("read saved Copilot credential: %w", err))
+	}
+	authJSON := secret.Data[userCredOAuthJSONKey]
+	if len(authJSON) == 0 {
+		return nil
+	}
+	out.CopilotOauthPresent = true
+	auth, err := sdkoauth.ParseCopilotAuthJSON(authJSON)
+	if err != nil {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("load saved Copilot OAuth credential: %w", err))
+	}
+	oauthToken := strings.TrimSpace(auth.OAuthToken)
+	if oauthToken == "" {
+		out.Warnings = append(out.Warnings, "GitHub Copilot quota data requires a GitHub OAuth token.")
+		return nil
+	}
+
+	var usage copilotUserUsage
+	if err := s.getCopilotUserUsage(ctx, oauthToken, &usage); err != nil {
+		out.Warnings = append(out.Warnings, "GitHub Copilot quota data is temporarily unavailable.")
+		return nil
+	}
+	out.UsageAvailable = true
+	out.AccountLogin = strings.TrimSpace(usage.Login)
+	out.Plan = strings.TrimSpace(usage.CopilotPlan)
+	out.QuotaResetDate = strings.TrimSpace(usage.QuotaResetDate)
+
+	names := make([]string, 0, len(usage.QuotaSnapshots))
+	for name := range usage.QuotaSnapshots {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		quota := usage.QuotaSnapshots[name]
+		out.Quotas = append(out.Quotas, &platform.CopilotUsageQuota{
+			Name: name, Entitlement: quota.Entitlement, Remaining: quota.Remaining,
+			OverageCount: quota.OverageCount, Unlimited: quota.Unlimited,
+		})
+	}
+	return nil
+}
+
+func (s *Server) getCopilotUserUsage(ctx context.Context, oauthToken string, out *copilotUserUsage) error {
+	requestCtx, cancel := context.WithTimeout(ctx, openAIAccountTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, copilotUserURL, nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "token "+oauthToken)
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", "gratefulagents")
+
+	httpClient := *s.providerOAuthClient()
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := httpClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
+		return fmt.Errorf("GitHub Copilot account endpoint returned %s", response.Status)
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(out); err != nil {
+		return fmt.Errorf("decode GitHub Copilot account response: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) savedOpenAIAccountClient(secret *corev1.Secret) (*openAIAccountClient, error) {

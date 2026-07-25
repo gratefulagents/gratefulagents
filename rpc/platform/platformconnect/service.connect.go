@@ -497,6 +497,9 @@ const (
 	// PlatformServiceGetMyOpenAIUsageProcedure is the fully-qualified name of the PlatformService's
 	// GetMyOpenAIUsage RPC.
 	PlatformServiceGetMyOpenAIUsageProcedure = "/platform.v1.PlatformService/GetMyOpenAIUsage"
+	// PlatformServiceGetMyCopilotUsageProcedure is the fully-qualified name of the PlatformService's
+	// GetMyCopilotUsage RPC.
+	PlatformServiceGetMyCopilotUsageProcedure = "/platform.v1.PlatformService/GetMyCopilotUsage"
 	// PlatformServiceGetMyAnthropicUsageProcedure is the fully-qualified name of the PlatformService's
 	// GetMyAnthropicUsage RPC.
 	PlatformServiceGetMyAnthropicUsageProcedure = "/platform.v1.PlatformService/GetMyAnthropicUsage"
@@ -722,6 +725,9 @@ type PlatformServiceClient interface {
 	// user's current ChatGPT OAuth credential. Provider tokens and raw
 	// credential material never leave the server.
 	GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error)
+	// GetMyCopilotUsage returns account and quota data available through the
+	// calling user's current GitHub Copilot OAuth credential.
+	GetMyCopilotUsage(context.Context, *connect.Request[platform.GetMyCopilotUsageRequest]) (*connect.Response[platform.MyCopilotUsage], error)
 	// GetMyAnthropicUsage returns account and allowance data available through
 	// the calling user's current Claude OAuth credential. Provider tokens and
 	// raw credential material never leave the server.
@@ -1669,6 +1675,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetMyOpenAIUsage")),
 			connect.WithClientOptions(opts...),
 		),
+		getMyCopilotUsage: connect.NewClient[platform.GetMyCopilotUsageRequest, platform.MyCopilotUsage](
+			httpClient,
+			baseURL+PlatformServiceGetMyCopilotUsageProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetMyCopilotUsage")),
+			connect.WithClientOptions(opts...),
+		),
 		getMyAnthropicUsage: connect.NewClient[platform.GetMyAnthropicUsageRequest, platform.MyAnthropicUsage](
 			httpClient,
 			baseURL+PlatformServiceGetMyAnthropicUsageProcedure,
@@ -1835,6 +1847,7 @@ type platformServiceClient struct {
 	sendPresenceHeartbeat                  *connect.Client[platform.PresenceHeartbeatRequest, emptypb.Empty]
 	getPresence                            *connect.Client[platform.GetPresenceRequest, platform.GetPresenceResponse]
 	getMyOpenAIUsage                       *connect.Client[platform.GetMyOpenAIUsageRequest, platform.MyOpenAIUsage]
+	getMyCopilotUsage                      *connect.Client[platform.GetMyCopilotUsageRequest, platform.MyCopilotUsage]
 	getMyAnthropicUsage                    *connect.Client[platform.GetMyAnthropicUsageRequest, platform.MyAnthropicUsage]
 }
 
@@ -2617,6 +2630,11 @@ func (c *platformServiceClient) GetMyOpenAIUsage(ctx context.Context, req *conne
 	return c.getMyOpenAIUsage.CallUnary(ctx, req)
 }
 
+// GetMyCopilotUsage calls platform.v1.PlatformService.GetMyCopilotUsage.
+func (c *platformServiceClient) GetMyCopilotUsage(ctx context.Context, req *connect.Request[platform.GetMyCopilotUsageRequest]) (*connect.Response[platform.MyCopilotUsage], error) {
+	return c.getMyCopilotUsage.CallUnary(ctx, req)
+}
+
 // GetMyAnthropicUsage calls platform.v1.PlatformService.GetMyAnthropicUsage.
 func (c *platformServiceClient) GetMyAnthropicUsage(ctx context.Context, req *connect.Request[platform.GetMyAnthropicUsageRequest]) (*connect.Response[platform.MyAnthropicUsage], error) {
 	return c.getMyAnthropicUsage.CallUnary(ctx, req)
@@ -2842,6 +2860,9 @@ type PlatformServiceHandler interface {
 	// user's current ChatGPT OAuth credential. Provider tokens and raw
 	// credential material never leave the server.
 	GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error)
+	// GetMyCopilotUsage returns account and quota data available through the
+	// calling user's current GitHub Copilot OAuth credential.
+	GetMyCopilotUsage(context.Context, *connect.Request[platform.GetMyCopilotUsageRequest]) (*connect.Response[platform.MyCopilotUsage], error)
 	// GetMyAnthropicUsage returns account and allowance data available through
 	// the calling user's current Claude OAuth credential. Provider tokens and
 	// raw credential material never leave the server.
@@ -3785,6 +3806,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetMyOpenAIUsage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceGetMyCopilotUsageHandler := connect.NewUnaryHandler(
+		PlatformServiceGetMyCopilotUsageProcedure,
+		svc.GetMyCopilotUsage,
+		connect.WithSchema(platformServiceMethods.ByName("GetMyCopilotUsage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceGetMyAnthropicUsageHandler := connect.NewUnaryHandler(
 		PlatformServiceGetMyAnthropicUsageProcedure,
 		svc.GetMyAnthropicUsage,
@@ -4103,6 +4130,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceGetPresenceHandler.ServeHTTP(w, r)
 		case PlatformServiceGetMyOpenAIUsageProcedure:
 			platformServiceGetMyOpenAIUsageHandler.ServeHTTP(w, r)
+		case PlatformServiceGetMyCopilotUsageProcedure:
+			platformServiceGetMyCopilotUsageHandler.ServeHTTP(w, r)
 		case PlatformServiceGetMyAnthropicUsageProcedure:
 			platformServiceGetMyAnthropicUsageHandler.ServeHTTP(w, r)
 		default:
@@ -4732,6 +4761,10 @@ func (UnimplementedPlatformServiceHandler) GetPresence(context.Context, *connect
 
 func (UnimplementedPlatformServiceHandler) GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetMyOpenAIUsage is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetMyCopilotUsage(context.Context, *connect.Request[platform.GetMyCopilotUsageRequest]) (*connect.Response[platform.MyCopilotUsage], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetMyCopilotUsage is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GetMyAnthropicUsage(context.Context, *connect.Request[platform.GetMyAnthropicUsageRequest]) (*connect.Response[platform.MyAnthropicUsage], error) {

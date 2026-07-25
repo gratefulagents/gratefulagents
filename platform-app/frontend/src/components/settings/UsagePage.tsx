@@ -4,6 +4,7 @@ import {
   Activity,
   ArrowUpRight,
   Clock3,
+  Code2,
   Gauge,
   KeyRound,
   RefreshCw,
@@ -20,18 +21,22 @@ import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import type {
   AnthropicUsageLimit,
+  CopilotUsageQuota,
   MyAnthropicUsage,
+  MyCopilotUsage,
   MyOpenAIUsage,
   OpenAIUsageLimit,
 } from "@/rpc/platform/service_pb";
 
 const CHATGPT_USAGE_URL = "https://chatgpt.com/codex/settings/usage";
 const CLAUDE_USAGE_URL = "https://claude.ai/settings/usage";
+const COPILOT_USAGE_URL = "https://github.com/settings/copilot/features";
 
 type ProviderUsage<T> = { data: T | null; error: string; loading: boolean };
 
 export default function UsagePage() {
   const [openAI, setOpenAI] = React.useState<ProviderUsage<MyOpenAIUsage>>({ data: null, error: "", loading: true });
+  const [copilot, setCopilot] = React.useState<ProviderUsage<MyCopilotUsage>>({ data: null, error: "", loading: true });
   const [anthropic, setAnthropic] = React.useState<ProviderUsage<MyAnthropicUsage>>({ data: null, error: "", loading: true });
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -40,11 +45,14 @@ export default function UsagePage() {
     const openAIRequest = client.getMyOpenAIUsage({})
       .then((data) => setOpenAI({ data, error: "", loading: false }))
       .catch((error: unknown) => setOpenAI(errorState(error)));
+    const copilotRequest = client.getMyCopilotUsage({})
+      .then((data) => setCopilot({ data, error: "", loading: false }))
+      .catch((error: unknown) => setCopilot(errorState(error)));
     const anthropicRequest = client.getMyAnthropicUsage({})
       .then((data) => setAnthropic({ data, error: "", loading: false }))
       .catch((error: unknown) => setAnthropic(errorState(error)));
     try {
-      await Promise.all([openAIRequest, anthropicRequest]);
+      await Promise.all([openAIRequest, copilotRequest, anthropicRequest]);
     } finally {
       setRefreshing(false);
     }
@@ -58,6 +66,13 @@ export default function UsagePage() {
       })
       .catch((error: unknown) => {
         if (active) setOpenAI(errorState(error));
+      });
+    void client.getMyCopilotUsage({})
+      .then((data) => {
+        if (active) setCopilot({ data, error: "", loading: false });
+      })
+      .catch((error: unknown) => {
+        if (active) setCopilot(errorState(error));
       });
     void client.getMyAnthropicUsage({})
       .then((data) => {
@@ -106,9 +121,22 @@ export default function UsagePage() {
           <OpenAIAccountSummary usage={openAI.data} refreshing={refreshing} onRefresh={() => void refresh()} />
           <OpenAIAllowanceWindows limits={openAI.data.limits} available={openAI.data.accountStatusAvailable} />
           <TokenActivity usage={openAI.data} />
-          <UsageWarnings warnings={openAI.data.warnings} />
         </>
       ) : null}
+
+      <UsageWarnings warnings={openAI.data?.warnings ?? []} />
+
+      <ProviderHeading name="GitHub Copilot" />
+      {copilot.loading ? (
+        <ProviderSkeleton />
+      ) : copilot.error ? (
+        <ProviderError provider="GitHub Copilot" error={copilot.error} refreshing={refreshing} onRefresh={() => void refresh()} />
+      ) : copilot.data && !copilot.data.copilotOauthPresent ? (
+        <DisconnectedState provider="Copilot" />
+      ) : copilot.data ? (
+        <CopilotUsage usage={copilot.data} refreshing={refreshing} onRefresh={() => void refresh()} />
+      ) : null}
+      <UsageWarnings warnings={copilot.data?.warnings ?? []} />
     </SettingsSubPage>
   );
 }
@@ -367,6 +395,102 @@ function TokenActivity({ usage }: { usage: MyOpenAIUsage }) {
   );
 }
 
+function CopilotUsage({
+  usage,
+  refreshing,
+  onRefresh,
+}: {
+  usage: MyCopilotUsage;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <SettingsSection
+      icon={<Code2 />}
+      title="GitHub Copilot"
+      description="Premium request quotas from the GitHub OAuth sign-in saved under Credentials."
+      aside={<RefreshButton refreshing={refreshing} onRefresh={onRefresh} />}
+    >
+      <div className="flex flex-wrap items-end justify-between gap-4 border-t border-border/60 pt-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[17px] font-semibold tracking-[-0.02em]">
+              {displayCopilotPlan(usage.plan)}
+            </span>
+            <Badge variant="secondary">OAuth</Badge>
+          </div>
+          <p className="mt-1 truncate font-mono text-[11.5px] text-muted-foreground">
+            {usage.accountLogin ? `@${usage.accountLogin}` : "Connected GitHub account"}
+          </p>
+        </div>
+        <a
+          href={COPILOT_USAGE_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Open GitHub
+          <ArrowUpRight className="size-3.5" />
+        </a>
+      </div>
+      {!usage.usageAvailable ? (
+        <UnavailableCopy>GitHub did not return current Copilot quota data.</UnavailableCopy>
+      ) : usage.quotas.length === 0 ? (
+        <UnavailableCopy>No Copilot quotas were returned for this plan.</UnavailableCopy>
+      ) : (
+        <div className="divide-y divide-border/60 rounded-lg border border-border/70">
+          {usage.quotas.map((quota) => (
+            <CopilotQuotaRail key={quota.name} quota={quota} resetDate={usage.quotaResetDate} />
+          ))}
+        </div>
+      )}
+    </SettingsSection>
+  );
+}
+
+function CopilotQuotaRail({ quota, resetDate }: { quota: CopilotUsageQuota; resetDate: string }) {
+  const entitlement = Number(quota.entitlement);
+  const remaining = Number(quota.remaining);
+  const usedPercent = entitlement > 0 ? Math.max(0, Math.min(100, ((entitlement - remaining) / entitlement) * 100)) : 0;
+  const label = displayQuotaName(quota.name);
+  const remainingLabel = quota.unlimited ? "Unlimited" : `${new Intl.NumberFormat().format(remaining)} left`;
+  const details = quota.unlimited
+    ? "No fixed allowance"
+    : `${new Intl.NumberFormat().format(entitlement)} included${quota.overageCount > 0n ? ` · ${quota.overageCount.toString()} overage` : ""}`;
+  return (
+    <div className="grid gap-3 px-3.5 py-3 sm:grid-cols-[150px_1fr_120px] sm:items-center">
+      <div>
+        <div className="text-[12.5px] font-medium">{label}</div>
+        <div className="mt-0.5 text-[10.5px] text-muted-foreground">{details}</div>
+      </div>
+      {quota.unlimited ? (
+        <div className="h-2 rounded-full bg-muted" aria-hidden="true" />
+      ) : (
+        <div
+          className="relative h-2 overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label={`${label} used`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(usedPercent)}
+        >
+          <div
+            className={cn(
+              "absolute inset-y-0 left-0 rounded-full",
+              usedPercent >= 90 ? "bg-destructive" : usedPercent >= 70 ? "bg-amber-500" : "bg-foreground/75",
+            )}
+            style={{ width: `${usedPercent}%` }}
+          />
+        </div>
+      )}
+      <div className="flex items-baseline justify-between gap-2 sm:block sm:text-right">
+        <span className="font-mono text-[12px] font-medium tabular-nums">{remainingLabel}</span>
+        {resetDate && <span className="block text-[10.5px] text-muted-foreground">Resets {formatCopilotReset(resetDate)}</span>}
+      </div>
+    </div>
+  );
+}
+
 function ProviderError({ provider, error, refreshing, onRefresh }: { provider: string; error: string; refreshing: boolean; onRefresh: () => void }) {
   return (
     <SettingsSection icon={<Activity />} title={`${provider} usage unavailable`} description={error}>
@@ -378,12 +502,13 @@ function ProviderError({ provider, error, refreshing, onRefresh }: { provider: s
   );
 }
 
-function DisconnectedState({ provider }: { provider: "Anthropic" | "OpenAI" }) {
+function DisconnectedState({ provider }: { provider: "Anthropic" | "OpenAI" | "Copilot" }) {
+  const account = provider === "Anthropic" ? "Claude" : provider === "OpenAI" ? "ChatGPT" : "GitHub Copilot";
   return (
     <SettingsSection
       icon={<KeyRound />}
       title={`Connect ${provider} to see usage`}
-      description={`Usage is read through the ${provider === "Anthropic" ? "Claude" : "ChatGPT"} OAuth sign-in saved under Credentials. API-key credentials do not expose subscription allowances.`}
+      description={`Usage is read through the ${account} OAuth sign-in saved under Credentials. API-key credentials do not expose subscription allowances.`}
     >
       <Link to="/settings/credentials" className={buttonVariants({ size: "sm" })}>Open Credentials</Link>
     </SettingsSection>
@@ -427,6 +552,27 @@ function displayPlan(plan: string): string {
   if (["enterprise", "enterprise_cbp_usage_based"].includes(normalized)) return "ChatGPT Enterprise";
   if (normalized === "prolite") return "ChatGPT Pro Lite";
   return `ChatGPT ${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
+}
+
+function displayCopilotPlan(plan: string): string {
+  const normalized = plan.trim().replaceAll("_", " ");
+  if (!normalized) return "GitHub Copilot";
+  return `GitHub Copilot ${normalized.replace(/\b\w/g, (letter) => letter.toUpperCase())}`;
+}
+
+function displayQuotaName(name: string): string {
+  const labels: Record<string, string> = {
+    chat: "Chat requests",
+    completions: "Code completions",
+    premium_interactions: "Premium requests",
+  };
+  return labels[name] ?? name.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatCopilotReset(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
 }
 
 function formatTokens(value: bigint): string {

@@ -230,6 +230,10 @@ service PlatformService {
   // credential material never leave the server.
   rpc GetMyOpenAIUsage(GetMyOpenAIUsageRequest) returns (MyOpenAIUsage);
 
+  // GetMyCopilotUsage returns account and quota data available through the
+  // calling user's current GitHub Copilot OAuth credential.
+  rpc GetMyCopilotUsage(GetMyCopilotUsageRequest) returns (MyCopilotUsage);
+
   // GetMyAnthropicUsage returns account and allowance data available through
   // the calling user's current Claude OAuth credential. Provider tokens and
   // raw credential material never leave the server.
@@ -3631,7 +3635,7 @@ message ProviderOAuthResult {
   MyCredentials credentials = 5;
 }
 
-// OpenAI OAuth usage messages live at the end of this file so adding this
+// Provider OAuth usage messages live at the end of this file so adding this
 // settings surface does not renumber existing generated message metadata.
 message GetMyOpenAIUsageRequest {}
 
@@ -3661,6 +3665,27 @@ message OpenAIUsageLimit {
   double used_percent = 2;
   int64 reset_at_unix = 3;
   string details = 4;
+}
+
+message GetMyCopilotUsageRequest {}
+
+message MyCopilotUsage {
+  bool copilot_oauth_present = 1;
+  string account_login = 2;
+  string plan = 3;
+  bool usage_available = 4;
+  repeated CopilotUsageQuota quotas = 5;
+  string quota_reset_date = 6;
+  int64 fetched_at_unix = 7;
+  repeated string warnings = 8;
+}
+
+message CopilotUsageQuota {
+  string name = 1;
+  int64 entitlement = 2;
+  int64 remaining = 3;
+  int64 overage_count = 4;
+  bool unlimited = 5;
 }
 
 message GetMyAnthropicUsageRequest {}
