@@ -33,7 +33,15 @@ import { runPullRequestUrls } from "@/lib/pullRequests";
 import { cn } from "@/lib/utils";
 import { AgentRunMessageMode, type ChatMessage } from "@/rpc/platform/service_pb";
 import { RunSessionFooter } from "@/components/run-session/RunSessionFooter";
-import { RunSessionHeader } from "@/components/run-session/RunSessionHeader";
+import { RunHeader } from "@/components/run-session/RunHeader";
+import {
+  isInspectorTab,
+  RunInspector,
+  useSplitViewport,
+  type InspectorTab,
+  type InspectorTabDef,
+} from "@/components/run-session/RunInspector";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { RunSessionTracePane } from "@/components/run-session/RunSessionTracePane";
 import { RunSessionErrorsPane } from "@/components/run-session/RunSessionErrorsPane";
 import { RunSessionLogsPane } from "@/components/run-session/RunSessionLogsPane";
@@ -41,7 +49,7 @@ import { RunPullRequestPanel } from "@/components/run-session/RunPullRequestPane
 import { ChatScrollControls } from "@/components/run-session/ChatScrollControls";
 import { buildSlashCommands, type SlashCommand } from "@/components/run-session/slashCommands";
 import { useAvailableModes } from "@/hooks/useAvailableModes";
-import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, findLatestPlanPresentation, getActionButtonVariant, isMainView, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, PRLoopCard, renderPlanDialogButton, type MainView, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
+import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, findLatestPlanPresentation, getActionButtonVariant, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, PRLoopCard, renderPlanDialogButton, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
 import { isActionableInputType, isRunComputing, visibleInputType } from "@/lib/runStatus";
 import { TimelineRow } from "@/components/run-session/TimelineRow";
 import { PendingMessages } from "@/components/run-session/PendingMessages";
@@ -143,24 +151,39 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const [pendingOpBusy, setPendingOpBusy] = useState(false);
   const attachments = useImageAttachments();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [mainView, setMainView] = useState<MainView>(() => {
+  // The conversation is the page. The inspector is an opt-in side panel that
+  // holds every other surface, and it stays closed until you ask for it.
+  const [inspectorOpen, setInspectorOpen] = useState(() => {
     try {
-      const stored = localStorage.getItem("gratefulagents.mainView");
-      if (isMainView(stored)) {
+      return localStorage.getItem("gratefulagents.inspectorOpen") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>(() => {
+    try {
+      const stored = localStorage.getItem("gratefulagents.inspectorTab");
+      if (isInspectorTab(stored)) {
         return stored;
       }
     } catch {
       // Ignore storage read failures.
     }
-    return "chat";
+    return "diff";
   });
+  const splitViewport = useSplitViewport();
   useEffect(() => {
     try {
-      localStorage.setItem("gratefulagents.mainView", mainView);
+      localStorage.setItem("gratefulagents.inspectorOpen", String(inspectorOpen));
+      localStorage.setItem("gratefulagents.inspectorTab", inspectorTab);
     } catch {
       // Ignore storage write failures.
     }
-  }, [mainView]);
+  }, [inspectorOpen, inspectorTab]);
+  const openInspector = useCallback((tab: InspectorTab) => {
+    setInspectorTab(tab);
+    setInspectorOpen(true);
+  }, []);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [firstItemIndex, setFirstItemIndex] = useState(FIRST_ITEM_INDEX_BASE);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -179,23 +202,27 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   // back to the primary repo otherwise (e.g. after navigating to another run).
   const selectedDiffRepo = workspaceRepos.find((repo) => repo.path === diffRepoPath);
   const diffRepoParam = selectedDiffRepo && !selectedDiffRepo.isPrimary ? selectedDiffRepo.path : "";
-  // Diff/trace streams only run while their tab is open; the hooks keep the
-  // last data cached across tab switches.
+  // Each secondary stream only runs while its inspector tab is on screen; the
+  // hooks keep the last payload cached across tab switches.
+  const paneLive = useCallback(
+    (tab: InspectorTab) => inspectorOpen && inspectorTab === tab,
+    [inspectorOpen, inspectorTab],
+  );
   const diffState = useDiff(namespace, name, run?.phase ?? "", "AgentRun", diffRepoParam, {
-    enabled: mainView === "diff",
+    enabled: paneLive("diff"),
   });
   const {
     trace,
     loading: traceLoading,
     error: traceError,
   } = useAgentTrace(namespace, name, run?.traceId, run?.phase, {
-    enabled: mainView === "trace",
+    enabled: paneLive("trace"),
   });
   const runErrors = useAgentRunErrors(namespace, name, run?.phase, {
-    enabled: mainView === "errors",
+    enabled: paneLive("errors"),
   });
   const runLogs = useAgentRunLogs(namespace, name, run?.phase, {
-    enabled: mainView === "logs" && Boolean(run),
+    enabled: paneLive("logs") && Boolean(run),
   });
   const traceSpans = trace?.spans;
   const sessionMetrics = useMemo(() => {
@@ -503,19 +530,22 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const inPlanMode = run.modeName === "plan";
   const showPlanApprovalPanel = inPlanMode && hasPlan;
   const showPlanningBanner = inPlanMode && !hasPlan;
-  const activeMainView: MainView =
-    (mainView === "trace" && !run.traceId) || (mainView === "pr" && prUrls.length === 0)
-      ? "chat"
-      : mainView;
-  const mainTabs: Array<{ value: MainView; label: string }> = [
-    { value: "chat", label: "Chat" },
-    { value: "graph", label: "Graph" },
-    { value: "diff", label: "Diff" },
-    ...(prUrls.length > 0 ? [{ value: "pr" as const, label: "PR" }] : []),
-    { value: "errors", label: "Errors" },
-    { value: "logs", label: "Logs" },
-    ...(run.traceId ? [{ value: "trace" as const, label: "Trace" }] : []),
+  // Only offer tabs that can actually show something, and drop back to
+  // Changes when the stored tab no longer applies to this run.
+  const inspectorTabs: InspectorTabDef[] = [
+    { id: "diff", dot: hasDiff },
+    ...(prUrls.length > 0 ? [{ id: "pr" as const }] : []),
+    { id: "graph" },
+    { id: "logs" },
+    { id: "errors" },
+    ...(run.traceId ? [{ id: "trace" as const }] : []),
   ];
+  const activeInspectorTab: InspectorTab = inspectorTabs.some((tab) => tab.id === inspectorTab)
+    ? inspectorTab
+    : "diff";
+  const failedGates = Boolean(
+    run.gateResults?.length && run.gateResults.some((gate) => !gate.passed && !gate.skipped),
+  );
 
   async function handleSend() {
     const hasImages = attachments.images.length > 0;
@@ -872,78 +902,10 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       }[confirmAction.kind]
     : null;
 
-  return (
-    <ActivityDetailProvider value={fetchActivityEntryDetail}>
-    <div className="flex h-full gap-px overflow-hidden bg-muted/30">
-      {confirmDialog && (
-        <ConfirmDialog
-          open={confirmAction !== null}
-          onOpenChange={(open) => {
-            if (!open) setConfirmAction(null);
-          }}
-          title={confirmDialog.title}
-          description={confirmDialog.description}
-          confirmLabel={confirmDialog.confirmLabel}
-          destructive={confirmDialog.destructive}
-          onConfirm={handleConfirmAction}
-        />
-      )}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
-        <RunSessionHeader
-          namespace={namespace}
-          name={name}
-          run={run}
-          viewers={viewers}
-          showRepositories={isActive}
-          sandboxReady={sandboxReady}
-          sandboxStartupMessage={sandboxStartupMessage(run.sandboxRef)}
-          mainTabs={mainTabs}
-          activeMainView={activeMainView}
-          setMainView={setMainView}
-          prUrls={prUrls}
-          showCreatePRButton={showCreatePRButton}
-          canExtendRuntime={canExtendRuntime}
-          isPaused={isPaused}
-          extendingRuntime={extendingRuntime}
-          extendRuntimeOpen={extendRuntimeOpen}
-          setExtendRuntimeOpen={setExtendRuntimeOpen}
-          runtimeExtension={runtimeExtension}
-          setRuntimeExtension={setRuntimeExtension}
-          handleExtendRuntime={handleExtendRuntime}
-          hasPlan={hasPlan}
-          planContent={planContent}
-          shareOpen={shareOpen}
-          setShareOpen={setShareOpen}
-          isOwnerOrAdmin={isOwnerOrAdmin}
-          isViewer={isViewer}
-          canRetry={canRetry}
-          handleRetry={handleRetry}
-          retrying={retrying}
-          canStop={canStop}
-          handleStop={handleStop}
-          stopping={stopping}
-          canPromote={canPromote}
-          handlePromote={handlePromote}
-          promoting={promoting}
-          canDelete={canDelete}
-          handleDelete={handleDelete}
-          deleting={deleting}
-          displayCostUsd={displayCostUsd}
-          sessionMetrics={sessionMetrics}
-          canRename={canRename}
-          onRename={handleRename}
-        />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          {run.gateResults && run.gateResults.length > 0 && (
-            <div className="shrink-0 border-b px-3 py-2 md:px-4">
-              <EvidenceGatesCard gates={run.gateResults} finishAttempts={run.finishAttempts} />
-            </div>
-          )}
-          {run.prLoop && (
-            <PRLoopCard loop={run.prLoop} namespace={namespace} prUrl={prUrl} />
-          )}
-          {activeMainView === "chat" && (
-            <div className="relative isolate flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+  // The conversation column: transcript, at-most-one attention block, and
+  // the composer. Nothing else competes for this space.
+  const chatColumn = (
+            <div className="relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
               <div className="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div aria-live="polite" className="sr-only">{liveAnnouncement}</div>
                 <Virtuoso<TimelineItem, TimelineContext>
@@ -979,6 +941,14 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                 onScrollTo={scrollChatTo}
               />
               </div>
+
+              {/* Gates only earn space above the composer when one failed;
+                  a clean run says so in the transcript. */}
+              {failedGates && (
+                <div className="shrink-0 border-t px-3 py-2 md:px-4">
+                  <EvidenceGatesCard gates={run.gateResults} finishAttempts={run.finishAttempts} />
+                </div>
+              )}
 
               {showPlanApprovalPanel && (
                 <div className="border-t px-3 py-2 md:px-4">
@@ -1060,7 +1030,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
 
               <ActiveSubagentsDock
                 graph={subagentGraph}
-                onOpenGraph={() => setMainView("graph")}
+                onOpenGraph={() => openInspector("graph")}
               />
 
               <RunSessionFooter
@@ -1102,15 +1072,17 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                 onUpdateRuntimeConfig={handleUpdateRuntimeConfig}
               />
             </div>
-          )}
+  );
 
-          {activeMainView === "graph" && (
+  const inspectorPane = (
+    <>
+          {activeInspectorTab === "graph" && (
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
               <SubagentGraphView graph={subagentGraph} entries={activityEntries} />
             </div>
           )}
 
-          {activeMainView === "diff" && (
+          {activeInspectorTab === "diff" && (
             <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden p-2 md:p-4">
               <UnifiedDiffViewer
                 diff={diffState.diff}
@@ -1143,13 +1115,16 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
             </div>
           )}
 
-          {activeMainView === "pr" && (
+          {activeInspectorTab === "pr" && (
             <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
+              {run.prLoop && (
+                <PRLoopCard loop={run.prLoop} namespace={namespace} prUrl={prUrl} />
+              )}
               <RunPullRequestPanel namespace={namespace} name={name} canSend={canSendMessage} />
             </div>
           )}
 
-          {activeMainView === "errors" && (
+          {activeInspectorTab === "errors" && (
             <RunSessionErrorsPane
               errors={runErrors.errors}
               loading={runErrors.loading}
@@ -1158,7 +1133,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
             />
           )}
 
-          {activeMainView === "logs" && (
+          {activeInspectorTab === "logs" && (
             <RunSessionLogsPane
               content={runLogs.content}
               podName={runLogs.podName}
@@ -1171,7 +1146,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
             />
           )}
 
-          {activeMainView === "trace" && (
+          {activeInspectorTab === "trace" && (
             <RunSessionTracePane
               trace={trace}
               traceError={traceError}
@@ -1180,6 +1155,107 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
               usageLoading={usageLoading}
               usageError={usageError}
             />
+          )}
+    </>
+  );
+
+  return (
+    <ActivityDetailProvider value={fetchActivityEntryDetail}>
+    <div className="flex h-full gap-px overflow-hidden bg-muted/30">
+      {confirmDialog && (
+        <ConfirmDialog
+          open={confirmAction !== null}
+          onOpenChange={(open) => {
+            if (!open) setConfirmAction(null);
+          }}
+          title={confirmDialog.title}
+          description={confirmDialog.description}
+          confirmLabel={confirmDialog.confirmLabel}
+          destructive={confirmDialog.destructive}
+          onConfirm={handleConfirmAction}
+        />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+        <RunHeader
+          namespace={namespace}
+          name={name}
+          run={run}
+          viewers={viewers}
+          showRepositories={isActive}
+          sandboxReady={sandboxReady}
+          sandboxStartupMessage={sandboxStartupMessage(run.sandboxRef)}
+          prUrls={prUrls}
+          showCreatePRButton={showCreatePRButton}
+          canExtendRuntime={canExtendRuntime}
+          isPaused={isPaused}
+          extendingRuntime={extendingRuntime}
+          extendRuntimeOpen={extendRuntimeOpen}
+          setExtendRuntimeOpen={setExtendRuntimeOpen}
+          runtimeExtension={runtimeExtension}
+          setRuntimeExtension={setRuntimeExtension}
+          handleExtendRuntime={handleExtendRuntime}
+          hasPlan={hasPlan}
+          planContent={planContent}
+          shareOpen={shareOpen}
+          setShareOpen={setShareOpen}
+          isOwnerOrAdmin={isOwnerOrAdmin}
+          isViewer={isViewer}
+          canRetry={canRetry}
+          handleRetry={handleRetry}
+          retrying={retrying}
+          canStop={canStop}
+          handleStop={handleStop}
+          stopping={stopping}
+          canPromote={canPromote}
+          handlePromote={handlePromote}
+          promoting={promoting}
+          canDelete={canDelete}
+          handleDelete={handleDelete}
+          deleting={deleting}
+          displayCostUsd={displayCostUsd}
+          sessionMetrics={sessionMetrics}
+          canRename={canRename}
+          onRename={handleRename}
+          inspectorOpen={inspectorOpen}
+          onToggleInspector={() => setInspectorOpen((open) => !open)}
+          inspectorAttention={phase === "Failed"}
+        />
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          {splitViewport && inspectorOpen ? (
+            <ResizablePanelGroup orientation="horizontal">
+              <ResizablePanel id="chat" defaultSize="60%" minSize="35%">
+                {chatColumn}
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel id="inspector" defaultSize="40%" minSize="24%">
+                <RunInspector
+                  split
+                  open={inspectorOpen}
+                  onOpenChange={setInspectorOpen}
+                  tabs={inspectorTabs}
+                  activeTab={activeInspectorTab}
+                  onTabChange={setInspectorTab}
+                >
+                  {inspectorPane}
+                </RunInspector>
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          ) : (
+            chatColumn
+          )}
+          {/* Narrow viewports never split: the inspector arrives as a sheet
+              so the conversation keeps the full width. */}
+          {!splitViewport && (
+            <RunInspector
+              split={false}
+              open={inspectorOpen}
+              onOpenChange={setInspectorOpen}
+              tabs={inspectorTabs}
+              activeTab={activeInspectorTab}
+              onTabChange={setInspectorTab}
+            >
+              {inspectorPane}
+            </RunInspector>
           )}
         </div>
       </div>
