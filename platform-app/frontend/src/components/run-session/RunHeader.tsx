@@ -3,6 +3,7 @@ import { lazy, Suspense, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Check,
+  CheckCircle2,
   ChevronLeft,
   Clock,
   Download,
@@ -401,13 +402,12 @@ export function RunHeader({
   };
 
   const canCreatePR = showCreatePRButton && !isViewer;
-  const showRunContext = Boolean(run.modeInstructions) || showRepositories;
-  // Exactly one inline action. Ship the work, recover a failed run, unblock a
-  // paused one, or stop a live one — in that order of urgency. Everything not
-  // chosen stays reachable in the overflow menu.
-  const primaryAction: "createPR" | "retry" | "extend" | "stop" | null =
-    canCreatePR && prUrls.length === 0
-      ? "createPR"
+  // Exactly one inline action. Wrap the run up, recover a failed one, unblock
+  // a paused one, or stop a live one — in that order. Everything not chosen
+  // stays reachable in the overflow menu.
+  const primaryAction: "promote" | "retry" | "extend" | "stop" | null =
+    canPromote
+      ? "promote"
       : canRetry
         ? "retry"
         : canExtendRuntime && isPaused
@@ -466,9 +466,13 @@ export function RunHeader({
           </Suspense>
         )}
 
+        {/* The owner already has an avatar, so drop them from the presence
+            list — otherwise viewing your own run shows you twice. */}
         <span className="hidden items-center gap-1.5 md:flex">
           {run.owner && <OwnerAvatar owner={run.owner} />}
-          <PresenceAvatars viewers={viewers} />
+          <PresenceAvatars
+            viewers={viewers.filter((viewer) => viewer.userId !== run.owner?.userId)}
+          />
         </span>
 
         {prUrls.length === 1 && (
@@ -498,9 +502,15 @@ export function RunHeader({
           </DropdownMenu>
         )}
 
-        {primaryAction === "createPR" && (
-          <Button size="sm" className="hidden h-8 sm:inline-flex" onClick={() => setCreatePROpen(true)}>
-            Create PR
+        {primaryAction === "promote" && (
+          <Button
+            size="sm"
+            onClick={handlePromote}
+            disabled={promoting}
+            className="hidden h-8 gap-1.5 sm:inline-flex"
+          >
+            <CheckCircle2 className="size-3.5" />
+            {promoting ? "Marking…" : "Mark as succeeded"}
           </Button>
         )}
         {primaryAction === "retry" && (
@@ -538,6 +548,20 @@ export function RunHeader({
           </Button>
         )}
 
+        {/* Run context is always one click away: it is the fastest way to see
+            which repositories and instructions the agent is working from. */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setContextOpen(true)}
+          aria-label="Run context"
+          title="Run context"
+          className="size-8 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+        >
+          <PanelRightOpen className="size-4" />
+        </Button>
+
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -554,10 +578,7 @@ export function RunHeader({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-52">
             {canCreatePR && (
-              <DropdownMenuItem
-                className={primaryAction === "createPR" ? "sm:hidden" : undefined}
-                onClick={() => setCreatePROpen(true)}
-              >
+              <DropdownMenuItem onClick={() => setCreatePROpen(true)}>
                 <GitPullRequest className="size-3.5" />
                 {prUrls.length > 0 ? "Create another PR…" : "Create PR…"}
               </DropdownMenuItem>
@@ -593,8 +614,12 @@ export function RunHeader({
               </DropdownMenuItem>
             )}
             {canPromote && (
-              <DropdownMenuItem onClick={handlePromote} disabled={promoting}>
-                <Check className="size-3.5" />
+              <DropdownMenuItem
+                className={primaryAction === "promote" ? "sm:hidden" : undefined}
+                onClick={handlePromote}
+                disabled={promoting}
+              >
+                <CheckCircle2 className="size-3.5" />
                 {promoting ? "Marking…" : "Mark as succeeded"}
               </DropdownMenuItem>
             )}
@@ -604,12 +629,6 @@ export function RunHeader({
               <DropdownMenuItem onClick={() => setPlanOpen(true)}>
                 <FileText className="size-3.5" />
                 View plan
-              </DropdownMenuItem>
-            )}
-            {showRunContext && (
-              <DropdownMenuItem onClick={() => setContextOpen(true)}>
-                <PanelRightOpen className="size-3.5" />
-                Run context
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={handleExportArchive} disabled={exporting}>
