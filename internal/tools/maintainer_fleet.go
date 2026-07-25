@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,6 +43,11 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	if closeTool := registry.Get(maintainerLegacyCloseToolName); closeTool != nil {
 		registry.Register(&maintainerCutoverGuardedTool{Tool: closeTool, base: base})
 	}
+	for _, name := range []string{"create_github_issue", "add_github_issue_comment"} {
+		if issueTool := registry.Get(name); issueTool != nil {
+			registry.Register(&maintainerRepositoryScopedTool{Tool: issueTool, base: base})
+		}
+	}
 	registry.Register(&getFleetRunsTool{maintainerToolBase: base})
 	registry.Register(&getFleetRunActivityTool{maintainerToolBase: base})
 	registry.Register(&waitForRunsTool{maintainerToolBase: base, pollInterval: 10 * time.Second})
@@ -79,6 +85,35 @@ func (t *maintainerCutoverGuardedTool) Execute(ctx context.Context, input json.R
 	return t.Tool.Execute(ctx, input, workDir)
 }
 
+// maintainerRepositoryScopedTool prevents generic issue mutators from becoming
+// an alternate cross-repository publication path around report_platform_bug.
+// The maintained checkout is always the workspace root; additional repositories
+// are mounted under a non-root repo_path.
+type maintainerRepositoryScopedTool struct {
+	Tool
+	base maintainerToolBase
+}
+
+func (t *maintainerRepositoryScopedTool) Description() string {
+	return t.Tool.Description() + " Maintainer sessions may target only the maintained repository workspace root; cross-repository issue mutation is denied."
+}
+
+func (t *maintainerRepositoryScopedTool) Execute(ctx context.Context, input json.RawMessage, workDir string) (Result, error) {
+	if _, err := t.base.currentRun(ctx); err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	var target struct {
+		RepoPath string `json:"repo_path"`
+	}
+	if err := json.Unmarshal(input, &target); err != nil {
+		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil
+	}
+	if repoPath := strings.TrimSpace(target.RepoPath); repoPath != "" && filepath.Clean(repoPath) != "." {
+		return Result{Content: "cross-repository issue mutation is denied for maintainer sessions; use report_platform_bug, which requires explicit administrator approval", IsError: true}, nil
+	}
+	return t.Tool.Execute(ctx, input, workDir)
+}
+
 type fleetRunOutput struct {
 	Name            string                          `json:"name"`
 	Phase           platformv1alpha1.AgentRunPhase  `json:"phase"`
@@ -105,9 +140,10 @@ type fleetCapsOutput struct {
 }
 
 type getFleetRunsOutput struct {
-	Runs         []fleetRunOutput `json:"runs"`
-	Caps         fleetCapsOutput  `json:"caps"`
-	DispatchMode string           `json:"dispatch_mode"`
+	Runs                      []fleetRunOutput `json:"runs"`
+	Caps                      fleetCapsOutput  `json:"caps"`
+	DispatchMode              string           `json:"dispatch_mode"`
+	PlatformBugReportsAllowed bool             `json:"platform_bug_reports_allowed"`
 }
 
 type getFleetRunsTool struct{ maintainerToolBase }
@@ -138,7 +174,8 @@ func (t *getFleetRunsTool) Execute(ctx context.Context, _ json.RawMessage, _ str
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	out := getFleetRunsOutput{Runs: make([]fleetRunOutput, 0, len(fleet)), DispatchMode: dispatchMode}
+	allowPlatformReports := repository.Spec.Maintainer != nil && repository.Spec.Maintainer.AllowPlatformBugReports
+	out := getFleetRunsOutput{Runs: make([]fleetRunOutput, 0, len(fleet)), DispatchMode: dispatchMode, PlatformBugReportsAllowed: allowPlatformReports}
 	for i := range fleet {
 		run := &fleet[i]
 		entry, err := t.describeFleetRun(ctx, run)

@@ -301,6 +301,10 @@ func (s *Server) UpdateProjectTrigger(ctx context.Context, req *platform.UpdateP
 				// dispatch mode unless the client explicitly sends a reset value.
 				trigger.GitHub.Maintainer.DispatchModeRef = existing.GitHub.Maintainer.DispatchModeRef
 			}
+			if req.GetTrigger().GetGithub() != nil && req.GetTrigger().GetGithub().MaintainerAllowPlatformBugReports == nil &&
+				trigger.GitHub != nil && trigger.GitHub.Maintainer != nil && existing.GitHub != nil && existing.GitHub.Maintainer != nil {
+				trigger.GitHub.Maintainer.AllowPlatformBugReports = existing.GitHub.Maintainer.AllowPlatformBugReports
+			}
 			if err := s.verifySlackTriggerClaim(ctx, namespace, claimHandle); err != nil {
 				return err
 			}
@@ -519,7 +523,7 @@ func projectTriggerMaintainerFromProto(config *platform.GitHubProjectTrigger) (*
 	hasConfiguration := config.GetMaintainerMaxConcurrentDispatches() != 0 || config.GetMaintainerMaxDispatchesPerDay() != 0 ||
 		strings.TrimSpace(config.GetMaintainerStandupInterval()) != "" || strings.TrimSpace(config.GetMaintainerModeRef()) != "" ||
 		strings.TrimSpace(config.GetMaintainerDispatchModeRef()) != "" || strings.TrimSpace(config.GetMaintainerModel()) != "" ||
-		config.GetMaintainerAllowPrMerge() || config.GetMaintainerFullControl()
+		config.GetMaintainerAllowPrMerge() || config.GetMaintainerFullControl() || config.GetMaintainerAllowPlatformBugReports()
 	if !config.GetMaintainerEnabled() && !hasConfiguration {
 		return nil, nil
 	}
@@ -536,6 +540,7 @@ func projectTriggerMaintainerFromProto(config *platform.GitHubProjectTrigger) (*
 		MaxDispatchesPerDay:     config.GetMaintainerMaxDispatchesPerDay(),
 		AllowPullRequestMerge:   config.GetMaintainerAllowPrMerge(),
 		FullControl:             config.GetMaintainerFullControl(),
+		AllowPlatformBugReports: config.GetMaintainerAllowPlatformBugReports(),
 	}
 	if modeRef := strings.TrimSpace(config.GetMaintainerModeRef()); modeRef != "" {
 		maintainer.ModeRef = &platformv1alpha1.ModeRef{Name: modeRef}

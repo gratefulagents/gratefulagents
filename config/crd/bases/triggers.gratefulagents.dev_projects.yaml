@@ -543,6 +543,12 @@ spec:
                             maintainer configures a standing supervisor for this repository trigger.
                             The configuration is copied to the generated GitHubRepository child.
                           properties:
+                            allowPlatformBugReports:
+                              description: |-
+                                allowPlatformBugReports permits the maintainer to publish a deduplicated
+                                Grateful Agents platform/tooling bug to gratefulagents/gratefulagents.
+                                Disabled by default because report content crosses repository trust boundaries.
+                              type: boolean
                             allowPullRequestMerge:
                               description: |-
                                 allowPullRequestMerge permits the controller-executed RequestMerge command

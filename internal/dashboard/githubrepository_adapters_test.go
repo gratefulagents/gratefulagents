@@ -48,6 +48,7 @@ func TestGitHubRepositoryMaintainerAdapterRoundTrip(t *testing.T) {
 				StandupInterval:         &metav1.Duration{Duration: 6 * time.Hour},
 				AllowPullRequestMerge:   true,
 				FullControl:             true,
+				AllowPlatformBugReports: true,
 				WorkItemCutover:         triggersv1alpha1.MaintainerWorkItemCutoverDualRead,
 			},
 		},
@@ -68,7 +69,7 @@ func TestGitHubRepositoryMaintainerAdapterRoundTrip(t *testing.T) {
 	if settings == nil || !settings.GetMaintainerEnabled() ||
 		settings.GetMaintainerMaxConcurrentDispatches() != 4 || settings.GetMaintainerMaxDispatchesPerDay() != 12 ||
 		settings.GetMaintainerStandupInterval() != "6h0m0s" || settings.GetMaintainerModeRef() != "repository-maintainer" ||
-		settings.GetMaintainerDispatchModeRef() != "implementation-auto" || settings.GetMaintainerModel() != "claude-opus-4-6" || !settings.GetMaintainerAllowPrMerge() || !settings.GetMaintainerFullControl() ||
+		settings.GetMaintainerDispatchModeRef() != "implementation-auto" || settings.GetMaintainerModel() != "claude-opus-4-6" || !settings.GetMaintainerAllowPrMerge() || !settings.GetMaintainerFullControl() || !settings.GetMaintainerAllowPlatformBugReports() ||
 		settings.GetMaintainerWorkItemCutover() != string(triggersv1alpha1.MaintainerWorkItemCutoverDualRead) {
 		t.Fatalf("maintainer settings = %+v", settings)
 	}
@@ -86,7 +87,7 @@ func TestGitHubRepositoryMaintainerAdapterRoundTrip(t *testing.T) {
 	if maintainer == nil || maintainer.Disabled || maintainer.MaxConcurrentDispatches != 4 ||
 		maintainer.MaxDispatchesPerDay != 12 || maintainer.StandupInterval == nil || maintainer.StandupInterval.Duration != 6*time.Hour ||
 		maintainer.ModeRef == nil || maintainer.ModeRef.Name != "repository-maintainer" || maintainer.DispatchModeRef != "implementation-auto" || maintainer.Model != "claude-opus-4-6" ||
-		!maintainer.AllowPullRequestMerge || !maintainer.FullControl || maintainer.WorkItemCutover != triggersv1alpha1.MaintainerWorkItemCutoverDualRead {
+		!maintainer.AllowPullRequestMerge || !maintainer.FullControl || !maintainer.AllowPlatformBugReports || maintainer.WorkItemCutover != triggersv1alpha1.MaintainerWorkItemCutoverDualRead {
 		t.Fatalf("round-tripped maintainer = %+v", maintainer)
 	}
 }

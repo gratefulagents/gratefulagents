@@ -502,7 +502,7 @@ func TestUpdateGitHubRepositoryPreservesMaintainerCutoverWhenClientOmitsField(t 
 		Spec: triggersv1alpha1.GitHubRepositorySpec{
 			Owner: "acme", Repo: "payments", GitHubTokenSecret: "trigger-token",
 			Defaults:   triggersv1alpha1.AgentRunDefaults{RepoURL: "https://github.com/acme/payments.git", Provider: triggersv1alpha1.ProviderAnthropic, Secrets: triggersv1alpha1.AgentRunSecrets{GithubToken: "trigger-token", ProviderKeys: []platformv1alpha1.ProviderKeyRef{{Provider: "anthropic", SecretName: "anthropic-key", SecretKey: "api-key"}}}},
-			Maintainer: &triggersv1alpha1.MaintainerSpec{WorkItemCutover: triggersv1alpha1.MaintainerWorkItemCutoverDualRead, DispatchModeRef: "implementation-auto"},
+			Maintainer: &triggersv1alpha1.MaintainerSpec{WorkItemCutover: triggersv1alpha1.MaintainerWorkItemCutoverDualRead, DispatchModeRef: "implementation-auto", AllowPlatformBugReports: true},
 		},
 	}
 	srv, c := newCronTestServer(t, existing)
@@ -520,7 +520,7 @@ func TestUpdateGitHubRepositoryPreservesMaintainerCutoverWhenClientOmitsField(t 
 	if err := c.Get(context.Background(), client.ObjectKeyFromObject(existing), updated); err != nil {
 		t.Fatal(err)
 	}
-	if updated.Spec.Maintainer == nil || updated.Spec.Maintainer.WorkItemCutover != triggersv1alpha1.MaintainerWorkItemCutoverDualRead || updated.Spec.Maintainer.DispatchModeRef != "implementation-auto" {
+	if updated.Spec.Maintainer == nil || updated.Spec.Maintainer.WorkItemCutover != triggersv1alpha1.MaintainerWorkItemCutoverDualRead || updated.Spec.Maintainer.DispatchModeRef != "implementation-auto" || !updated.Spec.Maintainer.AllowPlatformBugReports {
 		t.Fatalf("maintainer config = %+v, want preserved DualRead and implementation-auto", updated.Spec.Maintainer)
 	}
 }

@@ -2392,6 +2392,7 @@ message GitHubProjectTrigger {
   // Dangerous: lets the maintainer merge without human approval after required checks pass.
   bool maintainer_full_control = 17;
   optional string maintainer_dispatch_mode_ref = 18; // Implementer ModeTemplate; omission preserves existing config; empty = default "autopilot".
+  optional bool maintainer_allow_platform_bug_reports = 19; // Dangerous cross-repository publication; omission preserves existing config.
 }
 
 message SlackProjectTrigger {
@@ -2673,6 +2674,7 @@ message GitHubRepositoryTriggerSettings {
   // Dangerous: lets the maintainer merge without human approval after required checks pass.
   bool maintainer_full_control = 20;
   optional string maintainer_dispatch_mode_ref = 21; // Implementer ModeTemplate; omission preserves existing config; empty = default "autopilot".
+  optional bool maintainer_allow_platform_bug_reports = 22; // Dangerous cross-repository publication; omission preserves existing config.
 }
 
 // GitHubRepositoryMaintainerStatus mirrors GitHubRepositoryStatus.maintainer.

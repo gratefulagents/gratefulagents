@@ -32,7 +32,7 @@ type platformBugSearchResult struct {
 
 func (t *reportPlatformBugTool) Name() string { return reportPlatformBugToolName }
 func (t *reportPlatformBugTool) Description() string {
-	return "Search for and, when not already reported, create a Grateful Agents platform/tooling bug in gratefulagents/gratefulagents. This server-enforced target must never be used for user-repository bugs or ordinary project failures."
+	return "Search for and, only when maintainer.allowPlatformBugReports is explicitly enabled, create a Grateful Agents platform/tooling bug in gratefulagents/gratefulagents. This server-enforced target must never be used for user-repository bugs or ordinary project failures."
 }
 func (t *reportPlatformBugTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string","minLength":8,"maxLength":160},"body":{"type":"string","minLength":20,"maxLength":12000,"description":"Redacted report with expected/actual behavior, reproduction, affected tool/controller, impact, and workaround."}},"required":["title","body"]}`)
@@ -45,6 +45,13 @@ func (t *reportPlatformBugTool) TimeoutSeconds() int                   { return 
 func (t *reportPlatformBugTool) Execute(ctx context.Context, raw json.RawMessage, workDir string) (Result, error) {
 	if _, err := t.currentRun(ctx); err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	repository, err := t.repository(ctx)
+	if err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	if repository.Spec.Maintainer == nil || !repository.Spec.Maintainer.AllowPlatformBugReports {
+		return Result{Content: "platform bug publication is disabled; an administrator must explicitly enable maintainer.allowPlatformBugReports before report content may cross repository boundaries", IsError: true}, nil
 	}
 	var in reportPlatformBugInput
 	if err := json.Unmarshal(raw, &in); err != nil {
@@ -70,6 +77,10 @@ func (t *reportPlatformBugTool) Execute(ctx context.Context, raw json.RawMessage
 	}
 	if _, err := t.currentRun(ctx); err != nil {
 		return Result{Content: "authorization changed before upstream issue creation: " + err.Error(), IsError: true}, nil
+	}
+	repository, err = t.repository(ctx)
+	if err != nil || repository.Spec.Maintainer == nil || !repository.Spec.Maintainer.AllowPlatformBugReports {
+		return Result{Content: "platform bug publication approval was removed before upstream issue creation", IsError: true}, nil
 	}
 	body += "\n\n" + githubAppAuthorizationFooter
 	created, err := t.runner.RunGHWithInput(ctx, workDir, body, "issue", "create", "--repo", platformBugRepository, "--title", title, "--body-file", "-")

@@ -162,6 +162,7 @@ describe("GitHubRepositorySettingsDialog", () => {
     fireEvent.change(screen.getByLabelText(/Maintainer model/), { target: { value: "claude-opus-4-6" } });
     fireEvent.click(screen.getByRole("switch", { name: /Allow the maintainer to merge approved pull requests/ }));
     fireEvent.click(screen.getByRole("switch", { name: /Give the maintainer full control/ }));
+    fireEvent.click(screen.getByRole("switch", { name: /Allow publishing Grateful Agents platform bug reports/ }));
 
     submitForm();
 
@@ -178,6 +179,7 @@ describe("GitHubRepositorySettingsDialog", () => {
     expect(request.triggerSettings?.maintainerModel).toBe("claude-opus-4-6");
     expect(request.triggerSettings?.maintainerAllowPrMerge).toBe(true);
     expect(request.triggerSettings?.maintainerFullControl).toBe(true);
+    expect(request.triggerSettings?.maintainerAllowPlatformBugReports).toBe(true);
     expect(request.triggerSettings?.maintainerWorkItemCutover).toBe("Controller");
   });
 

@@ -478,6 +478,12 @@ spec:
                                     trigger ingress, watches the dispatched fleet, and reports. Disabled by
                                     default; set maintainer to opt in (and leave maintainer.disabled false).
                                 properties:
+                                    allowPlatformBugReports:
+                                        description: |-
+                                            allowPlatformBugReports permits the maintainer to publish a deduplicated
+                                            Grateful Agents platform/tooling bug to gratefulagents/gratefulagents.
+                                            Disabled by default because report content crosses repository trust boundaries.
+                                        type: boolean
                                     allowPullRequestMerge:
                                         description: |-
                                             allowPullRequestMerge permits the controller-executed RequestMerge command

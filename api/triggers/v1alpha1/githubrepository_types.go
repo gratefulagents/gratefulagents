@@ -144,6 +144,12 @@ type MaintainerSpec struct {
 	// +optional
 	FullControl bool `json:"fullControl,omitempty"`
 
+	// allowPlatformBugReports permits the maintainer to publish a deduplicated
+	// Grateful Agents platform/tooling bug to gratefulagents/gratefulagents.
+	// Disabled by default because report content crosses repository trust boundaries.
+	// +optional
+	AllowPlatformBugReports bool `json:"allowPlatformBugReports,omitempty"`
+
 	// workItemCutover selects the rollbackable maintainer waiter migration mode.
 	// Legacy retains direct polling, DualRead compares legacy and semantic state,
 	// and Controller uses only durable work-item issue observations/projections.

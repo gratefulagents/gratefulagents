@@ -36,6 +36,7 @@ type FormState = {
   maintainerModel: string;
   maintainerAllowPrMerge: boolean;
   maintainerFullControl: boolean;
+  maintainerAllowPlatformBugReports: boolean;
   channel: string;
   channelReplyMode: "require-approval" | "auto";
   commanders: string;
@@ -104,6 +105,7 @@ function initialForm(trigger?: ProjectTrigger): FormState {
     maintainerModel: field(github, "maintainerModel"),
     maintainerAllowPrMerge: booleanField(github, "maintainerAllowPrMerge"),
     maintainerFullControl: booleanField(github, "maintainerFullControl"),
+    maintainerAllowPlatformBugReports: booleanField(github, "maintainerAllowPlatformBugReports"),
     channel: field(slack, "channel"),
     channelReplyMode: replyMode === "auto" ? "auto" : "require-approval",
     commanders: stringList(slack, "commanders").join(", "),
@@ -145,6 +147,7 @@ function buildTrigger(form: FormState, existing?: ProjectTrigger): ProjectTrigge
             maintainerModel: form.maintainerModel.trim(),
             maintainerAllowPrMerge: form.maintainerAllowPrMerge,
             maintainerFullControl: form.maintainerFullControl,
+            maintainerAllowPlatformBugReports: form.maintainerAllowPlatformBugReports,
           }
         : undefined,
     slack:
@@ -683,6 +686,21 @@ function GitHubDetails({
                   <span className="block font-medium">Give the maintainer full control</span>
                   <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
                     Highest risk: manages and merges pull requests without human approval. Required checks must still pass.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2.5 rounded-md border border-destructive/60 bg-destructive/10 p-3 text-[12.5px]">
+                <input
+                  type="checkbox"
+                  checked={form.maintainerAllowPlatformBugReports}
+                  onChange={(e) => update("maintainerAllowPlatformBugReports", e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                  aria-label="Allow maintainer platform bug reports"
+                />
+                <span>
+                  <span className="block font-medium">Allow publishing Grateful Agents platform bug reports</span>
+                  <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                    Danger: model-authored report content crosses the repository boundary and is published to gratefulagents/gratefulagents. Disabled by default.
                   </span>
                 </span>
               </label>

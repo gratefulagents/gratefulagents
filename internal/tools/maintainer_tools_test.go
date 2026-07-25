@@ -561,10 +561,49 @@ func TestWakeAgentRunRevalidatesBeforeDelivery(t *testing.T) {
 	}
 }
 
+func TestMaintainerGenericIssueMutatorsDenyAdditionalRepositories(t *testing.T) {
+	t.Parallel()
+
+	base, _, stateStore := newMaintainerToolBase(t, maintainerRun())
+	registry := NewRegistry(t.TempDir())
+	RegisterCreateIssueTool(registry, base.k8sClient, base.currentRunName, base.currentRunNamespace)
+	RegisterGitHubIssueManagementTools(registry, t.TempDir())
+	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, string(base.currentRunUID), base.repositoryName, base.repositoryNamespace)
+	for _, tc := range []struct {
+		name  string
+		input string
+	}{
+		{name: "create_github_issue", input: `{"repo_path":"repos/upstream","title":"Cross-boundary report","body":"private report content"}`},
+		{name: "add_github_issue_comment", input: `{"repo_path":"repos/upstream","issue_number":1,"body":"private report content"}`},
+	} {
+		tool := registry.Get(tc.name)
+		if tool == nil {
+			t.Fatalf("%s was not registered", tc.name)
+		}
+		result, err := tool.Execute(context.Background(), json.RawMessage(tc.input), "")
+		if err != nil || !result.IsError || !strings.Contains(result.Content, "cross-repository issue mutation is denied") {
+			t.Fatalf("%s additional repository result = (%#v, %v)", tc.name, result, err)
+		}
+	}
+}
+
 func TestReportPlatformBugPinsUpstreamAndDeduplicates(t *testing.T) {
 	t.Parallel()
 
-	base, _, _ := newMaintainerToolBase(t, maintainerRun())
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace}, repository); err != nil {
+		t.Fatal(err)
+	}
+	disabledRunner := &fakePRReviewRunner{}
+	disabled, err := (&reportPlatformBugTool{maintainerToolBase: base, runner: disabledRunner}).Execute(context.Background(), json.RawMessage(`{"title":"Maintainer command receipt is lost","body":"Expected a durable terminal receipt, but the command disappeared after submission."}`), "")
+	if err != nil || !disabled.IsError || !strings.Contains(disabled.Content, "explicitly enable") || len(disabledRunner.ghCalls) != 0 {
+		t.Fatalf("disabled platform report = (%#v, %v), calls=%v", disabled, err, disabledRunner.ghCalls)
+	}
+	repository.Spec.Maintainer.AllowPlatformBugReports = true
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
 	title := "Maintainer command receipt is lost"
 	searchKey := "issue list --repo " + platformBugRepository + " --state all --search " + title + " in:title --json number,title,url --limit 20"
 	createKey := "issue create --repo " + platformBugRepository + " --title " + title + " --body-file -"
