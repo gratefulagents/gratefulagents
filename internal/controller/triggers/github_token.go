@@ -127,16 +127,14 @@ func ensureRunGitHubAppTokenSecret(ctx context.Context, c client.Client, scheme 
 		if getErr := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: secretName}, existing); getErr != nil {
 			return fmt.Errorf("getting existing GitHub token Secret: %w", getErr)
 		}
+		if !metav1.IsControlledBy(existing, run) {
+			return fmt.Errorf("refusing pre-existing GitHub token Secret %s/%s not controlled by AgentRun UID %s", existing.Namespace, existing.Name, run.UID)
+		}
 		if existing.Data == nil {
 			existing.Data = map[string][]byte{}
 		}
 		existing.Data[githubapp.TokenSecretKey] = []byte(token)
 		existing.Type = corev1.SecretTypeOpaque
-		if len(existing.OwnerReferences) == 0 {
-			if err := ctrl.SetControllerReference(run, existing, scheme); err != nil {
-				return fmt.Errorf("setting owner reference on existing GitHub token Secret: %w", err)
-			}
-		}
 		if err := c.Update(ctx, existing); err != nil {
 			return fmt.Errorf("updating GitHub token Secret: %w", err)
 		}

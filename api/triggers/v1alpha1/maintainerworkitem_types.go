@@ -140,6 +140,15 @@ type MaintainerWorkItemReference struct {
 	UID types.UID `json:"uid,omitempty"`
 }
 
+// MaintainerAuthorizedAgentRunReference is a controller-issued binding to one
+// immutable AgentRun identity.
+type MaintainerAuthorizedAgentRunReference struct {
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// +kubebuilder:validation:MinLength=1
+	UID types.UID `json:"uid"`
+}
+
 // MaintainerRequiredPullRequestIntent identifies a pull request required for delivery.
 type MaintainerRequiredPullRequestIntent struct {
 	// +kubebuilder:validation:MinLength=1
@@ -450,6 +459,13 @@ type MaintainerWorkItemStatus struct {
 	// +listMapKey=name
 	// +optional
 	AgentRuns []MaintainerWorkItemAgentRunProjection `json:"agentRuns,omitempty"`
+	// AuthorizedAgentRuns is the controller-issued, immutable-UID binding used
+	// to authorize supervision of ownerless Project-generated trigger runs.
+	// Unlike AgentRuns, it is never derived from labels supplied by a run.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	AuthorizedAgentRuns []MaintainerAuthorizedAgentRunReference `json:"authorizedAgentRuns,omitempty"`
 	// +listType=map
 	// +listMapKey=intentName
 	// +optional

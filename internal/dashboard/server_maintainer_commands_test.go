@@ -423,3 +423,47 @@ func TestIssueMaintainerCommandProofIsValid(t *testing.T) {
 		t.Errorf("proof mismatch:\n  got  %s\n  want %s", cmd.Spec.HumanIssuer.Proof, wantProof)
 	}
 }
+
+func TestBuildMaintainerFinalizeIncludesAllProjectedImplementers(t *testing.T) {
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{Name: "acme-wi-42", Namespace: "default", UID: "wi-uid-42", ResourceVersion: "rv-1"},
+		Spec: triggersv1alpha1.MaintainerWorkItemSpec{
+			RepositoryRef: corev1.LocalObjectReference{Name: "acme"},
+			IssueNumber:   42,
+			AcceptedScope: &triggersv1alpha1.MaintainerAcceptedScope{Statement: "Ship it"},
+		},
+		Status: triggersv1alpha1.MaintainerWorkItemStatus{
+			ProjectionSequence: 7,
+			AgentRuns: []triggersv1alpha1.MaintainerWorkItemAgentRunProjection{
+				{Name: "impl-z", Role: triggersv1alpha1.MaintainerWorkItemAgentRunRoleImplementer},
+				{Name: "reviewer", Role: triggersv1alpha1.MaintainerWorkItemAgentRunRoleReviewer},
+				{Name: "impl-a", Role: triggersv1alpha1.MaintainerWorkItemAgentRunRoleImplementer},
+			},
+		},
+	}
+	repo := &triggersv1alpha1.GitHubRepository{
+		ObjectMeta: metav1.ObjectMeta{Name: "acme", Namespace: "default"},
+		Spec:       triggersv1alpha1.GitHubRepositorySpec{Owner: "acme-org", Repo: "payments"},
+	}
+	req := &platform.IssueMaintainerCommandRequest{
+		Type: "FinalizeWorkItem",
+		Finalize: &platform.MaintainerFinalizeInput{
+			DeliverySummary:  "Delivered",
+			DeliveryEvidence: "PR #77 merged",
+		},
+	}
+	preconditions := triggersv1alpha1.MaintainerWorkItemCommandPreconditions{
+		WorkItemName: item.Name, WorkItemUID: item.UID, ProjectionSequence: 7, ResourceVersion: "rv-1",
+	}
+
+	spec, err := (&Server{}).buildMaintainerCommandSpec(
+		context.Background(), req, triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem,
+		repo, item, preconditions, "finalize-42", "alice",
+	)
+	if err != nil {
+		t.Fatalf("buildMaintainerCommandSpec: %v", err)
+	}
+	if got, want := strings.Join(spec.Finalize.ImplementerRunNames, ","), "impl-a,impl-z"; got != want {
+		t.Fatalf("ImplementerRunNames = %q, want %q", got, want)
+	}
+}

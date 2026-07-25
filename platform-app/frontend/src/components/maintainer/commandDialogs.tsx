@@ -123,8 +123,11 @@ export function TriageDialog({ item, trigger, onSuccess }: DialogSharedProps) {
     <Dialog
       open={open}
       onOpenChange={(next) => {
+        // Card components stay mounted while polling replaces `item`. Refresh
+        // defaults at open time so a current projection sequence can never be
+        // submitted with triage fields captured from an older projection.
+        reset();
         setOpen(next);
-        if (!next) reset();
       }}
     >
       <DialogTrigger render={trigger} />

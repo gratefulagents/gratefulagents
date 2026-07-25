@@ -43,8 +43,8 @@ Each shot writes three files to `selfdev/out/` (gitignored):
 
 ```bash
 make selfdev-doctor                    # verify chromium + fake backend boot
-make selfdev-snap ROUTE=/... [THEME=dark|light|both] [SCENARIO=default|empty|error]
-make selfdev-snap-all [SCENARIO=...]   # every fixture route — whole-UI smoke
+make selfdev-snap ROUTE=/... [THEME=dark|light|both] [SCENARIO=default|empty|error] [VIEWPORT=desktop|mobile|ipad-portrait|ipad-landscape|all]
+make selfdev-snap-all [SCENARIO=...] [VIEWPORT=...] # every fixture route — whole-UI smoke
 make selfdev-serve                     # interactive UI + fake backend
 make selfdev-test                      # harness unit tests
 ```

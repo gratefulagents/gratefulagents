@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -340,11 +341,26 @@ func (s *Server) buildMaintainerCommandSpec(
 			return spec, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("work item has no accepted scope to attest"))
 		}
 		scopeHash := triggersv1alpha1.MaintainerAcceptedScopeHash(item.Spec.AcceptedScope)
+		// Finalization attests the complete projected implementer set. The
+		// controller deliberately rejects partial sets so no run can be omitted
+		// from the terminal success transition.
+		implementerSet := make(map[string]struct{}, len(item.Status.AgentRuns))
+		for _, run := range item.Status.AgentRuns {
+			if run.Role == triggersv1alpha1.MaintainerWorkItemAgentRunRoleImplementer && strings.TrimSpace(run.Name) != "" {
+				implementerSet[run.Name] = struct{}{}
+			}
+		}
+		implementerRunNames := make([]string, 0, len(implementerSet))
+		for name := range implementerSet {
+			implementerRunNames = append(implementerRunNames, name)
+		}
+		sort.Strings(implementerRunNames)
 		spec.Finalize = &triggersv1alpha1.MaintainerFinalizeWorkItemCommand{
-			IssueNumber:       item.Spec.IssueNumber,
-			AcceptedScopeHash: scopeHash,
-			DeliverySummary:   strings.TrimSpace(in.DeliverySummary),
-			DeliveryEvidence:  strings.TrimSpace(in.DeliveryEvidence),
+			IssueNumber:         item.Spec.IssueNumber,
+			AcceptedScopeHash:   scopeHash,
+			DeliverySummary:     strings.TrimSpace(in.DeliverySummary),
+			DeliveryEvidence:    strings.TrimSpace(in.DeliveryEvidence),
+			ImplementerRunNames: implementerRunNames,
 		}
 	}
 

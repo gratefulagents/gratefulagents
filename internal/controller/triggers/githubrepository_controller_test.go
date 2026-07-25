@@ -10,6 +10,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -49,6 +50,115 @@ func TestGHIssueNameAddsHashWhenTruncated(t *testing.T) {
 	}
 	if first == second {
 		t.Fatalf("ghIssueName collision: %q", first)
+	}
+}
+
+func TestCreateAgentRunRejectsInstructionsConfigMapContentCollision(t *testing.T) {
+	t.Parallel()
+	scheme := maintainerWorkItemScheme(t)
+	gh := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default", UID: "repo-uid"}, Spec: triggersv1alpha1.GitHubRepositorySpec{
+		Owner: "owner", Repo: "repo",
+		Defaults: triggersv1alpha1.AgentRunDefaults{Model: "claude-sonnet", RepoURL: "https://github.com/owner/repo.git", CustomInstructions: "trusted instructions"},
+	}}
+	runName := ghIssueName(gh.Spec.Owner, gh.Spec.Repo, "1")
+	collision := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: runName + "-instructions", Namespace: gh.Namespace}, Data: map[string]string{"instructions.md": "injected instructions"}}
+	c := buildTriggerFakeClient(fake.NewClientBuilder().WithScheme(scheme).WithObjects(collision))
+	reconciler := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+
+	if _, err := reconciler.createAgentRun(context.Background(), gh, "1", 1, "https://github.com/owner/repo/issues/1", "body", "author", nil); err == nil {
+		t.Fatal("instructions ConfigMap content collision was accepted")
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Name: runName, Namespace: gh.Namespace}, &platformv1alpha1.AgentRun{}); err == nil {
+		t.Fatal("AgentRun was created after instructions collision")
+	}
+}
+
+func TestAgentRunAuthorizationIntentRecoversOnlyMatchingPendingRun(t *testing.T) {
+	t.Parallel()
+	controller := true
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default", UID: "repo-uid"}}
+	item := &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{
+		Name: "repo-issue-1", Namespace: repository.Namespace, UID: "item-uid",
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "GitHubRepository", Name: repository.Name, UID: repository.UID, Controller: &controller}},
+	}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IssueNumber: 1}}
+	scheme := maintainerWorkItemScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(repository, item).Build()
+	reconciler := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+	annotations, err := reconciler.createAgentRunAuthorizationIntent(context.Background(), repository, item, "run", "issue-event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	annotations[platformv1alpha1.AuthorizationPendingAnnotation] = "true"
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: repository.Namespace, UID: "run-uid", Annotations: annotations}}
+	if err := reconciler.claimAgentRunAuthorizationIntent(context.Background(), repository, item, run, "issue-event"); err != nil {
+		t.Fatalf("valid recovery intent rejected: %v", err)
+	}
+	impostor := run.DeepCopy()
+	impostor.UID = "replacement-run-uid"
+	if err := reconciler.claimAgentRunAuthorizationIntent(context.Background(), repository, item, impostor, "issue-event"); err == nil {
+		t.Fatal("consumed intent was replayed for a replacement AgentRun UID")
+	}
+	run.Annotations[agentRunAuthorizationProofAnnotation] = "forged"
+	if err := reconciler.claimAgentRunAuthorizationIntent(context.Background(), repository, item, run, "issue-event"); err == nil {
+		t.Fatal("forged recovery intent was accepted")
+	}
+}
+
+func TestBindAuthorizedAgentRunRecordsControllerIssuedUIDBinding(t *testing.T) {
+	t.Parallel()
+	controller := true
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default", UID: types.UID("repo-uid")}}
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "repo-issue-1", Namespace: repository.Namespace, UID: types.UID("item-uid"),
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "GitHubRepository", Name: repository.Name, UID: repository.UID, Controller: &controller}},
+		},
+		Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IssueNumber: 1},
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "implementer", Namespace: repository.Namespace, UID: types.UID("run-uid")}}
+	c := fake.NewClientBuilder().WithScheme(maintainerWorkItemScheme(t)).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}).WithObjects(repository, item, run).Build()
+	reconciler := &GitHubRepositoryReconciler{Client: c}
+
+	if err := reconciler.bindAuthorizedAgentRun(context.Background(), repository, item, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.bindAuthorizedAgentRun(context.Background(), repository, item, run); err != nil {
+		t.Fatalf("idempotent bind failed: %v", err)
+	}
+	updated := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(item), updated); err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Status.AuthorizedAgentRuns) != 1 || updated.Status.AuthorizedAgentRuns[0].Name != run.Name || updated.Status.AuthorizedAgentRuns[0].UID != run.UID {
+		t.Fatalf("authorized bindings = %#v", updated.Status.AuthorizedAgentRuns)
+	}
+	if err := reconciler.requireAuthorizedAgentRun(context.Background(), repository, item, run); err != nil {
+		t.Fatalf("exact existing binding rejected: %v", err)
+	}
+	impostor := run.DeepCopy()
+	impostor.UID = "other-run-uid"
+	if err := reconciler.requireAuthorizedAgentRun(context.Background(), repository, item, impostor); err == nil {
+		t.Fatal("same-name run with an unbound UID was authorized")
+	}
+}
+
+func TestBindAuthorizedAgentRunRejectsForeignWorkItemOwner(t *testing.T) {
+	t.Parallel()
+	controller := true
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default", UID: types.UID("repo-uid")}}
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "repo-issue-1", Namespace: repository.Namespace, UID: types.UID("item-uid"),
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "GitHubRepository", Name: repository.Name, UID: types.UID("foreign-uid"), Controller: &controller}},
+		},
+		Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: repository.Name}, IssueNumber: 1},
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "implementer", Namespace: repository.Namespace, UID: types.UID("run-uid")}}
+	c := fake.NewClientBuilder().WithScheme(maintainerWorkItemScheme(t)).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}).WithObjects(repository, item, run).Build()
+
+	err := (&GitHubRepositoryReconciler{Client: c}).bindAuthorizedAgentRun(context.Background(), repository, item, run)
+	if err == nil {
+		t.Fatal("foreign work-item owner was authorized")
 	}
 }
 

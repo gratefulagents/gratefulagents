@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 
 import { MaintainerBoard } from "@/components/maintainer/MaintainerBoard";
+import { TriageDialog } from "@/components/maintainer/commandDialogs";
 import type { MaintainerWorkItem, MaintainerWorkItemDecision, MaintainerWorkItemPullRequest } from "@/rpc/platform/service_pb";
 
 const { issueMaintainerCommand } = vi.hoisted(() => ({
@@ -429,5 +430,44 @@ describe("MaintainerBoard merge dialog", () => {
       );
     });
     await waitFor(() => expect(onRefetch).toHaveBeenCalled());
+  });
+});
+
+describe("TriageDialog polled defaults", () => {
+  it("uses the latest work-item fields when a mounted dialog is opened", () => {
+    const original = makeItem({
+      name: "wi-triage",
+      issueNumber: 70,
+      issueTitle: "Triage me",
+      phase: "Triaged",
+      disposition: "Bounded",
+      evidenceSummary: "old evidence",
+      acceptedScopeStatement: "old scope",
+      acceptedScopeCriteria: ["old criterion"],
+      projectionSequence: 5n,
+    });
+    const updated = makeItem({
+      ...original,
+      evidenceSummary: "fresh evidence",
+      acceptedScopeStatement: "fresh scope",
+      acceptedScopeCriteria: ["fresh criterion"],
+      projectionSequence: 6n,
+    });
+
+    const view = render(
+      <MemoryRouter>
+        <TriageDialog item={original} trigger={<button type="button">Open triage</button>} onSuccess={() => undefined} />
+      </MemoryRouter>,
+    );
+    view.rerender(
+      <MemoryRouter>
+        <TriageDialog item={updated} trigger={<button type="button">Open triage</button>} onSuccess={() => undefined} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open triage" }));
+    expect((screen.getByLabelText("Evidence summary") as HTMLTextAreaElement).value).toBe("fresh evidence");
+    expect((screen.getByLabelText("Scope statement") as HTMLTextAreaElement).value).toBe("fresh scope");
+    expect((screen.getByLabelText("Acceptance criteria") as HTMLTextAreaElement).value).toBe("fresh criterion");
   });
 });
