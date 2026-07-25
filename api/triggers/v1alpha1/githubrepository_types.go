@@ -107,6 +107,15 @@ type MaintainerSpec struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 
+	// dispatchModeRef is the metadata.name of the ModeTemplate used for
+	// maintainer-dispatched implementation runs. Defaults to "autopilot". The
+	// controller owns this choice; maintainer agents cannot override it per dispatch.
+	// +kubebuilder:default:=autopilot
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	DispatchModeRef string `json:"dispatchModeRef,omitempty"`
+
 	// maxConcurrentDispatches caps how many maintainer-dispatched runs may be
 	// active at once. Defaults to 2.
 	// +kubebuilder:validation:Minimum=1

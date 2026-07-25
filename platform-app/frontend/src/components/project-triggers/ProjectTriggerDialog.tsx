@@ -32,6 +32,7 @@ type FormState = {
   maintainerMaxDispatchesPerDay: string;
   maintainerStandupInterval: string;
   maintainerModeRef: string;
+  maintainerDispatchModeRef: string;
   maintainerModel: string;
   maintainerAllowPrMerge: boolean;
   maintainerFullControl: boolean;
@@ -99,6 +100,7 @@ function initialForm(trigger?: ProjectTrigger): FormState {
     maintainerMaxDispatchesPerDay: positiveNumber(github, "maintainerMaxDispatchesPerDay"),
     maintainerStandupInterval: field(github, "maintainerStandupInterval"),
     maintainerModeRef: field(github, "maintainerModeRef"),
+    maintainerDispatchModeRef: field(github, "maintainerDispatchModeRef"),
     maintainerModel: field(github, "maintainerModel"),
     maintainerAllowPrMerge: booleanField(github, "maintainerAllowPrMerge"),
     maintainerFullControl: booleanField(github, "maintainerFullControl"),
@@ -139,6 +141,7 @@ function buildTrigger(form: FormState, existing?: ProjectTrigger): ProjectTrigge
               : 0,
             maintainerStandupInterval: form.maintainerStandupInterval.trim(),
             maintainerModeRef: form.maintainerModeRef.trim(),
+            maintainerDispatchModeRef: form.maintainerDispatchModeRef.trim(),
             maintainerModel: form.maintainerModel.trim(),
             maintainerAllowPrMerge: form.maintainerAllowPrMerge,
             maintainerFullControl: form.maintainerFullControl,
@@ -632,7 +635,17 @@ function GitHubDetails({
                 />
                 <FieldHint>ModeTemplate name. Blank uses maintainer.</FieldHint>
               </div>
-              <div className="sm:col-span-2">
+              <div>
+                <Label className="mb-1.5 block text-[12.5px] font-medium">Dispatch mode</Label>
+                <Input
+                  value={form.maintainerDispatchModeRef}
+                  onChange={(e) => update("maintainerDispatchModeRef", e.target.value)}
+                  placeholder="autopilot"
+                  aria-label="Maintainer dispatch mode"
+                />
+                <FieldHint>Controller-owned implementer ModeTemplate. Blank uses autopilot.</FieldHint>
+              </div>
+              <div>
                 <Label className="mb-1.5 block text-[12.5px] font-medium">Maintainer model</Label>
                 <Input
                   value={form.maintainerModel}

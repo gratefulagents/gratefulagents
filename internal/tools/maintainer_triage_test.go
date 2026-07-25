@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	corev1 "k8s.io/api/core/v1"
@@ -22,8 +23,8 @@ func TestRegisterMaintainerToolsRegistersTypedWorkItemCommands(t *testing.T) {
 
 	base, _, stateStore := newMaintainerToolBase(t, maintainerRun())
 	registry := NewRegistry(t.TempDir())
-	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
-	for _, name := range []string{"triage_issue", "breakdown_issue", "request_decision", maintainerTestDispatchWorkTool, requestMergeToolName, finalizeWorkItemToolName} {
+	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, string(base.currentRunUID), base.repositoryName, base.repositoryNamespace)
+	for _, name := range []string{"triage_issue", "breakdown_issue", "set_work_item_graph", "request_decision", maintainerTestDispatchWorkTool, requestMergeToolName, finalizeWorkItemToolName, "wake_agent_run", "stop_agent_run_turn", reportPlatformBugToolName} {
 		tool := registry.Get(name)
 		if tool == nil || tool.IsReadOnly() {
 			t.Fatalf("%s = %#v", name, tool)
@@ -47,7 +48,7 @@ func TestMaintainerLegacyToolCandidatesFollowLiveCutover(t *testing.T) {
 	}
 	registry := NewRegistry(t.TempDir(), WithReadOnlyTools(), WithAllowedMutatingTools(requestMergeToolName, finalizeWorkItemToolName, maintainerTestDispatchWorkTool), WithContextualMutatingToolCandidates(MaintainerLegacyMutationToolNames()...))
 	RegisterGitHubIssueManagementTools(registry, t.TempDir())
-	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, base.repositoryName, base.repositoryNamespace)
+	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, string(base.currentRunUID), base.repositoryName, base.repositoryNamespace)
 	for _, name := range MaintainerLegacyMutationToolNames() {
 		tool := registry.Get(name)
 		if tool == nil {
@@ -224,6 +225,122 @@ func TestTriageIssueAuthorizesMaintainerRun(t *testing.T) {
 	}
 	if !result.IsError || !strings.Contains(result.Content, "not authorized as a maintainer") {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestSetWorkItemGraphAcceptsDependenciesOnlyAndReviewedLeaf(t *testing.T) {
+	t.Parallel()
+
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	target := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 41, 2)
+	target.Spec.TriagedByCommand = &corev1.LocalObjectReference{Name: "triage-41"}
+	if err := k8sClient.Update(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	dependency := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 40, 1)
+	tool := &breakdownIssueTool{maintainerToolBase: base, toolName: "set_work_item_graph"}
+	input := json.RawMessage(`{"issue_number":41,"dependency_issue_numbers":[40],"idempotency_key":"deps-only","expected_projection_sequence":2}`)
+	result, err := tool.Execute(context.Background(), input, "")
+	if err != nil || result.IsError {
+		t.Fatalf("dependency-only graph = (%#v, %v)", result, err)
+	}
+	var receipt triageIssueOutput
+	if err := json.Unmarshal([]byte(result.Content), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: receipt.CommandName, Namespace: maintainerTestNamespace}, command); err != nil {
+		t.Fatal(err)
+	}
+	if command.Spec.Breakdown == nil || len(command.Spec.Breakdown.Children) != 0 || len(command.Spec.Breakdown.Dependencies) != 1 || command.Spec.Breakdown.Dependencies[0].Name != dependency.Name {
+		t.Fatalf("dependency-only payload = %#v", command.Spec.Breakdown)
+	}
+
+	leaf := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 42, 3)
+	leaf.Spec.TriagedByCommand = &corev1.LocalObjectReference{Name: "triage-42"}
+	if err := k8sClient.Update(context.Background(), leaf); err != nil {
+		t.Fatal(err)
+	}
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"issue_number":42,"idempotency_key":"reviewed-leaf","expected_projection_sequence":3}`), "")
+	if err != nil || result.IsError {
+		t.Fatalf("reviewed leaf graph = (%#v, %v)", result, err)
+	}
+	if leaf.Name == "" {
+		t.Fatal("leaf work item was not created")
+	}
+}
+
+func TestDispatchWorkItemUsesConfiguredModeAndRejectsMissingModeSynchronously(t *testing.T) {
+	t.Parallel()
+
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	item := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 42, 7)
+	item.Spec.GraphConfiguredByCommand = &corev1.LocalObjectReference{Name: "graph-42"}
+	if err := k8sClient.Update(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	repository := &triggersv1alpha1.GitHubRepository{}
+	key := client.ObjectKey{Name: base.repositoryName, Namespace: base.repositoryNamespace}
+	if err := k8sClient.Get(context.Background(), key, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.DispatchModeRef = "custom-auto"
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	tool := &dispatchWorkItemTool{maintainerToolBase: base}
+	input := json.RawMessage(`{"issue_number":42,"idempotency_key":"dispatch","expected_projection_sequence":7}`)
+	missing, err := tool.Execute(context.Background(), input, "")
+	if err != nil || !missing.IsError || !strings.Contains(missing.Content, "configured dispatch ModeTemplate") {
+		t.Fatalf("missing configured mode = (%#v, %v)", missing, err)
+	}
+	commands := &triggersv1alpha1.MaintainerWorkItemCommandList{}
+	if err := k8sClient.List(context.Background(), commands); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands.Items) != 0 {
+		t.Fatalf("invalid mode created %d commands", len(commands.Items))
+	}
+
+	if err := k8sClient.Get(context.Background(), key, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.DispatchModeRef = " "
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	malformed, err := tool.Execute(context.Background(), input, "")
+	if err != nil || !malformed.IsError || !strings.Contains(malformed.Content, "invalid configured dispatch") {
+		t.Fatalf("malformed configured mode = (%#v, %v)", malformed, err)
+	}
+	if err := k8sClient.Get(context.Background(), key, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.DispatchModeRef = "custom-auto"
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: "custom-auto"}}); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := tool.Execute(context.Background(), input, "")
+	if err != nil || accepted.IsError {
+		t.Fatalf("configured dispatch = (%#v, %v)", accepted, err)
+	}
+	var receipt triageIssueOutput
+	if err := json.Unmarshal([]byte(accepted.Content), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: receipt.CommandName, Namespace: maintainerTestNamespace}, command); err != nil {
+		t.Fatal(err)
+	}
+	if command.Spec.Dispatch == nil || command.Spec.Dispatch.Mode != "custom-auto" {
+		t.Fatalf("dispatch payload = %#v", command.Spec.Dispatch)
+	}
+	if strings.Contains(string(tool.InputSchema()), `"mode"`) {
+		t.Fatalf("dispatch schema still exposes free-form mode: %s", tool.InputSchema())
 	}
 }
 

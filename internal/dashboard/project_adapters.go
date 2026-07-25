@@ -104,6 +104,10 @@ func projectTriggerToProto(projectName string, trigger triggersv1alpha1.ProjectT
 			pb.Github.MaintainerMaxConcurrentDispatches = maintainer.MaxConcurrentDispatches
 			pb.Github.MaintainerMaxDispatchesPerDay = maintainer.MaxDispatchesPerDay
 			pb.Github.MaintainerModel = maintainer.Model
+			if maintainer.DispatchModeRef != "" {
+				dispatchModeRef := maintainer.DispatchModeRef
+				pb.Github.MaintainerDispatchModeRef = &dispatchModeRef
+			}
 			pb.Github.MaintainerAllowPrMerge = maintainer.AllowPullRequestMerge
 			pb.Github.MaintainerFullControl = maintainer.FullControl
 			if maintainer.StandupInterval != nil {

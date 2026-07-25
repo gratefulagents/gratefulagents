@@ -1509,6 +1509,11 @@ func (in *MaintainerWorkItemSpec) DeepCopyInto(out *MaintainerWorkItemSpec) {
 		*out = new(corev1.LocalObjectReference)
 		**out = **in
 	}
+	if in.GraphConfiguredByCommand != nil {
+		in, out := &in.GraphConfiguredByCommand, &out.GraphConfiguredByCommand
+		*out = new(corev1.LocalObjectReference)
+		**out = **in
+	}
 	if in.Dependencies != nil {
 		in, out := &in.Dependencies, &out.Dependencies
 		*out = make([]MaintainerWorkItemReference, len(*in))

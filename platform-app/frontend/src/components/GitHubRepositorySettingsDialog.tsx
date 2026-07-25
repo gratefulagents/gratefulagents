@@ -121,6 +121,7 @@ function normalizeTriggerSettings(settings: GitHubRepositoryTriggerSettings): Gi
       settings.maintainerMaxDispatchesPerDay > 0 ? Math.trunc(settings.maintainerMaxDispatchesPerDay) : 0,
     maintainerStandupInterval: settings.maintainerStandupInterval.trim(),
     maintainerModeRef: settings.maintainerModeRef.trim(),
+    maintainerDispatchModeRef: (settings.maintainerDispatchModeRef ?? "").trim(),
     maintainerModel: settings.maintainerModel.trim(),
     maintainerAllowPrMerge: settings.maintainerAllowPrMerge,
     maintainerFullControl: settings.maintainerFullControl,
@@ -188,6 +189,7 @@ function maintainerModified(settings: GitHubRepositoryTriggerSettings): boolean 
       settings.maintainerMaxDispatchesPerDay > 0 ||
       settings.maintainerStandupInterval.trim() ||
       settings.maintainerModeRef.trim() ||
+      settings.maintainerDispatchModeRef?.trim() ||
       settings.maintainerModel.trim() ||
       settings.maintainerAllowPrMerge ||
       settings.maintainerFullControl ||
@@ -661,6 +663,20 @@ export function GitHubRepositorySettingsDialog({
                               updateTriggerSettings({ maintainerModeRef: event.target.value })
                             }
                             placeholder="maintainer"
+                          />
+                        </FlowField>
+                        <FlowField
+                          id="github-settings-maintainer-dispatch-mode"
+                          label="Dispatch mode"
+                          hint="Controller-owned implementer ModeTemplate. Blank uses autopilot."
+                        >
+                          <Input
+                            id="github-settings-maintainer-dispatch-mode"
+                            value={triggerSettings.maintainerDispatchModeRef ?? ""}
+                            onChange={(event) =>
+                              updateTriggerSettings({ maintainerDispatchModeRef: event.target.value })
+                            }
+                            placeholder="autopilot"
                           />
                         </FlowField>
                         <FlowField

@@ -35,13 +35,14 @@ func (c commitThenErrorProjectPatchClient) Patch(ctx context.Context, object cli
 
 func TestGitHubProjectTriggerMaintainerProtoRoundTrip(t *testing.T) {
 	enabled := true
+	dispatchMode := "implementation-auto"
 	pb := &platform.ProjectTrigger{
 		Name: "issues",
 		Type: "github",
 		Github: &platform.GitHubProjectTrigger{
 			ConnectionRef: "github", Owner: "acme", Repo: "widgets", Issues: true,
 			MaintainerEnabled: &enabled, MaintainerMaxConcurrentDispatches: 3, MaintainerMaxDispatchesPerDay: 12,
-			MaintainerStandupInterval: "6h", MaintainerModeRef: "repository-maintainer", MaintainerModel: "gpt-5",
+			MaintainerStandupInterval: "6h", MaintainerModeRef: "repository-maintainer", MaintainerDispatchModeRef: &dispatchMode, MaintainerModel: "gpt-5",
 			MaintainerAllowPrMerge: true,
 		},
 	}
@@ -51,7 +52,7 @@ func TestGitHubProjectTriggerMaintainerProtoRoundTrip(t *testing.T) {
 		t.Fatalf("projectTriggerFromProto: %v", err)
 	}
 	maintainer := trigger.GitHub.Maintainer
-	if maintainer == nil || maintainer.ModeRef == nil || maintainer.ModeRef.Name != "repository-maintainer" || maintainer.Model != "gpt-5" ||
+	if maintainer == nil || maintainer.ModeRef == nil || maintainer.ModeRef.Name != "repository-maintainer" || maintainer.DispatchModeRef != "implementation-auto" || maintainer.Model != "gpt-5" ||
 		maintainer.MaxConcurrentDispatches != 3 || maintainer.MaxDispatchesPerDay != 12 || maintainer.StandupInterval == nil ||
 		maintainer.StandupInterval.Duration != 6*time.Hour || !maintainer.AllowPullRequestMerge {
 		t.Fatalf("parsed maintainer = %#v", maintainer)
@@ -60,7 +61,7 @@ func TestGitHubProjectTriggerMaintainerProtoRoundTrip(t *testing.T) {
 	roundTrip := projectTriggerToProto("project", trigger, triggersv1alpha1.ProjectTriggerStatus{}).GetGithub()
 	if roundTrip.MaintainerEnabled == nil || !roundTrip.GetMaintainerEnabled() || roundTrip.GetMaintainerMaxConcurrentDispatches() != 3 ||
 		roundTrip.GetMaintainerMaxDispatchesPerDay() != 12 || roundTrip.GetMaintainerStandupInterval() != "6h0m0s" ||
-		roundTrip.GetMaintainerModeRef() != "repository-maintainer" || roundTrip.GetMaintainerModel() != "gpt-5" || !roundTrip.GetMaintainerAllowPrMerge() {
+		roundTrip.GetMaintainerModeRef() != "repository-maintainer" || roundTrip.GetMaintainerDispatchModeRef() != "implementation-auto" || roundTrip.GetMaintainerModel() != "gpt-5" || !roundTrip.GetMaintainerAllowPrMerge() {
 		t.Fatalf("round trip maintainer = %#v", roundTrip)
 	}
 }

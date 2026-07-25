@@ -13,6 +13,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
+	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,12 +34,21 @@ const (
 
 type maintainerTestStore struct {
 	store.StateStore
-	sessions      map[string]*store.Session
-	sessionErr    error
-	beforeSession func()
-	messages      []store.Message
-	activity      []store.ActivityEvent
-	activityErr   error
+	sessions        map[string]*store.Session
+	sessionErr      error
+	beforeSession   func()
+	messages        []store.Message
+	activity        []store.ActivityEvent
+	activityErr     error
+	sessionMetadata map[string]json.RawMessage
+}
+
+func (s *maintainerTestStore) MergeSessionMetadata(_ context.Context, _ uuid.UUID, key string, value json.RawMessage) error {
+	if s.sessionMetadata == nil {
+		s.sessionMetadata = map[string]json.RawMessage{}
+	}
+	s.sessionMetadata[key] = append(json.RawMessage(nil), value...)
+	return nil
 }
 
 func (s *maintainerTestStore) GetSessionByRun(_ context.Context, name, namespace string) (*store.Session, error) {
@@ -104,7 +114,7 @@ func newMaintainerToolBase(t *testing.T, runs ...*platformv1alpha1.AgentRun) (ma
 	for _, run := range runs {
 		stateStore.sessions[run.Namespace+"/"+run.Name] = &store.Session{ID: uuid.New(), AgentRunName: run.Name, AgentRunNS: run.Namespace}
 	}
-	return maintainerToolBase{stateStore: stateStore, k8sClient: k8sClient, currentRunName: maintainerTestRunName, currentRunNamespace: maintainerTestNamespace, repositoryName: maintainerTestRepositoryName, repositoryNamespace: maintainerTestNamespace}, k8sClient, stateStore
+	return maintainerToolBase{stateStore: stateStore, k8sClient: k8sClient, currentRunName: maintainerTestRunName, currentRunNamespace: maintainerTestNamespace, currentRunUID: types.UID(maintainerTestRunUID), repositoryName: maintainerTestRepositoryName, repositoryNamespace: maintainerTestNamespace}, k8sClient, stateStore
 }
 
 func maintainerRun() *platformv1alpha1.AgentRun {
@@ -112,12 +122,17 @@ func maintainerRun() *platformv1alpha1.AgentRun {
 	return &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
 		Name: maintainerTestRunName, Namespace: maintainerTestNamespace, UID: types.UID(maintainerTestRunUID),
 		Labels:          map[string]string{orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleMaintainer, orchestration.SupervisedRunLabel: maintainerTestRepositoryName},
-		OwnerReferences: []metav1.OwnerReference{{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName, Controller: &controller}},
+		OwnerReferences: []metav1.OwnerReference{{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName, UID: types.UID("repo-uid"), Controller: &controller}},
 	}}
 }
 
 func fleetRun(name string, phase platformv1alpha1.AgentRunPhase) *platformv1alpha1.AgentRun {
-	return &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace}, Spec: platformv1alpha1.AgentRunSpec{Trigger: platformv1alpha1.TriggerRef{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName}}, Status: platformv1alpha1.AgentRunStatus{Phase: phase}}
+	controller := true
+	return &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace, OwnerReferences: []metav1.OwnerReference{{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName, UID: types.UID("repo-uid"), Controller: &controller}}},
+		Spec:       platformv1alpha1.AgentRunSpec{Trigger: platformv1alpha1.TriggerRef{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName}},
+		Status:     platformv1alpha1.AgentRunStatus{Phase: phase},
+	}
 }
 
 const maintainerTestMode = "auto"
@@ -176,6 +191,32 @@ func TestDescribeFleetRunExposesPRLoopStateAndRound(t *testing.T) {
 	}
 }
 
+func TestGetFleetRunsExposesEffectiveDispatchMode(t *testing.T) {
+	t.Parallel()
+
+	maintainer := maintainerRun()
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainer)
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: base.repositoryName, Namespace: base.repositoryNamespace}, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.DispatchModeRef = "implementation-auto"
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (&getFleetRunsTool{maintainerToolBase: base}).Execute(context.Background(), nil, "")
+	if err != nil || result.IsError {
+		t.Fatalf("get_fleet_runs = (%#v, %v)", result, err)
+	}
+	var out getFleetRunsOutput
+	if err := json.Unmarshal([]byte(result.Content), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.DispatchMode != "implementation-auto" {
+		t.Fatalf("dispatch mode = %q", out.DispatchMode)
+	}
+}
+
 func TestConditionsMet(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -217,7 +258,16 @@ func TestLegacyDispatchRoutesThroughTypedCommandWhenWorkItemExists(t *testing.T)
 	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
 		t.Fatal(err)
 	}
+	if maintainerTestMode != defaultMaintainerDispatchMode {
+		if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: defaultMaintainerDispatchMode}}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	workItem := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 2, 3)
+	workItem.Spec.GraphConfiguredByCommand = &corev1.LocalObjectReference{Name: "graph-2"}
+	if err := k8sClient.Update(context.Background(), workItem); err != nil {
+		t.Fatal(err)
+	}
 	runner := &fakePRReviewRunner{}
 	result, err := (&dispatchIssueTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"issue_number":2,"mode":"`+maintainerTestMode+`"}`), "")
 	if err != nil || result.IsError {
@@ -422,6 +472,73 @@ func TestWakeAgentRunPhases(t *testing.T) {
 	}
 }
 
+func TestWakeAgentRunSupportsIndependentSteerAndQueueModes(t *testing.T) {
+	t.Parallel()
+
+	maintainer, target := maintainerRun(), fleetRun("target", platformv1alpha1.AgentRunPhaseRunning)
+	base, _, stateStore := newMaintainerToolBase(t, maintainer, target)
+	tool := &wakeAgentRunTool{maintainerToolBase: base}
+
+	steer, err := tool.Execute(context.Background(), json.RawMessage(`{"run_name":"target","message":"correct course"}`), "")
+	if err != nil || steer.IsError {
+		t.Fatalf("steer = (%#v, %v)", steer, err)
+	}
+	queue, err := tool.Execute(context.Background(), json.RawMessage(`{"run_name":"target","message":"do this next","delivery_mode":"queue"}`), "")
+	if err != nil || queue.IsError {
+		t.Fatalf("queue = (%#v, %v)", queue, err)
+	}
+	if len(stateStore.messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(stateStore.messages))
+	}
+	steerMode, _ := sessionclient.UserMessageStateFromMetadata(stateStore.messages[0].Metadata)
+	queueMode, _ := sessionclient.UserMessageStateFromMetadata(stateStore.messages[1].Metadata)
+	if steerMode != sessionclient.UserMessageModeImmediate || queueMode != sessionclient.UserMessageModeEnqueue {
+		t.Fatalf("modes = %q/%q, want immediate/enqueue", steerMode, queueMode)
+	}
+	if stateStore.sessionMetadata["interrupt"] != nil {
+		t.Fatal("steering unexpectedly requested a turn stop")
+	}
+	var out wakeAgentRunOutput
+	if err := json.Unmarshal([]byte(steer.Content), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.MessageID != stateStore.messages[0].ID || out.DeliveryMode != "steer" || out.WakeRequested {
+		t.Fatalf("steer receipt = %#v", out)
+	}
+}
+
+func TestStopAgentRunTurnIsExplicitAndDoesNotQueueMessage(t *testing.T) {
+	t.Parallel()
+
+	maintainer, target := maintainerRun(), fleetRun("target", platformv1alpha1.AgentRunPhaseRunning)
+	base, _, stateStore := newMaintainerToolBase(t, maintainer, target)
+	result, err := (&stopAgentRunTurnTool{maintainerToolBase: base}).Execute(context.Background(), json.RawMessage(`{"run_name":"target","reason":"scope changed"}`), "")
+	if err != nil || result.IsError {
+		t.Fatalf("stop = (%#v, %v)", result, err)
+	}
+	if len(stateStore.messages) != 0 {
+		t.Fatalf("stop queued %d messages", len(stateStore.messages))
+	}
+	if len(stateStore.sessionMetadata["interrupt"]) == 0 {
+		t.Fatal("stop did not persist an interrupt request")
+	}
+	if len(stateStore.activity) != 1 || stateStore.activity[0].EventType != "interrupt_requested" {
+		t.Fatalf("activity = %#v", stateStore.activity)
+	}
+}
+
+func TestStopAgentRunTurnRejectsSpoofedRepositoryOwnership(t *testing.T) {
+	t.Parallel()
+
+	maintainer, target := maintainerRun(), fleetRun("target", platformv1alpha1.AgentRunPhaseRunning)
+	target.OwnerReferences[0].UID = types.UID("wrong-repository-uid")
+	base, _, _ := newMaintainerToolBase(t, maintainer, target)
+	result, err := (&stopAgentRunTurnTool{maintainerToolBase: base}).Execute(context.Background(), json.RawMessage(`{"run_name":"target","reason":"scope changed"}`), "")
+	if err != nil || !result.IsError || !strings.Contains(result.Content, "repository UID") {
+		t.Fatalf("spoofed owner stop = (%#v, %v)", result, err)
+	}
+}
+
 func TestWakeAgentRunRevalidatesBeforeDelivery(t *testing.T) {
 	maintainer, target := maintainerRun(), fleetRun("target", platformv1alpha1.AgentRunPhasePaused)
 	base, k8sClient, stateStore := newMaintainerToolBase(t, maintainer, target)
@@ -441,6 +558,32 @@ func TestWakeAgentRunRevalidatesBeforeDelivery(t *testing.T) {
 	}
 	if err != nil || !result.IsError || !strings.Contains(result.Content, "reverify") || len(stateStore.messages) != 0 {
 		t.Fatalf("Execute() = (%#v, %v), messages = %d", result, err, len(stateStore.messages))
+	}
+}
+
+func TestReportPlatformBugPinsUpstreamAndDeduplicates(t *testing.T) {
+	t.Parallel()
+
+	base, _, _ := newMaintainerToolBase(t, maintainerRun())
+	title := "Maintainer command receipt is lost"
+	searchKey := "issue list --repo " + platformBugRepository + " --state all --search " + title + " in:title --json number,title,url --limit 20"
+	createKey := "issue create --repo " + platformBugRepository + " --title " + title + " --body-file -"
+	runner := &fakePRReviewRunner{
+		ghOut:      map[string]string{searchKey: `[]`},
+		ghInputOut: map[string]string{createKey: "https://github.com/gratefulagents/gratefulagents/issues/123\n"},
+	}
+	result, err := (&reportPlatformBugTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"title":"`+title+`","body":"Expected a durable terminal receipt, but the command disappeared after submission."}`), "")
+	if err != nil || result.IsError || !strings.Contains(result.Content, `"created":true`) {
+		t.Fatalf("report platform bug = (%#v, %v)", result, err)
+	}
+	if len(runner.ghInputCalls) != 1 || runner.ghInputCalls[0] != createKey || !strings.Contains(runner.ghInputs[0], githubAppAuthorizationFooter) {
+		t.Fatalf("create calls=%v inputs=%v", runner.ghInputCalls, runner.ghInputs)
+	}
+
+	runner = &fakePRReviewRunner{ghOut: map[string]string{searchKey: `[{"number":123,"title":"Maintainer command receipt is lost","url":"https://github.com/gratefulagents/gratefulagents/issues/123"}]`}}
+	result, err = (&reportPlatformBugTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"title":"`+title+`","body":"Expected a durable terminal receipt, but the command disappeared after submission."}`), "")
+	if err != nil || result.IsError || !strings.Contains(result.Content, `"duplicate":true`) || len(runner.ghInputCalls) != 0 {
+		t.Fatalf("deduplicated platform bug = (%#v, %v), create=%v", result, err, runner.ghInputCalls)
 	}
 }
 

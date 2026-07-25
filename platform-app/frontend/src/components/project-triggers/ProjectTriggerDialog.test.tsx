@@ -279,6 +279,7 @@ describe("ProjectTriggerDialog", () => {
     fireEvent.change(screen.getByLabelText("Maintainer max dispatches per day"), { target: { value: "12" } });
     fireEvent.change(screen.getByLabelText("Maintainer standup interval"), { target: { value: "6h" } });
     fireEvent.change(screen.getByLabelText("Maintainer mode"), { target: { value: "repository-maintainer" } });
+    fireEvent.change(screen.getByLabelText("Maintainer dispatch mode"), { target: { value: "implementation-auto" } });
     fireEvent.change(screen.getByLabelText("Maintainer model"), { target: { value: "gpt-5" } });
     fireEvent.click(screen.getByLabelText("Allow maintainer pull request merge"));
     fireEvent.click(screen.getByLabelText("Give maintainer full control"));
@@ -292,6 +293,7 @@ describe("ProjectTriggerDialog", () => {
       maintainerMaxDispatchesPerDay: 12,
       maintainerStandupInterval: "6h",
       maintainerModeRef: "repository-maintainer",
+      maintainerDispatchModeRef: "implementation-auto",
       maintainerModel: "gpt-5",
       maintainerAllowPrMerge: true,
       maintainerFullControl: true,

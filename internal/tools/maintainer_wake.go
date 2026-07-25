@@ -16,16 +16,23 @@ import (
 type wakeAgentRunTool struct{ maintainerToolBase }
 
 type wakeAgentRunInput struct {
-	RunName string `json:"run_name"`
-	Message string `json:"message"`
+	RunName      string `json:"run_name"`
+	Message      string `json:"message"`
+	DeliveryMode string `json:"delivery_mode,omitempty"`
+}
+
+type wakeAgentRunOutput struct {
+	MessageID     int64  `json:"message_id"`
+	DeliveryMode  string `json:"delivery_mode"`
+	WakeRequested bool   `json:"wake_requested"`
 }
 
 func (t *wakeAgentRunTool) Name() string { return "wake_agent_run" }
 func (t *wakeAgentRunTool) Description() string {
-	return "Deliver maintainer context to an authorized implementer fleet run, revalidating the target immediately before delivery and again before requesting a wake."
+	return "Send maintainer context to an authorized implementer fleet run. delivery_mode=steer (default) injects it at the earliest safe in-flight boundary without stopping the turn; delivery_mode=queue waits for the next turn boundary. Use stop_agent_run_turn separately only when the turn itself must end. Returns the durable message id for edit/cancel."
 }
 func (t *wakeAgentRunTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"run_name":{"type":"string"},"message":{"type":"string","maxLength":4000}},"required":["run_name","message"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"run_name":{"type":"string"},"message":{"type":"string","maxLength":4000},"delivery_mode":{"type":"string","enum":["steer","queue"],"default":"steer"}},"required":["run_name","message"]}`)
 }
 func (t *wakeAgentRunTool) IsReadOnly() bool                      { return false }
 func (t *wakeAgentRunTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
@@ -40,6 +47,13 @@ func (t *wakeAgentRunTool) Execute(ctx context.Context, input json.RawMessage, _
 	name, message := strings.TrimSpace(in.RunName), strings.TrimSpace(in.Message)
 	if name == "" || message == "" {
 		return Result{Content: "run_name and message are required", IsError: true}, nil
+	}
+	deliveryMode := strings.ToLower(strings.TrimSpace(in.DeliveryMode))
+	if deliveryMode == "" {
+		deliveryMode = "steer"
+	}
+	if deliveryMode != "steer" && deliveryMode != "queue" {
+		return Result{Content: "delivery_mode must be steer or queue", IsError: true}, nil
 	}
 	if utf8.RuneCountInString(message) > 4000 {
 		return Result{Content: "message must be at most 4000 characters", IsError: true}, nil
@@ -77,15 +91,20 @@ func (t *wakeAgentRunTool) Execute(ctx context.Context, input json.RawMessage, _
 	if run.Status.Phase == platformv1alpha1.AgentRunPhaseCancelled {
 		return Result{Content: "cancelled AgentRuns cannot be woken", IsError: true}, nil
 	}
-	metadata, err := json.Marshal(map[string]string{"source": "maintainer", "maintainer_run": t.currentRunName})
+	storedMode := "immediate"
+	if deliveryMode == "queue" {
+		storedMode = "enqueue"
+	}
+	metadata, err := json.Marshal(map[string]string{"mode": storedMode, "source": "maintainer", "maintainer_run": t.currentRunName})
 	if err != nil {
 		return Result{}, err
 	}
-	if _, err := t.stateStore.AppendMessage(ctx, session.ID, "user", "[maintainer] "+message, metadata); err != nil {
+	delivered, err := t.stateStore.AppendMessage(ctx, session.ID, "user", "[maintainer] "+message, metadata)
+	if err != nil {
 		return Result{Content: fmt.Sprintf("failed to deliver maintainer message: %v", err), IsError: true}, nil
 	}
 	if run.Status.Phase == platformv1alpha1.AgentRunPhaseRunning {
-		return Result{Content: "Maintainer message delivered to running AgentRun; no wake request was needed."}, nil
+		return wakeAgentRunResult(delivered.ID, deliveryMode, false)
 	}
 	key := client.ObjectKey{Name: run.Name, Namespace: run.Namespace}
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -93,7 +112,7 @@ func (t *wakeAgentRunTool) Execute(ctx context.Context, input json.RawMessage, _
 		if err := t.k8sClient.Get(ctx, key, fresh); err != nil {
 			return err
 		}
-		if !t.isFleetRun(fresh) || maintainerIsReviewer(fresh) {
+		if !t.isFleetRunForCurrentRepository(ctx, fresh) || maintainerIsReviewer(fresh) {
 			return fmt.Errorf("AgentRun %q is no longer an authorized implementer fleet run", name)
 		}
 		if fresh.Status.Phase == platformv1alpha1.AgentRunPhaseCancelled {
@@ -108,5 +127,13 @@ func (t *wakeAgentRunTool) Execute(ctx context.Context, input json.RawMessage, _
 	}); err != nil {
 		return Result{Content: fmt.Sprintf("maintainer message delivered but wake request failed: %v", err), IsError: true}, nil
 	}
-	return Result{Content: "Maintainer message delivered and wake requested."}, nil
+	return wakeAgentRunResult(delivered.ID, deliveryMode, true)
+}
+
+func wakeAgentRunResult(messageID int64, deliveryMode string, wakeRequested bool) (Result, error) {
+	encoded, err := json.Marshal(wakeAgentRunOutput{MessageID: messageID, DeliveryMode: deliveryMode, WakeRequested: wakeRequested})
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Content: string(encoded)}, nil
 }

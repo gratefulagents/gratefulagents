@@ -88,8 +88,13 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 	if projection.HeadSHA != request.ExpectedHeadSHA {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "expected head SHA does not match the current projection")
 	}
-	if fresh.Status.Readiness == nil || !fresh.Status.Readiness.ReadyToMerge || !projectedPullRequestReady(projection, time.Now(), fullControl) {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "work item and pull request are not ReadyToMerge with fresh observations")
+	projectionReady := projectedPullRequestReady(projection, time.Now(), fullControl, fullControl)
+	workItemReady := fresh.Status.Readiness != nil && fresh.Status.Readiness.ReadyToMerge
+	if !workItemReady && fullControl {
+		workItemReady = projectedPullRequestsReadyForPolicyVerification(fresh.Status.PullRequests, time.Now())
+	}
+	if !workItemReady || !projectionReady {
+		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "work item and pull request are not merge candidates with fresh observations")
 	}
 	if pending {
 		if err := r.setMaintainerWorkItemCommandAccepted(ctx, command, fresh); err != nil {
@@ -112,8 +117,8 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 		// unproven policy is a terminal rejection.
 		return r.failMaintainerWorkItemCommand(ctx, command, fresh, "pre-merge GitHub merge policy read failed: "+err.Error())
 	}
-	if !policy.RequiredChecks || !policy.CanMerge || policy.ActorCanBypass {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "server-enforced required-check policy and repository merge permission for a non-bypass actor could not be proven")
+	if !policy.CanMerge || policy.ActorCanBypass {
+		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "repository merge permission for a non-bypass actor could not be proven")
 	}
 	if fullControl && policy.RequiredReviews {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "full control requires branch protection or rulesets without required approving reviews")
@@ -147,8 +152,12 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 	if checks.HeadSHA != request.ExpectedHeadSHA || statuses.HeadSHA != request.ExpectedHeadSHA {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "GitHub checks or statuses are not bound to the expected head")
 	}
-	if checks.Count+statuses.Count == 0 {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "GitHub reported zero checks and zero commit statuses; merge fails closed")
+	observedChecks := checks.Count + statuses.Count
+	if policy.RequiredChecks && observedChecks == 0 {
+		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "required checks are configured but none have appeared for the expected head")
+	}
+	if observedChecks == 0 && (checks.State != gitHubRollupNone || statuses.State != gitHubRollupNone) {
+		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "zero-check merge requires explicit current-head none rollups")
 	}
 	if checks.State != gitHubRollupSuccess && checks.State != gitHubRollupNone || statuses.State != gitHubRollupSuccess && statuses.State != gitHubRollupNone {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "GitHub checks or commit statuses are pending or failing")
@@ -207,10 +216,25 @@ func projectedMaintainerPullRequest(item *triggersv1alpha1.MaintainerWorkItem, r
 	return nil
 }
 
-func projectedPullRequestReady(pr *triggersv1alpha1.MaintainerWorkItemPullRequestProjection, now time.Time, fullControl bool) bool {
+func projectedPullRequestsReadyForPolicyVerification(pullRequests []triggersv1alpha1.MaintainerWorkItemPullRequestProjection, now time.Time) bool {
+	candidate := false
+	for i := range pullRequests {
+		if pullRequests[i].State == triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged {
+			continue
+		}
+		candidate = true
+		if !projectedPullRequestReady(&pullRequests[i], now, true, true) {
+			return false
+		}
+	}
+	return candidate
+}
+
+func projectedPullRequestReady(pr *triggersv1alpha1.MaintainerWorkItemPullRequestProjection, now time.Time, fullControl, allowNoChecksCandidate bool) bool {
 	approvalMissing := !fullControl && pr != nil && !strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionApproved))
 	changesRequested := pr != nil && strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionChangesRequested))
-	if pr == nil || !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || changesRequested || pr.CheckState != triggersv1alpha1.MaintainerWorkItemCheckStatePassing {
+	checksSatisfied := pr != nil && (pr.CheckState == triggersv1alpha1.MaintainerWorkItemCheckStatePassing || allowNoChecksCandidate && pr.CheckState == triggersv1alpha1.MaintainerWorkItemCheckStateNone)
+	if pr == nil || !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || changesRequested || !checksSatisfied {
 		return false
 	}
 	for _, observed := range []*metav1.Time{pr.HeadObservedAt, pr.ReviewObservedAt, pr.ChecksObservedAt, pr.StatusesObservedAt} {

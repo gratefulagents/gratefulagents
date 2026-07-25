@@ -208,6 +208,7 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 			crdClient,
 			cfg.TaskName,
 			cfg.Namespace,
+			cfg.TaskUID,
 			maintainedRepositoryName,
 			maintainedRepositoryNamespace,
 		)

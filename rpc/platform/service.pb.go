@@ -16503,9 +16503,10 @@ type GitHubProjectTrigger struct {
 	MaintainerModel                   string                 `protobuf:"bytes,15,opt,name=maintainer_model,json=maintainerModel,proto3" json:"maintainer_model,omitempty"`                                                            // Empty inherits the project run model.
 	MaintainerAllowPrMerge            bool                   `protobuf:"varint,16,opt,name=maintainer_allow_pr_merge,json=maintainerAllowPrMerge,proto3" json:"maintainer_allow_pr_merge,omitempty"`
 	// Dangerous: lets the maintainer merge without human approval after required checks pass.
-	MaintainerFullControl bool `protobuf:"varint,17,opt,name=maintainer_full_control,json=maintainerFullControl,proto3" json:"maintainer_full_control,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	MaintainerFullControl     bool    `protobuf:"varint,17,opt,name=maintainer_full_control,json=maintainerFullControl,proto3" json:"maintainer_full_control,omitempty"`
+	MaintainerDispatchModeRef *string `protobuf:"bytes,18,opt,name=maintainer_dispatch_mode_ref,json=maintainerDispatchModeRef,proto3,oneof" json:"maintainer_dispatch_mode_ref,omitempty"` // Implementer ModeTemplate; omission preserves existing config; empty = default "autopilot".
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *GitHubProjectTrigger) Reset() {
@@ -16655,6 +16656,13 @@ func (x *GitHubProjectTrigger) GetMaintainerFullControl() bool {
 		return x.MaintainerFullControl
 	}
 	return false
+}
+
+func (x *GitHubProjectTrigger) GetMaintainerDispatchModeRef() string {
+	if x != nil && x.MaintainerDispatchModeRef != nil {
+		return *x.MaintainerDispatchModeRef
+	}
+	return ""
 }
 
 type SlackProjectTrigger struct {
@@ -18673,9 +18681,10 @@ type GitHubRepositoryTriggerSettings struct {
 	// Omission preserves the current mode on update for older clients.
 	MaintainerWorkItemCutover *string `protobuf:"bytes,19,opt,name=maintainer_work_item_cutover,json=maintainerWorkItemCutover,proto3,oneof" json:"maintainer_work_item_cutover,omitempty"`
 	// Dangerous: lets the maintainer merge without human approval after required checks pass.
-	MaintainerFullControl bool `protobuf:"varint,20,opt,name=maintainer_full_control,json=maintainerFullControl,proto3" json:"maintainer_full_control,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	MaintainerFullControl     bool    `protobuf:"varint,20,opt,name=maintainer_full_control,json=maintainerFullControl,proto3" json:"maintainer_full_control,omitempty"`
+	MaintainerDispatchModeRef *string `protobuf:"bytes,21,opt,name=maintainer_dispatch_mode_ref,json=maintainerDispatchModeRef,proto3,oneof" json:"maintainer_dispatch_mode_ref,omitempty"` // Implementer ModeTemplate; omission preserves existing config; empty = default "autopilot".
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *GitHubRepositoryTriggerSettings) Reset() {
@@ -18846,6 +18855,13 @@ func (x *GitHubRepositoryTriggerSettings) GetMaintainerFullControl() bool {
 		return x.MaintainerFullControl
 	}
 	return false
+}
+
+func (x *GitHubRepositoryTriggerSettings) GetMaintainerDispatchModeRef() string {
+	if x != nil && x.MaintainerDispatchModeRef != nil {
+		return *x.MaintainerDispatchModeRef
+	}
+	return ""
 }
 
 // GitHubRepositoryMaintainerStatus mirrors GitHubRepositoryStatus.maintainer.
@@ -28732,7 +28748,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x18\n" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x12L\n" +
-	"\x14last_transition_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastTransitionTime\"\xb3\x06\n" +
+	"\x14last_transition_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastTransitionTime\"\x9a\a\n" +
 	"\x14GitHubProjectTrigger\x12%\n" +
 	"\x0econnection_ref\x18\x01 \x01(\tR\rconnectionRef\x12\x14\n" +
 	"\x05owner\x18\x02 \x01(\tR\x05owner\x12\x12\n" +
@@ -28751,8 +28767,10 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x13maintainer_mode_ref\x18\x0e \x01(\tR\x11maintainerModeRef\x12)\n" +
 	"\x10maintainer_model\x18\x0f \x01(\tR\x0fmaintainerModel\x129\n" +
 	"\x19maintainer_allow_pr_merge\x18\x10 \x01(\bR\x16maintainerAllowPrMerge\x126\n" +
-	"\x17maintainer_full_control\x18\x11 \x01(\bR\x15maintainerFullControlB\x15\n" +
-	"\x13_maintainer_enabled\"\xf4\x01\n" +
+	"\x17maintainer_full_control\x18\x11 \x01(\bR\x15maintainerFullControl\x12D\n" +
+	"\x1cmaintainer_dispatch_mode_ref\x18\x12 \x01(\tH\x01R\x19maintainerDispatchModeRef\x88\x01\x01B\x15\n" +
+	"\x13_maintainer_enabledB\x1f\n" +
+	"\x1d_maintainer_dispatch_mode_ref\"\xf4\x01\n" +
 	"\x13SlackProjectTrigger\x12%\n" +
 	"\x0econnection_ref\x18\x01 \x01(\tR\rconnectionRef\x12\x18\n" +
 	"\achannel\x18\x02 \x01(\tR\achannel\x12,\n" +
@@ -28934,7 +28952,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12=\n" +
 	"\n" +
 	"repository\x18\x02 \x01(\v2\x1d.platform.v1.GitHubRepositoryR\n" +
-	"repository\"\x9c\t\n" +
+	"repository\"\x83\n" +
+	"\n" +
 	"\x1fGitHubRepositoryTriggerSettings\x12#\n" +
 	"\rpoll_interval\x18\x01 \x01(\tR\fpollInterval\x12%\n" +
 	"\x0ewebhook_secret\x18\x02 \x01(\tR\rwebhookSecret\x12'\n" +
@@ -28956,10 +28975,12 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x10maintainer_model\x18\x11 \x01(\tR\x0fmaintainerModel\x129\n" +
 	"\x19maintainer_allow_pr_merge\x18\x12 \x01(\bR\x16maintainerAllowPrMerge\x12D\n" +
 	"\x1cmaintainer_work_item_cutover\x18\x13 \x01(\tH\x02R\x19maintainerWorkItemCutover\x88\x01\x01\x126\n" +
-	"\x17maintainer_full_control\x18\x14 \x01(\bR\x15maintainerFullControlB\x17\n" +
+	"\x17maintainer_full_control\x18\x14 \x01(\bR\x15maintainerFullControl\x12D\n" +
+	"\x1cmaintainer_dispatch_mode_ref\x18\x15 \x01(\tH\x03R\x19maintainerDispatchModeRef\x88\x01\x01B\x17\n" +
 	"\x15_review_loop_disabledB\x15\n" +
 	"\x13_maintainer_enabledB\x1f\n" +
-	"\x1d_maintainer_work_item_cutover\"\x9d\x02\n" +
+	"\x1d_maintainer_work_item_cutoverB\x1f\n" +
+	"\x1d_maintainer_dispatch_mode_ref\"\x9d\x02\n" +
 	" GitHubRepositoryMaintainerStatus\x12\x19\n" +
 	"\brun_name\x18\x01 \x01(\tR\arunName\x12$\n" +
 	"\x0elast_wake_unix\x18\x02 \x01(\x03R\flastWakeUnix\x12)\n" +

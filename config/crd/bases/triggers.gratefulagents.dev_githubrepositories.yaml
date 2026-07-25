@@ -496,15 +496,24 @@ spec:
                       to merge approved, non-draft pull requests in this repository. Disabled by
                       default; merging stays human otherwise.
                     type: boolean
+                  disabled:
+                    description: disabled turns off the maintainer without removing
+                      its configuration.
+                    type: boolean
+                  dispatchModeRef:
+                    default: autopilot
+                    description: |-
+                      dispatchModeRef is the metadata.name of the ModeTemplate used for
+                      maintainer-dispatched implementation runs. Defaults to "autopilot". The
+                      controller owns this choice; maintainer agents cannot override it per dispatch.
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
                   fullControl:
                     description: |-
                       fullControl permits the maintainer to merge its non-draft, mergeable pull
                       requests without human approval after required checks pass. This dangerous
                       opt-in implies allowPullRequestMerge; required reviews must be disabled.
-                    type: boolean
-                  disabled:
-                    description: disabled turns off the maintainer without removing
-                      its configuration.
                     type: boolean
                   maxConcurrentDispatches:
                     description: |-

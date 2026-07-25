@@ -13,6 +13,7 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -29,13 +30,13 @@ func MaintainerLegacyMutationToolNames() []string {
 	return []string{maintainerLegacyDispatchToolName, maintainerLegacyMergeToolName, maintainerLegacyRunToolName, maintainerLegacyCloseToolName}
 }
 
-func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8sClient client.Client, currentRunName, currentRunNamespace, repositoryName, repositoryNamespace string) {
-	if registry == nil || stateStore == nil || k8sClient == nil || strings.TrimSpace(currentRunName) == "" || strings.TrimSpace(currentRunNamespace) == "" || strings.TrimSpace(repositoryName) == "" || strings.TrimSpace(repositoryNamespace) == "" {
+func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8sClient client.Client, currentRunName, currentRunNamespace, currentRunUID, repositoryName, repositoryNamespace string) {
+	if registry == nil || stateStore == nil || k8sClient == nil || strings.TrimSpace(currentRunName) == "" || strings.TrimSpace(currentRunNamespace) == "" || strings.TrimSpace(currentRunUID) == "" || strings.TrimSpace(repositoryName) == "" || strings.TrimSpace(repositoryNamespace) == "" {
 		return
 	}
 	base := maintainerToolBase{
 		stateStore: stateStore, k8sClient: k8sClient,
-		currentRunName: currentRunName, currentRunNamespace: currentRunNamespace,
+		currentRunName: currentRunName, currentRunNamespace: currentRunNamespace, currentRunUID: types.UID(currentRunUID),
 		repositoryName: repositoryName, repositoryNamespace: repositoryNamespace,
 	}
 	if closeTool := registry.Get(maintainerLegacyCloseToolName); closeTool != nil {
@@ -47,6 +48,7 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&waitForRepoEventsTool{maintainerToolBase: base, runner: prReviewExecRunner{}, backlogPollInterval: defaultBacklogPollInterval, fleetPollInterval: defaultFleetEventsPollInterval})
 	registry.Register(&triageIssueTool{maintainerToolBase: base})
 	registry.Register(&breakdownIssueTool{maintainerToolBase: base})
+	registry.Register(&breakdownIssueTool{maintainerToolBase: base, toolName: "set_work_item_graph"})
 	registry.Register(&requestDecisionTool{maintainerToolBase: base})
 	registry.Register(&dispatchWorkItemTool{maintainerToolBase: base})
 	registry.Register(&requestMergeTool{maintainerToolBase: base})
@@ -54,6 +56,8 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&dispatchIssueTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&mergePullRequestTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&wakeAgentRunTool{maintainerToolBase: base})
+	registry.Register(&stopAgentRunTurnTool{maintainerToolBase: base})
+	registry.Register(&reportPlatformBugTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&getRunMessagesTool{maintainerToolBase: base})
 	registry.Register(&cancelRunMessageTool{maintainerToolBase: base})
 	registry.Register(&editRunMessageTool{maintainerToolBase: base})
@@ -101,15 +105,16 @@ type fleetCapsOutput struct {
 }
 
 type getFleetRunsOutput struct {
-	Runs []fleetRunOutput `json:"runs"`
-	Caps fleetCapsOutput  `json:"caps"`
+	Runs         []fleetRunOutput `json:"runs"`
+	Caps         fleetCapsOutput  `json:"caps"`
+	DispatchMode string           `json:"dispatch_mode"`
 }
 
 type getFleetRunsTool struct{ maintainerToolBase }
 
 func (t *getFleetRunsTool) Name() string { return "get_fleet_runs" }
 func (t *getFleetRunsTool) Description() string {
-	return "List the maintained repository's dispatched implementer and reviewer runs with their lifecycle, artifacts, queue state, and pending input."
+	return "List the maintained repository's controller-owned dispatch mode, capacity caps, and dispatched implementer/reviewer runs with lifecycle, artifacts, queue state, and pending input."
 }
 func (t *getFleetRunsTool) InputSchema() json.RawMessage          { return json.RawMessage(`{"type":"object"}`) }
 func (t *getFleetRunsTool) IsReadOnly() bool                      { return true }
@@ -129,7 +134,11 @@ func (t *getFleetRunsTool) Execute(ctx context.Context, _ json.RawMessage, _ str
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	out := getFleetRunsOutput{Runs: make([]fleetRunOutput, 0, len(fleet))}
+	dispatchMode, err := maintainerDispatchMode(repository)
+	if err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	out := getFleetRunsOutput{Runs: make([]fleetRunOutput, 0, len(fleet)), DispatchMode: dispatchMode}
 	for i := range fleet {
 		run := &fleet[i]
 		entry, err := t.describeFleetRun(ctx, run)

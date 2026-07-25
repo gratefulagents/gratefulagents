@@ -31,19 +31,27 @@ type maintainerCommandInput struct {
 	ExpectedResourceVersion    string `json:"expected_resource_version"`
 }
 
-type breakdownIssueTool struct{ maintainerToolBase }
+type breakdownIssueTool struct {
+	maintainerToolBase
+	toolName string
+}
 type breakdownIssueInput struct {
 	maintainerCommandInput
-	ChildIssueNumbers      []int32 `json:"child_issue_numbers"`
+	ChildIssueNumbers      []int32 `json:"child_issue_numbers,omitempty"`
 	DependencyIssueNumbers []int32 `json:"dependency_issue_numbers,omitempty"`
 }
 
-func (t *breakdownIssueTool) Name() string { return "breakdown_issue" }
+func (t *breakdownIssueTool) Name() string {
+	if t.toolName != "" {
+		return t.toolName
+	}
+	return "breakdown_issue"
+}
 func (t *breakdownIssueTool) Description() string {
-	return "Submit an authenticated, idempotent command that records existing child work items and validated acyclic dependencies."
+	return "Submit an authenticated graph command that replaces a work item's children and dependencies after explicit review. Both arrays may be empty to affirm a leaf. Pending is only a receipt; wait for latest_command.phase Succeeded before dispatch."
 }
 func (t *breakdownIssueTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"child_issue_numbers":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"integer","minimum":1}},"dependency_issue_numbers":{"type":"array","uniqueItems":true,"items":{"type":"integer","minimum":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","child_issue_numbers","idempotency_key","expected_projection_sequence"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"child_issue_numbers":{"type":"array","uniqueItems":true,"items":{"type":"integer","minimum":1}},"dependency_issue_numbers":{"type":"array","uniqueItems":true,"items":{"type":"integer","minimum":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","idempotency_key","expected_projection_sequence"]}`)
 }
 func (t *breakdownIssueTool) IsReadOnly() bool                    { return false }
 func (t *breakdownIssueTool) IsEnabled(*agentsdk.RunContext) bool { return true }
@@ -54,12 +62,12 @@ func (t *breakdownIssueTool) Execute(ctx context.Context, raw json.RawMessage, _
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return maintainerCommandError("invalid input: %v", err)
 	}
-	if len(in.ChildIssueNumbers) == 0 {
-		return maintainerCommandError("child_issue_numbers is required")
-	}
 	item, repository, current, preconditions, err := t.commandContext(ctx, in.maintainerCommandInput)
 	if err != nil {
 		return maintainerCommandError("%v", err)
+	}
+	if item.Spec.TriagedByCommand == nil {
+		return maintainerCommandError("work item must be triaged before its graph is configured")
 	}
 	children, err := t.workItemRefs(ctx, repository.Name, repository.Namespace, in.ChildIssueNumbers)
 	if err != nil {
@@ -111,16 +119,15 @@ func (t *requestDecisionTool) Execute(ctx context.Context, raw json.RawMessage, 
 type dispatchWorkItemTool struct{ maintainerToolBase }
 type dispatchWorkItemInput struct {
 	maintainerCommandInput
-	Mode                 string   `json:"mode"`
 	RequiredPullRequests []string `json:"required_pull_requests,omitempty"`
 }
 
 func (t *dispatchWorkItemTool) Name() string { return "dispatch_work_item" }
 func (t *dispatchWorkItemTool) Description() string {
-	return "Submit an authenticated work-item dispatch command. The controller atomically reserves daily/concurrent capacity before applying the GitHub trigger label."
+	return "Submit an authenticated work-item dispatch command using the repository's controller-owned dispatch ModeTemplate. The graph must already be explicitly configured. Pending is only a receipt; wait for latest_command.phase Succeeded before treating dispatch as applied."
 }
 func (t *dispatchWorkItemTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"mode":{"type":"string","minLength":1},"required_pull_requests":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","mode","idempotency_key","expected_projection_sequence"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"required_pull_requests":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","idempotency_key","expected_projection_sequence"]}`)
 }
 func (t *dispatchWorkItemTool) IsReadOnly() bool                    { return false }
 func (t *dispatchWorkItemTool) IsEnabled(*agentsdk.RunContext) bool { return true }
@@ -131,13 +138,20 @@ func (t *dispatchWorkItemTool) Execute(ctx context.Context, raw json.RawMessage,
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return maintainerCommandError("invalid input: %v", err)
 	}
-	mode := strings.ToLower(strings.TrimSpace(in.Mode))
-	if mode == "" || strings.ContainsAny(mode, " \t\n\r") {
-		return maintainerCommandError("mode must be a lowercase trimmed ModeTemplate name")
-	}
 	item, repository, current, preconditions, err := t.commandContext(ctx, in.maintainerCommandInput)
 	if err != nil {
 		return maintainerCommandError("%v", err)
+	}
+	mode, err := maintainerDispatchMode(repository)
+	if err != nil {
+		return maintainerCommandError("%v", err)
+	}
+	modeTemplate := &platformv1alpha1.ModeTemplate{}
+	if err := t.k8sClient.Get(ctx, client.ObjectKey{Name: mode}, modeTemplate); err != nil {
+		return maintainerCommandError("configured dispatch ModeTemplate %q is unavailable: %v", mode, err)
+	}
+	if item.Spec.GraphConfiguredByCommand == nil {
+		return maintainerCommandError("work item graph must be explicitly configured before dispatch")
 	}
 	intents := make([]triggersv1alpha1.MaintainerRequiredPullRequestIntent, 0, len(in.RequiredPullRequests))
 	for _, name := range in.RequiredPullRequests {

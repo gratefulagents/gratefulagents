@@ -158,6 +158,11 @@ type MaintainerWorkItemSpec struct {
 	CloseReason *MaintainerWorkItemCloseReason `json:"closeReason,omitempty"`
 	// +optional
 	TriagedByCommand *corev1.LocalObjectReference `json:"triagedByCommand,omitempty"`
+	// GraphConfiguredByCommand records the explicit graph review that must
+	// occur before actionable work can be dispatched, including leaf nodes
+	// whose reviewed children and dependencies are both empty.
+	// +optional
+	GraphConfiguredByCommand *corev1.LocalObjectReference `json:"graphConfiguredByCommand,omitempty"`
 	// +listType=map
 	// +listMapKey=name
 	// +optional
@@ -206,11 +211,15 @@ const (
 )
 
 // MaintainerWorkItemCheckState summarizes CI and commit-status observations for an exact head.
-// +kubebuilder:validation:Enum=Unknown;Pending;Passing;Failing
+// +kubebuilder:validation:Enum=Unknown;None;Pending;Passing;Failing
 type MaintainerWorkItemCheckState string
 
 const (
 	MaintainerWorkItemCheckStateUnknown MaintainerWorkItemCheckState = "Unknown"
+	// MaintainerWorkItemCheckStateNone means fresh check and status observations
+	// for the current head returned zero entries. Merge policy must still be
+	// re-read synchronously before this can authorize a merge.
+	MaintainerWorkItemCheckStateNone    MaintainerWorkItemCheckState = "None"
 	MaintainerWorkItemCheckStatePending MaintainerWorkItemCheckState = "Pending"
 	MaintainerWorkItemCheckStatePassing MaintainerWorkItemCheckState = "Passing"
 	MaintainerWorkItemCheckStateFailing MaintainerWorkItemCheckState = "Failing"
@@ -561,14 +570,15 @@ type MaintainerTriageCommand struct {
 	CloseReason *MaintainerWorkItemCloseReason `json:"closeReason,omitempty"`
 }
 
-// MaintainerBreakdownCommand is the typed payload for a BreakdownIssue command.
+// MaintainerBreakdownCommand is the typed payload for an explicit work-item
+// graph configuration. Empty children and dependencies affirm a reviewed leaf.
 type MaintainerBreakdownCommand struct {
 	// +kubebuilder:validation:Minimum=1
 	IssueNumber int32 `json:"issueNumber"`
-	// +kubebuilder:validation:MinItems=1
 	// +listType=map
 	// +listMapKey=name
-	Children []MaintainerWorkItemReference `json:"children"`
+	// +optional
+	Children []MaintainerWorkItemReference `json:"children,omitempty"`
 	// +listType=map
 	// +listMapKey=name
 	// +optional

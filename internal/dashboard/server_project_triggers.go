@@ -295,6 +295,12 @@ func (s *Server) UpdateProjectTrigger(ctx context.Context, req *platform.UpdateP
 			if dashboardProjectTriggerEnabled(existing) && existing.Type == triggersv1alpha1.ProjectTriggerTypeSlack && existing.Slack != nil {
 				replacedConnection = existing.Slack.ConnectionRef.Name
 			}
+			if req.GetTrigger().GetGithub() != nil && req.GetTrigger().GetGithub().MaintainerDispatchModeRef == nil &&
+				trigger.GitHub != nil && trigger.GitHub.Maintainer != nil && existing.GitHub != nil && existing.GitHub.Maintainer != nil {
+				// Older clients omit this optional field. Preserve an existing custom
+				// dispatch mode unless the client explicitly sends a reset value.
+				trigger.GitHub.Maintainer.DispatchModeRef = existing.GitHub.Maintainer.DispatchModeRef
+			}
 			if err := s.verifySlackTriggerClaim(ctx, namespace, claimHandle); err != nil {
 				return err
 			}
@@ -512,7 +518,8 @@ func projectTriggerMaintainerFromProto(config *platform.GitHubProjectTrigger) (*
 	}
 	hasConfiguration := config.GetMaintainerMaxConcurrentDispatches() != 0 || config.GetMaintainerMaxDispatchesPerDay() != 0 ||
 		strings.TrimSpace(config.GetMaintainerStandupInterval()) != "" || strings.TrimSpace(config.GetMaintainerModeRef()) != "" ||
-		strings.TrimSpace(config.GetMaintainerModel()) != "" || config.GetMaintainerAllowPrMerge() || config.GetMaintainerFullControl()
+		strings.TrimSpace(config.GetMaintainerDispatchModeRef()) != "" || strings.TrimSpace(config.GetMaintainerModel()) != "" ||
+		config.GetMaintainerAllowPrMerge() || config.GetMaintainerFullControl()
 	if !config.GetMaintainerEnabled() && !hasConfiguration {
 		return nil, nil
 	}
@@ -532,6 +539,12 @@ func projectTriggerMaintainerFromProto(config *platform.GitHubProjectTrigger) (*
 	}
 	if modeRef := strings.TrimSpace(config.GetMaintainerModeRef()); modeRef != "" {
 		maintainer.ModeRef = &platformv1alpha1.ModeRef{Name: modeRef}
+	}
+	if dispatchModeRef := strings.TrimSpace(config.GetMaintainerDispatchModeRef()); dispatchModeRef != "" {
+		if problems := validation.IsDNS1123Subdomain(dispatchModeRef); len(problems) > 0 {
+			return nil, fmt.Errorf("invalid maintainer dispatch mode %q: %s", dispatchModeRef, strings.Join(problems, "; "))
+		}
+		maintainer.DispatchModeRef = dispatchModeRef
 	}
 	if value := strings.TrimSpace(config.GetMaintainerStandupInterval()); value != "" {
 		duration, err := time.ParseDuration(value)
