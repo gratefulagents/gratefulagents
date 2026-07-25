@@ -138,10 +138,16 @@ func (s *Server) GetMyOpenAIUsage(ctx context.Context, _ *platform.GetMyOpenAIUs
 
 	openAI := <-openAIResult
 	copilot := <-copilotResult
+	var out *platform.MyOpenAIUsage
 	if openAI.err != nil {
-		return nil, openAI.err
+		if !copilot.usage.CopilotUsageAvailable {
+			return nil, openAI.err
+		}
+		out = &platform.MyOpenAIUsage{LookbackDays: 30, FetchedAtUnix: now.Unix()}
+		out.Warnings = append(out.Warnings, "ChatGPT usage data is temporarily unavailable.")
+	} else {
+		out = openAI.usage
 	}
-	out := openAI.usage
 	if copilot.err != nil {
 		out.Warnings = append(out.Warnings, "GitHub Copilot quota data is temporarily unavailable.")
 	}

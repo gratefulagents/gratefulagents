@@ -125,6 +125,43 @@ func TestGetMyOpenAIUsageIncludesCopilotOAuthQuotas(t *testing.T) {
 	}
 }
 
+func TestGetMyOpenAIUsageKeepsCopilotDataWhenOpenAICredentialIsInvalid(t *testing.T) {
+	scheme := testProjectScheme(t)
+	transport := providerOAuthRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/copilot_internal/user" {
+			t.Fatalf("unexpected path %q", req.URL.Path)
+		}
+		body := `{"login":"octocat","copilot_plan":"individual_pro","quota_snapshots":{"premium_interactions":{"entitlement":300,"remaining":225}}}`
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	srv := &Server{k8sClient: fake.NewClientBuilder().WithScheme(scheme).Build(), scheme: scheme, providerOAuthHTTP: &http.Client{Transport: transport}}
+	ctx := credActorCtx("user-copilot-fallback", "Copilot Fallback")
+	if _, err := srv.UpdateMyCredentials(ctx, &platform.UpdateMyCredentialsRequest{
+		CopilotOauthJson: `{"oauth_token":"github-oauth","token":"copilot-api-token","expires_at":4070908800}`,
+	}); err != nil {
+		t.Fatalf("UpdateMyCredentials() error = %v", err)
+	}
+	actor, _ := providerOAuthActor(ctx)
+	namespace, _ := srv.ensureUserNamespace(ctx, actor)
+	if err := srv.writeCredentialData(ctx, namespace, "openai", map[string][]byte{userCredOAuthJSONKey: []byte(`{"broken":true}`)}); err != nil {
+		t.Fatalf("writeCredentialData() error = %v", err)
+	}
+
+	got, err := srv.GetMyOpenAIUsage(ctx, &platform.GetMyOpenAIUsageRequest{})
+	if err != nil {
+		t.Fatalf("GetMyOpenAIUsage() error = %v", err)
+	}
+	if got.OpenaiOauthPresent || !got.CopilotOauthPresent || !got.CopilotUsageAvailable || got.CopilotAccountLogin != "octocat" {
+		t.Fatalf("partial usage = %#v", got)
+	}
+	if len(got.CopilotQuotas) != 1 || got.CopilotQuotas[0].Remaining != 225 {
+		t.Fatalf("Copilot quotas = %#v", got.CopilotQuotas)
+	}
+	if len(got.Warnings) == 0 || !strings.Contains(got.Warnings[0], "ChatGPT") {
+		t.Fatalf("warnings = %#v", got.Warnings)
+	}
+}
+
 func TestGetMyOpenAIUsageKeepsOpenAIDataWhenCopilotCredentialIsInvalid(t *testing.T) {
 	scheme := testProjectScheme(t)
 	transport := providerOAuthRoundTripFunc(func(req *http.Request) (*http.Response, error) {
