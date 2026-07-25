@@ -34,6 +34,7 @@ type FormState = {
   maintainerModeRef: string;
   maintainerModel: string;
   maintainerAllowPrMerge: boolean;
+  maintainerFullControl: boolean;
   channel: string;
   channelReplyMode: "require-approval" | "auto";
   commanders: string;
@@ -100,6 +101,7 @@ function initialForm(trigger?: ProjectTrigger): FormState {
     maintainerModeRef: field(github, "maintainerModeRef"),
     maintainerModel: field(github, "maintainerModel"),
     maintainerAllowPrMerge: booleanField(github, "maintainerAllowPrMerge"),
+    maintainerFullControl: booleanField(github, "maintainerFullControl"),
     channel: field(slack, "channel"),
     channelReplyMode: replyMode === "auto" ? "auto" : "require-approval",
     commanders: stringList(slack, "commanders").join(", "),
@@ -139,6 +141,7 @@ function buildTrigger(form: FormState, existing?: ProjectTrigger): ProjectTrigge
             maintainerModeRef: form.maintainerModeRef.trim(),
             maintainerModel: form.maintainerModel.trim(),
             maintainerAllowPrMerge: form.maintainerAllowPrMerge,
+            maintainerFullControl: form.maintainerFullControl,
           }
         : undefined,
     slack:
@@ -639,21 +642,38 @@ function GitHubDetails({
                 />
               </div>
             </div>
-            <label className="flex items-start gap-2.5 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-[12.5px]">
-              <input
-                type="checkbox"
-                checked={form.maintainerAllowPrMerge}
-                onChange={(e) => update("maintainerAllowPrMerge", e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
-                aria-label="Allow maintainer pull request merge"
-              />
-              <span>
-                <span className="block font-medium">Allow merging approved pull requests</span>
-                <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
-                  Danger: permits the maintainer to merge approved, non-draft pull requests without a human merge step.
+            <div className="space-y-2">
+              <label className="flex items-start gap-2.5 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-[12.5px]">
+                <input
+                  type="checkbox"
+                  checked={form.maintainerAllowPrMerge}
+                  onChange={(e) => update("maintainerAllowPrMerge", e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                  aria-label="Allow maintainer pull request merge"
+                />
+                <span>
+                  <span className="block font-medium">Allow merging approved pull requests</span>
+                  <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                    Danger: permits the maintainer to merge approved, non-draft pull requests without a human merge step.
+                  </span>
                 </span>
-              </span>
-            </label>
+              </label>
+              <label className="flex items-start gap-2.5 rounded-md border border-destructive/60 bg-destructive/10 p-3 text-[12.5px]">
+                <input
+                  type="checkbox"
+                  checked={form.maintainerFullControl}
+                  onChange={(e) => update("maintainerFullControl", e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                  aria-label="Give maintainer full control"
+                />
+                <span>
+                  <span className="block font-medium">Give the maintainer full control</span>
+                  <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                    Highest risk: manages and merges pull requests without human approval. Required checks must still pass.
+                  </span>
+                </span>
+              </label>
+            </div>
           </div>
         )}
       </fieldset>

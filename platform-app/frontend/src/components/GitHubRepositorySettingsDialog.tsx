@@ -123,6 +123,7 @@ function normalizeTriggerSettings(settings: GitHubRepositoryTriggerSettings): Gi
     maintainerModeRef: settings.maintainerModeRef.trim(),
     maintainerModel: settings.maintainerModel.trim(),
     maintainerAllowPrMerge: settings.maintainerAllowPrMerge,
+    maintainerFullControl: settings.maintainerFullControl,
     maintainerWorkItemCutover: settings.maintainerWorkItemCutover || "Controller",
   });
 }
@@ -189,6 +190,7 @@ function maintainerModified(settings: GitHubRepositoryTriggerSettings): boolean 
       settings.maintainerModeRef.trim() ||
       settings.maintainerModel.trim() ||
       settings.maintainerAllowPrMerge ||
+      settings.maintainerFullControl ||
       (settings.maintainerWorkItemCutover && settings.maintainerWorkItemCutover !== "Controller"),
   );
 }
@@ -678,20 +680,36 @@ export function GitHubRepositorySettingsDialog({
                       </div>
                     </div>
                     <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5">
-                      <FlowSwitchRow
-                        id="github-settings-maintainer-allow-pr-merge"
-                        label="Allow the maintainer to merge approved pull requests"
-                        hint="Danger: this lets the maintainer merge approved, non-draft pull requests without a human merge step."
-                        control={
-                          <Switch
-                            id="github-settings-maintainer-allow-pr-merge"
-                            checked={triggerSettings.maintainerAllowPrMerge}
-                            onCheckedChange={(checked) =>
-                              updateTriggerSettings({ maintainerAllowPrMerge: checked })
-                            }
-                          />
-                        }
-                      />
+                      <div className="space-y-3">
+                        <FlowSwitchRow
+                          id="github-settings-maintainer-allow-pr-merge"
+                          label="Allow the maintainer to merge approved pull requests"
+                          hint="Danger: this lets the maintainer merge approved, non-draft pull requests without a human merge step."
+                          control={
+                            <Switch
+                              id="github-settings-maintainer-allow-pr-merge"
+                              checked={triggerSettings.maintainerAllowPrMerge}
+                              onCheckedChange={(checked) =>
+                                updateTriggerSettings({ maintainerAllowPrMerge: checked })
+                              }
+                            />
+                          }
+                        />
+                        <FlowSwitchRow
+                          id="github-settings-maintainer-full-control"
+                          label="Give the maintainer full control"
+                          hint="Highest risk: the maintainer manages and merges its pull requests without human approval. Required checks must still pass."
+                          control={
+                            <Switch
+                              id="github-settings-maintainer-full-control"
+                              checked={triggerSettings.maintainerFullControl}
+                              onCheckedChange={(checked) =>
+                                updateTriggerSettings({ maintainerFullControl: checked })
+                              }
+                            />
+                          }
+                        />
+                      </div>
                     </div>
                   </div>
                 ) : null}

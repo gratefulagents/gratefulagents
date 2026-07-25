@@ -114,6 +114,7 @@ func crdGitHubTriggerSettingsToProto(spec triggersv1alpha1.GitHubRepositorySpec)
 		settings.MaintainerMaxDispatchesPerDay = spec.Maintainer.MaxDispatchesPerDay
 		settings.MaintainerModel = spec.Maintainer.Model
 		settings.MaintainerAllowPrMerge = spec.Maintainer.AllowPullRequestMerge
+		settings.MaintainerFullControl = spec.Maintainer.FullControl
 		cutover := spec.Maintainer.WorkItemCutover
 		if cutover == "" {
 			cutover = triggersv1alpha1.MaintainerWorkItemCutoverController
@@ -193,6 +194,7 @@ func protoGitHubTriggerSettingsToCRD(pb *platform.GitHubRepositoryTriggerSetting
 			MaxConcurrentDispatches: pb.GetMaintainerMaxConcurrentDispatches(),
 			MaxDispatchesPerDay:     pb.GetMaintainerMaxDispatchesPerDay(),
 			AllowPullRequestMerge:   pb.GetMaintainerAllowPrMerge(),
+			FullControl:             pb.GetMaintainerFullControl(),
 		}
 		if pb.MaintainerWorkItemCutover != nil {
 			cutover := triggersv1alpha1.MaintainerWorkItemCutoverMode(trim(pb.GetMaintainerWorkItemCutover()))

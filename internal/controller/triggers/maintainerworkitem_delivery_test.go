@@ -25,13 +25,14 @@ const (
 )
 
 type fakeMaintainerDeliveryClient struct {
-	pulls        []*polledPullRequest
-	review       triggersv1alpha1.PullRequestReviewDecision
-	checks       polledHeadRollup
-	statuses     polledHeadRollup
-	mergeCalls   int
-	mergeErr     error
-	unsafePolicy bool
+	pulls            []*polledPullRequest
+	review           triggersv1alpha1.PullRequestReviewDecision
+	checks           polledHeadRollup
+	statuses         polledHeadRollup
+	mergeCalls       int
+	mergeErr         error
+	unsafePolicy     bool
+	noRequiredReview bool
 }
 
 func (f *fakeMaintainerDeliveryClient) GetPullRequest(context.Context, string, string, int, string) (*polledPullRequest, gitHubPollResponse, error) {
@@ -57,7 +58,7 @@ func (f *fakeMaintainerDeliveryClient) GetCommitStatus(context.Context, string, 
 	return f.statuses, gitHubPollResponse{}, nil
 }
 func (f *fakeMaintainerDeliveryClient) GetMergePolicy(context.Context, string, string, string) (maintainerMergePolicy, error) {
-	return maintainerMergePolicy{RequiredReviews: true, RequiredChecks: true, CanMerge: true, ActorCanBypass: f.unsafePolicy}, nil
+	return maintainerMergePolicy{RequiredReviews: !f.noRequiredReview, RequiredChecks: true, CanMerge: true, ActorCanBypass: f.unsafePolicy}, nil
 }
 func (f *fakeMaintainerDeliveryClient) MergePullRequest(context.Context, string, string, int, string, string) (*github.PullRequestMergeResult, error) {
 	f.mergeCalls++
@@ -147,6 +148,28 @@ func TestRequestMergeRejectsBypassCapableActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	if phase := commandPhase(t, reconciler, command); phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected || githubClient.mergeCalls != 0 {
+		t.Fatalf("phase=%s mergeCalls=%d", phase, githubClient.mergeCalls)
+	}
+}
+
+func TestRequestMergeFullControlDoesNotRequireHumanApproval(t *testing.T) {
+	reconciler, repository, item, command := newMaintainerMergeFixture(t)
+	repository.Spec.Maintainer.AllowPullRequestMerge = false
+	repository.Spec.Maintainer.FullControl = true
+	item.Status.PullRequests[0].ReviewDecision = ""
+	if err := reconciler.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Status().Update(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	head := command.Spec.RequestMerge.ExpectedHeadSHA
+	mergedAt := time.Now().UTC()
+	githubClient := &fakeMaintainerDeliveryClient{pulls: []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head}}, noRequiredReview: true, checks: polledHeadRollup{HeadSHA: head, State: gitHubRollupSuccess, Count: 1}, statuses: polledHeadRollup{HeadSHA: head, State: gitHubRollupNone}}
+	if err := reconciler.processMaintainerRequestMerge(context.Background(), repository, command, item, githubClient, true); err != nil {
+		t.Fatal(err)
+	}
+	if phase := commandPhase(t, reconciler, command); phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded || githubClient.mergeCalls != 1 {
 		t.Fatalf("phase=%s mergeCalls=%d", phase, githubClient.mergeCalls)
 	}
 }

@@ -218,6 +218,7 @@ export function MaintainerPanel({ repo }: { repo: GitHubRepository }) {
       maintainer={repo.maintainerStatus}
       maxDispatchesPerDay={settings?.maintainerMaxDispatchesPerDay}
       allowPrMerge={settings?.maintainerAllowPrMerge}
+      fullControl={settings?.maintainerFullControl}
       repositoryName={repo.name}
       disabledHint="Enable it in repository settings."
     />
@@ -524,6 +525,7 @@ export type MaintainerCardProps = {
   maintainer?: MaintainerStatusLike;
   maxDispatchesPerDay?: number;
   allowPrMerge?: boolean;
+  fullControl?: boolean;
   /**
    * GitHubRepository resource name backing this maintainer. When set, the
    * card lists the durable work-item queue for that repository.
@@ -539,6 +541,7 @@ export function MaintainerCard({
   maintainer,
   maxDispatchesPerDay,
   allowPrMerge,
+  fullControl,
   repositoryName,
   disabledHint,
 }: MaintainerCardProps) {
@@ -601,10 +604,10 @@ export function MaintainerCard({
               {maintainer?.lastWakeUnix ? `${formatAge(maintainer.lastWakeUnix)} ago` : "—"}
             </dd>
           </div>
-          {allowPrMerge ? (
+          {allowPrMerge || fullControl ? (
             <div className="flex items-end px-5 sm:px-7">
               <Badge variant="secondary" className={cn("text-[10.5px]", toneSoft.danger)}>
-                PR merging enabled
+                {fullControl ? "Full control" : "PR merging enabled"}
               </Badge>
             </div>
           ) : null}

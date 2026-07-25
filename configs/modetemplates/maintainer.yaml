@@ -140,8 +140,9 @@ spec:
     - CHECKS_OR_REVIEW: while checks are pending or an AI reviewer is active,
       return to wait_for_repo_events. An AI PR-loop verdict and GitHub's review
       decision are independent. Do not claim merge readiness until the attached
-      PR is open, non-draft, approved, conflict-free, and every reported check
-      run and commit status has completed successfully.
+      PR is open, non-draft, conflict-free, and every reported check run and
+      commit status has completed successfully. Human approval is also required
+      unless the repository explicitly enables maintainer full control.
     - CHANGES_REQUIRED: if checks fail or review requests changes, inspect the
       run's activity and queue. Wake it once only when the PR loop has not
       already queued equivalent feedback. Require a new head SHA and fresh

@@ -578,6 +578,7 @@ function ProjectMaintainerSection({
                   : undefined
               }
               allowPrMerge={Boolean(trigger.github?.maintainerAllowPrMerge)}
+              fullControl={Boolean(trigger.github?.maintainerFullControl)}
               repositoryName={trigger.generatedResourceName}
             />
           </div>

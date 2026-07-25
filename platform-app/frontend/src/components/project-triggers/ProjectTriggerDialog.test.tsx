@@ -281,6 +281,7 @@ describe("ProjectTriggerDialog", () => {
     fireEvent.change(screen.getByLabelText("Maintainer mode"), { target: { value: "repository-maintainer" } });
     fireEvent.change(screen.getByLabelText("Maintainer model"), { target: { value: "gpt-5" } });
     fireEvent.click(screen.getByLabelText("Allow maintainer pull request merge"));
+    fireEvent.click(screen.getByLabelText("Give maintainer full control"));
     fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "gh-trigger" } });
     fireEvent.submit(document.querySelector("form")!);
 
@@ -293,6 +294,7 @@ describe("ProjectTriggerDialog", () => {
       maintainerModeRef: "repository-maintainer",
       maintainerModel: "gpt-5",
       maintainerAllowPrMerge: true,
+      maintainerFullControl: true,
     });
   });
 

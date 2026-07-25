@@ -43,9 +43,10 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 	if githubClient == nil {
 		return r.failMaintainerWorkItemCommand(ctx, command, item, "GitHub delivery client is unavailable")
 	}
-	if repository.Spec.Maintainer == nil || !repository.Spec.Maintainer.AllowPullRequestMerge {
+	if repository.Spec.Maintainer == nil || (!repository.Spec.Maintainer.AllowPullRequestMerge && !repository.Spec.Maintainer.FullControl) {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "repository does not grant maintainer merge permission")
 	}
+	fullControl := repository.Spec.Maintainer.FullControl
 	if request.Repository != repository.Spec.Owner+"/"+repository.Spec.Repo {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "request repository identity does not match GitHubRepository")
 	}
@@ -87,7 +88,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 	if projection.HeadSHA != request.ExpectedHeadSHA {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "expected head SHA does not match the current projection")
 	}
-	if fresh.Status.Readiness == nil || !fresh.Status.Readiness.ReadyToMerge || !projectedPullRequestReady(projection, time.Now()) {
+	if fresh.Status.Readiness == nil || !fresh.Status.Readiness.ReadyToMerge || !projectedPullRequestReady(projection, time.Now(), fullControl) {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "work item and pull request are not ReadyToMerge with fresh observations")
 	}
 	if pending {
@@ -111,18 +112,26 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 		// unproven policy is a terminal rejection.
 		return r.failMaintainerWorkItemCommand(ctx, command, fresh, "pre-merge GitHub merge policy read failed: "+err.Error())
 	}
-	if !policy.RequiredReviews || !policy.RequiredChecks || !policy.CanMerge || policy.ActorCanBypass {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "server-enforced required-review/check policy and repository merge permission for a non-bypass actor could not be proven")
+	if !policy.RequiredChecks || !policy.CanMerge || policy.ActorCanBypass {
+		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "server-enforced required-check policy and repository merge permission for a non-bypass actor could not be proven")
 	}
-	review, _, err := githubClient.GetReviewDecision(ctx, owner, repo, int(request.PullRequestNumber))
-	if err != nil {
-		return r.failMaintainerWorkItemCommand(ctx, command, fresh, "pre-merge GitHub review read failed: "+err.Error())
+	if fullControl && policy.RequiredReviews {
+		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "full control requires branch protection or rulesets without required approving reviews")
 	}
-	if review == triggersv1alpha1.PullRequestReviewDecisionUnknown {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "GitHub reported a blank review decision; required approval cannot be proven")
-	}
-	if review != triggersv1alpha1.PullRequestReviewDecisionApproved {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "GitHub review decision is not approved")
+	if !fullControl {
+		if !policy.RequiredReviews {
+			return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "server-enforced required-review policy could not be proven")
+		}
+		review, _, err := githubClient.GetReviewDecision(ctx, owner, repo, int(request.PullRequestNumber))
+		if err != nil {
+			return r.failMaintainerWorkItemCommand(ctx, command, fresh, "pre-merge GitHub review read failed: "+err.Error())
+		}
+		if review == triggersv1alpha1.PullRequestReviewDecisionUnknown {
+			return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "GitHub reported a blank review decision; required approval cannot be proven")
+		}
+		if review != triggersv1alpha1.PullRequestReviewDecisionApproved {
+			return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "GitHub review decision is not approved")
+		}
 	}
 	checks, _, err := githubClient.ListCheckRuns(ctx, owner, repo, request.ExpectedHeadSHA)
 	if err != nil {
@@ -195,8 +204,9 @@ func projectedMaintainerPullRequest(item *triggersv1alpha1.MaintainerWorkItem, r
 	return nil
 }
 
-func projectedPullRequestReady(pr *triggersv1alpha1.MaintainerWorkItemPullRequestProjection, now time.Time) bool {
-	if pr == nil || !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || !strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionApproved)) || pr.CheckState != triggersv1alpha1.MaintainerWorkItemCheckStatePassing {
+func projectedPullRequestReady(pr *triggersv1alpha1.MaintainerWorkItemPullRequestProjection, now time.Time, fullControl bool) bool {
+	approvalMissing := !fullControl && pr != nil && !strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionApproved))
+	if pr == nil || !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || pr.CheckState != triggersv1alpha1.MaintainerWorkItemCheckStatePassing {
 		return false
 	}
 	for _, observed := range []*metav1.Time{pr.HeadObservedAt, pr.ReviewObservedAt, pr.ChecksObservedAt, pr.StatusesObservedAt} {

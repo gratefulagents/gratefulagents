@@ -512,7 +512,7 @@ func projectTriggerMaintainerFromProto(config *platform.GitHubProjectTrigger) (*
 	}
 	hasConfiguration := config.GetMaintainerMaxConcurrentDispatches() != 0 || config.GetMaintainerMaxDispatchesPerDay() != 0 ||
 		strings.TrimSpace(config.GetMaintainerStandupInterval()) != "" || strings.TrimSpace(config.GetMaintainerModeRef()) != "" ||
-		strings.TrimSpace(config.GetMaintainerModel()) != "" || config.GetMaintainerAllowPrMerge()
+		strings.TrimSpace(config.GetMaintainerModel()) != "" || config.GetMaintainerAllowPrMerge() || config.GetMaintainerFullControl()
 	if !config.GetMaintainerEnabled() && !hasConfiguration {
 		return nil, nil
 	}
@@ -528,6 +528,7 @@ func projectTriggerMaintainerFromProto(config *platform.GitHubProjectTrigger) (*
 		MaxConcurrentDispatches: config.GetMaintainerMaxConcurrentDispatches(),
 		MaxDispatchesPerDay:     config.GetMaintainerMaxDispatchesPerDay(),
 		AllowPullRequestMerge:   config.GetMaintainerAllowPrMerge(),
+		FullControl:             config.GetMaintainerFullControl(),
 	}
 	if modeRef := strings.TrimSpace(config.GetMaintainerModeRef()); modeRef != "" {
 		maintainer.ModeRef = &platformv1alpha1.ModeRef{Name: modeRef}

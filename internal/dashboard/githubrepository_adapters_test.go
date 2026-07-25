@@ -34,6 +34,7 @@ func TestGitHubRepositoryMaintainerAdapterRoundTrip(t *testing.T) {
 				MaxDispatchesPerDay:     12,
 				StandupInterval:         &metav1.Duration{Duration: 6 * time.Hour},
 				AllowPullRequestMerge:   true,
+				FullControl:             true,
 				WorkItemCutover:         triggersv1alpha1.MaintainerWorkItemCutoverDualRead,
 			},
 		},
@@ -54,7 +55,7 @@ func TestGitHubRepositoryMaintainerAdapterRoundTrip(t *testing.T) {
 	if settings == nil || !settings.GetMaintainerEnabled() ||
 		settings.GetMaintainerMaxConcurrentDispatches() != 4 || settings.GetMaintainerMaxDispatchesPerDay() != 12 ||
 		settings.GetMaintainerStandupInterval() != "6h0m0s" || settings.GetMaintainerModeRef() != "repository-maintainer" ||
-		settings.GetMaintainerModel() != "claude-opus-4-6" || !settings.GetMaintainerAllowPrMerge() ||
+		settings.GetMaintainerModel() != "claude-opus-4-6" || !settings.GetMaintainerAllowPrMerge() || !settings.GetMaintainerFullControl() ||
 		settings.GetMaintainerWorkItemCutover() != string(triggersv1alpha1.MaintainerWorkItemCutoverDualRead) {
 		t.Fatalf("maintainer settings = %+v", settings)
 	}
@@ -72,7 +73,7 @@ func TestGitHubRepositoryMaintainerAdapterRoundTrip(t *testing.T) {
 	if maintainer == nil || maintainer.Disabled || maintainer.MaxConcurrentDispatches != 4 ||
 		maintainer.MaxDispatchesPerDay != 12 || maintainer.StandupInterval == nil || maintainer.StandupInterval.Duration != 6*time.Hour ||
 		maintainer.ModeRef == nil || maintainer.ModeRef.Name != "repository-maintainer" || maintainer.Model != "claude-opus-4-6" ||
-		!maintainer.AllowPullRequestMerge || maintainer.WorkItemCutover != triggersv1alpha1.MaintainerWorkItemCutoverDualRead {
+		!maintainer.AllowPullRequestMerge || !maintainer.FullControl || maintainer.WorkItemCutover != triggersv1alpha1.MaintainerWorkItemCutoverDualRead {
 		t.Fatalf("round-tripped maintainer = %+v", maintainer)
 	}
 }

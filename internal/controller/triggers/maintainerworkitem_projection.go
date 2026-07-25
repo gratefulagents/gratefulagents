@@ -55,7 +55,7 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerExecutionProjection(ctx 
 			before := fresh.Status.DeepCopy()
 			projectMaintainerDependencies(fresh, byName, now)
 			projectMaintainerRunsAndPRs(fresh, runs.Items, monitors.Items, now)
-			evaluateMaintainerReadiness(fresh, now)
+			evaluateMaintainerReadiness(fresh, now, repository.Spec.Maintainer != nil && repository.Spec.Maintainer.FullControl)
 			if maintainerWorkItemStatusSemanticallyEqual(before, &fresh.Status) {
 				// Persist fresh head-bound observation heartbeats without advancing
 				// the semantic cursor. Waiter-v2 ignores same-sequence updates.
@@ -253,7 +253,8 @@ func timePtr(value metav1.Time) *metav1.Time {
 }
 
 //nolint:gocyclo // Readiness is a fail-closed conjunction over independently projected facts.
-func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now time.Time) {
+func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now time.Time, fullControl bool) {
+	requireApproval := !fullControl
 	unmet := []string{}
 	dependenciesReady := true
 	for _, dep := range item.Status.Dependencies {
@@ -284,7 +285,8 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 		if pr.State == triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged {
 			continue
 		}
-		if !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || !strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionApproved)) || pr.CheckState != triggersv1alpha1.MaintainerWorkItemCheckStatePassing || pr.HeadObservedAt == nil || pr.ReviewObservedAt == nil || pr.ChecksObservedAt == nil || pr.StatusesObservedAt == nil || now.Sub(pr.HeadObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ReviewObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ChecksObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.StatusesObservedAt.Time) > maintainerProjectionFreshness {
+		approvalMissing := requireApproval && !strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionApproved))
+		if !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || pr.CheckState != triggersv1alpha1.MaintainerWorkItemCheckStatePassing || pr.HeadObservedAt == nil || pr.ReviewObservedAt == nil || pr.ChecksObservedAt == nil || pr.StatusesObservedAt == nil || now.Sub(pr.HeadObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ReviewObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ChecksObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.StatusesObservedAt.Time) > maintainerProjectionFreshness {
 			readyToMerge = false
 			unmet = append(unmet, identity+" is incomplete, stale, or not merge-ready")
 		}
