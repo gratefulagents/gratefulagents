@@ -71,6 +71,10 @@ const (
 	UserInputStopped      UserInputRequestType = "stopped"
 )
 
+// AuthorizationPendingAnnotation prevents an AgentRun from initializing until
+// its trigger controller has durably authorized the persisted object.
+const AuthorizationPendingAnnotation = "platform.gratefulagents.dev/authorization-pending"
+
 // Overseer annotations carry lifecycle state and the verdict context emitted
 // by an overseer run.
 const (

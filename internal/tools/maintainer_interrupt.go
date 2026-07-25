@@ -56,9 +56,6 @@ func (t *stopAgentRunTurnTool) Execute(ctx context.Context, input json.RawMessag
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	if !maintainerFleetRunOwnedByRepository(run, repository) {
-		return Result{Content: "target AgentRun is not controller-owned by the maintained repository", IsError: true}, nil
-	}
 	if run.Status.Phase != platformv1alpha1.AgentRunPhaseRunning {
 		return Result{Content: fmt.Sprintf("AgentRun %q is not running; current phase is %s", name, run.Status.Phase), IsError: true}, nil
 	}
@@ -82,7 +79,7 @@ func (t *stopAgentRunTurnTool) Execute(ctx context.Context, input json.RawMessag
 	if !maintainerFleetRunOwnedByRepository(caller, repository) {
 		return Result{Content: "calling maintainer is no longer owned by the maintained repository UID", IsError: true}, nil
 	}
-	if run.Status.Phase != platformv1alpha1.AgentRunPhaseRunning || maintainerIsReviewer(run) || !maintainerFleetRunOwnedByRepository(run, repository) {
+	if run.Status.Phase != platformv1alpha1.AgentRunPhaseRunning || maintainerIsReviewer(run) || !t.isFleetRunForRepository(ctx, run, repository) {
 		return Result{Content: "target AgentRun is no longer an authorized running implementer", IsError: true}, nil
 	}
 	requestedBy := "maintainer:" + t.currentRunName

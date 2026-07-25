@@ -2,7 +2,10 @@ package triggers
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"regexp"
@@ -18,7 +21,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,9 +35,12 @@ import (
 )
 
 const (
-	defaultGitHubPollInterval = 60 * time.Second
-	maxGitHubIssuePages       = 10
-	maxGitHubIssues           = 1000
+	defaultGitHubPollInterval             = 60 * time.Second
+	maxGitHubIssuePages                   = 10
+	maxGitHubIssues                       = 1000
+	agentRunAuthorizationIntentAnnotation = "triggers.gratefulagents.dev/authorization-intent-secret"
+	agentRunAuthorizationProofAnnotation  = "triggers.gratefulagents.dev/authorization-intent-proof"
+	agentRunAuthorizationIntentKey        = "key"
 )
 
 var ghNonAlphaNum = regexp.MustCompile(`[^a-z0-9-]`)
@@ -297,6 +305,30 @@ func (r *GitHubRepositoryReconciler) createAgentRun(ctx context.Context, gh *tri
 		}
 		if err := r.Create(ctx, instructions); err != nil {
 			if apierrors.IsAlreadyExists(err) {
+				existing := &corev1.ConfigMap{}
+				if getErr := r.Get(ctx, client.ObjectKey{Namespace: gh.Namespace, Name: instructionsName}, existing); getErr != nil {
+					return false, fmt.Errorf("getting existing instructions ConfigMap: %w", getErr)
+				}
+				if len(existing.Data) != 1 || existing.Data["instructions.md"] != d.CustomInstructions || len(existing.BinaryData) != 0 || !existing.DeletionTimestamp.IsZero() {
+					return false, fmt.Errorf("refusing instructions ConfigMap collision for %s/%s", gh.Namespace, instructionsName)
+				}
+				authorizedOwner := metav1.IsControlledBy(existing, gh)
+				if !authorizedOwner {
+					persisted := &platformv1alpha1.AgentRun{}
+					if getErr := r.maintainerReader().Get(ctx, client.ObjectKey{Name: runName, Namespace: gh.Namespace}, persisted); getErr == nil && metav1.IsControlledBy(existing, persisted) {
+						authorizedOwner = runOwnedByGitHubRepository(persisted, gh)
+						if !authorizedOwner {
+							item := &triggersv1alpha1.MaintainerWorkItem{}
+							itemKey := client.ObjectKey{Name: MaintainerWorkItemName(gh.Name, int32(issueNumber)), Namespace: gh.Namespace}
+							if itemErr := r.maintainerReader().Get(ctx, itemKey, item); itemErr == nil {
+								authorizedOwner = r.requireAuthorizedAgentRun(ctx, gh, item, persisted) == nil || r.claimAgentRunAuthorizationIntent(ctx, gh, item, persisted, issueID) == nil
+							}
+						}
+					}
+				}
+				if !authorizedOwner {
+					return false, fmt.Errorf("refusing instructions ConfigMap %s/%s without trusted controller ownership", gh.Namespace, instructionsName)
+				}
 				annotations["platform.gratefulagents.dev/instructions-configmap-ref"] = instructionsName
 			} else {
 				logf.FromContext(ctx).Error(err, "failed to create instructions ConfigMap", "configMap", instructionsName)
@@ -323,30 +355,93 @@ func (r *GitHubRepositoryReconciler) createAgentRun(ctx context.Context, gh *tri
 
 	workItemLabels := map[string]string{}
 	workItem := &triggersv1alpha1.MaintainerWorkItem{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: gh.Namespace, Name: MaintainerWorkItemName(gh.Name, int32(issueNumber))}, workItem); err == nil {
+	workItemKey := client.ObjectKey{Namespace: gh.Namespace, Name: MaintainerWorkItemName(gh.Name, int32(issueNumber))}
+	if err := r.maintainerReader().Get(ctx, workItemKey, workItem); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("getting maintainer work item for issue #%d: %w", issueNumber, err)
+		}
+		if maintainerWorkItemsEnabled(r, gh) {
+			if err := r.ensureMaintainerWorkItem(ctx, gh, workItemKey.Name, int32(issueNumber)); err != nil {
+				return false, err
+			}
+			if err := r.maintainerReader().Get(ctx, workItemKey, workItem); err != nil {
+				return false, fmt.Errorf("rereading maintainer work item for issue #%d: %w", issueNumber, err)
+			}
+		}
+	}
+	if workItem.UID != "" {
 		workItemLabels[triggersv1alpha1.MaintainerWorkItemNameLabelKey] = workItem.Name
 		workItemLabels[triggersv1alpha1.MaintainerWorkItemUIDLabelKey] = string(workItem.UID)
 	}
+	if workItem.UID != "" && isGeneratedProjectRuntime(gh) {
+		existing := &platformv1alpha1.AgentRun{}
+		if err := r.maintainerReader().Get(ctx, client.ObjectKey{Namespace: gh.Namespace, Name: runName}, existing); apierrors.IsNotFound(err) {
+			intentAnnotations, intentErr := r.createAgentRunAuthorizationIntent(ctx, gh, workItem, runName, issueID)
+			if intentErr != nil {
+				return false, intentErr
+			}
+			for key, value := range intentAnnotations {
+				annotations[key] = value
+			}
+		} else if err != nil {
+			return false, fmt.Errorf("checking for existing AgentRun authorization intent: %w", err)
+		}
+	}
 	createdRun, _, err := CreateTriggerRun(ctx, r.Client, r.StateStore, TriggerRunSpec{
-		RunName:                      runName,
-		Namespace:                    gh.Namespace,
-		TriggerKind:                  "GitHubRepository",
-		TriggerName:                  gh.Name,
-		ExternalID:                   issueID,
-		ExternalIdentifier:           fmt.Sprintf("#%d", issueNumber),
-		ExternalURL:                  issueURL,
-		SeedMessage:                  userRequest,
-		Defaults:                     d,
-		OwnerRef:                     gh,
-		Scheme:                       r.Scheme,
-		Annotations:                  annotations,
-		Labels:                       workItemLabels,
-		Context:                      runContext,
-		ModeRef:                      modeRef,
-		GitHubTokenSecret:            gitHubTokenSecret,
-		SeedLogPrefix:                "github",
-		SeedOnAlreadyExists:          true,
-		FetchExistingOnAlreadyExists: gh.Spec.GitHubApp != nil,
+		RunName:             runName,
+		Namespace:           gh.Namespace,
+		TriggerKind:         "GitHubRepository",
+		TriggerName:         gh.Name,
+		ExternalID:          issueID,
+		ExternalIdentifier:  fmt.Sprintf("#%d", issueNumber),
+		ExternalURL:         issueURL,
+		SeedMessage:         userRequest,
+		Defaults:            d,
+		OwnerRef:            gh,
+		Scheme:              r.Scheme,
+		Annotations:         annotations,
+		Labels:              workItemLabels,
+		Context:             runContext,
+		ModeRef:             modeRef,
+		GitHubTokenSecret:   gitHubTokenSecret,
+		SeedLogPrefix:       "github",
+		SeedOnAlreadyExists: true,
+		// Existing runs must be fetched so retries can durably record their
+		// controller-issued work-item authorization binding.
+		FetchExistingOnAlreadyExists: true,
+		AuthorizationReader:          r.maintainerReader(),
+		AuthorizePersisted: func(ctx context.Context, persisted *platformv1alpha1.AgentRun, created bool) error {
+			if persisted == nil || persisted.Name != runName || persisted.Namespace != gh.Namespace || !TriggerRunMatches(persisted, "GitHubRepository", gh.Name) || persisted.Spec.Trigger.ExternalRef == nil || persisted.Spec.Trigger.ExternalRef.ID != issueID {
+				return fmt.Errorf("persisted AgentRun provenance does not match this GitHub event")
+			}
+			if persisted.Spec.Secrets == nil || persisted.Spec.Secrets.GitHubTokenSecret != gitHubTokenSecret {
+				return fmt.Errorf("persisted AgentRun GitHub token destination does not match the expected secret")
+			}
+			if created {
+				if workItem.UID != "" {
+					if persisted.Annotations[agentRunAuthorizationIntentAnnotation] != "" {
+						if err := r.claimAgentRunAuthorizationIntent(ctx, gh, workItem, persisted, issueID); err != nil {
+							return err
+						}
+					}
+					return r.bindAuthorizedAgentRun(ctx, gh, workItem, persisted)
+				}
+				return nil
+			}
+			if runOwnedByGitHubRepository(persisted, gh) {
+				return nil
+			}
+			if workItem.UID == "" {
+				return fmt.Errorf("existing ownerless AgentRun has no controller-issued work-item binding")
+			}
+			if err := r.requireAuthorizedAgentRun(ctx, gh, workItem, persisted); err == nil {
+				return nil
+			}
+			if err := r.claimAgentRunAuthorizationIntent(ctx, gh, workItem, persisted, issueID); err != nil {
+				return err
+			}
+			return r.bindAuthorizedAgentRun(ctx, gh, workItem, persisted)
+		},
 		AfterCreate: func(ctx context.Context, run *platformv1alpha1.AgentRun, created bool) error {
 			if err := ensureRunGitHubAppTokenSecret(ctx, r.Client, r.Scheme, gh, run, r.GitHubAppMinter); err != nil {
 				if created {
@@ -360,8 +455,145 @@ func (r *GitHubRepositoryReconciler) createAgentRun(ctx context.Context, gh *tri
 	if err != nil {
 		return false, err
 	}
-
 	return createdRun, nil
+}
+
+func (r *GitHubRepositoryReconciler) createAgentRunAuthorizationIntent(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, workItem *triggersv1alpha1.MaintainerWorkItem, runName, issueID string) (map[string]string, error) {
+	if repository == nil || repository.UID == "" || workItem == nil || workItem.UID == "" || strings.TrimSpace(runName) == "" {
+		return nil, fmt.Errorf("stable repository, work-item, and run identities are required for authorization intent")
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generating AgentRun authorization key: %w", err)
+	}
+	for attempt := 0; attempt < 5; attempt++ {
+		suffix := make([]byte, 12)
+		if _, err := rand.Read(suffix); err != nil {
+			return nil, fmt.Errorf("generating AgentRun authorization intent name: %w", err)
+		}
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "run-auth-" + hex.EncodeToString(suffix), Namespace: repository.Namespace}, Type: corev1.SecretTypeOpaque, Data: map[string][]byte{agentRunAuthorizationIntentKey: key}}
+		if err := ctrl.SetControllerReference(workItem, secret, r.Scheme); err != nil {
+			return nil, fmt.Errorf("owning AgentRun authorization intent: %w", err)
+		}
+		if err := r.Create(ctx, secret); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				continue
+			}
+			return nil, fmt.Errorf("creating AgentRun authorization intent: %w", err)
+		}
+		proof := agentRunAuthorizationIntentProof(key, repository.UID, workItem.UID, runName, issueID)
+		return map[string]string{agentRunAuthorizationIntentAnnotation: secret.Name, agentRunAuthorizationProofAnnotation: proof}, nil
+	}
+	return nil, fmt.Errorf("could not allocate a unique AgentRun authorization intent")
+}
+
+func (r *GitHubRepositoryReconciler) claimAgentRunAuthorizationIntent(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, workItem *triggersv1alpha1.MaintainerWorkItem, run *platformv1alpha1.AgentRun, issueID string) error {
+	if repository == nil || repository.UID == "" || workItem == nil || workItem.UID == "" || run == nil || run.UID == "" || run.Annotations[platformv1alpha1.AuthorizationPendingAnnotation] != "true" {
+		return fmt.Errorf("existing AgentRun has no recoverable authorization hold")
+	}
+	secretName := strings.TrimSpace(run.Annotations[agentRunAuthorizationIntentAnnotation])
+	proof := strings.TrimSpace(run.Annotations[agentRunAuthorizationProofAnnotation])
+	if secretName == "" || proof == "" {
+		return fmt.Errorf("existing AgentRun has no controller-issued authorization intent")
+	}
+	secretKey := client.ObjectKey{Name: secretName, Namespace: run.Namespace}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		secret := &corev1.Secret{}
+		if err := r.maintainerReader().Get(ctx, secretKey, secret); err != nil {
+			return fmt.Errorf("reading AgentRun authorization intent: %w", err)
+		}
+		if !secret.DeletionTimestamp.IsZero() {
+			return fmt.Errorf("AgentRun authorization intent is being deleted")
+		}
+		key := secret.Data[agentRunAuthorizationIntentKey]
+		if len(key) != 32 {
+			return fmt.Errorf("AgentRun authorization intent key is invalid")
+		}
+		expected := agentRunAuthorizationIntentProof(key, repository.UID, workItem.UID, run.Name, issueID)
+		if !hmac.Equal([]byte(proof), []byte(expected)) {
+			return fmt.Errorf("AgentRun authorization intent proof is invalid")
+		}
+		if metav1.IsControlledBy(secret, run) {
+			return nil
+		}
+		if !metav1.IsControlledBy(secret, workItem) {
+			return fmt.Errorf("AgentRun authorization intent was consumed by a different AgentRun UID")
+		}
+		patch := client.MergeFromWithOptions(secret.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		secret.OwnerReferences = nil
+		if err := ctrl.SetControllerReference(run, secret, r.Scheme); err != nil {
+			return fmt.Errorf("claiming AgentRun authorization intent: %w", err)
+		}
+		return r.Patch(ctx, secret, patch)
+	})
+}
+
+func agentRunAuthorizationIntentProof(key []byte, repositoryUID, workItemUID types.UID, runName, issueID string) string {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(string(repositoryUID) + "\x00" + string(workItemUID) + "\x00" + runName + "\x00" + issueID))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (r *GitHubRepositoryReconciler) requireAuthorizedAgentRun(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, expectedItem *triggersv1alpha1.MaintainerWorkItem, run *platformv1alpha1.AgentRun) error {
+	if repository == nil || repository.UID == "" || expectedItem == nil || expectedItem.UID == "" || run == nil || run.UID == "" || run.Namespace != repository.Namespace {
+		return fmt.Errorf("repository, work item, and AgentRun require stable matching identities")
+	}
+	fresh := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(expectedItem), fresh); err != nil {
+		return err
+	}
+	if fresh.UID != expectedItem.UID || fresh.Spec.RepositoryRef.Name != repository.Name || !fresh.DeletionTimestamp.IsZero() {
+		return fmt.Errorf("maintainer work item identity changed")
+	}
+	ownedByRepository := false
+	for _, owner := range fresh.OwnerReferences {
+		if owner.Controller != nil && *owner.Controller && owner.APIVersion == triggersv1alpha1.GroupVersion.String() && owner.Kind == "GitHubRepository" && owner.Name == repository.Name && owner.UID == repository.UID {
+			ownedByRepository = true
+			break
+		}
+	}
+	if !ownedByRepository {
+		return fmt.Errorf("maintainer work item is not owned by the current GitHubRepository UID")
+	}
+	for _, binding := range fresh.Status.AuthorizedAgentRuns {
+		if binding.Name == run.Name && binding.UID == run.UID {
+			return nil
+		}
+	}
+	return fmt.Errorf("existing AgentRun UID has no controller-issued authorization binding")
+}
+
+func (r *GitHubRepositoryReconciler) bindAuthorizedAgentRun(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, expectedItem *triggersv1alpha1.MaintainerWorkItem, run *platformv1alpha1.AgentRun) error {
+	if repository == nil || repository.UID == "" || expectedItem == nil || expectedItem.UID == "" || run == nil || run.UID == "" || run.Namespace != repository.Namespace {
+		return fmt.Errorf("repository, work item, and AgentRun require stable matching identities")
+	}
+	return r.retryMaintainerWorkItemStatusMutation(ctx, client.ObjectKeyFromObject(expectedItem), func(fresh *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
+		if fresh.UID != expectedItem.UID || fresh.Spec.RepositoryRef.Name != repository.Name || !fresh.DeletionTimestamp.IsZero() {
+			return false, fmt.Errorf("maintainer work item identity changed")
+		}
+		ownedByRepository := false
+		for _, owner := range fresh.OwnerReferences {
+			if owner.Controller != nil && *owner.Controller && owner.APIVersion == triggersv1alpha1.GroupVersion.String() && owner.Kind == "GitHubRepository" && owner.Name == repository.Name && owner.UID == repository.UID {
+				ownedByRepository = true
+				break
+			}
+		}
+		if !ownedByRepository {
+			return false, fmt.Errorf("maintainer work item is not owned by the current GitHubRepository UID")
+		}
+		binding := triggersv1alpha1.MaintainerAuthorizedAgentRunReference{Name: run.Name, UID: run.UID}
+		for i := range fresh.Status.AuthorizedAgentRuns {
+			if fresh.Status.AuthorizedAgentRuns[i].Name == run.Name {
+				if fresh.Status.AuthorizedAgentRuns[i].UID == run.UID {
+					return false, nil
+				}
+				fresh.Status.AuthorizedAgentRuns[i] = binding
+				return true, nil
+			}
+		}
+		fresh.Status.AuthorizedAgentRuns = append(fresh.Status.AuthorizedAgentRuns, binding)
+		return true, nil
+	})
 }
 
 func (r *GitHubRepositoryReconciler) updateStatusAndRequeue(ctx context.Context, gh *triggersv1alpha1.GitHubRepository, created int, processedIssueIDs []string) (ctrl.Result, error) {

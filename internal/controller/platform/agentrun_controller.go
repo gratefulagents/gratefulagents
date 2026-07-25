@@ -115,6 +115,10 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	if run.Annotations[platformv1alpha1.AuthorizationPendingAnnotation] == "true" {
+		return ctrl.Result{}, nil
+	}
+
 	if changed, err := r.ensureInitialized(ctx, run); err != nil {
 		return ctrl.Result{}, err
 	} else if changed {

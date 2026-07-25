@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -59,7 +60,12 @@ type TriggerRunSpec struct {
 	SeedOnAlreadyExists            bool
 	FetchExistingOnAlreadyExists   bool
 	DetailedCredentialErrorContext bool
-	AfterCreate                    func(context.Context, *platformv1alpha1.AgentRun, bool) error
+	// AuthorizePersisted validates the API-persisted object before credentials,
+	// session messages, or other post-create side effects are applied. Callers
+	// must fail closed when an existing predictable name cannot be proven theirs.
+	AuthorizationReader client.Reader
+	AuthorizePersisted  func(context.Context, *platformv1alpha1.AgentRun, bool) error
+	AfterCreate         func(context.Context, *platformv1alpha1.AgentRun, bool) error
 }
 
 func BuildTriggerRun(spec TriggerRunSpec) *platformv1alpha1.AgentRun {
@@ -97,6 +103,12 @@ func BuildTriggerRun(spec TriggerRunSpec) *platformv1alpha1.AgentRun {
 			run.Annotations = map[string]string{}
 		}
 		run.Annotations[RuntimeTriggerNameAnnotation] = spec.TriggerName
+	}
+	if spec.AuthorizePersisted != nil {
+		if run.Annotations == nil {
+			run.Annotations = map[string]string{}
+		}
+		run.Annotations[platformv1alpha1.AuthorizationPendingAnnotation] = "true"
 	}
 	run.Spec = platformv1alpha1.AgentRunSpec{
 		Trigger: platformv1alpha1.TriggerRef{
@@ -171,6 +183,14 @@ func CreateTriggerRun(ctx context.Context, c client.Client, stateStore store.Sta
 	} else {
 		created = true
 	}
+	if spec.AuthorizePersisted != nil {
+		if err := spec.AuthorizePersisted(ctx, run, created); err != nil {
+			if created {
+				_ = c.Delete(ctx, run)
+			}
+			return false, run, fmt.Errorf("authorizing persisted AgentRun: %w", err)
+		}
+	}
 	if created {
 		if err := retainRunInstructionConfigMap(ctx, c, spec.Scheme, run); err != nil {
 			_ = c.Delete(ctx, run)
@@ -184,9 +204,45 @@ func CreateTriggerRun(ctx context.Context, c client.Client, stateStore store.Sta
 		}
 	}
 	if created || spec.SeedOnAlreadyExists {
-		seedTriggerRunSession(ctx, stateStore, run, spec, created)
+		if err := seedTriggerRunSession(ctx, stateStore, run, spec, created); err != nil {
+			return false, run, err
+		}
+	}
+	if spec.AuthorizePersisted != nil {
+		if err := releaseTriggerRunAuthorization(ctx, spec.AuthorizationReader, c, run); err != nil {
+			return false, run, fmt.Errorf("releasing AgentRun authorization hold: %w", err)
+		}
 	}
 	return created, run, nil
+}
+
+func releaseTriggerRunAuthorization(ctx context.Context, reader client.Reader, c client.Client, run *platformv1alpha1.AgentRun) error {
+	if c == nil || run == nil || run.UID == "" {
+		return fmt.Errorf("persisted AgentRun identity is required")
+	}
+	if reader == nil {
+		reader = c
+	}
+	key := client.ObjectKeyFromObject(run)
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		fresh := &platformv1alpha1.AgentRun{}
+		if err := reader.Get(ctx, key, fresh); err != nil {
+			return err
+		}
+		if fresh.UID != run.UID {
+			return fmt.Errorf("AgentRun UID changed before authorization release")
+		}
+		if fresh.Annotations[platformv1alpha1.AuthorizationPendingAnnotation] != "true" {
+			return nil
+		}
+		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		delete(fresh.Annotations, platformv1alpha1.AuthorizationPendingAnnotation)
+		return c.Patch(ctx, fresh, patch)
+	}); err != nil {
+		return err
+	}
+	delete(run.Annotations, platformv1alpha1.AuthorizationPendingAnnotation)
+	return nil
 }
 
 type userRoleModelPreferenceReader interface {
@@ -395,9 +451,9 @@ func recordTriggerRunOwner(ctx context.Context, stateStore store.StateStore, run
 	}
 }
 
-func seedTriggerRunSession(ctx context.Context, stateStore store.StateStore, run *platformv1alpha1.AgentRun, spec TriggerRunSpec, created bool) {
+func seedTriggerRunSession(ctx context.Context, stateStore store.StateStore, run *platformv1alpha1.AgentRun, spec TriggerRunSpec, created bool) error {
 	if stateStore == nil {
-		return
+		return nil
 	}
 	prefix := spec.SeedLogPrefix
 	if prefix == "" {
@@ -405,26 +461,26 @@ func seedTriggerRunSession(ctx context.Context, stateStore store.StateStore, run
 	}
 	sess, err := stateStore.CreateSession(ctx, run.Name, run.Namespace, "pending", "setup")
 	if err != nil {
-		log.Printf("%s: failed to create session for %s: %v", prefix, run.Name, err)
-		return
+		return fmt.Errorf("%s: failed to create session for %s: %w", prefix, run.Name, err)
 	}
 	if !created {
 		// The run already existed, so seeding is recovery for a crash between
-		// run creation and the first seed. If the session already carries any
-		// message the seed was delivered; appending again would queue the same
-		// trigger message once per reconcile.
+		// run creation and the first seed. Only the exact trigger message proves
+		// delivery; unrelated messages must not release the authorization hold.
 		messages, err := stateStore.GetMessages(ctx, sess.ID)
 		if err != nil {
-			log.Printf("%s: failed to check existing seed for %s: %v", prefix, run.Name, err)
-			return
+			return fmt.Errorf("%s: failed to check existing seed for %s: %w", prefix, run.Name, err)
 		}
-		if len(messages) > 0 {
-			return
+		for _, message := range messages {
+			if message.Role == "user" && message.Content == spec.SeedMessage {
+				return nil
+			}
 		}
 	}
 	if _, err := stateStore.AppendMessage(ctx, sess.ID, "user", spec.SeedMessage, nil); err != nil {
-		log.Printf("%s: failed to seed message for %s: %v", prefix, run.Name, err)
+		return fmt.Errorf("%s: failed to seed message for %s: %w", prefix, run.Name, err)
 	}
+	return nil
 }
 
 func copyStringMap(in map[string]string) map[string]string {
