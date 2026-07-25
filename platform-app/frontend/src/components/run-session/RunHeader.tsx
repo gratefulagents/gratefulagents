@@ -44,6 +44,7 @@ import { RunContextSheet } from "./RunContextSheet";
 import { fmtTokens, fmtUsd, PlanDialogContent, runtimeExtensionPresets, sourceHref } from "./helpers";
 import { OverseerSettings } from "./OverseerSettings";
 import { InspectorToggle } from "./RunInspector";
+import { resolveRunUsageTokens } from "./runUsage";
 
 const OverseerPresence = lazy(() =>
   import("./OverseerPresence").then((module) => ({ default: module.OverseerPresence })),
@@ -208,10 +209,43 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+export function RunUsageSummary({
+  costUsd,
+  inputTokens,
+  outputTokens,
+}: {
+  costUsd: number | null | undefined;
+  inputTokens: number;
+  outputTokens: number;
+}) {
+  const cost = typeof costUsd === "number" && Number.isFinite(costUsd) ? `$${fmtUsd(costUsd)}` : "$—";
+  const input = Number.isFinite(inputTokens) ? fmtTokens(inputTokens) : "—";
+  const output = Number.isFinite(outputTokens) ? fmtTokens(outputTokens) : "—";
+
+  return (
+    <dl
+      className="flex shrink-0 items-center gap-2 whitespace-nowrap font-mono text-[11px] tabular-nums text-muted-foreground sm:gap-3"
+      aria-label="Run usage"
+    >
+      <div className="flex items-baseline gap-1" title="Cost">
+        <dt className="sr-only">Cost</dt>
+        <dd className="text-foreground">{cost}</dd>
+      </div>
+      <div className="flex items-baseline gap-1" title="Input tokens">
+        <dt className="text-[10px] uppercase tracking-wide">In</dt>
+        <dd className="text-foreground">{input}</dd>
+      </div>
+      <div className="flex items-baseline gap-1" title="Output tokens">
+        <dt className="text-[10px] uppercase tracking-wide">Out</dt>
+        <dd className="text-foreground">{output}</dd>
+      </div>
+    </dl>
+  );
+}
+
 /**
- * The status chip is the run's whole state surface. Clicking it opens the
- * details the old statusline used to keep permanently on screen: mode,
- * permissions, model, token and cost meters, step, and overseer settings.
+ * Clicking the status chip opens run details: mode, permissions, model,
+ * token and cost meters, step, and overseer settings.
  */
 function RunStatusChip({
   namespace,
@@ -414,6 +448,11 @@ export function RunHeader({
           : canStop
             ? "stop"
             : null;
+  const { inputTokens, outputTokens } = resolveRunUsageTokens(
+    run.inputTokens,
+    run.outputTokens,
+    sessionMetrics,
+  );
 
   const sourceName = run.project?.name || run.trigger?.name || "";
   const sourceKind = run.project?.kind || run.trigger?.kind || "";
@@ -457,6 +496,12 @@ export function RunHeader({
           sessionMetrics={sessionMetrics}
         />
       </div>
+
+      <RunUsageSummary
+        costUsd={displayCostUsd}
+        inputTokens={inputTokens}
+        outputTokens={outputTokens}
+      />
 
       <div className="flex shrink-0 items-center gap-1">
         {run.overseer && (
