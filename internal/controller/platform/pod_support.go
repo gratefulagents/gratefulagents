@@ -142,7 +142,7 @@ func effectiveTimeout(run *platformv1alpha1.AgentRun) time.Duration {
 	return defaultRunTimeout
 }
 
-func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifiedMaintainedRepositoryName string) []rbacv1.PolicyRule {
+func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifiedMaintainedRepositoryName, verifiedMaintainedProjectName string) []rbacv1.PolicyRule {
 	currentName := ""
 	if run != nil {
 		currentName = strings.TrimSpace(run.Name)
@@ -203,6 +203,14 @@ func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifi
 	}
 	if verifiedMaintainedRepositoryName == "" {
 		return rules
+	}
+	if verifiedMaintainedProjectName != "" {
+		rules = append(rules, rbacv1.PolicyRule{
+			APIGroups:     []string{"triggers.gratefulagents.dev"},
+			Resources:     []string{"projects"},
+			ResourceNames: []string{verifiedMaintainedProjectName},
+			Verbs:         []string{"get"},
+		})
 	}
 	return append(rules,
 		rbacv1.PolicyRule{
@@ -285,9 +293,9 @@ func ensureRunRBAC(ctx context.Context, c client.Client, run *platformv1alpha1.A
 	if err != nil {
 		return fmt.Errorf("verifying supervised AgentRun RBAC scope: %w", err)
 	}
-	maintainedRepositoryName, err := verifiedMaintainedRepositoryName(ctx, c, run)
+	maintainedRepositoryName, maintainedProjectName, err := verifiedMaintainedRepositoryScope(ctx, c, run)
 	if err != nil {
-		return fmt.Errorf("verifying maintained GitHubRepository RBAC scope: %w", err)
+		return fmt.Errorf("verifying maintained repository RBAC scope: %w", err)
 	}
 	if maintainedRepositoryName != "" {
 		if err := ensureMaintainerCommandCapability(ctx, c, run, ownerRef, maintainedRepositoryName); err != nil {
@@ -297,7 +305,7 @@ func ensureRunRBAC(ctx context.Context, c client.Client, run *platformv1alpha1.A
 	roleName := saName + "-role"
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: run.Namespace, OwnerReferences: []metav1.OwnerReference{ownerRef}},
-		Rules:      runRBACRules(run, verifiedSupervisedName, maintainedRepositoryName),
+		Rules:      runRBACRules(run, verifiedSupervisedName, maintainedRepositoryName, maintainedProjectName),
 	}
 	if err := c.Create(ctx, role); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
@@ -1614,22 +1622,38 @@ func maintainedRepositoryForRun(run *platformv1alpha1.AgentRun) (namespace, name
 	return "", ""
 }
 
-func verifiedMaintainedRepositoryName(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) (string, error) {
+func verifiedMaintainedRepositoryScope(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) (repositoryName, projectName string, err error) {
 	namespace, name := maintainedRepositoryForRun(run)
 	if name == "" {
-		return "", nil
+		return "", "", nil
 	}
 	repository := &triggersv1alpha1.GitHubRepository{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, repository); err != nil {
 		if apierrors.IsNotFound(err) {
-			return "", nil
+			return "", "", nil
 		}
-		return "", err
+		return "", "", err
 	}
 	if !metav1.IsControlledBy(run, repository) {
-		return "", nil
+		return "", "", nil
 	}
-	return name, nil
+	for i := range repository.OwnerReferences {
+		owner := &repository.OwnerReferences[i]
+		if owner.APIVersion != triggersv1alpha1.GroupVersion.String() || owner.Kind != "Project" || owner.Controller == nil || !*owner.Controller || owner.Name == "" || owner.UID == "" {
+			continue
+		}
+		project := &triggersv1alpha1.Project{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: owner.Name}, project); err != nil {
+			if apierrors.IsNotFound(err) {
+				return name, "", nil
+			}
+			return "", "", err
+		}
+		if project.UID == owner.UID && project.DeletionTimestamp.IsZero() {
+			return name, project.Name, nil
+		}
+	}
+	return name, "", nil
 }
 
 func isDelegatedChildRun(run *platformv1alpha1.AgentRun) bool {
