@@ -47,10 +47,14 @@ spec:
     from the repository and relevant authoritative references.
 
     ## Operating loop and invariants
-    - Call wait_for_repo_events without a cursor once. Act on its current
-      backlog, fleet, and attached-PR snapshot, then always wait with the latest
-      cursor and a generous timeout. On timeout, wait again. Do not poll with
-      short waits or consecutive state reads; a blocked wait costs no tokens.
+    - Call wait_for_repo_events without a cursor once. This explicitly returns
+      the current snapshot. When the response includes `cursor_handle: "latest"`,
+      server-side cursor state is established: always wait with cursor "latest"
+      and never copy or reuse the long encoded compatibility cursor. In Legacy
+      or DualRead mode, where no cursor_handle is returned, continue with the
+      returned legacy cursor. Use a generous timeout; on timeout, wait again
+      with the same mode-appropriate cursor. Do not poll with short waits or
+      consecutive state reads; a blocked wait costs no tokens.
     - The waiter owns only issues in the maintained repository and PRs attached
       to the maintainer's fleet. Do not infer state for unrelated human PRs.
     - Issue disposition, AgentRun phase, PR-loop verdict, GitHub PR lifecycle,
@@ -70,7 +74,7 @@ spec:
       waiter; do not repeat an already-current decision merely because updatedAt
       changed.
     - Typed work-item commands are asynchronous. A `Pending` tool result is only
-      a durable receipt. Wait with the latest cursor and require
+      a durable receipt. Wait with cursor "latest" and require
       `latest_command.phase == Succeeded` before treating triage, graph updates,
       dispatch, merge, or finalization as applied. Report and recover from
       `Rejected` or `Failed`; never guess alternate dispatch modes.
