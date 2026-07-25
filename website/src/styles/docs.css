@@ -1,0 +1,392 @@
+/* ==========================================================================
+   Documentation shell: persistent sidebar, prose column, pager.
+   ========================================================================== */
+
+.docs-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: clamp(28px, 4vw, 56px);
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+  align-items: start;
+}
+
+/* ------------------------------------------------------------- sidebar --- */
+
+.sidebar {
+  position: sticky;
+  top: 64px;
+  max-height: calc(100dvh - 64px);
+  overflow-y: auto;
+  padding-block: 32px 48px;
+  scrollbar-width: thin;
+}
+
+.nav-group + .nav-group {
+  margin-top: 26px;
+}
+
+.nav-key {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.sidebar ul {
+  display: grid;
+  gap: 1px;
+  list-style: none;
+}
+
+.sidebar a {
+  display: block;
+  padding: 6px 10px;
+  margin-left: -10px;
+  border-radius: var(--r-ctl);
+  color: var(--ink-2);
+  font-size: 0.89rem;
+  text-decoration: none;
+  transition:
+    color 0.15s var(--ease),
+    background 0.15s var(--ease);
+}
+
+.sidebar a:hover {
+  color: var(--ink);
+  background: rgb(255 255 255 / 0.04);
+}
+
+.sidebar a[aria-current='page'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.menu-toggle {
+  display: none;
+  width: calc(100% - (2 * var(--gutter)));
+  margin: 16px var(--gutter) 0;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  background: var(--bg-raise);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .menu-toggle {
+    display: block;
+  }
+  .sidebar {
+    display: none;
+    position: static;
+    max-height: none;
+    padding-block: 20px 0;
+  }
+  .docs-layout.nav-open .sidebar {
+    display: block;
+  }
+}
+
+/* ---------------------------------------------------------------- page --- */
+
+.doc {
+  min-width: 0;
+  padding-block: 32px 64px;
+  max-width: 46rem;
+}
+
+.doc-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  font-family: var(--font-mono);
+  font-size: 0.79rem;
+  color: var(--ink-3);
+}
+
+.doc-breadcrumb a {
+  color: var(--ink-3);
+  text-decoration: none;
+}
+
+.doc-breadcrumb a:hover {
+  color: var(--ink-2);
+}
+
+.doc-eyebrow {
+  margin-bottom: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------- agent hint --- */
+
+.agent-prompt {
+  display: grid;
+  gap: 10px;
+  margin: 24px 0 32px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent-line);
+  border-radius: var(--r-surface);
+  background: var(--bg-raise);
+}
+
+.agent-prompt-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-prompt-key {
+  font-family: var(--font-mono);
+  font-size: 0.71rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.agent-prompt-copy {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.agent-prompt-copy:hover {
+  border-color: var(--accent-line);
+}
+
+.agent-prompt-text {
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.agent-prompt-note {
+  color: var(--ink-3);
+  font-size: 0.84rem;
+}
+
+/* --------------------------------------------------------------- prose --- */
+
+.prose {
+  font-size: 1rem;
+  line-height: 1.72;
+  color: var(--ink-2);
+}
+
+.prose > * + * {
+  margin-top: 1.1em;
+}
+
+.prose h1 {
+  margin: 0 0 0.5em;
+  font-size: clamp(1.9rem, 1.5rem + 1.6vw, 2.6rem);
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.prose h2 {
+  margin-top: 2.2em;
+  padding-top: 0.9em;
+  border-top: 1px solid var(--line);
+  font-size: 1.4rem;
+  color: var(--ink);
+}
+
+.prose h3 {
+  margin-top: 1.9em;
+  font-size: 1.1rem;
+  color: var(--ink);
+}
+
+.prose h4 {
+  margin-top: 1.6em;
+  font-size: 0.98rem;
+  color: var(--ink);
+}
+
+.prose strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.prose a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-line);
+}
+
+.prose a:hover {
+  border-bottom-color: var(--accent);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.3em;
+}
+
+.prose li + li {
+  margin-top: 0.4em;
+}
+
+.prose code {
+  padding: 0.15em 0.4em;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  color: var(--ink);
+}
+
+.prose pre {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+  background: var(--bg-inset);
+  /* Shell snippets wrap rather than scroll out of sight: a hidden right-hand
+     half of a command is worse than a wrapped one. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+  line-height: 1.75;
+}
+
+.prose pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+}
+
+.prose blockquote {
+  margin: 0;
+  padding-left: 18px;
+  border-left: 2px solid var(--accent-line);
+  color: var(--ink-2);
+}
+
+.prose img {
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+}
+
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  font-size: 0.92rem;
+}
+
+.prose th,
+.prose td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------- pager --- */
+
+.pager {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 56px;
+}
+
+.pager a {
+  display: grid;
+  gap: 5px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+  background: var(--bg-raise);
+  color: var(--ink);
+  font-size: 0.94rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 0.18s var(--ease);
+}
+
+.pager a:hover {
+  border-color: var(--accent-line);
+}
+
+.pager span {
+  font-family: var(--font-mono);
+  font-size: 0.71rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.pager-next {
+  text-align: right;
+}
+
+.doc-foot {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 0.85rem;
+}
+
+.doc-foot a {
+  color: var(--ink-2);
+}
+
+@media (max-width: 560px) {
+  .pager {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pager-next {
+    text-align: left;
+  }
+}

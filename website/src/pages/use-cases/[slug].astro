@@ -1,0 +1,167 @@
+---
+import Base from '../../layouts/Base.astro';
+import {useCases, type UseCase} from '../../data/usecases';
+
+export function getStaticPaths() {
+  return useCases.map((useCase) => ({
+    params: {slug: useCase.slug},
+    props: {useCase},
+  }));
+}
+
+interface Props {
+  useCase: UseCase;
+}
+
+const {useCase} = Astro.props;
+const siteUrl = Astro.site ?? Astro.url;
+const abs = (p: string) => new URL(p, siteUrl).toString();
+const canonical = abs(`/use-cases/${useCase.slug}/`);
+const others = useCases.filter((item) => item.slug !== useCase.slug);
+const slug = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+const sectionIds = useCase.sections.map((section) => slug(section.heading));
+
+const structuredData = [
+  {
+    '@type': 'Article',
+    '@id': `${canonical}#article`,
+    headline: useCase.title,
+    description: useCase.description,
+    url: canonical,
+    isPartOf: {'@id': abs('/#website')},
+    author: {'@id': abs('/#organization')},
+    publisher: {'@id': abs('/#organization')},
+    about: {'@id': abs('/#software')},
+  },
+  {
+    '@type': 'HowTo',
+    '@id': `${canonical}#howto`,
+    name: `Get started: ${useCase.title}`,
+    step: useCase.steps.map((step, index) => ({
+      '@type': 'HowToStep',
+      position: index + 1,
+      name: step,
+    })),
+  },
+  {
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {'@type': 'ListItem', position: 1, name: 'GratefulAgents', item: abs('/')},
+      {'@type': 'ListItem', position: 2, name: 'Use cases', item: abs('/use-cases/')},
+      {'@type': 'ListItem', position: 3, name: useCase.title, item: canonical},
+    ],
+  },
+];
+---
+
+<Base
+  title={useCase.seoTitle}
+  description={useCase.description}
+  {structuredData}
+  type="article"
+>
+  <main id="main">
+    <section class="page-hero">
+      <div class="wrap page-hero-inner">
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <a href="/">GratefulAgents</a>
+          <span aria-hidden="true">/</span>
+          <a href="/use-cases/">Use cases</a>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">{useCase.eyebrow}</span>
+        </nav>
+        <h1>{useCase.title}</h1>
+        <p class="lede">{useCase.summary}</p>
+      </div>
+    </section>
+
+    <div class="wrap page-body">
+      <article class="page-main">
+        <div class="problem">
+          <h2>Why this matters</h2>
+          <p>{useCase.problem}</p>
+        </div>
+
+        {
+          useCase.sections.map((section, index) => (
+            <section id={sectionIds[index]}>
+              <h2>{section.heading}</h2>
+              {section.body.map((paragraph) => (
+                <p>{paragraph}</p>
+              ))}
+            </section>
+          ))
+        }
+
+        <section id="getting-there">
+          <h2>Getting there</h2>
+          <ol class="steps">
+            {useCase.steps.map((step) => <li>{step}</li>)}
+          </ol>
+        </section>
+
+        <section>
+          <h2>Keep reading</h2>
+          <ul class="related">
+            {
+              others.map((item) => (
+                <li>
+                  <a class="textlink" href={`/use-cases/${item.slug}/`}>
+                    {item.title} <span aria-hidden="true">→</span>
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
+        </section>
+      </article>
+
+      <aside class="aside-nav" aria-label="Page and documentation navigation">
+        <nav class="aside-card">
+          <h2>On this page</h2>
+          <ul>
+            {useCase.sections.map((section, index) => (
+              <li><a href={`#${sectionIds[index]}`}>{section.heading}</a></li>
+            ))}
+            <li><a href="#getting-there">Getting there</a></li>
+          </ul>
+        </nav>
+        <nav class="aside-card">
+          <h2>Documentation</h2>
+          <ul>
+            {useCase.docs.map((doc) => (
+              <li><a href={doc.href}>{doc.label}</a></li>
+            ))}
+          </ul>
+        </nav>
+        <div class="aside-card">
+          <h2>Try it</h2>
+          <ul>
+            <li><a href="/docs/getting-started/self-hosting-kind/">Install locally with Kind</a></li>
+            <li><a href="/faq/">Read the FAQ</a></li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </main>
+</Base>
+
+<style>
+  .related {
+    display: grid;
+    gap: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
+  }
+  .related li {
+    padding-block: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .related a {
+    font-weight: 500;
+  }
+</style>

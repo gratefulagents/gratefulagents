@@ -1,0 +1,64 @@
+---
+import Base from '../../layouts/Base.astro';
+import {useCases} from '../../data/usecases';
+
+const description =
+  'Ways teams run gratefulagents: self-hosted coding agents, GitHub and Linear issue automation, scheduled repository maintenance, and agent run observability.';
+
+const siteUrl = Astro.site ?? Astro.url;
+const abs = (p: string) => new URL(p, siteUrl).toString();
+
+const structuredData = [
+  {
+    '@type': 'CollectionPage',
+    '@id': abs('/use-cases/') + '#collection',
+    name: 'GratefulAgents use cases',
+    description,
+    hasPart: useCases.map((useCase) => ({
+      '@type': 'WebPage',
+      name: useCase.title,
+      url: abs(`/use-cases/${useCase.slug}/`),
+    })),
+  },
+  {
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {'@type': 'ListItem', position: 1, name: 'GratefulAgents', item: abs('/')},
+      {'@type': 'ListItem', position: 2, name: 'Use cases', item: abs('/use-cases/')},
+    ],
+  },
+];
+---
+
+<Base title="Use Cases | GratefulAgents" {description} {structuredData}>
+  <main id="main">
+    <section class="page-hero">
+      <div class="wrap page-hero-inner">
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <a href="/">GratefulAgents</a>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">Use cases</span>
+        </nav>
+        <h1>Use cases</h1>
+        <p class="lede">
+          Four shapes of work that fit a self-hosted agent control plane, and the guides that get
+          you there.
+        </p>
+      </div>
+    </section>
+
+    <div class="wrap" style="padding-block: clamp(44px, 6vw, 76px)">
+      <div class="uc-index">
+        {
+          useCases.map((useCase) => (
+            <a class="uc-card" href={`/use-cases/${useCase.slug}/`}>
+              <h2>{useCase.title}</h2>
+              <p>{useCase.summary}</p>
+              <span class="textlink">Read more <span aria-hidden="true">→</span></span>
+            </a>
+          ))
+        }
+      </div>
+    </div>
+  </main>
+</Base>

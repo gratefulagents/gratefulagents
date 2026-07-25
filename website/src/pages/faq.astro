@@ -1,0 +1,95 @@
+---
+import Base from '../layouts/Base.astro';
+import {faqGroups} from '../data/faq';
+
+const description =
+  'Answers about self-hosting gratefulagents on Kubernetes: install paths, supported model providers, run isolation, triggers, clients, and project maturity.';
+
+const siteUrl = Astro.site ?? Astro.url;
+const abs = (p: string) => new URL(p, siteUrl).toString();
+const allItems = faqGroups.flatMap((group) => group.items);
+
+const structuredData = [
+  {
+    '@type': 'FAQPage',
+    '@id': abs('/faq/') + '#faq',
+    mainEntity: allItems.map((item) => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: {'@type': 'Answer', text: item.a},
+    })),
+  },
+  {
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {'@type': 'ListItem', position: 1, name: 'GratefulAgents', item: abs('/')},
+      {'@type': 'ListItem', position: 2, name: 'FAQ', item: abs('/faq/')},
+    ],
+  },
+];
+---
+
+<Base
+  title="GratefulAgents FAQ | Self-Hosted Coding Agents"
+  {description}
+  {structuredData}
+  type="article"
+>
+  <main id="main">
+    <section class="page-hero">
+      <div class="wrap page-hero-inner">
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <a href="/">GratefulAgents</a>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">FAQ</span>
+        </nav>
+        <h1>Frequently asked questions</h1>
+        <p class="lede">
+          What gratefulagents does, what it needs from your infrastructure, and what it does not
+          claim to do yet.
+        </p>
+      </div>
+    </section>
+
+    <div class="wrap page-body">
+      <div class="page-main">
+        <div class="faq-groups">
+          {
+            faqGroups.map((group) => (
+              <section class="faq-group" id={group.id}>
+                <h2>{group.label}</h2>
+                <div class="faq">
+                  {group.items.map((item) => (
+                    <details>
+                      <summary>{item.q}</summary>
+                      <p>{item.a}</p>
+                    </details>
+                  ))}
+                </div>
+              </section>
+            ))
+          }
+        </div>
+      </div>
+
+      <aside class="aside-nav" aria-label="On this page">
+        <nav class="aside-card">
+          <h2>On this page</h2>
+          <ul>
+            {faqGroups.map((group) => (
+              <li><a href={`#${group.id}`}>{group.label}</a></li>
+            ))}
+          </ul>
+        </nav>
+        <div class="aside-card">
+          <h2>Still stuck</h2>
+          <ul>
+            <li><a href="/docs/getting-started/quick-start/">Quick start guide</a></li>
+            <li><a href="/docs/troubleshooting/common-issues/">Troubleshooting</a></li>
+            <li><a href="https://github.com/gratefulagents/gratefulagents/issues">Open an issue</a></li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </main>
+</Base>

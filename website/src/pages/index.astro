@@ -2,13 +2,15 @@
 import Base from '../layouts/Base.astro';
 import Mark from '../components/Mark.astro';
 import {repositoryUrl} from '../data/sidebar';
+import {homepageFaq} from '../data/faq';
+import {useCases} from '../data/usecases';
 import type {MarkName} from '../data/marks';
 
 const triggers: {mark: MarkName; name: string; href: string}[] = [
   {mark: 'github', name: 'GitHub', href: '/docs/integrations/github/'},
   {mark: 'linear', name: 'Linear', href: '/docs/integrations/linear/'},
   {mark: 'slack', name: 'Slack', href: '/docs/integrations/slack/'},
-  {mark: 'cron', name: 'Cron', href: '/docs/projects/cron/'},
+  {mark: 'cron', name: 'Schedules', href: '/docs/projects/cron/'},
 ];
 
 const providers: {mark: MarkName; name: string}[] = [
@@ -19,484 +21,582 @@ const providers: {mark: MarkName; name: string}[] = [
   {mark: 'copilot', name: 'Copilot'},
 ];
 
-const kindGuidePath = '/docs/getting-started/self-hosting-kind/';
-const kindInstallPrompt = 'Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install gratefulagents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.';
-const homepageDescription = 'Run open-source coding agents in your Kubernetes cluster. Trigger work from GitHub, Linear, Slack, or schedules; bring your own models and inspect every run.';
-const structuredData = {
-  '@type': 'SoftwareApplication',
-  '@id': 'https://gratefulagents.dev/#software',
-  name: 'GratefulAgents',
-  applicationCategory: 'DeveloperApplication',
-  operatingSystem: 'Kubernetes, Web, macOS, Windows, Linux, iOS, Android',
-  url: 'https://gratefulagents.dev/',
-  description: homepageDescription,
-  codeRepository: repositoryUrl,
-  license: 'https://www.gnu.org/licenses/agpl-3.0.html',
-  isAccessibleForFree: true,
-  featureList: [
-    'Self-hosted coding agent execution on Kubernetes',
-    'GitHub, Linear, Slack, and scheduled triggers',
-    'Bring-your-own model providers',
-    'Run traces, cost, token, and reliability observability',
-    'Web, desktop, iOS, and Android clients',
-  ],
-};
-
-const slides = [
+const stages = [
   {
-    kind: 'Sheet 02 · Operate',
-    title: 'Every run on one board',
-    desc: 'See live work, blockers, cost, and recent outcomes across the workspace. Step in only when a run needs you.',
-    href: '/docs/runs/review-activity/',
-    shot: '/screens/agent-ops.webp?v=4',
-    alt: 'Agent Ops board listing live runs with state, mode, latest activity, cost, and age columns',
+    key: 'Trigger',
+    title: 'Work arrives from where it already lives',
+    body: 'A GitHub issue, a pull request review comment, a Linear ticket, a Slack message, or a cron schedule starts a run using the defaults saved on your project.',
   },
   {
-    kind: 'Sheet 03 · Measure',
-    title: 'Reliability across runs',
-    desc: 'Compare cost, tokens, tools, subagents, compactions, and errors across models and time.',
-    href: '/docs/results/observability/',
-    shot: '/screens/observability.webp?v=5',
-    alt: 'Observability dashboard showing generation spend, run cost, tokens, tool calls, subagents, reliability, and model breakdowns',
+    key: 'Execute',
+    title: 'The agent works in an isolated sandbox',
+    body: 'Each run gets its own sandbox workload in your cluster, with the repository, runtime profile, skills, and MCP servers you allowed. Nothing else.',
   },
   {
-    kind: 'Sheet 04 · Orchestrate',
-    title: 'Fan out, stay in control',
-    desc: 'Delegate to specialist subagents and watch the dependency graph run — every node inspectable while it works.',
-    href: '/docs/runs/review-activity/',
-    shot: '/screens/graph.webp?v=4',
-    alt: 'Subagent graph view showing a root run spawning writer and explore subagents with live status',
-  },
-  {
-    kind: 'Sheet 05 · Inspect',
-    title: 'Every turn has a trace',
-    desc: 'Open timing, tool calls, token usage, cost, and errors for any run. The harness never becomes a black box.',
-    href: '/docs/runs/meta-harness-traces/',
-    shot: '/screens/trace.webp?v=5',
-    alt: 'Trace timeline of a run showing per-turn LLM calls, WebFetch tool spans, durations, and costs',
-  },
-  {
-    kind: 'Sheet 06 · Move',
-    title: 'The run stays with you',
-    desc: 'Follow, steer, and review from iOS or Android while the compute keeps running in your cluster.',
-    href: '/docs/getting-started/web-desktop-workspaces/',
-    shots: ['/screens/tablet-1.webp?v=5', '/screens/tablet-2.webp?v=5'],
-    alt: 'iPad views of the gratefulagents app following and steering a live agent run',
+    key: 'Review',
+    title: 'You get a diff, a pull request, and a trace',
+    body: 'Follow activity as it happens, steer or stop the agent mid-run, then review the diff, the pull request, and the full trace before anything merges.',
   },
 ];
 
-const stations = [
-  {kind: 'Start', title: 'Getting started', desc: 'Deploy, secure, sign in, and connect a workspace.', href: '/docs/getting-started/quick-start/'},
-  {kind: 'Run', title: 'Agent runs', desc: 'Start work, steer mid-flight, change modes, and review traces.', href: '/docs/runs/start-a-run/'},
-  {kind: 'Automate', title: 'Projects & schedules', desc: 'Save run defaults per repository and launch on a schedule.', href: '/docs/projects/projects/'},
-  {kind: 'Connect', title: 'Integrations', desc: 'Create and steer runs from GitHub, Linear, and Slack.', href: '/docs/integrations/github/'},
-  {kind: 'Control', title: 'Resources', desc: 'Skills, MCP servers, runtime profiles, policies, modes, and roles.', href: '/docs/settings/resources/'},
-  {kind: 'Configure', title: 'Settings', desc: 'Credentials, model preferences, personas, and Git identity.', href: '/docs/settings/account-appearance/'},
-  {kind: 'Share', title: 'Collaboration', desc: 'Give teammates the right access to projects and runs.', href: '/docs/collaboration/sharing-and-permissions/'},
-  {kind: 'Recover', title: 'Troubleshooting', desc: 'Resolve credential, integration, and workspace problems.', href: '/docs/troubleshooting/common-issues/'},
+const views = [
+  {
+    id: 'operate',
+    tab: 'Agent Ops',
+    title: 'Every run on one board',
+    body: 'Live work, blockers, cost, and recent outcomes across the workspace. Step in only when a run actually needs you.',
+    href: '/docs/runs/review-activity/',
+    shot: '/screens/agent-ops-detail.webp?v=1',
+    alt: 'Agent Ops board listing live runs with state, mode, latest activity, cost, and age columns',
+  },
+  {
+    id: 'measure',
+    tab: 'Observability',
+    title: 'Reliability across runs and models',
+    body: 'Compare cost, tokens, tool calls, subagents, compactions, and errors over time, broken down by model.',
+    href: '/docs/results/observability/',
+    shot: '/screens/observability-detail.webp?v=1',
+    alt: 'Observability dashboard showing generation spend, run cost, tokens, tool calls, subagents, reliability, and model breakdowns',
+  },
+  {
+    id: 'orchestrate',
+    tab: 'Subagents',
+    title: 'Fan work out, keep the thread',
+    body: 'A run can delegate to specialist subagents. The dependency graph shows what is running, what is blocked, and what finished.',
+    href: '/docs/runs/review-activity/',
+    shot: '/screens/graph-detail.webp?v=1',
+    alt: 'Subagent graph view showing a root run spawning writer and explore subagents with live status',
+  },
+  {
+    id: 'inspect',
+    tab: 'Traces',
+    title: 'Every turn has a trace',
+    body: 'Open timing, tool calls, token usage, cost, and errors for any turn of any run. The harness never becomes a black box.',
+    href: '/docs/runs/meta-harness-traces/',
+    shot: '/screens/trace-detail.webp?v=1',
+    alt: 'Trace timeline of a run showing per-turn LLM calls, WebFetch tool spans, durations, and costs',
+  },
+];
+
+const installPrompt =
+  'Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install gratefulagents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.';
+
+const homepageDescription =
+  'Open-source control plane for AI coding agents on Kubernetes. Self-host the runtime, bring your own model keys, and inspect the cost and trace of every run.';
+
+const structuredData = [
+  {
+    '@type': 'SoftwareApplication',
+    '@id': 'https://gratefulagents.dev/#software',
+    name: 'GratefulAgents',
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'Kubernetes, Web, macOS, Windows, Linux, iOS, Android',
+    url: 'https://gratefulagents.dev/',
+    description: homepageDescription,
+    codeRepository: repositoryUrl,
+    license: 'https://www.gnu.org/licenses/agpl-3.0.html',
+    isAccessibleForFree: true,
+    offers: {'@type': 'Offer', price: '0', priceCurrency: 'USD'},
+    featureList: [
+      'Self-hosted coding agent execution on Kubernetes',
+      'GitHub, Linear, Slack, and scheduled triggers',
+      'Bring-your-own model provider credentials',
+      'Run traces, cost, token, and reliability observability',
+      'Web, desktop, iOS, and Android clients',
+    ],
+  },
+  {
+    '@type': 'FAQPage',
+    '@id': 'https://gratefulagents.dev/#faq',
+    mainEntity: homepageFaq.map((item) => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: {'@type': 'Answer', text: item.a},
+    })),
+  },
 ];
 ---
 
 <Base
-  title="Self-Hosted Coding Agents for Kubernetes | GratefulAgents"
+  title="Self-Hosted AI Coding Agents on Kubernetes | GratefulAgents"
   description={homepageDescription}
   {structuredData}
   bodyClass="is-home"
 >
   <main id="main">
-    <section class="hero" aria-labelledby="hero-title">
-      <div class="hero-main">
+    <!-- Hero: asymmetric split, claim on the left, the product actually running on the right. -->
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-grid">
         <div class="hero-copy">
-          <img class="hero-logo" src="/logo.png" alt="" width="72" height="72" loading="eager" decoding="async" />
-          <p class="eyebrow"><span class="signal"></span> Open source · Kubernetes native</p>
-          <h1 id="hero-title">self-hosted coding agents <span>for Kubernetes teams</span></h1>
-          <p class="hero-sub">Run, steer, and audit agent work in your own infrastructure. Connect engineering tools and your preferred model providers to one observable execution platform.</p>
-          <div class="cta-row">
-            <a class="btn btn-primary" href={kindGuidePath}>Run the Kind demo <span aria-hidden="true">→</span></a>
-            <a class="btn btn-quiet" href={repositoryUrl}>View source <span aria-hidden="true">↗</span></a>
-            <a class="hero-clients" href="/docs/getting-started/web-desktop-workspaces/">
-              <span>Clients</span>
-              <strong>Web · Desktop · iOS · Android</strong>
-            </a>
+          <p class="eyebrow"><span class="live"></span> Open source · Kubernetes native</p>
+          <h1 id="hero-title">Coding agents that run inside your cluster</h1>
+          <p class="hero-sub">
+            An open-source control plane for AI coding agents on Kubernetes. Your cluster, your
+            model keys, every run inspectable.
+          </p>
+          <div class="btn-row">
+            <a class="btn btn-primary" href="#install">Install locally</a>
+            <a class="btn btn-ghost" href={repositoryUrl} rel="noopener">View source</a>
           </div>
-          <aside class="hero-install" aria-labelledby="hero-install-title">
-            <div>
-              <span class="hero-install-key">Kind demo · macOS or Linux</span>
-              <strong id="hero-install-title">Have your coding agent install it.</strong>
-            </div>
-            <button
-              type="button"
-              class="hero-install-copy"
-              data-copy-prompt
-              data-prompt={kindInstallPrompt}
-              aria-live="polite"
-            >
-              Copy install prompt <span aria-hidden="true">↗</span>
-            </button>
-          </aside>
         </div>
 
-        <figure class="plate hero-plate" data-hero>
-          <div class="plate-nav" role="group" aria-label="Hero screenshots">
-            <button type="button" data-hero-prev aria-label="Previous screenshot">‹</button>
-            <span data-hero-count aria-hidden="true">01 / 04</span>
-            <button type="button" data-hero-next aria-label="Next screenshot">›</button>
-          </div>
-          <div class="hero-slide" data-hero-slide>
-            <div class="plate-stage">
-              <video
-                data-hero-video
-                src="/screens/run-recording.mp4?v=1"
-                poster="/screens/run-recording-poster.webp?v=1"
-                width="2400"
-                height="1506"
-                muted
-                playsinline
-                preload="auto"
-                aria-label="View full screen: recording of one agent run — a prompt fans out to a subagent DAG, then the finished trace, replayed at 4x speed"
-              ></video>
-              <span class="video-progress" data-hero-progress aria-hidden="true"></span>
-            </div>
-            <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01a — Recorded run</span></div>
-              <div><span class="tb-key">Title</span><span class="tb-val">One run from prompt to trace</span></div>
-              <div class="tb-scale"><span class="tb-key">Scale</span><span class="tb-val">4:1 — 2½ min of work in 39 s</span></div>
-            </div>
-          </div>
-          <div class="hero-slide" data-hero-slide hidden>
-            <div class="plate-stage">
-              <img
-                src="/screens/run-chat.webp?v=4"
-                alt="Desktop run view with chat, steering, and a subagent dependency graph"
-                width="3024"
-                height="1898"
-                loading="eager"
-                decoding="async"
-              />
-            </div>
-            <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01b — Desktop</span></div>
-              <div><span class="tb-key">Title</span><span class="tb-val">Run view — chat, steering, subagent graph</span></div>
-              <div class="tb-scale"><span class="tb-key">Drawn by</span><span class="tb-val">your agents</span></div>
-            </div>
-          </div>
-          <div class="hero-slide" data-hero-slide hidden>
-            <div class="plate-stage">
-              <img
-                class="hero-tablet-shot"
-                src="/screens/tablet-1.webp?v=5"
-                alt="iPad view of a live agent run delegating work to a subagent graph"
-                width="2752"
-                height="2064"
-                loading="eager"
-                decoding="async"
-              />
-            </div>
-            <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01c — iPad</span></div>
-              <div><span class="tb-key">Title</span><span class="tb-val">The same run, followed live from your iPad</span></div>
-              <div class="tb-scale"><span class="tb-key">Status</span><span class="tb-val">compute stays in your cluster</span></div>
-            </div>
-          </div>
-          <div class="hero-slide" data-hero-slide hidden>
-            <div class="plate-stage">
-              <img
-                class="hero-tablet-shot"
-                src="/screens/tablet-2.webp?v=5"
-                alt="iPad view of the delegated task list for a live agent run"
-                width="2752"
-                height="2064"
-                loading="eager"
-                decoding="async"
-              />
-            </div>
-            <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01d — iPad</span></div>
-              <div><span class="tb-key">Title</span><span class="tb-val">Six delegated tasks, steered from anywhere</span></div>
-              <div class="tb-scale"><span class="tb-key">Status</span><span class="tb-val">compute stays in your cluster</span></div>
-            </div>
-          </div>
+        <figure class="hero-media">
+          <video
+            data-hero-video
+            src="/screens/run-recording.mp4?v=1"
+            poster="/screens/run-recording-poster.webp?v=1"
+            width="2400"
+            height="1506"
+            muted
+            loop
+            playsinline
+            preload="none"
+            aria-label="Recording of one agent run: a prompt fans out to a subagent graph, then finishes with a trace"
+          ></video>
+          <figcaption>
+            <b><span class="live" aria-hidden="true"></span> One run, prompt to trace</b>
+            <span>replayed at 4x</span>
+          </figcaption>
         </figure>
       </div>
+    </section>
 
-      <div class="legend" role="group" aria-label="Supported triggers and model providers">
-        <div class="legend-row" aria-label="Supported triggers">
-          <span class="legend-key">Triggers <small>work enters here</small></span>
-          {triggers.map((trigger) => (
-            <a class="legend-chip" href={trigger.href}>
-              <span class="chip-tile"><Mark name={trigger.mark} size={19} /></span>
-              <span>{trigger.name}</span>
-            </a>
-          ))}
+    <!-- Compatibility rail: what starts a run, and what answers it. -->
+    <section class="rail" aria-label="Supported triggers and model providers">
+      <div class="wrap rail-inner">
+        <div class="rail-group">
+          <h2>Runs start from</h2>
+          <ul class="rail-set">
+            {
+              triggers.map((item) => (
+                <li>
+                  <a href={item.href}>
+                    <Mark name={item.mark} size={16} />
+                    {item.name}
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
         </div>
-        <div class="legend-row" aria-label="Supported model providers">
-          <span class="legend-key">Models <small>bring your own</small></span>
-          {providers.map((provider) => (
-            <a class="legend-chip" href="/docs/settings/credentials/">
-              <span class="chip-tile"><Mark name={provider.mark} size={19} /></span>
-              <span>{provider.name}</span>
-            </a>
-          ))}
+        <div class="rail-split" aria-hidden="true"></div>
+        <div class="rail-group">
+          <h2>Models you connect</h2>
+          <ul class="rail-set">
+            {
+              providers.map((item) => (
+                <li>
+                  <span>
+                    <Mark name={item.mark} size={16} />
+                    {item.name}
+                  </span>
+                </li>
+              ))
+            }
+          </ul>
         </div>
       </div>
     </section>
 
-    <section class="story-section" aria-label="Product views">
-      <div class="product-gallery" data-slides>
-        <div class="gallery-tabs" role="tablist" aria-label="Product views">
-          {slides.map((slide, index) => (
+    <!-- Install: terminal panel, the fastest possible proof. -->
+    <section class="section" id="install">
+      <div class="wrap install-grid">
+        <div class="install-copy reveal">
+          <h2>Clone, run one command, sign in</h2>
+          <p class="lede">
+            Kind gives you the whole platform on a laptop for evaluation. k3s is the supported
+            path for a server you keep.
+          </p>
+          <div class="install-note">
+            <strong>Or hand it to the agent you already use.</strong>
+            <p>
+              Copy a prompt that points your coding agent at the install guide and let it check
+              prerequisites, run the installer, and hand back the URL.
+            </p>
+            <div class="btn-row">
+              <button type="button" class="copy-btn" data-copy={installPrompt} data-label="Copy install prompt">
+                Copy install prompt
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="term" data-term>
+          <div class="term-tabs" role="tablist" aria-label="Install paths">
             <button
-              class="gallery-tab"
+              type="button"
+              class="term-tab"
               role="tab"
-              id={`tab-${index}`}
-              aria-controls={`slide-${index}`}
-              aria-selected={index === 0 ? 'true' : 'false'}
-              tabindex={index === 0 ? 0 : -1}
-            >
-              <span>{slide.kind}</span>
-              <b>{slide.title}</b>
-            </button>
-          ))}
-        </div>
-        <div class="gallery-stage">
-          {slides.map((slide, index) => (
-            <article class="gallery-slide" role="tabpanel" id={`slide-${index}`} aria-labelledby={`tab-${index}`} hidden={index !== 0}>
-              {'shots' in slide ? (
-                <div class="mobile-pair">
-                  {slide.shots.map((shot) => (
-                    <img src={shot} alt={slide.alt} width="2752" height="2064" loading="lazy" decoding="async" />
-                  ))}
-                </div>
-              ) : (
-                <img src={slide.shot} alt={slide.alt} width="3024" height="1898" loading="lazy" decoding="async" />
-              )}
-              <footer>
-                <p>{slide.desc}</p>
-                <a href={slide.href}>Open the guide <span aria-hidden="true">→</span></a>
-              </footer>
-            </article>
-          ))}
-        </div>
-      </div>
-    </section>
+              id="tab-kind"
+              aria-controls="panel-kind"
+              aria-selected="true"
+            >kind</button>
+            <button
+              type="button"
+              class="term-tab"
+              role="tab"
+              id="tab-k3s"
+              aria-controls="panel-k3s"
+              aria-selected="false"
+              tabindex="-1"
+            >k3s</button>
+          </div>
 
-    <section class="guide-section" aria-labelledby="guide-title">
-      <header class="section-heading compact">
-        <p class="section-kicker">Index of sheets · the field manual</p>
-        <h2 id="guide-title">Go from first run to full control.</h2>
-        <p>The docs ship from the same repository as the platform. Read them here; improve them on GitHub.</p>
-      </header>
-      <div class="station-grid">
-        {stations.map((station) => (
-          <a class="station" href={station.href}>
-            <span>{station.kind}</span>
-            <h3>{station.title}</h3>
-            <p>{station.desc}</p>
-            <i aria-hidden="true">→</i>
-          </a>
-        ))}
-      </div>
-    </section>
+          <div class="term-body" id="panel-kind" role="tabpanel" aria-labelledby="tab-kind">
+            <div class="c"># macOS or Linux laptop with Docker</div>
+            <div><span class="p">$</span> git clone https://github.com/gratefulagents/gratefulagents.git</div>
+            <div><span class="p">$</span> cd gratefulagents</div>
+            <div><span class="p">$</span> make kind-install</div>
+            <div class="c"># prints the local dashboard URL and admin password</div>
+          </div>
 
-    <section class="closing-cta" aria-label="Get started">
-      <div class="closing-main">
-        <div>
-          <p class="stamp">Issued for construction</p>
-          <h2>Your agents.<br /><span>Your compute.</span></h2>
-        </div>
-        <div class="closing-side">
-          <p>Own the runtime, choose the models, and see the work. Start with the local Kind demo.</p>
-          <div class="cta-row">
-            <a class="btn btn-primary" href={kindGuidePath}>Run the Kind demo <span aria-hidden="true">→</span></a>
-            <a class="btn btn-quiet" href={repositoryUrl}>Star on GitHub <span aria-hidden="true">↗</span></a>
+          <div class="term-body" id="panel-k3s" role="tabpanel" aria-labelledby="tab-k3s" hidden>
+            <div class="c"># fresh Debian or Ubuntu server, needs sudo</div>
+            <div><span class="p">$</span> git clone https://github.com/gratefulagents/gratefulagents.git</div>
+            <div><span class="p">$</span> cd gratefulagents</div>
+            <div><span class="p">$</span> make k3s-install</div>
+            <div class="c"># deploys the latest release images and chart</div>
+          </div>
+
+          <div class="term-foot">
+            <span class="meta">Installs the latest published release</span>
+            <a class="textlink" href="/docs/getting-started/self-hosting-kind/">Read the install guide</a>
           </div>
         </div>
       </div>
-      <div class="title-block closing-block">
-        <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">07 — closeout</span></div>
-        <div><span class="tb-key">Project</span><span class="tb-val">gratefulagents</span></div>
-        <div><span class="tb-key">License</span><span class="tb-val">AGPL-3.0</span></div>
-        <div><span class="tb-key">Runtime</span><span class="tb-val">your cluster</span></div>
-        <div><span class="tb-key">Clients</span><span class="tb-val">Web · Desktop · iOS · Android</span></div>
-        <div><span class="tb-key">Drawn by</span><span class="tb-val">your agents</span></div>
+    </section>
+
+    <!-- Pipeline: how one run actually moves. -->
+    <section class="section">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <h2>How a run happens</h2>
+          <p>
+            The same path whether a human starts it, a webhook starts it, or a schedule does.
+          </p>
+        </div>
+        <div class="pipeline">
+          {
+            stages.map((stage) => (
+              <article class="stage">
+                <p class="stage-key">{stage.key}</p>
+                <h3>{stage.title}</h3>
+                <p>{stage.body}</p>
+              </article>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- Gallery: the product, one view at a time, on user input only. -->
+    <section class="section" id="views">
+      <div class="wrap" data-gallery>
+        <div class="gallery-head reveal">
+          <h2>Look at the work, not just the output</h2>
+          <div class="gallery-tabs" role="tablist" aria-label="Product views">
+            {
+              views.map((view, index) => (
+                <button
+                  type="button"
+                  class="gallery-tab"
+                  role="tab"
+                  id={`tab-${view.id}`}
+                  aria-controls={`panel-${view.id}`}
+                  aria-selected={index === 0 ? 'true' : 'false'}
+                  tabindex={index === 0 ? 0 : -1}
+                >
+                  {view.tab}
+                </button>
+              ))
+            }
+          </div>
+        </div>
+
+        {
+          views.map((view, index) => (
+            <div
+              class="gallery-panel"
+              role="tabpanel"
+              id={`panel-${view.id}`}
+              aria-labelledby={`tab-${view.id}`}
+              hidden={index !== 0}
+            >
+              <div class="gallery-text">
+                <h3>{view.title}</h3>
+                <p>{view.body}</p>
+                <a class="textlink" href={view.href}>
+                  Read the guide <span aria-hidden="true">→</span>
+                </a>
+              </div>
+              <div class="gallery-shot">
+                <img
+                  src={view.shot}
+                  alt={view.alt}
+                  width="2200"
+                  height="1375"
+                  loading={index === 0 ? 'eager' : 'lazy'}
+                  decoding="async"
+                />
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <!-- Bento: the control surface, sized by how much each part matters. -->
+    <section class="section" id="capabilities">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <h2>Control you do not have to build yourself</h2>
+          <p>
+            The parts of an agent platform that are tedious to get right are the parts that ship
+            in the box.
+          </p>
+        </div>
+        <div class="bento">
+          <article class="cell cell-wide">
+            <div>
+              <h3>Steer the run while it is working</h3>
+              <p>
+                Chat with the agent mid-run, change between plan, autopilot, and stop, and correct
+                course before it spends another hour going the wrong way.
+              </p>
+            </div>
+            <div class="cell-shot">
+              <img
+                src="/screens/run-chat-detail.webp?v=1"
+                alt="Run view showing the agent conversation, run state chips, and delegated task activity"
+                width="1400"
+                height="788"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+          </article>
+
+          <article class="cell cell-accent">
+            <h3>Bring your own model keys</h3>
+            <p>
+              Credentials are configured per user, per workspace. Switch providers without
+              changing how runs are defined.
+            </p>
+            <div class="cell-marks">
+              {providers.map((item) => <Mark name={item.mark} size={20} />)}
+            </div>
+          </article>
+
+          <article class="cell">
+            <h3>Isolated by construction</h3>
+            <p>
+              Runs execute as sandbox workloads built on kubernetes-sigs/agent-sandbox, scoped to
+              the repository and runtime profile you allowed.
+            </p>
+            <ul class="cell-chips">
+              <li>agent-sandbox</li>
+              <li>runtime profiles</li>
+              <li>MCP policies</li>
+              <li>guardrails</li>
+            </ul>
+            <a class="textlink" href="/docs/settings/resources/">Runtime profiles →</a>
+          </article>
+
+          <article class="cell">
+            <h3>Reusable building blocks</h3>
+            <p>
+              Configure an agent capability once as a workspace resource, then reuse it across
+              every project instead of copying it into each run.
+            </p>
+            <ul class="cell-chips">
+              <li>skills</li>
+              <li>MCP servers</li>
+              <li>modes</li>
+              <li>roles</li>
+              <li>policies</li>
+            </ul>
+            <a class="textlink" href="/docs/settings/skill-packages/">Skills and MCP →</a>
+          </article>
+
+          <article class="cell">
+            <h3>The run follows you</h3>
+            <p>Review and steer from iOS or Android while the compute stays in your cluster.</p>
+            <a class="textlink" href="/docs/getting-started/web-desktop-workspaces/">Clients →</a>
+            <div class="cell-shot">
+              <img
+                src="/screens/tablet-1-detail.webp?v=1"
+                alt="Tablet view of the gratefulagents app following a live agent run"
+                width="1400"
+                height="933"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Use cases: index list into the deeper pages. -->
+    <section class="section" id="use-cases">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <h2>What teams point it at</h2>
+        </div>
+        <div class="uses">
+          {
+            useCases.map((useCase) => (
+              <a class="use" href={`/use-cases/${useCase.slug}/`}>
+                <h3>
+                  {useCase.title.split(' for ')[0]} <i aria-hidden="true">→</i>
+                </h3>
+                <p>{useCase.summary}</p>
+              </a>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ: disclosure list, mirrored into FAQPage structured data. -->
+    <section class="section" id="faq">
+      <div class="wrap faq-split">
+        <div class="faq-aside reveal">
+          <h2>Questions people ask first</h2>
+          <p>
+            The honest answers, including the ones about what this project does not do yet.
+          </p>
+          <a class="textlink" href="/faq/">All questions <span aria-hidden="true">&#8594;</span></a>
+        </div>
+        <div class="faq">
+          {
+            homepageFaq.map((item) => (
+              <details>
+                <summary>{item.q}</summary>
+                <p>{item.a}</p>
+              </details>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- Closing statement. -->
+    <section class="closer">
+      <div class="wrap closer-inner">
+        <h2>Put it on a cluster you already trust</h2>
+        <p>
+          One clone and one command. Nothing leaves your infrastructure except the model calls you
+          configure yourself.
+        </p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="#install">Install locally</a>
+          <a class="btn btn-ghost" href="/docs/getting-started/quick-start/">Read the quick start</a>
+        </div>
       </div>
     </section>
   </main>
 
-  <div class="lightbox" data-lightbox hidden>
-    <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close full screen image">Close ✕</button>
+  <div class="lightbox" hidden data-lightbox>
+    <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close">✕</button>
     <img src="" alt="" data-lightbox-img />
   </div>
 </Base>
 
 <script>
-  const copyBtn = document.querySelector('[data-copy-prompt]');
-  copyBtn?.addEventListener('click', async () => {
-    const text = copyBtn instanceof HTMLElement ? copyBtn.dataset.prompt?.trim() : undefined;
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      copyBtn.textContent = 'Prompt copied ✓';
-      setTimeout(() => { copyBtn.innerHTML = 'Copy install prompt <span aria-hidden="true">↗</span>'; }, 1800);
-    } catch {
-      copyBtn.textContent = 'Copy unavailable — open the guide';
+  // --- Hero recording -------------------------------------------------------
+  // Motivated: the fastest honest proof that the product exists. It only plays
+  // when it is on screen, never under reduced motion, and never blocks paint.
+  const video = document.querySelector<HTMLVideoElement>('[data-hero-video]');
+  if (video) {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) {
+      video.controls = true;
+      video.preload = 'metadata';
+    } else if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) video.play().catch(() => {});
+            else video.pause();
+          });
+        },
+        {threshold: 0.35},
+      );
+      io.observe(video);
     }
-  });
+  }
 
-  // Lightbox: click any product screenshot to view it full screen.
-  const lightbox = document.querySelector('[data-lightbox]');
-  if (lightbox instanceof HTMLElement) {
-    const lightboxImg = lightbox.querySelector('[data-lightbox-img]');
-    let lastFocus = null;
+  // --- Generic roving tablist ----------------------------------------------
+  const wireTabs = (root: Element | null, tabSelector: string) => {
+    if (!root) return;
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>(tabSelector)];
+    if (!tabs.length) return;
+    const panels = tabs.map((tab) =>
+      document.getElementById(tab.getAttribute('aria-controls') ?? ''),
+    );
+    let current = 0;
+    const show = (next: number) => {
+      current = (next + tabs.length) % tabs.length;
+      tabs.forEach((tab, i) => {
+        tab.setAttribute('aria-selected', String(i === current));
+        tab.tabIndex = i === current ? 0 : -1;
+      });
+      panels.forEach((panel, i) => {
+        if (panel) panel.hidden = i !== current;
+      });
+    };
+    tabs.forEach((tab, i) => {
+      tab.addEventListener('click', () => show(i));
+      tab.addEventListener('keydown', (event) => {
+        const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        if (!step) return;
+        event.preventDefault();
+        show(current + step);
+        tabs[current].focus();
+      });
+    });
+    show(0);
+  };
 
+  wireTabs(document.querySelector('[data-term]'), '.term-tab');
+  wireTabs(document.querySelector('[data-gallery]'), '.gallery-tab');
+
+  // --- Screenshot lightbox --------------------------------------------------
+  const lightbox = document.querySelector<HTMLElement>('[data-lightbox]');
+  const lightboxImg = lightbox?.querySelector<HTMLImageElement>('[data-lightbox-img]');
+  if (lightbox && lightboxImg) {
+    let opener: HTMLElement | null = null;
     const close = () => {
       lightbox.hidden = true;
       document.body.style.overflow = '';
-      if (lastFocus instanceof HTMLElement) lastFocus.focus();
+      opener?.focus();
     };
-    const open = (img) => {
-      lastFocus = document.activeElement;
-      lightboxImg.src = img.currentSrc || img.src;
+    const open = (img: HTMLImageElement) => {
+      opener = img;
+      lightboxImg.src = img.src;
       lightboxImg.alt = img.alt;
       lightbox.hidden = false;
       document.body.style.overflow = 'hidden';
-      lightbox.querySelector('[data-lightbox-close]')?.focus();
+      lightbox.querySelector<HTMLButtonElement>('[data-lightbox-close]')?.focus();
     };
 
-    document.querySelectorAll('main img[src^="/screens/"]').forEach((img) => {
+    document.querySelectorAll<HTMLImageElement>('main img[src^="/screens/"]').forEach((img) => {
       img.classList.add('zoomable');
-      img.setAttribute('tabindex', '0');
+      img.tabIndex = 0;
       img.setAttribute('role', 'button');
-      img.setAttribute('aria-label', `View full screen: ${img.alt}`);
+      img.setAttribute('aria-label', `View full size: ${img.alt}`);
       img.addEventListener('click', () => open(img));
       img.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          open(img);
-        }
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        open(img);
       });
     });
 
     lightbox.addEventListener('click', close);
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && !lightbox.hidden) close();
-    });
-  }
-
-  const hero = document.querySelector('[data-hero]');
-  if (hero) {
-    const slides = [...hero.querySelectorAll('[data-hero-slide]')];
-    const count = hero.querySelector('[data-hero-count]');
-    const video = hero.querySelector('[data-hero-video]');
-    const progress = hero.querySelector('[data-hero-progress]');
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let current = 0;
-    let timer;
-    let manual = false;
-    let hovered = false;
-
-    // Reduced motion: no autoplay, no rotation — hand the recording over
-    // to the native controls instead.
-    if (video && reduceMotion) video.controls = true;
-
-    const onVideoSlide = () => Boolean(video && slides[current].contains(video));
-    const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
-    const start = () => {
-      // The video slide advances itself when playback ends.
-      if (reduceMotion || manual || hovered || timer || onVideoSlide()) return;
-      timer = setInterval(() => show(current + 1), 5000);
-    };
-
-    const show = (index) => {
-      current = (index + slides.length) % slides.length;
-      slides.forEach((slide, i) => { slide.hidden = i !== current; });
-      if (count) count.textContent = `0${current + 1} / 0${slides.length}`;
-      stop();
-      if (video) {
-        if (onVideoSlide() && !reduceMotion) {
-          video.currentTime = 0;
-          video.play().catch(() => {});
-        } else if (!onVideoSlide()) {
-          video.pause();
-        }
-      }
-      start();
-    };
-
-    if (video) {
-      video.addEventListener('ended', () => {
-        if (!manual && !hovered && onVideoSlide()) show(current + 1);
-      });
-      video.addEventListener('timeupdate', () => {
-        if (progress && video.duration) {
-          progress.style.transform = `scaleX(${video.currentTime / video.duration})`;
-        }
-      });
-      if (!reduceMotion) {
-        // Click (or Enter/Space) opens the recording full screen, mirroring
-        // the screenshot lightbox; native controls take over while there.
-        const goFullscreen = () => {
-          if (document.fullscreenElement) return;
-          if (video.requestFullscreen) video.requestFullscreen().catch(() => {});
-          else if (video.webkitRequestFullscreen) video.webkitRequestFullscreen();
-          else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
-        };
-        video.setAttribute('tabindex', '0');
-        video.setAttribute('role', 'button');
-        video.addEventListener('click', goFullscreen);
-        video.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            goFullscreen();
-          }
-        });
-        for (const type of ['fullscreenchange', 'webkitfullscreenchange']) {
-          document.addEventListener(type, () => {
-            video.controls = (document.fullscreenElement || document.webkitFullscreenElement) === video;
-          });
-        }
-      }
-    }
-
-    hero.querySelector('[data-hero-prev]')?.addEventListener('click', () => { manual = true; show(current - 1); });
-    hero.querySelector('[data-hero-next]')?.addEventListener('click', () => { manual = true; show(current + 1); });
-    hero.addEventListener('pointerenter', () => { hovered = true; stop(); });
-    hero.addEventListener('pointerleave', () => { hovered = false; start(); });
-
-    show(0);
-  }
-
-  const gallery = document.querySelector('[data-slides]');
-  if (gallery) {
-    const tabs = [...gallery.querySelectorAll('.gallery-tab')];
-    const slides = [...gallery.querySelectorAll('.gallery-slide')];
-    let current = 0;
-
-    const show = (index) => {
-      current = (index + tabs.length) % tabs.length;
-      tabs.forEach((tab, tabIndex) => {
-        tab.setAttribute('aria-selected', String(tabIndex === current));
-        tab.tabIndex = tabIndex === current ? 0 : -1;
-      });
-      slides.forEach((slide, slideIndex) => {
-        slide.hidden = slideIndex !== current;
-      });
-    };
-
-    tabs.forEach((tab, index) => {
-      tab.addEventListener('click', () => show(index));
-      tab.addEventListener('keydown', (event) => {
-        if (event.key === 'ArrowRight') {
-          event.preventDefault();
-          show(current + 1);
-          tabs[current].focus();
-        }
-        if (event.key === 'ArrowLeft') {
-          event.preventDefault();
-          show(current - 1);
-          tabs[current].focus();
-        }
-      });
     });
   }
 </script>

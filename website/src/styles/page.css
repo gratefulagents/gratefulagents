@@ -1,0 +1,227 @@
+/* ==========================================================================
+   Content pages: /faq/ and /use-cases/*. A single readable measure with a
+   sticky sub-navigation on wide screens.
+   ========================================================================== */
+
+.page-hero {
+  padding-top: clamp(32px, 4vw, 56px);
+  padding-bottom: clamp(24px, 3vw, 38px);
+  border-bottom: 1px solid var(--line);
+}
+
+.page-hero-inner {
+  display: grid;
+  gap: 18px;
+  max-width: 46rem;
+}
+
+.page-hero h1 {
+  font-size: clamp(2rem, 1.4rem + 2.4vw, 3.1rem);
+  letter-spacing: -0.032em;
+}
+
+.page-hero .lede {
+  font-size: var(--step-lede);
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+
+.crumbs a {
+  color: var(--ink-3);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--ink-2);
+}
+
+.page-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 250px);
+  gap: clamp(28px, 3.6vw, 56px);
+  align-items: start;
+  padding-block: clamp(44px, 6vw, 76px);
+}
+
+.page-main {
+  display: grid;
+  gap: clamp(32px, 4vw, 48px);
+  min-width: 0;
+  max-width: 44rem;
+}
+
+.page-main h2 {
+  margin-bottom: 14px;
+  font-size: clamp(1.3rem, 1.15rem + 0.7vw, 1.7rem);
+}
+
+.page-main h3 {
+  margin-bottom: 8px;
+  font-size: 1.02rem;
+}
+
+.page-main p {
+  color: var(--ink-2);
+  max-width: 68ch;
+}
+
+.page-main p + p {
+  margin-top: 14px;
+}
+
+.problem {
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent-line);
+  border-radius: var(--r-surface);
+  background: var(--bg-raise);
+}
+
+.problem p {
+  color: var(--ink);
+}
+
+.problem h2 {
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.steps {
+  display: grid;
+  gap: 0;
+  list-style: none;
+  counter-reset: step;
+  border-top: 1px solid var(--line);
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding-block: 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.steps li::before {
+  counter-increment: step;
+  content: counter(step, decimal-leading-zero);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--accent);
+}
+
+.aside-nav {
+  position: sticky;
+  top: 88px;
+  display: grid;
+  gap: 22px;
+}
+
+.aside-card {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+  background: var(--bg-raise);
+}
+
+.aside-card h2 {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.aside-card ul {
+  display: grid;
+  gap: 9px;
+  list-style: none;
+}
+
+.aside-card a {
+  color: var(--ink-2);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.aside-card a:hover {
+  color: var(--accent);
+}
+
+@media (max-width: 940px) {
+  .page-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .aside-nav {
+    position: static;
+  }
+}
+
+/* FAQ page grouping */
+
+.faq-groups {
+  display: grid;
+  gap: clamp(36px, 4vw, 52px);
+}
+
+.faq-group h2 {
+  margin-bottom: 8px;
+}
+
+/* Use-case index cards */
+
+.uc-index {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.uc-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: clamp(20px, 2.4vw, 28px);
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+  background: var(--bg-raise);
+  text-decoration: none;
+  transition: border-color 0.18s var(--ease);
+}
+
+.uc-card:hover {
+  border-color: var(--accent-line);
+}
+
+.uc-card h2 {
+  margin: 0;
+  font-size: var(--step-h3);
+}
+
+.uc-card p {
+  color: var(--ink-2);
+  font-size: 0.92rem;
+}
+
+@media (max-width: 760px) {
+  .uc-index {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
