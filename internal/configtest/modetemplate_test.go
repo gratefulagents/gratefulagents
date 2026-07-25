@@ -203,7 +203,7 @@ func TestGratefulAgentsModeTemplateTargetsPlatformAndSDK(t *testing.T) {
 	}
 }
 
-func TestInteractiveModeTemplateMatchesAutopilotExecutionSettings(t *testing.T) {
+func TestInteractiveModeTemplateMatchesAutopilotExceptTurnBudgets(t *testing.T) {
 	type modeTemplate struct {
 		Spec platformv1alpha1.ModeTemplateSpec `json:"spec"`
 	}
@@ -238,11 +238,20 @@ func TestInteractiveModeTemplateMatchesAutopilotExecutionSettings(t *testing.T) 
 		t.Fatalf("interactive instructions do not use AskUserQuestion")
 	}
 
-	// Identity and user-facing prose are the only intentional differences.
+	if got := autopilot.Spec.Constraints.MaxTurns; got != 400 {
+		t.Fatalf("autopilot maxTurns = %d, want 400", got)
+	}
+	if got := autopilot.Spec.Constraints.SubAgentMaxTurns; got != 100 {
+		t.Fatalf("autopilot subAgentMaxTurns = %d, want 100", got)
+	}
+
+	// Identity, user-facing prose, and turn budgets are the only intentional differences.
 	interactive.Spec.Name = autopilot.Spec.Name
 	interactive.Spec.DisplayName = autopilot.Spec.DisplayName
 	interactive.Spec.Description = autopilot.Spec.Description
 	interactive.Spec.Instructions = autopilot.Spec.Instructions
+	interactive.Spec.Constraints.MaxTurns = autopilot.Spec.Constraints.MaxTurns
+	interactive.Spec.Constraints.SubAgentMaxTurns = autopilot.Spec.Constraints.SubAgentMaxTurns
 	if !reflect.DeepEqual(interactive.Spec, autopilot.Spec) {
 		t.Fatalf("interactive execution settings do not match autopilot:\ninteractive: %#v\nautopilot: %#v", interactive.Spec, autopilot.Spec)
 	}
