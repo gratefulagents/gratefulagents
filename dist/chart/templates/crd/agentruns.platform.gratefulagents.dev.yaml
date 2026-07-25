@@ -502,6 +502,8 @@ spec:
                     type: string
                   name:
                     type: string
+                  type:
+                    type: string
                 required:
                 - kind
                 - name

@@ -1,0 +1,38 @@
+name: CRD distribution sync
+
+on:
+  pull_request:
+    paths:
+      - "config/crd/bases/**"
+      - "dist/chart/templates/crd/**"
+      - "internal/configtest/crd_sync_test.go"
+      - ".github/workflows/crd-sync.yml"
+  push:
+    branches: [main]
+    paths:
+      - "config/crd/bases/**"
+      - "dist/chart/templates/crd/**"
+      - "internal/configtest/crd_sync_test.go"
+      - ".github/workflows/crd-sync.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crd-distribution-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Helm CRDs match generated bases
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check distributed Helm CRDs
+        run: go test ./internal/configtest -run '^TestChartCRDsMatchGeneratedBases$' -count=1

@@ -167,7 +167,14 @@ func (b maintainerToolBase) maintainerWorkItemBindsRun(ctx context.Context, run 
 	if triggerType == "" {
 		triggerType = strings.TrimSpace(repository.Labels["triggers.gratefulagents.dev/project-trigger-type"])
 	}
-	if generated != "true" || projectUID == "" || projectName == "" || triggerName == "" || triggerType == "" || run.Spec.Context.ProjectRef.Name != projectName || run.Spec.Trigger.Name != triggerName || !strings.EqualFold(run.Spec.Trigger.Type, triggerType) || strings.TrimSpace(run.Annotations["triggers.gratefulagents.dev/runtime-trigger-name"]) != repository.Name || len(run.OwnerReferences) != 0 {
+	runTriggerType := strings.TrimSpace(run.Spec.Trigger.Type)
+	// Trigger.Type was added after the original AgentRun CRD. During a rolling
+	// CRD upgrade an older schema can prune only this redundant discriminator.
+	// Permit that empty value because the checks below still require the live
+	// Project/repository/work-item ownership chain and an exact bound run UID;
+	// never permit a non-empty conflicting type.
+	triggerTypeMatches := runTriggerType == "" || strings.EqualFold(runTriggerType, triggerType)
+	if generated != "true" || projectUID == "" || projectName == "" || triggerName == "" || triggerType == "" || run.Spec.Context.ProjectRef.Name != projectName || run.Spec.Trigger.Name != triggerName || !triggerTypeMatches || strings.TrimSpace(run.Annotations["triggers.gratefulagents.dev/runtime-trigger-name"]) != repository.Name || len(run.OwnerReferences) != 0 {
 		return false
 	}
 	project := &triggersv1alpha1.Project{}
