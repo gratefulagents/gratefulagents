@@ -12,6 +12,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,7 +25,7 @@ const maintainerProjectionFreshness = 5 * time.Minute
 // durable correlation thereafter is by work-item name and immutable UID labels.
 func (r *GitHubRepositoryReconciler) reconcileMaintainerExecutionProjection(ctx context.Context, repository *triggersv1alpha1.GitHubRepository) error {
 	items := &triggersv1alpha1.MaintainerWorkItemList{}
-	if err := r.List(ctx, items, client.InNamespace(repository.Namespace), client.MatchingLabels{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name}); err != nil {
+	if err := r.maintainerReader().List(ctx, items, client.InNamespace(repository.Namespace), client.MatchingLabels{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name}); err != nil {
 		return err
 	}
 	runs := &platformv1alpha1.AgentRunList{}
@@ -51,7 +52,7 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerExecutionProjection(ctx 
 	now := time.Now()
 	for i := range items.Items {
 		item := &items.Items[i]
-		if err := retryMaintainerWorkItemStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(item), func(fresh *triggersv1alpha1.MaintainerWorkItem) bool {
+		if err := retryMaintainerWorkItemStatusUpdate(ctx, r.maintainerReader(), r.Client, client.ObjectKeyFromObject(item), func(fresh *triggersv1alpha1.MaintainerWorkItem) bool {
 			before := fresh.Status.DeepCopy()
 			projectMaintainerDependencies(fresh, byName, now)
 			projectMaintainerRunsAndPRs(fresh, runs.Items, monitors.Items, now)
@@ -64,6 +65,12 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerExecutionProjection(ctx 
 			fresh.Status.ProjectionSequence++
 			return true
 		}); err != nil {
+			// A list snapshot can race garbage collection or another deletion. The
+			// vanished item needs no projection, and other items must still be
+			// processed in this reconciliation pass.
+			if apierrors.IsNotFound(err) {
+				continue
+			}
 			return err
 		}
 	}
