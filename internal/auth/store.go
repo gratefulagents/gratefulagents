@@ -70,14 +70,15 @@ type UserGitIdentity struct {
 	UpdatedAt time.Time
 }
 
-// UserRoleModelPreference is one personal provider-specific model override for
-// a specialist role. Missing rows inherit the platform RoleInstruction.
+// UserRoleModelPreference is one personal specialist-model setting. A
+// UseParentModel entry is role-wide and bypasses provider/platform mappings.
 type UserRoleModelPreference struct {
-	UserID    string
-	RoleName  string
-	Provider  string
-	Model     string
-	UpdatedAt time.Time
+	UserID         string
+	RoleName       string
+	Provider       string
+	Model          string
+	UseParentModel bool
+	UpdatedAt      time.Time
 }
 
 // UserRoleModelStore is an optional extension implemented by auth stores that
@@ -372,8 +373,12 @@ func (s *PGStore) UpsertUserGitIdentity(ctx context.Context, identity *UserGitId
 
 func (s *PGStore) ListUserRoleModelPreferences(ctx context.Context, userID string) ([]*UserRoleModelPreference, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT user_id, role_name, provider, model, updated_at
+		SELECT user_id, role_name, provider, model, false, updated_at
 		FROM auth_user_role_models
+		WHERE user_id = $1
+		UNION ALL
+		SELECT user_id, role_name, '', '', true, updated_at
+		FROM auth_user_role_parent_models
 		WHERE user_id = $1
 		ORDER BY role_name, provider`, userID)
 	if err != nil {
@@ -383,7 +388,7 @@ func (s *PGStore) ListUserRoleModelPreferences(ctx context.Context, userID strin
 	var out []*UserRoleModelPreference
 	for rows.Next() {
 		preference := &UserRoleModelPreference{}
-		if err := rows.Scan(&preference.UserID, &preference.RoleName, &preference.Provider, &preference.Model, &preference.UpdatedAt); err != nil {
+		if err := rows.Scan(&preference.UserID, &preference.RoleName, &preference.Provider, &preference.Model, &preference.UseParentModel, &preference.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning user role model: %w", err)
 		}
 		out = append(out, preference)
@@ -403,8 +408,19 @@ func (s *PGStore) ReplaceUserRoleModelPreferences(ctx context.Context, userID st
 	if _, err := tx.Exec(ctx, `DELETE FROM auth_user_role_models WHERE user_id = $1`, userID); err != nil {
 		return nil, fmt.Errorf("clearing user role models: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `DELETE FROM auth_user_role_parent_models WHERE user_id = $1`, userID); err != nil {
+		return nil, fmt.Errorf("clearing user parent role models: %w", err)
+	}
 	for _, preference := range preferences {
 		if preference == nil {
+			continue
+		}
+		if preference.UseParentModel {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO auth_user_role_parent_models (user_id, role_name)
+				VALUES ($1, $2)`, userID, preference.RoleName); err != nil {
+				return nil, fmt.Errorf("inserting user parent role model: %w", err)
+			}
 			continue
 		}
 		if _, err := tx.Exec(ctx, `

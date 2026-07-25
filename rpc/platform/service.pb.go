@@ -11773,15 +11773,17 @@ func (x *UpdateMySoulRequest) GetContent() string {
 	return ""
 }
 
-// RoleModelPreference is one personal provider-specific specialist model.
-// Missing rows inherit the cluster RoleInstruction default.
+// RoleModelPreference is one personal specialist-model setting. Provider/model
+// entries override a platform mapping; use_parent_model bypasses every platform
+// mapping for the role and always follows the model selected by the parent run.
 type RoleModelPreference struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RoleName      string                 `protobuf:"bytes,1,opt,name=role_name,json=roleName,proto3" json:"role_name,omitempty"`
-	Provider      string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
-	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RoleName       string                 `protobuf:"bytes,1,opt,name=role_name,json=roleName,proto3" json:"role_name,omitempty"`
+	Provider       string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	Model          string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	UseParentModel bool                   `protobuf:"varint,4,opt,name=use_parent_model,json=useParentModel,proto3" json:"use_parent_model,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RoleModelPreference) Reset() {
@@ -11833,6 +11835,13 @@ func (x *RoleModelPreference) GetModel() string {
 		return x.Model
 	}
 	return ""
+}
+
+func (x *RoleModelPreference) GetUseParentModel() bool {
+	if x != nil {
+		return x.UseParentModel
+	}
+	return false
 }
 
 type RoleModelPreferences struct {
@@ -28365,11 +28374,12 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"updated_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x12\n" +
 	"\x10GetMySoulRequest\"/\n" +
 	"\x13UpdateMySoulRequest\x12\x18\n" +
-	"\acontent\x18\x01 \x01(\tR\acontent\"d\n" +
+	"\acontent\x18\x01 \x01(\tR\acontent\"\x8e\x01\n" +
 	"\x13RoleModelPreference\x12\x1b\n" +
 	"\trole_name\x18\x01 \x01(\tR\broleName\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12\x14\n" +
-	"\x05model\x18\x03 \x01(\tR\x05model\"\x95\x01\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12(\n" +
+	"\x10use_parent_model\x18\x04 \x01(\bR\x0euseParentModel\"\x95\x01\n" +
 	"\x14RoleModelPreferences\x12B\n" +
 	"\vpreferences\x18\x01 \x03(\v2 .platform.v1.RoleModelPreferenceR\vpreferences\x129\n" +
 	"\n" +

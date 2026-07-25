@@ -394,9 +394,8 @@ type ModeTransitionEvent struct {
 	Timestamp metav1.Time `json:"timestamp"`
 }
 
-// AgentRunRoleModelOverride snapshots one user's provider-specific model
-// preferences for a specialist role onto a run. Platform RoleInstruction
-// defaults remain authoritative for providers not present in this map.
+// AgentRunRoleModelOverride snapshots one user's model preferences for a
+// specialist role onto a run.
 type AgentRunRoleModelOverride struct {
 	// Role is the RoleInstruction name.
 	// +kubebuilder:validation:MaxLength=253
@@ -405,6 +404,10 @@ type AgentRunRoleModelOverride struct {
 	// +kubebuilder:validation:MaxProperties=6
 	// +optional
 	ModelsByProvider map[string]string `json:"modelsByProvider,omitempty"`
+	// UseParentModel bypasses provider and platform role mappings so the role
+	// always uses the parent run's currently selected model.
+	// +optional
+	UseParentModel bool `json:"useParentModel,omitempty"`
 }
 
 // AgentRunSpec defines the desired state of AgentRun.
@@ -428,7 +431,8 @@ type AgentRunSpec struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 	// RoleModelOverrides snapshots the creating user's personal specialist-model
-	// preferences. Missing roles/providers inherit cluster RoleInstruction defaults.
+	// preferences. A role may force parent-model inheritance; otherwise missing
+	// roles/providers inherit cluster RoleInstruction defaults.
 	// +listType=map
 	// +listMapKey=role
 	// +kubebuilder:validation:MaxItems=100

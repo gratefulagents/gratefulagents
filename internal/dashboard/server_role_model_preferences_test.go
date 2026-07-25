@@ -90,6 +90,21 @@ func TestMyRoleModelPreferencesAreNormalizedAndIsolated(t *testing.T) {
 	}
 }
 
+func TestMyRoleModelPreferencesPersistParentModelSetting(t *testing.T) {
+	store := &roleModelPreferenceFakeStore{}
+	srv := roleModelPreferenceServer(t, store)
+
+	updated, err := srv.UpdateMyRoleModelPreferences(roleModelActor("user-a"), &platform.UpdateMyRoleModelPreferencesRequest{Preferences: []*platform.RoleModelPreference{
+		{RoleName: "explore", UseParentModel: true},
+	}})
+	if err != nil {
+		t.Fatalf("UpdateMyRoleModelPreferences: %v", err)
+	}
+	if len(updated.Preferences) != 1 || !updated.Preferences[0].UseParentModel {
+		t.Fatalf("parent preference = %#v", updated.Preferences)
+	}
+}
+
 func TestMyRoleModelPreferencesRejectUnknownAndDuplicateEntries(t *testing.T) {
 	srv := roleModelPreferenceServer(t, &roleModelPreferenceFakeStore{})
 	ctx := roleModelActor("user-a")
@@ -99,6 +114,8 @@ func TestMyRoleModelPreferencesRejectUnknownAndDuplicateEntries(t *testing.T) {
 		{{RoleName: "explore", Provider: "openai", Model: " "}},
 		{{RoleName: "explore", Provider: " ", Model: "model"}},
 		{{RoleName: "explore", Provider: "openai", Model: strings.Repeat("m", maxUserRoleModelLength+1)}},
+		{{RoleName: "explore", UseParentModel: true, Provider: "openai"}},
+		{{RoleName: "explore", UseParentModel: true}, {RoleName: "explore", Provider: "openai", Model: "model"}},
 	} {
 		_, err := srv.UpdateMyRoleModelPreferences(ctx, &platform.UpdateMyRoleModelPreferencesRequest{Preferences: values})
 		if connect.CodeOf(err) != connect.CodeInvalidArgument {
@@ -111,6 +128,20 @@ func TestMyRoleModelPreferencesRequireAuthentication(t *testing.T) {
 	srv := roleModelPreferenceServer(t, &roleModelPreferenceFakeStore{})
 	if _, err := srv.GetMyRoleModelPreferences(context.Background(), &platform.GetMyRoleModelPreferencesRequest{}); connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Fatalf("GetMyRoleModelPreferences error = %v, want Unauthenticated", err)
+	}
+}
+
+func TestStampRoleModelOverridesSnapshotsParentModelPreference(t *testing.T) {
+	store := &roleModelPreferenceFakeStore{byUser: map[string][]*auth.UserRoleModelPreference{
+		"user-a": {{UserID: "user-a", RoleName: "explore", UseParentModel: true}},
+	}}
+	srv := roleModelPreferenceServer(t, store)
+	run := &platformv1alpha1.AgentRun{}
+	if err := srv.stampRoleModelOverrides(roleModelActor("user-a"), run); err != nil {
+		t.Fatalf("stampRoleModelOverrides: %v", err)
+	}
+	if len(run.Spec.RoleModelOverrides) != 1 || !run.Spec.RoleModelOverrides[0].UseParentModel {
+		t.Fatalf("role model snapshot = %#v", run.Spec.RoleModelOverrides)
 	}
 }
 

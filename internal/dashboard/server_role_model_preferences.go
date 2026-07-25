@@ -86,6 +86,8 @@ func (s *Server) normalizeUserRoleModelPreferences(ctx context.Context, userID s
 	}
 
 	seen := make(map[string]struct{}, len(values))
+	parentRoles := make(map[string]struct{}, len(values))
+	providerRoles := make(map[string]struct{}, len(values))
 	out := make([]*auth.UserRoleModelPreference, 0, len(values))
 	for _, value := range values {
 		if value == nil {
@@ -98,6 +100,24 @@ func (s *Server) normalizeUserRoleModelPreferences(ctx context.Context, userID s
 		if _, ok := knownRoles[roleName]; !ok {
 			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown role %q", roleName))
 		}
+		if value.GetUseParentModel() {
+			if strings.TrimSpace(value.GetProvider()) != "" || strings.TrimSpace(value.GetModel()) != "" {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("parent-model preference for role %q must not include provider or model", roleName))
+			}
+			if _, exists := parentRoles[roleName]; exists {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("parent-model preference for role %q is duplicated", roleName))
+			}
+			if _, exists := providerRoles[roleName]; exists {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("role %q cannot combine parent-model and provider overrides", roleName))
+			}
+			parentRoles[roleName] = struct{}{}
+			out = append(out, &auth.UserRoleModelPreference{UserID: userID, RoleName: roleName, UseParentModel: true})
+			continue
+		}
+		if _, exists := parentRoles[roleName]; exists {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("role %q cannot combine parent-model and provider overrides", roleName))
+		}
+		providerRoles[roleName] = struct{}{}
 		if strings.TrimSpace(value.GetProvider()) == "" {
 			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("provider for role %q must not be empty", roleName))
 		}
@@ -136,9 +156,10 @@ func roleModelPreferencesToProto(preferences []*auth.UserRoleModelPreference) *p
 			continue
 		}
 		out.Preferences = append(out.Preferences, &platform.RoleModelPreference{
-			RoleName: preference.RoleName,
-			Provider: preference.Provider,
-			Model:    preference.Model,
+			RoleName:       preference.RoleName,
+			Provider:       preference.Provider,
+			Model:          preference.Model,
+			UseParentModel: preference.UseParentModel,
 		})
 		if preference.UpdatedAt.After(updatedAt) {
 			updatedAt = preference.UpdatedAt
@@ -170,17 +191,28 @@ func (s *Server) stampRoleModelOverrides(ctx context.Context, run *platformv1alp
 		log.Printf("WARN: failed to load personal role models for user %s: %v", actor.Subject, err)
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("snapshot personal role models: %w", err))
 	}
-	byRole := make(map[string]map[string]string)
+	byRole := make(map[string]*platformv1alpha1.AgentRunRoleModelOverride)
 	for _, preference := range preferences {
-		if preference == nil || strings.TrimSpace(preference.RoleName) == "" || strings.TrimSpace(preference.Provider) == "" || strings.TrimSpace(preference.Model) == "" {
+		if preference == nil || strings.TrimSpace(preference.RoleName) == "" {
 			continue
 		}
-		models := byRole[preference.RoleName]
-		if models == nil {
-			models = map[string]string{}
-			byRole[preference.RoleName] = models
+		override := byRole[preference.RoleName]
+		if override == nil {
+			override = &platformv1alpha1.AgentRunRoleModelOverride{Role: preference.RoleName}
+			byRole[preference.RoleName] = override
 		}
-		models[preference.Provider] = preference.Model
+		if preference.UseParentModel {
+			override.UseParentModel = true
+			override.ModelsByProvider = nil
+			continue
+		}
+		if override.UseParentModel || strings.TrimSpace(preference.Provider) == "" || strings.TrimSpace(preference.Model) == "" {
+			continue
+		}
+		if override.ModelsByProvider == nil {
+			override.ModelsByProvider = map[string]string{}
+		}
+		override.ModelsByProvider[preference.Provider] = preference.Model
 	}
 	roles := make([]string, 0, len(byRole))
 	for role := range byRole {
@@ -188,9 +220,7 @@ func (s *Server) stampRoleModelOverrides(ctx context.Context, run *platformv1alp
 	}
 	sort.Strings(roles)
 	for _, role := range roles {
-		run.Spec.RoleModelOverrides = append(run.Spec.RoleModelOverrides, platformv1alpha1.AgentRunRoleModelOverride{
-			Role: role, ModelsByProvider: byRole[role],
-		})
+		run.Spec.RoleModelOverrides = append(run.Spec.RoleModelOverrides, *byRole[role])
 	}
 	return nil
 }
