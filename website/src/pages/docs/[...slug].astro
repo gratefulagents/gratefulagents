@@ -75,12 +75,12 @@ const structuredData = [
 ---
 
 <Base title={pageTitle} {description} type="article" {structuredData} bodyClass="is-docs">
-  <button class="menu-toggle" aria-expanded="false" data-menu-toggle>Browse the user guide</button>
+  <button class="menu-toggle" aria-expanded="false" data-menu-toggle>kind: Navigation ▾</button>
   <div class="docs-layout" data-docs-layout>
     <nav class="sidebar" aria-label="User guide">
       {sections.map((s) => (
         <section class="nav-group">
-          <h2 class="nav-key">{s.label}</h2>
+          <h2 class="nav-key">kind: <b>{s.kind}</b></h2>
           <ul>
             {s.items.map((id) => (
               <li>
@@ -105,11 +105,11 @@ const structuredData = [
       {entry.data.agentPrompt && (
         <aside class="agent-prompt" aria-label="Prompt for your coding agent">
           <div class="agent-prompt-head">
-            <span class="agent-prompt-key">Paste into your coding agent</span>
-            <button type="button" class="agent-prompt-copy" data-copy="#agent-prompt-text" data-label="Copy prompt">Copy prompt</button>
+            <span class="agent-prompt-key">your-agent · paste this prompt</span>
+            <button type="button" class="agent-prompt-copy" data-copy-prompt>Copy prompt</button>
           </div>
-          <p class="agent-prompt-text" id="agent-prompt-text">{entry.data.agentPrompt}</p>
-          <p class="agent-prompt-note">Your agent reads this page and walks the steps with you.</p>
+          <p class="agent-prompt-text" data-prompt-text>{entry.data.agentPrompt}</p>
+          <p class="agent-prompt-note">Your agent reads this page and does the rest with you.</p>
         </aside>
       )}
       <article class="prose">
@@ -144,4 +144,16 @@ const structuredData = [
     toggle.setAttribute('aria-expanded', String(Boolean(open)));
   });
 
+  const copyBtn = document.querySelector('[data-copy-prompt]');
+  copyBtn?.addEventListener('click', async () => {
+    const text = document.querySelector('[data-prompt-text]')?.textContent?.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = 'Copied';
+      setTimeout(() => { copyBtn.textContent = 'Copy prompt'; }, 1800);
+    } catch {
+      copyBtn.textContent = 'Select & copy manually';
+    }
+  });
 </script>

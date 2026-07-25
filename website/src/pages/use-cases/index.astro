@@ -11,7 +11,7 @@ const abs = (p: string) => new URL(p, siteUrl).toString();
 const structuredData = [
   {
     '@type': 'CollectionPage',
-    '@id': abs('/use-cases/') + '#collection',
+    '@id': `${abs('/use-cases/')}#collection`,
     name: 'GratefulAgents use cases',
     description,
     hasPart: useCases.map((useCase) => ({
@@ -32,29 +32,30 @@ const structuredData = [
 
 <Base title="Use Cases | GratefulAgents" {description} {structuredData}>
   <main id="main">
-    <section class="page-hero">
-      <div class="wrap page-hero-inner">
+    <div class="sheet-head">
+      <div class="sheet-head-inner">
         <nav class="crumbs" aria-label="Breadcrumb">
           <a href="/">GratefulAgents</a>
           <span aria-hidden="true">/</span>
           <span aria-current="page">Use cases</span>
         </nav>
         <h1>Use cases</h1>
-        <p class="lede">
+        <p>
           Four shapes of work that fit a self-hosted agent control plane, and the guides that get
           you there.
         </p>
       </div>
-    </section>
+    </div>
 
-    <div class="wrap" style="padding-block: clamp(44px, 6vw, 76px)">
-      <div class="uc-index">
+    <div class="sheet-body is-wide">
+      <div class="case-grid">
         {
           useCases.map((useCase) => (
-            <a class="uc-card" href={`/use-cases/${useCase.slug}/`}>
-              <h2>{useCase.title}</h2>
+            <a class="station" href={`/use-cases/${useCase.slug}/`}>
+              <span>{useCase.eyebrow}</span>
+              <h3>{useCase.title}</h3>
               <p>{useCase.summary}</p>
-              <span class="textlink">Read more <span aria-hidden="true">→</span></span>
+              <i aria-hidden="true">→</i>
             </a>
           ))
         }

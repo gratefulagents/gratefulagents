@@ -18,12 +18,12 @@ const siteUrl = Astro.site ?? Astro.url;
 const abs = (p: string) => new URL(p, siteUrl).toString();
 const canonical = abs(`/use-cases/${useCase.slug}/`);
 const others = useCases.filter((item) => item.slug !== useCase.slug);
-const slug = (value: string) =>
+const anchor = (value: string) =>
   value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
-const sectionIds = useCase.sections.map((section) => slug(section.heading));
+const sectionIds = useCase.sections.map((section) => anchor(section.heading));
 
 const structuredData = [
   {
@@ -58,15 +58,10 @@ const structuredData = [
 ];
 ---
 
-<Base
-  title={useCase.seoTitle}
-  description={useCase.description}
-  {structuredData}
-  type="article"
->
+<Base title={useCase.seoTitle} description={useCase.description} {structuredData} type="article">
   <main id="main">
-    <section class="page-hero">
-      <div class="wrap page-hero-inner">
+    <div class="sheet-head">
+      <div class="sheet-head-inner">
         <nav class="crumbs" aria-label="Breadcrumb">
           <a href="/">GratefulAgents</a>
           <span aria-hidden="true">/</span>
@@ -75,16 +70,16 @@ const structuredData = [
           <span aria-current="page">{useCase.eyebrow}</span>
         </nav>
         <h1>{useCase.title}</h1>
-        <p class="lede">{useCase.summary}</p>
+        <p>{useCase.summary}</p>
       </div>
-    </section>
+    </div>
 
-    <div class="wrap page-body">
-      <article class="page-main">
-        <div class="problem">
+    <div class="sheet-body">
+      <article class="sheet-main">
+        <section class="brief">
           <h2>Why this matters</h2>
           <p>{useCase.problem}</p>
-        </div>
+        </section>
 
         {
           useCase.sections.map((section, index) => (
@@ -99,7 +94,7 @@ const structuredData = [
 
         <section id="getting-there">
           <h2>Getting there</h2>
-          <ol class="steps">
+          <ol class="procedure">
             {useCase.steps.map((step) => <li>{step}</li>)}
           </ol>
         </section>
@@ -110,7 +105,7 @@ const structuredData = [
             {
               others.map((item) => (
                 <li>
-                  <a class="textlink" href={`/use-cases/${item.slug}/`}>
+                  <a href={`/use-cases/${item.slug}/`}>
                     {item.title} <span aria-hidden="true">→</span>
                   </a>
                 </li>
@@ -120,9 +115,9 @@ const structuredData = [
         </section>
       </article>
 
-      <aside class="aside-nav" aria-label="Page and documentation navigation">
+      <aside class="sheet-aside" aria-label="Page and documentation navigation">
         <nav class="aside-card">
-          <h2>On this page</h2>
+          <h2>kind: Contents</h2>
           <ul>
             {useCase.sections.map((section, index) => (
               <li><a href={`#${sectionIds[index]}`}>{section.heading}</a></li>
@@ -131,7 +126,7 @@ const structuredData = [
           </ul>
         </nav>
         <nav class="aside-card">
-          <h2>Documentation</h2>
+          <h2>kind: Documentation</h2>
           <ul>
             {useCase.docs.map((doc) => (
               <li><a href={doc.href}>{doc.label}</a></li>
@@ -139,9 +134,9 @@ const structuredData = [
           </ul>
         </nav>
         <div class="aside-card">
-          <h2>Try it</h2>
+          <h2>kind: Try it</h2>
           <ul>
-            <li><a href="/docs/getting-started/self-hosting-kind/">Install locally with Kind</a></li>
+            <li><a href="/docs/getting-started/self-hosting-kind/">Run the Kind demo</a></li>
             <li><a href="/faq/">Read the FAQ</a></li>
           </ul>
         </div>
@@ -149,19 +144,3 @@ const structuredData = [
     </div>
   </main>
 </Base>
-
-<style>
-  .related {
-    display: grid;
-    gap: 0;
-    list-style: none;
-    border-top: 1px solid var(--line);
-  }
-  .related li {
-    padding-block: 14px;
-    border-bottom: 1px solid var(--line);
-  }
-  .related a {
-    font-weight: 500;
-  }
-</style>

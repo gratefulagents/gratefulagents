@@ -12,7 +12,7 @@ const allItems = faqGroups.flatMap((group) => group.items);
 const structuredData = [
   {
     '@type': 'FAQPage',
-    '@id': abs('/faq/') + '#faq',
+    '@id': `${abs('/faq/')}#faq`,
     mainEntity: allItems.map((item) => ({
       '@type': 'Question',
       name: item.q,
@@ -36,45 +36,43 @@ const structuredData = [
   type="article"
 >
   <main id="main">
-    <section class="page-hero">
-      <div class="wrap page-hero-inner">
+    <div class="sheet-head">
+      <div class="sheet-head-inner">
         <nav class="crumbs" aria-label="Breadcrumb">
           <a href="/">GratefulAgents</a>
           <span aria-hidden="true">/</span>
           <span aria-current="page">FAQ</span>
         </nav>
         <h1>Frequently asked questions</h1>
-        <p class="lede">
+        <p>
           What gratefulagents does, what it needs from your infrastructure, and what it does not
           claim to do yet.
         </p>
       </div>
-    </section>
+    </div>
 
-    <div class="wrap page-body">
-      <div class="page-main">
-        <div class="faq-groups">
-          {
-            faqGroups.map((group) => (
-              <section class="faq-group" id={group.id}>
-                <h2>{group.label}</h2>
-                <div class="faq">
-                  {group.items.map((item) => (
-                    <details>
-                      <summary>{item.q}</summary>
-                      <p>{item.a}</p>
-                    </details>
-                  ))}
-                </div>
-              </section>
-            ))
-          }
-        </div>
+    <div class="sheet-body">
+      <div class="sheet-main">
+        {
+          faqGroups.map((group) => (
+            <section class="qa-group" id={group.id}>
+              <h2>{group.label}</h2>
+              <div class="qa">
+                {group.items.map((item) => (
+                  <details>
+                    <summary>{item.q}</summary>
+                    <p>{item.a}</p>
+                  </details>
+                ))}
+              </div>
+            </section>
+          ))
+        }
       </div>
 
-      <aside class="aside-nav" aria-label="On this page">
+      <aside class="sheet-aside" aria-label="Page navigation">
         <nav class="aside-card">
-          <h2>On this page</h2>
+          <h2>kind: Contents</h2>
           <ul>
             {faqGroups.map((group) => (
               <li><a href={`#${group.id}`}>{group.label}</a></li>
@@ -82,11 +80,13 @@ const structuredData = [
           </ul>
         </nav>
         <div class="aside-card">
-          <h2>Still stuck</h2>
+          <h2>kind: Support</h2>
           <ul>
-            <li><a href="/docs/getting-started/quick-start/">Quick start guide</a></li>
+            <li><a href="/docs/getting-started/quick-start/">Quick start</a></li>
             <li><a href="/docs/troubleshooting/common-issues/">Troubleshooting</a></li>
-            <li><a href="https://github.com/gratefulagents/gratefulagents/issues">Open an issue</a></li>
+            <li>
+              <a href="https://github.com/gratefulagents/gratefulagents/issues">Open an issue</a>
+            </li>
           </ul>
         </div>
       </aside>
