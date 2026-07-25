@@ -154,7 +154,7 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Co
 		if err := r.ensureMaintainerWorkItem(ctx, repository, name, issueNumber); err != nil {
 			return err
 		}
-		if err := r.observeMaintainerWorkItem(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: name}, issue, "Observed", "Issue observed in open issue list"); err != nil {
+		if err := r.observeMaintainerWorkItem(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: name}, issue, "Observed", "Issue observed in open issue list"); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -175,13 +175,13 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Co
 			if githubClient != nil {
 				issue, _, err := githubClient.GetIssue(ctx, repository.Spec.Owner, repository.Spec.Repo, int(item.Spec.IssueNumber))
 				if err == nil && issue != nil {
-					if err := r.observeMaintainerWorkItem(ctx, client.ObjectKeyFromObject(item), issue, "ObservedDirectly", "Issue observed directly after leaving the open issue list"); err != nil {
+					if err := r.observeMaintainerWorkItem(ctx, client.ObjectKeyFromObject(item), issue, "ObservedDirectly", "Issue observed directly after leaving the open issue list"); err != nil && !apierrors.IsNotFound(err) {
 						return err
 					}
 					continue
 				}
 			}
-			if err := r.markMaintainerWorkItemObservationStale(ctx, client.ObjectKeyFromObject(item)); err != nil {
+			if err := r.markMaintainerWorkItemObservationStale(ctx, client.ObjectKeyFromObject(item)); err != nil && !apierrors.IsNotFound(err) {
 				return err
 			}
 		}
@@ -288,7 +288,7 @@ func (r *GitHubRepositoryReconciler) markMaintainerWorkItemObservationsUnavailab
 		if items.Items[i].Spec.RepositoryRef.Name != repository.Name {
 			continue
 		}
-		if err := r.markMaintainerWorkItemObservationNotFresh(ctx, client.ObjectKeyFromObject(&items.Items[i]), reason, message); err != nil {
+		if err := r.markMaintainerWorkItemObservationNotFresh(ctx, client.ObjectKeyFromObject(&items.Items[i]), reason, message); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
