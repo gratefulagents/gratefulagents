@@ -849,6 +849,13 @@ func MaintainerWorkItemCommandSpecPayloadHash(spec MaintainerWorkItemCommandSpec
 	return hex.EncodeToString(sum[:])
 }
 
+// MaintainerSemanticCursorSecretName returns the deterministic Secret name for
+// a cursor checkpoint bound to immutable maintainer-run and repository UIDs.
+func MaintainerSemanticCursorSecretName(runUID, repositoryUID types.UID) string {
+	sum := sha256.Sum256([]byte(string(runUID) + "\x00" + string(repositoryUID)))
+	return "maintainer-semantic-cursor-" + hex.EncodeToString(sum[:12])
+}
+
 // MaintainerCommandCapabilitySecretName returns the deterministic Secret name
 // containing the private command capability for a standing maintainer run.
 func MaintainerCommandCapabilitySecretName(runName string) string {

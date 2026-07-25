@@ -108,16 +108,16 @@ func newMaintainerToolBase(t *testing.T, runs ...*platformv1alpha1.AgentRun) (ma
 		objects = append(objects, run)
 		if run.Labels[orchestration.StandingRunRoleLabel] == orchestration.StandingRunRoleMaintainer {
 			controller := true
+			owner := metav1.OwnerReference{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller}
 			objects = append(objects, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name), Namespace: run.Namespace,
-					OwnerReferences: []metav1.OwnerReference{{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller}},
-				},
+				ObjectMeta: metav1.ObjectMeta{Name: triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name), Namespace: run.Namespace, OwnerReferences: []metav1.OwnerReference{owner}},
 				Data: map[string][]byte{
 					triggersv1alpha1.MaintainerCommandCapabilitySecretKey:         []byte("01234567890123456789012345678901"),
 					triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey: []byte(repository.Name),
 					triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey:  []byte(repository.UID),
 				},
+			}, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: triggersv1alpha1.MaintainerSemanticCursorSecretName(run.UID, repository.UID), Namespace: run.Namespace, OwnerReferences: []metav1.OwnerReference{owner}},
 			})
 		}
 	}

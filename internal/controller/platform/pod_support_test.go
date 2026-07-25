@@ -56,13 +56,13 @@ func TestRunRBACRulesLimitAgentRunAccessToCurrentRun(t *testing.T) {
 func TestRunRBACRulesGiveMaintainerFleetAccess(t *testing.T) {
 	controller := true
 	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
-		Name: "repo-maintainer", Namespace: "default",
+		Name: "repo-maintainer", Namespace: "default", UID: types.UID("run-uid"),
 		Labels: map[string]string{
 			orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleMaintainer,
 			orchestration.SupervisedRunLabel:   "repo",
 		},
 		OwnerReferences: []metav1.OwnerReference{{
-			APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "GitHubRepository", Name: "repo", Controller: &controller,
+			APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "GitHubRepository", Name: "repo", UID: types.UID("repo-uid"), Controller: &controller,
 		}},
 	}}
 	if namespace, name := maintainedRepositoryForRun(run); namespace != "default" || name != "repo" {
@@ -88,6 +88,10 @@ func TestRunRBACRulesGiveMaintainerFleetAccess(t *testing.T) {
 	assertHasRuleVerbs(t, rules, "triggers.gratefulagents.dev", "pullrequestmonitors", "get", "list", "watch")
 	assertRuleWithGroupVerbAndNames(t, rules, "triggers.gratefulagents.dev", "projects", "get", "project")
 	assertRuleWithGroupVerbAndNames(t, rules, "", "secrets", "get", triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name))
+	cursorSecret := triggersv1alpha1.MaintainerSemanticCursorSecretName(run.UID, types.UID("repo-uid"))
+	assertRuleWithGroupVerbAndNames(t, rules, "", "secrets", "get", cursorSecret)
+	assertRuleWithGroupVerbAndNames(t, rules, "", "secrets", "update", cursorSecret)
+	assertNoResourceVerb(t, rules, "secrets", "create")
 	assertNoResourceVerb(t, rules, "maintainerworkitems", "patch")
 	assertNoResourceVerb(t, rules, "maintainerworkitemcommands", "update")
 	for _, rule := range rules {
@@ -169,6 +173,40 @@ func TestEnsureMaintainerCommandCapabilityIsPrivateAndStable(t *testing.T) {
 	}
 	if !reflect.DeepEqual(first, secret.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey]) {
 		t.Fatal("capability changed across idempotent reconciliation")
+	}
+}
+
+func TestEnsureMaintainerSemanticCursorCheckpointIsPrivateAndStable(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	run := maintainerRunForRBAC("repo-maintainer", "repo")
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "default", UID: types.UID("repo-uid")}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run, repository).Build()
+	controller := true
+	owner := metav1.OwnerReference{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: standingOverseerOwnerKind, Name: run.Name, UID: run.UID, Controller: &controller}
+	if err := ensureMaintainerSemanticCursorCheckpoint(context.Background(), c, run, owner, repository.Name); err != nil {
+		t.Fatal(err)
+	}
+	secret := &corev1.Secret{}
+	key := client.ObjectKey{Namespace: run.Namespace, Name: triggersv1alpha1.MaintainerSemanticCursorSecretName(run.UID, repository.UID)}
+	if err := c.Get(context.Background(), key, secret); err != nil {
+		t.Fatal(err)
+	}
+	if !metav1.IsControlledBy(secret, run) || len(secret.Data) != 0 {
+		t.Fatalf("cursor checkpoint Secret = %#v", secret)
+	}
+	if err := ensureMaintainerSemanticCursorCheckpoint(context.Background(), c, run, owner, repository.Name); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -286,14 +324,18 @@ func assertRuleWithGroupVerbAndNames(t *testing.T, rules []rbacv1.PolicyRule, ap
 		if !contains(rule.APIGroups, apiGroup) || !contains(rule.Resources, resource) || !contains(rule.Verbs, verb) {
 			continue
 		}
+		allNames := true
 		for _, name := range names {
 			if !contains(rule.ResourceNames, name) {
-				t.Fatalf("rule %s/%s missing resourceName %q; names=%v", resource, verb, name, rule.ResourceNames)
+				allNames = false
+				break
 			}
 		}
-		return
+		if allNames {
+			return
+		}
 	}
-	t.Fatalf("missing rule for %s verb %s", resource, verb)
+	t.Fatalf("missing rule for %s verb %s with resourceNames %v", resource, verb, names)
 }
 
 func assertNoResourceVerb(t *testing.T, rules []rbacv1.PolicyRule, resource, verb string) {

@@ -13,17 +13,18 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	maintainerSemanticCursorAnnotation = "platform.gratefulagents.dev/maintainer-semantic-cursor"
-	maintainerSemanticLatestHandle     = "latest"
-	maintainerSemanticOpaquePrefix     = "mh2_"
-	maintainerSemanticHandleLifetime   = 30 * 24 * time.Hour
+	maintainerSemanticCursorDataKey  = "state.json"
+	maintainerSemanticLatestHandle   = "latest"
+	maintainerSemanticOpaquePrefix   = "mh2_"
+	maintainerSemanticHandleLifetime = 30 * 24 * time.Hour
 )
 
 type maintainerSemanticCursor struct {
@@ -32,16 +33,22 @@ type maintainerSemanticCursor struct {
 	Identities map[string]int32 `json:"work_item_identities,omitempty"`
 }
 
-// maintainerSemanticCursorState is persisted on the maintainer AgentRun. The
-// owner reference and these immutable UIDs make reconstruction safe without
-// introducing process-local cursor continuity.
+// maintainerSemanticCursorState is stored compactly in an AgentRun-owned
+// Secret. Each work-item name appears once so large repositories remain well
+// below Kubernetes' object-size limit.
 type maintainerSemanticCursorState struct {
-	Version       int                      `json:"version"`
-	RunUID        types.UID                `json:"run_uid"`
-	RepositoryUID types.UID                `json:"repository_uid"`
-	Handle        string                   `json:"handle"`
-	ExpiresAt     time.Time                `json:"expires_at"`
-	Cursor        maintainerSemanticCursor `json:"cursor"`
+	Version       int                             `json:"v"`
+	RunUID        types.UID                       `json:"r"`
+	RepositoryUID types.UID                       `json:"p"`
+	Handle        string                          `json:"h"`
+	ExpiresAt     time.Time                       `json:"e"`
+	Entries       []maintainerSemanticCursorEntry `json:"i"`
+}
+
+type maintainerSemanticCursorEntry struct {
+	Name        string `json:"n"`
+	Sequence    int64  `json:"s"`
+	IssueNumber int32  `json:"i"`
 }
 
 type maintainerSemanticWaitOutput struct {
@@ -80,36 +87,19 @@ func (t *waitForRepoEventsTool) executeSemanticWorkItemWait(ctx context.Context,
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	previous := maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{}}
+	checkpoint, err := t.semanticCursorCheckpoint(ctx, run.UID, repository.UID)
+	if err != nil {
+		return Result{Content: "failed to read semantic cursor checkpoint: " + err.Error(), IsError: true}, nil
+	}
 	cursorValue := strings.TrimSpace(in.Cursor)
 	cursorProvided := cursorValue != ""
-	expectedState := ""
-	if run.Annotations != nil {
-		expectedState = run.Annotations[maintainerSemanticCursorAnnotation]
+	previous, err := resolveSemanticWaitCursor(checkpoint, run, repository.UID, cursorValue, time.Now())
+	if err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	if cursorProvided {
-		switch {
-		case cursorValue == maintainerSemanticLatestHandle || strings.HasPrefix(cursorValue, maintainerSemanticOpaquePrefix):
-			state, resolveErr := resolveMaintainerSemanticCursorState(run, repository.UID, cursorValue, time.Now())
-			if resolveErr != nil {
-				return Result{Content: resolveErr.Error(), IsError: true}, nil
-			}
-			previous = state.Cursor
-		default:
-			decoded, decodeErr := decodeMaintainerSemanticCursor(cursorValue)
-			if decodeErr != nil {
-				return Result{Content: "invalid semantic cursor: " + decodeErr.Error(), IsError: true}, nil
-			}
-			previous = decoded
-			// Compatibility cursors may initialize latest, but must not overwrite a
-			// checkpoint that another concurrent wait advances.
-			if run.Annotations != nil && strings.TrimSpace(run.Annotations[maintainerSemanticCursorAnnotation]) != "" {
-				_, resolveErr := resolveMaintainerSemanticCursorState(run, repository.UID, maintainerSemanticLatestHandle, time.Now())
-				if resolveErr != nil {
-					return Result{Content: resolveErr.Error(), IsError: true}, nil
-				}
-			}
-		}
+	expectedState := ""
+	if checkpoint != nil {
+		expectedState = checkpoint.ResourceVersion
 	}
 	snapshot, watcher, err := t.workItemSnapshotAndWatch(ctx)
 	if err != nil {
@@ -244,30 +234,71 @@ func (t *waitForRepoEventsTool) semanticWaitResult(ctx context.Context, runUID, 
 	return Result{Content: string(encoded)}, nil
 }
 
-func resolveMaintainerSemanticCursorState(run *platformv1alpha1.AgentRun, repositoryUID types.UID, handle string, now time.Time) (maintainerSemanticCursorState, error) {
-	if run == nil || run.Annotations == nil || strings.TrimSpace(run.Annotations[maintainerSemanticCursorAnnotation]) == "" {
+func resolveSemanticWaitCursor(checkpoint *corev1.Secret, run *platformv1alpha1.AgentRun, repositoryUID types.UID, value string, now time.Time) (maintainerSemanticCursor, error) {
+	if value == "" {
+		return maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{}}, nil
+	}
+	if value == maintainerSemanticLatestHandle || strings.HasPrefix(value, maintainerSemanticOpaquePrefix) {
+		state, err := resolveMaintainerSemanticCursorState(checkpoint, run, repositoryUID, value, now)
+		if err != nil {
+			return maintainerSemanticCursor{}, err
+		}
+		return state.semanticCursor(), nil
+	}
+	cursor, err := decodeMaintainerSemanticCursor(value)
+	if err != nil {
+		return maintainerSemanticCursor{}, fmt.Errorf("invalid semantic cursor: %w", err)
+	}
+	// Compatibility cursors may initialize latest, but must not overwrite a
+	// malformed, expired, or cross-boundary checkpoint.
+	if checkpoint != nil && len(checkpoint.Data[maintainerSemanticCursorDataKey]) > 0 {
+		if _, err := resolveMaintainerSemanticCursorState(checkpoint, run, repositoryUID, maintainerSemanticLatestHandle, now); err != nil {
+			return maintainerSemanticCursor{}, err
+		}
+	}
+	return cursor, nil
+}
+
+func (t *waitForRepoEventsTool) semanticCursorCheckpoint(ctx context.Context, runUID, repositoryUID types.UID) (*corev1.Secret, error) {
+	secret := &corev1.Secret{}
+	key := client.ObjectKey{Namespace: t.currentRunNamespace, Name: triggersv1alpha1.MaintainerSemanticCursorSecretName(runUID, repositoryUID)}
+	if err := t.k8sClient.Get(ctx, key, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !semanticCursorSecretOwnedByRun(secret, runUID) {
+		return nil, fmt.Errorf("cross-boundary semantic cursor checkpoint ownership")
+	}
+	return secret, nil
+}
+
+func semanticCursorSecretOwnedByRun(secret *corev1.Secret, runUID types.UID) bool {
+	if secret == nil {
+		return false
+	}
+	for _, owner := range secret.OwnerReferences {
+		if owner.APIVersion == platformv1alpha1.GroupVersion.String() && owner.Kind == "AgentRun" && owner.UID == runUID {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveMaintainerSemanticCursorState(secret *corev1.Secret, run *platformv1alpha1.AgentRun, repositoryUID types.UID, handle string, now time.Time) (maintainerSemanticCursorState, error) {
+	if secret == nil || len(secret.Data[maintainerSemanticCursorDataKey]) == 0 {
 		return maintainerSemanticCursorState{}, fmt.Errorf("unknown semantic cursor handle: no latest cursor is established; call once without cursor")
 	}
+	if run == nil || !semanticCursorSecretOwnedByRun(secret, run.UID) {
+		return maintainerSemanticCursorState{}, fmt.Errorf("cross-boundary semantic cursor handle")
+	}
 	var state maintainerSemanticCursorState
-	if err := json.Unmarshal([]byte(run.Annotations[maintainerSemanticCursorAnnotation]), &state); err != nil || state.Version != 1 {
+	if err := json.Unmarshal(secret.Data[maintainerSemanticCursorDataKey], &state); err != nil || state.Version != 1 {
 		return maintainerSemanticCursorState{}, fmt.Errorf("malformed stored semantic cursor state")
 	}
-	storedHandle, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(state.Handle, maintainerSemanticOpaquePrefix))
-	if !strings.HasPrefix(state.Handle, maintainerSemanticOpaquePrefix) || err != nil || len(storedHandle) != 16 || state.Cursor.Version != 2 || state.Cursor.Sequences == nil {
-		return maintainerSemanticCursorState{}, fmt.Errorf("malformed stored semantic cursor state")
-	}
-	for name, sequence := range state.Cursor.Sequences {
-		if strings.TrimSpace(name) == "" || sequence < 0 {
-			return maintainerSemanticCursorState{}, fmt.Errorf("malformed stored semantic cursor state")
-		}
-		if issueNumber, ok := state.Cursor.Identities[name]; ok && issueNumber <= 0 {
-			return maintainerSemanticCursorState{}, fmt.Errorf("malformed stored semantic cursor state")
-		}
-	}
-	for name := range state.Cursor.Identities {
-		if _, ok := state.Cursor.Sequences[name]; !ok {
-			return maintainerSemanticCursorState{}, fmt.Errorf("malformed stored semantic cursor state")
-		}
+	if err := validateMaintainerSemanticCursorState(state); err != nil {
+		return maintainerSemanticCursorState{}, err
 	}
 	if state.RunUID != run.UID || state.RepositoryUID != repositoryUID {
 		return maintainerSemanticCursorState{}, fmt.Errorf("cross-boundary semantic cursor handle")
@@ -276,12 +307,8 @@ func resolveMaintainerSemanticCursorState(run *platformv1alpha1.AgentRun, reposi
 		return maintainerSemanticCursorState{}, fmt.Errorf("expired semantic cursor handle; call once without cursor")
 	}
 	if handle != maintainerSemanticLatestHandle {
-		if !strings.HasPrefix(handle, maintainerSemanticOpaquePrefix) {
-			return maintainerSemanticCursorState{}, fmt.Errorf("unknown semantic cursor handle")
-		}
-		raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(handle, maintainerSemanticOpaquePrefix))
-		if err != nil || len(raw) != 16 {
-			return maintainerSemanticCursorState{}, fmt.Errorf("malformed semantic cursor handle")
+		if err := validateMaintainerSemanticHandle(handle); err != nil {
+			return maintainerSemanticCursorState{}, err
 		}
 		if handle != state.Handle {
 			return maintainerSemanticCursorState{}, fmt.Errorf("stale semantic cursor handle; use %q", maintainerSemanticLatestHandle)
@@ -290,53 +317,109 @@ func resolveMaintainerSemanticCursorState(run *platformv1alpha1.AgentRun, reposi
 	return state, nil
 }
 
+func validateMaintainerSemanticCursorState(state maintainerSemanticCursorState) error {
+	if err := validateMaintainerSemanticHandle(state.Handle); err != nil {
+		return fmt.Errorf("malformed stored semantic cursor state")
+	}
+	seen := make(map[string]struct{}, len(state.Entries))
+	for _, entry := range state.Entries {
+		if strings.TrimSpace(entry.Name) == "" || entry.Sequence < 0 || entry.IssueNumber <= 0 {
+			return fmt.Errorf("malformed stored semantic cursor state")
+		}
+		if _, exists := seen[entry.Name]; exists {
+			return fmt.Errorf("malformed stored semantic cursor state")
+		}
+		seen[entry.Name] = struct{}{}
+	}
+	return nil
+}
+
+func validateMaintainerSemanticHandle(handle string) error {
+	if !strings.HasPrefix(handle, maintainerSemanticOpaquePrefix) {
+		return fmt.Errorf("unknown semantic cursor handle")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(handle, maintainerSemanticOpaquePrefix))
+	if err != nil || len(raw) != 16 {
+		return fmt.Errorf("malformed semantic cursor handle")
+	}
+	return nil
+}
+
+func (state maintainerSemanticCursorState) semanticCursor() maintainerSemanticCursor {
+	cursor := maintainerSemanticCursor{Version: 2, Sequences: make(map[string]int64, len(state.Entries)), Identities: make(map[string]int32, len(state.Entries))}
+	for _, entry := range state.Entries {
+		cursor.Sequences[entry.Name] = entry.Sequence
+		cursor.Identities[entry.Name] = entry.IssueNumber
+	}
+	return cursor
+}
+
+func newMaintainerSemanticCursorState(runUID, repositoryUID types.UID, handle string, expiresAt time.Time, cursor maintainerSemanticCursor) maintainerSemanticCursorState {
+	names := make([]string, 0, len(cursor.Sequences))
+	for name := range cursor.Sequences {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	entries := make([]maintainerSemanticCursorEntry, 0, len(names))
+	for _, name := range names {
+		entries = append(entries, maintainerSemanticCursorEntry{Name: name, Sequence: cursor.Sequences[name], IssueNumber: cursor.Identities[name]})
+	}
+	return maintainerSemanticCursorState{Version: 1, RunUID: runUID, RepositoryUID: repositoryUID, Handle: handle, ExpiresAt: expiresAt, Entries: entries}
+}
+
 func (t *waitForRepoEventsTool) persistMaintainerSemanticCursorState(ctx context.Context, runUID, repositoryUID types.UID, expectedState string, cursor maintainerSemanticCursor) error {
 	handleBytes := make([]byte, 16)
 	if _, err := rand.Read(handleBytes); err != nil {
 		return fmt.Errorf("failed to create semantic cursor handle: %w", err)
 	}
-	state := maintainerSemanticCursorState{
-		Version: 1, RunUID: runUID, RepositoryUID: repositoryUID,
-		Handle:    maintainerSemanticOpaquePrefix + base64.RawURLEncoding.EncodeToString(handleBytes),
-		ExpiresAt: time.Now().Add(maintainerSemanticHandleLifetime), Cursor: cursor,
-	}
+	handle := maintainerSemanticOpaquePrefix + base64.RawURLEncoding.EncodeToString(handleBytes)
+	state := newMaintainerSemanticCursorState(runUID, repositoryUID, handle, time.Now().Add(maintainerSemanticHandleLifetime), cursor)
 	encoded, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("failed to encode semantic cursor state: %w", err)
 	}
-	key := client.ObjectKey{Name: t.currentRunName, Namespace: t.currentRunNamespace}
-	repositoryKey := client.ObjectKey{Name: t.repositoryName, Namespace: t.repositoryNamespace}
-	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		repository := &triggersv1alpha1.GitHubRepository{}
-		if getErr := t.k8sClient.Get(ctx, repositoryKey, repository); getErr != nil {
-			return getErr
-		}
-		if repository.UID != repositoryUID || !repository.DeletionTimestamp.IsZero() {
-			return fmt.Errorf("cross-boundary semantic cursor state: maintained repository UID changed")
-		}
-		run := &platformv1alpha1.AgentRun{}
-		if getErr := t.k8sClient.Get(ctx, key, run); getErr != nil {
-			return getErr
-		}
-		if run.UID != runUID || !maintainerFleetRunOwnedByRepository(run, repository) {
-			return fmt.Errorf("cross-boundary semantic cursor state: maintainer AgentRun ownership changed")
-		}
-		currentState := ""
-		if run.Annotations != nil {
-			currentState = run.Annotations[maintainerSemanticCursorAnnotation]
-		}
-		if currentState != expectedState {
+	run, err := t.verifySemanticCursorBoundary(ctx, runUID, repositoryUID)
+	if err != nil {
+		return err
+	}
+	return t.writeSemanticCursorCheckpoint(ctx, run, repositoryUID, expectedState, encoded)
+}
+
+func (t *waitForRepoEventsTool) verifySemanticCursorBoundary(ctx context.Context, runUID, repositoryUID types.UID) (*platformv1alpha1.AgentRun, error) {
+	repository, err := t.repository(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if repository.UID != repositoryUID {
+		return nil, fmt.Errorf("cross-boundary semantic cursor state: maintained repository UID changed")
+	}
+	run, err := t.currentRunForRepository(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	if run.UID != runUID {
+		return nil, fmt.Errorf("cross-boundary semantic cursor state: maintainer AgentRun UID changed")
+	}
+	return run, nil
+}
+
+func (t *waitForRepoEventsTool) writeSemanticCursorCheckpoint(ctx context.Context, run *platformv1alpha1.AgentRun, repositoryUID types.UID, expectedState string, encoded []byte) error {
+	checkpoint, err := t.semanticCursorCheckpoint(ctx, run.UID, repositoryUID)
+	if err != nil {
+		return fmt.Errorf("failed to read latest semantic cursor checkpoint: %w", err)
+	}
+	if checkpoint == nil {
+		return fmt.Errorf("semantic cursor checkpoint is not provisioned for this maintainer run")
+	}
+	if expectedState == "" || checkpoint.ResourceVersion != expectedState {
+		return fmt.Errorf("stale semantic cursor handle: another wait already advanced latest")
+	}
+	checkpoint.Data = map[string][]byte{maintainerSemanticCursorDataKey: encoded}
+	if err := t.k8sClient.Update(ctx, checkpoint); err != nil {
+		if apierrors.IsConflict(err) {
 			return fmt.Errorf("stale semantic cursor handle: another wait already advanced latest")
 		}
-		before := run.DeepCopy()
-		if run.Annotations == nil {
-			run.Annotations = map[string]string{}
-		}
-		run.Annotations[maintainerSemanticCursorAnnotation] = string(encoded)
-		return t.k8sClient.Patch(ctx, run, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{}))
-	})
-	if err != nil {
-		return fmt.Errorf("failed to atomically persist latest semantic cursor: %w", err)
+		return fmt.Errorf("failed to update semantic cursor checkpoint: %w", err)
 	}
 	return nil
 }
@@ -361,19 +444,59 @@ func validateSemanticCursorIdentities(repositoryName string, cursor maintainerSe
 			}
 			return fmt.Errorf("non-canonical cursor identity: %q", name)
 		}
-		canonical := false
-		for _, part := range strings.Split(name, "-") {
-			issueNumber, err := strconv.ParseInt(part, 10, 32)
-			if err == nil && issueNumber > 0 && triggersv1alpha1.MaintainerWorkItemName(repositoryName, int32(issueNumber)) == name {
-				canonical = true
-				break
-			}
-		}
-		if !canonical {
+		if !legacySemanticCursorIdentityCanonical(repositoryName, name) {
 			return fmt.Errorf("non-canonical cursor identity: %q", name)
 		}
 	}
 	return nil
+}
+
+func legacySemanticCursorIdentityCanonical(repositoryName, name string) bool {
+	const hashLength = 10
+	separator := strings.LastIndexByte(name, '-')
+	if !strings.HasPrefix(name, "mwi-") || len(name) > 63 || separator <= 4 || len(name)-separator-1 != hashLength || !lowerHex(name[separator+1:]) {
+		return false
+	}
+	for part := range strings.SplitSeq(name[:separator], "-") {
+		issueNumber, err := strconv.ParseInt(part, 10, 32)
+		if err == nil && issueNumber > 0 && triggersv1alpha1.MaintainerWorkItemName(repositoryName, int32(issueNumber)) == name {
+			return true
+		}
+	}
+	probe := triggersv1alpha1.MaintainerWorkItemName(repositoryName, 1)
+	probeSeparator := strings.LastIndexByte(probe, '-')
+	probeBase := probe[:probeSeparator]
+	candidateBase := name[:separator]
+	if candidateBase == probeBase {
+		return true
+	}
+	if !strings.HasSuffix(probeBase, "-1") {
+		return false
+	}
+	repositoryBase := strings.TrimSuffix(probeBase, "-1")
+	if candidateBase == repositoryBase {
+		return true
+	}
+	partialIssue := strings.TrimPrefix(candidateBase, repositoryBase+"-")
+	return partialIssue != candidateBase && partialIssue != "" && decimalDigits(partialIssue)
+}
+
+func lowerHex(value string) bool {
+	for _, char := range value {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func decimalDigits(value string) bool {
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func encodeMaintainerSemanticCursor(cursor maintainerSemanticCursor) (string, error) {

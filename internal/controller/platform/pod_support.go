@@ -212,7 +212,7 @@ func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifi
 			Verbs:         []string{"get"},
 		})
 	}
-	return append(rules,
+	rules = append(rules,
 		rbacv1.PolicyRule{
 			APIGroups: []string{"platform.gratefulagents.dev"},
 			Resources: []string{"agentruns"},
@@ -251,6 +251,17 @@ func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifi
 			Verbs:     []string{"get", "list"},
 		},
 	)
+	for _, owner := range run.OwnerReferences {
+		if owner.APIVersion == triggersv1alpha1.GroupVersion.String() && owner.Kind == "GitHubRepository" && owner.Name == verifiedMaintainedRepositoryName {
+			rules = append(rules, rbacv1.PolicyRule{
+				APIGroups: []string{""}, Resources: []string{"secrets"},
+				ResourceNames: []string{triggersv1alpha1.MaintainerSemanticCursorSecretName(run.UID, owner.UID)},
+				Verbs:         []string{"get", "patch", "update"},
+			})
+			break
+		}
+	}
+	return rules
 }
 
 func compactStrings(values []string) []string {
@@ -301,6 +312,9 @@ func ensureRunRBAC(ctx context.Context, c client.Client, run *platformv1alpha1.A
 		if err := ensureMaintainerCommandCapability(ctx, c, run, ownerRef, maintainedRepositoryName); err != nil {
 			return fmt.Errorf("ensuring maintainer command capability: %w", err)
 		}
+		if err := ensureMaintainerSemanticCursorCheckpoint(ctx, c, run, ownerRef, maintainedRepositoryName); err != nil {
+			return fmt.Errorf("ensuring maintainer semantic cursor checkpoint: %w", err)
+		}
 	}
 	roleName := saName + "-role"
 	role := &rbacv1.Role{
@@ -339,6 +353,31 @@ func ensureRunRBAC(ctx context.Context, c client.Client, run *platformv1alpha1.A
 		return fmt.Errorf("creating cluster-scoped RBAC: %w", err)
 	}
 
+	return nil
+}
+
+func ensureMaintainerSemanticCursorCheckpoint(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun, ownerRef metav1.OwnerReference, repositoryName string) error {
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: repositoryName}, repository); err != nil {
+		return err
+	}
+	name := triggersv1alpha1.MaintainerSemanticCursorSecretName(run.UID, repository.UID)
+	existing := &corev1.Secret{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, existing); err == nil {
+		if !metav1.IsControlledBy(existing, run) {
+			return fmt.Errorf("secret %s/%s is not controlled by AgentRun %s", run.Namespace, name, run.Name)
+		}
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: run.Namespace, OwnerReferences: []metav1.OwnerReference{ownerRef}},
+		Type:       corev1.SecretTypeOpaque,
+	}
+	if err := c.Create(ctx, secret); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
 	return nil
 }
 
