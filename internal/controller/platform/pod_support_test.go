@@ -41,7 +41,7 @@ func addSandboxSupportSchemes(t *testing.T, scheme *runtime.Scheme) {
 
 func TestRunRBACRulesLimitAgentRunAccessToCurrentRun(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "current-run"}}
-	rules := runRBACRules(run, "", "")
+	rules := runRBACRules(run, "", "", "")
 	assertRuleWithVerbAndNames(t, rules, "agentruns", "get", "current-run")
 	assertRuleWithVerbAndNames(t, rules, "agentruns", "patch", "current-run")
 	assertRuleWithVerbAndNames(t, rules, "agentruns/status", "get", "current-run")
@@ -72,7 +72,7 @@ func TestRunRBACRulesGiveMaintainerFleetAccess(t *testing.T) {
 	assertEnvValue(t, got, "AGENTRUN_MAINTAINED_REPOSITORY_NAME", "repo")
 	assertEnvValue(t, got, "AGENTRUN_MAINTAINED_REPOSITORY_NAMESPACE", "default")
 
-	rules := runRBACRules(run, "", "repo")
+	rules := runRBACRules(run, "", "repo", "project")
 	fleetAccess := false
 	for _, rule := range rules {
 		if contains(rule.APIGroups, "platform.gratefulagents.dev") && contains(rule.Resources, "agentruns") && len(rule.ResourceNames) == 0 && contains(rule.Verbs, "get") && contains(rule.Verbs, "list") && contains(rule.Verbs, "watch") && contains(rule.Verbs, "patch") && contains(rule.Verbs, "update") {
@@ -86,6 +86,7 @@ func TestRunRBACRulesGiveMaintainerFleetAccess(t *testing.T) {
 	assertHasRuleVerbs(t, rules, "triggers.gratefulagents.dev", "maintainerworkitems", "get", "list", "watch")
 	assertHasRuleVerbs(t, rules, "triggers.gratefulagents.dev", "maintainerworkitemcommands", "create", "get", "list", "watch")
 	assertHasRuleVerbs(t, rules, "triggers.gratefulagents.dev", "pullrequestmonitors", "get", "list", "watch")
+	assertRuleWithGroupVerbAndNames(t, rules, "triggers.gratefulagents.dev", "projects", "get", "project")
 	assertRuleWithGroupVerbAndNames(t, rules, "", "secrets", "get", triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name))
 	assertNoResourceVerb(t, rules, "maintainerworkitems", "patch")
 	assertNoResourceVerb(t, rules, "maintainerworkitemcommands", "update")
@@ -98,6 +99,36 @@ func TestRunRBACRulesGiveMaintainerFleetAccess(t *testing.T) {
 		}
 	}
 	t.Fatal("missing scoped GitHubRepository rule")
+}
+
+func TestVerifiedMaintainedRepositoryScopeIncludesControlledProject(t *testing.T) {
+	t.Parallel()
+	controller := true
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	project := &triggersv1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "project", Namespace: "default", UID: "project-uid"}}
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{
+		Name: "repo", Namespace: "default", UID: "repo-uid",
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "Project", Name: project.Name, UID: project.UID, Controller: &controller}},
+	}}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
+		Name: "repo-maintainer", Namespace: "default",
+		Labels:          map[string]string{orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleMaintainer, orchestration.SupervisedRunLabel: repository.Name},
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "GitHubRepository", Name: repository.Name, UID: repository.UID, Controller: &controller}},
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(project, repository, run).Build()
+	repositoryName, projectName, err := verifiedMaintainedRepositoryScope(context.Background(), c, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repositoryName != repository.Name || projectName != project.Name {
+		t.Fatalf("scope = %q/%q, want %q/%q", repositoryName, projectName, repository.Name, project.Name)
+	}
 }
 
 func TestEnsureMaintainerCommandCapabilityIsPrivateAndStable(t *testing.T) {
@@ -162,7 +193,7 @@ func TestRunRBACRulesGiveOverseerReadOnlyAccessToSupervisedRun(t *testing.T) {
 			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: standingOverseerOwnerKind, Name: "primary", UID: types.UID("primary-uid"), Controller: &controller,
 		}},
 	}}
-	rules := runRBACRules(run, "primary", "")
+	rules := runRBACRules(run, "primary", "", "")
 	assertRuleWithVerbAndNames(t, rules, "agentruns", "get", "primary-overseer", "primary")
 	assertRuleWithVerbAndNames(t, rules, "agentruns", "patch", "primary-overseer")
 	for _, rule := range rules {
@@ -178,7 +209,7 @@ func TestRunRBACRulesGiveOverseerReadOnlyAccessToSupervisedRun(t *testing.T) {
 // whose rules are rewritten by whichever operator binary last reconciled a
 // run and whose per-run bindings are deleted on terminal transitions.
 func TestRunRBACRulesGrantNamespacedPolicyReads(t *testing.T) {
-	rules := runRBACRules(&platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run"}}, "", "")
+	rules := runRBACRules(&platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run"}}, "", "", "")
 	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "runtimeprofiles", "get")
 	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "mcppolicies", "get")
 	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "guardrailpolicies", "get")
