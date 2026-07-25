@@ -25,6 +25,7 @@ vi.mock("@/hooks/useAgentRuns", () => ({
 vi.mock("@/lib/client", () => ({
   client: {
     getActivityLog: vi.fn().mockResolvedValue({ entries: [] }),
+    listMaintainerWorkItems: vi.fn().mockResolvedValue({ items: [] }),
   },
 }));
 

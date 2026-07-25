@@ -391,6 +391,31 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
+                  humanIssuer:
+                    description: MaintainerWorkItemCommandHumanIssuer identifies a
+                      dashboard user that issued a command.
+                    properties:
+                      displayName:
+                        description: |-
+                          DisplayName is a human-readable label for audit and UI purposes only.
+                          It is NOT covered by the proof and must not be trusted for authorization.
+                        maxLength: 253
+                        type: string
+                      proof:
+                        description: Proof is an HMAC from the repository's human
+                          command capability secret.
+                        pattern: ^[a-f0-9]{64}$
+                        type: string
+                      subject:
+                        description: Subject is the authenticated dashboard identity
+                          (e.g. OIDC sub claim).
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                    required:
+                    - proof
+                    - subject
+                    type: object
                   issueClosedAt:
                     format: date-time
                     type: string
@@ -446,8 +471,10 @@ spec:
                 - deliveryEvidence
                 - deliverySummary
                 - finalizedByCommand
-                - issuer
                 type: object
+                x-kubernetes-validations:
+                - message: exactly one of issuer or humanIssuer is required
+                  rule: has(self.issuer) != has(self.humanIssuer)
               dependencies:
                 items:
                   description: MaintainerWorkItemDependencyProjection summarizes a
@@ -711,6 +738,18 @@ spec:
                         the monitor name).
                       minLength: 1
                       type: string
+                    lastCommentID:
+                      description: |-
+                        LastCommentID is the latest processed GitHub pull-request conversation
+                        comment. It advances the maintainer event cursor without retaining content.
+                      format: int64
+                      type: integer
+                    lastReviewID:
+                      description: |-
+                        LastReviewID is the latest processed GitHub review. It advances the
+                        maintainer event cursor even when aggregate ReviewDecision is unchanged.
+                      format: int64
+                      type: integer
                     mergeable:
                       type: boolean
                     mergedAt:
@@ -743,18 +782,6 @@ spec:
                       type: string
                     reviewDecision:
                       type: string
-                    lastReviewID:
-                      description: LastReviewID is the latest processed GitHub review.
-                        It advances the maintainer event cursor even when aggregate
-                        ReviewDecision is unchanged.
-                      format: int64
-                      type: integer
-                    lastCommentID:
-                      description: LastCommentID is the latest processed GitHub pull-request
-                        conversation comment. It advances the maintainer event cursor
-                        without retaining content.
-                      format: int64
-                      type: integer
                     reviewObservedAt:
                       format: date-time
                       type: string

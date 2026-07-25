@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -12,9 +12,11 @@ import { formatAge } from "@/lib/format";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneSoft, type StatusTone } from "@/lib/status";
+import { MaintainerBoard } from "@/components/maintainer/MaintainerBoard";
 import type {
   ActivityEntry,
   GitHubRepository,
+  MaintainerBoardCapacity,
   MaintainerWorkItem,
 } from "@/rpc/platform/service_pb";
 
@@ -225,313 +227,101 @@ export function MaintainerPanel({ repo }: { repo: GitHubRepository }) {
   );
 }
 
-/** Phase presentation: tone encodes who the item is waiting on. */
-function workItemPhasePresentation(item: MaintainerWorkItem): ReportPresentation {
-  // NotActionable is terminal: the controller closes the issue but leaves the
-  // lifecycle phase at Triaged, so present the disposition instead.
-  if (item.disposition === "NotActionable") {
-    return { label: "Not actionable", tone: "neutral" };
-  }
-  switch (item.phase) {
-    case "AwaitingDecision":
-      return { label: "Needs decision", tone: "warning" };
-    case "ReadyToDispatch":
-      return { label: "Ready to dispatch", tone: "info" };
-    case "Dispatched":
-      return { label: "Dispatched", tone: "running" };
-    case "Implementing":
-      return { label: "Implementing", tone: "running" };
-    case "ReadyToMerge":
-      return { label: "Ready to merge", tone: "purple" };
-    case "Delivered":
-      return { label: "Delivered", tone: "success" };
-    case "Triaged":
-      return { label: "Triaged", tone: "neutral" };
-    case "PendingTriage":
-    default:
-      return { label: "Pending triage", tone: "neutral" };
-  }
-}
-
-/** Terminal work items: delivered, or closed by triage as not actionable. */
-function workItemIsTerminal(item: MaintainerWorkItem): boolean {
-  return item.phase === "Delivered" || item.disposition === "NotActionable";
-}
-
-/** How often the open panel refetches the queue to pick up controller updates. */
-const WORK_ITEM_REFRESH_MS = 30_000;
+/** How often the board refetches the queue while mounted. */
+const WORK_ITEM_REFRESH_MS = 10_000;
 
 function useMaintainerWorkItems(namespace: string, repositoryName: string, enabled: boolean) {
   const [items, setItems] = useState<MaintainerWorkItem[]>([]);
+  const [capacity, setCapacity] = useState<MaintainerBoardCapacity | undefined>();
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
+  const refetchRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
-    if (!enabled || !repositoryName) return;
-
+    const generation = ++requestGeneration.current;
     let cancelled = false;
-    let initial = true;
+    let latestRequest = 0;
+    let initialPending = true;
+
+    const isCurrent = (request?: number) =>
+      !cancelled &&
+      requestGeneration.current === generation &&
+      (request === undefined || request === latestRequest);
+
+    if (!enabled || !repositoryName) {
+      refetchRef.current = () => undefined;
+      return () => {
+        cancelled = true;
+      };
+    }
+
     async function loadItems() {
-      if (initial) setLoading(true);
+      const request = ++latestRequest;
+      const isInitial = initialPending;
+      if (isInitial && isCurrent(request)) {
+        setLoading(true);
+        setLoaded(false);
+      }
+
       try {
         const response = await client.listMaintainerWorkItems({ namespace, repositoryName });
-        if (cancelled) return;
+        if (!isCurrent(request)) return;
         setItems(response.items);
+        setCapacity(response.capacity);
+        setLoaded(true);
         setError(null);
       } catch (fetchError) {
-        if (cancelled) return;
-        // Keep showing the last good queue on background refresh failures.
-        if (initial) setItems([]);
+        if (!isCurrent(request)) return;
+        if (isInitial) {
+          setItems([]);
+          setCapacity(undefined);
+          setLoaded(false);
+        }
         setError(fetchError instanceof Error ? fetchError.message : "Failed to load work items");
       } finally {
-        if (!cancelled && initial) {
-          initial = false;
+        if (isInitial && isCurrent(request)) {
+          initialPending = false;
           setLoading(false);
         }
       }
     }
 
+    const refetchCurrent = () => {
+      if (isCurrent()) void loadItems();
+    };
+    refetchRef.current = refetchCurrent;
     void loadItems();
-    const refresh = window.setInterval(() => void loadItems(), WORK_ITEM_REFRESH_MS);
+    const refresh = window.setInterval(refetchCurrent, WORK_ITEM_REFRESH_MS);
+
     return () => {
       cancelled = true;
       window.clearInterval(refresh);
+      if (refetchRef.current === refetchCurrent) refetchRef.current = () => undefined;
     };
   }, [enabled, namespace, repositoryName]);
 
-  return { items, loading, error };
+  const refetch = useCallback(() => refetchRef.current(), []);
+
+  return { items, capacity, loading, loaded, error, refetch };
 }
-
-function prCheckLabel(checkState: string): string {
-  switch (checkState) {
-    case "Passing":
-      return "checks passing";
-    case "Failing":
-      return "checks failing";
-    case "Pending":
-      return "checks pending";
-    default:
-      return "";
-  }
-}
-
-function prReviewLabel(reviewDecision: string): string {
-  switch (reviewDecision) {
-    case "APPROVED":
-      return "approved";
-    case "CHANGES_REQUESTED":
-      return "changes requested";
-    case "REVIEW_REQUIRED":
-      return "review required";
-    default:
-      return "";
-  }
-}
-
-function WorkItemRow({ item, namespace }: { item: MaintainerWorkItem; namespace: string }) {
-  const presentation = workItemPhasePresentation(item);
-  const title = item.issueTitle || `Issue #${item.issueNumber}`;
-  const commandFailed =
-    item.latestCommandPhase === "Rejected" || item.latestCommandPhase === "Failed";
-  const blocked =
-    !item.readyToDispatch && !item.readyToMerge && item.unmetRequirements.length > 0;
-
-  return (
-    <li className="space-y-2 px-4 py-3.5 first:pt-3 last:pb-3">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-[11.5px] font-medium tabular-nums text-muted-foreground">
-          #{item.issueNumber}
-        </span>
-        {item.issueUrl ? (
-          <a
-            href={item.issueUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
-          >
-            {title}
-          </a>
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{title}</span>
-        )}
-        <Badge variant="secondary" className={cn("gap-1.5 text-[11px]", toneSoft[presentation.tone])}>
-          <span className="size-1.5 rounded-full bg-current" aria-hidden />
-          {presentation.label}
-        </Badge>
-      </div>
-
-      {item.pendingDecision ? (
-        <div className={cn("space-y-1 rounded-[6px] px-2.5 py-2", toneSoft.warning)}>
-          <p className="text-[12px] font-medium leading-relaxed">{item.pendingDecision.question}</p>
-          {item.pendingDecision.options.length > 0 ? (
-            <p className="text-[11px] opacity-80">Options: {item.pendingDecision.options.join(" · ")}</p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {commandFailed ? (
-        <p className={cn("rounded-[6px] px-2.5 py-1.5 text-[11.5px] leading-relaxed", toneSoft.danger)}>
-          {item.latestCommandType} command {item.latestCommandPhase.toLowerCase()}
-          {item.latestCommandMessage ? `: ${item.latestCommandMessage}` : ""}
-        </p>
-      ) : null}
-
-      {blocked ? (
-        <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-          Blocked on: {item.unmetRequirements.join("; ")}
-        </p>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
-        {item.pullRequests.map((pr) => {
-          const facts = [
-            prCheckLabel(pr.checkState),
-            prReviewLabel(pr.reviewDecision),
-            pr.state === "merged" ? "merged" : "",
-            pr.draft ? "draft" : "",
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          const label = `${pr.repository}#${pr.number}`;
-          return (
-            <span key={label} className="inline-flex items-center gap-1">
-              {pr.url ? (
-                <a href={pr.url} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">
-                  {label}
-                </a>
-              ) : (
-                <span>{label}</span>
-              )}
-              {facts ? <span>· {facts}</span> : null}
-            </span>
-          );
-        })}
-        {item.agentRuns.map((run) => (
-          <Link
-            key={run.name}
-            to={`/runs/${namespace}/${run.name}`}
-            className="text-primary underline-offset-2 hover:underline"
-          >
-            {run.name}
-            {run.phase ? ` (${run.phase})` : ""}
-          </Link>
-        ))}
-        {item.childrenTotal > 0 ? (
-          <span className="tabular-nums">
-            {item.childrenDelivered}/{item.childrenTotal} children delivered
-          </span>
-        ) : null}
-        {item.dependenciesTotal > 0 && item.dependenciesDelivered < item.dependenciesTotal ? (
-          <span className="tabular-nums">
-            waiting on {item.dependenciesTotal - item.dependenciesDelivered} dependenc
-            {item.dependenciesTotal - item.dependenciesDelivered === 1 ? "y" : "ies"}
-          </span>
-        ) : null}
-        {item.phase === "Delivered" && item.deliverySummary ? (
-          <span className="min-w-0 truncate">{item.deliverySummary}</span>
-        ) : null}
-      </div>
-    </li>
-  );
-}
-
-function WorkItemsSection({
-  namespace,
-  repositoryName,
-  enabled,
-}: {
-  namespace: string;
-  repositoryName: string;
-  enabled: boolean;
-}) {
-  const { items, loading, error } = useMaintainerWorkItems(namespace, repositoryName, enabled);
-  const needsDecision = items.filter((item) => item.phase === "AwaitingDecision").length;
-  const active = items.filter((item) => !workItemIsTerminal(item)).length;
-  const summary = loading
-    ? "Loading…"
-    : items.length === 0
-      ? "None yet"
-      : needsDecision > 0
-        ? `${active} active · ${needsDecision} need${needsDecision === 1 ? "s" : ""} your decision`
-        : `${active} active · ${items.length - active} closed`;
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger
-        render={
-          <button
-            type="button"
-            className="group flex w-full items-center gap-2 border-t border-border/60 px-4 py-3 text-left transition-colors hover:bg-muted/35"
-          />
-        }
-      >
-        <ChevronRight
-          className={cn(
-            "size-3.5 shrink-0 text-muted-foreground transition-transform duration-[var(--dur-fast)]",
-            open && "rotate-90",
-          )}
-        />
-        <span className="text-[12.5px] font-medium">Work items</span>
-        {!loading && needsDecision > 0 ? (
-          <Badge variant="secondary" className={cn("text-[10.5px]", toneSoft.warning)}>
-            {needsDecision}
-          </Badge>
-        ) : null}
-        <span className="ml-auto text-[11px] text-muted-foreground">{summary}</span>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="border-t border-border/60">
-          {loading ? (
-            <div className="flex items-center gap-2 px-4 py-5 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Loading work items…
-            </div>
-          ) : error ? (
-            <p className="px-4 py-5 text-sm text-destructive">{error}</p>
-          ) : items.length === 0 ? (
-            <p className="px-4 py-5 text-sm leading-relaxed text-muted-foreground">
-              No work items yet — the maintainer files each triaged issue here.
-            </p>
-          ) : (
-            <ul className="divide-y divide-border/60">
-              {items.map((item) => (
-                <WorkItemRow key={item.name} item={item} namespace={namespace} />
-              ))}
-            </ul>
-          )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
-
-/**
- * Structural view of GitHubRepositoryMaintainerStatus so the card renders the
- * same maintainer from a repository or a project trigger read model.
- */
-export type MaintainerStatusLike = {
-  runName?: string;
-  lastWakeUnix?: bigint;
-  dispatchesToday?: number;
-  lastReportTimeUnix?: bigint;
-  lastReportState?: string;
-  lastReportSummary?: string;
-};
 
 export type MaintainerCardProps = {
   namespace: string;
   enabled: boolean;
-  maintainer?: MaintainerStatusLike;
+  maintainer?: {
+    runName?: string;
+    lastReportState?: string;
+    lastReportSummary?: string;
+    lastReportTimeUnix?: bigint;
+    lastWakeUnix?: bigint;
+    dispatchesToday?: number;
+  };
   maxDispatchesPerDay?: number;
   allowPrMerge?: boolean;
   fullControl?: boolean;
-  /**
-   * GitHubRepository resource name backing this maintainer. When set, the
-   * card lists the durable work-item queue for that repository.
-   */
   repositoryName?: string;
-  /** Where to enable the maintainer when it is off. */
   disabledHint?: string;
 };
 
@@ -545,7 +335,13 @@ export function MaintainerCard({
   repositoryName,
   disabledHint,
 }: MaintainerCardProps) {
-  const { reports, loading, error } = useMaintainerReports(namespace, maintainer?.runName ?? "", enabled);
+  const { reports, loading: reportsLoading, error: reportsError } = useMaintainerReports(
+    namespace,
+    maintainer?.runName ?? "",
+    enabled,
+  );
+  const { items, capacity, loading: itemsLoading, loaded: itemsLoaded, error: itemsError, refetch } =
+    useMaintainerWorkItems(namespace, repositoryName ?? "", enabled && Boolean(repositoryName));
   const [historyOpen, setHistoryOpen] = useState(false);
 
   if (!enabled) {
@@ -560,64 +356,87 @@ export function MaintainerCard({
   const state = maintainer?.lastReportState ?? "";
   const hasReport = Boolean(maintainer?.lastReportTimeUnix);
   const dailyCap = maxDispatchesPerDay || 10;
+  const dispatchesToday = maintainer?.dispatchesToday ?? 0;
 
   return (
     <div className="surface-card overflow-hidden">
+      {/* Header rail */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
-        {maintainer?.runName ? (
-          <Link
-            to={`/runs/${namespace}/${maintainer.runName}`}
-            className="text-[13px] font-medium text-primary underline-offset-2 hover:underline"
-          >
-            {maintainer.runName}
-          </Link>
-        ) : (
-          <span className="text-[13px] font-medium">Standing maintainer</span>
-        )}
-        <ReportStateBadge state={state} />
-      </div>
-
-      <div className="space-y-4 px-4 py-3.5">
-        <div className="space-y-1">
-          <p className="text-sm leading-relaxed text-foreground">
-            {maintainer?.lastReportSummary || "No maintainer report yet."}
-          </p>
-          <p className="text-[11.5px] text-muted-foreground">
-            {hasReport ? `Last report ${formatAge(maintainer!.lastReportTimeUnix!)} ago` : "Awaiting first report"}
-          </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
+          {maintainer?.runName ? (
+            <Link
+              to={`/runs/${namespace}/${maintainer.runName}`}
+              className="text-[13px] font-medium text-primary underline-offset-2 hover:underline"
+            >
+              {maintainer.runName}
+            </Link>
+          ) : (
+            <span className="text-[13px] font-medium">Standing maintainer</span>
+          )}
+          <ReportStateBadge state={state} />
         </div>
-
-        <dl className="flex flex-wrap items-stretch gap-y-3">
-          <div className="min-w-[130px] border-r border-border/50 pr-5 sm:pr-7">
-            <dt className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70">
-              Dispatches today
-            </dt>
-            <dd className="mt-1 text-[13px] font-medium tabular-nums">
-              {maintainer?.dispatchesToday ?? 0} / {dailyCap}
-            </dd>
-          </div>
-          <div className="min-w-[110px] px-5 sm:px-7">
-            <dt className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70">
-              Last wake
-            </dt>
-            <dd className="mt-1 text-[13px]">
-              {maintainer?.lastWakeUnix ? `${formatAge(maintainer.lastWakeUnix)} ago` : "—"}
-            </dd>
-          </div>
-          {allowPrMerge || fullControl ? (
-            <div className="flex items-end px-5 sm:px-7">
-              <Badge variant="secondary" className={cn("text-[10.5px]", toneSoft.danger)}>
-                {fullControl ? "Full control" : "PR merging enabled"}
-              </Badge>
-            </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
+          <span className="tabular-nums text-muted-foreground">
+            <span className="font-medium text-foreground">{dispatchesToday} / {dailyCap}</span>
+            {" dispatches today"}
+          </span>
+          {capacity && (
+            <span className="tabular-nums text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {capacity.activeDispatches}/{capacity.concurrencyCap}
+              </span>
+              {" in flight"}
+            </span>
+          )}
+          {maintainer?.lastWakeUnix ? (
+            <span className="text-muted-foreground">
+              last wake {formatAge(maintainer.lastWakeUnix)} ago
+            </span>
           ) : null}
-        </dl>
+          {allowPrMerge || fullControl ? (
+            <Badge variant="secondary" className={cn("text-[10.5px]", toneSoft.danger)}>
+              {fullControl ? "Full control" : "PR merging enabled"}
+            </Badge>
+          ) : null}
+        </div>
       </div>
 
+      {/* Report summary line */}
+      <div className="px-4 py-3 border-b border-border/60">
+        <p className="text-sm leading-relaxed text-foreground">
+          {maintainer?.lastReportSummary || "No maintainer report yet."}
+        </p>
+        <p className="text-[11.5px] text-muted-foreground mt-0.5">
+          {hasReport ? `Last report ${formatAge(maintainer!.lastReportTimeUnix!)} ago` : "Awaiting first report"}
+        </p>
+      </div>
+
+      {/* Work board */}
       {repositoryName ? (
-        <WorkItemsSection namespace={namespace} repositoryName={repositoryName} enabled={enabled} />
+        <div className="border-b border-border/60">
+          {itemsLoading ? (
+            <div className="flex items-center gap-2 px-4 py-5 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Loading work items…
+            </div>
+          ) : itemsError && !itemsLoaded ? (
+            <p className="px-4 py-5 text-sm text-destructive">{itemsError}</p>
+          ) : items.length === 0 ? (
+            <p className="px-4 py-5 text-sm leading-relaxed text-muted-foreground">
+              No work items yet — the maintainer files each triaged issue here.
+            </p>
+          ) : (
+            <MaintainerBoard
+              items={items}
+              capacity={capacity}
+              namespace={namespace}
+              onRefetch={refetch}
+            />
+          )}
+        </div>
       ) : null}
 
+      {/* Report history collapsible */}
       <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
         <CollapsibleTrigger
           render={
@@ -635,18 +454,20 @@ export function MaintainerCard({
           />
           <span className="text-[12.5px] font-medium">Report history</span>
           <span className="ml-auto text-[11px] text-muted-foreground">
-            {loading ? "Loading…" : `${reports.length} report${reports.length === 1 ? "" : "s"}`}
+            {reportsLoading
+              ? "Loading…"
+              : `${reports.length} report${reports.length === 1 ? "" : "s"}`}
           </span>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="border-t border-border/60">
-            {loading ? (
+            {reportsLoading ? (
               <div className="flex items-center gap-2 px-4 py-5 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
                 Loading reports…
               </div>
-            ) : error ? (
-              <p className="px-4 py-5 text-sm text-destructive">{error}</p>
+            ) : reportsError ? (
+              <p className="px-4 py-5 text-sm text-destructive">{reportsError}</p>
             ) : reports.length === 0 ? (
               <p className="px-4 py-5 text-sm leading-relaxed text-muted-foreground">
                 No reports yet — the maintainer records its decisions here.

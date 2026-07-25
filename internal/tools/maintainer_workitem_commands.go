@@ -2,8 +2,6 @@ package tools
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -234,9 +232,7 @@ func (t *finalizeWorkItemTool) Execute(ctx context.Context, raw json.RawMessage,
 	if item.Spec.AcceptedScope == nil {
 		return maintainerCommandError("work item has no accepted scope to attest")
 	}
-	encoded, _ := json.Marshal(item.Spec.AcceptedScope)
-	sum := sha256.Sum256(encoded)
-	scopeHash := hex.EncodeToString(sum[:])
+	scopeHash := triggersv1alpha1.MaintainerAcceptedScopeHash(item.Spec.AcceptedScope)
 	runNames := make([]string, 0, len(in.ImplementerRunNames))
 	seen := map[string]bool{}
 	for _, name := range in.ImplementerRunNames {
@@ -307,7 +303,7 @@ func (t maintainerToolBase) submitCommand(ctx context.Context, repository *trigg
 	if !metav1.IsControlledBy(capability, run) || string(capability.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey]) != repository.Name || string(capability.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey]) != string(repository.UID) || len(capability.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey]) < 32 {
 		return maintainerCommandError("maintainer command capability is invalid")
 	}
-	spec.Issuer = triggersv1alpha1.MaintainerWorkItemCommandIssuer{RunName: run.Name, UID: run.UID, Proof: triggersv1alpha1.MaintainerWorkItemCommandProof(capability.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey], repository.Name, repository.UID, spec.IdempotencyKey, spec.PayloadHash, run.Name, run.UID)}
+	spec.Issuer = &triggersv1alpha1.MaintainerWorkItemCommandIssuer{RunName: run.Name, UID: run.UID, Proof: triggersv1alpha1.MaintainerWorkItemCommandProof(capability.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey], repository.Name, repository.UID, spec.IdempotencyKey, spec.PayloadHash, run.Name, run.UID)}
 	command := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: MaintainerWorkItemCommandName(repository.Name, spec.IdempotencyKey), Namespace: repository.Namespace, Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name, triggersv1alpha1.MaintainerWorkItemIssueNumberLabelKey: strconv.Itoa(int(item.Spec.IssueNumber))}, OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(repository, triggersv1alpha1.GroupVersion.WithKind("GitHubRepository"))}}, Spec: spec}
 	replayed := false
 	if err := t.k8sClient.Create(ctx, command); err != nil {
@@ -319,7 +315,7 @@ func (t maintainerToolBase) submitCommand(ctx context.Context, repository *trigg
 		if err := t.k8sClient.Get(ctx, client.ObjectKeyFromObject(command), existing); err != nil {
 			return maintainerCommandError("failed to get existing command: %v", err)
 		}
-		if existing.Spec.PayloadHash != spec.PayloadHash || existing.Spec.Issuer.UID != run.UID {
+		if existing.Spec.PayloadHash != spec.PayloadHash || existing.Spec.Issuer == nil || existing.Spec.Issuer.UID != run.UID {
 			return maintainerCommandError("idempotency payload mismatch for command %q", command.Name)
 		}
 		command = existing

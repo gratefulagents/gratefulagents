@@ -706,6 +706,9 @@ func (r *GitHubRepositoryReconciler) validateMaintainerWorkItemCommand(ctx conte
 	if requirePreconditions && !alreadyApplied && !maintainerWorkItemObservationIsFresh(item) {
 		return nil, rejectMaintainerCommand("work item issue observation is not fresh; " + currentProjectionMessage(item))
 	}
+	if requirePreconditions && !alreadyApplied && item.ResourceVersion != command.Spec.Preconditions.ResourceVersion {
+		return nil, rejectMaintainerCommand("target work-item resourceVersion does not match command preconditions; " + currentProjectionMessage(item))
+	}
 	if requirePreconditions && !alreadyApplied && item.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence {
 		return nil, rejectMaintainerCommand(currentProjectionMessage(item))
 	}
@@ -733,7 +736,17 @@ func validateMaintainerCommandPayload(command *triggersv1alpha1.MaintainerWorkIt
 		}
 		return command.Spec.RequestDecision.IssueNumber, nil
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision:
-		return 0, rejectMaintainerCommand("resolveDecision commands from AgentRuns are not authorized; answer with an authenticated GitHub issue comment")
+		if command.Spec.HumanIssuer == nil {
+			return 0, rejectMaintainerCommand("resolveDecision commands from AgentRuns are not authorized; answer with an authenticated GitHub issue comment")
+		}
+		resolve := command.Spec.ResolveDecision
+		if resolve == nil || resolve.IssueNumber < 1 || strings.TrimSpace(resolve.DecisionID) == "" || strings.TrimSpace(resolve.HumanAnswer.Answer) == "" {
+			return 0, rejectMaintainerCommand("incomplete resolveDecision payload")
+		}
+		if resolve.HumanAnswer.Subject != command.Spec.HumanIssuer.Subject {
+			return 0, rejectMaintainerCommand("resolveDecision humanAnswer subject does not match humanIssuer subject")
+		}
+		return resolve.IssueNumber, nil
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem:
 		if command.Spec.Dispatch == nil || command.Spec.Dispatch.IssueNumber < 1 || strings.TrimSpace(command.Spec.Dispatch.Mode) == "" {
 			return 0, rejectMaintainerCommand("incomplete dispatch payload")
@@ -757,14 +770,55 @@ func validateMaintainerCommandPayload(command *triggersv1alpha1.MaintainerWorkIt
 }
 
 func (r *GitHubRepositoryReconciler) authorizeMaintainerCommand(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand) error {
+	if (command.Spec.Issuer == nil) == (command.Spec.HumanIssuer == nil) {
+		return rejectMaintainerCommand("exactly one of issuer or humanIssuer is required")
+	}
+	if command.Spec.HumanIssuer != nil {
+		return r.authorizeHumanMaintainerCommand(ctx, repository, command)
+	}
+	return r.authorizeAgentRunMaintainerCommand(ctx, repository, command)
+}
+
+func (r *GitHubRepositoryReconciler) authorizeHumanMaintainerCommand(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand) error {
+	humanIssuer := command.Spec.HumanIssuer
+	capabilityName := triggersv1alpha1.MaintainerHumanCommandCapabilitySecretName(repository.Name)
+	capability := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: capabilityName}, capability); err != nil {
+		if apierrors.IsNotFound(err) {
+			return rejectMaintainerCommand("human command capability does not exist")
+		}
+		return fmt.Errorf("getting human command capability: %w", err)
+	}
+	if !metav1.IsControlledBy(capability, repository) {
+		return rejectMaintainerCommand("human command capability is not controlled by GitHubRepository")
+	}
+	if string(capability.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey]) != repository.Name || string(capability.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey]) != string(repository.UID) {
+		return rejectMaintainerCommand("human command capability is bound to a different GitHubRepository")
+	}
+	key := capability.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey]
+	if len(key) < 32 {
+		return rejectMaintainerCommand("human command capability is invalid")
+	}
+	expectedProof := triggersv1alpha1.MaintainerHumanCommandProof(key, repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, humanIssuer.Subject)
+	if !hmac.Equal([]byte(expectedProof), []byte(humanIssuer.Proof)) {
+		return rejectMaintainerCommand("human command proof is invalid")
+	}
+	return nil
+}
+
+func (r *GitHubRepositoryReconciler) authorizeAgentRunMaintainerCommand(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand) error {
+	if command.Spec.Issuer == nil {
+		return rejectMaintainerCommand("command has no issuer")
+	}
+	issuerSpec := command.Spec.Issuer
 	issuer := &platformv1alpha1.AgentRun{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: command.Spec.Issuer.RunName}, issuer); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: issuerSpec.RunName}, issuer); err != nil {
 		if apierrors.IsNotFound(err) {
 			return rejectMaintainerCommand("issuer AgentRun does not exist")
 		}
 		return fmt.Errorf("getting issuer AgentRun: %w", err)
 	}
-	if issuer.UID != command.Spec.Issuer.UID {
+	if issuer.UID != issuerSpec.UID {
 		return rejectMaintainerCommand("issuer UID does not match AgentRun")
 	}
 	if issuer.Labels[orchestration.StandingRunRoleLabel] != orchestration.StandingRunRoleMaintainer {
@@ -802,7 +856,7 @@ func (r *GitHubRepositoryReconciler) authorizeMaintainerCommand(ctx context.Cont
 		return rejectMaintainerCommand("issuer command capability is invalid")
 	}
 	expectedProof := triggersv1alpha1.MaintainerWorkItemCommandProof(key, repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, issuer.Name, issuer.UID)
-	if !hmac.Equal([]byte(expectedProof), []byte(command.Spec.Issuer.Proof)) {
+	if !hmac.Equal([]byte(expectedProof), []byte(issuerSpec.Proof)) {
 		return rejectMaintainerCommand("issuer command proof is invalid")
 	}
 	return nil

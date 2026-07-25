@@ -153,12 +153,14 @@ describe("MaintainerPanel", () => {
     );
   });
 
-  it("lists work items with phase, decision, PR facts, and run links", async () => {
+  it("lists work items in board columns with phase, decision, PR facts, and run links", async () => {
     getActivityLog.mockResolvedValue({ entries: [] });
     listMaintainerWorkItems.mockResolvedValue({
       items: [
         {
           name: "acme-wi-42",
+          namespace: "user-alice",
+          repositoryName: "acme-payments",
           issueNumber: 42,
           issueTitle: "Fix login bug",
           issueUrl: "https://github.com/acme/payments/issues/42",
@@ -166,6 +168,9 @@ describe("MaintainerPanel", () => {
           readyToDispatch: false,
           readyToMerge: false,
           unmetRequirements: [],
+          acceptedScopeCriteria: [],
+          children: [],
+          dependencies: [],
           pendingDecision: { id: "d-1", question: "Merge now?", options: ["yes", "no"] },
           agentRuns: [{ name: "acme-wi-42-impl", role: "implementer", phase: "Running" }],
           pullRequests: [
@@ -176,18 +181,28 @@ describe("MaintainerPanel", () => {
               state: "open",
               checkState: "Passing",
               reviewDecision: "CHANGES_REQUESTED",
+              draft: false,
+              headSha: "",
             },
           ],
           childrenTotal: 0,
           childrenDelivered: 0,
           dependenciesTotal: 0,
           dependenciesDelivered: 0,
+          projectionSequence: 1n,
           latestCommandPhase: "Rejected",
           latestCommandType: "RequestMerge",
           latestCommandMessage: "capacity exhausted",
+          acceptedScopeStatement: "",
+          evidenceSummary: "",
+          deliverySummary: "",
+          graphConfigured: false,
+          observationFresh: false,
         },
         {
           name: "acme-wi-41",
+          namespace: "user-alice",
+          repositoryName: "acme-payments",
           issueNumber: 41,
           issueTitle: "Shipped thing",
           phase: "Delivered",
@@ -195,13 +210,23 @@ describe("MaintainerPanel", () => {
           unmetRequirements: [],
           agentRuns: [],
           pullRequests: [],
+          acceptedScopeCriteria: [],
+          children: [],
+          dependencies: [],
           childrenTotal: 0,
           childrenDelivered: 0,
           dependenciesTotal: 0,
           dependenciesDelivered: 0,
+          projectionSequence: 2n,
+          acceptedScopeStatement: "",
+          evidenceSummary: "",
+          graphConfigured: false,
+          observationFresh: false,
         },
         {
           name: "acme-wi-40",
+          namespace: "user-alice",
+          repositoryName: "acme-payments",
           issueNumber: 40,
           issueTitle: "Rejected idea",
           phase: "Triaged",
@@ -210,10 +235,19 @@ describe("MaintainerPanel", () => {
           unmetRequirements: [],
           agentRuns: [],
           pullRequests: [],
+          acceptedScopeCriteria: [],
+          children: [],
+          dependencies: [],
           childrenTotal: 0,
           childrenDelivered: 0,
           dependenciesTotal: 0,
           dependenciesDelivered: 0,
+          projectionSequence: 3n,
+          acceptedScopeStatement: "",
+          evidenceSummary: "",
+          deliverySummary: "",
+          graphConfigured: false,
+          observationFresh: false,
         },
       ],
     });
@@ -223,13 +257,12 @@ describe("MaintainerPanel", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText(/1 active · 1 needs your decision/)).toBeTruthy();
     expect(listMaintainerWorkItems).toHaveBeenCalledWith({
       namespace: "user-alice",
       repositoryName: "acme-payments",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Work items/ }));
+    // AwaitingDecision item appears in the "Needs you" column
     expect(await screen.findByText("Needs decision")).toBeTruthy();
     expect(screen.getByText("Merge now?")).toBeTruthy();
     expect(screen.getByText("Options: yes · no")).toBeTruthy();
@@ -237,23 +270,26 @@ describe("MaintainerPanel", () => {
     expect(screen.getByRole("link", { name: "Fix login bug" }).getAttribute("href")).toBe(
       "https://github.com/acme/payments/issues/42",
     );
-    expect(screen.getByRole("link", { name: "acme/payments#77" }).getAttribute("href")).toBe(
-      "https://github.com/acme/payments/pull/77",
-    );
-    expect(screen.getByRole("link", { name: "acme-wi-42-impl (Running)" }).getAttribute("href")).toBe(
-      "/runs/user-alice/acme-wi-42-impl",
-    );
+    // PR chip
+    expect(
+      screen.getByRole("link", { name: /acme\/payments#77/ }).getAttribute("href"),
+    ).toBe("https://github.com/acme/payments/pull/77");
     expect(screen.getByText(/checks passing · changes requested/)).toBeTruthy();
+    // Agent run link
+    expect(
+      screen.getByRole("link", { name: "acme-wi-42-impl (Running)" }).getAttribute("href"),
+    ).toBe("/runs/user-alice/acme-wi-42-impl");
+
+    // Expand the Shipped column to see delivered and not-actionable items
+    fireEvent.click(screen.getByRole("button", { name: /Shipped/ }));
     expect(screen.getByText("Delivered")).toBeTruthy();
     expect(screen.getByText("Fixed and released")).toBeTruthy();
-    // NotActionable is terminal: presented by disposition, not counted active.
+    // NotActionable in Shipped column
     expect(screen.getByText("Not actionable")).toBeTruthy();
   });
 
   it("shows the empty work-item state", async () => {
     renderPanel();
-    expect(await screen.findByText("None yet")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Work items/ }));
     expect(
       await screen.findByText("No work items yet — the maintainer files each triaged issue here."),
     ).toBeTruthy();
