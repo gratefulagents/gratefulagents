@@ -41,7 +41,7 @@ A capture writes three files under `selfdev/out/`:
 - `*.aria.yml`: accessibility tree for fast structural and copy review
 - `*.console.log`: console errors/warnings, page errors, failed requests, and HTTP responses with status 400 or higher
 
-Screenshot commands exit non-zero when they capture a console or network finding, so AgentRuns and CI cannot silently accept a broken page. Use `--allow-findings` only when intentionally capturing a known error and after inspecting the log.
+Screenshot commands exit non-zero when they capture a console or network finding, so AgentRuns and CI cannot silently accept a broken page. Use `--allow-findings` only when intentionally capturing a known error and after inspecting the log. Non-desktop captures include the viewport name in each output filename, so all responsive captures can coexist in `selfdev/out`.
 
 ## Commands
 
@@ -51,7 +51,8 @@ The Make targets cover the common workflow:
 make selfdev-doctor
 make selfdev-serve SCENARIO=default
 make selfdev-snap ROUTE=/projects THEME=dark SCENARIO=default
-make selfdev-snap-all SCENARIO=default
+make selfdev-snap ROUTE=/projects VIEWPORT=all # desktop, mobile, and both iPad orientations
+make selfdev-snap-all SCENARIO=default VIEWPORT=mobile
 make selfdev-test
 ```
 
@@ -70,7 +71,7 @@ pnpm --filter selfdev run fake-server --scenario default --port 8090
 | --- | --- | --- |
 | `--scenario` | `default`, `empty`, `error`; default `default` | Select deterministic fixture data. |
 | `--theme` | `dark`, `light`, `both`; screenshot default `dark`, snap-all default `both` | Select the color scheme. |
-| `--viewport` | `WIDTHxHEIGHT`; default `1440x900` | Set the browser viewport. |
+| `--viewport` | `desktop`, `mobile`, `ipad-portrait`, `ipad-landscape`, `all`, comma-separated values, or `WIDTHxHEIGHT`; default `desktop` | Set one or more browser viewports. Presets are 1440×900, 390×844, 820×1180, and 1180×820. `all` captures every preset. |
 | `--tauri-sim` | off by default | Install a browser-side Tauri API simulation before app startup. |
 | `--platform` | `macos`, `ios`, `linux`, `windows`; default `macos` | Set the OS reported by Tauri simulation. |
 | `--full-page` | off by default | Capture the full scrollable document. |
