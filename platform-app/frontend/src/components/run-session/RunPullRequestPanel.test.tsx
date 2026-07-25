@@ -147,6 +147,23 @@ describe("RunPullRequestPanel", () => {
     expect(screen.getByText("lint")).toBeTruthy();
   });
 
+  it("keeps the loop section reachable when loading pull requests fails", async () => {
+    getPullRequestsMock.mockRejectedValue(new Error("github is down"));
+    render(
+      <MemoryRouter>
+        <RunPullRequestPanel
+          namespace="ns"
+          name="run"
+          prLoop={create(PRLoopStatusSchema, { state: "awaiting_review", role: "reviewer", reviewRound: 1, maxRounds: 3 })}
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Loop" }));
+    expect(screen.getByText("1 of 3")).toBeTruthy();
+    expect(screen.getByText("reviewer")).toBeTruthy();
+  });
+
   it("shows the review-loop section only when the run is in a PR loop", async () => {
     mockResponse();
     const { unmount } = render(<RunPullRequestPanel namespace="ns" name="run" />);

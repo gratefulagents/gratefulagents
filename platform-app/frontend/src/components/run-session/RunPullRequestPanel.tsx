@@ -636,33 +636,45 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
     </Button>
   );
 
-  if (pullRequests === null || (pullRequests.length === 0 && !prLoop)) {
-    return (
-      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-1 px-6 text-center">
-        {pullRequests === null && error ? (
-          <>
-            <AlertTriangle className="size-5 text-destructive" />
-            <p className="text-sm font-medium text-foreground">Couldn't load pull requests</p>
-            <p className="max-w-xs text-xs text-muted-foreground" role="alert">
-              {error}
-            </p>
-            <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void load()}>
-              Retry
-            </Button>
-          </>
-        ) : pullRequests === null ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
-            <Loader2 className="size-4 animate-spin" />
-            Loading...
+  // A run in a review loop still has loop state worth showing when the PR
+  // request itself is loading or failed, so only the loop-less case short
+  // circuits to a full-pane placeholder.
+  const prsUnavailable = pullRequests === null;
+  const loadState = (
+    <div className="flex flex-col items-center justify-center gap-1 px-6 py-14 text-center">
+      {error ? (
+        <>
+          <AlertTriangle className="size-5 text-destructive" />
+          <p className="text-sm font-medium text-foreground">Couldn't load pull requests</p>
+          <p className="max-w-xs text-xs text-muted-foreground" role="alert">
+            {error}
           </p>
+          <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void load()}>
+            Retry
+          </Button>
+        </>
+      ) : (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+          <Loader2 className="size-4 animate-spin" />
+          Loading...
+        </p>
+      )}
+    </div>
+  );
+
+  if (!prLoop && (prsUnavailable || pullRequests.length === 0)) {
+    return (
+      <div className="flex h-full min-h-0 flex-col items-center justify-center">
+        {prsUnavailable ? (
+          loadState
         ) : (
-          <>
+          <div className="flex flex-col items-center justify-center gap-1 px-6 text-center">
             <GitPullRequest className="size-5 text-muted-foreground/60" />
             <p className="text-sm font-medium text-foreground">No pull requests yet</p>
             <p className="max-w-xs text-xs text-muted-foreground">
               Once the agent opens a PR, its checks and review comments show up here.
             </p>
-          </>
+          </div>
         )}
       </div>
     );
@@ -675,21 +687,27 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
         return outcome === "failure" || outcome === "warning";
       }).length
     : 0;
-  const sections: { id: PRSection; label: string; count?: number; alert?: boolean }[] = [
-    { id: "review", label: "Review", count: unresolvedCount, alert: unresolvedCount > 0 },
-  ];
+  const sections: { id: PRSection; label: string; count?: number; alert?: boolean }[] = [];
   if (active) {
-    sections.push({
-      id: "checks",
-      label: "Checks",
-      count: failingChecks > 0 ? failingChecks : active.checks.length,
-      alert: failingChecks > 0,
-    });
+    sections.push(
+      { id: "review", label: "Review", count: unresolvedCount, alert: unresolvedCount > 0 },
+      {
+        id: "checks",
+        label: "Checks",
+        count: failingChecks > 0 ? failingChecks : active.checks.length,
+        alert: failingChecks > 0,
+      },
+    );
   }
   if (prLoop) {
     sections.push({ id: "loop", label: "Loop" });
   }
-  const activeSection: PRSection = sections.some((s) => s.id === section) ? section : "review";
+  if (sections.length === 0) {
+    // Unreachable in practice: the loop-less empty/failed cases returned above.
+    sections.push({ id: "review", label: "Review" });
+  }
+  // Falls back to the first available section so a loop-only pane opens on Loop.
+  const activeSection: PRSection = sections.some((s) => s.id === section) ? section : sections[0].id;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
@@ -700,7 +718,7 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
         trailing={refreshButton}
       />
 
-      {pullRequests.length > 1 && (
+      {pullRequests !== null && pullRequests.length > 1 && (
         <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {pullRequests.map((pr) => {
             const isActive = active?.url === pr.url;
@@ -730,7 +748,7 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
 
       {active && <PullRequestSubject pr={active} />}
 
-      {error && pullRequests !== null && (
+      {error && !prsUnavailable && (
         <p className="shrink-0 border-b bg-amber-500/5 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400" role="alert">
           Refresh failed: {error}
         </p>
@@ -739,6 +757,8 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
         {activeSection === "loop" && prLoop ? (
           <LoopSection loop={prLoop} namespace={namespace} prUrl={prUrl} />
+        ) : prsUnavailable ? (
+          loadState
         ) : !active ? (
           <div className="flex flex-col items-center justify-center gap-1 px-6 py-14 text-center">
             <GitPullRequest className="size-5 text-muted-foreground/60" />
