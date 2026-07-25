@@ -174,17 +174,11 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 			return rejectMaintainerCommand(currentProjectionMessage(fresh))
 		}
 		item = fresh
-		if err := r.reserveMaintainerDispatch(ctx, repository, command, item); err != nil {
-			return err
-		}
-		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			fresh := &triggersv1alpha1.MaintainerWorkItem{}
-			if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(item), fresh); err != nil {
-				return err
-			}
-			fresh.Spec.RequiredPullRequests = append([]triggersv1alpha1.MaintainerRequiredPullRequestIntent(nil), command.Spec.Dispatch.RequiredPullRequests...)
-			return r.Update(ctx, fresh)
-		})
+		// Required pull requests are intentionally not persisted: a monitor name
+		// is derived from the implementer run UID and the pull request URL, so no
+		// caller can name one before dispatch. Delivery evidence comes from the
+		// monitors actually bound to this work item's implementer runs.
+		return r.reserveMaintainerDispatch(ctx, repository, command, item)
 	default:
 		return rejectMaintainerCommand("unsupported execution command")
 	}

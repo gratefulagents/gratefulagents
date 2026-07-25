@@ -4,8 +4,8 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    helm.sh/resource-policy: keep
     controller-gen.kubebuilder.io/version: v0.20.0
+    helm.sh/resource-policy: keep
   name: maintainerworkitems.triggers.gratefulagents.dev
 spec:
   group: triggers.gratefulagents.dev
@@ -170,6 +170,12 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               requiredPullRequests:
+                description: |-
+                  RequiredPullRequests is deprecated and ignored. Pull requests are
+                  discovered from the PullRequestMonitors bound to this work item's
+                  implementer runs; they cannot be named before dispatch because monitor
+                  names are derived from the implementer run UID and the pull request URL.
+                  Retained only so existing objects remain decodable.
                 items:
                   description: MaintainerRequiredPullRequestIntent identifies a pull
                     request required for delivery.

@@ -119,15 +119,14 @@ func (t *requestDecisionTool) Execute(ctx context.Context, raw json.RawMessage, 
 type dispatchWorkItemTool struct{ maintainerToolBase }
 type dispatchWorkItemInput struct {
 	maintainerCommandInput
-	RequiredPullRequests []string `json:"required_pull_requests,omitempty"`
 }
 
 func (t *dispatchWorkItemTool) Name() string { return "dispatch_work_item" }
 func (t *dispatchWorkItemTool) Description() string {
-	return "Submit an authenticated work-item dispatch command using the repository's controller-owned dispatch ModeTemplate. The graph must already be explicitly configured. Pending is only a receipt; wait for latest_command.phase Succeeded before treating dispatch as applied."
+	return "Submit an authenticated work-item dispatch command using the repository's controller-owned dispatch ModeTemplate. The graph must already be explicitly configured. Pull requests are discovered automatically from the dispatched implementer run, so there is nothing to declare up front. Pending is only a receipt; wait for latest_command.phase Succeeded before treating dispatch as applied."
 }
 func (t *dispatchWorkItemTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"required_pull_requests":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","idempotency_key","expected_projection_sequence"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","idempotency_key","expected_projection_sequence"]}`)
 }
 func (t *dispatchWorkItemTool) IsReadOnly() bool                    { return false }
 func (t *dispatchWorkItemTool) IsEnabled(*agentsdk.RunContext) bool { return true }
@@ -153,15 +152,7 @@ func (t *dispatchWorkItemTool) Execute(ctx context.Context, raw json.RawMessage,
 	if item.Spec.GraphConfiguredByCommand == nil {
 		return maintainerCommandError("work item graph must be explicitly configured before dispatch")
 	}
-	intents := make([]triggersv1alpha1.MaintainerRequiredPullRequestIntent, 0, len(in.RequiredPullRequests))
-	for _, name := range in.RequiredPullRequests {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return maintainerCommandError("required_pull_requests cannot contain empty names")
-		}
-		intents = append(intents, triggersv1alpha1.MaintainerRequiredPullRequestIntent{Name: name})
-	}
-	spec := triggersv1alpha1.MaintainerWorkItemCommandSpec{RepositoryRef: item.Spec.RepositoryRef, IdempotencyKey: in.IdempotencyKey, Preconditions: preconditions, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem, Dispatch: &triggersv1alpha1.MaintainerDispatchWorkItemCommand{IssueNumber: in.IssueNumber, Mode: mode, RequiredPullRequests: intents}}
+	spec := triggersv1alpha1.MaintainerWorkItemCommandSpec{RepositoryRef: item.Spec.RepositoryRef, IdempotencyKey: in.IdempotencyKey, Preconditions: preconditions, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem, Dispatch: &triggersv1alpha1.MaintainerDispatchWorkItemCommand{IssueNumber: in.IssueNumber, Mode: mode}}
 	return t.submitCommand(ctx, repository, current, item, spec)
 }
 

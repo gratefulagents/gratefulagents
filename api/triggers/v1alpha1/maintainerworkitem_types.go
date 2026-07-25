@@ -32,6 +32,14 @@ const (
 	MaintainerDispatchReservationsAnnotation = "triggers.gratefulagents.dev/maintainer-dispatch-reservations"
 	// MaintainerCommandLockAnnotation serializes cross-work-item graph mutations.
 	MaintainerCommandLockAnnotation = "triggers.gratefulagents.dev/maintainer-command-lock"
+	// MaintainerWorkItemGraphGateAnnotation marks a work item as created under
+	// the explicit graph-configuration contract. Items without it predate the
+	// gate and are migrated once by the controller so that an upgrade does not
+	// strand already-triaged work behind a requirement that did not exist when
+	// they were triaged.
+	MaintainerWorkItemGraphGateAnnotation = "triggers.gratefulagents.dev/maintainer-graph-gate"
+	// MaintainerWorkItemGraphGateVersion is the current graph-gate contract.
+	MaintainerWorkItemGraphGateVersion = "v1"
 	// MaintainerCommandFailureCountAnnotation counts failed processing attempts
 	// so persistently failing commands are terminally rejected instead of being
 	// retried on every reconcile forever.
@@ -171,6 +179,11 @@ type MaintainerWorkItemSpec struct {
 	// +listMapKey=name
 	// +optional
 	Children []MaintainerWorkItemReference `json:"children,omitempty"`
+	// RequiredPullRequests is deprecated and ignored. Pull requests are
+	// discovered from the PullRequestMonitors bound to this work item's
+	// implementer runs; they cannot be named before dispatch because monitor
+	// names are derived from the implementer run UID and the pull request URL.
+	// Retained only so existing objects remain decodable.
 	// +listType=map
 	// +listMapKey=name
 	// +optional
@@ -622,6 +635,7 @@ type MaintainerDispatchWorkItemCommand struct {
 	// Mode is the ModeTemplate label applied only after capacity is reserved.
 	// +kubebuilder:validation:MinLength=1
 	Mode string `json:"mode"`
+	// RequiredPullRequests is deprecated and ignored by the controller.
 	// +listType=map
 	// +listMapKey=name
 	// +optional

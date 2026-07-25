@@ -125,6 +125,8 @@ spec:
                     minLength: 1
                     type: string
                   requiredPullRequests:
+                    description: RequiredPullRequests is deprecated and ignored by
+                      the controller.
                     items:
                       description: MaintainerRequiredPullRequestIntent identifies
                         a pull request required for delivery.
