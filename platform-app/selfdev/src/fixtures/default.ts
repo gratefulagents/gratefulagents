@@ -12,6 +12,7 @@ import {
   AgentRunSchema,
   AgentRunUsageResponseSchema,
   ChatMessageSchema,
+  CopilotUsageQuotaSchema,
   CronSchema,
   GetActivityLogResponseSchema,
   GetAgentTraceResponseSchema,
@@ -1175,7 +1176,7 @@ const credentials = create(MyCredentialsSchema, {
   anthropicOauthPresent: true,
   openaiApiKeyPresent: false,
   openaiOauthPresent: true,
-  copilotOauthPresent: false,
+  copilotOauthPresent: true,
   githubTokenPresent: true,
   integrations: [
     { name: "linear", keys: ["api-key"] },
@@ -1210,6 +1211,22 @@ const openAIUsage = create(MyOpenAIUsageSchema, {
   last30DaysTokens: 7_842_118n,
   lookbackDays: 30,
   fetchedAtUnix: unix(SCENARIO_NOW),
+  copilotOauthPresent: true,
+  copilotAccountLogin: "dana-demo",
+  copilotPlan: "individual_pro",
+  copilotUsageAvailable: true,
+  copilotQuotaResetDate: "2026-08-01",
+  copilotQuotas: [
+    create(CopilotUsageQuotaSchema, {
+      name: "premium_interactions",
+      entitlement: 300n,
+      remaining: 184n,
+    }),
+    create(CopilotUsageQuotaSchema, {
+      name: "chat",
+      unlimited: true,
+    }),
+  ],
 });
 
 const soul = create(SoulSchema, {

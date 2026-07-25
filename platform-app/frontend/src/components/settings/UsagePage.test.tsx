@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import UsagePage from "@/components/settings/UsagePage";
 import { client } from "@/lib/client";
 import {
+  CopilotUsageQuotaSchema,
   MyOpenAIUsageSchema,
   type MyOpenAIUsage,
   OpenAIUsageLimitSchema,
@@ -71,6 +72,33 @@ describe("UsagePage", () => {
     expect(screen.queryByText(/Est. cost/)).toBeNull();
   });
 
+  it("renders GitHub Copilot quota data from OAuth", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
+      create(MyOpenAIUsageSchema, {
+        copilotOauthPresent: true,
+        copilotAccountLogin: "octocat",
+        copilotPlan: "individual_pro",
+        copilotUsageAvailable: true,
+        copilotQuotaResetDate: "2026-08-01",
+        copilotQuotas: [
+          create(CopilotUsageQuotaSchema, {
+            name: "premium_interactions",
+            entitlement: 300n,
+            remaining: 225n,
+          }),
+        ],
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("GitHub Copilot Individual Pro")).toBeTruthy();
+    expect(screen.getByText("@octocat")).toBeTruthy();
+    expect(screen.getByText("Premium requests")).toBeTruthy();
+    expect(screen.getByText("225 left")).toBeTruthy();
+    expect(screen.getByRole("progressbar", { name: "Premium requests used" }).getAttribute("aria-valuenow")).toBe("25");
+  });
+
   it("points disconnected users to Credentials", async () => {
     vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
       create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
@@ -78,7 +106,7 @@ describe("UsagePage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Connect OpenAI to see usage")).toBeTruthy();
+    expect(await screen.findByText("Connect a provider to see usage")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open Credentials" }).getAttribute("href")).toBe(
       "/settings/credentials",
     );
@@ -102,7 +130,7 @@ describe("UsagePage", () => {
     expect(screen.getByText("Usage unavailable")).toBeTruthy();
 
     resolveRetry(create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }));
-    expect(await screen.findByText("Connect OpenAI to see usage")).toBeTruthy();
+    expect(await screen.findByText("Connect a provider to see usage")).toBeTruthy();
     await waitFor(() => expect(client.getMyOpenAIUsage).toHaveBeenCalledTimes(2));
   });
 });

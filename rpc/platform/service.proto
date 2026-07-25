@@ -226,8 +226,8 @@ service PlatformService {
   rpc GetPresence(GetPresenceRequest) returns (GetPresenceResponse);
 
   // GetMyOpenAIUsage returns account data available through the calling
-  // user's current ChatGPT OAuth credential. Provider tokens and raw
-  // credential material never leave the server.
+  // user's current ChatGPT and GitHub Copilot OAuth credentials. Provider
+  // tokens and raw credential material never leave the server.
   rpc GetMyOpenAIUsage(GetMyOpenAIUsageRequest) returns (MyOpenAIUsage);
 }
 
@@ -3626,12 +3626,12 @@ message ProviderOAuthResult {
   MyCredentials credentials = 5;
 }
 
-// OpenAI OAuth usage messages live at the end of this file so adding this
+// Provider OAuth usage messages live at the end of this file so adding this
 // settings surface does not renumber existing generated message metadata.
 message GetMyOpenAIUsageRequest {}
 
 // MyOpenAIUsage contains only account-level data exposed by the user's
-// current ChatGPT OAuth credential.
+// current ChatGPT and GitHub Copilot OAuth credentials.
 message MyOpenAIUsage {
   bool openai_oauth_present = 1;
   string account_email = 2;
@@ -3649,6 +3649,12 @@ message MyOpenAIUsage {
   int32 lookback_days = 14;
   int64 fetched_at_unix = 15;
   repeated string warnings = 16;
+  bool copilot_oauth_present = 17;
+  string copilot_account_login = 18;
+  string copilot_plan = 19;
+  bool copilot_usage_available = 20;
+  repeated CopilotUsageQuota copilot_quotas = 21;
+  string copilot_quota_reset_date = 22;
 }
 
 message OpenAIUsageLimit {
@@ -3656,4 +3662,12 @@ message OpenAIUsageLimit {
   double used_percent = 2;
   int64 reset_at_unix = 3;
   string details = 4;
+}
+
+message CopilotUsageQuota {
+  string name = 1;
+  int64 entitlement = 2;
+  int64 remaining = 3;
+  int64 overage_count = 4;
+  bool unlimited = 5;
 }

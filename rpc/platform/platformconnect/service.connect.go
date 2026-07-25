@@ -716,8 +716,8 @@ type PlatformServiceClient interface {
 	SendPresenceHeartbeat(context.Context, *connect.Request[platform.PresenceHeartbeatRequest]) (*connect.Response[emptypb.Empty], error)
 	GetPresence(context.Context, *connect.Request[platform.GetPresenceRequest]) (*connect.Response[platform.GetPresenceResponse], error)
 	// GetMyOpenAIUsage returns account data available through the calling
-	// user's current ChatGPT OAuth credential. Provider tokens and raw
-	// credential material never leave the server.
+	// user's current ChatGPT and GitHub Copilot OAuth credentials. Provider
+	// tokens and raw credential material never leave the server.
 	GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error)
 }
 
@@ -2820,8 +2820,8 @@ type PlatformServiceHandler interface {
 	SendPresenceHeartbeat(context.Context, *connect.Request[platform.PresenceHeartbeatRequest]) (*connect.Response[emptypb.Empty], error)
 	GetPresence(context.Context, *connect.Request[platform.GetPresenceRequest]) (*connect.Response[platform.GetPresenceResponse], error)
 	// GetMyOpenAIUsage returns account data available through the calling
-	// user's current ChatGPT OAuth credential. Provider tokens and raw
-	// credential material never leave the server.
+	// user's current ChatGPT and GitHub Copilot OAuth credentials. Provider
+	// tokens and raw credential material never leave the server.
 	GetMyOpenAIUsage(context.Context, *connect.Request[platform.GetMyOpenAIUsageRequest]) (*connect.Response[platform.MyOpenAIUsage], error)
 }
 

@@ -4,6 +4,7 @@ import {
   Activity,
   ArrowUpRight,
   Clock3,
+  Code2,
   Gauge,
   KeyRound,
   RefreshCw,
@@ -18,11 +19,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import type {
+  CopilotUsageQuota,
   MyOpenAIUsage,
   OpenAIUsageLimit,
 } from "@/rpc/platform/service_pb";
 
 const CHATGPT_USAGE_URL = "https://chatgpt.com/codex/settings/usage";
+const COPILOT_USAGE_URL = "https://github.com/settings/copilot/features";
 
 export default function UsagePage() {
   const [usage, setUsage] = React.useState<MyOpenAIUsage | null>(null);
@@ -63,7 +66,7 @@ export default function UsagePage() {
   return (
     <SettingsSubPage
       title="Usage"
-      description="Allowances and token activity from your current ChatGPT OAuth account."
+      description="Allowances and activity from your connected OpenAI and GitHub Copilot OAuth accounts."
     >
       {loading ? (
         <UsageSkeleton />
@@ -74,13 +77,25 @@ export default function UsagePage() {
             {refreshing ? "Trying again…" : "Try again"}
           </Button>
         </SettingsSection>
-      ) : usage && !usage.openaiOauthPresent ? (
+      ) : usage && !usage.openaiOauthPresent && !usage.copilotOauthPresent ? (
         <DisconnectedState />
       ) : usage ? (
         <>
-          <AccountSummary usage={usage} refreshing={refreshing} onRefresh={() => void refresh()} />
-          <AllowanceWindows limits={usage.limits} available={usage.accountStatusAvailable} />
-          <TokenActivity usage={usage} />
+          {usage.openaiOauthPresent && (
+            <>
+              <AccountSummary usage={usage} refreshing={refreshing} onRefresh={() => void refresh()} />
+              <AllowanceWindows limits={usage.limits} available={usage.accountStatusAvailable} />
+              <TokenActivity usage={usage} />
+            </>
+          )}
+          {usage.copilotOauthPresent && (
+            <CopilotUsage
+              usage={usage}
+              refreshing={refreshing}
+              onRefresh={() => void refresh()}
+              showRefresh={!usage.openaiOauthPresent}
+            />
+          )}
           {usage.warnings.length > 0 && (
             <div role="status" className="rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-[12px] text-muted-foreground">
               {usage.warnings.join(" ")}
@@ -245,12 +260,115 @@ function TokenActivity({ usage }: { usage: MyOpenAIUsage }) {
   );
 }
 
+function CopilotUsage({
+  usage,
+  refreshing,
+  onRefresh,
+  showRefresh,
+}: {
+  usage: MyOpenAIUsage;
+  refreshing: boolean;
+  onRefresh: () => void;
+  showRefresh: boolean;
+}) {
+  return (
+    <SettingsSection
+      icon={<Code2 />}
+      title="GitHub Copilot"
+      description="Premium request quotas from the GitHub OAuth sign-in saved under Credentials."
+      aside={showRefresh ? (
+        <Button variant="ghost" size="sm" onClick={onRefresh} disabled={refreshing} aria-label="Refresh usage">
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
+          Refresh
+        </Button>
+      ) : undefined}
+    >
+      <div className="flex flex-wrap items-end justify-between gap-4 border-t border-border/60 pt-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[17px] font-semibold tracking-[-0.02em]">
+              {displayCopilotPlan(usage.copilotPlan)}
+            </span>
+            <Badge variant="secondary">OAuth</Badge>
+          </div>
+          <p className="mt-1 truncate font-mono text-[11.5px] text-muted-foreground">
+            {usage.copilotAccountLogin ? `@${usage.copilotAccountLogin}` : "Connected GitHub account"}
+          </p>
+        </div>
+        <a
+          href={COPILOT_USAGE_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Open GitHub
+          <ArrowUpRight className="size-3.5" />
+        </a>
+      </div>
+      {!usage.copilotUsageAvailable ? (
+        <UnavailableCopy>GitHub did not return current Copilot quota data.</UnavailableCopy>
+      ) : usage.copilotQuotas.length === 0 ? (
+        <UnavailableCopy>No Copilot quotas were returned for this plan.</UnavailableCopy>
+      ) : (
+        <div className="divide-y divide-border/60 rounded-lg border border-border/70">
+          {usage.copilotQuotas.map((quota) => (
+            <CopilotQuotaRail key={quota.name} quota={quota} resetDate={usage.copilotQuotaResetDate} />
+          ))}
+        </div>
+      )}
+    </SettingsSection>
+  );
+}
+
+function CopilotQuotaRail({ quota, resetDate }: { quota: CopilotUsageQuota; resetDate: string }) {
+  const entitlement = Number(quota.entitlement);
+  const remaining = Number(quota.remaining);
+  const usedPercent = entitlement > 0 ? Math.max(0, Math.min(100, ((entitlement - remaining) / entitlement) * 100)) : 0;
+  const label = displayQuotaName(quota.name);
+  const remainingLabel = quota.unlimited ? "Unlimited" : `${new Intl.NumberFormat().format(remaining)} left`;
+  const details = quota.unlimited
+    ? "No fixed allowance"
+    : `${new Intl.NumberFormat().format(entitlement)} included${quota.overageCount > 0n ? ` · ${quota.overageCount.toString()} overage` : ""}`;
+  return (
+    <div className="grid gap-3 px-3.5 py-3 sm:grid-cols-[150px_1fr_120px] sm:items-center">
+      <div>
+        <div className="text-[12.5px] font-medium">{label}</div>
+        <div className="mt-0.5 text-[10.5px] text-muted-foreground">{details}</div>
+      </div>
+      {quota.unlimited ? (
+        <div className="h-2 rounded-full bg-muted" aria-hidden="true" />
+      ) : (
+        <div
+          className="relative h-2 overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label={`${label} used`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(usedPercent)}
+        >
+          <div
+            className={cn(
+              "absolute inset-y-0 left-0 rounded-full",
+              usedPercent >= 90 ? "bg-destructive" : usedPercent >= 70 ? "bg-amber-500" : "bg-foreground/75",
+            )}
+            style={{ width: `${usedPercent}%` }}
+          />
+        </div>
+      )}
+      <div className="flex items-baseline justify-between gap-2 sm:block sm:text-right">
+        <span className="font-mono text-[12px] font-medium tabular-nums">{remainingLabel}</span>
+        {resetDate && <span className="block text-[10.5px] text-muted-foreground">Resets {formatCopilotReset(resetDate)}</span>}
+      </div>
+    </div>
+  );
+}
+
 function DisconnectedState() {
   return (
     <SettingsSection
       icon={<KeyRound />}
-      title="Connect OpenAI to see usage"
-      description="Usage is read through the ChatGPT OAuth sign-in saved under Credentials. API-key credentials do not expose subscription allowances."
+      title="Connect a provider to see usage"
+      description="Usage is read through OpenAI or GitHub Copilot OAuth sign-ins saved under Credentials. API-key credentials do not expose subscription allowances."
     >
       <Link to="/settings/credentials" className={buttonVariants({ size: "sm" })}>
         Open Credentials
@@ -281,6 +399,27 @@ function displayPlan(plan: string): string {
   if (["enterprise", "enterprise_cbp_usage_based"].includes(normalized)) return "ChatGPT Enterprise";
   if (normalized === "prolite") return "ChatGPT Pro Lite";
   return `ChatGPT ${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
+}
+
+function displayCopilotPlan(plan: string): string {
+  const normalized = plan.trim().replaceAll("_", " ");
+  if (!normalized) return "GitHub Copilot";
+  return `GitHub Copilot ${normalized.replace(/\b\w/g, (letter) => letter.toUpperCase())}`;
+}
+
+function displayQuotaName(name: string): string {
+  const labels: Record<string, string> = {
+    chat: "Chat requests",
+    completions: "Code completions",
+    premium_interactions: "Premium requests",
+  };
+  return labels[name] ?? name.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatCopilotReset(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
 }
 
 function formatTokens(value: bigint): string {
