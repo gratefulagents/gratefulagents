@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -95,6 +99,45 @@ func commandPhase(t *testing.T, reconciler *GitHubRepositoryReconciler, command 
 	return fresh.Status.Phase
 }
 
+func TestGetMergePolicyTreatsPlanLimitedBranchProtectionAsAbsent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/octo/widgets":
+			fmt.Fprint(w, `{"permissions":{"push":true}}`)
+		case "/repos/octo/widgets/branches/main/protection":
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, `{"message":"Upgrade to GitHub Pro or make this repository public to enable this feature."}`)
+		default:
+			t.Errorf("unexpected GitHub request: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := github.NewClient(server.Client())
+	baseURL, err := url.Parse(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.BaseURL = baseURL
+	policy, err := newMaintainerGitHubDeliveryClient(client).GetMergePolicy(context.Background(), "octo", "widgets", "main")
+	if err != nil {
+		t.Fatalf("GetMergePolicy returned plan limitation: %v", err)
+	}
+	if !policy.CanMerge || policy.RequiredReviews || policy.RequiredChecks || policy.ActorCanBypass {
+		t.Fatalf("unexpected policy: %#v", policy)
+	}
+}
+
+func TestBranchProtectionAuthorizationFailureRemainsAnError(t *testing.T) {
+	httpResponse := &http.Response{StatusCode: http.StatusForbidden}
+	err := &github.ErrorResponse{Response: httpResponse, Message: "Resource not accessible by integration"}
+	if isGitHubBranchProtectionUnavailable(err, &github.Response{Response: httpResponse}) {
+		t.Fatal("ordinary authorization failure was mistaken for unavailable branch protection")
+	}
+}
+
 func TestMaintainerRulesetMergeRequirements(t *testing.T) {
 	pullRequestParameters := json.RawMessage(`{"required_approving_review_count":1}`)
 	checkParameters := json.RawMessage(`{"required_status_checks":[{"context":"test"}],"strict_required_status_checks_policy":true}`)
@@ -145,6 +188,26 @@ func TestRequestMergeFullControlMergesWhenPolicyRequiresNoChecksOrReview(t *test
 	githubClient := &fakeMaintainerDeliveryClient{
 		pulls:            []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head}},
 		checks:           polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
+		statuses:         polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
+		noRequiredReview: true,
+		noRequiredChecks: true,
+	}
+	if err := reconciler.processMaintainerRequestMerge(context.Background(), repository, command, item, githubClient, true); err != nil {
+		t.Fatal(err)
+	}
+	if phase := commandPhase(t, reconciler, command); phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded || githubClient.mergeCalls != 1 {
+		t.Fatalf("phase=%s mergeCalls=%d", phase, githubClient.mergeCalls)
+	}
+}
+
+func TestRequestMergeMergesApprovedPullRequestWithoutBranchPolicy(t *testing.T) {
+	reconciler, repository, item, command := newMaintainerMergeFixture(t)
+	head := command.Spec.RequestMerge.ExpectedHeadSHA
+	mergedAt := time.Now().UTC()
+	githubClient := &fakeMaintainerDeliveryClient{
+		pulls:            []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head}},
+		review:           triggersv1alpha1.PullRequestReviewDecisionApproved,
+		checks:           polledHeadRollup{HeadSHA: head, State: gitHubRollupSuccess, Count: 1},
 		statuses:         polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
 		noRequiredReview: true,
 		noRequiredChecks: true,
