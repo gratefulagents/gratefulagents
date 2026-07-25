@@ -256,16 +256,56 @@ func (p *goGitHubPullRequestPoller) GetReviewDecision(ctx context.Context, owner
 	if len(result.Errors) > 0 {
 		return triggersv1alpha1.PullRequestReviewDecisionUnknown, metadata, fmt.Errorf("GitHub GraphQL review decision: %s", result.Errors[0].Message)
 	}
-	switch strings.ToUpper(strings.TrimSpace(result.Data.Repository.PullRequest.ReviewDecision)) {
+	rawDecision := strings.ToUpper(strings.TrimSpace(result.Data.Repository.PullRequest.ReviewDecision))
+	switch rawDecision {
 	case "APPROVED":
 		return triggersv1alpha1.PullRequestReviewDecisionApproved, metadata, nil
 	case "CHANGES_REQUESTED":
 		return triggersv1alpha1.PullRequestReviewDecisionChangesRequested, metadata, nil
 	case "REVIEW_REQUIRED":
 		return triggersv1alpha1.PullRequestReviewDecisionReviewRequired, metadata, nil
+	case "":
+		// GitHub leaves reviewDecision blank when the base branch does not
+		// require reviews. Individual reviews remain available through REST and
+		// are the approval source for repositories without branch protection.
+		reviews, reviewMetadata, err := p.ListReviews(ctx, owner, repo, number, time.Time{})
+		metadata = mergeGitHubPollResponse(metadata, reviewMetadata)
+		if err != nil {
+			return triggersv1alpha1.PullRequestReviewDecisionUnknown, metadata, err
+		}
+		return individualReviewDecision(reviews), metadata, nil
 	default:
 		return triggersv1alpha1.PullRequestReviewDecisionUnknown, metadata, nil
 	}
+}
+
+// individualReviewDecision approximates GitHub's aggregate decision from REST
+// reviews: each reviewer's latest decisive state wins, while any outstanding
+// request for changes takes precedence over approvals.
+func individualReviewDecision(reviews []polledPullRequestReview) triggersv1alpha1.PullRequestReviewDecision {
+	latest := make(map[string]string)
+	for _, review := range reviews {
+		author := strings.ToLower(strings.TrimSpace(review.AuthorLogin))
+		if author == "" {
+			continue
+		}
+		switch state := strings.ToUpper(strings.TrimSpace(review.State)); state {
+		case "APPROVED", "CHANGES_REQUESTED":
+			latest[author] = state
+		case "DISMISSED":
+			delete(latest, author)
+		}
+	}
+	decision := triggersv1alpha1.PullRequestReviewDecisionUnknown
+	for _, state := range latest {
+		if state == "CHANGES_REQUESTED" {
+			return triggersv1alpha1.PullRequestReviewDecisionChangesRequested
+		}
+		if state == "APPROVED" {
+			decision = triggersv1alpha1.PullRequestReviewDecisionApproved
+		}
+	}
+	return decision
 }
 
 func (p *goGitHubPullRequestPoller) ListIssueComments(ctx context.Context, owner, repo string, number int, after time.Time) ([]polledIssueComment, gitHubPollResponse, error) {

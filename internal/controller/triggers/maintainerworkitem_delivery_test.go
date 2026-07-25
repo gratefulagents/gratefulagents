@@ -30,15 +30,16 @@ const (
 )
 
 type fakeMaintainerDeliveryClient struct {
-	pulls            []*polledPullRequest
-	review           triggersv1alpha1.PullRequestReviewDecision
-	checks           polledHeadRollup
-	statuses         polledHeadRollup
-	mergeCalls       int
-	mergeErr         error
-	unsafePolicy     bool
-	noRequiredReview bool
-	noRequiredChecks bool
+	pulls             []*polledPullRequest
+	review            triggersv1alpha1.PullRequestReviewDecision
+	individualReviews []polledPullRequestReview
+	checks            polledHeadRollup
+	statuses          polledHeadRollup
+	mergeCalls        int
+	mergeErr          error
+	unsafePolicy      bool
+	noRequiredReview  bool
+	noRequiredChecks  bool
 }
 
 func (f *fakeMaintainerDeliveryClient) GetPullRequest(context.Context, string, string, int, string) (*polledPullRequest, gitHubPollResponse, error) {
@@ -55,7 +56,10 @@ func (f *fakeMaintainerDeliveryClient) GetPullRequest(context.Context, string, s
 	return pull, gitHubPollResponse{}, nil
 }
 func (f *fakeMaintainerDeliveryClient) GetReviewDecision(context.Context, string, string, int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
-	return f.review, gitHubPollResponse{}, nil
+	if f.review != "" && f.review != triggersv1alpha1.PullRequestReviewDecisionUnknown {
+		return f.review, gitHubPollResponse{}, nil
+	}
+	return individualReviewDecision(f.individualReviews), gitHubPollResponse{}, nil
 }
 func (f *fakeMaintainerDeliveryClient) ListCheckRuns(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error) {
 	return f.checks, gitHubPollResponse{}, nil
@@ -205,12 +209,12 @@ func TestRequestMergeMergesApprovedPullRequestWithoutBranchPolicy(t *testing.T) 
 	head := command.Spec.RequestMerge.ExpectedHeadSHA
 	mergedAt := time.Now().UTC()
 	githubClient := &fakeMaintainerDeliveryClient{
-		pulls:            []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head}},
-		review:           triggersv1alpha1.PullRequestReviewDecisionApproved,
-		checks:           polledHeadRollup{HeadSHA: head, State: gitHubRollupSuccess, Count: 1},
-		statuses:         polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
-		noRequiredReview: true,
-		noRequiredChecks: true,
+		pulls:             []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head}},
+		individualReviews: []polledPullRequestReview{{AuthorLogin: "reviewer", State: "APPROVED"}},
+		checks:            polledHeadRollup{HeadSHA: head, State: gitHubRollupSuccess, Count: 1},
+		statuses:          polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
+		noRequiredReview:  true,
+		noRequiredChecks:  true,
 	}
 	if err := reconciler.processMaintainerRequestMerge(context.Background(), repository, command, item, githubClient, true); err != nil {
 		t.Fatal(err)
