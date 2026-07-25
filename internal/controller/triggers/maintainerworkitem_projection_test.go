@@ -18,6 +18,31 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+func TestReconcileMaintainerExecutionProjectionIgnoresCacheOnlyDeletedItems(t *testing.T) {
+	t.Parallel()
+
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	staleItem := testMaintainerWorkItem(repository, 7)
+	cachedClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}).
+		WithObjects(repository, staleItem).
+		Build()
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(repository).Build()
+	reconciler := &GitHubRepositoryReconciler{Client: cachedClient, APIReader: apiReader, Scheme: scheme}
+
+	if err := reconciler.reconcileMaintainerExecutionProjection(context.Background(), repository); err != nil {
+		t.Fatalf("projection returned an error for a cache-only deleted item: %v", err)
+	}
+	stored := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := cachedClient.Get(context.Background(), client.ObjectKeyFromObject(staleItem), stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status.ProjectionSequence != staleItem.Status.ProjectionSequence {
+		t.Fatalf("cache-only item was projected: sequence = %d, want %d", stored.Status.ProjectionSequence, staleItem.Status.ProjectionSequence)
+	}
+}
+
 func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 	now := time.Now()
 	observed := metav1.NewTime(now)

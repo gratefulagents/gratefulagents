@@ -191,7 +191,7 @@ func (r *GitHubRepositoryReconciler) reconcileMaintainerWorkItems(ctx context.Co
 
 func (r *GitHubRepositoryReconciler) ensureMaintainerWorkItem(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, name string, issueNumber int32) error {
 	item := &triggersv1alpha1.MaintainerWorkItem{}
-	err := r.Get(ctx, types.NamespacedName{Namespace: repository.Namespace, Name: name}, item)
+	err := r.maintainerReader().Get(ctx, types.NamespacedName{Namespace: repository.Namespace, Name: name}, item)
 	if err == nil {
 		if item.Spec.RepositoryRef.Name != repository.Name || item.Spec.IssueNumber != issueNumber {
 			return fmt.Errorf("maintainer work item %s has a conflicting identity", name)
@@ -201,7 +201,7 @@ func (r *GitHubRepositoryReconciler) ensureMaintainerWorkItem(ctx context.Contex
 		}
 		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			fresh := &triggersv1alpha1.MaintainerWorkItem{}
-			if err := r.Get(ctx, types.NamespacedName{Namespace: repository.Namespace, Name: name}, fresh); err != nil {
+			if err := r.maintainerReader().Get(ctx, types.NamespacedName{Namespace: repository.Namespace, Name: name}, fresh); err != nil {
 				return err
 			}
 			if fresh.Spec.RepositoryRef.Name != repository.Name || fresh.Spec.IssueNumber != issueNumber {
@@ -246,7 +246,7 @@ func (r *GitHubRepositoryReconciler) ensureMaintainerWorkItem(ctx context.Contex
 
 func (r *GitHubRepositoryReconciler) observeMaintainerWorkItem(ctx context.Context, key client.ObjectKey, issue *github.Issue, reason, message string) error {
 	now := metav1.Now()
-	return retryMaintainerWorkItemStatusUpdate(ctx, r.Client, key, func(item *triggersv1alpha1.MaintainerWorkItem) bool {
+	return retryMaintainerWorkItemStatusUpdate(ctx, r.maintainerReader(), r.Client, key, func(item *triggersv1alpha1.MaintainerWorkItem) bool {
 		before := item.Status.DeepCopy()
 		observation := maintainerIssueObservation(issue, now)
 		if maintainerObservationEqual(item.Status.IssueObservation, &observation) {
@@ -297,7 +297,7 @@ func (r *GitHubRepositoryReconciler) markMaintainerWorkItemObservationsUnavailab
 
 func (r *GitHubRepositoryReconciler) markMaintainerWorkItemObservationNotFresh(ctx context.Context, key client.ObjectKey, reason, message string) error {
 	now := metav1.Now()
-	return retryMaintainerWorkItemStatusUpdate(ctx, r.Client, key, func(item *triggersv1alpha1.MaintainerWorkItem) bool {
+	return retryMaintainerWorkItemStatusUpdate(ctx, r.maintainerReader(), r.Client, key, func(item *triggersv1alpha1.MaintainerWorkItem) bool {
 		before := item.Status.DeepCopy()
 		setMaintainerWorkItemCondition(&item.Status.Conditions, metav1.Condition{
 			Type:               triggersv1alpha1.ConditionMaintainerWorkItemObservationFresh,
@@ -436,10 +436,10 @@ func (r *GitHubRepositoryReconciler) retryMaintainerWorkItemStatusMutation(ctx c
 	})
 }
 
-func retryMaintainerWorkItemStatusUpdate(ctx context.Context, c client.Client, key client.ObjectKey, mutate func(*triggersv1alpha1.MaintainerWorkItem) bool) error {
+func retryMaintainerWorkItemStatusUpdate(ctx context.Context, reader client.Reader, c client.Client, key client.ObjectKey, mutate func(*triggersv1alpha1.MaintainerWorkItem) bool) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		item := &triggersv1alpha1.MaintainerWorkItem{}
-		if err := c.Get(ctx, key, item); err != nil {
+		if err := reader.Get(ctx, key, item); err != nil {
 			return err
 		}
 		if !mutate(item) {
@@ -843,7 +843,7 @@ func maintainerCommandAlreadyApplied(item *triggersv1alpha1.MaintainerWorkItem, 
 
 func (r *GitHubRepositoryReconciler) markMaintainerWorkItemTriaged(ctx context.Context, key client.ObjectKey, commandName string) error {
 	now := metav1.Now()
-	return retryMaintainerWorkItemStatusUpdate(ctx, r.Client, key, func(item *triggersv1alpha1.MaintainerWorkItem) bool {
+	return retryMaintainerWorkItemStatusUpdate(ctx, r.maintainerReader(), r.Client, key, func(item *triggersv1alpha1.MaintainerWorkItem) bool {
 		before := item.Status.DeepCopy()
 		item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseTriaged
 		setMaintainerWorkItemCondition(&item.Status.Conditions, metav1.Condition{
@@ -863,7 +863,7 @@ func (r *GitHubRepositoryReconciler) markMaintainerWorkItemTriaged(ctx context.C
 
 func (r *GitHubRepositoryReconciler) markMaintainerWorkItemClosed(ctx context.Context, key client.ObjectKey) error {
 	now := metav1.Now()
-	return retryMaintainerWorkItemStatusUpdate(ctx, r.Client, key, func(item *triggersv1alpha1.MaintainerWorkItem) bool {
+	return retryMaintainerWorkItemStatusUpdate(ctx, r.maintainerReader(), r.Client, key, func(item *triggersv1alpha1.MaintainerWorkItem) bool {
 		before := item.Status.DeepCopy()
 		if item.Status.IssueObservation == nil {
 			item.Status.IssueObservation = &triggersv1alpha1.MaintainerIssueObservation{Number: item.Spec.IssueNumber}
