@@ -16502,8 +16502,10 @@ type GitHubProjectTrigger struct {
 	MaintainerModeRef                 string                 `protobuf:"bytes,14,opt,name=maintainer_mode_ref,json=maintainerModeRef,proto3" json:"maintainer_mode_ref,omitempty"`                                                    // ModeTemplate name; empty = default "maintainer".
 	MaintainerModel                   string                 `protobuf:"bytes,15,opt,name=maintainer_model,json=maintainerModel,proto3" json:"maintainer_model,omitempty"`                                                            // Empty inherits the project run model.
 	MaintainerAllowPrMerge            bool                   `protobuf:"varint,16,opt,name=maintainer_allow_pr_merge,json=maintainerAllowPrMerge,proto3" json:"maintainer_allow_pr_merge,omitempty"`
-	unknownFields                     protoimpl.UnknownFields
-	sizeCache                         protoimpl.SizeCache
+	// Dangerous: lets the maintainer merge without human approval after required checks pass.
+	MaintainerFullControl bool `protobuf:"varint,17,opt,name=maintainer_full_control,json=maintainerFullControl,proto3" json:"maintainer_full_control,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *GitHubProjectTrigger) Reset() {
@@ -16644,6 +16646,13 @@ func (x *GitHubProjectTrigger) GetMaintainerModel() string {
 func (x *GitHubProjectTrigger) GetMaintainerAllowPrMerge() bool {
 	if x != nil {
 		return x.MaintainerAllowPrMerge
+	}
+	return false
+}
+
+func (x *GitHubProjectTrigger) GetMaintainerFullControl() bool {
+	if x != nil {
+		return x.MaintainerFullControl
 	}
 	return false
 }
@@ -18663,8 +18672,10 @@ type GitHubRepositoryTriggerSettings struct {
 	// Rollbackable waiter/delivery migration mode: Controller, DualRead, or Legacy.
 	// Omission preserves the current mode on update for older clients.
 	MaintainerWorkItemCutover *string `protobuf:"bytes,19,opt,name=maintainer_work_item_cutover,json=maintainerWorkItemCutover,proto3,oneof" json:"maintainer_work_item_cutover,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Dangerous: lets the maintainer merge without human approval after required checks pass.
+	MaintainerFullControl bool `protobuf:"varint,20,opt,name=maintainer_full_control,json=maintainerFullControl,proto3" json:"maintainer_full_control,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *GitHubRepositoryTriggerSettings) Reset() {
@@ -18828,6 +18839,13 @@ func (x *GitHubRepositoryTriggerSettings) GetMaintainerWorkItemCutover() string 
 		return *x.MaintainerWorkItemCutover
 	}
 	return ""
+}
+
+func (x *GitHubRepositoryTriggerSettings) GetMaintainerFullControl() bool {
+	if x != nil {
+		return x.MaintainerFullControl
+	}
+	return false
 }
 
 // GitHubRepositoryMaintainerStatus mirrors GitHubRepositoryStatus.maintainer.
@@ -28714,7 +28732,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x18\n" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x12L\n" +
-	"\x14last_transition_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastTransitionTime\"\xfb\x05\n" +
+	"\x14last_transition_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastTransitionTime\"\xb3\x06\n" +
 	"\x14GitHubProjectTrigger\x12%\n" +
 	"\x0econnection_ref\x18\x01 \x01(\tR\rconnectionRef\x12\x14\n" +
 	"\x05owner\x18\x02 \x01(\tR\x05owner\x12\x12\n" +
@@ -28732,7 +28750,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x1bmaintainer_standup_interval\x18\r \x01(\tR\x19maintainerStandupInterval\x12.\n" +
 	"\x13maintainer_mode_ref\x18\x0e \x01(\tR\x11maintainerModeRef\x12)\n" +
 	"\x10maintainer_model\x18\x0f \x01(\tR\x0fmaintainerModel\x129\n" +
-	"\x19maintainer_allow_pr_merge\x18\x10 \x01(\bR\x16maintainerAllowPrMergeB\x15\n" +
+	"\x19maintainer_allow_pr_merge\x18\x10 \x01(\bR\x16maintainerAllowPrMerge\x126\n" +
+	"\x17maintainer_full_control\x18\x11 \x01(\bR\x15maintainerFullControlB\x15\n" +
 	"\x13_maintainer_enabled\"\xf4\x01\n" +
 	"\x13SlackProjectTrigger\x12%\n" +
 	"\x0econnection_ref\x18\x01 \x01(\tR\rconnectionRef\x12\x18\n" +
@@ -28915,7 +28934,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12=\n" +
 	"\n" +
 	"repository\x18\x02 \x01(\v2\x1d.platform.v1.GitHubRepositoryR\n" +
-	"repository\"\xe4\b\n" +
+	"repository\"\x9c\t\n" +
 	"\x1fGitHubRepositoryTriggerSettings\x12#\n" +
 	"\rpoll_interval\x18\x01 \x01(\tR\fpollInterval\x12%\n" +
 	"\x0ewebhook_secret\x18\x02 \x01(\tR\rwebhookSecret\x12'\n" +
@@ -28936,7 +28955,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x13maintainer_mode_ref\x18\x10 \x01(\tR\x11maintainerModeRef\x12)\n" +
 	"\x10maintainer_model\x18\x11 \x01(\tR\x0fmaintainerModel\x129\n" +
 	"\x19maintainer_allow_pr_merge\x18\x12 \x01(\bR\x16maintainerAllowPrMerge\x12D\n" +
-	"\x1cmaintainer_work_item_cutover\x18\x13 \x01(\tH\x02R\x19maintainerWorkItemCutover\x88\x01\x01B\x17\n" +
+	"\x1cmaintainer_work_item_cutover\x18\x13 \x01(\tH\x02R\x19maintainerWorkItemCutover\x88\x01\x01\x126\n" +
+	"\x17maintainer_full_control\x18\x14 \x01(\bR\x15maintainerFullControlB\x17\n" +
 	"\x15_review_loop_disabledB\x15\n" +
 	"\x13_maintainer_enabledB\x1f\n" +
 	"\x1d_maintainer_work_item_cutover\"\x9d\x02\n" +

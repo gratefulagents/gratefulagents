@@ -123,6 +123,8 @@ spec:
           maxDispatchesPerDay: 10
           standupInterval: 12h
           allowPullRequestMerge: false
+          # Highest-risk option: merge without human approval after checks pass.
+          fullControl: false
     - name: nightly-maintenance
       type: cron
       enabled: true

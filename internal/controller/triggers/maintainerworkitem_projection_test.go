@@ -22,18 +22,33 @@ func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 	now := time.Now()
 	observed := metav1.NewTime(now)
 	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: projectionTestMonitorName, Repository: projectionTestRepository, Number: 7, MonitorRef: &coreLocalRef, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen, HeadSHA: "new-head", Mergeable: new(true), ReviewDecision: string(triggersv1alpha1.PullRequestReviewDecisionApproved), CheckState: triggersv1alpha1.MaintainerWorkItemCheckStateUnknown, Fresh: true, HeadObservedAt: &observed, ReviewObservedAt: &observed, ChecksObservedAt: &observed, StatusesObservedAt: &observed}}}}
-	evaluateMaintainerReadiness(item, now)
+	evaluateMaintainerReadiness(item, now, false)
 	if item.Status.Readiness.ReadyToMerge {
 		t.Fatal("head change without fresh head-bound CI was merge-ready")
 	}
 	item.Status.PullRequests[0].CheckState = triggersv1alpha1.MaintainerWorkItemCheckStatePassing
-	evaluateMaintainerReadiness(item, now)
+	evaluateMaintainerReadiness(item, now, false)
 	if !item.Status.Readiness.ReadyToMerge || item.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseReadyToMerge {
 		t.Fatalf("fresh exact-head facts not ready: %#v", item.Status)
 	}
+	item.Status.PullRequests[0].ReviewDecision = ""
+	evaluateMaintainerReadiness(item, now, false)
+	if item.Status.Readiness.ReadyToMerge {
+		t.Fatal("unapproved pull request was merge-ready without full control")
+	}
+	evaluateMaintainerReadiness(item, now, true)
+	if !item.Status.Readiness.ReadyToMerge {
+		t.Fatal("full control still required human approval")
+	}
+	item.Status.PullRequests[0].ReviewDecision = string(triggersv1alpha1.PullRequestReviewDecisionChangesRequested)
+	evaluateMaintainerReadiness(item, now, true)
+	if item.Status.Readiness.ReadyToMerge {
+		t.Fatal("full control ignored an explicit changes-requested review")
+	}
+	item.Status.PullRequests[0].ReviewDecision = string(triggersv1alpha1.PullRequestReviewDecisionApproved)
 	stale := metav1.NewTime(now.Add(-maintainerProjectionFreshness - time.Second))
 	item.Status.PullRequests[0].ChecksObservedAt = &stale
-	evaluateMaintainerReadiness(item, now)
+	evaluateMaintainerReadiness(item, now, false)
 	if item.Status.Readiness.ReadyToMerge {
 		t.Fatal("stale checks were merge-ready")
 	}
@@ -51,7 +66,7 @@ func structLocalRef(name string) (ref corev1.LocalObjectReference) { ref.Name = 
 
 func TestEvaluateMaintainerReadinessDoesNotRedispatchReservedItem(t *testing.T) {
 	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{DispatchReservation: &triggersv1alpha1.MaintainerDispatchReservation{ID: "once"}}}
-	evaluateMaintainerReadiness(item, time.Now())
+	evaluateMaintainerReadiness(item, time.Now(), false)
 	if item.Status.Readiness.ReadyToDispatch {
 		t.Fatal("reserved item remained ready to dispatch")
 	}
@@ -59,13 +74,13 @@ func TestEvaluateMaintainerReadinessDoesNotRedispatchReservedItem(t *testing.T) 
 
 func TestEvaluateMaintainerReadinessBlocksDeliveryOnGraphPrerequisites(t *testing.T) {
 	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionDecomposable}, Status: triggersv1alpha1.MaintainerWorkItemStatus{Children: []triggersv1alpha1.MaintainerWorkItemChildProjection{{Name: "child", Delivered: false}}, Dependencies: []triggersv1alpha1.MaintainerWorkItemDependencyProjection{{Name: "dependency", Delivered: true}}, PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: projectionTestMonitorName, Repository: projectionTestRepository, Number: 7, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged}}}}
-	evaluateMaintainerReadiness(item, time.Now())
+	evaluateMaintainerReadiness(item, time.Now(), false)
 	if item.Status.Phase == triggersv1alpha1.MaintainerWorkItemPhaseDelivered {
 		t.Fatal("undelivered child allowed delivery")
 	}
 	item.Status.Children[0].Delivered = true
 	item.Status.Dependencies[0].Delivered = false
-	evaluateMaintainerReadiness(item, time.Now())
+	evaluateMaintainerReadiness(item, time.Now(), false)
 	if item.Status.Phase == triggersv1alpha1.MaintainerWorkItemPhaseDelivered {
 		t.Fatal("undelivered dependency allowed delivery")
 	}
@@ -73,13 +88,13 @@ func TestEvaluateMaintainerReadinessBlocksDeliveryOnGraphPrerequisites(t *testin
 
 func TestEvaluateMaintainerReadinessRequiresFinalizationAfterMerge(t *testing.T) {
 	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: projectionTestMonitorName, Repository: projectionTestRepository, Number: 7, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged}}}}
-	evaluateMaintainerReadiness(item, time.Now())
+	evaluateMaintainerReadiness(item, time.Now(), false)
 	if item.Status.Phase == triggersv1alpha1.MaintainerWorkItemPhaseDelivered || item.Status.Readiness.ReadyToMerge {
 		t.Fatalf("merge alone must not deliver = %#v", item.Status)
 	}
 	now := metav1.Now()
 	item.Status.DeliveryAttestation = &triggersv1alpha1.MaintainerDeliveryAttestation{CompletedAt: &now}
-	evaluateMaintainerReadiness(item, time.Now())
+	evaluateMaintainerReadiness(item, time.Now(), false)
 	if item.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseDelivered {
 		t.Fatalf("finalized merged item phase = %s", item.Status.Phase)
 	}

@@ -2389,6 +2389,8 @@ message GitHubProjectTrigger {
   string maintainer_mode_ref = 14; // ModeTemplate name; empty = default "maintainer".
   string maintainer_model = 15; // Empty inherits the project run model.
   bool maintainer_allow_pr_merge = 16;
+  // Dangerous: lets the maintainer merge without human approval after required checks pass.
+  bool maintainer_full_control = 17;
 }
 
 message SlackProjectTrigger {
@@ -2667,6 +2669,8 @@ message GitHubRepositoryTriggerSettings {
   // Rollbackable waiter/delivery migration mode: Controller, DualRead, or Legacy.
   // Omission preserves the current mode on update for older clients.
   optional string maintainer_work_item_cutover = 19;
+  // Dangerous: lets the maintainer merge without human approval after required checks pass.
+  bool maintainer_full_control = 20;
 }
 
 // GitHubRepositoryMaintainerStatus mirrors GitHubRepositoryStatus.maintainer.

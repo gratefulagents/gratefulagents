@@ -549,6 +549,12 @@ spec:
                                 to merge approved, non-draft pull requests in this repository. Disabled by
                                 default; merging stays human otherwise.
                               type: boolean
+                            fullControl:
+                              description: |-
+                                fullControl permits the maintainer to merge its non-draft, mergeable pull
+                                requests without human approval after required checks pass. This dangerous
+                                opt-in implies allowPullRequestMerge; required reviews must be disabled.
+                              type: boolean
                             disabled:
                               description: disabled turns off the maintainer without
                                 removing its configuration.

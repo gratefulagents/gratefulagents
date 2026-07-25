@@ -129,6 +129,12 @@ type MaintainerSpec struct {
 	// +optional
 	AllowPullRequestMerge bool `json:"allowPullRequestMerge,omitempty"`
 
+	// fullControl permits the maintainer to merge its non-draft, mergeable pull
+	// requests without human approval after required checks pass. This dangerous
+	// opt-in implies allowPullRequestMerge; required reviews must be disabled.
+	// +optional
+	FullControl bool `json:"fullControl,omitempty"`
+
 	// workItemCutover selects the rollbackable maintainer waiter migration mode.
 	// Legacy retains direct polling, DualRead compares legacy and semantic state,
 	// and Controller uses only durable work-item issue observations/projections.

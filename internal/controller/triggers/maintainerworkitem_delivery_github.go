@@ -2,6 +2,9 @@ package triggers
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/google/go-github/v68/github"
@@ -58,7 +61,11 @@ func (c *goGitHubMaintainerDeliveryClient) GetMergePolicy(ctx context.Context, o
 	if err != nil {
 		return maintainerMergePolicy{}, err
 	}
-	protection, _, err := c.repositories.GetBranchProtection(ctx, owner, repo, branch)
+	protection, protectionResponse, err := c.repositories.GetBranchProtection(ctx, owner, repo, branch)
+	if err != nil && (protectionResponse == nil || protectionResponse.StatusCode != http.StatusNotFound) {
+		return maintainerMergePolicy{}, err
+	}
+	applicableRules, _, err := c.repositories.GetRulesForBranch(ctx, owner, repo, branch)
 	if err != nil {
 		return maintainerMergePolicy{}, err
 	}
@@ -66,8 +73,16 @@ func (c *goGitHubMaintainerDeliveryClient) GetMergePolicy(ctx context.Context, o
 	if err != nil {
 		return maintainerMergePolicy{}, err
 	}
-	reviews := protection.RequiredPullRequestReviews
-	checks := protection.RequiredStatusChecks
+	var reviews *github.PullRequestReviewsEnforcement
+	var checks *github.RequiredStatusChecks
+	if protection != nil {
+		reviews = protection.RequiredPullRequestReviews
+		checks = protection.RequiredStatusChecks
+	}
+	rulesetReviews, rulesetChecks, err := maintainerRulesetMergeRequirements(applicableRules)
+	if err != nil {
+		return maintainerMergePolicy{}, err
+	}
 	actorCanBypass := repository.GetPermissions()["admin"]
 	if reviews != nil && reviews.BypassPullRequestAllowances != nil {
 		allowances := reviews.BypassPullRequestAllowances
@@ -82,11 +97,40 @@ func (c *goGitHubMaintainerDeliveryClient) GetMergePolicy(ctx context.Context, o
 	}
 	permissions := repository.GetPermissions()
 	return maintainerMergePolicy{
-		RequiredReviews: reviews != nil && reviews.RequiredApprovingReviewCount > 0,
-		RequiredChecks:  checks != nil && len(checks.GetContexts())+len(checks.GetChecks()) > 0,
+		RequiredReviews: rulesetReviews || reviews != nil && reviews.RequiredApprovingReviewCount > 0,
+		RequiredChecks:  rulesetChecks || checks != nil && len(checks.GetContexts())+len(checks.GetChecks()) > 0,
 		CanMerge:        permissions["push"] || permissions["maintain"] || permissions["admin"],
 		ActorCanBypass:  actorCanBypass,
 	}, nil
+}
+
+func maintainerRulesetMergeRequirements(rules []*github.RepositoryRule) (requiredReviews, requiredChecks bool, err error) {
+	for _, rule := range rules {
+		if rule == nil {
+			continue
+		}
+		switch rule.Type {
+		case "pull_request":
+			if rule.Parameters == nil {
+				return false, false, fmt.Errorf("applicable pull-request ruleset has no parameters")
+			}
+			var parameters github.PullRequestRuleParameters
+			if err := json.Unmarshal(*rule.Parameters, &parameters); err != nil {
+				return false, false, fmt.Errorf("decoding applicable pull-request ruleset: %w", err)
+			}
+			requiredReviews = requiredReviews || parameters.RequiredApprovingReviewCount > 0
+		case "required_status_checks":
+			if rule.Parameters == nil {
+				return false, false, fmt.Errorf("applicable required-checks ruleset has no parameters")
+			}
+			var parameters github.RequiredStatusChecksRuleParameters
+			if err := json.Unmarshal(*rule.Parameters, &parameters); err != nil {
+				return false, false, fmt.Errorf("decoding applicable required-checks ruleset: %w", err)
+			}
+			requiredChecks = requiredChecks || len(parameters.RequiredStatusChecks) > 0
+		}
+	}
+	return requiredReviews, requiredChecks, nil
 }
 
 func (c *goGitHubMaintainerDeliveryClient) MergePullRequest(ctx context.Context, owner, repo string, number int, head, method string) (*github.PullRequestMergeResult, error) {

@@ -160,6 +160,7 @@ describe("GitHubRepositorySettingsDialog", () => {
     fireEvent.change(screen.getByLabelText(/^Maintainer mode$/), { target: { value: "repository-maintainer" } });
     fireEvent.change(screen.getByLabelText(/Maintainer model/), { target: { value: "claude-opus-4-6" } });
     fireEvent.click(screen.getByRole("switch", { name: /Allow the maintainer to merge approved pull requests/ }));
+    fireEvent.click(screen.getByRole("switch", { name: /Give the maintainer full control/ }));
 
     submitForm();
 
@@ -174,6 +175,7 @@ describe("GitHubRepositorySettingsDialog", () => {
     expect(request.triggerSettings?.maintainerModeRef).toBe("repository-maintainer");
     expect(request.triggerSettings?.maintainerModel).toBe("claude-opus-4-6");
     expect(request.triggerSettings?.maintainerAllowPrMerge).toBe(true);
+    expect(request.triggerSettings?.maintainerFullControl).toBe(true);
     expect(request.triggerSettings?.maintainerWorkItemCutover).toBe("Controller");
   });
 
