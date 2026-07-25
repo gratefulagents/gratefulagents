@@ -219,6 +219,7 @@ func TestEnsureUsableHomeKeepsOriginalWhenFallbackUnusable(t *testing.T) {
 func TestSetupKubernetesAdminSandboxEnvNoopWhenDisabled(t *testing.T) {
 	t.Setenv("KUBECONFIG", "")
 	t.Setenv(sandbox.SandboxExtraEnvEnv, "EXISTING=1")
+	t.Setenv(sandbox.SandboxExposeKubernetesServiceAccountEnv, "true")
 	if err := setupKubernetesAdminSandboxEnv(false); err != nil {
 		t.Fatalf("setupKubernetesAdminSandboxEnv(false) error = %v", err)
 	}
@@ -227,6 +228,9 @@ func TestSetupKubernetesAdminSandboxEnvNoopWhenDisabled(t *testing.T) {
 	}
 	if got := os.Getenv(sandbox.SandboxExtraEnvEnv); got != "EXISTING=1" {
 		t.Fatalf("sandbox extra env = %q, want unchanged", got)
+	}
+	if got := os.Getenv(sandbox.SandboxExposeKubernetesServiceAccountEnv); got != "" {
+		t.Fatalf("service-account exposure env = %q, want empty", got)
 	}
 }
 
@@ -285,6 +289,9 @@ func TestSetupKubernetesAdminSandboxEnvWritesKubeconfig(t *testing.T) {
 	}
 	if got := os.Getenv(sandbox.SandboxExtraEnvEnv); !strings.Contains(got, "KUBECONFIG="+kubeconfig) || !strings.Contains(got, "EXISTING=1") {
 		t.Fatalf("sandbox extra env = %q, want existing + KUBECONFIG", got)
+	}
+	if got := os.Getenv(sandbox.SandboxExposeKubernetesServiceAccountEnv); got != "true" {
+		t.Fatalf("service-account exposure env = %q, want true", got)
 	}
 }
 

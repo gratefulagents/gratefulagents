@@ -214,6 +214,10 @@ var kubernetesServiceAccountRoot = "/var/run/secrets/kubernetes.io/serviceaccoun
 // is intentionally gated by run.Spec.KubernetesAdmin before being called with
 // enabled=true: ordinary runs should not receive Kubernetes client env.
 func setupKubernetesAdminSandboxEnv(enabled bool) error {
+	// This capability is derived exclusively from the trusted AgentRun spec;
+	// do not let a RuntimeProfile or inherited environment enable it. Leave it
+	// disabled as well if any credential setup below fails.
+	_ = os.Unsetenv(sandbox.SandboxExposeKubernetesServiceAccountEnv)
 	if !enabled {
 		return nil
 	}
@@ -287,6 +291,7 @@ current-context: in-cluster
 	}
 	_ = os.Setenv("KUBECONFIG", kubeconfigPath)
 	_ = os.Setenv(sandbox.SandboxExtraEnvEnv, mergeSandboxExtraEnv(os.Getenv(sandbox.SandboxExtraEnvEnv), map[string]string{"KUBECONFIG": kubeconfigPath}))
+	_ = os.Setenv(sandbox.SandboxExposeKubernetesServiceAccountEnv, "true")
 	return nil
 }
 
