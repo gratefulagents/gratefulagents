@@ -157,7 +157,7 @@ type waitForRepoEventsOutput struct {
 
 func (t *waitForRepoEventsTool) Name() string { return "wait_for_repo_events" }
 func (t *waitForRepoEventsTool) Description() string {
-	return "Watch the maintained repository. Without a cursor it returns current open-issue, fleet-run, attached pull-request, and durable work-item state immediately; with the previous cursor it blocks until issues, run lifecycle, PR head/open/draft/review/mergeability, aggregate CI, or work-item changes. A closed event does not prove merge; inspect the PR before finalization. Always pass the cursor when waiting."
+	return "Watch the maintained repository. Without a cursor it explicitly returns the current snapshot. When cursor_handle is returned, subsequent semantic waits should pass cursor \"latest\", which resolves trusted run-and-repository-bound state server-side; Legacy and DualRead responses instead require their returned cursor. Encoded semantic v2 cursors remain accepted temporarily for compatibility and diagnostics. A closed event does not prove merge; inspect the PR before finalization."
 }
 func (t *waitForRepoEventsTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"timeout_seconds":{"type":"integer","minimum":30,"maximum":21600},"cursor":{"type":"string"}}}`)

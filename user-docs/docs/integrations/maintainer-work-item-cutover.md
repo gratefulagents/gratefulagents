@@ -33,11 +33,13 @@ The default maintainer mode no longer authorizes generic `merge_pull_request`, `
 
 | Value | Behavior |
 | --- | --- |
-| `Controller` (default) | `wait_for_repo_events` reads only durable semantic work-item/issue observations and watches from the list resource version. The cursor contains only per-item persisted projection sequences. No direct waiter GitHub or PR polling occurs. |
+| `Controller` (default) | `wait_for_repo_events` reads only durable semantic work-item/issue observations and watches from the list resource version. A no-cursor snapshot durably checkpoints per-item projection sequences on the maintainer `AgentRun`; later calls use `cursor: "latest"`. No direct waiter GitHub or PR polling occurs. |
 | `DualRead` | Legacy polling remains authoritative while the semantic source is shadow-read and parity is reported in the waiter result. Use this before cutover on an existing installation. |
 | `Legacy` | Restores the prior issue/fleet/PR polling and signature cursor for rollback. |
 
 A projection sequence increments only when observable semantic status changes. Every reconnect first lists the current snapshot and starts its watch from that list's resource version, so a change between list and watch is replayed. New GitHub issues enter through the repository controller's durable issue-observation reconciliation; the Kubernetes watch is notification after durable observation, not a replacement for GitHub discovery.
+
+The controller pre-creates a compact, `AgentRun`-owned Kubernetes Secret for the `latest` checkpoint; the worker receives only resource-name-scoped read/update access. The checkpoint is bound to both the immutable maintainer-run UID and `GitHubRepository` UID and advances with Kubernetes resource-version compare-and-swap. It therefore survives worker and tool-runtime reconstruction but not deletion/recreation of either identity. Checkpoints expire after 30 days without a successful wait; omission remains the explicit reset/snapshot operation. Unknown, malformed, stale, expired, and cross-boundary handles fail closed. Encoded waiter-v2 cursors remain accepted and returned in the deprecated `cursor` diagnostic field for at least two minor releases after introduction of `cursor_handle`; maintainers should use `cursor: "latest"` instead.
 
 Recommended rollout:
 

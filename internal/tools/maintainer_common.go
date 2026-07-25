@@ -65,6 +65,14 @@ func (b maintainerToolBase) requireLegacyMutationAuthority(ctx context.Context) 
 }
 
 func (b maintainerToolBase) currentRun(ctx context.Context) (*platformv1alpha1.AgentRun, error) {
+	repository, err := b.repository(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return b.currentRunForRepository(ctx, repository)
+}
+
+func (b maintainerToolBase) currentRunForRepository(ctx context.Context, repository *triggersv1alpha1.GitHubRepository) (*platformv1alpha1.AgentRun, error) {
 	current := &platformv1alpha1.AgentRun{}
 	if err := b.k8sClient.Get(ctx, client.ObjectKey{Name: b.currentRunName, Namespace: b.currentRunNamespace}, current); err != nil {
 		return nil, fmt.Errorf("failed to verify maintainer AgentRun: %w", err)
@@ -80,10 +88,6 @@ func (b maintainerToolBase) currentRun(ctx context.Context) (*platformv1alpha1.A
 	}
 	if current.Labels[orchestration.SupervisedRunLabel] != b.repositoryName {
 		return nil, fmt.Errorf("current AgentRun is not assigned to the maintained repository")
-	}
-	repository, err := b.repository(ctx)
-	if err != nil {
-		return nil, err
 	}
 	if maintainerFleetRunOwnedByRepository(current, repository) {
 		return current, nil

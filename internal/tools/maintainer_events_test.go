@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -19,12 +20,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-const maintainerEventsTestWorkItemName = "issue-7"
+var maintainerEventsTestWorkItemName = triggersv1alpha1.MaintainerWorkItemName(maintainerTestRepositoryName, 7)
 
 type noWatchClient struct{ client.Client }
 
@@ -524,12 +526,14 @@ func TestSemanticWaiterUsesPersistedProjectionWithoutGitHubPolling(t *testing.T)
 	if err := k8sClient.Update(context.Background(), repository); err != nil {
 		t.Fatal(err)
 	}
-	item := &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: maintainerEventsTestWorkItemName, Namespace: maintainerTestNamespace, Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: maintainerTestRepositoryName}}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 9}, Status: triggersv1alpha1.MaintainerWorkItemStatus{Phase: triggersv1alpha1.MaintainerWorkItemPhasePendingTriage, ProjectionSequence: 4, IssueObservation: &triggersv1alpha1.MaintainerIssueObservation{Number: 9, Title: "durably observed"}}}
+	semanticName := triggersv1alpha1.MaintainerWorkItemName(maintainerTestRepositoryName, 9)
+	item := &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: semanticName, Namespace: maintainerTestNamespace, Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: maintainerTestRepositoryName}}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 9}, Status: triggersv1alpha1.MaintainerWorkItemStatus{Phase: triggersv1alpha1.MaintainerWorkItemPhasePendingTriage, ProjectionSequence: 4, IssueObservation: &triggersv1alpha1.MaintainerIssueObservation{Number: 9, Title: "durably observed"}}}
 	if err := k8sClient.Create(context.Background(), item); err != nil {
 		t.Fatal(err)
 	}
 	runner := &maintainerFakeRunner{out: map[string]string{}, err: map[string]error{}}
-	result, err := (&waitForRepoEventsTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"timeout_seconds":30}`), "missing-workdir")
+	tool := &waitForRepoEventsTool{maintainerToolBase: base, runner: runner}
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"timeout_seconds":30}`), "missing-workdir")
 	if err != nil || result.IsError {
 		t.Fatalf("semantic wait result=%#v err=%v", result, err)
 	}
@@ -544,9 +548,328 @@ func TestSemanticWaiterUsesPersistedProjectionWithoutGitHubPolling(t *testing.T)
 		t.Fatalf("semantic output = %#v", output)
 	}
 	cursor, err := decodeMaintainerSemanticCursor(output.Cursor)
-	if err != nil || cursor.Sequences[maintainerEventsTestWorkItemName] != 4 {
+	if err != nil || cursor.Sequences[semanticName] != 4 {
 		t.Fatalf("cursor=%#v err=%v", cursor, err)
 	}
+	if output.CursorHandle != maintainerSemanticLatestHandle {
+		t.Fatalf("cursor_handle = %q, want latest", output.CursorHandle)
+	}
+
+	// A reconstructed tool instance can resolve continuity from the AgentRun
+	// rather than process-local memory.
+	run := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: base.currentRunName, Namespace: base.currentRunNamespace}, run); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := tool.semanticCursorCheckpoint(context.Background(), run.UID, types.UID("repo-uid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := resolveMaintainerSemanticCursorState(checkpoint, run, types.UID("repo-uid"), maintainerSemanticLatestHandle, time.Now())
+	if err != nil || state.semanticCursor().Sequences[semanticName] != 4 {
+		t.Fatalf("reconstructed latest state=%#v err=%v", state, err)
+	}
+}
+
+func TestSemanticLatestHandleAdvancesAndDeletionConverges(t *testing.T) {
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	repository := &triggersv1alpha1.GitHubRepository{}
+	repositoryKey := client.ObjectKey{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace}
+	if err := k8sClient.Get(t.Context(), repositoryKey, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.WorkItemCutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+	if err := k8sClient.Update(t.Context(), repository); err != nil {
+		t.Fatal(err)
+	}
+	name := triggersv1alpha1.MaintainerWorkItemName(maintainerTestRepositoryName, 12)
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace, Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: maintainerTestRepositoryName}},
+		Spec:       triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 12},
+		Status:     triggersv1alpha1.MaintainerWorkItemStatus{ProjectionSequence: 1},
+	}
+	if err := k8sClient.Create(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	tool := &waitForRepoEventsTool{maintainerToolBase: base}
+	initialResult, err := tool.Execute(t.Context(), json.RawMessage(`{"timeout_seconds":30}`), "")
+	if err != nil || initialResult.IsError {
+		t.Fatalf("initial result=%#v err=%v", initialResult, err)
+	}
+	var initial maintainerSemanticWaitOutput
+	if err := json.Unmarshal([]byte(initialResult.Content), &initial); err != nil {
+		t.Fatal(err)
+	}
+
+	// Encoded v2 cursors remain accepted during the compatibility window and,
+	// like latest, enter the watch when the snapshot is unchanged.
+	compatCtx, cancelCompat := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancelCompat()
+	compatInput, err := json.Marshal(waitForRepoEventsInput{TimeoutSeconds: 30, Cursor: initial.Cursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.Execute(compatCtx, compatInput, ""); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("unchanged encoded-v2 wait error = %v, want context deadline", err)
+	}
+
+	// With no semantic change, latest enters the watch instead of returning a
+	// duplicate snapshot.
+	blockedCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := tool.Execute(blockedCtx, json.RawMessage(`{"timeout_seconds":30,"cursor":"latest"}`), ""); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("unchanged latest wait error = %v, want context deadline", err)
+	}
+
+	updateDone := make(chan error, 1)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		fresh := &triggersv1alpha1.MaintainerWorkItem{}
+		if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: name, Namespace: maintainerTestNamespace}, fresh); err != nil {
+			updateDone <- err
+			return
+		}
+		fresh.Status.ProjectionSequence = 2
+		updateDone <- k8sClient.Update(context.Background(), fresh)
+	}()
+	result, err := tool.Execute(t.Context(), json.RawMessage(`{"timeout_seconds":30,"cursor":"latest"}`), "")
+	if err != nil || result.IsError {
+		t.Fatalf("updated result=%#v err=%v", result, err)
+	}
+	if err := <-updateDone; err != nil {
+		t.Fatal(err)
+	}
+	var updated maintainerSemanticWaitOutput
+	if err := json.Unmarshal([]byte(result.Content), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.WorkItems) != 1 || updated.WorkItems[0].ProjectionSequence != 2 {
+		t.Fatalf("projection update = %#v", updated.WorkItems)
+	}
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		fresh := &triggersv1alpha1.MaintainerWorkItem{}
+		if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: name, Namespace: maintainerTestNamespace}, fresh); err != nil {
+			deleteDone <- err
+			return
+		}
+		deleteDone <- k8sClient.Delete(context.Background(), fresh)
+	}()
+	result, err = tool.Execute(t.Context(), json.RawMessage(`{"timeout_seconds":30,"cursor":"latest"}`), "")
+	if err != nil || result.IsError {
+		t.Fatalf("deletion result=%#v err=%v", result, err)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatal(err)
+	}
+	var deleted maintainerSemanticWaitOutput
+	if err := json.Unmarshal([]byte(result.Content), &deleted); err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted.WorkItems) != 1 || !deleted.WorkItems[0].Removed {
+		t.Fatalf("deletion changes = %#v", deleted.WorkItems)
+	}
+	run := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKey{Name: base.currentRunName, Namespace: base.currentRunNamespace}, run); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := tool.semanticCursorCheckpoint(t.Context(), run.UID, repository.UID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := resolveMaintainerSemanticCursorState(checkpoint, run, repository.UID, maintainerSemanticLatestHandle, time.Now())
+	if err != nil || len(state.Entries) != 0 {
+		t.Fatalf("deletion was not acknowledged: state=%#v err=%v", state, err)
+	}
+}
+
+func TestSemanticCursorHandleValidationAndIsolation(t *testing.T) {
+	now := time.Now()
+	run := maintainerRun()
+	state := maintainerSemanticCursorState{
+		Version: 1, RunUID: run.UID, RepositoryUID: types.UID("repo-uid"),
+		Handle: maintainerSemanticOpaquePrefix + base64.RawURLEncoding.EncodeToString(make([]byte, 16)), ExpiresAt: now.Add(time.Hour),
+	}
+	controller := true
+	secretForState := func(candidate maintainerSemanticCursorState) *corev1.Secret {
+		raw, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller}}},
+			Data:       map[string][]byte{maintainerSemanticCursorDataKey: raw},
+		}
+	}
+	if _, err := resolveMaintainerSemanticCursorState(secretForState(state), run, state.RepositoryUID, state.Handle, now); err != nil {
+		t.Fatalf("valid handle: %v", err)
+	}
+	cases := []struct {
+		name, handle string
+		repository   types.UID
+		mutate       func(*maintainerSemanticCursorState)
+		want         string
+	}{
+		{name: "malformed", handle: maintainerSemanticOpaquePrefix + "bad", repository: state.RepositoryUID, want: "malformed"},
+		{name: "stale", handle: maintainerSemanticOpaquePrefix + base64.RawURLEncoding.EncodeToString([]byte("1234567890123456")), repository: state.RepositoryUID, want: "stale"},
+		{name: "repository isolation", handle: maintainerSemanticLatestHandle, repository: types.UID("other-repo"), want: "cross-boundary"},
+		{name: "run isolation", handle: maintainerSemanticLatestHandle, repository: state.RepositoryUID, mutate: func(s *maintainerSemanticCursorState) { s.RunUID = types.UID("other-run") }, want: "cross-boundary"},
+		{name: "expired", handle: maintainerSemanticLatestHandle, repository: state.RepositoryUID, mutate: func(s *maintainerSemanticCursorState) { s.ExpiresAt = now.Add(-time.Second) }, want: "expired"},
+		{name: "malformed stored handle", handle: maintainerSemanticLatestHandle, repository: state.RepositoryUID, mutate: func(s *maintainerSemanticCursorState) { s.Handle = "bad" }, want: "malformed stored"},
+		{name: "malformed stored sequence", handle: maintainerSemanticLatestHandle, repository: state.RepositoryUID, mutate: func(s *maintainerSemanticCursorState) {
+			s.Entries = []maintainerSemanticCursorEntry{{Name: "item", Sequence: -1, IssueNumber: 1}}
+		}, want: "malformed stored"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate := state
+			if tc.mutate != nil {
+				tc.mutate(&candidate)
+			}
+			if _, resolveErr := resolveMaintainerSemanticCursorState(secretForState(candidate), run, tc.repository, tc.handle, now); resolveErr == nil || !strings.Contains(resolveErr.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", resolveErr, tc.want)
+			}
+		})
+	}
+}
+
+func TestSemanticCursorRejectsNonCanonicalIdentity(t *testing.T) {
+	malformedName := "mwi-widget-7-deadbeef00"
+	cursor := maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{malformedName: 1}, Identities: map[string]int32{malformedName: 7}}
+	if err := validateSemanticCursorIdentities(maintainerTestRepositoryName, cursor, nil); err == nil || !strings.Contains(err.Error(), "non-canonical cursor identity") {
+		t.Fatalf("error = %v", err)
+	}
+	legacyMalformed := maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{malformedName: 1}}
+	if err := validateSemanticCursorIdentities(maintainerTestRepositoryName, legacyMalformed, nil); err == nil || !strings.Contains(err.Error(), "non-canonical cursor identity") {
+		t.Fatalf("legacy malformed error = %v", err)
+	}
+	longRepositoryName := strings.Repeat("long-repository-", 5)
+	longName := triggersv1alpha1.MaintainerWorkItemName(longRepositoryName, 42)
+	longCursor := maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{longName: 3}, Identities: map[string]int32{longName: 42}}
+	if err := validateSemanticCursorIdentities(longRepositoryName, longCursor, nil); err != nil {
+		t.Fatalf("valid truncated deletion identity rejected: %v", err)
+	}
+	legacyLongCursor := maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{longName: 3}}
+	if err := validateSemanticCursorIdentities(longRepositoryName, legacyLongCursor, nil); err != nil {
+		t.Fatalf("legacy v2 truncated deletion identity rejected: %v", err)
+	}
+	partialRepositoryName := strings.Repeat("a", 46)
+	partialName := triggersv1alpha1.MaintainerWorkItemName(partialRepositoryName, 42)
+	partialCursor := maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{partialName: 3}}
+	if err := validateSemanticCursorIdentities(partialRepositoryName, partialCursor, nil); err != nil {
+		t.Fatalf("legacy v2 partially truncated deletion identity rejected: %v", err)
+	}
+	encodedLegacy, err := encodeMaintainerSemanticCursor(legacyLongCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodedLegacy, err := decodeMaintainerSemanticCursor(encodedLegacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes := semanticSnapshotChanges(decodedLegacy.Sequences, map[string]maintainerRepoWorkItemEvent{}, false)
+	if len(changes) != 1 || changes[0].Name != longName || !changes[0].Removed {
+		t.Fatalf("legacy truncated deletion changes = %#v", changes)
+	}
+
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKey{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace}, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.WorkItemCutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+	if err := k8sClient.Update(t.Context(), repository); err != nil {
+		t.Fatal(err)
+	}
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{Name: "non-canonical", Namespace: maintainerTestNamespace, Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: maintainerTestRepositoryName}},
+		Spec:       triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 13},
+	}
+	if err := k8sClient.Create(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	tool := &waitForRepoEventsTool{maintainerToolBase: base}
+	result, err := tool.Execute(t.Context(), json.RawMessage(`{"timeout_seconds":30}`), "")
+	if err != nil || !result.IsError || !strings.Contains(result.Content, "non-canonical cursor identity") {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	checkpoint, err := tool.semanticCursorCheckpoint(t.Context(), base.currentRunUID, repository.UID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint == nil || len(checkpoint.Data[maintainerSemanticCursorDataKey]) != 0 {
+		t.Fatal("rejected current identity advanced cursor state")
+	}
+}
+
+func TestSemanticCursorCheckpointIsCompactForLargeRepositories(t *testing.T) {
+	cursor := maintainerSemanticCursor{Version: 2, Sequences: make(map[string]int64, 2000), Identities: make(map[string]int32, 2000)}
+	for issue := int32(1); issue <= 2000; issue++ {
+		name := triggersv1alpha1.MaintainerWorkItemName(strings.Repeat("long-repository-name-", 4), issue)
+		cursor.Sequences[name] = int64(issue)
+		cursor.Identities[name] = issue
+	}
+	state := newMaintainerSemanticCursorState(types.UID("run-uid"), types.UID("repository-uid"), maintainerSemanticOpaquePrefix+base64.RawURLEncoding.EncodeToString(make([]byte, 16)), time.Now().Add(time.Hour), cursor)
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) >= 256*1024 {
+		t.Fatalf("compact checkpoint size = %d bytes, want below 256 KiB", len(encoded))
+	}
+	for name := range cursor.Sequences {
+		if bytes.Count(encoded, []byte(name)) != 1 {
+			t.Fatalf("work-item name %q is duplicated in compact checkpoint", name)
+		}
+	}
+}
+
+func TestSemanticCursorAdvanceUsesCompareAndSwap(t *testing.T) {
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	tool := &waitForRepoEventsTool{maintainerToolBase: base}
+	checkpoint, err := tool.semanticCursorCheckpoint(t.Context(), base.currentRunUID, types.UID("repo-uid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tool.persistMaintainerSemanticCursorState(t.Context(), base.currentRunUID, types.UID("repo-uid"), checkpoint.ResourceVersion, maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{}}); err != nil {
+		t.Fatal(err)
+	}
+	run := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKey{Name: base.currentRunName, Namespace: base.currentRunNamespace}, run); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err = tool.semanticCursorCheckpoint(t.Context(), run.UID, types.UID("repo-uid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveMaintainerSemanticCursorState(checkpoint, run, types.UID("repo-uid"), maintainerSemanticLatestHandle, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for sequence := int64(1); sequence <= 2; sequence++ {
+		go func() {
+			<-start
+			results <- tool.persistMaintainerSemanticCursorState(context.Background(), base.currentRunUID, types.UID("repo-uid"), checkpoint.ResourceVersion, maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{"item": sequence}, Identities: map[string]int32{"item": 1}})
+		}()
+	}
+	close(start)
+	var succeeded, stale int
+	for range 2 {
+		if persistErr := <-results; persistErr == nil {
+			succeeded++
+		} else if strings.Contains(persistErr.Error(), "stale semantic cursor handle") {
+			stale++
+		} else {
+			t.Fatalf("unexpected persistence error: %v", persistErr)
+		}
+	}
+	if succeeded != 1 || stale != 1 {
+		t.Fatalf("successes=%d stale=%d, want one of each", succeeded, stale)
+	}
+
 }
 
 func TestWorkItemWaitRejectsClientWithoutWatch(t *testing.T) {
