@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -673,11 +674,32 @@ func findMaintainerWorkItemCondition(item *triggersv1alpha1.MaintainerWorkItem, 
 	return nil
 }
 
+func TestTypedDispatchCreatesMissingLabelBeforeApplyingIt(t *testing.T) {
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 7)
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{
+		Dispatch: &triggersv1alpha1.MaintainerDispatchWorkItemCommand{IssueNumber: 7, Mode: "implementer"},
+	}}
+	githubClient := &fakeMaintainerGitHub{issue: &github.Issue{State: new("open")}}
+
+	if err := applyMaintainerDispatchLabel(context.Background(), repository, command, item, githubClient); err != nil {
+		t.Fatalf("apply dispatch label: %v", err)
+	}
+	if len(githubClient.createdLabels) != 1 || githubClient.createdLabels[0] != "implementer" {
+		t.Fatalf("created labels = %#v, want implementer", githubClient.createdLabels)
+	}
+	if len(githubClient.issue.Labels) != 1 || githubClient.issue.Labels[0].GetName() != "implementer" {
+		t.Fatalf("issue labels = %#v, want implementer", githubClient.issue.Labels)
+	}
+}
+
 type fakeMaintainerGitHub struct {
-	comments    []*github.IssueComment
-	issue       *github.Issue
-	created     int
-	editedIssue int
+	comments      []*github.IssueComment
+	issue         *github.Issue
+	labels        map[string]*github.Label
+	createdLabels []string
+	created       int
+	editedIssue   int
 }
 
 func (f *fakeMaintainerGitHub) ListIssueComments(context.Context, string, string, int, *github.IssueListCommentsOptions) ([]*github.IssueComment, *github.Response, error) {
@@ -704,6 +726,24 @@ func (f *fakeMaintainerGitHub) EditIssueComment(_ context.Context, _ string, _ s
 
 func (f *fakeMaintainerGitHub) GetIssue(context.Context, string, string, int) (*github.Issue, *github.Response, error) {
 	return f.issue, &github.Response{}, nil
+}
+
+func (f *fakeMaintainerGitHub) GetLabel(_ context.Context, _, _, name string) (*github.Label, *github.Response, error) {
+	for existingName, label := range f.labels {
+		if strings.EqualFold(existingName, name) {
+			return label, &github.Response{}, nil
+		}
+	}
+	return nil, &github.Response{Response: &http.Response{StatusCode: http.StatusNotFound}}, fmt.Errorf("label %q not found", name)
+}
+
+func (f *fakeMaintainerGitHub) CreateLabel(_ context.Context, _, _ string, label *github.Label) (*github.Label, *github.Response, error) {
+	if f.labels == nil {
+		f.labels = map[string]*github.Label{}
+	}
+	f.labels[label.GetName()] = label
+	f.createdLabels = append(f.createdLabels, label.GetName())
+	return label, &github.Response{}, nil
 }
 
 func (f *fakeMaintainerGitHub) AddLabelsToIssue(_ context.Context, _ string, _ string, _ int, labels []string) ([]*github.Label, *github.Response, error) {

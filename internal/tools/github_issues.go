@@ -303,14 +303,14 @@ type updateGitHubIssueLabelsTool struct{ githubIssueToolBase }
 
 func (t *updateGitHubIssueLabelsTool) Name() string { return "update_github_issue_labels" }
 func (t *updateGitHubIssueLabelsTool) Description() string {
-	return "Add and/or remove labels on a GitHub issue. Labels must already exist in the selected repository."
+	return "Add and/or remove labels on a GitHub issue. Labels that do not exist in the selected repository are created automatically."
 }
 func (t *updateGitHubIssueLabelsTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
 			"issue_number": {"type": "integer", "description": "Issue number in the repository at repo_path."},
-			"add_labels": {"type": "array", "items": {"type": "string"}, "description": "Existing repository labels to add."},
+			"add_labels": {"type": "array", "items": {"type": "string"}, "description": "Labels to add. Missing repository labels are created automatically."},
 			"remove_labels": {"type": "array", "items": {"type": "string"}, "description": "Labels to remove."},
 			"repo_path": {"type": "string", "description": "` + issueRepoPathSchemaDescription + `"}
 		},
@@ -337,7 +337,7 @@ func (t *updateGitHubIssueLabelsTool) Execute(ctx context.Context, input json.Ra
 	if err := requireIssueNumber(in.IssueNumber); err != nil {
 		return githubIssueError(err.Error())
 	}
-	in.AddLabels = nonBlankUnique(in.AddLabels)
+	in.AddLabels = nonBlankUniqueFold(in.AddLabels)
 	in.RemoveLabels = nonBlankUnique(in.RemoveLabels)
 	if len(in.AddLabels) == 0 && len(in.RemoveLabels) == 0 {
 		return githubIssueError("provide at least one nonblank add_labels or remove_labels entry")
@@ -349,6 +349,9 @@ func (t *updateGitHubIssueLabelsTool) Execute(ctx context.Context, input json.Ra
 	runner := t.effectiveRunner()
 	if err := ensureGitHubIssue(ctx, runner, wd, in.IssueNumber); err != nil {
 		return githubIssueError(err.Error())
+	}
+	if err := ensureGitHubLabels(ctx, runner, wd, in.AddLabels); err != nil {
+		return githubIssueError("ensure labels: " + err.Error())
 	}
 	args := []string{"issue", "edit", strconv.Itoa(in.IssueNumber)}
 	for _, label := range in.AddLabels {

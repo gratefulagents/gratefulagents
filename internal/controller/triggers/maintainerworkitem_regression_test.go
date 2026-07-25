@@ -59,6 +59,14 @@ func (s *stubTriageClient) GetIssue(ctx context.Context, owner, repo string, num
 	return s.getIssue(ctx, owner, repo, number)
 }
 
+func (s *stubTriageClient) GetLabel(context.Context, string, string, string) (*github.Label, *github.Response, error) {
+	return &github.Label{}, &github.Response{}, nil
+}
+
+func (s *stubTriageClient) CreateLabel(context.Context, string, string, *github.Label) (*github.Label, *github.Response, error) {
+	return &github.Label{}, &github.Response{}, nil
+}
+
 func (s *stubTriageClient) AddLabelsToIssue(context.Context, string, string, int, []string) ([]*github.Label, *github.Response, error) {
 	return nil, nil, nil
 }
