@@ -24,7 +24,7 @@ type maintainerMergePolicy struct {
 
 type maintainerGitHubDeliveryClient interface {
 	GetPullRequest(context.Context, string, string, int, string) (*polledPullRequest, gitHubPollResponse, error)
-	GetReviewDecision(context.Context, string, string, int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error)
+	GetReviewDecision(context.Context, string, string, int, string) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error)
 	ListCheckRuns(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error)
 	GetCommitStatus(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error)
 	GetMergePolicy(context.Context, string, string, string) (maintainerMergePolicy, error)
@@ -45,8 +45,8 @@ func (c *goGitHubMaintainerDeliveryClient) GetPullRequest(ctx context.Context, o
 	return c.poller.GetPullRequest(ctx, owner, repo, number, etag)
 }
 
-func (c *goGitHubMaintainerDeliveryClient) GetReviewDecision(ctx context.Context, owner, repo string, number int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
-	return c.poller.GetReviewDecision(ctx, owner, repo, number)
+func (c *goGitHubMaintainerDeliveryClient) GetReviewDecision(ctx context.Context, owner, repo string, number int, expectedHead string) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
+	return c.poller.GetReviewDecision(ctx, owner, repo, number, expectedHead)
 }
 
 func (c *goGitHubMaintainerDeliveryClient) ListCheckRuns(ctx context.Context, owner, repo, head string) (polledHeadRollup, gitHubPollResponse, error) {

@@ -166,9 +166,9 @@ func TestGetReviewDecisionFallsBackToIndividualReviewsWhenGraphQLIsBlank(t *test
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/graphql" && r.Method == http.MethodPost:
-			fmt.Fprint(w, `{"data":{"repository":{"pullRequest":{"reviewDecision":null}}}}`)
+			_, _ = fmt.Fprint(w, `{"data":{"repository":{"pullRequest":{"reviewDecision":null}}}}`)
 		case r.URL.Path == "/repos/acme/widgets/pulls/42/reviews" && r.Method == http.MethodGet:
-			fmt.Fprint(w, `[{"id":1,"state":"CHANGES_REQUESTED","user":{"login":"alice"},"submitted_at":"2026-01-02T03:04:05Z"},{"id":2,"state":"APPROVED","user":{"login":"alice"},"submitted_at":"2026-01-02T03:05:05Z"}]`)
+			_, _ = fmt.Fprint(w, `[{"id":1,"state":"CHANGES_REQUESTED","commit_id":"old-head","user":{"login":"alice"},"author_association":"MEMBER","submitted_at":"2026-01-02T03:04:05Z"},{"id":2,"state":"APPROVED","commit_id":"current-head","user":{"login":"alice"},"author_association":"MEMBER","submitted_at":"2026-01-02T03:05:05Z"}]`)
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.String())
 			http.NotFound(w, r)
@@ -176,7 +176,7 @@ func TestGetReviewDecisionFallsBackToIndividualReviewsWhenGraphQLIsBlank(t *test
 	}))
 	defer server.Close()
 
-	decision, _, err := poller.GetReviewDecision(context.Background(), "acme", "widgets", 42)
+	decision, _, err := poller.GetReviewDecision(context.Background(), "acme", "widgets", 42, "current-head")
 	if err != nil {
 		t.Fatalf("GetReviewDecision() error = %v", err)
 	}
@@ -186,9 +186,10 @@ func TestGetReviewDecisionFallsBackToIndividualReviewsWhenGraphQLIsBlank(t *test
 }
 
 func TestIndividualReviewDecision(t *testing.T) {
+	const head = "current-head"
 	reviews := func(values ...polledPullRequestReview) []polledPullRequestReview { return values }
 	review := func(author, state string) polledPullRequestReview {
-		return polledPullRequestReview{AuthorLogin: author, State: state}
+		return polledPullRequestReview{CommitSHA: head, AuthorLogin: author, AuthorAssociation: "MEMBER", State: state}
 	}
 	tests := []struct {
 		name    string
@@ -197,6 +198,8 @@ func TestIndividualReviewDecision(t *testing.T) {
 	}{
 		{name: "none", want: triggersv1alpha1.PullRequestReviewDecisionUnknown},
 		{name: "approval", reviews: reviews(review("alice", "APPROVED")), want: triggersv1alpha1.PullRequestReviewDecisionApproved},
+		{name: "stale approval", reviews: reviews(polledPullRequestReview{CommitSHA: "old-head", AuthorLogin: "alice", AuthorAssociation: "MEMBER", State: "APPROVED"}), want: triggersv1alpha1.PullRequestReviewDecisionUnknown},
+		{name: "untrusted approval", reviews: reviews(polledPullRequestReview{CommitSHA: head, AuthorLogin: "stranger", AuthorAssociation: "NONE", State: "APPROVED"}), want: triggersv1alpha1.PullRequestReviewDecisionUnknown},
 		{name: "changes requested wins", reviews: reviews(review("alice", "APPROVED"), review("bob", "CHANGES_REQUESTED")), want: triggersv1alpha1.PullRequestReviewDecisionChangesRequested},
 		{name: "latest decisive review per author wins", reviews: reviews(review("alice", "CHANGES_REQUESTED"), review("alice", "APPROVED")), want: triggersv1alpha1.PullRequestReviewDecisionApproved},
 		{name: "dismissal clears review", reviews: reviews(review("alice", "APPROVED"), review("alice", "DISMISSED")), want: triggersv1alpha1.PullRequestReviewDecisionUnknown},
@@ -204,7 +207,7 @@ func TestIndividualReviewDecision(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := individualReviewDecision(tt.reviews); got != tt.want {
+			if got := individualReviewDecision(tt.reviews, head); got != tt.want {
 				t.Fatalf("individualReviewDecision() = %q, want %q", got, tt.want)
 			}
 		})

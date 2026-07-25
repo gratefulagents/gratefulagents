@@ -71,6 +71,7 @@ type polledHeadRollup struct {
 
 type polledPullRequestReview struct {
 	ID                int64
+	CommitSHA         string
 	State             string
 	Body              string
 	AuthorLogin       string
@@ -101,7 +102,7 @@ type gitHubPollResponse struct {
 type pullRequestGitHubPoller interface {
 	GetPullRequest(context.Context, string, string, int, string) (*polledPullRequest, gitHubPollResponse, error)
 	ListReviews(context.Context, string, string, int, time.Time) ([]polledPullRequestReview, gitHubPollResponse, error)
-	GetReviewDecision(context.Context, string, string, int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error)
+	GetReviewDecision(context.Context, string, string, int, string) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error)
 	ListIssueComments(context.Context, string, string, int, time.Time) ([]polledIssueComment, gitHubPollResponse, error)
 	ListCheckRuns(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error)
 	GetCommitStatus(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error)
@@ -203,6 +204,7 @@ func (p *goGitHubPullRequestPoller) ListReviews(ctx context.Context, owner, repo
 			}
 			reviews = append(reviews, polledPullRequestReview{
 				ID:                value.GetID(),
+				CommitSHA:         value.GetCommitID(),
 				State:             value.GetState(),
 				Body:              value.GetBody(),
 				AuthorLogin:       value.GetUser().GetLogin(),
@@ -227,7 +229,7 @@ func (p *goGitHubPullRequestPoller) ListReviews(ctx context.Context, owner, repo
 	return reviews, metadata, nil
 }
 
-func (p *goGitHubPullRequestPoller) GetReviewDecision(ctx context.Context, owner, repo string, number int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
+func (p *goGitHubPullRequestPoller) GetReviewDecision(ctx context.Context, owner, repo string, number int, expectedHead string) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
 	body := map[string]any{
 		"query":     `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewDecision}}}`,
 		"variables": map[string]any{gitHubOwnerVariable: owner, gitHubRepoVariable: repo, "number": number},
@@ -273,35 +275,39 @@ func (p *goGitHubPullRequestPoller) GetReviewDecision(ctx context.Context, owner
 		if err != nil {
 			return triggersv1alpha1.PullRequestReviewDecisionUnknown, metadata, err
 		}
-		return individualReviewDecision(reviews), metadata, nil
+		return individualReviewDecision(reviews, expectedHead), metadata, nil
 	default:
 		return triggersv1alpha1.PullRequestReviewDecisionUnknown, metadata, nil
 	}
 }
 
 // individualReviewDecision approximates GitHub's aggregate decision from REST
-// reviews: each reviewer's latest decisive state wins, while any outstanding
-// request for changes takes precedence over approvals.
-func individualReviewDecision(reviews []polledPullRequestReview) triggersv1alpha1.PullRequestReviewDecision {
-	latest := make(map[string]string)
+// reviews by trusted repository actors. Each reviewer's latest decisive state
+// wins; changes requests take precedence, and approvals must bind to the head.
+func individualReviewDecision(reviews []polledPullRequestReview, expectedHead string) triggersv1alpha1.PullRequestReviewDecision {
+	type decisiveReview struct {
+		state     string
+		commitSHA string
+	}
+	latest := make(map[string]decisiveReview)
 	for _, review := range reviews {
 		author := strings.ToLower(strings.TrimSpace(review.AuthorLogin))
-		if author == "" {
+		if !(&triggersv1alpha1.TriggerAuth{}).IsGitHubActorAllowed(author, review.AuthorAssociation) {
 			continue
 		}
 		switch state := strings.ToUpper(strings.TrimSpace(review.State)); state {
 		case "APPROVED", "CHANGES_REQUESTED":
-			latest[author] = state
+			latest[author] = decisiveReview{state: state, commitSHA: strings.TrimSpace(review.CommitSHA)}
 		case "DISMISSED":
 			delete(latest, author)
 		}
 	}
 	decision := triggersv1alpha1.PullRequestReviewDecisionUnknown
-	for _, state := range latest {
-		if state == "CHANGES_REQUESTED" {
+	for _, review := range latest {
+		if review.state == "CHANGES_REQUESTED" {
 			return triggersv1alpha1.PullRequestReviewDecisionChangesRequested
 		}
-		if state == "APPROVED" {
+		if review.state == "APPROVED" && expectedHead != "" && review.commitSHA == expectedHead {
 			decision = triggersv1alpha1.PullRequestReviewDecisionApproved
 		}
 	}

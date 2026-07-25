@@ -55,11 +55,11 @@ func (f *fakeMaintainerDeliveryClient) GetPullRequest(context.Context, string, s
 	}
 	return pull, gitHubPollResponse{}, nil
 }
-func (f *fakeMaintainerDeliveryClient) GetReviewDecision(context.Context, string, string, int) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
+func (f *fakeMaintainerDeliveryClient) GetReviewDecision(_ context.Context, _, _ string, _ int, expectedHead string) (triggersv1alpha1.PullRequestReviewDecision, gitHubPollResponse, error) {
 	if f.review != "" && f.review != triggersv1alpha1.PullRequestReviewDecisionUnknown {
 		return f.review, gitHubPollResponse{}, nil
 	}
-	return individualReviewDecision(f.individualReviews), gitHubPollResponse{}, nil
+	return individualReviewDecision(f.individualReviews, expectedHead), gitHubPollResponse{}, nil
 }
 func (f *fakeMaintainerDeliveryClient) ListCheckRuns(context.Context, string, string, string) (polledHeadRollup, gitHubPollResponse, error) {
 	return f.checks, gitHubPollResponse{}, nil
@@ -210,7 +210,7 @@ func TestRequestMergeMergesApprovedPullRequestWithoutBranchPolicy(t *testing.T) 
 	mergedAt := time.Now().UTC()
 	githubClient := &fakeMaintainerDeliveryClient{
 		pulls:             []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head}},
-		individualReviews: []polledPullRequestReview{{AuthorLogin: "reviewer", State: "APPROVED"}},
+		individualReviews: []polledPullRequestReview{{CommitSHA: head, AuthorLogin: "reviewer", AuthorAssociation: "MEMBER", State: "APPROVED"}},
 		checks:            polledHeadRollup{HeadSHA: head, State: gitHubRollupSuccess, Count: 1},
 		statuses:          polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
 		noRequiredReview:  true,

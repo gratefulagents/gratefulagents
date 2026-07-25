@@ -238,7 +238,7 @@ func (r *PullRequestMonitorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return r.failPoll(ctx, monitor, "Reviews", err, reviewResponse, now)
 	}
 	started = time.Now()
-	reviewDecision, decisionResponse, err := poller.GetReviewDecision(ctx, owner, repo, int(monitor.Spec.Number))
+	reviewDecision, decisionResponse, err := poller.GetReviewDecision(ctx, owner, repo, int(monitor.Spec.Number), headSHA)
 	observePoll("review-decision", pollResult(decisionResponse, err), time.Since(started))
 	r.observeResponse("review-decision", decisionResponse)
 	if err := r.recordReviewObservation(ctx, monitor, err, now); err != nil {
