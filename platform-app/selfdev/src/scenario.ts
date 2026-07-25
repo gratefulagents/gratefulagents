@@ -15,6 +15,7 @@ import type {
   LinearProject,
   MaintainerWorkItem,
   ModeTemplate,
+  MyAnthropicUsage,
   MyCredentials,
   MyOpenAIUsage,
   NotificationInfo,
@@ -94,6 +95,7 @@ export interface Scenario {
   models: { provider: string; baseUrl: string; models: string[] };
   credentials: MyCredentials;
   openAIUsage: MyOpenAIUsage;
+  anthropicUsage: MyAnthropicUsage;
   soul: Soul;
   gitIdentity: GitIdentity;
 

@@ -4,6 +4,7 @@
 import { create } from "@bufbuild/protobuf";
 import {
   GitIdentitySchema,
+  MyAnthropicUsageSchema,
   MyCredentialsSchema,
   MyOpenAIUsageSchema,
   SoulSchema,
@@ -42,6 +43,7 @@ export const emptyScenario: Scenario = {
   models: MODEL_LIST,
   credentials: create(MyCredentialsSchema, { namespace: NS }),
   openAIUsage: create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
+  anthropicUsage: create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
   soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
 

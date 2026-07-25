@@ -1,18 +1,20 @@
 import { create } from "@bufbuild/protobuf";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import UsagePage from "@/components/settings/UsagePage";
 import { client } from "@/lib/client";
 import {
+  AnthropicUsageLimitSchema,
+  MyAnthropicUsageSchema,
   MyOpenAIUsageSchema,
   type MyOpenAIUsage,
   OpenAIUsageLimitSchema,
 } from "@/rpc/platform/service_pb";
 
 vi.mock("@/lib/client", () => ({
-  client: { getMyOpenAIUsage: vi.fn() },
+  client: { getMyOpenAIUsage: vi.fn(), getMyAnthropicUsage: vi.fn() },
 }));
 
 function renderPage() {
@@ -22,6 +24,12 @@ function renderPage() {
     </MemoryRouter>,
   );
 }
+
+beforeEach(() => {
+  vi.mocked(client.getMyAnthropicUsage).mockResolvedValue(
+    create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
+  );
+});
 
 afterEach(() => {
   cleanup();
@@ -71,6 +79,98 @@ describe("UsagePage", () => {
     expect(screen.queryByText(/Est. cost/)).toBeNull();
   });
 
+  it("renders every available Claude OAuth allowance and credential stat", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
+      create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
+    );
+    vi.mocked(client.getMyAnthropicUsage).mockResolvedValue(
+      create(MyAnthropicUsageSchema, {
+        anthropicOauthPresent: true,
+        accountEmail: "claude@example.com",
+        accountUuid: "account-123",
+        credentialExpiresAtUnix: 1893456000n,
+        credentialLastRefreshedAtUnix: 1893427200n,
+        usageAvailable: true,
+        limits: [
+          create(AnthropicUsageLimitSchema, {
+            label: "5 hour",
+            usedPercent: 42,
+            resetAtUnix: 1893456000n,
+          }),
+          create(AnthropicUsageLimitSchema, {
+            label: "Weekly Opus",
+            usedPercent: 11,
+            resetAtUnix: 1893888000n,
+          }),
+        ],
+        extraUsageAvailable: true,
+        extraUsageEnabled: true,
+        extraUsageMonthlyLimitUsdCents: 5000,
+        extraUsageUsedCreditsUsdCents: 1250,
+        extraUsageUtilization: 25,
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Claude account")).toBeTruthy();
+    expect(screen.getByText("claude@example.com")).toBeTruthy();
+    expect(screen.getByText("Account account-123")).toBeTruthy();
+    expect(screen.getByText("Weekly Opus")).toBeTruthy();
+    expect(screen.getByText("89% left")).toBeTruthy();
+    expect(screen.getByText("$50.00")).toBeTruthy();
+    expect(screen.getByText("$12.50")).toBeTruthy();
+    expect(screen.getByText("25%")).toBeTruthy();
+    expect(screen.getByText("Token expires")).toBeTruthy();
+    expect(screen.getByText("Last refreshed")).toBeTruthy();
+  });
+
+  it("renders ChatGPT without waiting for a slow Claude request", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
+      create(MyOpenAIUsageSchema, { openaiOauthPresent: true, planType: "pro" }),
+    );
+    vi.mocked(client.getMyAnthropicUsage).mockReturnValue(new Promise(() => {}));
+
+    renderPage();
+
+    expect(await screen.findByText("ChatGPT Pro")).toBeTruthy();
+    expect(screen.getByText("Loading provider usage")).toBeTruthy();
+  });
+
+  it("applies a refreshed ChatGPT response while Claude refresh is still pending", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValueOnce(
+      create(MyOpenAIUsageSchema, { openaiOauthPresent: true, planType: "pro" }),
+    );
+    vi.mocked(client.getMyAnthropicUsage).mockResolvedValueOnce(
+      create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
+    );
+    renderPage();
+    expect(await screen.findByText("ChatGPT Pro")).toBeTruthy();
+
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValueOnce(
+      create(MyOpenAIUsageSchema, { openaiOauthPresent: true, planType: "business" }),
+    );
+    vi.mocked(client.getMyAnthropicUsage).mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh usage" }));
+
+    expect(await screen.findByText("ChatGPT Business")).toBeTruthy();
+    expect(screen.queryByText("ChatGPT Pro")).toBeNull();
+  });
+
+  it("prompts users to reconnect a rejected Anthropic OAuth credential", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
+      create(MyOpenAIUsageSchema, { openaiOauthPresent: false }),
+    );
+    vi.mocked(client.getMyAnthropicUsage).mockResolvedValue(
+      create(MyAnthropicUsageSchema, { anthropicOauthPresent: true, reconnectRequired: true }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Reconnect Anthropic to see usage")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Open Credentials" })[0]?.getAttribute("href")).toBe("/settings/credentials");
+  });
+
   it("points disconnected users to Credentials", async () => {
     vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
       create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
@@ -79,7 +179,7 @@ describe("UsagePage", () => {
     renderPage();
 
     expect(await screen.findByText("Connect OpenAI to see usage")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Open Credentials" }).getAttribute("href")).toBe(
+    expect(screen.getAllByRole("link", { name: "Open Credentials" })[0]?.getAttribute("href")).toBe(
       "/settings/credentials",
     );
   });
@@ -88,7 +188,7 @@ describe("UsagePage", () => {
     vi.mocked(client.getMyOpenAIUsage).mockRejectedValueOnce(new Error("backend unavailable"));
     renderPage();
 
-    expect(await screen.findByText("Usage unavailable")).toBeTruthy();
+    expect(await screen.findByText("ChatGPT usage unavailable")).toBeTruthy();
     expect(screen.getByText("backend unavailable")).toBeTruthy();
 
     let resolveRetry!: (value: MyOpenAIUsage) => void;
@@ -99,7 +199,7 @@ describe("UsagePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     expect(screen.getByRole("button", { name: "Trying again…" })).toBeTruthy();
-    expect(screen.getByText("Usage unavailable")).toBeTruthy();
+    expect(screen.getByText("ChatGPT usage unavailable")).toBeTruthy();
 
     resolveRetry(create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }));
     expect(await screen.findByText("Connect OpenAI to see usage")).toBeTruthy();

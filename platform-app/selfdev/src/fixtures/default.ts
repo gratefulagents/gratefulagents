@@ -19,6 +19,8 @@ import {
   GitIdentitySchema,
   LinearProjectSchema,
   MaintainerWorkItemSchema,
+  AnthropicUsageLimitSchema,
+  MyAnthropicUsageSchema,
   MyCredentialsSchema,
   MyOpenAIUsageSchema,
   NotificationInfoSchema,
@@ -1212,6 +1214,38 @@ const openAIUsage = create(MyOpenAIUsageSchema, {
   fetchedAtUnix: unix(SCENARIO_NOW),
 });
 
+const anthropicUsage = create(MyAnthropicUsageSchema, {
+  anthropicOauthPresent: true,
+  accountEmail: "dana@example.com",
+  accountUuid: "acc_01J7DEMO9QF3",
+  credentialExpiresAtUnix: unix(hoursAgo(-5)),
+  credentialLastRefreshedAtUnix: unix(hoursAgo(3)),
+  usageAvailable: true,
+  limits: [
+    create(AnthropicUsageLimitSchema, {
+      label: "5 hour",
+      usedPercent: 31,
+      resetAtUnix: unix(hoursAgo(-2)),
+    }),
+    create(AnthropicUsageLimitSchema, {
+      label: "Weekly",
+      usedPercent: 54,
+      resetAtUnix: unix(daysAgo(-4)),
+    }),
+    create(AnthropicUsageLimitSchema, {
+      label: "Weekly Sonnet",
+      usedPercent: 63,
+      resetAtUnix: unix(daysAgo(-4)),
+    }),
+  ],
+  extraUsageAvailable: true,
+  extraUsageEnabled: true,
+  extraUsageMonthlyLimitUsdCents: 5000,
+  extraUsageUsedCreditsUsdCents: 1248.5,
+  extraUsageUtilization: 24.97,
+  fetchedAtUnix: unix(SCENARIO_NOW),
+});
+
 const soul = create(SoulSchema, {
   content: [
     "# SOUL",
@@ -1373,6 +1407,7 @@ export const defaultScenario: Scenario = {
   models: MODEL_LIST,
   credentials,
   openAIUsage,
+  anthropicUsage,
   soul,
   gitIdentity,
 
