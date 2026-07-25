@@ -202,11 +202,43 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   // back to the primary repo otherwise (e.g. after navigating to another run).
   const selectedDiffRepo = workspaceRepos.find((repo) => repo.path === diffRepoPath);
   const diffRepoParam = selectedDiffRepo && !selectedDiffRepo.isPrimary ? selectedDiffRepo.path : "";
+  // Every PR the run produced. A PR-loop reviewer run may only ever record
+  // its pull request on `prLoop`, so that counts too.
+  const prUrls = useMemo(() => {
+    if (!run) {
+      return [] as string[];
+    }
+    const urls = runPullRequestUrls(run);
+    const fallback =
+      run.pullRequestUrl || (run.reviewArtifactKind === "PullRequest" ? run.reviewArtifactName : "");
+    if (urls.length === 0 && fallback) {
+      urls.push(fallback);
+    }
+    return urls;
+  }, [run]);
+  const hasPullRequestTab = prUrls.length > 0 || Boolean(run?.prLoop);
+  // Which tabs this run can actually show. Resolved before the pane streams
+  // below, because the stored tab may name a tab this run does not offer and
+  // the stream has to follow the tab that really renders.
+  const availableInspectorTabs = useMemo<InspectorTab[]>(
+    () => [
+      "diff",
+      ...(hasPullRequestTab ? (["pr"] as const) : []),
+      "graph",
+      "logs",
+      "errors",
+      ...(run?.traceId ? (["trace"] as const) : []),
+    ],
+    [hasPullRequestTab, run?.traceId],
+  );
+  const activeInspectorTab: InspectorTab = availableInspectorTabs.includes(inspectorTab)
+    ? inspectorTab
+    : "diff";
   // Each secondary stream only runs while its inspector tab is on screen; the
   // hooks keep the last payload cached across tab switches.
   const paneLive = useCallback(
-    (tab: InspectorTab) => inspectorOpen && inspectorTab === tab,
-    [inspectorOpen, inspectorTab],
+    (tab: InspectorTab) => inspectorOpen && activeInspectorTab === tab,
+    [inspectorOpen, activeInspectorTab],
   );
   const diffState = useDiff(namespace, name, run?.phase ?? "", "AgentRun", diffRepoParam, {
     enabled: paneLive("diff"),
@@ -520,29 +552,17 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
 
   const prUrl =
     run.pullRequestUrl || (run.reviewArtifactKind === "PullRequest" ? run.reviewArtifactName : "");
-  const prUrls = runPullRequestUrls(run);
-  if (prUrls.length === 0 && prUrl) {
-    prUrls.push(prUrl);
-  }
   const showCreatePRButton = hasDiff && run.reviewArtifactKind !== "PullRequest";
   const planContent = timelinePlanContent;
   const hasPlan = Boolean(planContent);
   const inPlanMode = run.modeName === "plan";
   const showPlanApprovalPanel = inPlanMode && hasPlan;
   const showPlanningBanner = inPlanMode && !hasPlan;
-  // Only offer tabs that can actually show something, and drop back to
-  // Changes when the stored tab no longer applies to this run.
-  const inspectorTabs: InspectorTabDef[] = [
-    { id: "diff", dot: hasDiff },
-    ...(prUrls.length > 0 ? [{ id: "pr" as const }] : []),
-    { id: "graph" },
-    { id: "logs" },
-    { id: "errors" },
-    ...(run.traceId ? [{ id: "trace" as const }] : []),
-  ];
-  const activeInspectorTab: InspectorTab = inspectorTabs.some((tab) => tab.id === inspectorTab)
-    ? inspectorTab
-    : "diff";
+  // Decorate the resolved tab list; availability itself is settled above so
+  // the pane streams and the nav can never disagree.
+  const inspectorTabs: InspectorTabDef[] = availableInspectorTabs.map((id) =>
+    id === "diff" ? { id, dot: hasDiff } : { id },
+  );
   const failedGates = Boolean(
     run.gateResults?.length && run.gateResults.some((gate) => !gate.passed && !gate.skipped),
   );
