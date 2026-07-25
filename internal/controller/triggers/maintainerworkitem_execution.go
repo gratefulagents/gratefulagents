@@ -133,7 +133,33 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 			return true, nil
 		})
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision:
-		return rejectMaintainerCommand("resolveDecision commands from AgentRuns are not authorized")
+		if command.Spec.HumanIssuer == nil {
+			return rejectMaintainerCommand("resolveDecision commands from AgentRuns are not authorized")
+		}
+		resolve := command.Spec.ResolveDecision
+		return r.retryMaintainerWorkItemStatusMutation(ctx, client.ObjectKeyFromObject(item), func(fresh *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
+			if fresh.Status.ResolvedDecision != nil && fresh.Status.ResolvedDecision.ResolvedByCommand.Name == command.Name {
+				return false, nil
+			}
+			if fresh.Status.PendingDecision == nil || fresh.Status.PendingDecision.ID != resolve.DecisionID {
+				return false, rejectMaintainerCommand("work item does not have a matching pending decision")
+			}
+			if fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence {
+				return false, rejectMaintainerCommand(currentProjectionMessage(fresh))
+			}
+			now := metav1.Now()
+			fresh.Status.PendingDecision = nil
+			fresh.Status.ResolvedDecision = &triggersv1alpha1.MaintainerResolvedDecision{
+				ID:                resolve.DecisionID,
+				HumanSubject:      resolve.HumanAnswer.Subject,
+				Answer:            resolve.HumanAnswer.Answer,
+				ResolvedAt:        now,
+				ResolvedByCommand: corev1.LocalObjectReference{Name: command.Name},
+			}
+			fresh.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseTriaged
+			fresh.Status.ProjectionSequence++
+			return true, nil
+		})
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem:
 		configuredMode, err := configuredMaintainerDispatchMode(repository)
 		if err != nil {

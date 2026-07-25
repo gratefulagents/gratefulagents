@@ -311,7 +311,7 @@ func TestFinalizeWorkItemRetriesPartialCloseWithoutLosingAttestation(t *testing.
 	scope := &triggersv1alpha1.MaintainerAcceptedScope{Statement: "deliver guarded finalization", AcceptanceCriteria: []string{"verified"}}
 	item := &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: maintainerDeliveryTestItem, Namespace: maintainerWorkItemTestNamespace, UID: "item-uid"}, Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: localRef(repository.Name), IssueNumber: 7, AcceptedScope: scope}, Status: triggersv1alpha1.MaintainerWorkItemStatus{ProjectionSequence: 5, PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: "monitor", Repository: projectionTestRepository, Number: 11, HeadSHA: maintainerDeliveryTestHeadSHA, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged, MergedAt: &now}}, AgentRuns: []triggersv1alpha1.MaintainerWorkItemAgentRunProjection{{Name: maintainerDeliveryTestImplementer, UID: maintainerDeliveryTestRunUID, Role: triggersv1alpha1.MaintainerWorkItemAgentRunRoleImplementer, Phase: string(platformv1alpha1.AgentRunPhasePaused)}}}}
 	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: maintainerDeliveryTestImplementer, Namespace: maintainerWorkItemTestNamespace, UID: maintainerDeliveryTestRunUID, Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemNameLabelKey: item.Name, triggersv1alpha1.MaintainerWorkItemUIDLabelKey: string(item.UID)}}, Status: platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhasePaused}}
-	command := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: "finalize-command", Namespace: maintainerWorkItemTestNamespace}, Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{Preconditions: triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID}, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem, Finalize: &triggersv1alpha1.MaintainerFinalizeWorkItemCommand{IssueNumber: 7, AcceptedScopeHash: maintainerAcceptedScopeHash(scope), DeliverySummary: "all accepted scope delivered", DeliveryEvidence: "PR octo/widgets#11", ImplementerRunNames: []string{maintainerDeliveryTestImplementer}}}}
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: "finalize-command", Namespace: maintainerWorkItemTestNamespace}, Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{HumanIssuer: &triggersv1alpha1.MaintainerWorkItemCommandHumanIssuer{Subject: "user:dashboard-alice", Proof: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, Preconditions: triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID}, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeFinalizeWorkItem, Finalize: &triggersv1alpha1.MaintainerFinalizeWorkItemCommand{IssueNumber: 7, AcceptedScopeHash: triggersv1alpha1.MaintainerAcceptedScopeHash(scope), DeliverySummary: "all accepted scope delivered", DeliveryEvidence: "PR octo/widgets#11", ImplementerRunNames: []string{maintainerDeliveryTestImplementer}}}}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(item, command).WithObjects(repository, item, run, command).Build()
 	reconciler := &GitHubRepositoryReconciler{Client: k8sClient, Scheme: scheme}
 	delivery := &fakeMaintainerDeliveryClient{pulls: []*polledPullRequest{{Merged: true, MergedAt: now.Time, HeadSHA: item.Status.PullRequests[0].HeadSHA}}}
@@ -329,6 +329,9 @@ func TestFinalizeWorkItemRetriesPartialCloseWithoutLosingAttestation(t *testing.
 	if partial.Status.DeliveryAttestation == nil || partial.Status.DeliveryAttestation.RunSuccessRequestedAt == nil || partial.Status.DeliveryAttestation.CompletedAt != nil {
 		t.Fatalf("partial attestation = %#v", partial.Status.DeliveryAttestation)
 	}
+	if partial.Status.DeliveryAttestation.Issuer != nil || partial.Status.DeliveryAttestation.HumanIssuer == nil || partial.Status.DeliveryAttestation.HumanIssuer.Subject != "user:dashboard-alice" {
+		t.Fatalf("finalization issuer = %#v", partial.Status.DeliveryAttestation)
+	}
 	if err := reconciler.processMaintainerFinalizeWorkItem(context.Background(), repository, command, item, issues, delivery, false); err != nil {
 		t.Fatal(err)
 	}
@@ -341,5 +344,50 @@ func TestFinalizeWorkItemRetriesPartialCloseWithoutLosingAttestation(t *testing.
 	}
 	if completed.Status.DeliveryAttestation.CompletedAt == nil || completed.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseDelivered {
 		t.Fatalf("completed item = %#v", completed.Status)
+	}
+}
+
+func TestHumanRequestMergeRejectedWithoutMergePermission(t *testing.T) {
+	reconciler, repository, item, command := newMaintainerMergeFixture(t)
+	repository.Spec.Maintainer.AllowPullRequestMerge = false
+	if err := reconciler.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	command.Spec.HumanIssuer = &triggersv1alpha1.MaintainerWorkItemCommandHumanIssuer{Subject: "user:dashboard-alice", Proof: ""}
+	head := command.Spec.RequestMerge.ExpectedHeadSHA
+	mergedAt := time.Now().UTC()
+	githubClient := &fakeMaintainerDeliveryClient{
+		pulls:    []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head}},
+		review:   triggersv1alpha1.PullRequestReviewDecisionApproved,
+		checks:   polledHeadRollup{HeadSHA: head, State: gitHubRollupSuccess, Count: 1},
+		statuses: polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
+	}
+	if err := reconciler.processMaintainerRequestMerge(context.Background(), repository, command, item, githubClient, true); err != nil {
+		t.Fatal(err)
+	}
+	if phase := commandPhase(t, reconciler, command); phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected {
+		t.Fatalf("phase=%s; human merge without AllowPullRequestMerge should be rejected", phase)
+	}
+}
+
+func TestAgentRunRequestMergeRejectedWithoutMergePermission(t *testing.T) {
+	reconciler, repository, item, command := newMaintainerMergeFixture(t)
+	repository.Spec.Maintainer.AllowPullRequestMerge = false
+	if err := reconciler.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	// command has no HumanIssuer, so the agent delegation check applies.
+	head := command.Spec.RequestMerge.ExpectedHeadSHA
+	githubClient := &fakeMaintainerDeliveryClient{
+		pulls:    []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}},
+		review:   triggersv1alpha1.PullRequestReviewDecisionApproved,
+		checks:   polledHeadRollup{HeadSHA: head, State: gitHubRollupSuccess, Count: 1},
+		statuses: polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
+	}
+	if err := reconciler.processMaintainerRequestMerge(context.Background(), repository, command, item, githubClient, true); err != nil {
+		t.Fatal(err)
+	}
+	if phase := commandPhase(t, reconciler, command); phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected {
+		t.Fatalf("phase=%s; agent merge without AllowPullRequestMerge should be rejected", phase)
 	}
 }

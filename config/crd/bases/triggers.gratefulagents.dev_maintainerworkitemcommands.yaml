@@ -174,6 +174,31 @@ spec:
                 - deliverySummary
                 - issueNumber
                 type: object
+              humanIssuer:
+                description: MaintainerWorkItemCommandHumanIssuer identifies a dashboard
+                  user that issued a command.
+                properties:
+                  displayName:
+                    description: |-
+                      DisplayName is a human-readable label for audit and UI purposes only.
+                      It is NOT covered by the proof and must not be trusted for authorization.
+                    maxLength: 253
+                    type: string
+                  proof:
+                    description: Proof is an HMAC from the repository's human command
+                      capability secret.
+                    pattern: ^[a-f0-9]{64}$
+                    type: string
+                  subject:
+                    description: Subject is the authenticated dashboard identity (e.g.
+                      OIDC sub claim).
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - proof
+                - subject
+                type: object
               idempotencyKey:
                 maxLength: 128
                 minLength: 1
@@ -399,7 +424,6 @@ spec:
                 type: string
             required:
             - idempotencyKey
-            - issuer
             - payloadHash
             - preconditions
             - repositoryRef
@@ -422,6 +446,8 @@ spec:
               rule: (self.type == 'RequestMerge') == has(self.requestMerge)
             - message: finalize is required only when type is FinalizeWorkItem
               rule: (self.type == 'FinalizeWorkItem') == has(self.finalize)
+            - message: exactly one of issuer or humanIssuer is required
+              rule: has(self.issuer) != has(self.humanIssuer)
           status:
             description: MaintainerWorkItemCommandStatus defines the durable receipt
               for a command.

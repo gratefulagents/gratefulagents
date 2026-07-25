@@ -143,7 +143,7 @@ func (t *triageIssueTool) Execute(ctx context.Context, input json.RawMessage, _ 
 			RepositoryRef:  workItem.Spec.RepositoryRef,
 			IdempotencyKey: in.IdempotencyKey,
 			PayloadHash:    payloadHash,
-			Issuer: triggersv1alpha1.MaintainerWorkItemCommandIssuer{
+			Issuer: &triggersv1alpha1.MaintainerWorkItemCommandIssuer{
 				RunName: current.Name,
 				UID:     current.UID,
 				Proof:   proof,
@@ -161,7 +161,7 @@ func (t *triageIssueTool) Execute(ctx context.Context, input json.RawMessage, _ 
 		if err := t.k8sClient.Get(ctx, client.ObjectKeyFromObject(command), existing); err != nil {
 			return triageIssueError("failed to get existing triage command: %v", err)
 		}
-		if existing.Spec.IdempotencyKey != in.IdempotencyKey || existing.Spec.PayloadHash != payloadHash || existing.Spec.Issuer.UID != current.UID || existing.Spec.Issuer.Proof != proof || existing.Spec.RepositoryRef.Name != workItem.Spec.RepositoryRef.Name {
+		if existing.Spec.IdempotencyKey != in.IdempotencyKey || existing.Spec.PayloadHash != payloadHash || existing.Spec.Issuer == nil || existing.Spec.Issuer.UID != current.UID || existing.Spec.Issuer.Proof != proof || existing.Spec.RepositoryRef.Name != workItem.Spec.RepositoryRef.Name {
 			return triageIssueError("idempotency payload mismatch for triage command %q", command.Name)
 		}
 		return triageIssueResult(existing, workItem, true)

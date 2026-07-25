@@ -183,9 +183,12 @@ export function GitHubRepositoryDetail() {
             </FactList>
           </DetailSection>
 
-          <DetailSection title="Maintainer">
+          <section className="space-y-3">
+            <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">
+              Maintainer
+            </h2>
             <MaintainerPanel repo={repo} />
-          </DetailSection>
+          </section>
 
           <RunsSection count={runs.length} loading={runsLoading}>
             <AgentRunTable
