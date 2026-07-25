@@ -584,6 +584,21 @@ func TestWakeAgentRunSupportsOwnerlessGeneratedProjectRuns(t *testing.T) {
 	}
 }
 
+func TestWakeAgentRunSupportsGeneratedRunWithCRDPrunedTriggerType(t *testing.T) {
+	t.Parallel()
+	maintainer := maintainerRun()
+	target, workItem := generatedFleetRun("generated-target", platformv1alpha1.AgentRunPhaseRunning)
+	target.Spec.Trigger.Type = ""
+	base, k8sClient, stateStore := newMaintainerToolBase(t, maintainer, target)
+	if err := k8sClient.Create(context.Background(), workItem); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (&wakeAgentRunTool{maintainerToolBase: base}).Execute(context.Background(), json.RawMessage(`{"run_name":"generated-target","message":"deliver despite legacy CRD pruning"}`), "")
+	if err != nil || result.IsError || len(stateStore.messages) != 1 {
+		t.Fatalf("Execute() = (%#v, %v), messages=%d", result, err, len(stateStore.messages))
+	}
+}
+
 func TestWakeAgentRunRejectsSpoofedGeneratedProjectBindings(t *testing.T) {
 	t.Parallel()
 	controller := true
@@ -608,6 +623,9 @@ func TestWakeAgentRunRejectsSpoofedGeneratedProjectBindings(t *testing.T) {
 		}},
 		{name: "wrong runtime trigger", mutate: func(run *platformv1alpha1.AgentRun, _ *triggersv1alpha1.MaintainerWorkItem) {
 			run.Annotations["triggers.gratefulagents.dev/runtime-trigger-name"] = "other"
+		}},
+		{name: "conflicting trigger type", mutate: func(run *platformv1alpha1.AgentRun, _ *triggersv1alpha1.MaintainerWorkItem) {
+			run.Spec.Trigger.Type = "slack"
 		}},
 		{name: "wrong project context", mutate: func(run *platformv1alpha1.AgentRun, _ *triggersv1alpha1.MaintainerWorkItem) {
 			run.Spec.Context.ProjectRef.Name = "other-project"

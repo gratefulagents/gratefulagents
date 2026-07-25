@@ -221,7 +221,7 @@ spec:
                                             - "openrouter" (OpenAI-compatible API with OpenRouter default URL)
                                             - "groq" (OpenAI-compatible API with Groq default URL)
                                             - "xai" (OpenAI-compatible API with xAI default URL)
-                                            - "copilot" (GitHub Copilot API)
+                                            - "copilot" (GitHub OAuth provider)
 
                                             When omitted, "openai" is used.
                                         enum:
