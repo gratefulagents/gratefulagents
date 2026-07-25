@@ -433,7 +433,7 @@ func (r *GitHubRepositoryReconciler) recreateMaintainerDispatchRun(ctx context.C
 		return rejectMaintainerCommand("recovery dispatch no longer owns its capacity reservation")
 	}
 	issueID := strconv.Itoa(issue.GetNumber())
-	request := githubIssueUserRequest(issue.GetNumber(), issue.GetTitle(), issue.GetBody())
+	request := githubIssueUserRequest(issue.GetNumber(), issue.GetTitle(), issue.GetBody(), false)
 	if _, err := r.createAgentRun(ctx, repository, issueID, issue.GetNumber(), issue.GetHTMLURL(), request, issue.GetUser().GetLogin(), &platformv1alpha1.ModeRef{Name: command.Spec.Dispatch.Mode}); err != nil {
 		return fmt.Errorf("recreating deleted implementer %s: %w", expectedRunName, err)
 	}

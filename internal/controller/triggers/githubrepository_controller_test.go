@@ -34,13 +34,33 @@ func (f *fakeGitHubIssueLister) ListByRepo(ctx context.Context, owner, repo stri
 	return f.pages[idx].issues, &github.Response{NextPage: f.pages[idx].nextPage}, nil
 }
 
-func TestGitHubIssueUserRequestIncludesAutoCloseDirective(t *testing.T) {
+func TestGitHubIssueUserRequestAutoCloseDirective(t *testing.T) {
 	t.Parallel()
 
-	got := githubIssueUserRequest(42, "Fix the widget", "The widget is broken.")
-	want := "# GitHub Issue #42: Fix the widget\n\nThe widget is broken.\n\nWhen creating a pull request for this work, include `Closes #42` in the PR description so GitHub automatically closes the issue."
-	if got != want {
-		t.Fatalf("githubIssueUserRequest() = %q, want %q", got, want)
+	const issue = "# GitHub Issue #42: Fix the widget\n\nThe widget is broken."
+	tests := []struct {
+		name             string
+		includeAutoClose bool
+		want             string
+	}{
+		{
+			name:             "direct issue trigger",
+			includeAutoClose: true,
+			want:             issue + "\n\nWhen creating a pull request for this work, include `Closes #42` in the PR description so GitHub automatically closes the issue.",
+		},
+		{
+			name:             "maintainer dispatch",
+			includeAutoClose: false,
+			want:             issue,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := githubIssueUserRequest(42, "Fix the widget", "The widget is broken.", tt.includeAutoClose); got != tt.want {
+				t.Fatalf("githubIssueUserRequest() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

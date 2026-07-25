@@ -161,8 +161,12 @@ func (r *GitHubRepositoryReconciler) reconcileWithMaintainer(ctx context.Context
 	return result, nil
 }
 
-func githubIssueUserRequest(number int, title, body string) string {
-	return fmt.Sprintf("# GitHub Issue #%d: %s\n\n%s\n\nWhen creating a pull request for this work, include `Closes #%d` in the PR description so GitHub automatically closes the issue.", number, title, body, number)
+func githubIssueUserRequest(number int, title, body string, includeAutoClose bool) string {
+	request := fmt.Sprintf("# GitHub Issue #%d: %s\n\n%s", number, title, body)
+	if includeAutoClose {
+		request += fmt.Sprintf("\n\nWhen creating a pull request for this work, include `Closes #%d` in the PR description so GitHub automatically closes the issue.", number)
+	}
+	return request
 }
 
 func (r *GitHubRepositoryReconciler) syncGitHubIssues(ctx context.Context, gh *triggersv1alpha1.GitHubRepository, issues []*github.Issue) (ctrl.Result, error) {
@@ -208,8 +212,9 @@ func (r *GitHubRepositoryReconciler) syncGitHubIssues(ctx context.Context, gh *t
 		}
 
 		// Build user request from full issue content, including the source issue
-		// number and the directive needed for GitHub to close it when the work lands.
-		userRequest := githubIssueUserRequest(issue.GetNumber(), issue.GetTitle(), issue.GetBody())
+		// number. Direct triggers may auto-close it; maintainer-owned work must wait
+		// for controller finalization to close the issue.
+		userRequest := githubIssueUserRequest(issue.GetNumber(), issue.GetTitle(), issue.GetBody(), !maintainerWorkItemsEnabled(r, gh))
 
 		createdRun, err := r.createAgentRun(ctx, gh, issueID, issue.GetNumber(), issue.GetHTMLURL(), userRequest, author, modeRef)
 		if err != nil {
