@@ -13,7 +13,7 @@
 // Shared flags:
 //   --scenario default|empty|error   fixture scenario (default: default)
 //   --theme dark|light|both          app theme (default: dark; snap-all: both)
-//   --viewport WxH                   viewport pixels (default: 1440x900)
+//   --viewport preset|WxH            desktop, mobile, iPad, custom, comma-list, or all
 //   --tauri-sim                      fake __TAURI_INTERNALS__ (desktop UI)
 //   --platform macos|ios|linux       OS reported by the Tauri sim
 //   --full-page                      full-page screenshot
@@ -30,16 +30,11 @@ import { getScenario, scenarios } from "./fixtures/index";
 import { startFakeBackend } from "./server/fake-backend";
 import { UiSession, findChromium, launchChromium, type PageOptions } from "./browser/session";
 import { parseSteps, type Step } from "./browser/steps";
+import { parseViewports, type NamedViewport } from "./browser/viewport";
 
 function fail(message: string): never {
   console.error(`selfdev: ${message}`);
   process.exit(1);
-}
-
-function parseViewport(value: string): { width: number; height: number } {
-  const m = /^(\d+)x(\d+)$/.exec(value);
-  if (!m) fail(`--viewport must look like 1440x900 (got "${value}")`);
-  return { width: Number(m[1]), height: Number(m[2]) };
 }
 
 function slugForRoute(route: string): string {
@@ -47,14 +42,21 @@ function slugForRoute(route: string): string {
   return route.replace(/^\//, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/-+$/, "");
 }
 
-function outName(slug: string, scenario: string, theme: string, tauriSim: boolean): string {
-  return `${slug}--${scenario}--${theme}${tauriSim ? "--tauri" : ""}`;
+function outName(
+  slug: string,
+  scenario: string,
+  theme: string,
+  tauriSim: boolean,
+  viewport: NamedViewport,
+): string {
+  const viewportSuffix = viewport.name === "desktop" ? "" : `--${viewport.name}`;
+  return `${slug}--${scenario}--${theme}${viewportSuffix}${tauriSim ? "--tauri" : ""}`;
 }
 
 interface CommonFlags {
   scenario: string;
   themes: Array<"dark" | "light">;
-  viewport: { width: number; height: number };
+  viewports: NamedViewport[];
   tauriSim: boolean;
   tauriPlatform: "macos" | "ios" | "linux" | "windows";
   fullPage: boolean;
@@ -76,7 +78,7 @@ function parseCommon(args: string[], defaults: { theme: string }): CommonFlags &
       route: { type: "string" },
       scenario: { type: "string", default: "default" },
       theme: { type: "string", default: defaults.theme },
-      viewport: { type: "string", default: "1440x900" },
+      viewport: { type: "string", default: "desktop" },
       "tauri-sim": { type: "boolean", default: false },
       platform: { type: "string", default: "macos" },
       "full-page": { type: "boolean", default: false },
@@ -99,6 +101,13 @@ function parseCommon(args: string[], defaults: { theme: string }): CommonFlags &
     fail(`--platform must be macos, ios, linux, or windows (got "${platform}")`);
   }
 
+  let viewports: NamedViewport[];
+  try {
+    viewports = parseViewports(values.viewport as string);
+  } catch (err) {
+    fail(`invalid --viewport: ${err instanceof Error ? err.message : err}`);
+  }
+
   let steps: Step[] | undefined;
   if (values.steps) {
     steps = parseSteps(readFileSync(values.steps as string, "utf8"));
@@ -109,7 +118,7 @@ function parseCommon(args: string[], defaults: { theme: string }): CommonFlags &
     route: values.route as string | undefined,
     scenario: values.scenario as string,
     themes: theme === "both" ? ["dark", "light"] : [theme as "dark" | "light"],
-    viewport: parseViewport(values.viewport as string),
+    viewports,
     tauriSim: values["tauri-sim"] as boolean,
     tauriPlatform: platform as CommonFlags["tauriPlatform"],
     fullPage: values["full-page"] as boolean,
@@ -142,11 +151,16 @@ async function withSession<T>(flags: CommonFlags, fn: (session: UiSession) => Pr
   }
 }
 
-function pageOptions(flags: CommonFlags, route: string, theme: "dark" | "light"): PageOptions {
+function pageOptions(
+  flags: CommonFlags,
+  route: string,
+  theme: "dark" | "light",
+  viewport: NamedViewport,
+): PageOptions {
   return {
     route,
     theme,
-    viewport: flags.viewport,
+    viewport: viewport.size,
     tauriSim: flags.tauriSim,
     tauriPlatform: flags.tauriPlatform,
     fullPage: flags.fullPage,
@@ -163,15 +177,17 @@ async function cmdScreenshot(args: string[]): Promise<void> {
   if (!route || !route.startsWith("/")) fail("screenshot requires --route /some/path");
 
   await withSession(flags, async (session) => {
-    for (const theme of flags.themes) {
-      const name = outName(slugForRoute(route), flags.scenario, theme, flags.tauriSim);
-      const result = await session.capturePage(pageOptions(flags, route, theme), name);
-      console.log(result.pngPath);
-      console.log(result.ariaPath);
-      console.log(result.consolePath);
-      if (result.consoleLines.length) {
-        console.log(`  (${result.consoleLines.length} console/network finding(s) — see log)`);
-        if (!flags.allowFindings) process.exitCode = 1;
+    for (const viewport of flags.viewports) {
+      for (const theme of flags.themes) {
+        const name = outName(slugForRoute(route), flags.scenario, theme, flags.tauriSim, viewport);
+        const result = await session.capturePage(pageOptions(flags, route, theme, viewport), name);
+        console.log(result.pngPath);
+        console.log(result.ariaPath);
+        console.log(result.consolePath);
+        if (result.consoleLines.length) {
+          console.log(`  (${result.consoleLines.length} console/network finding(s) — see log)`);
+          if (!flags.allowFindings) process.exitCode = 1;
+        }
       }
     }
   });
@@ -184,15 +200,17 @@ async function cmdSnapAll(args: string[]): Promise<void> {
 
   await withSession(flags, async (session) => {
     for (const route of scenario.routes) {
-      for (const theme of flags.themes) {
-        const name = outName(route.name, flags.scenario, theme, flags.tauriSim);
-        try {
-          const result = await session.capturePage(pageOptions(flags, route.path, theme), name);
-          findings += result.consoleLines.length;
-          console.log(`✓ ${name} (${result.consoleLines.length} finding(s))`);
-        } catch (err) {
-          findings += 1;
-          console.log(`✗ ${name}: ${err instanceof Error ? err.message : err}`);
+      for (const viewport of flags.viewports) {
+        for (const theme of flags.themes) {
+          const name = outName(route.name, flags.scenario, theme, flags.tauriSim, viewport);
+          try {
+            const result = await session.capturePage(pageOptions(flags, route.path, theme, viewport), name);
+            findings += result.consoleLines.length;
+            console.log(`✓ ${name} (${result.consoleLines.length} finding(s))`);
+          } catch (err) {
+            findings += 1;
+            console.log(`✗ ${name}: ${err instanceof Error ? err.message : err}`);
+          }
         }
       }
     }

@@ -38,15 +38,15 @@ selfdev-serve: ## Run the UI against the fake backend (no cluster needed; SCENAR
 	pnpm --filter selfdev run serve --scenario $(or $(SCENARIO),default)
 
 .PHONY: selfdev-snap
-selfdev-snap: ## Screenshot one route into selfdev/out (ROUTE=/... required; THEME=dark|light|both).
-	@test -n "$(ROUTE)" || (echo "usage: make selfdev-snap ROUTE=/runs/demo/run-ui-polish [THEME=dark] [SCENARIO=default]" && exit 1)
+selfdev-snap: ## Screenshot one route (VIEWPORT=desktop|mobile|ipad-portrait|ipad-landscape|all).
+	@test -n "$(ROUTE)" || (echo "usage: make selfdev-snap ROUTE=/runs/demo/run-ui-polish [VIEWPORT=all] [THEME=dark] [SCENARIO=default]" && exit 1)
 	pnpm install --frozen-lockfile
-	pnpm --filter selfdev run screenshot --route $(ROUTE) --theme $(or $(THEME),dark) --scenario $(or $(SCENARIO),default)
+	pnpm --filter selfdev run screenshot --route $(ROUTE) --theme $(or $(THEME),dark) --scenario $(or $(SCENARIO),default) --viewport $(or $(VIEWPORT),desktop)
 
 .PHONY: selfdev-snap-all
-selfdev-snap-all: ## Screenshot every scenario route into selfdev/out (smoke pass; SCENARIO=default).
+selfdev-snap-all: ## Screenshot every scenario route (VIEWPORT=desktop|mobile|ipad-portrait|ipad-landscape|all).
 	pnpm install --frozen-lockfile
-	pnpm --filter selfdev run snap-all --scenario $(or $(SCENARIO),default)
+	pnpm --filter selfdev run snap-all --scenario $(or $(SCENARIO),default) --viewport $(or $(VIEWPORT),desktop)
 
 .PHONY: selfdev-test
 selfdev-test: ## Run the selfdev harness unit tests (fake backend, fixtures, tauri-sim).
