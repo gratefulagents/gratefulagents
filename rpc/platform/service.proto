@@ -229,6 +229,11 @@ service PlatformService {
   // user's current ChatGPT OAuth credential. Provider tokens and raw
   // credential material never leave the server.
   rpc GetMyOpenAIUsage(GetMyOpenAIUsageRequest) returns (MyOpenAIUsage);
+
+  // GetMyAnthropicUsage returns account and allowance data available through
+  // the calling user's current Claude OAuth credential. Provider tokens and
+  // raw credential material never leave the server.
+  rpc GetMyAnthropicUsage(GetMyAnthropicUsageRequest) returns (MyAnthropicUsage);
 }
 
 message ListAgentRunsRequest {
@@ -3656,4 +3661,33 @@ message OpenAIUsageLimit {
   double used_percent = 2;
   int64 reset_at_unix = 3;
   string details = 4;
+}
+
+message GetMyAnthropicUsageRequest {}
+
+// MyAnthropicUsage contains only account metadata and allowance information
+// exposed by the user's current Claude OAuth credential.
+message MyAnthropicUsage {
+  bool anthropic_oauth_present = 1;
+  string account_email = 2;
+  string account_uuid = 3;
+  int64 credential_expires_at_unix = 4;
+  int64 credential_last_refreshed_at_unix = 5;
+  bool usage_available = 6;
+  repeated AnthropicUsageLimit limits = 7;
+  bool extra_usage_enabled = 8;
+  // Claude reports extra-usage monetary values in hundredths of a US dollar.
+  optional double extra_usage_monthly_limit_usd_cents = 9;
+  optional double extra_usage_used_credits_usd_cents = 10;
+  optional double extra_usage_utilization = 11;
+  int64 fetched_at_unix = 12;
+  repeated string warnings = 13;
+  bool reconnect_required = 14;
+  bool extra_usage_available = 15;
+}
+
+message AnthropicUsageLimit {
+  string label = 1;
+  double used_percent = 2;
+  int64 reset_at_unix = 3;
 }

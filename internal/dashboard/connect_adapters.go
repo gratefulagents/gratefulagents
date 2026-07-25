@@ -163,6 +163,14 @@ func (h *PlatformServiceConnectHandler) GetMyOpenAIUsage(ctx context.Context, re
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) GetMyAnthropicUsage(ctx context.Context, req *connect.Request[platform.GetMyAnthropicUsageRequest]) (*connect.Response[platform.MyAnthropicUsage], error) {
+	resp, err := h.srv.GetMyAnthropicUsage(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) StartProviderOAuth(ctx context.Context, req *connect.Request[platform.StartProviderOAuthRequest]) (*connect.Response[platform.ProviderOAuthStart], error) {
 	resp, err := h.srv.StartProviderOAuth(ctx, req.Msg)
 	if err != nil {
