@@ -482,10 +482,28 @@ function RecentActivity({
   );
 }
 
-function RecentActivityRow({ run }: { run: AgentRun }) {
-  const source = run.trigger?.externalIdentifier;
-  const mode = run.workflowMode;
+/**
+ * Label for the activity list's Source column: how this run started.
+ *
+ * Only trigger identity is consulted. `workflowMode` and `model` are run
+ * settings rather than provenance — and `workflowMode` is reported as a
+ * constant "auto" by the dashboard adapter — so falling back to either would
+ * put a value in this column that misidentifies how the run started.
+ */
+function runSource(run: AgentRun): string {
+  const trigger = run.trigger;
+  if (!trigger) return "";
+  // The concrete external reference (issue, PR, ticket) is the most specific
+  // answer when the trigger has one.
+  if (trigger.externalIdentifier) return trigger.externalIdentifier;
+  // "manual" is the reserved entry point for runs started from the dashboard;
+  // name it the way the Entry points section does.
+  if (trigger.type === "manual" || trigger.name === "manual") return "Dashboard";
+  // Otherwise the project-local trigger identity, then its provenance.
+  return trigger.name || trigger.type || "";
+}
 
+function RecentActivityRow({ run }: { run: AgentRun }) {
   return (
     <Link
       to={`/runs/${run.namespace}/${run.name}`}
@@ -499,7 +517,7 @@ function RecentActivityRow({ run }: { run: AgentRun }) {
       </span>
 
       <span className="col-span-2 min-w-0 truncate font-mono text-[11.5px] text-muted-foreground sm:col-span-1">
-        {source || mode || run.model || ""}
+        {runSource(run)}
       </span>
 
       {/* Status sits in a fixed-width, left-aligned slot so pills of different

@@ -1,13 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { ProjectDetail } from "@/components/ProjectDetail";
 
 const { useProjects } = vi.hoisted(() => ({ useProjects: vi.fn() }));
+const { useAgentRuns } = vi.hoisted(() => ({ useAgentRuns: vi.fn() }));
 
 vi.mock("@/hooks/useWatchedList", () => ({ useProjects }));
-vi.mock("@/hooks/useAgentRuns", () => ({ useAgentRuns: () => ({ runs: [], loading: false }) }));
+vi.mock("@/hooks/useAgentRuns", () => ({ useAgentRuns }));
 vi.mock("@/components/ProjectSettingsDialog", () => ({ ProjectSettingsDialog: () => null }));
 vi.mock("@/components/CreateRunDialog", async () => {
   const { useState } = await import("react");
@@ -35,6 +36,10 @@ vi.mock("@/lib/client", () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+beforeEach(() => {
+  useAgentRuns.mockReturnValue({ runs: [], loading: false });
 });
 
 describe("ProjectDetail triggers", () => {
@@ -314,5 +319,89 @@ describe("ProjectDetail maintainer", () => {
     renderProject();
 
     expect(screen.queryByRole("heading", { name: "Maintainer" })).toBeNull();
+  });
+});
+
+describe("ProjectDetail recent activity", () => {
+  const project = {
+    namespace: "team",
+    name: "platform",
+    displayName: "Platform",
+    additionalRepoUrls: [],
+    allowedModels: [],
+    mcpPolicyAllowedServers: [],
+    metrics: {},
+    triggers: [],
+  };
+
+  function renderWithRuns(runs: unknown[]) {
+    useProjects.mockReturnValue({
+      projects: [project],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    useAgentRuns.mockReturnValue({ runs, loading: false });
+    render(
+      <MemoryRouter initialEntries={["/projects/team/platform"]}>
+        <Routes>
+          <Route path="/projects/:namespace/:name" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  function run(name: string, trigger: unknown, extra: Record<string, unknown> = {}) {
+    return {
+      namespace: "team",
+      name,
+      displayName: name,
+      phase: "Succeeded",
+      createdAtUnix: 1n,
+      trigger,
+      ...extra,
+    };
+  }
+
+  // The Source column reports provenance only. workflowMode is reported as a
+  // constant "auto" by the dashboard adapter and model is a run setting, so
+  // neither may ever leak into this column.
+  it("reports trigger provenance in the Source column, never run settings", () => {
+    renderWithRuns([
+      // External reference wins: most specific answer.
+      run("with-external", {
+        kind: "GitHub",
+        name: "github-issues",
+        type: "github",
+        externalIdentifier: "#412",
+      }),
+      // No external ref: fall back to the project-local trigger identity,
+      // not to workflowMode/model.
+      run(
+        "with-trigger-name",
+        { kind: "Cron", name: "nightly-triage", type: "cron", externalIdentifier: "" },
+        { workflowMode: "auto", model: "gpt-5" },
+      ),
+      // The reserved manual entry point is named the way Entry points names it.
+      run(
+        "manual-run",
+        { kind: "Manual", name: "manual", type: "manual", externalIdentifier: "" },
+        { workflowMode: "auto", model: "gpt-5" },
+      ),
+    ]);
+
+    expect(screen.getByText("#412")).toBeTruthy();
+    expect(screen.getByText("nightly-triage")).toBeTruthy();
+    expect(screen.getByText("Dashboard")).toBeTruthy();
+    expect(screen.queryByText("auto")).toBeNull();
+    expect(screen.queryByText("gpt-5")).toBeNull();
+  });
+
+  it("renders labelled activity columns", () => {
+    renderWithRuns([run("a-run", { kind: "Manual", name: "manual", type: "manual" })]);
+
+    expect(screen.getByText("Source")).toBeTruthy();
+    expect(screen.getByText("Status")).toBeTruthy();
+    expect(screen.getByText("Age")).toBeTruthy();
   });
 });
