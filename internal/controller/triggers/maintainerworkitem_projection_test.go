@@ -43,6 +43,64 @@ func TestReconcileMaintainerExecutionProjectionIgnoresCacheOnlyDeletedItems(t *t
 	}
 }
 
+// Two monitors can observe the same pull request (for example a manually
+// created recovery monitor next to the canonical controller-created one).
+// Informer-cache list order is arbitrary, so the tied entries must get a total
+// order and the semantic comparison must ignore map-list ordering; otherwise
+// every projection pass advances the sequence and waiter v2 spins on an
+// unchanged delivered item (issue #132).
+func TestMaintainerProjectionDuplicatePullRequestMonitorsDoNotChurnSequence(t *testing.T) {
+	t.Parallel()
+
+	now := metav1.Now()
+	canonical := triggersv1alpha1.MaintainerWorkItemPullRequestProjection{IntentName: "pr-monitor-aaa", MonitorRef: &corev1.LocalObjectReference{Name: "pr-monitor-aaa"}, Repository: projectionTestRepository, Number: 29, State: triggersv1alpha1.MaintainerWorkItemPullRequestStateMerged, MergedAt: &now, HeadSHA: "head"}
+	recovery := canonical
+	recovery.IntentName = "recovery-gateway-7-pr29"
+	recovery.MonitorRef = &corev1.LocalObjectReference{Name: "recovery-gateway-7-pr29"}
+
+	stored := &triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{recovery, canonical}}
+	recomputed := &triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{canonical, recovery}}
+	if !maintainerWorkItemStatusSemanticallyEqual(stored, recomputed) {
+		t.Fatal("map-list order flip of duplicate pull-request projections would advance the projection sequence")
+	}
+	substantive := recomputed.DeepCopy()
+	substantive.PullRequests[0].State = triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen
+	if maintainerWorkItemStatusSemanticallyEqual(stored, substantive) {
+		t.Fatal("a substantive pull-request change must advance the projection sequence")
+	}
+}
+
+// projectMaintainerRunsAndPRs must emit the same pull-request order regardless
+// of the (arbitrary) monitor list order, including when two monitors observe
+// the same repository and number.
+func TestMaintainerProjectionSortsTiedPullRequestsByIntentName(t *testing.T) {
+	t.Parallel()
+
+	itemName, itemUID := "mwi-item-7", types.UID("item-uid")
+	run := platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "impl-run", UID: types.UID("run-uid"), Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemNameLabelKey: itemName, triggersv1alpha1.MaintainerWorkItemUIDLabelKey: string(itemUID)}}, Status: platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseSucceeded}}
+	newMonitor := func(name string) triggersv1alpha1.PullRequestMonitor {
+		return triggersv1alpha1.PullRequestMonitor{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: triggersv1alpha1.PullRequestMonitorSpec{Repository: projectionTestRepository, Number: 29, ImplementerRef: corev1.LocalObjectReference{Name: run.Name}}, Status: triggersv1alpha1.PullRequestMonitorStatus{Lifecycle: triggersv1alpha1.PullRequestLifecycleMerged}}
+	}
+	first, second := newMonitor("pr-monitor-aaa"), newMonitor("recovery-gateway-7-pr29")
+
+	var orders [][]string
+	for _, monitors := range [][]triggersv1alpha1.PullRequestMonitor{{first, second}, {second, first}} {
+		item := &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: itemName, UID: itemUID}}
+		projectMaintainerRunsAndPRs(item, []platformv1alpha1.AgentRun{run}, monitors, time.Now())
+		names := make([]string, 0, len(item.Status.PullRequests))
+		for _, pr := range item.Status.PullRequests {
+			names = append(names, pr.IntentName)
+		}
+		orders = append(orders, names)
+	}
+	want := []string{"pr-monitor-aaa", "recovery-gateway-7-pr29"}
+	for _, order := range orders {
+		if len(order) != 2 || order[0] != want[0] || order[1] != want[1] {
+			t.Fatalf("pull-request order = %v, want %v regardless of monitor list order", order, want)
+		}
+	}
+}
+
 func TestMaintainerProjectionTreatsCheckAndReviewChangesAsWaiterEvents(t *testing.T) {
 	now := metav1.Now()
 	before := &triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: "monitor", ReviewDecision: string(triggersv1alpha1.PullRequestReviewDecisionUnknown), CheckState: triggersv1alpha1.MaintainerWorkItemCheckStatePending, ReviewObservedAt: &now, ChecksObservedAt: &now}}}

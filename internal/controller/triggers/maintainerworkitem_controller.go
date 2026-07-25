@@ -456,6 +456,23 @@ func maintainerWorkItemStatusSemanticallyEqual(left, right *triggersv1alpha1.Mai
 			status.Conditions[i].Message = ""
 		}
 		sort.Slice(status.Conditions, func(i, j int) bool { return status.Conditions[i].Type < status.Conditions[j].Type })
+		// The remaining collections are +listType=map: their order carries no
+		// meaning, and projection passes rebuild them from informer caches whose
+		// list order is arbitrary. Entries that tie on the projection sort key
+		// (for example two monitors observing the same pull request) would
+		// otherwise flip positions between passes and spuriously advance the
+		// projection sequence forever, spinning waiter v2.
+		sort.Slice(status.Children, func(i, j int) bool { return status.Children[i].Name < status.Children[j].Name })
+		sort.Slice(status.Dependencies, func(i, j int) bool { return status.Dependencies[i].Name < status.Dependencies[j].Name })
+		sort.Slice(status.AgentRuns, func(i, j int) bool { return status.AgentRuns[i].Name < status.AgentRuns[j].Name })
+		sort.Slice(status.AuthorizedAgentRuns, func(i, j int) bool { return status.AuthorizedAgentRuns[i].Name < status.AuthorizedAgentRuns[j].Name })
+		sort.Slice(status.PullRequests, func(i, j int) bool { return status.PullRequests[i].IntentName < status.PullRequests[j].IntentName })
+		sort.Slice(status.VerifiedMerges, func(i, j int) bool {
+			if status.VerifiedMerges[i].Repository != status.VerifiedMerges[j].Repository {
+				return status.VerifiedMerges[i].Repository < status.VerifiedMerges[j].Repository
+			}
+			return status.VerifiedMerges[i].PullRequestNumber < status.VerifiedMerges[j].PullRequestNumber
+		})
 	}
 	normalize(leftCopy)
 	normalize(rightCopy)

@@ -201,10 +201,18 @@ func projectMaintainerRunsAndPRs(item *triggersv1alpha1.MaintainerWorkItem, runs
 	}
 	sort.Slice(item.Status.AgentRuns, func(i, j int) bool { return item.Status.AgentRuns[i].Name < item.Status.AgentRuns[j].Name })
 	sort.Slice(item.Status.PullRequests, func(i, j int) bool {
-		if item.Status.PullRequests[i].Repository == item.Status.PullRequests[j].Repository {
+		if item.Status.PullRequests[i].Repository != item.Status.PullRequests[j].Repository {
+			return item.Status.PullRequests[i].Repository < item.Status.PullRequests[j].Repository
+		}
+		if item.Status.PullRequests[i].Number != item.Status.PullRequests[j].Number {
 			return item.Status.PullRequests[i].Number < item.Status.PullRequests[j].Number
 		}
-		return item.Status.PullRequests[i].Repository < item.Status.PullRequests[j].Repository
+		// Two monitors can observe the same pull request (for example a manual
+		// recovery monitor next to the canonical controller-created one). The
+		// monitor list is read from the informer cache in arbitrary order, so
+		// without a total order the tied entries would flip between passes and
+		// spuriously advance the projection sequence.
+		return item.Status.PullRequests[i].IntentName < item.Status.PullRequests[j].IntentName
 	})
 }
 
