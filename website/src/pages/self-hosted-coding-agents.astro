@@ -48,36 +48,36 @@ const structuredData = [
         '@type': 'HowToStep',
         position: 1,
         name: 'Install prerequisites',
-        text: 'Install Docker Desktop (or Docker Engine on Linux), then install the Kind CLI and the GratefulAgents CLI (grace).',
+        text: 'Install Docker Desktop (or Docker Engine on Linux). The installer downloads Kind and the other cluster tooling for you.',
         url: 'https://gratefulagents.dev/docs/getting-started/self-hosting-kind/',
       },
       {
         '@type': 'HowToStep',
         position: 2,
-        name: 'Bootstrap a Kind cluster',
-        text: 'Run `grace cluster create` to spin up a local Kubernetes cluster via Kind with all required components pre-configured.',
+        name: 'Clone the repository and run the installer',
+        text: 'Clone github.com/gratefulagents/gratefulagents, then run `make kind-install` to create a single-node Kind cluster and deploy the published release images.',
         url: 'https://gratefulagents.dev/docs/getting-started/self-hosting-kind/',
       },
       {
         '@type': 'HowToStep',
         position: 3,
-        name: 'Deploy GratefulAgents',
-        text: 'The bootstrap command deploys the GratefulAgents Helm chart, including the controller manager, dashboard, PostgreSQL/pgvector, MinIO, and Jaeger.',
-        url: 'https://gratefulagents.dev/docs/getting-started/self-hosting-kind/',
-      },
-      {
-        '@type': 'HowToStep',
-        position: 4,
         name: 'Add your model credentials',
         text: 'Open the web dashboard, navigate to Settings → Credentials, and add your Claude or OpenAI API key. Your key is stored as a Kubernetes secret in your cluster.',
         url: 'https://gratefulagents.dev/docs/getting-started/self-hosting-kind/',
       },
       {
         '@type': 'HowToStep',
+        position: 4,
+        name: 'Connect a repository',
+        text: 'Create a GitHubRepository resource pointing at a repository you own, and configure a GitHub App webhook so issues and pull requests can trigger runs.',
+        url: 'https://gratefulagents.dev/docs/integrations/github/',
+      },
+      {
+        '@type': 'HowToStep',
         position: 5,
-        name: 'Start your first agent run',
-        text: 'Connect a GitHub repository, open an issue, and trigger an agent run. Watch the Jaeger trace populate in real time as the agent works.',
-        url: 'https://gratefulagents.dev/docs/getting-started/self-hosting-kind/',
+        name: 'Start a run and watch the trace',
+        text: 'Open a GitHub issue or trigger a run from the dashboard. Follow live activity in the Agent Ops console and review the Jaeger trace once the run completes.',
+        url: 'https://gratefulagents.dev/docs/runs/start-a-run/',
       },
     ],
   },
@@ -145,8 +145,19 @@ const structuredData = [
             services regulations, government contracting requirements, or internal policies that
             prohibit source code from leaving a defined network boundary. When an agent run executes
             on a cloud harness, the source files, prompts, and intermediate outputs all transit the
-            vendor's network. Self-hosting keeps every byte inside the boundary.
+            vendor's network. Self-hosting removes the harness vendor from that path: the checkout,
+            the sandbox, the tool calls, and the run history all stay on infrastructure you control.
           </p>
+          <div class="mk-callout mk-callout-neutral">
+            <strong>Be precise about the inference boundary.</strong> Self-hosting the harness is
+            not the same as keeping every byte on your own hardware. Unless you point GratefulAgents
+            at a model endpoint you host yourself, prompts and the repository context included in
+            them are still sent to whichever provider you configure — Anthropic, OpenAI, OpenRouter,
+            xAI, or Copilot — under that provider's terms. What self-hosting gives you is control
+            over that boundary: you choose the provider, you hold the contract and the key, and you
+            can see exactly what was sent in each run's trace. If your obligations forbid sending
+            code to any third party, you need a self-hosted inference endpoint as well.
+          </div>
 
           <h3>Intellectual property protection</h3>
           <p>
@@ -154,8 +165,9 @@ const structuredData = [
             Proprietary algorithms, unreleased product codebases, and trade-secret-bearing
             infrastructure code are high-value assets. Sending them to a third-party cloud harness
             introduces a trust dependency that many security teams are unwilling to accept.
-            Self-hosting eliminates that dependency: the code stays on your hardware, processed by
-            a process you deployed and control.
+            Self-hosting narrows that dependency to the model provider you choose: the repository,
+            the working tree, and the run history stay on your hardware, processed by software you
+            deployed and control.
           </p>
 
           <h3>Private dependencies and internal registries</h3>
@@ -371,19 +383,20 @@ const structuredData = [
               <div class="mk-step-body">
                 <span class="mk-step-title">Install prerequisites</span>
                 <span class="mk-step-desc">
-                  Install Docker Desktop (or Docker Engine), the Kind CLI, and
-                  <code>grace</code> (the GratefulAgents CLI). Full instructions are in
+                  Install Docker Desktop (or Docker Engine on Linux). The installer downloads
+                  Kind and the rest of the cluster tooling for you. Full requirements are in
                   <a href="/docs/getting-started/self-hosting-kind/">the getting-started guide</a>.
                 </span>
               </div>
             </li>
             <li>
               <div class="mk-step-body">
-                <span class="mk-step-title">Bootstrap the cluster</span>
+                <span class="mk-step-title">Clone and run the installer</span>
                 <span class="mk-step-desc">
-                  Run <code>grace cluster create</code>. This provisions a Kind cluster and
-                  deploys the GratefulAgents Helm chart, including PostgreSQL/pgvector, MinIO
-                  for object storage, and a Jaeger instance for traces.
+                  Clone the repository, then run <code>make kind-install</code>. This provisions a
+                  single-node Kind cluster and deploys the GratefulAgents chart, including
+                  PostgreSQL/pgvector, MinIO for object storage, and a Jaeger instance for traces.
+                  It prints the local dashboard URL and the command to retrieve your admin password.
                 </span>
               </div>
             </li>
@@ -392,8 +405,8 @@ const structuredData = [
                 <span class="mk-step-title">Add your model key</span>
                 <span class="mk-step-desc">
                   Open the web dashboard, go to Settings → Credentials, and add your Anthropic
-                  Claude or OpenAI key. The key is stored as a Kubernetes secret—it never leaves
-                  your cluster.
+                  Claude or OpenAI key. The key is stored as a Kubernetes secret in your own
+                  cluster and is used only to authenticate your calls to that provider.
                 </span>
               </div>
             </li>

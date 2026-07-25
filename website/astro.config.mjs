@@ -3,6 +3,8 @@ import {defineConfig} from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {existsSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../user-docs/docs');
 
@@ -31,6 +33,50 @@ function rewriteDocLinks() {
   };
 }
 
+/**
+ * Resolves the source file that produces a given route, so sitemap `lastmod`
+ * can report when the page actually changed instead of when it was last built.
+ */
+function sourceFileForRoute(route) {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  if (route === '/') return path.join(here, 'src/pages/index.astro');
+  if (route === '/docs/') return path.join(docsRoot, 'intro.md');
+  if (route.startsWith('/docs/')) {
+    return path.join(docsRoot, `${route.slice('/docs/'.length).replace(/\/$/, '')}.md`);
+  }
+  const slug = route.replace(/^\/|\/$/g, '');
+  // A route like /alternatives/devin/ may come from either alternatives/devin.astro
+  // or alternatives/devin/index.astro.
+  for (const candidate of [`src/pages/${slug}.astro`, `src/pages/${slug}/index.astro`]) {
+    const file = path.join(here, candidate);
+    if (existsSync(file)) return file;
+  }
+  return undefined;
+}
+
+const lastmodCache = new Map();
+
+/** Last git commit date (YYYY-MM-DD) for a route's source file, if available. */
+function lastmodForRoute(route) {
+  if (lastmodCache.has(route)) return lastmodCache.get(route);
+  let result;
+  const file = sourceFileForRoute(route);
+  if (file && existsSync(file)) {
+    try {
+      const out = execFileSync('git', ['log', '-1', '--format=%cI', '--', file], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      // Empty for files that are not committed yet; omit lastmod rather than guess.
+      if (out) result = out.slice(0, 10);
+    } catch {
+      // No git available (e.g. a tarball build) — omit lastmod.
+    }
+  }
+  lastmodCache.set(route, result);
+  return result;
+}
+
 export default defineConfig({
   site: 'https://gratefulagents.dev',
   trailingSlash: 'always',
@@ -38,11 +84,12 @@ export default defineConfig({
     sitemap({
       filter: (page) => !page.endsWith('/404/'),
       serialize: (item) => {
-        const buildDate = new Date().toISOString().slice(0, 10);
         const path = item.url.replace('https://gratefulagents.dev', '');
+        const lastmod = lastmodForRoute(path);
+        const withLastmod = (rest) => (lastmod ? {...item, ...rest, lastmod} : {...item, ...rest});
 
         if (path === '/') {
-          return {...item, priority: 1.0, changefreq: 'weekly', lastmod: buildDate};
+          return withLastmod({priority: 1.0, changefreq: 'weekly'});
         }
         if (
           path === '/docs/' ||
@@ -50,12 +97,12 @@ export default defineConfig({
           path === '/docs/getting-started/self-hosting-k3s/' ||
           path === '/docs/getting-started/quick-start/'
         ) {
-          return {...item, priority: 0.9, changefreq: 'weekly', lastmod: buildDate};
+          return withLastmod({priority: 0.9, changefreq: 'weekly'});
         }
         if (!path.startsWith('/docs/')) {
-          return {...item, priority: 0.9, changefreq: 'monthly', lastmod: buildDate};
+          return withLastmod({priority: 0.9, changefreq: 'monthly'});
         }
-        return {...item, priority: 0.7, changefreq: 'monthly', lastmod: buildDate};
+        return withLastmod({priority: 0.7, changefreq: 'monthly'});
       },
     }),
   ],
