@@ -65,6 +65,9 @@ const runUiPolish = create(AgentRunSchema, {
   name: "run-ui-polish",
   displayName: "Polish run detail header",
   repoUrl: REPO_URL,
+  // Started from the dashboard: the reserved "manual" entry point. The Go
+  // adapter always populates Trigger, so fixtures carry it too.
+  trigger: { kind: "Manual", name: "manual", type: "manual" },
   baseBranch: "main",
   branchName: "chat-polish-run-header-3k2v",
   workflowMode: "chat",
@@ -211,6 +214,14 @@ const runShipped = create(AgentRunSchema, {
   name: "run-shipped",
   displayName: "Fix flaky reconnect test",
   repoUrl: REPO_URL,
+  trigger: {
+    kind: "GitHub",
+    name: "github-issues",
+    type: "github",
+    externalId: "412",
+    externalIdentifier: "#412",
+    externalUrl: `${REPO_URL}/issues/412`,
+  },
   baseBranch: "main",
   branchName: "auto-fix-reconnect-flake-77ab",
   workflowMode: "auto",
@@ -373,6 +384,7 @@ const runMaintainer = create(AgentRunSchema, {
   name: "project-operator-app-github-issues-maintainer",
   displayName: "Repository maintainer",
   repoUrl: REPO_URL,
+  trigger: { kind: "GitHub", name: "github-issues", type: "github" },
   baseBranch: "main",
   workflowMode: "auto",
   executionMode: "linear",
