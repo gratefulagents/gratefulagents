@@ -1,10 +1,12 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type RefObject,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -87,8 +89,43 @@ const KIND_META: Record<BaseKind, KindMeta> = {
 };
 
 // Shared row grid: name | timeline | duration.
-const ROW_GRID =
-  "grid grid-cols-[minmax(0,1fr)_64px] sm:grid-cols-[minmax(230px,330px)_minmax(0,1fr)_64px]";
+//
+// The waterfall now lives inside the run inspector, a ~380-440px panel, so the
+// layout has to react to its *container* rather than the viewport: a viewport
+// breakpoint kept reserving a 230-330px name column inside a 440px pane, which
+// crushed the timeline into ~90px of unreadable slivers and overlapping ticks.
+// Widths are measured instead, and the timeline column is dropped entirely when
+// there is not enough room for it to say anything.
+type WidthTier = "narrow" | "medium" | "wide";
+
+function widthTier(width: number): WidthTier {
+  if (width === 0) return "wide"; // pre-measurement: assume the roomy case
+  if (width < 340) return "narrow"; // no room for a timeline that says anything
+  if (width < 720) return "medium";
+  return "wide";
+}
+
+const ROW_GRID_BY_TIER: Record<WidthTier, string> = {
+  narrow: "grid grid-cols-[minmax(0,1fr)_56px]",
+  medium: "grid grid-cols-[minmax(132px,180px)_minmax(0,1fr)_52px]",
+  wide: "grid grid-cols-[minmax(230px,330px)_minmax(0,1fr)_64px]",
+};
+
+/** Observes an element's own width so layout can react to the pane, not the page. */
+function useElementWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const next = entries[0]?.contentRect.width ?? 0;
+      setWidth((prev) => (Math.abs(prev - next) < 1 ? prev : next));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+}
 
 const GRIDLINE_BG =
   "linear-gradient(to right, rgb(148 163 184 / 0.14) 1px, transparent 1px)";
@@ -231,7 +268,7 @@ function SummaryHeader({ wf, trace }: { wf: Waterfall; trace: GetAgentTraceRespo
       )}
       {stats.errors > 0 && (
         <StatItem icon={AlertTriangle} className="text-destructive">
-          {stats.errors} errors
+          {stats.errors} {stats.errors === 1 ? "error" : "errors"}
         </StatItem>
       )}
       <span className="ml-auto inline-flex items-center gap-3">
@@ -349,6 +386,8 @@ const GroupRow = memo(function GroupRow({
   minStartUs,
   view,
   gridStyle,
+  gridClass,
+  showTimeline,
 }: {
   group: TurnGroup;
   collapsed: boolean;
@@ -356,6 +395,8 @@ const GroupRow = memo(function GroupRow({
   minStartUs: bigint;
   view: ViewWindow;
   gridStyle: CSSProperties;
+  gridClass: string;
+  showTimeline: boolean;
 }) {
   const range = view.endUs - view.startUs;
   const start = Number(group.startUs - minStartUs);
@@ -365,7 +406,7 @@ const GroupRow = memo(function GroupRow({
   const visible = rightPct > 0 && leftPct < 100;
   return (
     <div
-      className={cn(ROW_GRID, "group cursor-pointer border-t border-border/40 bg-muted/30 hover:bg-muted/50")}
+      className={cn(gridClass, "group cursor-pointer border-t border-border/40 bg-muted/30 hover:bg-muted/50")}
       onClick={() => onToggle(group.key)}
       role="button"
       aria-expanded={!collapsed}
@@ -391,7 +432,7 @@ const GroupRow = memo(function GroupRow({
         )}
         {group.errorCount > 0 && <AlertTriangle className="size-3 shrink-0 text-destructive" />}
       </div>
-      <div className="relative hidden h-6 sm:block" style={gridStyle}>
+      <div className={cn("relative h-6", showTimeline ? "block" : "hidden")} style={gridStyle}>
         {visible && (
           <div
             className="absolute top-1 bottom-1 rounded-sm bg-foreground/[0.08]"
@@ -414,6 +455,8 @@ const SpanRow = memo(function SpanRow({
   minStartUs,
   view,
   gridStyle,
+  gridClass,
+  showTimeline,
   onSelect,
   onToggleCollapse,
   onHover,
@@ -425,6 +468,8 @@ const SpanRow = memo(function SpanRow({
   minStartUs: bigint;
   view: ViewWindow;
   gridStyle: CSSProperties;
+  gridClass: string;
+  showTimeline: boolean;
   onSelect: (id: string) => void;
   onToggleCollapse: (id: string) => void;
   onHover: (node: WaterfallNode | null, e?: ReactPointerEvent) => void;
@@ -441,7 +486,7 @@ const SpanRow = memo(function SpanRow({
   return (
     <div
       className={cn(
-        ROW_GRID,
+        gridClass,
         "group cursor-pointer transition-colors",
         selected ? "bg-primary/[0.08]" : "hover:bg-muted/40",
         span.isError && !selected && "bg-destructive/[0.05]",
@@ -511,7 +556,10 @@ const SpanRow = memo(function SpanRow({
       </div>
 
       {/* Timeline cell */}
-      <div className="relative hidden h-6 border-l border-border/30 sm:block" style={gridStyle}>
+      <div
+        className={cn("relative h-6 border-l border-border/30", showTimeline ? "block" : "hidden")}
+        style={gridStyle}
+      >
         {geo && (
           <div
             className={cn(
@@ -542,7 +590,14 @@ const SpanRow = memo(function SpanRow({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function TraceWaterfallView({ trace }: { trace: GetAgentTraceResponse }) {
+export function TraceWaterfallView({
+  trace,
+  className,
+}: {
+  trace: GetAgentTraceResponse;
+  /** Overrides the default card chrome when the host already frames the view. */
+  className?: string;
+}) {
   const wf = useMemo(() => buildWaterfall(trace.spans), [trace.spans]);
 
   // --- filters -------------------------------------------------------------
@@ -563,6 +618,13 @@ export function TraceWaterfallView({ trace }: { trace: GetAgentTraceResponse }) 
   );
   const [zoom, setZoom] = useState<ViewWindow | null>(null);
   const view = zoom ?? fullView;
+
+  // --- container-driven layout -------------------------------------------
+  const rootRef = useRef<HTMLDivElement>(null);
+  const containerWidth = useElementWidth(rootRef);
+  const tier = widthTier(containerWidth);
+  const gridClass = ROW_GRID_BY_TIER[tier];
+  const showTimeline = tier !== "narrow";
 
   const rulerRef = useRef<HTMLDivElement>(null);
   const [brush, setBrush] = useState<{ a: number; b: number } | null>(null);
@@ -689,7 +751,9 @@ export function TraceWaterfallView({ trace }: { trace: GetAgentTraceResponse }) 
 
   // --- ticks + gridlines ---------------------------------------------------
   const range = view.endUs - view.startUs;
-  const ticks = useMemo(() => computeTicks(range), [range]);
+  // Fewer, wider-spaced ticks when the timeline column is short, so labels
+  // never overlap into an unreadable smear.
+  const ticks = useMemo(() => computeTicks(range, tier === "wide" ? 8 : 4), [range, tier]);
   const stepPct = ticks.length > 1 ? ((ticks[1].offsetUs - ticks[0].offsetUs) / range) * 100 : 100;
   const gridStyle = useMemo<CSSProperties>(
     () => ({ backgroundImage: GRIDLINE_BG, backgroundSize: `${stepPct}% 100%` }),
@@ -708,7 +772,11 @@ export function TraceWaterfallView({ trace }: { trace: GetAgentTraceResponse }) 
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-background"
+      ref={rootRef}
+      className={cn(
+        "flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-background",
+        className,
+      )}
       onKeyDown={(e) => {
         if (e.key === "Escape") setSelectedId(null);
       }}
@@ -803,18 +871,21 @@ export function TraceWaterfallView({ trace }: { trace: GetAgentTraceResponse }) 
       {/* Scrollable waterfall */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Ruler */}
-        <div className={cn(ROW_GRID, "sticky top-0 z-10 border-b border-border/60 bg-background/95 backdrop-blur-sm")}>
+        <div className={cn(gridClass, "sticky top-0 z-10 border-b border-border/60 bg-background/95 backdrop-blur-sm")}>
           <div className="flex items-center justify-between py-1 pr-2 pl-2">
             <span className="text-[10px] text-muted-foreground">
               {rows.length.toLocaleString()} rows
             </span>
-            <span className="hidden text-[9px] text-muted-foreground/60 italic sm:inline">
-              drag to zoom
-            </span>
+            {tier === "wide" && (
+              <span className="text-[9px] text-muted-foreground/60 italic">drag to zoom</span>
+            )}
           </div>
           <div
             ref={rulerRef}
-            className="relative hidden h-7 cursor-crosshair touch-none border-l border-border/30 select-none sm:block"
+            className={cn(
+              "relative h-7 cursor-crosshair touch-none border-l border-border/30 select-none",
+              showTimeline ? "block" : "hidden",
+            )}
             style={gridStyle}
             onDoubleClick={() => setZoom(null)}
             onPointerDown={(e) => {
@@ -836,7 +907,9 @@ export function TraceWaterfallView({ trace }: { trace: GetAgentTraceResponse }) 
               if (endUs - startUs >= 100) setZoom({ startUs, endUs });
             }}
           >
-            {ticks.map((t) => (
+            {ticks
+              .filter((t) => (t.offsetUs / range) * 100 <= 94) // keep the last label off the duration header
+              .map((t) => (
               <span
                 key={t.offsetUs}
                 className="absolute top-1/2 -translate-y-1/2 pl-1 font-mono text-[9px] text-muted-foreground tabular-nums"
@@ -855,7 +928,9 @@ export function TraceWaterfallView({ trace }: { trace: GetAgentTraceResponse }) 
               />
             )}
           </div>
-          <div className="py-1 pr-3 text-right text-[9px] text-muted-foreground/60">duration</div>
+          <div className="py-1 pr-3 text-right text-[9px] text-muted-foreground/60">
+            {tier === "wide" ? "duration" : ""}
+          </div>
         </div>
 
         {/* Rows */}
@@ -870,6 +945,8 @@ export function TraceWaterfallView({ trace }: { trace: GetAgentTraceResponse }) 
                 minStartUs={wf.minStartUs}
                 view={view}
                 gridStyle={gridStyle}
+                gridClass={gridClass}
+                showTimeline={showTimeline}
               />
             ) : (
               <SpanRow
@@ -881,6 +958,8 @@ export function TraceWaterfallView({ trace }: { trace: GetAgentTraceResponse }) 
                 minStartUs={wf.minStartUs}
                 view={view}
                 gridStyle={gridStyle}
+                gridClass={gridClass}
+                showTimeline={showTimeline}
                 onSelect={selectSpan}
                 onToggleCollapse={toggleSpanCollapse}
                 onHover={handleHover}

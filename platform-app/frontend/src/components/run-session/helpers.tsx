@@ -1,13 +1,9 @@
 import type React from "react";
-import { Link } from "react-router-dom";
-
 import { MarkdownViewer } from "@/components/MarkdownViewer";
-import { DetailSection, Fact, FactLink, FactList } from "@/components/detail-page";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { prLoopTone, toneSoft, toneText } from "@/lib/status";
+import { toneText } from "@/lib/status";
 import type { StatusTone } from "@/lib/status";
 import { runStepLabel } from "@/lib/runStatus";
-import { cn } from "@/lib/utils";
 import type { ActivityEntry, ChatMessage, PRLoopStatus } from "@/rpc/platform/service_pb";
 
 export type QuickAction = {
@@ -168,95 +164,6 @@ export function reviewVerdictTone(verdict: string): StatusTone {
   if (verdict === "approve") return "success";
   if (verdict === "request_changes") return "warning";
   return "neutral";
-}
-
-export function PRLoopCard({
-  loop,
-  namespace,
-  prUrl,
-}: {
-  loop: PRLoopStatus;
-  namespace: string;
-  prUrl: string;
-}) {
-  const displayPrUrl = loop.prUrl || prUrl;
-  return (
-    <div className="shrink-0 border-b px-4 py-3">
-      <DetailSection
-        title="PR review loop"
-        description="Autonomous implementer/reviewer progress for this pull request."
-      >
-        <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
-          <FactList className="grid-cols-[minmax(100px,140px)_minmax(0,1fr)] gap-y-1.5">
-            <Fact
-              label="State"
-              value={
-                loop.state ? (
-                  <span
-                    className={cn(
-                      "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium capitalize",
-                      toneSoft[prLoopTone(loop.state)],
-                    )}
-                  >
-                    {formatPRLoopState(loop.state)}
-                  </span>
-                ) : (
-                  "—"
-                )
-              }
-            />
-            <Fact label="Role" value={loop.role || "—"} />
-            <Fact label="Round" value={formatPRLoopRound(loop)} />
-            <Fact
-              label="Pull request"
-              value={
-                displayPrUrl ? (
-                  <FactLink href={displayPrUrl}>
-                    {loop.prNumber ? `#${loop.prNumber}` : "Pull request"}
-                  </FactLink>
-                ) : loop.prNumber ? (
-                  `#${loop.prNumber}`
-                ) : (
-                  "—"
-                )
-              }
-            />
-            {loop.implementerRunName && (
-              <Fact
-                label="Implementer"
-                value={
-                  <Link
-                    to={`/runs/${namespace}/${loop.implementerRunName}`}
-                    className="text-foreground underline-offset-2 hover:text-primary hover:underline"
-                  >
-                    {loop.implementerRunName}
-                  </Link>
-                }
-              />
-            )}
-            {loop.reviewVerdict && (
-              <Fact
-                label="Verdict"
-                value={
-                  <span
-                    className={cn(
-                      "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
-                      toneSoft[reviewVerdictTone(loop.reviewVerdict)],
-                    )}
-                  >
-                    {loop.reviewVerdict.replace(/_/g, " ")}
-                  </span>
-                }
-              />
-            )}
-            {loop.reviewSummary && (
-              <Fact label="Summary" value={loop.reviewSummary} wrap />
-            )}
-          </FactList>
-        </div>
-      </DetailSection>
-    </div>
-  );
 }
 
 export function messageTimelineKey(message: ChatMessage, occurrence: number): string {
