@@ -1,5 +1,7 @@
 ---
 title: Navigate the app
+seoTitle: Navigate the GratefulAgents App | GratefulAgents
+description: Tour the GratefulAgents sidebar, command palette, and keyboard shortcuts. Find Home, Agent Ops, Observability, Projects, and Settings in seconds.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/getting-started/navigation/ and give me a tour of the gratefulagents app: where I watch runs, where settings live, and the fastest way to start work.
 ---

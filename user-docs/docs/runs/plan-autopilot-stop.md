@@ -1,5 +1,7 @@
 ---
 title: Interactive, plan, autopilot, stop, retry
+seoTitle: "Run Modes: Plan, Autopilot, Stop, and Retry | GratefulAgents"
+description: Understand GratefulAgents run modes—interactive, plan, and autopilot—and learn how to stop a turn, stop a run, retry after failure, or extend runtime.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/runs/plan-autopilot-stop/ and explain the gratefulagents run modes — interactive, plan, autopilot — when to use each, and how stopping and retrying work.
 ---

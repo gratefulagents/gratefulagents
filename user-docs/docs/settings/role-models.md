@@ -1,5 +1,7 @@
 ---
 title: Role models
+seoTitle: Set Per-Role Model Overrides | GratefulAgents
+description: Override the default AI model for each specialist role in GratefulAgents. Set personal preferences per role for OpenAI, Anthropic, or GitHub Copilot.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/role-models/ and explain role models in gratefulagents, then help me pick which model each role should use.
 ---

@@ -29,9 +29,13 @@ const {
   noindex = false,
   structuredData = [],
 } = Astro.props;
+// `secondary` items collapse out of the top bar on small screens, where there
+// is no room for five targets. They stay reachable from the footer.
 const nav = [
-  {href: '/docs/', label: 'User guide'},
-  {href: '/docs/getting-started/quick-start/', label: 'Quick start'},
+  {href: '/self-hosted-coding-agents/', label: 'Why self-hosted', secondary: true},
+  {href: '/alternatives/', label: 'Alternatives', secondary: true},
+  {href: '/docs/', label: 'User guide', secondary: false},
+  {href: '/docs/getting-started/quick-start/', label: 'Quick start', secondary: true},
 ];
 const current = Astro.url.pathname;
 const siteUrl = Astro.site ?? Astro.url;
@@ -63,6 +67,7 @@ const schema = {
 };
 // Prevent trusted page copy from prematurely closing the JSON-LD script element.
 const serializedSchema = JSON.stringify(schema).replace(/</g, '\\u003c');
+const fontUrl = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap';
 ---
 
 <!doctype html>
@@ -99,10 +104,9 @@ const serializedSchema = JSON.stringify(schema).replace(/</g, '\\u003c');
     <link rel="apple-touch-icon" href="/logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="preload" as="style" href={fontUrl} />
+    <link rel="stylesheet" href={fontUrl} media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href={fontUrl} /></noscript>
     <script type="application/ld+json" set:html={serializedSchema} />
   </head>
   <body class={bodyClass}>
@@ -114,7 +118,11 @@ const serializedSchema = JSON.stringify(schema).replace(/</g, '\\u003c');
       </a>
       <nav class="topnav" aria-label="Primary">
         {nav.map((item) => (
-          <a href={item.href} aria-current={current === item.href ? 'page' : undefined}>
+          <a
+            href={item.href}
+            class={item.secondary ? 'nav-secondary' : undefined}
+            aria-current={current === item.href ? 'page' : undefined}
+          >
             {item.label}
           </a>
         ))}
@@ -125,6 +133,8 @@ const serializedSchema = JSON.stringify(schema).replace(/</g, '\\u003c');
     <footer class="site-foot">
       <p class="foot-block">
         <span><span class="foot-key">Project</span><b>gratefulagents</b></span>
+        <span><span class="foot-key">Why self-hosted</span><a href="/self-hosted-coding-agents/">the case for your own cluster</a></span>
+        <span><span class="foot-key">Compare</span><a href="/alternatives/">coding agent alternatives</a></span>
         <span><span class="foot-key">License</span><b>AGPL-3.0 · open source</b></span>
         <span><span class="foot-key">Source</span><a href={repositoryUrl}>github.com/gratefulagents</a></span>
         <span><span class="foot-key">Security</span><a href={`${repositoryUrl}/security/policy`}>report vulnerabilities</a></span>

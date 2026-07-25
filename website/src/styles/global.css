@@ -766,6 +766,9 @@ img { max-width: 100%; height: auto; }
 @media (max-width: 60rem) {
   .topbar { min-height: 52px; }
   .topnav { gap: 0.8rem; font-size: 0.76rem; }
+  /* Below this width the bar cannot hold five targets; the marketing links
+     stay reachable from the footer. */
+  .topnav .nav-secondary { display: none; }
   .hero { padding-top: 1.6rem; }
   .hero-main { grid-template-columns: 1fr; gap: 1.6rem; }
   .hero-copy { display: block; text-align: center; }
@@ -805,7 +808,6 @@ img { max-width: 100%; height: auto; }
   body::before { background-size: 112px 112px, 112px 112px, 28px 28px, 28px 28px; }
   .topbar { padding-inline: 0.9rem; }
   .brand span { font-size: 0.92rem; }
-  .topnav a:nth-child(2) { display: none; }
   .topnav .gh { padding: 0.34rem 0.55rem; }
   .hero { width: min(calc(100% - 1.6rem), var(--shell)); padding: 1.4rem 0 0; }
   .eyebrow { margin-bottom: 0.7rem; font-size: 0.57rem; }
@@ -870,4 +872,260 @@ img { max-width: 100%; height: auto; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* ============================================================
+   Sections: Why self-hosted · Comparison · FAQ
+   All new selectors are prefixed .why-, .cmp-, .faq- to avoid
+   collision with existing rules.
+   ============================================================ */
+
+/* ---- Shared section shell ---------------------------------- */
+.why-section,
+.cmp-section,
+.faq-section {
+  width: min(calc(100% - 3rem), var(--shell));
+  margin-inline: auto;
+  padding-top: clamp(4rem, 8vw, 7rem);
+  padding-bottom: clamp(3rem, 6vw, 5.5rem);
+}
+
+/* ---- Shared header inside these sections ------------------- */
+.why-header {
+  margin-bottom: clamp(2rem, 4vw, 3rem);
+  max-width: var(--measure);
+}
+.why-header h2 {
+  margin: 0.35rem 0 0.8rem;
+  color: var(--chalk-bright);
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.why-lead {
+  margin: 0;
+  color: var(--chalk);
+  font-size: clamp(0.95rem, 1.6vw, 1.08rem);
+  line-height: 1.65;
+  max-width: var(--measure);
+}
+.why-links {
+  margin-top: clamp(1.5rem, 3vw, 2.5rem);
+  color: var(--faded);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+.why-links a { color: var(--chalk); }
+.why-links a:hover { color: var(--redline-soft); }
+
+/* ---- Sheet 08: Why self-hosted ----------------------------- */
+.why-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line-strong);
+  border: 1px solid var(--line-strong);
+}
+.why-card {
+  padding: clamp(1.4rem, 2.5vw, 2rem) clamp(1.2rem, 2vw, 1.8rem);
+  background: var(--blue-panel);
+  transition: background 0.15s;
+}
+.why-card:hover { background: var(--blue-panel-raised); }
+.why-card h3 {
+  margin: 0 0 0.65rem;
+  color: var(--chalk-bright);
+  font-family: var(--font-display);
+  font-size: clamp(1rem, 1.6vw, 1.18rem);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+.why-card p {
+  margin: 0;
+  color: var(--chalk);
+  font-size: 0.94rem;
+  line-height: 1.7;
+}
+.why-card a { color: var(--chalk-bright); }
+.why-card a:hover { color: var(--redline-soft); }
+
+/* ---- Sheet 09: Comparison table ---------------------------- */
+.cmp-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line-strong);
+  -webkit-overflow-scrolling: touch;
+}
+.cmp-table {
+  width: 100%;
+  min-width: 42rem;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.cmp-table thead tr {
+  background: var(--blue-deep);
+  border-bottom: 1px solid var(--line-strong);
+}
+.cmp-table thead th {
+  padding: 0.7rem 1rem;
+  color: var(--faded);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.cmp-table thead th.cmp-ours,
+.cmp-table tbody td.cmp-ours {
+  background: var(--blue-panel-raised);
+  border-left: 2px solid var(--line-frame);
+}
+.cmp-table thead th.cmp-ours { color: var(--chalk); }
+.cmp-table tbody tr { border-bottom: 1px solid var(--line); }
+.cmp-table tbody tr:last-child { border-bottom: 0; }
+.cmp-table tbody tr:hover td,
+.cmp-table tbody tr:hover th[scope='row'] { background: rgba(232, 232, 234, 0.03); }
+.cmp-table tbody tr:hover td.cmp-ours { background: var(--blue-panel-raised); }
+.cmp-table tbody th[scope='row'] {
+  padding: 0.7rem 1rem;
+  background: var(--blue-panel);
+  color: var(--faded);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-align: left;
+  white-space: nowrap;
+}
+.cmp-table tbody td {
+  padding: 0.7rem 1rem;
+  background: var(--blue-field);
+  color: var(--chalk);
+  vertical-align: top;
+}
+.cmp-table tbody td.cmp-ours { color: var(--chalk-bright); }
+.cmp-table a { color: var(--chalk-bright); text-decoration-color: var(--line-strong); }
+.cmp-table a:hover { color: var(--redline-soft); }
+.cmp-note {
+  margin-top: 0.9rem;
+  color: var(--faded-dim);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.cmp-note a { color: var(--faded); }
+.cmp-note a:hover { color: var(--chalk); }
+
+/* ---- Sheet 10: FAQ ----------------------------------------- */
+.faq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--line-strong);
+}
+.faq-item {
+  border-bottom: 1px solid var(--line);
+  background: var(--blue-panel);
+}
+.faq-item:last-child { border-bottom: 0; }
+.faq-item[open] { background: var(--blue-panel-raised); }
+.faq-q {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1rem 1.2rem;
+  color: var(--chalk-bright);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: clamp(0.9rem, 1.4vw, 1.04rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  user-select: none;
+}
+.faq-q::-webkit-details-marker { display: none; }
+.faq-q::after {
+  content: '+';
+  flex-shrink: 0;
+  color: var(--redline-soft);
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 400;
+  transition: transform 0.2s;
+}
+.faq-item[open] .faq-q::after {
+  content: '−';
+  transform: none;
+}
+.faq-q:hover { color: var(--chalk-bright); }
+.faq-item:not([open]):hover { background: var(--blue-panel-raised); }
+.faq-a {
+  padding: 0 1.2rem 1rem 1.2rem;
+  border-top: 1px solid var(--line);
+}
+.faq-a p {
+  margin: 0.85rem 0 0;
+  color: var(--chalk);
+  font-size: 0.94rem;
+  line-height: 1.7;
+}
+.faq-a a { color: var(--chalk-bright); }
+.faq-a a:hover { color: var(--redline-soft); }
+
+/* ---- Desktop scroll-snap inclusion for new sections -------- */
+@media (min-width: 60rem) {
+  .is-home .why-section,
+  .is-home .cmp-section,
+  .is-home .faq-section {
+    box-sizing: border-box;
+    min-height: calc(100svh - 58px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    scroll-snap-align: start;
+    scroll-margin-top: 58px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .is-home .why-inner,
+  .is-home .cmp-inner,
+  .is-home .faq-inner {
+    max-height: calc(100svh - 58px - 3rem);
+    overflow-y: auto;
+    padding-block: clamp(2rem, 4vw, 4rem);
+  }
+}
+
+/* ---- Responsive: tablet ------------------------------------ */
+@media (max-width: 74rem) {
+  .why-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ---- Responsive: narrow tablet / large phone --------------- */
+@media (max-width: 60rem) {
+  .why-section,
+  .cmp-section,
+  .faq-section {
+    width: min(calc(100% - 1.6rem), var(--shell));
+    padding-top: 3.5rem;
+    padding-bottom: 3.5rem;
+  }
+  .why-grid { grid-template-columns: 1fr; }
+}
+
+/* ---- Responsive: small phone (360px floor) ----------------- */
+@media (max-width: 40rem) {
+  .why-section,
+  .cmp-section,
+  .faq-section { width: min(calc(100% - 1.6rem), var(--shell)); }
+  .why-header h2 { font-size: clamp(1.7rem, 8vw, 2.4rem); }
+  .faq-q { font-size: 0.9rem; padding: 0.85rem 0.9rem; }
+  .faq-a { padding-inline: 0.9rem; }
+  .cmp-table { font-size: 0.82rem; }
 }

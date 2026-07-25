@@ -1,5 +1,7 @@
 ---
 title: Sharing and permissions
+seoTitle: Share Projects and Runs with Teammates | GratefulAgents
+description: Share a GratefulAgents project or run with workspace teammates, assign Viewer or Collaborator access, and safely copy saved credentials to another user.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/collaboration/sharing-and-permissions/ and explain how sharing and permissions work in gratefulagents, then help me give a teammate the right access to my project.
 ---

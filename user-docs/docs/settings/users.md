@@ -1,5 +1,7 @@
 ---
 title: Users
+seoTitle: Manage Workspace Users and Roles | GratefulAgents
+description: Admin-only user management for GratefulAgents workspaces. Promote users to admin, change roles between admin, member, and viewer, and delete accounts.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/users/ and explain user management in gratefulagents, then help me add a teammate with the right role.
 ---

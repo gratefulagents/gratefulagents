@@ -1,5 +1,7 @@
 ---
 title: Install mobile and desktop apps
+seoTitle: Install GratefulAgents Web, Desktop, and Mobile Apps | GratefulAgents
+description: Connect GratefulAgents desktop, iOS, and Android apps to your self-hosted workspace. Manage saved workspace connections and Cloudflare Access service tokens.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/getting-started/web-desktop-workspaces/ and tell me which gratefulagents app to install on each of my devices and how to connect them to my workspace.
 ---

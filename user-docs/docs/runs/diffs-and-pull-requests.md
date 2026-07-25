@@ -1,5 +1,7 @@
 ---
 title: Diffs and pull requests
+seoTitle: Review Diffs and Create Pull Requests | GratefulAgents
+description: Review live diffs while your AI coding agent works, request a pull request from the run session, and send review thread feedback back to the agent.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/runs/diffs-and-pull-requests/ and explain how runs produce diffs and pull requests in gratefulagents and how I should review them.
 ---

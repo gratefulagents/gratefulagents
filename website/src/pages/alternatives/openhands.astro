@@ -1,0 +1,339 @@
+---
+import Base from '../../layouts/Base.astro';
+import '../../styles/marketing.css';
+import {getComparison} from '../../data/comparisons';
+
+const c = getComparison('openhands')!;
+
+const title = 'OpenHands Alternative: Self-Hosted Agent Platform | GratefulAgents';
+const description =
+  'GratefulAgents vs OpenHands: both open-source self-hosted agent harnesses compared on Kubernetes depth, client apps, trigger integrations, and observability.';
+
+const faqs = c.faqs;
+
+const structuredData = [
+  {
+    '@type': 'TechArticle',
+    '@id': 'https://gratefulagents.dev/alternatives/openhands/#article',
+    headline: title,
+    description,
+    url: 'https://gratefulagents.dev/alternatives/openhands/',
+    author: {'@type': 'Organization', '@id': 'https://gratefulagents.dev/#organization'},
+    publisher: {'@id': 'https://gratefulagents.dev/#organization'},
+  },
+  {
+    '@type': 'BreadcrumbList',
+    '@id': 'https://gratefulagents.dev/alternatives/openhands/#breadcrumb',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: 'https://gratefulagents.dev/',
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Alternatives',
+        item: 'https://gratefulagents.dev/alternatives/',
+      },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: 'OpenHands',
+        item: 'https://gratefulagents.dev/alternatives/openhands/',
+      },
+    ],
+  },
+  {
+    '@type': 'FAQPage',
+    '@id': 'https://gratefulagents.dev/alternatives/openhands/#faq',
+    mainEntity: faqs.map((f) => ({
+      '@type': 'Question',
+      name: f.question,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: f.answer,
+      },
+    })),
+  },
+];
+---
+
+<Base {title} {description} type="article" {structuredData}>
+  <main id="main">
+    <div class="mk-page">
+
+      <nav aria-label="Breadcrumb">
+        <ol class="mk-breadcrumb">
+          <li><a href="/">Home</a></li>
+          <li><a href="/alternatives/">Alternatives</a></li>
+          <li><span aria-current="page">OpenHands</span></li>
+        </ol>
+      </nav>
+
+      <div class="mk-layout-2col">
+        <div>
+
+          <div class="mk-hero">
+            <div class="mk-vs-badge">
+              <span class="mk-vs-dot" aria-hidden="true"></span>
+              Comparison
+            </div>
+            <h1>GratefulAgents vs OpenHands</h1>
+            <p>
+              OpenHands (formerly OpenDevin) is a well-established, open-source coding agent
+              framework with a large community and strong research backing. GratefulAgents is also
+              open source and self-hosted. The meaningful comparison here is not open vs closed—
+              both are genuinely open source. It is about scope: a container-first agent harness
+              versus a Kubernetes-native control plane built around that harness.
+            </p>
+          </div>
+
+          <article class="mk-prose">
+
+            <h2>What OpenHands is</h2>
+            <p>
+              OpenHands (previously called OpenDevin) is an open-source autonomous coding agent
+              framework developed by All Hands AI and a large contributor community. It started as
+              a research project exploring how LLMs could perform software engineering tasks
+              autonomously, and has grown into a mature, actively maintained platform with serious
+              benchmark results and widespread adoption.
+            </p>
+            <p>
+              The architecture is container-first: OpenHands runs a runtime Docker container that
+              gives the agent a sandboxed environment with a shell, browser, and editor. You
+              configure it with your model provider (it supports a wide range of models via
+              LiteLLM), point it at your codebase, and give it tasks. The web UI provides
+              interaction, session replay, and history.
+            </p>
+            <p>
+              OpenHands is one of the most accessible self-hosted agent options: a Docker Compose
+              command is sufficient to get started on any machine with Docker installed, without
+              Kubernetes.
+            </p>
+
+            <h2>What OpenHands is genuinely good at</h2>
+            <p>
+              {c.whatItIsGoodAt}
+            </p>
+            <p>
+              If your primary requirement is a proven open-source agent harness that you can run
+              today on any Docker-capable machine, OpenHands is a strong, well-validated choice
+              that should be evaluated on its own merits. The community, research backing, and
+              ease of setup are real advantages.
+            </p>
+
+            <h2>How the comparison actually works: scope, not open vs closed</h2>
+            <p>
+              This comparison is different from the others on this site (GitHub Copilot, Devin),
+              which contrast a self-hosted product with cloud SaaS services. OpenHands and
+              GratefulAgents are both open source and both self-hosted. Framing this as
+              "open vs closed" would be inaccurate and unfair to OpenHands.
+            </p>
+            <p>
+              The real distinction is <em>product scope</em>. OpenHands is a powerful, focused
+              agent harness—it solves the core problem of running an agent in an isolated
+              environment against a codebase. GratefulAgents ships an entire product built around
+              that same core problem, with additional layers for organisations that need them:
+            </p>
+            <ul>
+              <li>
+                <strong>Kubernetes-native control plane with CRDs.</strong> GratefulAgents
+                introduces declarative resource types (<code>AgentRun</code>,
+                <code>Project</code>, <code>GitHubRepository</code>, <code>LinearProject</code>,
+                <code>SlackAgent</code>, <code>Cron</code>) that let you manage agents as
+                Kubernetes resources. This enables GitOps-style agent management, RBAC via
+                Kubernetes native permissions, and integration with existing cluster tooling.
+              </li>
+              <li>
+                <strong>Multi-platform client applications.</strong> GratefulAgents ships a
+                web dashboard, a desktop client for macOS Apple Silicon and Linux (AMD64/ARM64),
+                and iOS and Android mobile apps. This matters for teams that need to review,
+                steer, or stop agent runs from multiple devices and contexts.
+              </li>
+              <li>
+                <strong>First-class trigger integrations.</strong> GitHub issues, PR comments, and
+                review feedback trigger runs via a <code>GitHubRepository</code> CRD. Linear
+                tickets trigger via <code>LinearProject</code>. Slack messages via
+                <code>SlackAgent</code>. Scheduled runs via <code>Cron</code>. All declared as
+                Kubernetes resources.
+              </li>
+              <li>
+                <strong>Sharing and permissions.</strong> GratefulAgents has a built-in sharing
+                and permissions model for controlling who can see and interact with runs and
+                projects. OpenHands does not have an equivalent built-in access control layer.
+              </li>
+              <li>
+                <strong>Agent Ops observability console.</strong> Per-run Jaeger traces, cost,
+                token counts, tool calls, subagent dependency graphs, compaction events, and
+                model comparison. This is a first-class product surface rather than an add-on.
+              </li>
+            </ul>
+            <p>
+              Conversely, OpenHands has real advantages that GratefulAgents does not match:
+              a larger and more active community, a longer track record, stronger agent benchmark
+              results, and a dramatically lower barrier to entry (Docker Compose vs Kubernetes).
+            </p>
+
+            <h2>Dimension-by-dimension comparison</h2>
+            <p>
+              The following table covers the dimensions where the two projects most meaningfully
+              differ. Where a dimension is similar or not clearly distinguishable, it is omitted.
+            </p>
+
+            <div class="mk-table-scroll" role="region" aria-label="Comparison table: GratefulAgents vs OpenHands">
+              <table class="mk-compare-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Dimension</th>
+                    <th scope="col">OpenHands</th>
+                    <th scope="col">GratefulAgents</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {c.rows.map((row) => (
+                    <tr>
+                      <td>{row.dimension}</td>
+                      <td>{row.competitor}</td>
+                      <td>{row.gratefulagents}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <h2>Who should pick which</h2>
+
+            <h3>Choose OpenHands if:</h3>
+            <ul>
+              <li>You want to self-host a capable open-source agent without Kubernetes expertise or infrastructure.</li>
+              <li>Docker Compose is your preferred deployment model.</li>
+              <li>You value community size, research track record, and benchmark validation.</li>
+              <li>You want access to the broadest possible set of LiteLLM-compatible models.</li>
+              <li>You need a mature, well-tested framework that has been used in production by many organisations.</li>
+            </ul>
+
+            <h3>Choose GratefulAgents if:</h3>
+            <ul>
+              <li>Your organisation already runs Kubernetes and you want agents managed as native cluster resources via CRDs.</li>
+              <li>You need first-class, CRD-backed trigger integrations with GitHub, Linear, Slack, and cron—declared as Kubernetes manifests.</li>
+              <li>You need a multi-platform experience: web dashboard, desktop client (macOS/Linux), and mobile apps (iOS/Android) for monitoring and steering runs.</li>
+              <li>You need a built-in sharing and permissions model for team access control without building one yourself.</li>
+              <li>You want an Agent Ops console with Jaeger-based distributed tracing, per-run cost, and subagent dependency graphs as a first-class feature.</li>
+              <li>You are adopting a GitOps approach to infrastructure and want agent configuration version-controlled as Kubernetes manifests.</li>
+            </ul>
+
+            <div class="mk-callout mk-callout-neutral">
+              <strong>Note on current status:</strong> GratefulAgents is in early development.
+              OpenHands is more mature with a larger community and more production miles on it.
+              If reliability and community support are high priorities, OpenHands has a meaningful
+              head start. GratefulAgents is the right bet if the Kubernetes-native product scope
+              is what you need and you are willing to adopt early-stage software.
+            </div>
+
+            <h2>A note on sandboxing</h2>
+            <p>
+              Both OpenHands and GratefulAgents run agents in sandboxed environments. OpenHands
+              uses a Docker container runtime. GratefulAgents uses
+              <a href="https://github.com/kubernetes-sigs/agent-sandbox" rel="noopener noreferrer">kubernetes-sigs/agent-sandbox</a>,
+              a Kubernetes SIG project providing isolated execution environments at the pod level.
+              The Kubernetes-native sandboxing integrates with your cluster's existing network
+              policies, RBAC configuration, and pod security standards—which can simplify
+              compliance posture for organisations that already have Kubernetes security controls
+              in place.
+            </p>
+
+            <h2>Running them side by side</h2>
+            <p>
+              Because both products are self-hosted and open source, there is nothing stopping you
+              from running them in parallel during an evaluation. You can direct identical workloads
+              at both, compare the results, and make an evidence-based decision. This is the
+              recommended approach if you have time—the architectural differences are significant
+              enough that a hands-on evaluation will reveal more than any comparison document can.
+            </p>
+
+            <h2>How to try GratefulAgents</h2>
+            <p>
+              The recommended evaluation path is a local Kind cluster. Docker is the only
+              prerequisite—no cloud account needed. The
+              <a href="/docs/getting-started/self-hosting-kind/">Kind getting-started guide</a>
+              walks through bootstrapping the cluster, deploying the Helm chart (including
+              PostgreSQL/pgvector, MinIO, and Jaeger), adding your model credentials, and
+              triggering a first run. The process takes roughly fifteen minutes.
+            </p>
+            <p>
+              For a more persistent installation on a server, the
+              <a href="/docs/getting-started/self-hosting-k3s/">k3s guide</a> covers a fresh
+              Debian or Ubuntu deployment.
+            </p>
+            <div class="cta-row">
+              <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-primary">
+                Get started with Kind →
+              </a>
+              <a href="/alternatives/" class="btn btn-quiet">More comparisons</a>
+            </div>
+
+            <hr class="mk-divider" />
+
+            <h2>Frequently asked questions</h2>
+            <div class="mk-faq">
+              {faqs.map((f) => (
+                <details class="mk-faq-item">
+                  <summary>{f.question}</summary>
+                  <div class="mk-faq-answer">{f.answer}</div>
+                </details>
+              ))}
+            </div>
+
+          </article>
+
+          <div class="mk-disclaimer">
+            <p>
+              OpenHands™ is a project of All Hands AI. All trademarks are the property of their
+              respective owners. This comparison reflects the authors' understanding of each project
+              at time of writing; both projects move quickly and capabilities change frequently.
+              Consult
+              <a href="https://www.all-hands.dev" rel="noopener noreferrer">All Hands AI's own OpenHands documentation</a>
+              for authoritative and up-to-date information.
+            </p>
+          </div>
+
+        </div>
+
+        <aside>
+          <div class="mk-sidebar-card">
+            <h3>Try GratefulAgents</h3>
+            <p>Self-hosted. Open source (AGPL-3.0). Runs in your Kubernetes cluster.</p>
+            <div class="cta-row">
+              <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-primary">
+                Kind quick-start →
+              </a>
+              <a href="/docs/getting-started/self-hosting-k3s/" class="btn btn-quiet">
+                k3s on a server
+              </a>
+            </div>
+          </div>
+
+          <div class="mk-sidebar-card" style="margin-top: 1rem;">
+            <h3>More comparisons</h3>
+            <p>See how GratefulAgents compares to cloud-managed coding agents.</p>
+            <div class="cta-row">
+              <a href="/alternatives/github-copilot/" class="btn btn-quiet">vs Copilot →</a>
+              <a href="/alternatives/devin/" class="btn btn-quiet">vs Devin →</a>
+            </div>
+          </div>
+
+          <div class="mk-sidebar-card" style="margin-top: 1rem;">
+            <h3>Why self-host?</h3>
+            <p>Architecture guide covering data residency, IP protection, and cost control.</p>
+            <div class="cta-row">
+              <a href="/self-hosted-coding-agents/" class="btn btn-quiet">Read guide →</a>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+    </div>
+  </main>
+</Base>

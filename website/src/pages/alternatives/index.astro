@@ -1,0 +1,221 @@
+---
+import Base from '../../layouts/Base.astro';
+import '../../styles/marketing.css';
+import {comparisons} from '../../data/comparisons';
+
+const title = 'Coding Agent Alternatives: Cloud vs Self-Hosted | GratefulAgents';
+const description =
+  'Compare cloud-managed coding agent harnesses with self-hosted options across the dimensions that actually matter: data residency, model choice, and control.';
+
+const structuredData = [
+  {
+    '@type': 'CollectionPage',
+    '@id': 'https://gratefulagents.dev/alternatives/#collection',
+    name: title,
+    description,
+    url: 'https://gratefulagents.dev/alternatives/',
+    author: {'@type': 'Organization', '@id': 'https://gratefulagents.dev/#organization'},
+  },
+  {
+    '@type': 'BreadcrumbList',
+    '@id': 'https://gratefulagents.dev/alternatives/#breadcrumb',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: 'https://gratefulagents.dev/',
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Alternatives',
+        item: 'https://gratefulagents.dev/alternatives/',
+      },
+    ],
+  },
+  {
+    '@type': 'ItemList',
+    '@id': 'https://gratefulagents.dev/alternatives/#list',
+    name: 'Coding agent alternatives compared',
+    itemListElement: comparisons.map((c, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: c.name,
+      url: `https://gratefulagents.dev${c.href}`,
+    })),
+  },
+];
+---
+
+<Base {title} {description} {structuredData}>
+  <main id="main">
+    <div class="mk-page">
+
+      <nav aria-label="Breadcrumb">
+        <ol class="mk-breadcrumb">
+          <li><a href="/">Home</a></li>
+          <li><span aria-current="page">Alternatives</span></li>
+        </ol>
+      </nav>
+
+      <div class="mk-hero">
+        <p class="section-kicker">Landscape Overview</p>
+        <h1>Coding Agent Alternatives</h1>
+        <p>
+          The AI coding agent space has divided into two architectural camps: <strong>cloud-managed
+          harnesses</strong> that run agent processes on the vendor's infrastructure, and
+          <strong>self-hosted options</strong> that execute inside your own environment. The right
+          choice depends on your organisation's requirements around data residency, model control,
+          operational capacity, and trust model—not on any single product being objectively better.
+        </p>
+        <div class="cta-row">
+          <a href="/self-hosted-coding-agents/" class="btn btn-primary">
+            Why self-host? →
+          </a>
+          <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-quiet">
+            Try GratefulAgents
+          </a>
+        </div>
+      </div>
+
+      <div class="mk-prose" style="max-width: none;">
+
+        <h2>Two architectural camps</h2>
+        <p>
+          Cloud-managed coding agents—GitHub Copilot's coding agent and Devin being the most
+          prominent examples—offer a compelling proposition: near-zero onboarding friction and a
+          polished product experience managed entirely by the vendor. You connect your repositories,
+          the vendor handles the infrastructure, and the agent gets to work. This model is genuinely
+          superior for teams that want capable autonomous agents right now without provisioning
+          servers or learning Kubernetes.
+        </p>
+        <p>
+          The trade-off is that your source code, prompts, and model credentials all transit the
+          vendor's network and execute on their infrastructure. For many teams this is acceptable.
+          For teams with data-residency obligations, strict IP-protection policies, regulated
+          environments, or private dependencies that cannot be reached from the public internet,
+          it is not.
+        </p>
+        <p>
+          Self-hosted options—including GratefulAgents and OpenHands—keep execution inside your
+          own environment. The agent reads your code, calls your model APIs with your keys, and
+          writes results back to your repositories, all without those intermediary steps crossing
+          a third-party network boundary. The trade-off is operational responsibility: you own
+          the cluster, the upgrades, and the incident response.
+        </p>
+
+        <h2>The axes that actually matter when choosing</h2>
+        <p>
+          Marketing comparisons tend to focus on feature checklists that go stale quickly and do
+          not distinguish what is architecturally fundamental from what is a current product gap
+          that could be closed in the next release. The dimensions below are more stable because
+          they reflect underlying architecture, not surface feature sets.
+        </p>
+
+        <div class="mk-axis-list">
+          <div class="mk-axis">
+            <span class="mk-axis-label">Where execution happens</span>
+            <span class="mk-axis-desc">
+              Does the agent process run on your infrastructure or the vendor's? This determines
+              whether your source code leaves your network during a run.
+            </span>
+          </div>
+          <div class="mk-axis">
+            <span class="mk-axis-label">Who holds credentials</span>
+            <span class="mk-axis-desc">
+              Model API keys and source control tokens are high-privilege credentials. Where are
+              they stored, and who can access them?
+            </span>
+          </div>
+          <div class="mk-axis">
+            <span class="mk-axis-label">Model choice and cost</span>
+            <span class="mk-axis-desc">
+              Can you choose the model per-project, bring your own API keys, and apply your own
+              volume contracts?
+            </span>
+          </div>
+          <div class="mk-axis">
+            <span class="mk-axis-label">Licence</span>
+            <span class="mk-axis-desc">
+              Is the harness open source? Can you read the code, audit what it does, and fork it
+              if the vendor direction changes?
+            </span>
+          </div>
+          <div class="mk-axis">
+            <span class="mk-axis-label">Observability depth</span>
+            <span class="mk-axis-desc">
+              Can you trace every model call, tool invocation, token count, and cost, or are you
+              limited to a high-level activity feed?
+            </span>
+          </div>
+          <div class="mk-axis">
+            <span class="mk-axis-label">Operational overhead</span>
+            <span class="mk-axis-desc">
+              How much infrastructure expertise is required to deploy, upgrade, and maintain the
+              harness? Is there a managed option?
+            </span>
+          </div>
+        </div>
+
+        <h2>Products compared</h2>
+        <p>
+          The following three comparisons examine the most common options teams consider when
+          choosing a coding agent harness. Each page tries to be honest about where the competitor
+          is the better choice—because the honest answer is that for some teams and some
+          constraints, it is.
+        </p>
+
+        <div class="mk-alt-grid">
+          {comparisons.map((c) => (
+            <a href={c.href} class="mk-alt-card">
+              <p class="mk-alt-tagline">{c.tagline}</p>
+              <h3>GratefulAgents vs {c.name}</h3>
+              <p>{c.summary}</p>
+              <span class="mk-alt-link">Read comparison →</span>
+            </a>
+          ))}
+        </div>
+
+        <h2>Choosing honestly</h2>
+        <p>
+          There is no universally correct answer. Here is the clearest version of the decision:
+        </p>
+        <ul>
+          <li>
+            <strong>If your code already lives on GitHub.com and you have no data-residency
+            constraints</strong>, GitHub Copilot's coding agent is the lower-friction choice.
+            Zero infrastructure to manage, tight GitHub integration, capable and continuously
+            improving.
+          </li>
+          <li>
+            <strong>If you want a polished, fully managed autonomous agent and are comfortable
+            with code leaving your network</strong>, Devin is worth evaluating. It is a
+            thoughtfully designed product with serious engineering investment.
+          </li>
+          <li>
+            <strong>If you want open source and self-hosted but do not want to take on
+            Kubernetes</strong>, OpenHands is a strong option. Docker Compose, a large
+            community, and a solid research track record.
+          </li>
+          <li>
+            <strong>If you need a Kubernetes-native control plane with CRD-backed triggers,
+            multi-platform clients, and a full Agent Ops observability console—all running
+            inside your own cluster</strong>, that is what GratefulAgents is built for.
+            It is in early development, so expect rough edges, but the architecture is designed
+            for exactly this use case.
+          </li>
+        </ul>
+
+        <p>
+          For a deeper look at the architecture and requirements for self-hosting, see
+          <a href="/self-hosted-coding-agents/">Self-Hosted Coding Agents: Architecture &amp; Evaluation Guide</a>.
+          To try GratefulAgents, the <a href="/docs/getting-started/self-hosting-kind/">Kind
+          quick-start guide</a> takes about fifteen minutes on a laptop.
+        </p>
+
+      </div>
+
+    </div>
+  </main>
+</Base>

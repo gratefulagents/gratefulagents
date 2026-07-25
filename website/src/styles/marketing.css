@@ -1,0 +1,590 @@
+/* marketing.css — supplemental styles for SEO / marketing pages.
+   Imports from individual pages; never imported by global.css.
+   Uses the same carbon drawing-set design language.
+   All new classes are prefixed mk- to avoid collisions with global.css. */
+
+/* ── Layout shells ──────────────────────────────────────────────── */
+
+.mk-page {
+  width: min(calc(100% - 3rem), var(--shell));
+  margin: 0 auto;
+  padding-block: clamp(2rem, 5vh, 3.5rem) 5rem;
+}
+
+.mk-page-narrow {
+  width: min(calc(100% - 3rem), var(--measure));
+  margin: 0 auto;
+  padding-block: clamp(2rem, 5vh, 3.5rem) 5rem;
+}
+
+/* ── Hero banner ────────────────────────────────────────────────── */
+
+.mk-hero {
+  padding-block: clamp(2.5rem, 6vh, 4rem);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: clamp(2rem, 5vh, 3rem);
+}
+
+.mk-hero h1 {
+  margin: 0 0 1rem;
+  max-width: 44rem;
+  color: var(--chalk-bright);
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4.5vw, 3.4rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.06;
+  text-wrap: balance;
+}
+
+.mk-hero p {
+  max-width: 42rem;
+  margin: 0 0 1.5rem;
+  color: var(--faded);
+  font-size: clamp(1rem, 1.4vw, 1.15rem);
+  line-height: 1.65;
+}
+
+.mk-hero p b,
+.mk-hero p strong {
+  color: var(--chalk);
+  font-weight: 500;
+}
+
+/* ── Prose body ─────────────────────────────────────────────────── */
+
+.mk-prose {
+  max-width: var(--measure);
+}
+
+.mk-prose h2 {
+  margin: 2.8rem 0 0.85rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--chalk-bright);
+  font-family: var(--font-display);
+  font-size: clamp(1.3rem, 2.5vw, 1.8rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.mk-prose h2:first-child { margin-top: 0; border-top: none; }
+
+.mk-prose h3 {
+  margin: 1.8rem 0 0.6rem;
+  color: var(--chalk);
+  font-family: var(--font-display);
+  font-size: clamp(1.05rem, 1.8vw, 1.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.mk-prose p {
+  margin: 0 0 1.15rem;
+  color: var(--chalk);
+  font-size: 1rem;
+  line-height: 1.72;
+}
+
+.mk-prose ul,
+.mk-prose ol {
+  margin: 0 0 1.15rem;
+  padding-left: 1.4rem;
+  color: var(--chalk);
+  line-height: 1.7;
+}
+
+.mk-prose li { margin-bottom: 0.4rem; }
+
+.mk-prose strong,
+.mk-prose b {
+  color: var(--chalk-bright);
+  font-weight: 600;
+}
+
+.mk-prose a {
+  color: var(--chalk-bright);
+  text-underline-offset: 3px;
+}
+
+.mk-prose a:hover { color: var(--redline-soft); }
+
+.mk-prose code {
+  padding: 0.1em 0.35em;
+  border: 1px solid var(--line-strong);
+  background: var(--blue-panel);
+  border-radius: 3px;
+  color: var(--chalk);
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+}
+
+/* ── Two-column layout for comparison pages ─────────────────────── */
+
+.mk-layout-2col {
+  display: grid;
+  grid-template-columns: minmax(0, var(--measure)) minmax(0, 22rem);
+  gap: clamp(2rem, 4vw, 4rem);
+  align-items: start;
+}
+
+.mk-sidebar-card {
+  position: sticky;
+  top: calc(58px + 1.5rem);
+  padding: 1.4rem;
+  border: 1px solid var(--line-strong);
+  background: var(--blue-panel);
+}
+
+.mk-sidebar-card h3 {
+  margin: 0 0 0.75rem;
+  color: var(--chalk-bright);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.mk-sidebar-card p {
+  margin: 0 0 1rem;
+  color: var(--faded);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.mk-sidebar-card .cta-row { flex-direction: column; align-items: stretch; }
+.mk-sidebar-card .cta-row .btn { text-align: center; justify-content: center; }
+
+/* ── Comparison table ───────────────────────────────────────────── */
+
+/* Scrollable wrapper so the table never overflows at 360 px */
+.mk-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  margin-block: 1.8rem;
+}
+
+/* Screen-reader label announces the scrollable region */
+.mk-table-scroll:focus-within { outline: 2px solid var(--redline-soft); }
+
+.mk-compare-table {
+  width: 100%;
+  min-width: 38rem;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.mk-compare-table thead th {
+  padding: 0.7rem 1rem;
+  border-bottom: 2px solid var(--line-strong);
+  background: var(--blue-panel-raised);
+  color: var(--faded);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mk-compare-table thead th:first-child { width: 36%; }
+
+/* GratefulAgents column gets a subtle highlight */
+.mk-compare-table thead th:last-child {
+  color: var(--chalk);
+  border-left: 2px solid var(--redline);
+}
+
+.mk-compare-table tbody tr { border-bottom: 1px solid var(--line); }
+.mk-compare-table tbody tr:last-child { border-bottom: none; }
+
+.mk-compare-table tbody tr:hover { background: rgba(232, 232, 234, 0.03); }
+
+.mk-compare-table td {
+  padding: 0.7rem 1rem;
+  color: var(--chalk);
+  vertical-align: top;
+}
+
+.mk-compare-table td:first-child {
+  color: var(--faded);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.mk-compare-table td:last-child {
+  border-left: 2px solid var(--redline);
+  background: rgba(228, 89, 59, 0.04);
+}
+
+/* ── Section separator ──────────────────────────────────────────── */
+
+.mk-divider {
+  margin-block: 2.5rem;
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+/* ── Callout / info box ─────────────────────────────────────────── */
+
+.mk-callout {
+  padding: 1.1rem 1.25rem;
+  border-left: 3px solid var(--redline);
+  background: var(--redline-wash);
+  font-size: 0.94rem;
+  line-height: 1.65;
+  color: var(--chalk);
+}
+
+.mk-callout.mk-callout-neutral {
+  border-left-color: var(--line-strong);
+  background: var(--blue-panel);
+}
+
+.mk-callout strong { color: var(--chalk-bright); }
+
+/* ── Feature list / card grid ───────────────────────────────────── */
+
+.mk-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1px;
+  border: 1px solid var(--line-strong);
+  background: var(--line-strong);
+  margin-block: 1.8rem;
+}
+
+.mk-feature-card {
+  padding: 1.4rem;
+  background: var(--blue-panel);
+}
+
+.mk-feature-card h3 {
+  margin: 0 0 0.5rem;
+  color: var(--chalk-bright);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mk-feature-card p {
+  margin: 0;
+  color: var(--faded);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+/* ── Steps / HowTo list ─────────────────────────────────────────── */
+
+.mk-steps {
+  counter-reset: step;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mk-steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2.2rem 1fr;
+  gap: 0 0.9rem;
+  margin-bottom: 1.2rem;
+  align-items: start;
+}
+
+.mk-steps li::before {
+  content: counter(step);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--blue-panel);
+  color: var(--redline-soft);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.mk-steps .mk-step-body { min-width: 0; }
+
+.mk-steps .mk-step-title {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--chalk-bright);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.mk-steps .mk-step-desc {
+  display: block;
+  color: var(--faded);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+/* ── Comparison page hero variant ───────────────────────────────── */
+
+.mk-vs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.28rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  background: var(--blue-panel);
+  color: var(--faded);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mk-vs-badge .mk-vs-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--redline);
+}
+
+/* ── FAQ accordion (no JS — details/summary) ─────────────────────── */
+
+.mk-faq { margin-block: 1.8rem; }
+
+.mk-faq-item {
+  border-bottom: 1px solid var(--line);
+}
+
+.mk-faq-item:first-child { border-top: 1px solid var(--line); }
+
+.mk-faq-item summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0;
+  color: var(--chalk);
+  font-size: 0.97rem;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.mk-faq-item summary::-webkit-details-marker { display: none; }
+
+.mk-faq-item summary::after {
+  content: '+';
+  flex-shrink: 0;
+  color: var(--redline-soft);
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 400;
+}
+
+.mk-faq-item[open] summary::after { content: '−'; }
+
+.mk-faq-item summary:hover { color: var(--chalk-bright); }
+
+.mk-faq-answer {
+  padding: 0 0 1.1rem;
+  color: var(--chalk);
+  font-size: 0.94rem;
+  line-height: 1.7;
+}
+
+/* ── Hub card grid (alternatives index) ─────────────────────────── */
+
+.mk-alt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
+  gap: 1px;
+  border: 1px solid var(--line-strong);
+  background: var(--line-strong);
+  margin-block: 2rem;
+}
+
+.mk-alt-card {
+  display: flex;
+  flex-direction: column;
+  padding: 1.6rem;
+  background: var(--blue-panel);
+  text-decoration: none;
+  color: inherit;
+  transition: background 160ms ease;
+}
+
+.mk-alt-card:hover { background: var(--blue-panel-raised); }
+
+.mk-alt-card h3 {
+  margin: 0 0 0.5rem;
+  color: var(--chalk-bright);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mk-alt-card .mk-alt-tagline {
+  margin: 0 0 0.85rem;
+  color: var(--faded);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mk-alt-card p {
+  margin: 0 0 1.1rem;
+  color: var(--faded);
+  font-size: 0.9rem;
+  line-height: 1.62;
+  flex: 1;
+}
+
+.mk-alt-card .mk-alt-link {
+  color: var(--redline-soft);
+  font-size: 0.84rem;
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+
+/* ── Breadcrumb ─────────────────────────────────────────────────── */
+
+.mk-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 1.5rem;
+  padding: 0;
+  list-style: none;
+  color: var(--faded-dim);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.mk-breadcrumb li { display: flex; align-items: center; gap: 0.35rem; }
+
+.mk-breadcrumb li::before { content: '/'; color: var(--line-frame); }
+.mk-breadcrumb li:first-child::before { display: none; }
+
+.mk-breadcrumb a { color: var(--faded); text-decoration: none; }
+.mk-breadcrumb a:hover { color: var(--chalk); }
+.mk-breadcrumb [aria-current='page'] { color: var(--chalk); }
+
+/* ── Trademark disclaimer ───────────────────────────────────────── */
+
+.mk-disclaimer {
+  margin-top: 3rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  color: var(--faded-dim);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.mk-disclaimer a { color: var(--faded); }
+
+/* ── Axis list (evaluation criteria) ───────────────────────────── */
+
+.mk-axis-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 1px;
+  border: 1px solid var(--line-strong);
+  background: var(--line-strong);
+  margin-block: 1.6rem;
+}
+
+.mk-axis {
+  padding: 1.1rem;
+  background: var(--blue-panel);
+}
+
+.mk-axis-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--chalk-bright);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.mk-axis-desc {
+  display: block;
+  color: var(--faded);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+/* ── Section header inside a page (below hero) ──────────────────── */
+
+.mk-section-head {
+  margin-bottom: 1.1rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.mk-section-head h2 {
+  margin: 0;
+  color: var(--chalk-bright);
+  font-family: var(--font-display);
+  font-size: clamp(1.25rem, 2.4vw, 1.65rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* ── Responsive overrides ───────────────────────────────────────── */
+
+@media (max-width: 72rem) {
+  .mk-layout-2col {
+    grid-template-columns: 1fr;
+  }
+  .mk-sidebar-card {
+    position: static;
+  }
+}
+
+@media (max-width: 48rem) {
+  .mk-page,
+  .mk-page-narrow {
+    width: calc(100% - 2rem);
+    padding-block: 1.5rem 4rem;
+  }
+  .mk-feature-grid {
+    grid-template-columns: 1fr;
+  }
+  .mk-alt-grid {
+    grid-template-columns: 1fr;
+  }
+  .mk-axis-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 30rem) {
+  .mk-hero h1 {
+    font-size: clamp(1.75rem, 8vw, 2.4rem);
+  }
+}
+
+/* Reduced-motion: suppress the live-pulse on .signal inside marketing pages */
+@media (prefers-reduced-motion: reduce) {
+  .mk-steps li::before { transition: none; }
+  .mk-alt-card { transition: none; }
+}

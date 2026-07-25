@@ -1,5 +1,7 @@
 ---
 title: Quick start
+seoTitle: Quick Start Guide for GratefulAgents | GratefulAgents
+description: Deploy GratefulAgents on Kind or k3s, then start your first AI coding agent chat. Covers admin setup, sign-in, and connecting desktop and mobile apps.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/getting-started/quick-start/ and get me to a working gratefulagents workspace. Ask me whether this is a laptop evaluation or a server install before you start, then follow the matching guide.
 ---

@@ -34,7 +34,31 @@ function rewriteDocLinks() {
 export default defineConfig({
   site: 'https://gratefulagents.dev',
   trailingSlash: 'always',
-  integrations: [sitemap()],
+  integrations: [
+    sitemap({
+      filter: (page) => !page.endsWith('/404/'),
+      serialize: (item) => {
+        const buildDate = new Date().toISOString().slice(0, 10);
+        const path = item.url.replace('https://gratefulagents.dev', '');
+
+        if (path === '/') {
+          return {...item, priority: 1.0, changefreq: 'weekly', lastmod: buildDate};
+        }
+        if (
+          path === '/docs/' ||
+          path === '/docs/getting-started/self-hosting-kind/' ||
+          path === '/docs/getting-started/self-hosting-k3s/' ||
+          path === '/docs/getting-started/quick-start/'
+        ) {
+          return {...item, priority: 0.9, changefreq: 'weekly', lastmod: buildDate};
+        }
+        if (!path.startsWith('/docs/')) {
+          return {...item, priority: 0.9, changefreq: 'monthly', lastmod: buildDate};
+        }
+        return {...item, priority: 0.7, changefreq: 'monthly', lastmod: buildDate};
+      },
+    }),
+  ],
   markdown: {
     remarkPlugins: [rewriteDocLinks],
   },

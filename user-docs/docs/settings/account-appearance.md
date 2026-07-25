@@ -1,5 +1,7 @@
 ---
 title: Account and appearance
+seoTitle: Account, Appearance, and Settings Overview | GratefulAgents
+description: Manage your GratefulAgents account identity, appearance theme, and sign-out. Navigate to credentials, SOUL, role models, Git identity, and diagnostics.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/account-appearance/ and show me how to manage my gratefulagents account, appearance, and notification settings.
 ---

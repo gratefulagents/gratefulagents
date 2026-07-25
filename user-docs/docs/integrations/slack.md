@@ -1,5 +1,7 @@
 ---
 title: Slack
+seoTitle: Connect Slack to GratefulAgents AI Coding Agent | GratefulAgents
+description: Set up a Slack connection and Entry point in GratefulAgents to start and steer AI coding agent runs by @mentioning the bot in any channel or DM.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/integrations/slack/ and explain what the gratefulagents Slack connection does, then help me connect my Slack workspace so I can start and steer runs from Slack.
 ---

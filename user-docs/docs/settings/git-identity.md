@@ -1,5 +1,7 @@
 ---
 title: Git identity
+seoTitle: Set Git Commit Identity for Agent Runs | GratefulAgents
+description: Configure the Git author name and email that GratefulAgents uses when coding agents commit code. Supports GitHub noreply addresses for commit privacy.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/git-identity/ and help me configure the Git identity and commit attribution my gratefulagents runs use.
 ---

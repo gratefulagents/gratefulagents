@@ -1,5 +1,7 @@
 ---
 title: Linear
+seoTitle: Connect Linear to GratefulAgents AI Coding Agent | GratefulAgents
+description: Create Linear connections and Entry points in GratefulAgents to trigger AI coding agent runs from Linear issues. Configure team ID, project ID, and API key.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/integrations/linear/ and explain what the gratefulagents Linear connection does, then help me connect it so Linear issues can create and steer runs.
 ---
