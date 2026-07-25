@@ -466,6 +466,13 @@ func (r *GitHubRepositoryReconciler) mapPullRequestMonitorToRepository(ctx conte
 	return nil
 }
 
+func githubObjectCursorID(cursor *triggersv1alpha1.GitHubObjectCursor) int64 {
+	if cursor == nil {
+		return 0
+	}
+	return cursor.ID
+}
+
 func pullRequestMonitorProjectionChanged(oldMonitor, newMonitor *triggersv1alpha1.PullRequestMonitor) bool {
 	if oldMonitor == nil || newMonitor == nil {
 		return oldMonitor != newMonitor
@@ -477,6 +484,8 @@ func pullRequestMonitorProjectionChanged(oldMonitor, newMonitor *triggersv1alpha
 		oldStatus.Lifecycle != newStatus.Lifecycle ||
 		oldStatus.Mergeability != newStatus.Mergeability ||
 		oldStatus.ReviewDecision != newStatus.ReviewDecision ||
+		githubObjectCursorID(oldStatus.LastReviewCursor) != githubObjectCursorID(newStatus.LastReviewCursor) ||
+		githubObjectCursorID(oldStatus.LastIssueCommentCursor) != githubObjectCursorID(newStatus.LastIssueCommentCursor) ||
 		oldStatus.PullError != newStatus.PullError ||
 		oldStatus.ReviewsError != newStatus.ReviewsError ||
 		oldStatus.Checks.HeadSHA != newStatus.Checks.HeadSHA ||

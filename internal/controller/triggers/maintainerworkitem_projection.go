@@ -210,6 +210,12 @@ func projectMaintainerRunsAndPRs(item *triggersv1alpha1.MaintainerWorkItem, runs
 
 func maintainerPRProjection(monitor *triggersv1alpha1.PullRequestMonitor) triggersv1alpha1.MaintainerWorkItemPullRequestProjection {
 	p := triggersv1alpha1.MaintainerWorkItemPullRequestProjection{Repository: monitor.Spec.Repository, Number: monitor.Spec.Number, IntentName: monitor.Name, MonitorRef: &corev1.LocalObjectReference{Name: monitor.Name}, URL: monitor.Spec.URL, HeadSHA: monitor.Status.HeadSHA, Draft: monitor.Status.Lifecycle == triggersv1alpha1.PullRequestLifecycleDraft, ReviewDecision: string(monitor.Status.ReviewDecision), HeadObservedAt: timePtr(monitor.Status.PullObservedAt), ReviewObservedAt: timePtr(monitor.Status.ReviewsObservedAt), ChecksObservedAt: timePtr(monitor.Status.Checks.ObservedAt), StatusesObservedAt: timePtr(monitor.Status.Statuses.ObservedAt), ObservationError: monitor.Status.LastError}
+	if monitor.Status.LastReviewCursor != nil {
+		p.LastReviewID = monitor.Status.LastReviewCursor.ID
+	}
+	if monitor.Status.LastIssueCommentCursor != nil {
+		p.LastCommentID = monitor.Status.LastIssueCommentCursor.ID
+	}
 	readyCondition := meta.FindStatusCondition(monitor.Status.Conditions, triggersv1alpha1.ConditionPullRequestMonitorReady)
 	p.Fresh = readyCondition != nil && readyCondition.Status == metav1.ConditionTrue && monitor.Status.LastError == "" && monitor.Status.HeadSHA != "" && monitor.Status.Checks.HeadSHA == monitor.Status.HeadSHA && monitor.Status.Statuses.HeadSHA == monitor.Status.HeadSHA
 	switch monitor.Status.Lifecycle {
@@ -358,6 +364,7 @@ func conditionReason(value bool, yes, no string) string {
 	}
 	return no
 }
+
 // allProjectedPRsMerged reports whether the work item shipped: at least one
 // projected pull request is merged and none is still open. Closed, unmerged
 // pull requests were superseded and are not delivery obligations.
