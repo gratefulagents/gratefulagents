@@ -34,6 +34,16 @@ func (f *fakeGitHubIssueLister) ListByRepo(ctx context.Context, owner, repo stri
 	return f.pages[idx].issues, &github.Response{NextPage: f.pages[idx].nextPage}, nil
 }
 
+func TestGitHubIssueUserRequestIncludesAutoCloseDirective(t *testing.T) {
+	t.Parallel()
+
+	got := githubIssueUserRequest(42, "Fix the widget", "The widget is broken.")
+	want := "# GitHub Issue #42: Fix the widget\n\nThe widget is broken.\n\nWhen creating a pull request for this work, include `Closes #42` in the PR description so GitHub automatically closes the issue."
+	if got != want {
+		t.Fatalf("githubIssueUserRequest() = %q, want %q", got, want)
+	}
+}
+
 func TestGHIssueNameAddsHashWhenTruncated(t *testing.T) {
 	t.Parallel()
 
