@@ -295,7 +295,7 @@ func (h *GitHubWebhookHandler) handleIssuesEvent(ctx context.Context, gh *trigge
 		return nil
 	}
 
-	userRequest := fmt.Sprintf("# %s\n\n%s", event.Issue.Title, event.Issue.Body)
+	userRequest := githubIssueUserRequest(event.Issue.Number, event.Issue.Title, event.Issue.Body, !maintainerWorkItemsEnabled(reconciler, gh))
 	issueID := fmt.Sprintf("%d", event.Issue.Number)
 
 	existing, err := ExistingTriggerIssueIDs(ctx, h.Client, gh.Namespace, gitHubRepositoryTriggerKind, gh.Name)
