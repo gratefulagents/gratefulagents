@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
+import { MemoryRouter } from "react-router-dom";
 
 import { RunPullRequestPanel } from "./RunPullRequestPanel";
 import { buildReviewFixMessage } from "@/lib/pullRequests";
 import {
   GetAgentRunPullRequestsResponseSchema,
+  PRLoopStatusSchema,
   PullRequestDetailsSchema,
 } from "@/rpc/platform/service_pb";
 import { client } from "@/lib/client";
@@ -117,6 +119,58 @@ describe("RunPullRequestPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Deselect all" }));
     expect(screen.queryByText(/review comments selected/)).toBeNull();
+  });
+
+  it("rolls up checks and keeps passing ones collapsed", async () => {
+    getPullRequestsMock.mockResolvedValue(
+      create(GetAgentRunPullRequestsResponseSchema, {
+        pullRequests: [
+          makePR({
+            checks: [
+              { name: "build", status: "completed", conclusion: "failure" },
+              { name: "lint", status: "completed", conclusion: "success" },
+              { name: "unit", status: "completed", conclusion: "success" },
+            ],
+          }),
+        ],
+      }),
+    );
+    render(<RunPullRequestPanel namespace="ns" name="run" canSend />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Checks/ }));
+    expect(screen.getByText("1 failing")).toBeTruthy();
+    expect(screen.getByText("2 passing")).toBeTruthy();
+    expect(screen.getByText("build")).toBeTruthy();
+    expect(screen.queryByText("lint")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Passing · 2/ }));
+    expect(screen.getByText("lint")).toBeTruthy();
+  });
+
+  it("shows the review-loop section only when the run is in a PR loop", async () => {
+    mockResponse();
+    const { unmount } = render(<RunPullRequestPanel namespace="ns" name="run" />);
+    await screen.findByText("src/widget.ts:12");
+    expect(screen.queryByRole("tab", { name: "Loop" })).toBeNull();
+    unmount();
+
+    mockResponse();
+    render(
+      <MemoryRouter>
+        <RunPullRequestPanel
+          namespace="ns"
+          name="run"
+          prLoop={create(PRLoopStatusSchema, {
+            state: "awaiting_review",
+            role: "implementer",
+            reviewRound: 2,
+            maxRounds: 3,
+          })}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("tab", { name: "Loop" }));
+    expect(screen.getByText("2 of 3")).toBeTruthy();
   });
 });
 

@@ -49,7 +49,7 @@ import { RunPullRequestPanel } from "@/components/run-session/RunPullRequestPane
 import { ChatScrollControls } from "@/components/run-session/ChatScrollControls";
 import { buildSlashCommands, type SlashCommand } from "@/components/run-session/slashCommands";
 import { useAvailableModes } from "@/hooks/useAvailableModes";
-import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, findLatestPlanPresentation, getActionButtonVariant, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, PRLoopCard, renderPlanDialogButton, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
+import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, findLatestPlanPresentation, getActionButtonVariant, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, renderPlanDialogButton, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
 import { isActionableInputType, isRunComputing, visibleInputType } from "@/lib/runStatus";
 import { TimelineRow } from "@/components/run-session/TimelineRow";
 import { PendingMessages } from "@/components/run-session/PendingMessages";
@@ -1136,12 +1136,13 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
           )}
 
           {activeInspectorTab === "pr" && (
-            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
-              {run.prLoop && (
-                <PRLoopCard loop={run.prLoop} namespace={namespace} prUrl={prUrl} />
-              )}
-              <RunPullRequestPanel namespace={namespace} name={name} canSend={canSendMessage} />
-            </div>
+            <RunPullRequestPanel
+              namespace={namespace}
+              name={name}
+              canSend={canSendMessage}
+              prLoop={run.prLoop}
+              prUrl={prUrl}
+            />
           )}
 
           {activeInspectorTab === "errors" && (
