@@ -265,12 +265,12 @@ spec:
               roleModelOverrides:
                 description: |-
                   RoleModelOverrides snapshots the creating user's personal specialist-model
-                  preferences. Missing roles/providers inherit cluster RoleInstruction defaults.
+                  preferences. A role may force parent-model inheritance; otherwise missing
+                  roles/providers inherit cluster RoleInstruction defaults.
                 items:
                   description: |-
-                    AgentRunRoleModelOverride snapshots one user's provider-specific model
-                    preferences for a specialist role onto a run. Platform RoleInstruction
-                    defaults remain authoritative for providers not present in this map.
+                    AgentRunRoleModelOverride snapshots one user's model preferences for a
+                    specialist role onto a run.
                   properties:
                     modelsByProvider:
                       additionalProperties:
@@ -283,6 +283,11 @@ spec:
                       description: Role is the RoleInstruction name.
                       maxLength: 253
                       type: string
+                    useParentModel:
+                      description: UseParentModel bypasses provider and platform role
+                        mappings so the role always uses the parent run's currently
+                        selected model.
+                      type: boolean
                   required:
                   - role
                   type: object

@@ -29,6 +29,7 @@ function platformModel(role: RoleInstruction, provider: string) {
 export function RoleModelsSection() {
   const [roles, setRoles] = useState<RoleInstruction[]>([]);
   const [values, setValues] = useState<Values>({});
+  const [parentModelRoles, setParentModelRoles] = useState<Set<string>>(new Set());
   const [updatedAt, setUpdatedAt] = useState<Timestamp | undefined>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,10 +45,19 @@ export function RoleModelsSection() {
         setRoles(roleResponse.instructions);
         setValues(
           Object.fromEntries(
-            preferences.preferences.map((preference) => [
-              preferenceKey(preference.roleName, preference.provider),
-              preference.model,
-            ]),
+            preferences.preferences
+              .filter((preference) => !preference.useParentModel)
+              .map((preference) => [
+                preferenceKey(preference.roleName, preference.provider),
+                preference.model,
+              ]),
+          ),
+        );
+        setParentModelRoles(
+          new Set(
+            preferences.preferences
+              .filter((preference) => preference.useParentModel)
+              .map((preference) => preference.roleName),
           ),
         );
         setUpdatedAt(preferences.updatedAt);
@@ -74,22 +84,36 @@ export function RoleModelsSection() {
           ? [{ roleName, provider, model }]
           : [];
       });
-      const preferences: { roleName: string; provider: string; model: string }[] = [
-        ...roles.flatMap((role) =>
-          providers.flatMap(({ value: provider }) => {
+      const preferences = roles.flatMap((role) => {
+        if (parentModelRoles.has(role.name)) {
+          return [{ roleName: role.name, provider: "", model: "", useParentModel: true }];
+        }
+        return [
+          ...providers.flatMap(({ value: provider }) => {
             const model = (values[preferenceKey(role.name, provider)] || "").trim();
-            return model ? [{ roleName: role.name, provider, model }] : [];
+            return model ? [{ roleName: role.name, provider, model, useParentModel: false }] : [];
           }),
-        ),
-        ...hiddenPreferences,
-      ];
+          ...hiddenPreferences
+            .filter((preference) => preference.roleName === role.name)
+            .map((preference) => ({ ...preference, useParentModel: false })),
+        ];
+      });
       const saved = await client.updateMyRoleModelPreferences({ preferences });
       setValues(
         Object.fromEntries(
-          saved.preferences.map((preference) => [
-            preferenceKey(preference.roleName, preference.provider),
-            preference.model,
-          ]),
+          saved.preferences
+            .filter((preference) => !preference.useParentModel)
+            .map((preference) => [
+              preferenceKey(preference.roleName, preference.provider),
+              preference.model,
+            ]),
+        ),
+      );
+      setParentModelRoles(
+        new Set(
+          saved.preferences
+            .filter((preference) => preference.useParentModel)
+            .map((preference) => preference.roleName),
         ),
       );
       setUpdatedAt(saved.updatedAt);
@@ -108,20 +132,40 @@ export function RoleModelsSection() {
     <SettingsSection
       icon={<Bot />}
       title="Role models"
-      description="Choose a model for each specialist role and provider. Leave a field blank to use the platform mapping, or the parent model when that provider is not mapped. Saved choices apply to newly created runs."
+      description="Choose a model for each specialist role and provider, or make a role always follow its parent model. Blank fields use the platform mapping. Saved choices apply to newly created runs."
     >
       <div className="space-y-4">
         {roles.map((role) => (
           <div key={role.name} className="surface-card space-y-3 p-4">
-            <div>
-              <h3 className="text-[13px] font-medium tracking-tight">
-                {role.name}
-              </h3>
-              {role.description && (
-                <p className="text-[11.5px] text-muted-foreground">
-                  {role.description}
-                </p>
-              )}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-[13px] font-medium tracking-tight">
+                  {role.name}
+                </h3>
+                {role.description && (
+                  <p className="text-[11.5px] text-muted-foreground">
+                    {role.description}
+                  </p>
+                )}
+              </div>
+              <Label className="flex cursor-pointer items-center gap-2 text-[12px] font-normal">
+                <input
+                  type="checkbox"
+                  className="size-3.5 accent-primary"
+                  checked={parentModelRoles.has(role.name)}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+                    setParentModelRoles((current) => {
+                      const next = new Set(current);
+                      if (checked) next.add(role.name);
+                      else next.delete(role.name);
+                      return next;
+                    });
+                  }}
+                  disabled={loading}
+                />
+                Always use parent model
+              </Label>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               {providers.map(({ value: provider, label }) => {
@@ -140,7 +184,7 @@ export function RoleModelsSection() {
                           [key]: event.target.value,
                         }))
                       }
-                      disabled={loading}
+                      disabled={loading || parentModelRoles.has(role.name)}
                       placeholder={defaultModel || "Parent model"}
                       aria-describedby={`${id}-help`}
                     />

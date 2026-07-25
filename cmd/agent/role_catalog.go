@@ -60,17 +60,18 @@ func parentModelSettingsForTurn(base, overrides agent.ModelSettings) agent.Model
 
 // loadRoleCatalog maps operator RoleInstruction CRDs into the SDK-native role
 // catalog contract and resolves each role's model for the active provider. A
-// run-scoped user override wins only for its matching role and provider.
+// run-scoped role-wide parent preference wins first; otherwise personal models
+// win only for their matching role and provider.
 func loadRoleCatalog(ctx context.Context, c client.Client, provider string, userOverrides []platformv1alpha1.AgentRunRoleModelOverride) (resolvedRoleCatalog, error) {
 	list := &platformv1alpha1.RoleInstructionList{}
 	if err := c.List(ctx, list); err != nil {
 		return resolvedRoleCatalog{}, err
 	}
-	userModels := make(map[string]map[string]string, len(userOverrides))
+	userModels := make(map[string]platformv1alpha1.AgentRunRoleModelOverride, len(userOverrides))
 	for _, override := range userOverrides {
 		role := strings.TrimSpace(override.Role)
 		if role != "" {
-			userModels[role] = override.ModelsByProvider
+			userModels[role] = override
 		}
 	}
 	sort.Slice(list.Items, func(i, j int) bool { return list.Items[i].Name < list.Items[j].Name })
@@ -83,12 +84,13 @@ func loadRoleCatalog(ctx context.Context, c client.Client, provider string, user
 		if toolAccess == "" {
 			toolAccess = defaultRoleToolAccess[ri.Name]
 		}
+		userOverride, hasUserOverride := userModels[ri.Name]
 		resolved.Roles = append(resolved.Roles, agent.RoleSpec{
 			Name:          ri.Name,
 			Description:   ri.Spec.Description,
 			Instructions:  ri.Spec.Instructions,
 			ToolAccess:    toolAccess,
-			ModelOverride: roleModelForProviderWithOverride(ri.Spec, provider, userModels[ri.Name]),
+			ModelOverride: roleModelForProviderWithOverride(ri.Spec, provider, userOverride.ModelsByProvider, hasUserOverride && userOverride.UseParentModel),
 		})
 		if level := strings.TrimSpace(string(ri.Spec.ReasoningLevel)); level != "" {
 			resolved.ReasoningLevels[ri.Name] = level
@@ -102,13 +104,16 @@ func loadRoleCatalog(ctx context.Context, c client.Client, provider string, user
 // inherit the parent run's model). A model for one provider must never leak
 // into another provider's run.
 func roleModelForProvider(spec platformv1alpha1.RoleInstructionSpec, provider string) string {
-	return roleModelForProviderWithOverride(spec, provider, nil)
+	return roleModelForProviderWithOverride(spec, provider, nil, false)
 }
 
-// roleModelForProviderWithOverride adds a run-scoped personal provider model
-// ahead of the platform defaults. Personal overrides are deliberately
-// provider-specific so switching providers cannot carry an incompatible model.
-func roleModelForProviderWithOverride(spec platformv1alpha1.RoleInstructionSpec, provider string, userModels map[string]string) string {
+// roleModelForProviderWithOverride adds a run-scoped personal preference ahead
+// of platform defaults. A role-wide parent preference returns an empty override;
+// otherwise personal models remain provider-specific.
+func roleModelForProviderWithOverride(spec platformv1alpha1.RoleInstructionSpec, provider string, userModels map[string]string, useParentModel bool) string {
+	if useParentModel {
+		return ""
+	}
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if model := roleProviderModel(userModels, provider); model != "" {
 		return providerQualifiedRoleModel(provider, model)

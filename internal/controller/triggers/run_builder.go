@@ -261,15 +261,28 @@ func snapshotTriggerOwnerRoleModels(ctx context.Context, stateStore store.StateS
 	if err != nil {
 		return fmt.Errorf("load trigger owner role models: %w", err)
 	}
-	byRole := map[string]map[string]string{}
+	byRole := map[string]*platformv1alpha1.AgentRunRoleModelOverride{}
 	for _, preference := range preferences {
-		if preference == nil || strings.TrimSpace(preference.RoleName) == "" || strings.TrimSpace(preference.Provider) == "" || strings.TrimSpace(preference.Model) == "" {
+		if preference == nil || strings.TrimSpace(preference.RoleName) == "" {
 			continue
 		}
-		if byRole[preference.RoleName] == nil {
-			byRole[preference.RoleName] = map[string]string{}
+		override := byRole[preference.RoleName]
+		if override == nil {
+			override = &platformv1alpha1.AgentRunRoleModelOverride{Role: preference.RoleName}
+			byRole[preference.RoleName] = override
 		}
-		byRole[preference.RoleName][preference.Provider] = preference.Model
+		if preference.UseParentModel {
+			override.UseParentModel = true
+			override.ModelsByProvider = nil
+			continue
+		}
+		if override.UseParentModel || strings.TrimSpace(preference.Provider) == "" || strings.TrimSpace(preference.Model) == "" {
+			continue
+		}
+		if override.ModelsByProvider == nil {
+			override.ModelsByProvider = map[string]string{}
+		}
+		override.ModelsByProvider[preference.Provider] = preference.Model
 	}
 	roles := make([]string, 0, len(byRole))
 	for role := range byRole {
@@ -277,7 +290,7 @@ func snapshotTriggerOwnerRoleModels(ctx context.Context, stateStore store.StateS
 	}
 	sort.Strings(roles)
 	for _, role := range roles {
-		run.Spec.RoleModelOverrides = append(run.Spec.RoleModelOverrides, platformv1alpha1.AgentRunRoleModelOverride{Role: role, ModelsByProvider: byRole[role]})
+		run.Spec.RoleModelOverrides = append(run.Spec.RoleModelOverrides, *byRole[role])
 	}
 	return nil
 }

@@ -91,7 +91,33 @@ describe("RoleModelsSection", () => {
     await waitFor(() => {
       expect(updatePreferences).toHaveBeenCalledWith({
         preferences: [
-          { roleName: "explore", provider: "anthropic", model: "claude-sonnet-4-6" },
+          { roleName: "explore", provider: "anthropic", model: "claude-sonnet-4-6", useParentModel: false },
+        ],
+      });
+    });
+  });
+
+  it("saves a role-wide parent-model preference and disables provider fields", async () => {
+    mockLoad();
+    updatePreferences.mockResolvedValue({
+      preferences: [
+        { roleName: "explore", provider: "", model: "", useParentModel: true },
+      ],
+    } as never);
+
+    render(<RoleModelsSection />);
+
+    const checkbox = await screen.findByRole("checkbox", { name: "Always use parent model" });
+    fireEvent.click(checkbox);
+    expect((screen.getByLabelText("OpenAI") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Anthropic") as HTMLInputElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save role models" }));
+
+    await waitFor(() => {
+      expect(updatePreferences).toHaveBeenCalledWith({
+        preferences: [
+          { roleName: "explore", provider: "", model: "", useParentModel: true },
         ],
       });
     });

@@ -78,6 +78,14 @@ func TestRoleModelForProvider(t *testing.T) {
 	}
 }
 
+func TestRoleModelParentPreferenceBypassesPersonalAndPlatformMappings(t *testing.T) {
+	spec := platformv1alpha1.RoleInstructionSpec{ModelsByProvider: map[string]string{"openai": "platform-model"}}
+	got := roleModelForProviderWithOverride(spec, "openai", map[string]string{"openai": "personal-model"}, true)
+	if got != "" {
+		t.Fatalf("roleModelForProviderWithOverride() = %q, want parent inheritance", got)
+	}
+}
+
 func TestRoleModelForProviderMissingProviderAlwaysInheritsParent(t *testing.T) {
 	spec := platformv1alpha1.RoleInstructionSpec{
 		Model: "legacy-generic-default",
