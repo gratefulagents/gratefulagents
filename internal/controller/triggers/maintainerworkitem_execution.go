@@ -16,6 +16,7 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -74,6 +75,13 @@ func (r *GitHubRepositoryReconciler) processMaintainerExecutionCommand(ctx conte
 			return r.failAndReleaseMaintainerDispatch(ctx, repository, command, item, "applying trigger label after dispatch reservation: "+err.Error())
 		}
 		return fmt.Errorf("applying trigger label after dispatch reservation: %w", err)
+	}
+	if err := r.recreateMaintainerDispatchRun(ctx, repository, command, item, issue); err != nil {
+		var rejected maintainerCommandRejectedError
+		if asMaintainerCommandRejected(err, &rejected) {
+			return r.failAndReleaseMaintainerDispatch(ctx, repository, command, item, rejected.message)
+		}
+		return err
 	}
 	return r.completeMaintainerWorkItemCommand(ctx, command, item, "dispatch capacity reserved and trigger label applied", "", observedIssueState(item))
 }
@@ -170,7 +178,7 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 		}
 		replay := fresh.Status.DispatchReservation != nil && fresh.Status.DispatchReservation.CommandRef.Name == command.Name
 		if fresh.Status.DispatchReservation != nil && !replay {
-			return rejectMaintainerCommand("work item was already dispatched")
+			return r.replaceOrphanedMaintainerDispatch(ctx, repository, command, fresh)
 		}
 		if !replay && fresh.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseReadyToDispatch {
 			return rejectMaintainerCommand("work item is not in the pre-dispatch phase")
@@ -208,6 +216,197 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 	default:
 		return rejectMaintainerCommand("unsupported execution command")
 	}
+}
+
+// replaceOrphanedMaintainerDispatch permits a fresh authenticated dispatch to
+// replace a materialized reservation only after its exact controller-derived
+// implementer has disappeared. The existing ledger entry must still own a
+// capacity slot, so recovery cannot bypass concurrency accounting.
+func (r *GitHubRepositoryReconciler) replaceOrphanedMaintainerDispatch(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) error {
+	reservation := item.Status.DispatchReservation
+	if reservation == nil || reservation.AgentRunRef == nil || reservation.AgentRunRef.Name == "" {
+		return rejectMaintainerCommand("work item was already dispatched")
+	}
+	if item.Name != MaintainerWorkItemName(repository.Name, item.Spec.IssueNumber) || item.Spec.RepositoryRef.Name != repository.Name || !item.DeletionTimestamp.IsZero() || !runOwnerMatchesRepository(item.OwnerReferences, repository) {
+		return rejectMaintainerCommand("existing dispatch does not belong to the current repository work item")
+	}
+	expectedRunName := ghIssueName(repository.Spec.Owner, repository.Spec.Repo, strconv.Itoa(int(item.Spec.IssueNumber)))
+	if reservation.AgentRunRef.Name != expectedRunName {
+		return rejectMaintainerCommand("existing dispatch run does not match the controller-derived implementer identity")
+	}
+	run := &platformv1alpha1.AgentRun{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKey{Namespace: repository.Namespace, Name: expectedRunName}, run); err == nil {
+		return rejectMaintainerCommand("work item was already dispatched and its implementer still exists")
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("checking existing dispatch run: %w", err)
+	}
+	oldCommand := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: reservation.CommandRef.Name}}
+	if item.Spec.GraphConfiguredByCommand == nil {
+		return rejectMaintainerCommand("work item graph has not been explicitly configured")
+	}
+	if item.Generation > 0 {
+		projectionCurrent := false
+		for _, condition := range item.Status.Conditions {
+			if condition.Type == triggersv1alpha1.ConditionMaintainerWorkItemDependenciesReady && condition.ObservedGeneration == item.Generation {
+				projectionCurrent = true
+				break
+			}
+		}
+		if !projectionCurrent {
+			return rejectMaintainerCommand("readiness projection has not observed the current work-item graph generation")
+		}
+	}
+	candidate := item.DeepCopy()
+	candidate.Status.DispatchReservation = nil
+	evaluateMaintainerReadiness(candidate, time.Now(), repository.Spec.Maintainer != nil && repository.Spec.Maintainer.FullControl)
+	if candidate.Status.Readiness == nil || !candidate.Status.Readiness.ReadyToDispatch {
+		return rejectMaintainerCommand("work item is not ready for recovery dispatch")
+	}
+	if err := retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
+		if fresh.Status.Result == nil {
+			fresh.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{WorkItemRef: corev1.LocalObjectReference{Name: item.Name}}
+		}
+		fresh.Status.Result.AgentRunRef = &corev1.LocalObjectReference{Name: expectedRunName}
+		fresh.Status.Result.Message = "authenticated recovery dispatch validated"
+	}); err != nil {
+		return fmt.Errorf("recording validated dispatch recovery: %w", err)
+	}
+	command.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{WorkItemRef: corev1.LocalObjectReference{Name: item.Name}, AgentRunRef: &corev1.LocalObjectReference{Name: expectedRunName}}
+	return r.transferMaintainerDispatchReservation(ctx, repository, oldCommand.Name, command, item)
+}
+
+func (r *GitHubRepositoryReconciler) transferMaintainerDispatchReservation(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, oldCommandName string, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) error {
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		fresh := &triggersv1alpha1.GitHubRepository{}
+		if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(repository), fresh); err != nil {
+			return err
+		}
+		ledger := maintainerRepositoryDispatchLedger{}
+		raw := fresh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation]
+		if raw == "" {
+			return rejectMaintainerCommand("existing dispatch no longer owns a recoverable capacity reservation")
+		}
+		if err := json.Unmarshal([]byte(raw), &ledger); err != nil {
+			return fmt.Errorf("invalid repository dispatch ledger: %w", err)
+		}
+		entry, ok := ledger.Reservations[item.Name]
+		if !ok {
+			return rejectMaintainerCommand("existing dispatch no longer owns a recoverable capacity reservation")
+		}
+		switch entry.CommandName {
+		case command.Name:
+			return nil
+		case oldCommandName:
+			entry.CommandName = command.Name
+			ledger.Reservations[item.Name] = entry
+		default:
+			return rejectMaintainerCommand("dispatch capacity reservation changed owners")
+		}
+		encoded, err := json.Marshal(ledger)
+		if err != nil {
+			return err
+		}
+		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		fresh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation] = string(encoded)
+		return r.Patch(ctx, fresh, patch)
+	}); err != nil {
+		return err
+	}
+	return r.retryMaintainerWorkItemStatusMutation(ctx, client.ObjectKeyFromObject(item), func(fresh *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
+		reservation := fresh.Status.DispatchReservation
+		if reservation == nil {
+			return false, rejectMaintainerCommand("dispatch reservation disappeared during recovery")
+		}
+		switch reservation.CommandRef.Name {
+		case command.Name:
+			return false, nil
+		case oldCommandName:
+			reservation.ID = command.Spec.IdempotencyKey
+			reservation.CommandRef.Name = command.Name
+			reservation.AgentRunRef = nil
+			fresh.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseDispatched
+			fresh.Status.ProjectionSequence++
+			return true, nil
+		default:
+			return false, rejectMaintainerCommand("dispatch reservation changed owners during recovery")
+		}
+	})
+}
+
+func runOwnerMatchesRepository(owners []metav1.OwnerReference, repository *triggersv1alpha1.GitHubRepository) bool {
+	for _, owner := range owners {
+		if owner.Controller != nil && *owner.Controller && owner.APIVersion == triggersv1alpha1.GroupVersion.String() && owner.Kind == gitHubRepositoryTriggerKind && owner.Name == repository.Name && owner.UID == repository.UID {
+			return true
+		}
+	}
+	return false
+}
+
+// recreateMaintainerDispatchRun performs the wake-up side effect for a
+// recovery command. Ordinary dispatches continue to use the label/webhook path.
+func (r *GitHubRepositoryReconciler) recreateMaintainerDispatchRun(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, issue *github.Issue) error {
+	if command.Status.Result == nil || command.Status.Result.AgentRunRef == nil {
+		return nil
+	}
+	recoveryRunName := command.Status.Result.AgentRunRef.Name
+	expectedRunName := ghIssueName(repository.Spec.Owner, repository.Spec.Repo, strconv.Itoa(int(item.Spec.IssueNumber)))
+	if recoveryRunName != expectedRunName {
+		return fmt.Errorf("validated dispatch recovery names unexpected AgentRun %q", recoveryRunName)
+	}
+	fresh := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(item), fresh); err != nil {
+		return err
+	}
+	if fresh.Status.DispatchReservation == nil || fresh.Status.DispatchReservation.CommandRef.Name != command.Name {
+		return fmt.Errorf("dispatch recovery reservation is no longer owned by command %s", command.Name)
+	}
+	if fresh.Spec.GraphConfiguredByCommand == nil || fresh.Status.PendingDecision != nil {
+		return rejectMaintainerCommand("work item is no longer ready for recovery dispatch")
+	}
+	if fresh.Generation > 0 {
+		projectionCurrent := false
+		for _, condition := range fresh.Status.Conditions {
+			if condition.Type == triggersv1alpha1.ConditionMaintainerWorkItemDependenciesReady && condition.ObservedGeneration == fresh.Generation {
+				projectionCurrent = true
+				break
+			}
+		}
+		if !projectionCurrent {
+			return rejectMaintainerCommand("readiness projection has not observed the current work-item graph generation")
+		}
+	}
+	candidate := fresh.DeepCopy()
+	candidate.Status.DispatchReservation = nil
+	evaluateMaintainerReadiness(candidate, time.Now(), repository.Spec.Maintainer != nil && repository.Spec.Maintainer.FullControl)
+	if candidate.Status.Readiness == nil || !candidate.Status.Readiness.ReadyToDispatch {
+		return rejectMaintainerCommand("work item is no longer ready for recovery dispatch")
+	}
+	runs := &platformv1alpha1.AgentRunList{}
+	if err := r.maintainerReader().List(ctx, runs, client.InNamespace(repository.Namespace), client.MatchingLabels{
+		triggersv1alpha1.MaintainerWorkItemNameLabelKey: fresh.Name,
+		triggersv1alpha1.MaintainerWorkItemUIDLabelKey:  string(fresh.UID),
+	}); err != nil {
+		return err
+	}
+	for i := range runs.Items {
+		run := &runs.Items[i]
+		if run.Name != expectedRunName && run.Labels[triggersv1alpha1.PRLoopRoleLabelKey] != triggersv1alpha1.PRLoopRoleReviewerValue && !isTerminalAgentRunPhase(run.Status.Phase) {
+			return rejectMaintainerCommand("another implementer is already active for this work item")
+		}
+	}
+	active, err := r.maintainerDispatchReservationActive(ctx, repository, command, fresh)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return rejectMaintainerCommand("recovery dispatch no longer owns its capacity reservation")
+	}
+	issueID := strconv.Itoa(issue.GetNumber())
+	request := fmt.Sprintf("# %s\n\n%s", issue.GetTitle(), issue.GetBody())
+	if _, err := r.createAgentRun(ctx, repository, issueID, issue.GetNumber(), issue.GetHTMLURL(), request, issue.GetUser().GetLogin(), &platformv1alpha1.ModeRef{Name: command.Spec.Dispatch.Mode}); err != nil {
+		return fmt.Errorf("recreating deleted implementer %s: %w", expectedRunName, err)
+	}
+	return nil
 }
 
 func (r *GitHubRepositoryReconciler) validateBreakdown(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, itemName string, children, dependencies []triggersv1alpha1.MaintainerWorkItemReference) error {

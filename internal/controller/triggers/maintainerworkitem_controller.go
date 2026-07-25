@@ -968,6 +968,10 @@ func (r *GitHubRepositoryReconciler) markMaintainerWorkItemClosed(ctx context.Co
 func (r *GitHubRepositoryReconciler) setMaintainerWorkItemCommandAccepted(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) error {
 	message := string(command.Spec.Type) + " command accepted; side effects are not yet verified"
 	err := retryMaintainerWorkItemCommandStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(command), func(fresh *triggersv1alpha1.MaintainerWorkItemCommand) {
+		var recoveryRunRef *corev1.LocalObjectReference
+		if fresh.Status.Result != nil {
+			recoveryRunRef = fresh.Status.Result.AgentRunRef
+		}
 		fresh.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseAccepted
 		fresh.Status.ObservedGeneration = fresh.Generation
 		fresh.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{
@@ -975,6 +979,7 @@ func (r *GitHubRepositoryReconciler) setMaintainerWorkItemCommandAccepted(ctx co
 			Applied:     false,
 			Message:     message,
 			IssueState:  observedIssueState(item),
+			AgentRunRef: recoveryRunRef,
 		}
 	})
 	return err
