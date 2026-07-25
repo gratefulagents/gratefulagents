@@ -159,10 +159,13 @@ export function EntryPointsPreview({
   return (
     <section className="flex flex-col gap-2" aria-labelledby="entry-points-preview">
       <div className="flex h-7 items-center justify-between">
-        <h2 id="entry-points-preview" className="text-[13px] font-medium text-muted-foreground">
+        <h2
+          id="entry-points-preview"
+          className="text-[14px] font-semibold tracking-[-0.01em] text-foreground"
+        >
           Entry points
         </h2>
-        <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={onManage}>
+        <Button variant="ghost" size="xs" onClick={onManage}>
           Manage
           <ArrowRight data-icon="inline-end" />
         </Button>

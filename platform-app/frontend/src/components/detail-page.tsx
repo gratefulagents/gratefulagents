@@ -17,12 +17,15 @@ export function DetailHeader({
   parentTo,
   title,
   meta,
+  subtitle,
   actions,
 }: {
   parentLabel: string;
   parentTo: string;
   title: string;
   meta?: React.ReactNode;
+  /** Identity line rendered under the title (namespace, repo, …). */
+  subtitle?: React.ReactNode;
   actions?: React.ReactNode;
 }) {
   return (
@@ -45,6 +48,7 @@ export function DetailHeader({
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>
+      {subtitle && <div className="min-w-0 pt-0.5">{subtitle}</div>}
     </div>
   );
 }
@@ -139,7 +143,7 @@ export function Fact({
         )}
       >
         {empty ? (
-          "—"
+          "Not set"
         ) : typeof value === "string" && !wrap ? (
           <span className="block truncate" title={value}>
             {value}
@@ -218,9 +222,9 @@ export function DetailSection({
     <section className={cn("space-y-3", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-[13px] font-medium text-muted-foreground">{title}</h2>
+          <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
           {description && (
-            <p className="mt-1 max-w-[72ch] text-[11.5px] leading-relaxed text-muted-foreground/80">
+            <p className="mt-1 max-w-[72ch] text-[12px] leading-relaxed text-muted-foreground">
               {description}
             </p>
           )}
