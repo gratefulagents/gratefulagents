@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-github/v68/github"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -144,5 +145,39 @@ func TestGitHubRepositoryPollSkipsProcessedIssueWithoutLiveRun(t *testing.T) {
 	}
 	if len(runs.Items) != 0 {
 		t.Fatalf("AgentRuns = %d, want 0", len(runs.Items))
+	}
+}
+
+func TestPullRequestMonitorProjectionChangesEnqueueMaintainedRepository(t *testing.T) {
+	monitor := &triggersv1alpha1.PullRequestMonitor{
+		ObjectMeta: metav1.ObjectMeta{Name: "monitor", Namespace: "default"},
+		Spec: triggersv1alpha1.PullRequestMonitorSpec{
+			GitHubRepositoryRef: &corev1.LocalObjectReference{Name: "repository"},
+		},
+		Status: triggersv1alpha1.PullRequestMonitorStatus{
+			HeadSHA:        "head",
+			ReviewDecision: triggersv1alpha1.PullRequestReviewDecisionUnknown,
+			Checks:         triggersv1alpha1.PullRequestMonitorHeadRollup{HeadSHA: "head", State: gitHubRollupPending, Count: 1},
+		},
+	}
+	requests := (&GitHubRepositoryReconciler{}).mapPullRequestMonitorToRepository(context.Background(), monitor)
+	if len(requests) != 1 || requests[0].Name != "repository" || requests[0].Namespace != "default" {
+		t.Fatalf("mapped requests = %#v", requests)
+	}
+
+	reviewed := monitor.DeepCopy()
+	reviewed.Status.ReviewDecision = triggersv1alpha1.PullRequestReviewDecisionApproved
+	if !pullRequestMonitorProjectionChanged(monitor, reviewed) {
+		t.Fatal("review decision change did not enqueue work-item projection")
+	}
+	checked := monitor.DeepCopy()
+	checked.Status.Checks.State = gitHubRollupSuccess
+	if !pullRequestMonitorProjectionChanged(monitor, checked) {
+		t.Fatal("check rollup change did not enqueue work-item projection")
+	}
+	heartbeat := monitor.DeepCopy()
+	heartbeat.Status.Checks.ObservedAt = metav1.Now()
+	if pullRequestMonitorProjectionChanged(monitor, heartbeat) {
+		t.Fatal("observation heartbeat alone enqueued a semantic projection")
 	}
 }

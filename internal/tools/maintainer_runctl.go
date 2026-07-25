@@ -78,7 +78,7 @@ func (t *extendRunTimeoutTool) Execute(ctx context.Context, input json.RawMessag
 		if err := t.k8sClient.Get(ctx, key, fresh); err != nil {
 			return err
 		}
-		if !t.isFleetRun(fresh) {
+		if !t.isFleetRunForCurrentRepository(ctx, fresh) {
 			return fmt.Errorf("AgentRun %q is no longer a fleet run for the maintained repository", name)
 		}
 		if maintainerTerminal(fresh.Status.Phase) {
@@ -158,7 +158,7 @@ func (t *markRunSucceededTool) Execute(ctx context.Context, input json.RawMessag
 		if err := t.k8sClient.Get(ctx, key, fresh); err != nil {
 			return err
 		}
-		if !t.isFleetRun(fresh) {
+		if !t.isFleetRunForCurrentRepository(ctx, fresh) {
 			return fmt.Errorf("AgentRun %q is no longer a fleet run for the maintained repository", name)
 		}
 		if maintainerIsReviewer(fresh) {

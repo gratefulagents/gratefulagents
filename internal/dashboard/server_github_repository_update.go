@@ -113,6 +113,16 @@ func (s *Server) UpdateGitHubRepository(ctx context.Context, req *platform.Updat
 			// operator-selected rollback mode rather than defaulting to Controller.
 			maintainer.WorkItemCutover = existing.Spec.Maintainer.WorkItemCutover
 		}
+		if maintainer != nil && req.TriggerSettings.MaintainerDispatchModeRef == nil && existing.Spec.Maintainer != nil {
+			// Preserve custom dispatch configuration for clients generated before
+			// this optional field existed. An explicitly present empty value resets
+			// the effective mode to autopilot.
+			maintainer.DispatchModeRef = existing.Spec.Maintainer.DispatchModeRef
+		}
+		if maintainer != nil && req.TriggerSettings.MaintainerAllowPlatformBugReports == nil && existing.Spec.Maintainer != nil {
+			// Older clients cannot knowingly approve cross-repository publication.
+			maintainer.AllowPlatformBugReports = existing.Spec.Maintainer.AllowPlatformBugReports
+		}
 		existing.Spec.PollInterval = pollInterval
 		existing.Spec.WebhookSecret = webhookSecret
 		existing.Spec.TriggerKeyword = triggerKeyword

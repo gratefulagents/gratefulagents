@@ -121,9 +121,11 @@ function normalizeTriggerSettings(settings: GitHubRepositoryTriggerSettings): Gi
       settings.maintainerMaxDispatchesPerDay > 0 ? Math.trunc(settings.maintainerMaxDispatchesPerDay) : 0,
     maintainerStandupInterval: settings.maintainerStandupInterval.trim(),
     maintainerModeRef: settings.maintainerModeRef.trim(),
+    maintainerDispatchModeRef: (settings.maintainerDispatchModeRef ?? "").trim(),
     maintainerModel: settings.maintainerModel.trim(),
     maintainerAllowPrMerge: settings.maintainerAllowPrMerge,
     maintainerFullControl: settings.maintainerFullControl,
+    maintainerAllowPlatformBugReports: settings.maintainerAllowPlatformBugReports ?? false,
     maintainerWorkItemCutover: settings.maintainerWorkItemCutover || "Controller",
   });
 }
@@ -188,9 +190,11 @@ function maintainerModified(settings: GitHubRepositoryTriggerSettings): boolean 
       settings.maintainerMaxDispatchesPerDay > 0 ||
       settings.maintainerStandupInterval.trim() ||
       settings.maintainerModeRef.trim() ||
+      settings.maintainerDispatchModeRef?.trim() ||
       settings.maintainerModel.trim() ||
       settings.maintainerAllowPrMerge ||
       settings.maintainerFullControl ||
+      settings.maintainerAllowPlatformBugReports ||
       (settings.maintainerWorkItemCutover && settings.maintainerWorkItemCutover !== "Controller"),
   );
 }
@@ -664,6 +668,20 @@ export function GitHubRepositorySettingsDialog({
                           />
                         </FlowField>
                         <FlowField
+                          id="github-settings-maintainer-dispatch-mode"
+                          label="Dispatch mode"
+                          hint="Controller-owned implementer ModeTemplate. Blank uses autopilot."
+                        >
+                          <Input
+                            id="github-settings-maintainer-dispatch-mode"
+                            value={triggerSettings.maintainerDispatchModeRef ?? ""}
+                            onChange={(event) =>
+                              updateTriggerSettings({ maintainerDispatchModeRef: event.target.value })
+                            }
+                            placeholder="autopilot"
+                          />
+                        </FlowField>
+                        <FlowField
                           id="github-settings-maintainer-model"
                           label="Maintainer model"
                           hint="Blank inherits the repository run model."
@@ -705,6 +723,20 @@ export function GitHubRepositorySettingsDialog({
                               checked={triggerSettings.maintainerFullControl}
                               onCheckedChange={(checked) =>
                                 updateTriggerSettings({ maintainerFullControl: checked })
+                              }
+                            />
+                          }
+                        />
+                        <FlowSwitchRow
+                          id="github-settings-maintainer-platform-bug-reports"
+                          label="Allow publishing Grateful Agents platform bug reports"
+                          hint="Danger: permits model-authored report content to cross the repository boundary and be published to gratefulagents/gratefulagents. Disabled by default."
+                          control={
+                            <Switch
+                              id="github-settings-maintainer-platform-bug-reports"
+                              checked={triggerSettings.maintainerAllowPlatformBugReports ?? false}
+                              onCheckedChange={(checked) =>
+                                updateTriggerSettings({ maintainerAllowPlatformBugReports: checked })
                               }
                             />
                           }

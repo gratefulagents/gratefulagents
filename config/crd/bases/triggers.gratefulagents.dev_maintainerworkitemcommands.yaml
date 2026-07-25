@@ -58,8 +58,9 @@ spec:
               command request.
             properties:
               breakdown:
-                description: MaintainerBreakdownCommand is the typed payload for a
-                  BreakdownIssue command.
+                description: |-
+                  MaintainerBreakdownCommand is the typed payload for an explicit work-item
+                  graph configuration. Empty children and dependencies affirm a reviewed leaf.
                 properties:
                   children:
                     items:
@@ -78,7 +79,6 @@ spec:
                       required:
                       - name
                       type: object
-                    minItems: 1
                     type: array
                     x-kubernetes-list-map-keys:
                     - name
@@ -109,7 +109,6 @@ spec:
                     minimum: 1
                     type: integer
                 required:
-                - children
                 - issueNumber
                 type: object
               dispatch:

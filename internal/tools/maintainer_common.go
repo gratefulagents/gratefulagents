@@ -12,12 +12,15 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
+	"k8s.io/apimachinery/pkg/types"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
 	defaultMaintainerConcurrentDispatches int32 = 2
 	defaultMaintainerDispatchesPerDay     int32 = 10
+	defaultMaintainerDispatchMode               = "autopilot"
 	maintainerPRLoopStateLabel                  = "triggers.gratefulagents.dev/pr-loop"
 	maintainerPRLoopRoundAnnotation             = "triggers.gratefulagents.dev/review-round"
 )
@@ -26,6 +29,7 @@ type maintainerToolBase struct {
 	stateStore                          store.StateStore
 	k8sClient                           client.Client
 	currentRunName, currentRunNamespace string
+	currentRunUID                       types.UID
 	repositoryName, repositoryNamespace string
 }
 
@@ -65,6 +69,9 @@ func (b maintainerToolBase) currentRun(ctx context.Context) (*platformv1alpha1.A
 	if err := b.k8sClient.Get(ctx, client.ObjectKey{Name: b.currentRunName, Namespace: b.currentRunNamespace}, current); err != nil {
 		return nil, fmt.Errorf("failed to verify maintainer AgentRun: %w", err)
 	}
+	if b.currentRunUID == "" || current.UID != b.currentRunUID {
+		return nil, fmt.Errorf("current AgentRun UID does not match the tool session")
+	}
 	if current.Namespace != b.repositoryNamespace {
 		return nil, fmt.Errorf("current AgentRun is not in the maintained repository namespace")
 	}
@@ -74,12 +81,14 @@ func (b maintainerToolBase) currentRun(ctx context.Context) (*platformv1alpha1.A
 	if current.Labels[orchestration.SupervisedRunLabel] != b.repositoryName {
 		return nil, fmt.Errorf("current AgentRun is not assigned to the maintained repository")
 	}
-	for _, owner := range current.OwnerReferences {
-		if owner.Controller != nil && *owner.Controller && owner.Kind == "GitHubRepository" && owner.Name == b.repositoryName {
-			return current, nil
-		}
+	repository, err := b.repository(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("current AgentRun is not controller-owned by the maintained GitHubRepository")
+	if maintainerFleetRunOwnedByRepository(current, repository) {
+		return current, nil
+	}
+	return nil, fmt.Errorf("current AgentRun is not controller-owned by the maintained GitHubRepository UID")
 }
 
 func (b maintainerToolBase) repository(ctx context.Context) (*triggersv1alpha1.GitHubRepository, error) {
@@ -87,7 +96,25 @@ func (b maintainerToolBase) repository(ctx context.Context) (*triggersv1alpha1.G
 	if err := b.k8sClient.Get(ctx, client.ObjectKey{Name: b.repositoryName, Namespace: b.repositoryNamespace}, repository); err != nil {
 		return nil, fmt.Errorf("failed to get maintained GitHubRepository: %w", err)
 	}
+	if repository.UID == "" || !repository.DeletionTimestamp.IsZero() {
+		return nil, fmt.Errorf("maintained GitHubRepository has no stable live UID")
+	}
 	return repository, nil
+}
+
+func maintainerDispatchMode(repository *triggersv1alpha1.GitHubRepository) (string, error) {
+	if repository == nil || repository.Spec.Maintainer == nil || repository.Spec.Maintainer.DispatchModeRef == "" {
+		return defaultMaintainerDispatchMode, nil
+	}
+	raw := repository.Spec.Maintainer.DispatchModeRef
+	mode := strings.TrimSpace(raw)
+	if mode == "" || mode != raw {
+		return "", fmt.Errorf("invalid configured dispatch ModeTemplate name %q", raw)
+	}
+	if problems := utilvalidation.IsDNS1123Subdomain(mode); len(problems) > 0 {
+		return "", fmt.Errorf("invalid configured dispatch ModeTemplate name %q: %s", raw, strings.Join(problems, "; "))
+	}
+	return mode, nil
 }
 
 func (b maintainerToolBase) isFleetRun(run *platformv1alpha1.AgentRun) bool {
@@ -98,17 +125,46 @@ func (b maintainerToolBase) isFleetRun(run *platformv1alpha1.AgentRun) bool {
 	if triggerName == "" {
 		triggerName = strings.TrimSpace(run.Spec.Trigger.Name)
 	}
-	return triggerName == b.repositoryName
+	if triggerName != b.repositoryName {
+		return false
+	}
+	for _, owner := range run.OwnerReferences {
+		if owner.Controller != nil && *owner.Controller && owner.Kind == "GitHubRepository" && owner.Name == b.repositoryName {
+			return true
+		}
+	}
+	return false
+}
+
+func (b maintainerToolBase) isFleetRunForCurrentRepository(ctx context.Context, run *platformv1alpha1.AgentRun) bool {
+	repository, err := b.repository(ctx)
+	return err == nil && b.isFleetRun(run) && maintainerFleetRunOwnedByRepository(run, repository)
+}
+
+func maintainerFleetRunOwnedByRepository(run *platformv1alpha1.AgentRun, repository *triggersv1alpha1.GitHubRepository) bool {
+	if run == nil || repository == nil || run.Namespace != repository.Namespace {
+		return false
+	}
+	for _, owner := range run.OwnerReferences {
+		if owner.Controller != nil && *owner.Controller && owner.Kind == "GitHubRepository" && owner.Name == repository.Name && owner.UID == repository.UID {
+			return true
+		}
+	}
+	return false
 }
 
 func (b maintainerToolBase) fleetRuns(ctx context.Context) ([]platformv1alpha1.AgentRun, error) {
+	repository, err := b.repository(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var runs platformv1alpha1.AgentRunList
 	if err := b.k8sClient.List(ctx, &runs, client.InNamespace(b.currentRunNamespace)); err != nil {
 		return nil, fmt.Errorf("failed to list fleet AgentRuns: %w", err)
 	}
 	fleet := make([]platformv1alpha1.AgentRun, 0, len(runs.Items))
 	for i := range runs.Items {
-		if b.isFleetRun(&runs.Items[i]) {
+		if b.isFleetRun(&runs.Items[i]) && maintainerFleetRunOwnedByRepository(&runs.Items[i], repository) {
 			fleet = append(fleet, runs.Items[i])
 		}
 	}
@@ -116,12 +172,16 @@ func (b maintainerToolBase) fleetRuns(ctx context.Context) ([]platformv1alpha1.A
 }
 
 func (b maintainerToolBase) fleetRun(ctx context.Context, name string) (*platformv1alpha1.AgentRun, error) {
+	repository, err := b.repository(ctx)
+	if err != nil {
+		return nil, err
+	}
 	run := &platformv1alpha1.AgentRun{}
 	if err := b.k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: b.currentRunNamespace}, run); err != nil {
 		return nil, err
 	}
-	if !b.isFleetRun(run) {
-		return nil, fmt.Errorf("AgentRun %q is not a fleet run for the maintained repository", name)
+	if !b.isFleetRun(run) || !maintainerFleetRunOwnedByRepository(run, repository) {
+		return nil, fmt.Errorf("AgentRun %q is not a fleet run for the maintained repository UID", name)
 	}
 	return run, nil
 }

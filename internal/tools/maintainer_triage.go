@@ -53,7 +53,7 @@ type triageIssueOutput struct {
 
 func (t *triageIssueTool) Name() string { return "triage_issue" }
 func (t *triageIssueTool) Description() string {
-	return "Submit an immutable, idempotent triage command for one maintained repository issue."
+	return "Submit an immutable, idempotent triage command for one maintained repository issue. Pending is only a durable receipt; wait for latest_command.phase Succeeded before treating triage as applied."
 }
 func (t *triageIssueTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"disposition":{"type":"string","enum":["NotActionable","Bounded","Decomposable","Discovery","Escalated"]},"evidence_summary":{"type":"string","minLength":1},"accepted_scope":{"type":"object","properties":{"statement":{"type":"string"},"acceptance_criteria":{"type":"array","items":{"type":"string"}}}},"close_reason":{"type":"string","enum":["not_planned","completed"]},"idempotency_key":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","disposition","evidence_summary","accepted_scope","idempotency_key","expected_projection_sequence"]}`)

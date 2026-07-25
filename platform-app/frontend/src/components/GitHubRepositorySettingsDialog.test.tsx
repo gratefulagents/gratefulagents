@@ -158,9 +158,11 @@ describe("GitHubRepositorySettingsDialog", () => {
     fireEvent.change(screen.getByLabelText(/Max dispatches per day/), { target: { value: "12" } });
     fireEvent.change(screen.getByLabelText(/Standup interval/), { target: { value: "6h" } });
     fireEvent.change(screen.getByLabelText(/^Maintainer mode$/), { target: { value: "repository-maintainer" } });
+    fireEvent.change(screen.getByLabelText(/^Dispatch mode$/), { target: { value: "implementation-auto" } });
     fireEvent.change(screen.getByLabelText(/Maintainer model/), { target: { value: "claude-opus-4-6" } });
     fireEvent.click(screen.getByRole("switch", { name: /Allow the maintainer to merge approved pull requests/ }));
     fireEvent.click(screen.getByRole("switch", { name: /Give the maintainer full control/ }));
+    fireEvent.click(screen.getByRole("switch", { name: /Allow publishing Grateful Agents platform bug reports/ }));
 
     submitForm();
 
@@ -173,9 +175,11 @@ describe("GitHubRepositorySettingsDialog", () => {
     expect(request.triggerSettings?.maintainerMaxDispatchesPerDay).toBe(12);
     expect(request.triggerSettings?.maintainerStandupInterval).toBe("6h");
     expect(request.triggerSettings?.maintainerModeRef).toBe("repository-maintainer");
+    expect(request.triggerSettings?.maintainerDispatchModeRef).toBe("implementation-auto");
     expect(request.triggerSettings?.maintainerModel).toBe("claude-opus-4-6");
     expect(request.triggerSettings?.maintainerAllowPrMerge).toBe(true);
     expect(request.triggerSettings?.maintainerFullControl).toBe(true);
+    expect(request.triggerSettings?.maintainerAllowPlatformBugReports).toBe(true);
     expect(request.triggerSettings?.maintainerWorkItemCutover).toBe("Controller");
   });
 

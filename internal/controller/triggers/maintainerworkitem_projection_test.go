@@ -43,6 +43,28 @@ func TestReconcileMaintainerExecutionProjectionIgnoresCacheOnlyDeletedItems(t *t
 	}
 }
 
+func TestMaintainerProjectionTreatsCheckAndReviewChangesAsWaiterEvents(t *testing.T) {
+	now := metav1.Now()
+	before := &triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: "monitor", ReviewDecision: string(triggersv1alpha1.PullRequestReviewDecisionUnknown), CheckState: triggersv1alpha1.MaintainerWorkItemCheckStatePending, ReviewObservedAt: &now, ChecksObservedAt: &now}}}
+	reviewed := before.DeepCopy()
+	reviewed.PullRequests[0].ReviewDecision = string(triggersv1alpha1.PullRequestReviewDecisionApproved)
+	if maintainerWorkItemStatusSemanticallyEqual(before, reviewed) {
+		t.Fatal("review decision change would not advance the waiter projection sequence")
+	}
+	checked := before.DeepCopy()
+	checked.PullRequests[0].CheckState = triggersv1alpha1.MaintainerWorkItemCheckStatePassing
+	if maintainerWorkItemStatusSemanticallyEqual(before, checked) {
+		t.Fatal("check state change would not advance the waiter projection sequence")
+	}
+	heartbeat := before.DeepCopy()
+	later := metav1.NewTime(now.Add(time.Minute))
+	heartbeat.PullRequests[0].ReviewObservedAt = &later
+	heartbeat.PullRequests[0].ChecksObservedAt = &later
+	if !maintainerWorkItemStatusSemanticallyEqual(before, heartbeat) {
+		t.Fatal("timestamp-only heartbeat would churn the waiter projection sequence")
+	}
+}
+
 func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 	now := time.Now()
 	observed := metav1.NewTime(now)
@@ -64,6 +86,18 @@ func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 	evaluateMaintainerReadiness(item, now, true)
 	if !item.Status.Readiness.ReadyToMerge {
 		t.Fatal("full control still required human approval")
+	}
+	item.Status.PullRequests[0].CheckState = triggersv1alpha1.MaintainerWorkItemCheckStateNone
+	evaluateMaintainerReadiness(item, now, true)
+	if item.Status.Readiness.ReadyToMerge {
+		t.Fatal("zero-check observation became ready without synchronous policy proof")
+	}
+	if !projectedPullRequestsReadyForPolicyVerification(item.Status.PullRequests, now) {
+		t.Fatal("full-control zero-check candidate could not advance to policy verification")
+	}
+	evaluateMaintainerReadiness(item, now, false)
+	if item.Status.Readiness.ReadyToMerge {
+		t.Fatal("no-checks projection bypassed required human approval")
 	}
 	item.Status.PullRequests[0].ReviewDecision = string(triggersv1alpha1.PullRequestReviewDecisionChangesRequested)
 	evaluateMaintainerReadiness(item, now, true)
@@ -88,6 +122,32 @@ const (
 var coreLocalRef = structLocalRef(projectionTestMonitorName)
 
 func structLocalRef(name string) (ref corev1.LocalObjectReference) { ref.Name = name; return }
+
+func TestEvaluateMaintainerReadinessRequiresExplicitCompleteGraphProjection(t *testing.T) {
+	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}}
+	evaluateMaintainerReadiness(item, time.Now(), false)
+	if item.Status.Readiness.ReadyToDispatch {
+		t.Fatal("unreviewed work-item graph became ready")
+	}
+
+	item.Spec.GraphConfiguredByCommand = &corev1.LocalObjectReference{Name: "graph-command"}
+	item.Spec.Dependencies = []triggersv1alpha1.MaintainerWorkItemReference{{Name: "dependency"}}
+	evaluateMaintainerReadiness(item, time.Now(), false)
+	if item.Status.Readiness.ReadyToDispatch {
+		t.Fatal("dependency-bearing work item became ready before its link was projected")
+	}
+
+	item.Status.Dependencies = []triggersv1alpha1.MaintainerWorkItemDependencyProjection{{Name: "dependency", Delivered: false}}
+	evaluateMaintainerReadiness(item, time.Now(), false)
+	if item.Status.Readiness.ReadyToDispatch {
+		t.Fatal("undelivered dependency became ready")
+	}
+	item.Status.Dependencies[0].Delivered = true
+	evaluateMaintainerReadiness(item, time.Now(), false)
+	if !item.Status.Readiness.ReadyToDispatch {
+		t.Fatalf("explicit graph with delivered dependency did not become ready: %#v", item.Status.Readiness)
+	}
+}
 
 func TestEvaluateMaintainerReadinessDoesNotRedispatchReservedItem(t *testing.T) {
 	item := &triggersv1alpha1.MaintainerWorkItem{Spec: triggersv1alpha1.MaintainerWorkItemSpec{Disposition: triggersv1alpha1.MaintainerWorkItemDispositionBounded}, Status: triggersv1alpha1.MaintainerWorkItemStatus{DispatchReservation: &triggersv1alpha1.MaintainerDispatchReservation{ID: "once"}}}

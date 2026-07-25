@@ -478,6 +478,12 @@ spec:
                                     trigger ingress, watches the dispatched fleet, and reports. Disabled by
                                     default; set maintainer to opt in (and leave maintainer.disabled false).
                                 properties:
+                                    allowPlatformBugReports:
+                                        description: |-
+                                            allowPlatformBugReports permits the maintainer to publish a deduplicated
+                                            Grateful Agents platform/tooling bug to gratefulagents/gratefulagents.
+                                            Disabled by default because report content crosses repository trust boundaries.
+                                        type: boolean
                                     allowPullRequestMerge:
                                         description: |-
                                             allowPullRequestMerge permits the controller-executed RequestMerge command
@@ -493,6 +499,15 @@ spec:
                                     disabled:
                                         description: disabled turns off the maintainer without removing its configuration.
                                         type: boolean
+                                    dispatchModeRef:
+                                        default: autopilot
+                                        description: |-
+                                            dispatchModeRef is the metadata.name of the ModeTemplate used for
+                                            maintainer-dispatched implementation runs. Defaults to "autopilot". The
+                                            controller owns this choice; maintainer agents cannot override it per dispatch.
+                                        maxLength: 253
+                                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                                        type: string
                                     maxConcurrentDispatches:
                                         description: |-
                                             maxConcurrentDispatches caps how many maintainer-dispatched runs may be

@@ -76,7 +76,7 @@ func (t *dispatchIssueTool) Execute(ctx context.Context, input json.RawMessage, 
 	workItemKey := client.ObjectKey{Namespace: t.repositoryNamespace, Name: maintainerWorkItemName(t.repositoryName, int32(in.IssueNumber))}
 	if getErr := t.k8sClient.Get(ctx, workItemKey, workItem); getErr == nil {
 		sequence := workItem.Status.ProjectionSequence
-		typed := dispatchWorkItemInput{maintainerCommandInput: maintainerCommandInput{IssueNumber: int32(in.IssueNumber), IdempotencyKey: fmt.Sprintf("legacy-dispatch-%d-%s", in.IssueNumber, mode), ExpectedProjectionSequence: &sequence, ExpectedResourceVersion: workItem.ResourceVersion}, Mode: mode}
+		typed := dispatchWorkItemInput{maintainerCommandInput: maintainerCommandInput{IssueNumber: int32(in.IssueNumber), IdempotencyKey: fmt.Sprintf("legacy-dispatch-%d-%s", in.IssueNumber, mode), ExpectedProjectionSequence: &sequence, ExpectedResourceVersion: workItem.ResourceVersion}}
 		encoded, marshalErr := json.Marshal(typed)
 		if marshalErr != nil {
 			return Result{}, marshalErr

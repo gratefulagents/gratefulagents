@@ -10,6 +10,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 func k8sGitHubRepositoryToProto(gh *triggersv1alpha1.GitHubRepository) *platform.GitHubRepository {
@@ -113,8 +114,13 @@ func crdGitHubTriggerSettingsToProto(spec triggersv1alpha1.GitHubRepositorySpec)
 		settings.MaintainerMaxConcurrentDispatches = spec.Maintainer.MaxConcurrentDispatches
 		settings.MaintainerMaxDispatchesPerDay = spec.Maintainer.MaxDispatchesPerDay
 		settings.MaintainerModel = spec.Maintainer.Model
+		if spec.Maintainer.DispatchModeRef != "" {
+			dispatchModeRef := spec.Maintainer.DispatchModeRef
+			settings.MaintainerDispatchModeRef = &dispatchModeRef
+		}
 		settings.MaintainerAllowPrMerge = spec.Maintainer.AllowPullRequestMerge
 		settings.MaintainerFullControl = spec.Maintainer.FullControl
+		settings.MaintainerAllowPlatformBugReports = new(spec.Maintainer.AllowPlatformBugReports)
 		cutover := spec.Maintainer.WorkItemCutover
 		if cutover == "" {
 			cutover = triggersv1alpha1.MaintainerWorkItemCutoverController
@@ -195,6 +201,7 @@ func protoGitHubTriggerSettingsToCRD(pb *platform.GitHubRepositoryTriggerSetting
 			MaxDispatchesPerDay:     pb.GetMaintainerMaxDispatchesPerDay(),
 			AllowPullRequestMerge:   pb.GetMaintainerAllowPrMerge(),
 			FullControl:             pb.GetMaintainerFullControl(),
+			AllowPlatformBugReports: pb.GetMaintainerAllowPlatformBugReports(),
 		}
 		if pb.MaintainerWorkItemCutover != nil {
 			cutover := triggersv1alpha1.MaintainerWorkItemCutoverMode(trim(pb.GetMaintainerWorkItemCutover()))
@@ -210,6 +217,12 @@ func protoGitHubTriggerSettingsToCRD(pb *platform.GitHubRepositoryTriggerSetting
 		}
 		if modeRef := trim(pb.GetMaintainerModeRef()); modeRef != "" {
 			maintainer.ModeRef = &platformv1alpha1.ModeRef{Name: modeRef}
+		}
+		if dispatchModeRef := trim(pb.GetMaintainerDispatchModeRef()); dispatchModeRef != "" {
+			if problems := validation.IsDNS1123Subdomain(dispatchModeRef); len(problems) > 0 {
+				return metav1.Duration{}, "", "", false, nil, nil, nil, fmt.Errorf("invalid maintainer dispatch mode %q: %s", dispatchModeRef, strings.Join(problems, "; "))
+			}
+			maintainer.DispatchModeRef = dispatchModeRef
 		}
 		if value := trim(pb.GetMaintainerStandupInterval()); value != "" {
 			duration, err := time.ParseDuration(value)

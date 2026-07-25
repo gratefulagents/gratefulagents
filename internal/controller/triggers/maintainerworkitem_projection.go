@@ -244,6 +244,8 @@ func maintainerPRProjection(monitor *triggersv1alpha1.PullRequestMonitor) trigge
 		p.CheckState = triggersv1alpha1.MaintainerWorkItemCheckStateFailing
 	} else if monitor.Status.Checks.State == gitHubRollupPending || monitor.Status.Statuses.State == gitHubRollupPending {
 		p.CheckState = triggersv1alpha1.MaintainerWorkItemCheckStatePending
+	} else if monitor.Status.Checks.State == gitHubRollupNone && monitor.Status.Statuses.State == gitHubRollupNone && monitor.Status.Checks.Count+monitor.Status.Statuses.Count == 0 {
+		p.CheckState = triggersv1alpha1.MaintainerWorkItemCheckStateNone
 	} else if (monitor.Status.Checks.State == gitHubRollupSuccess || monitor.Status.Checks.State == gitHubRollupNone) && (monitor.Status.Statuses.State == gitHubRollupSuccess || monitor.Status.Statuses.State == gitHubRollupNone) && monitor.Status.Checks.Count+monitor.Status.Statuses.Count > 0 {
 		p.CheckState = triggersv1alpha1.MaintainerWorkItemCheckStatePassing
 	} else {
@@ -264,10 +266,23 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 	requireApproval := !fullControl
 	unmet := []string{}
 	dependenciesReady := true
+	projectedDependencies := make(map[string]struct{}, len(item.Status.Dependencies))
 	for _, dep := range item.Status.Dependencies {
+		projectedDependencies[dep.Name] = struct{}{}
 		if !dep.Delivered {
 			dependenciesReady = false
 			unmet = append(unmet, "dependency "+dep.Name+" is not delivered")
+		}
+	}
+	if len(item.Spec.Dependencies) != len(item.Status.Dependencies) {
+		dependenciesReady = false
+		unmet = append(unmet, "dependency projection has not observed the complete graph")
+	} else {
+		for _, dependency := range item.Spec.Dependencies {
+			if _, projected := projectedDependencies[dependency.Name]; !projected {
+				dependenciesReady = false
+				unmet = append(unmet, "dependency "+dependency.Name+" is not projected")
+			}
 		}
 	}
 	childrenReady := true
@@ -280,7 +295,11 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 	if item.Status.PendingDecision != nil {
 		unmet = append(unmet, "pending decision "+item.Status.PendingDecision.ID)
 	}
-	readyToDispatch := dependenciesReady && item.Status.PendingDecision == nil && item.Status.DispatchReservation == nil && item.Spec.Disposition != "" && item.Spec.Disposition != triggersv1alpha1.MaintainerWorkItemDispositionNotActionable
+	graphConfigured := item.Spec.GraphConfiguredByCommand != nil
+	if !graphConfigured && item.Spec.Disposition != "" && item.Spec.Disposition != triggersv1alpha1.MaintainerWorkItemDispositionNotActionable {
+		unmet = append(unmet, "work-item graph has not been explicitly configured")
+	}
+	readyToDispatch := graphConfigured && dependenciesReady && item.Status.PendingDecision == nil && item.Status.DispatchReservation == nil && item.Spec.Disposition != "" && item.Spec.Disposition != triggersv1alpha1.MaintainerWorkItemDispositionNotActionable
 	readyToMerge := len(item.Status.PullRequests) > 0
 	for _, pr := range item.Status.PullRequests {
 		identity := fmt.Sprintf("%s#%d", pr.Repository, pr.Number)
@@ -294,7 +313,10 @@ func evaluateMaintainerReadiness(item *triggersv1alpha1.MaintainerWorkItem, now 
 		}
 		approvalMissing := requireApproval && !strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionApproved))
 		changesRequested := strings.EqualFold(pr.ReviewDecision, string(triggersv1alpha1.PullRequestReviewDecisionChangesRequested))
-		if !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || changesRequested || pr.CheckState != triggersv1alpha1.MaintainerWorkItemCheckStatePassing || pr.HeadObservedAt == nil || pr.ReviewObservedAt == nil || pr.ChecksObservedAt == nil || pr.StatusesObservedAt == nil || now.Sub(pr.HeadObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ReviewObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ChecksObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.StatusesObservedAt.Time) > maintainerProjectionFreshness {
+		// A zero-check projection is only a candidate for controller-side policy
+		// verification. It must not make asynchronous readiness true on its own.
+		checksSatisfied := pr.CheckState == triggersv1alpha1.MaintainerWorkItemCheckStatePassing
+		if !pr.Fresh || pr.ObservationError != "" || pr.State != triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || approvalMissing || changesRequested || !checksSatisfied || pr.HeadObservedAt == nil || pr.ReviewObservedAt == nil || pr.ChecksObservedAt == nil || pr.StatusesObservedAt == nil || now.Sub(pr.HeadObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ReviewObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.ChecksObservedAt.Time) > maintainerProjectionFreshness || now.Sub(pr.StatusesObservedAt.Time) > maintainerProjectionFreshness {
 			readyToMerge = false
 			unmet = append(unmet, identity+" is incomplete, stale, or not merge-ready")
 		}

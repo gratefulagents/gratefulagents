@@ -87,17 +87,21 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 			if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(item), fresh); err != nil {
 				return err
 			}
-			if equality.Semantic.DeepEqual(fresh.Spec.Children, command.Spec.Breakdown.Children) && equality.Semantic.DeepEqual(fresh.Spec.Dependencies, command.Spec.Breakdown.Dependencies) {
+			if equality.Semantic.DeepEqual(fresh.Spec.Children, command.Spec.Breakdown.Children) && equality.Semantic.DeepEqual(fresh.Spec.Dependencies, command.Spec.Breakdown.Dependencies) && fresh.Spec.GraphConfiguredByCommand != nil && fresh.Spec.GraphConfiguredByCommand.Name == command.Name {
 				return nil
 			}
 			if fresh.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence {
 				return rejectMaintainerCommand(currentProjectionMessage(fresh))
+			}
+			if fresh.Spec.TriagedByCommand == nil {
+				return rejectMaintainerCommand("work item must be triaged before its graph is configured")
 			}
 			if err := r.validateBreakdown(ctx, repository, item.Name, command.Spec.Breakdown.Children, command.Spec.Breakdown.Dependencies); err != nil {
 				return err
 			}
 			fresh.Spec.Children = append([]triggersv1alpha1.MaintainerWorkItemReference(nil), command.Spec.Breakdown.Children...)
 			fresh.Spec.Dependencies = append([]triggersv1alpha1.MaintainerWorkItemReference(nil), command.Spec.Breakdown.Dependencies...)
+			fresh.Spec.GraphConfiguredByCommand = &corev1.LocalObjectReference{Name: command.Name}
 			return r.Update(ctx, fresh)
 		})
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeRequestDecision:
@@ -123,8 +127,16 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision:
 		return rejectMaintainerCommand("resolveDecision commands from AgentRuns are not authorized")
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem:
-		if !ModeExistsFromK8s(ctx, r.Client)(strings.ToLower(strings.TrimSpace(command.Spec.Dispatch.Mode))) {
-			return rejectMaintainerCommand("dispatch ModeTemplate does not exist")
+		configuredMode, err := configuredMaintainerDispatchMode(repository)
+		if err != nil {
+			return rejectMaintainerCommand(err.Error())
+		}
+		requestedMode := strings.ToLower(strings.TrimSpace(command.Spec.Dispatch.Mode))
+		if requestedMode != configuredMode {
+			return rejectMaintainerCommand(fmt.Sprintf("dispatch mode %q does not match controller-owned mode %q", requestedMode, configuredMode))
+		}
+		if !ModeExistsFromK8s(ctx, r.Client)(configuredMode) {
+			return rejectMaintainerCommand(fmt.Sprintf("configured dispatch ModeTemplate %q does not exist", configuredMode))
 		}
 		fresh := &triggersv1alpha1.MaintainerWorkItem{}
 		if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(item), fresh); err != nil {
@@ -136,6 +148,21 @@ func (r *GitHubRepositoryReconciler) applyMaintainerExecutionIntent(ctx context.
 		}
 		if !replay && fresh.Status.Phase != triggersv1alpha1.MaintainerWorkItemPhaseReadyToDispatch {
 			return rejectMaintainerCommand("work item is not in the pre-dispatch phase")
+		}
+		if fresh.Spec.GraphConfiguredByCommand == nil {
+			return rejectMaintainerCommand("work item graph has not been explicitly configured")
+		}
+		if fresh.Generation > 0 {
+			projectionCurrent := false
+			for _, condition := range fresh.Status.Conditions {
+				if condition.Type == triggersv1alpha1.ConditionMaintainerWorkItemDependenciesReady && condition.ObservedGeneration == fresh.Generation {
+					projectionCurrent = true
+					break
+				}
+			}
+			if !projectionCurrent {
+				return rejectMaintainerCommand("readiness projection has not observed the current work-item graph generation")
+			}
 		}
 		if fresh.Status.PendingDecision != nil {
 			return rejectMaintainerCommand("work item has a pending decision")

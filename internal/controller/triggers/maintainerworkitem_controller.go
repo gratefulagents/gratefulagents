@@ -693,8 +693,8 @@ func validateMaintainerCommandPayload(command *triggersv1alpha1.MaintainerWorkIt
 		}
 		return command.Spec.Triage.IssueNumber, nil
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeBreakdownIssue:
-		if command.Spec.Breakdown == nil || command.Spec.Breakdown.IssueNumber < 1 || len(command.Spec.Breakdown.Children) == 0 {
-			return 0, rejectMaintainerCommand("incomplete breakdown payload")
+		if command.Spec.Breakdown == nil || command.Spec.Breakdown.IssueNumber < 1 {
+			return 0, rejectMaintainerCommand("incomplete work-item graph payload")
 		}
 		return command.Spec.Breakdown.IssueNumber, nil
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeRequestDecision:
@@ -804,6 +804,9 @@ func (r *GitHubRepositoryReconciler) applyMaintainerTriageIntent(ctx context.Con
 		fresh.Spec.AcceptedScope = command.Spec.Triage.AcceptedScope.DeepCopy()
 		fresh.Spec.CloseReason = command.Spec.Triage.CloseReason
 		fresh.Spec.TriagedByCommand = &corev1.LocalObjectReference{Name: command.Name}
+		// A new accepted scope invalidates the previous graph review. The
+		// maintainer must explicitly persist the graph again before dispatch.
+		fresh.Spec.GraphConfiguredByCommand = nil
 		if err := r.Update(ctx, fresh); err != nil {
 			return err
 		}
@@ -825,7 +828,7 @@ func maintainerCommandAlreadyApplied(item *triggersv1alpha1.MaintainerWorkItem, 
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue:
 		return command.Spec.Triage != nil && maintainerTriageAlreadyApplied(item, command)
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeBreakdownIssue:
-		return command.Spec.Breakdown != nil && equality.Semantic.DeepEqual(item.Spec.Children, command.Spec.Breakdown.Children) && equality.Semantic.DeepEqual(item.Spec.Dependencies, command.Spec.Breakdown.Dependencies)
+		return command.Spec.Breakdown != nil && item.Spec.GraphConfiguredByCommand != nil && item.Spec.GraphConfiguredByCommand.Name == command.Name && equality.Semantic.DeepEqual(item.Spec.Children, command.Spec.Breakdown.Children) && equality.Semantic.DeepEqual(item.Spec.Dependencies, command.Spec.Breakdown.Dependencies)
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeRequestDecision:
 		return item.Status.PendingDecision != nil && item.Status.PendingDecision.RequestedByCommand != nil && item.Status.PendingDecision.RequestedByCommand.Name == command.Name
 	case triggersv1alpha1.MaintainerWorkItemCommandTypeResolveDecision:

@@ -107,6 +107,15 @@ type MaintainerSpec struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 
+	// dispatchModeRef is the metadata.name of the ModeTemplate used for
+	// maintainer-dispatched implementation runs. Defaults to "autopilot". The
+	// controller owns this choice; maintainer agents cannot override it per dispatch.
+	// +kubebuilder:default:=autopilot
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	DispatchModeRef string `json:"dispatchModeRef,omitempty"`
+
 	// maxConcurrentDispatches caps how many maintainer-dispatched runs may be
 	// active at once. Defaults to 2.
 	// +kubebuilder:validation:Minimum=1
@@ -134,6 +143,12 @@ type MaintainerSpec struct {
 	// opt-in implies allowPullRequestMerge; required reviews must be disabled.
 	// +optional
 	FullControl bool `json:"fullControl,omitempty"`
+
+	// allowPlatformBugReports permits the maintainer to publish a deduplicated
+	// Grateful Agents platform/tooling bug to gratefulagents/gratefulagents.
+	// Disabled by default because report content crosses repository trust boundaries.
+	// +optional
+	AllowPlatformBugReports bool `json:"allowPlatformBugReports,omitempty"`
 
 	// workItemCutover selects the rollbackable maintainer waiter migration mode.
 	// Legacy retains direct polling, DualRead compares legacy and semantic state,
