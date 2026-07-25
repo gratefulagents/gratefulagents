@@ -3,7 +3,6 @@ import { lazy, Suspense, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Check,
-  CheckCircle2,
   ChevronLeft,
   Clock,
   Download,
@@ -502,19 +501,20 @@ export function RunHeader({
           </DropdownMenu>
         )}
 
-        {/* Wrapping a run up is housekeeping, not the hero action, so it gets
-            a quiet outline rather than a solid fill competing with the header.
-            Sizing is left to the variant: overriding it desyncs height from
-            radius and type scale. */}
+        {/* Green belongs to state and artifacts in this header (status, PR),
+            while actions stay neutral. A plain check reads as an action; a
+            circled green check reads as if the run already succeeded. Leave a
+            little extra space after a PR pill so artifact and action do not
+            visually merge. */}
         {primaryAction === "promote" && (
           <Button
             variant="outline"
             size="sm"
             onClick={handlePromote}
             disabled={promoting}
-            className="hidden sm:inline-flex"
+            className={cn("hidden sm:inline-flex", prUrls.length > 0 && "ml-1")}
           >
-            <CheckCircle2 className="text-[color:var(--tone-success)]" />
+            <Check />
             {promoting ? "Marking…" : "Mark succeeded"}
           </Button>
         )}
@@ -624,7 +624,7 @@ export function RunHeader({
                 onClick={handlePromote}
                 disabled={promoting}
               >
-                <CheckCircle2 className="size-3.5" />
+                <Check className="size-3.5" />
                 {promoting ? "Marking…" : "Mark succeeded"}
               </DropdownMenuItem>
             )}
