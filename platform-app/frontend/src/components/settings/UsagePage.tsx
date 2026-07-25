@@ -35,23 +35,20 @@ export default function UsagePage() {
   const [anthropic, setAnthropic] = React.useState<ProviderUsage<MyAnthropicUsage>>({ data: null, error: "", loading: true });
   const [refreshing, setRefreshing] = React.useState(false);
 
-  const loadUsage = React.useCallback(async () => {
-    const [nextOpenAI, nextAnthropic] = await Promise.allSettled([
-      client.getMyOpenAIUsage({}),
-      client.getMyAnthropicUsage({}),
-    ]);
-    setOpenAI(resultState(nextOpenAI));
-    setAnthropic(resultState(nextAnthropic));
-  }, []);
-
   const refresh = React.useCallback(async () => {
     setRefreshing(true);
+    const openAIRequest = client.getMyOpenAIUsage({})
+      .then((data) => setOpenAI({ data, error: "", loading: false }))
+      .catch((error: unknown) => setOpenAI(errorState(error)));
+    const anthropicRequest = client.getMyAnthropicUsage({})
+      .then((data) => setAnthropic({ data, error: "", loading: false }))
+      .catch((error: unknown) => setAnthropic(errorState(error)));
     try {
-      await loadUsage();
+      await Promise.all([openAIRequest, anthropicRequest]);
     } finally {
       setRefreshing(false);
     }
-  }, [loadUsage]);
+  }, []);
 
   React.useEffect(() => {
     let active = true;
@@ -114,11 +111,6 @@ export default function UsagePage() {
       ) : null}
     </SettingsSubPage>
   );
-}
-
-function resultState<T>(result: PromiseSettledResult<T>): ProviderUsage<T> {
-  if (result.status === "fulfilled") return { data: result.value, error: "", loading: false };
-  return errorState(result.reason);
 }
 
 function errorState(error: unknown): ProviderUsage<never> {

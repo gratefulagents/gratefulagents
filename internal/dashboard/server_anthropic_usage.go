@@ -140,13 +140,13 @@ func (s *Server) fetchAnthropicUsage(ctx context.Context, accessToken string) (*
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
 		if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
 			return nil, &anthropicUsageAuthError{statusCode: response.StatusCode}
 		}
-		return nil, fmt.Errorf("Claude usage endpoint returned %s", response.Status)
+		return nil, fmt.Errorf("claude usage endpoint returned %s", response.Status)
 	}
 	var usage anthropicUsageResponse
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&usage); err != nil {

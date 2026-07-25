@@ -137,6 +137,26 @@ describe("UsagePage", () => {
     expect(screen.getByText("Loading provider usage")).toBeTruthy();
   });
 
+  it("applies a refreshed ChatGPT response while Claude refresh is still pending", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValueOnce(
+      create(MyOpenAIUsageSchema, { openaiOauthPresent: true, planType: "pro" }),
+    );
+    vi.mocked(client.getMyAnthropicUsage).mockResolvedValueOnce(
+      create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
+    );
+    renderPage();
+    expect(await screen.findByText("ChatGPT Pro")).toBeTruthy();
+
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValueOnce(
+      create(MyOpenAIUsageSchema, { openaiOauthPresent: true, planType: "business" }),
+    );
+    vi.mocked(client.getMyAnthropicUsage).mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh usage" }));
+
+    expect(await screen.findByText("ChatGPT Business")).toBeTruthy();
+    expect(screen.queryByText("ChatGPT Pro")).toBeNull();
+  });
+
   it("prompts users to reconnect a rejected Anthropic OAuth credential", async () => {
     vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
       create(MyOpenAIUsageSchema, { openaiOauthPresent: false }),
