@@ -441,7 +441,7 @@ export function RunHeader({
         to={sourceName ? sourceHref(sourceKind, namespace, sourceName) : "/projects"}
         aria-label={sourceName ? `Back to ${sourceName}` : "Back to projects"}
         title={sourceName || "Projects"}
-        className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="flex size-7 shrink-0 items-center justify-center rounded-[min(var(--radius-md),12px)] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <ChevronLeft className="size-4" />
       </Link>
@@ -502,15 +502,20 @@ export function RunHeader({
           </DropdownMenu>
         )}
 
+        {/* Wrapping a run up is housekeeping, not the hero action, so it gets
+            a quiet outline rather than a solid fill competing with the header.
+            Sizing is left to the variant: overriding it desyncs height from
+            radius and type scale. */}
         {primaryAction === "promote" && (
           <Button
+            variant="outline"
             size="sm"
             onClick={handlePromote}
             disabled={promoting}
-            className="hidden h-8 gap-1.5 sm:inline-flex"
+            className="hidden sm:inline-flex"
           >
-            <CheckCircle2 className="size-3.5" />
-            {promoting ? "Marking…" : "Mark as succeeded"}
+            <CheckCircle2 className="text-[color:var(--tone-success)]" />
+            {promoting ? "Marking…" : "Mark succeeded"}
           </Button>
         )}
         {primaryAction === "retry" && (
@@ -518,9 +523,9 @@ export function RunHeader({
             size="sm"
             onClick={handleRetry}
             disabled={retrying}
-            className="hidden h-8 gap-1.5 sm:inline-flex"
+            className="hidden sm:inline-flex"
           >
-            <RotateCcw className="size-3.5" />
+            <RotateCcw />
             {retrying ? "Retrying…" : "Retry"}
           </Button>
         )}
@@ -529,9 +534,9 @@ export function RunHeader({
             size="sm"
             onClick={() => setExtendRuntimeOpen(true)}
             disabled={extendingRuntime}
-            className="hidden h-8 gap-1.5 sm:inline-flex"
+            className="hidden sm:inline-flex"
           >
-            <Clock className="size-3.5" />
+            <Clock />
             Extend runtime
           </Button>
         )}
@@ -541,9 +546,9 @@ export function RunHeader({
             size="sm"
             onClick={handleStop}
             disabled={stopping}
-            className="hidden h-8 gap-1.5 sm:inline-flex"
+            className="hidden sm:inline-flex"
           >
-            <Square className="size-3.5" />
+            <Square />
             {stopping ? "Stopping…" : "Stop"}
           </Button>
         )}
@@ -553,13 +558,13 @@ export function RunHeader({
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="icon-sm"
           onClick={() => setContextOpen(true)}
           aria-label="Run context"
           title="Run context"
-          className="size-8 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+          className="shrink-0 text-muted-foreground hover:text-foreground"
         >
-          <PanelRightOpen className="size-4" />
+          <PanelRightOpen />
         </Button>
 
         <DropdownMenu>
@@ -568,13 +573,13 @@ export function RunHeader({
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+                size="icon-sm"
                 aria-label="Run actions"
-                className="size-8 p-0 text-muted-foreground hover:text-foreground data-[popup-open]:text-foreground"
+                className="shrink-0 text-muted-foreground hover:text-foreground data-[popup-open]:text-foreground"
               />
             }
           >
-            <MoreHorizontal className="size-4" />
+            <MoreHorizontal />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-52">
             {canCreatePR && (
@@ -620,7 +625,7 @@ export function RunHeader({
                 disabled={promoting}
               >
                 <CheckCircle2 className="size-3.5" />
-                {promoting ? "Marking…" : "Mark as succeeded"}
+                {promoting ? "Marking…" : "Mark succeeded"}
               </DropdownMenuItem>
             )}
 

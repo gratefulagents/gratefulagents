@@ -73,19 +73,19 @@ export function InspectorToggle({
     <Button
       type="button"
       variant="ghost"
-      size="sm"
+      size="icon-sm"
       onClick={onToggle}
       aria-pressed={open}
       aria-label={open ? "Hide inspector" : "Show inspector"}
       title={open ? "Hide inspector" : "Show inspector"}
       className={cn(
-        "relative size-8 shrink-0 p-0 text-muted-foreground hover:text-foreground",
+        "relative shrink-0 text-muted-foreground hover:text-foreground",
         open && "bg-muted text-foreground",
       )}
     >
-      <PanelRight className="size-4" />
+      <PanelRight />
       {attention && !open && (
-        <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[color:var(--tone-danger)]" />
+        <span className="absolute right-1 top-1 size-1.5 rounded-full bg-[color:var(--tone-danger)]" />
       )}
     </Button>
   );
