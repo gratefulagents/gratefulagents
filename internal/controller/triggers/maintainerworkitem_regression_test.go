@@ -3,11 +3,13 @@ package triggers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-github/v68/github"
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -278,6 +280,106 @@ func TestPruneMaintainerDispatchReservations(t *testing.T) {
 	}
 	if pruneMaintainerDispatchReservations(ledger, "protected-item", workItemUIDs, materialized, activeItems, now) {
 		t.Fatal("second prune must be a no-op")
+	}
+}
+
+func TestAuthenticatedRedispatchReplacesOrphanAndRecreatesRun(t *testing.T) {
+	t.Parallel()
+
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	repository.Spec.Defaults = triggerRunTestDefaults()
+	repository.Spec.Maintainer = &triggersv1alpha1.MaintainerSpec{DispatchModeRef: "implementer"}
+	now := time.Now().UTC()
+	oldCommandName := "old-dispatch"
+	item := testMaintainerWorkItem(repository, 7)
+	controller := true
+	item.OwnerReferences = []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: gitHubRepositoryTriggerKind, Name: repository.Name, UID: repository.UID, Controller: &controller}}
+	item.Labels = map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name}
+	item.Spec.Disposition = triggersv1alpha1.MaintainerWorkItemDispositionBounded
+	item.Spec.GraphConfiguredByCommand = &corev1.LocalObjectReference{Name: "graph-command"}
+	runName := ghIssueName(repository.Spec.Owner, repository.Spec.Repo, "7")
+	item.Status.DispatchReservation = &triggersv1alpha1.MaintainerDispatchReservation{ID: "old-key", CommandRef: corev1.LocalObjectReference{Name: oldCommandName}, ReservedAt: metav1.NewTime(now), AgentRunRef: &corev1.LocalObjectReference{Name: runName}}
+	item.Status.AuthorizedAgentRuns = []triggersv1alpha1.MaintainerAuthorizedAgentRunReference{{Name: runName, UID: "deleted-run-uid"}}
+	repository.Annotations = map[string]string{triggersv1alpha1.MaintainerDispatchReservationsAnnotation: fmt.Sprintf(`{"day":%q,"count":1,"reservations":{%q:{"commandName":%q,"reservedAt":%q}}}`, now.Format("2006-01-02"), item.Name, oldCommandName, now.Format(time.RFC3339))}
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{
+		ObjectMeta: metav1.ObjectMeta{Name: "recovery-dispatch", Namespace: repository.Namespace},
+		Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{
+			IdempotencyKey: "recovery-key",
+			Type:           triggersv1alpha1.MaintainerWorkItemCommandTypeDispatchWorkItem,
+			Dispatch:       &triggersv1alpha1.MaintainerDispatchWorkItemCommand{IssueNumber: 7, Mode: "implementer"},
+		},
+	}
+	c := buildTriggerFakeClient(fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).WithObjects(repository, item, command))
+	reconciler := &GitHubRepositoryReconciler{Client: c, APIReader: c, Scheme: scheme}
+
+	if err := reconciler.replaceOrphanedMaintainerDispatch(context.Background(), repository, command, item); err != nil {
+		t.Fatalf("replace orphaned dispatch: %v", err)
+	}
+	freshItem := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(item), freshItem); err != nil {
+		t.Fatal(err)
+	}
+	if freshItem.Status.DispatchReservation == nil || freshItem.Status.DispatchReservation.CommandRef.Name != command.Name || freshItem.Status.DispatchReservation.AgentRunRef != nil {
+		t.Fatalf("replacement reservation = %#v", freshItem.Status.DispatchReservation)
+	}
+	freshRepository := &triggersv1alpha1.GitHubRepository{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(repository), freshRepository); err != nil {
+		t.Fatal(err)
+	}
+	if raw := freshRepository.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation]; !strings.Contains(raw, `"count":1`) || !strings.Contains(raw, command.Name) {
+		t.Fatalf("transferred dispatch ledger = %s", raw)
+	}
+	if command.Status.Result == nil || command.Status.Result.AgentRunRef == nil || command.Status.Result.AgentRunRef.Name != runName {
+		t.Fatalf("validated recovery result = %#v", command.Status.Result)
+	}
+	if err := reconciler.setMaintainerWorkItemCommandAccepted(context.Background(), command, freshItem); err != nil {
+		t.Fatalf("accept recovery command: %v", err)
+	}
+	freshCommand := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(command), freshCommand); err != nil {
+		t.Fatal(err)
+	}
+	if freshCommand.Status.Result == nil || freshCommand.Status.Result.AgentRunRef == nil || freshCommand.Status.Result.AgentRunRef.Name != runName {
+		t.Fatalf("accepted recovery result = %#v", freshCommand.Status.Result)
+	}
+	issue := testMaintainerIssue(7)
+	if err := reconciler.recreateMaintainerDispatchRun(context.Background(), repository, freshCommand, freshItem, issue); err != nil {
+		t.Fatalf("recreate implementer: %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: repository.Namespace, Name: runName}, run); err != nil {
+		t.Fatalf("get recreated AgentRun: %v", err)
+	}
+	if run.Spec.ModeRef == nil || run.Spec.ModeRef.Name != "implementer" {
+		t.Fatalf("recreated mode = %#v", run.Spec.ModeRef)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(item), freshItem); err != nil {
+		t.Fatal(err)
+	}
+	if len(freshItem.Status.AuthorizedAgentRuns) != 1 || freshItem.Status.AuthorizedAgentRuns[0].UID != run.UID {
+		t.Fatalf("replacement authorization = %#v, want UID %s", freshItem.Status.AuthorizedAgentRuns, run.UID)
+	}
+}
+
+func TestRedispatchRejectsMissingCapacityReservation(t *testing.T) {
+	t.Parallel()
+
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 8)
+	controller := true
+	item.OwnerReferences = []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: gitHubRepositoryTriggerKind, Name: repository.Name, UID: repository.UID, Controller: &controller}}
+	item.Labels = map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: repository.Name}
+	item.Spec.Disposition = triggersv1alpha1.MaintainerWorkItemDispositionBounded
+	item.Spec.GraphConfiguredByCommand = &corev1.LocalObjectReference{Name: "graph-command"}
+	item.Status.DispatchReservation = &triggersv1alpha1.MaintainerDispatchReservation{ID: "old-key", CommandRef: corev1.LocalObjectReference{Name: "old-dispatch"}, ReservedAt: metav1.Now(), AgentRunRef: &corev1.LocalObjectReference{Name: ghIssueName(repository.Spec.Owner, repository.Spec.Repo, "8")}}
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: "recovery-dispatch", Namespace: repository.Namespace}, Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{IdempotencyKey: "new-key", Dispatch: &triggersv1alpha1.MaintainerDispatchWorkItemCommand{IssueNumber: 8, Mode: defaultMaintainerDispatchModeName}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).WithObjects(repository, item, command).Build()
+	reconciler := &GitHubRepositoryReconciler{Client: c, APIReader: c, Scheme: scheme}
+
+	if err := reconciler.replaceOrphanedMaintainerDispatch(context.Background(), repository, command, item); err == nil || !strings.Contains(err.Error(), "capacity reservation") {
+		t.Fatalf("missing-ledger recovery error = %v", err)
 	}
 }
 
