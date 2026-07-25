@@ -310,6 +310,14 @@ type MaintainerWorkItemPullRequestProjection struct {
 	Mergeable *bool `json:"mergeable,omitempty"`
 	// +optional
 	ReviewDecision string `json:"reviewDecision,omitempty"`
+	// LastReviewID is the latest processed GitHub review. It advances the
+	// maintainer event cursor even when aggregate ReviewDecision is unchanged.
+	// +optional
+	LastReviewID int64 `json:"lastReviewID,omitempty"`
+	// LastCommentID is the latest processed GitHub pull-request conversation
+	// comment. It advances the maintainer event cursor without retaining content.
+	// +optional
+	LastCommentID int64 `json:"lastCommentID,omitempty"`
 	// +optional
 	CheckState MaintainerWorkItemCheckState `json:"checkState,omitempty"`
 	// +optional

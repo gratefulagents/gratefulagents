@@ -745,6 +745,18 @@ spec:
                       type: string
                     reviewDecision:
                       type: string
+                    lastReviewID:
+                      description: LastReviewID is the latest processed GitHub review.
+                        It advances the maintainer event cursor even when aggregate
+                        ReviewDecision is unchanged.
+                      format: int64
+                      type: integer
+                    lastCommentID:
+                      description: LastCommentID is the latest processed GitHub pull-request
+                        conversation comment. It advances the maintainer event cursor
+                        without retaining content.
+                      format: int64
+                      type: integer
                     reviewObservedAt:
                       format: date-time
                       type: string
