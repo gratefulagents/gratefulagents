@@ -43,6 +43,28 @@ func TestReconcileMaintainerExecutionProjectionIgnoresCacheOnlyDeletedItems(t *t
 	}
 }
 
+func TestMaintainerProjectionTreatsCheckAndReviewChangesAsWaiterEvents(t *testing.T) {
+	now := metav1.Now()
+	before := &triggersv1alpha1.MaintainerWorkItemStatus{PullRequests: []triggersv1alpha1.MaintainerWorkItemPullRequestProjection{{IntentName: "monitor", ReviewDecision: string(triggersv1alpha1.PullRequestReviewDecisionUnknown), CheckState: triggersv1alpha1.MaintainerWorkItemCheckStatePending, ReviewObservedAt: &now, ChecksObservedAt: &now}}}
+	reviewed := before.DeepCopy()
+	reviewed.PullRequests[0].ReviewDecision = string(triggersv1alpha1.PullRequestReviewDecisionApproved)
+	if maintainerWorkItemStatusSemanticallyEqual(before, reviewed) {
+		t.Fatal("review decision change would not advance the waiter projection sequence")
+	}
+	checked := before.DeepCopy()
+	checked.PullRequests[0].CheckState = triggersv1alpha1.MaintainerWorkItemCheckStatePassing
+	if maintainerWorkItemStatusSemanticallyEqual(before, checked) {
+		t.Fatal("check state change would not advance the waiter projection sequence")
+	}
+	heartbeat := before.DeepCopy()
+	later := metav1.NewTime(now.Add(time.Minute))
+	heartbeat.PullRequests[0].ReviewObservedAt = &later
+	heartbeat.PullRequests[0].ChecksObservedAt = &later
+	if !maintainerWorkItemStatusSemanticallyEqual(before, heartbeat) {
+		t.Fatal("timestamp-only heartbeat would churn the waiter projection sequence")
+	}
+}
+
 func TestEvaluateMaintainerReadinessFailsClosedForHeadBoundCI(t *testing.T) {
 	now := time.Now()
 	observed := metav1.NewTime(now)

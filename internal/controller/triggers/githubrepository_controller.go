@@ -68,6 +68,16 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// PullRequestMonitor status is already a durable GitHub observation. Project
+	// it before any remote issue/auth call so check and review changes advance the
+	// work-item semantic cursor—and wake wait_for_repo_events—even while unrelated
+	// GitHub polling is slow or temporarily unavailable.
+	if maintainerWorkItemsEnabled(r, gh) {
+		if err := r.reconcileMaintainerExecutionProjection(ctx, gh); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	token, err := resolveGitHubToken(ctx, r.Client, gh, r.GitHubAppMinter)
 	if err != nil {
 		if maintainerWorkItemsEnabled(r, gh) {
@@ -434,6 +444,51 @@ func (r *GitHubRepositoryReconciler) mapMaintainerWorkItemCommandToRepository(_ 
 	return []ctrl.Request{{NamespacedName: client.ObjectKey{Namespace: command.Namespace, Name: command.Spec.RepositoryRef.Name}}}
 }
 
+func (r *GitHubRepositoryReconciler) mapPullRequestMonitorToRepository(ctx context.Context, obj client.Object) []ctrl.Request {
+	monitor, ok := obj.(*triggersv1alpha1.PullRequestMonitor)
+	if !ok {
+		return nil
+	}
+	if monitor.Spec.GitHubRepositoryRef != nil && monitor.Spec.GitHubRepositoryRef.Name != "" {
+		return []ctrl.Request{{NamespacedName: client.ObjectKey{Namespace: monitor.Namespace, Name: monitor.Spec.GitHubRepositoryRef.Name}}}
+	}
+	// Backward compatibility for monitors created before githubRepositoryRef was
+	// persisted: resolve the controller-owned implementer and its repository.
+	run := &platformv1alpha1.AgentRun{}
+	if err := r.maintainerReader().Get(ctx, client.ObjectKey{Namespace: monitor.Namespace, Name: monitor.Spec.ImplementerRef.Name}, run); err != nil {
+		return nil
+	}
+	for _, owner := range run.OwnerReferences {
+		if owner.Controller != nil && *owner.Controller && owner.Kind == gitHubRepositoryTriggerKind && owner.Name != "" {
+			return []ctrl.Request{{NamespacedName: client.ObjectKey{Namespace: monitor.Namespace, Name: owner.Name}}}
+		}
+	}
+	return nil
+}
+
+func pullRequestMonitorProjectionChanged(oldMonitor, newMonitor *triggersv1alpha1.PullRequestMonitor) bool {
+	if oldMonitor == nil || newMonitor == nil {
+		return oldMonitor != newMonitor
+	}
+	oldStatus, newStatus := oldMonitor.Status, newMonitor.Status
+	return oldStatus.State != newStatus.State ||
+		oldStatus.HeadSHA != newStatus.HeadSHA ||
+		oldStatus.BaseRef != newStatus.BaseRef ||
+		oldStatus.Lifecycle != newStatus.Lifecycle ||
+		oldStatus.Mergeability != newStatus.Mergeability ||
+		oldStatus.ReviewDecision != newStatus.ReviewDecision ||
+		oldStatus.PullError != newStatus.PullError ||
+		oldStatus.ReviewsError != newStatus.ReviewsError ||
+		oldStatus.Checks.HeadSHA != newStatus.Checks.HeadSHA ||
+		oldStatus.Checks.State != newStatus.Checks.State ||
+		oldStatus.Checks.Count != newStatus.Checks.Count ||
+		oldStatus.Checks.Error != newStatus.Checks.Error ||
+		oldStatus.Statuses.HeadSHA != newStatus.Statuses.HeadSHA ||
+		oldStatus.Statuses.State != newStatus.Statuses.State ||
+		oldStatus.Statuses.Count != newStatus.Statuses.Count ||
+		oldStatus.Statuses.Error != newStatus.Statuses.Error
+}
+
 func (r *GitHubRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// Reconciles rewrite status.lastPollTime on every pass; without a
@@ -445,6 +500,15 @@ func (r *GitHubRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			predicate.LabelChangedPredicate{},
 		))).
 		Owns(&platformv1alpha1.AgentRun{}).
+		Watches(&triggersv1alpha1.PullRequestMonitor{}, handler.EnqueueRequestsFromMapFunc(r.mapPullRequestMonitorToRepository), builder.WithPredicates(predicate.Funcs{
+			CreateFunc: func(event.CreateEvent) bool { return true },
+			UpdateFunc: func(update event.UpdateEvent) bool {
+				oldMonitor, oldOK := update.ObjectOld.(*triggersv1alpha1.PullRequestMonitor)
+				newMonitor, newOK := update.ObjectNew.(*triggersv1alpha1.PullRequestMonitor)
+				return oldOK && newOK && pullRequestMonitorProjectionChanged(oldMonitor, newMonitor)
+			},
+			DeleteFunc: func(event.DeleteEvent) bool { return true },
+		})).
 		Watches(&triggersv1alpha1.MaintainerWorkItemCommand{}, handler.EnqueueRequestsFromMapFunc(r.mapMaintainerWorkItemCommandToRepository), builder.WithPredicates(predicate.Funcs{
 			CreateFunc: func(event.CreateEvent) bool { return true },
 			UpdateFunc: func(update event.UpdateEvent) bool {
