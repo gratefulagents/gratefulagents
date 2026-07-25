@@ -38,11 +38,10 @@ func newWebhookHandler(t *testing.T, sink PullRequestEventSink, objs ...client.O
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme(core): %v", err)
 	}
-	c := fake.NewClientBuilder().
+	c := buildTriggerFakeClient(fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&triggersv1alpha1.GitHubRepository{}).
-		WithObjects(objs...).
-		Build()
+		WithObjects(objs...))
 	return &GitHubWebhookHandler{
 		Client:               c,
 		Reconciler:           &GitHubRepositoryReconciler{Client: c, Scheme: scheme},

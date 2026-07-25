@@ -117,7 +117,7 @@ func maintainerDispatchMode(repository *triggersv1alpha1.GitHubRepository) (stri
 	return mode, nil
 }
 
-func (b maintainerToolBase) isFleetRun(run *platformv1alpha1.AgentRun) bool {
+func (b maintainerToolBase) isFleetRunCandidate(run *platformv1alpha1.AgentRun) bool {
 	if run == nil || run.Namespace != b.currentRunNamespace || run.Labels[orchestration.StandingRunRoleLabel] != "" || run.Spec.Trigger.Kind != "GitHubRepository" {
 		return false
 	}
@@ -125,20 +125,90 @@ func (b maintainerToolBase) isFleetRun(run *platformv1alpha1.AgentRun) bool {
 	if triggerName == "" {
 		triggerName = strings.TrimSpace(run.Spec.Trigger.Name)
 	}
-	if triggerName != b.repositoryName {
+	return triggerName == b.repositoryName
+}
+
+func (b maintainerToolBase) isFleetRunForRepository(ctx context.Context, run *platformv1alpha1.AgentRun, repository *triggersv1alpha1.GitHubRepository) bool {
+	if !b.isFleetRunCandidate(run) {
 		return false
 	}
-	for _, owner := range run.OwnerReferences {
-		if owner.Controller != nil && *owner.Controller && owner.Kind == "GitHubRepository" && owner.Name == b.repositoryName {
-			return true
-		}
+	if maintainerFleetRunOwnedByRepository(run, repository) {
+		return true
 	}
-	return false
+	return b.maintainerWorkItemBindsRun(ctx, run, repository)
 }
 
 func (b maintainerToolBase) isFleetRunForCurrentRepository(ctx context.Context, run *platformv1alpha1.AgentRun) bool {
 	repository, err := b.repository(ctx)
-	return err == nil && b.isFleetRun(run) && maintainerFleetRunOwnedByRepository(run, repository)
+	return err == nil && b.isFleetRunForRepository(ctx, run, repository)
+}
+
+func (b maintainerToolBase) maintainerWorkItemBindsRun(ctx context.Context, run *platformv1alpha1.AgentRun, repository *triggersv1alpha1.GitHubRepository) bool {
+	if run == nil || repository == nil || run.Spec.Context == nil || run.Spec.Context.ProjectRef == nil || run.Spec.Context.ProjectRef.Kind != "Project" {
+		return false
+	}
+	projectName := strings.TrimSpace(repository.Annotations["triggers.gratefulagents.dev/project-name"])
+	if projectName == "" {
+		projectName = strings.TrimSpace(repository.Labels["triggers.gratefulagents.dev/project-name"])
+	}
+	projectUID := strings.TrimSpace(repository.Annotations["triggers.gratefulagents.dev/project-uid"])
+	if projectUID == "" {
+		projectUID = strings.TrimSpace(repository.Labels["triggers.gratefulagents.dev/project-uid"])
+	}
+	generated := strings.TrimSpace(repository.Annotations["triggers.gratefulagents.dev/generated-runtime"])
+	if generated == "" {
+		generated = strings.TrimSpace(repository.Labels["triggers.gratefulagents.dev/generated-runtime"])
+	}
+	triggerName := strings.TrimSpace(repository.Annotations["triggers.gratefulagents.dev/project-trigger-name"])
+	if triggerName == "" {
+		triggerName = strings.TrimSpace(repository.Labels["triggers.gratefulagents.dev/project-trigger-name"])
+	}
+	triggerType := strings.TrimSpace(repository.Annotations["triggers.gratefulagents.dev/project-trigger-type"])
+	if triggerType == "" {
+		triggerType = strings.TrimSpace(repository.Labels["triggers.gratefulagents.dev/project-trigger-type"])
+	}
+	if generated != "true" || projectUID == "" || projectName == "" || triggerName == "" || triggerType == "" || run.Spec.Context.ProjectRef.Name != projectName || run.Spec.Trigger.Name != triggerName || !strings.EqualFold(run.Spec.Trigger.Type, triggerType) || strings.TrimSpace(run.Annotations["triggers.gratefulagents.dev/runtime-trigger-name"]) != repository.Name || len(run.OwnerReferences) != 0 {
+		return false
+	}
+	project := &triggersv1alpha1.Project{}
+	if err := b.k8sClient.Get(ctx, client.ObjectKey{Name: projectName, Namespace: repository.Namespace}, project); err != nil || string(project.UID) != projectUID || !project.DeletionTimestamp.IsZero() {
+		return false
+	}
+	ownedByProject := false
+	for _, owner := range repository.OwnerReferences {
+		if owner.Controller != nil && *owner.Controller && owner.APIVersion == triggersv1alpha1.GroupVersion.String() && owner.Kind == "Project" && owner.Name == project.Name && owner.UID == project.UID {
+			ownedByProject = true
+			break
+		}
+	}
+	if !ownedByProject {
+		return false
+	}
+	workItemName := strings.TrimSpace(run.Labels[triggersv1alpha1.MaintainerWorkItemNameLabelKey])
+	workItemUID := types.UID(strings.TrimSpace(run.Labels[triggersv1alpha1.MaintainerWorkItemUIDLabelKey]))
+	if workItemName == "" || workItemUID == "" || run.UID == "" {
+		return false
+	}
+	workItem := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := b.k8sClient.Get(ctx, client.ObjectKey{Name: workItemName, Namespace: run.Namespace}, workItem); err != nil || workItem.UID != workItemUID || !workItem.DeletionTimestamp.IsZero() || workItem.Spec.RepositoryRef.Name != repository.Name {
+		return false
+	}
+	ownedByRepository := false
+	for _, owner := range workItem.OwnerReferences {
+		if owner.Controller != nil && *owner.Controller && owner.APIVersion == triggersv1alpha1.GroupVersion.String() && owner.Kind == "GitHubRepository" && owner.Name == repository.Name && owner.UID == repository.UID {
+			ownedByRepository = true
+			break
+		}
+	}
+	if !ownedByRepository {
+		return false
+	}
+	for _, binding := range workItem.Status.AuthorizedAgentRuns {
+		if binding.Name == run.Name && binding.UID == run.UID {
+			return true
+		}
+	}
+	return false
 }
 
 func maintainerFleetRunOwnedByRepository(run *platformv1alpha1.AgentRun, repository *triggersv1alpha1.GitHubRepository) bool {
@@ -146,7 +216,7 @@ func maintainerFleetRunOwnedByRepository(run *platformv1alpha1.AgentRun, reposit
 		return false
 	}
 	for _, owner := range run.OwnerReferences {
-		if owner.Controller != nil && *owner.Controller && owner.Kind == "GitHubRepository" && owner.Name == repository.Name && owner.UID == repository.UID {
+		if owner.Controller != nil && *owner.Controller && owner.APIVersion == triggersv1alpha1.GroupVersion.String() && owner.Kind == "GitHubRepository" && owner.Name == repository.Name && owner.UID == repository.UID {
 			return true
 		}
 	}
@@ -164,7 +234,7 @@ func (b maintainerToolBase) fleetRuns(ctx context.Context) ([]platformv1alpha1.A
 	}
 	fleet := make([]platformv1alpha1.AgentRun, 0, len(runs.Items))
 	for i := range runs.Items {
-		if b.isFleetRun(&runs.Items[i]) && maintainerFleetRunOwnedByRepository(&runs.Items[i], repository) {
+		if b.isFleetRunForRepository(ctx, &runs.Items[i], repository) {
 			fleet = append(fleet, runs.Items[i])
 		}
 	}
@@ -180,8 +250,8 @@ func (b maintainerToolBase) fleetRun(ctx context.Context, name string) (*platfor
 	if err := b.k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: b.currentRunNamespace}, run); err != nil {
 		return nil, err
 	}
-	if !b.isFleetRun(run) || !maintainerFleetRunOwnedByRepository(run, repository) {
-		return nil, fmt.Errorf("AgentRun %q is not a fleet run for the maintained repository UID", name)
+	if !b.isFleetRunForRepository(ctx, run, repository) {
+		return nil, fmt.Errorf("AgentRun %q is not an authorized fleet run for the maintained repository UID", name)
 	}
 	return run, nil
 }

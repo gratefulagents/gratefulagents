@@ -53,12 +53,36 @@ func TestResolveGitHubTokenMintsGitHubAppToken(t *testing.T) {
 	}
 }
 
+func TestEnsureRunGitHubAppTokenSecretRejectsPreexistingUnownedSecret(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = platformv1alpha1.AddToScheme(scheme)
+	_ = triggersv1alpha1.AddToScheme(scheme)
+	minter := &fakeGitHubAppMinter{token: "new-token"}
+	gh := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "ns"}, Spec: triggersv1alpha1.GitHubRepositorySpec{GitHubApp: &triggersv1alpha1.GitHubAppAuth{AppID: 1, InstallationID: 2, PrivateKeySecret: "app-key"}}}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "ns", UID: "run-uid"}, Spec: platformv1alpha1.AgentRunSpec{Secrets: &platformv1alpha1.AgentRunSecrets{GitHubTokenSecret: "run-token"}}}
+	existing := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "run-token", Namespace: "ns"}, Data: map[string][]byte{githubapp.TokenSecretKey: []byte("attacker-value")}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "app-key", Namespace: "ns"}, Data: map[string][]byte{githubapp.PrivateKeySecretKey: []byte("private-key")}}).Build()
+
+	if err := ensureRunGitHubAppTokenSecret(context.Background(), c, scheme, gh, run, minter); err == nil {
+		t.Fatal("pre-existing unowned token Secret was overwritten")
+	}
+	unchanged := &corev1.Secret{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(existing), unchanged); err != nil {
+		t.Fatal(err)
+	}
+	if string(unchanged.Data[githubapp.TokenSecretKey]) != "attacker-value" {
+		t.Fatal("pre-existing Secret data changed")
+	}
+}
+
 func TestCreateAgentRunUsesRepositoryPATSecret(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = platformv1alpha1.AddToScheme(scheme)
 	_ = triggersv1alpha1.AddToScheme(scheme)
-	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	c := buildTriggerFakeClient(fake.NewClientBuilder().WithScheme(scheme))
 	r := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
 	gh := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "ns"}, Spec: triggersv1alpha1.GitHubRepositorySpec{
 		Owner: "owner", Repo: "repo", GitHubTokenSecret: "connection-token",
@@ -85,7 +109,7 @@ func TestCreateAgentRunCreatesPerRunGitHubAppTokenSecret(t *testing.T) {
 	_ = platformv1alpha1.AddToScheme(scheme)
 	_ = triggersv1alpha1.AddToScheme(scheme)
 	minter := &fakeGitHubAppMinter{token: "run-token"}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "app-key", Namespace: "ns"}, Data: map[string][]byte{githubapp.PrivateKeySecretKey: []byte("private-key")}}).Build()
+	c := buildTriggerFakeClient(fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "app-key", Namespace: "ns"}, Data: map[string][]byte{githubapp.PrivateKeySecretKey: []byte("private-key")}}))
 	r := &GitHubRepositoryReconciler{Client: c, Scheme: scheme, GitHubAppMinter: minter}
 	gh := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: "repo", Namespace: "ns"}, Spec: triggersv1alpha1.GitHubRepositorySpec{
 		Owner: "owner", Repo: "repo", GitHubApp: &triggersv1alpha1.GitHubAppAuth{AppID: 1, InstallationID: 2, PrivateKeySecret: "app-key"},

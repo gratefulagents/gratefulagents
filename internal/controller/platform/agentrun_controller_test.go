@@ -32,6 +32,30 @@ const (
 	explicitSkillName         = "explicit-skill"
 )
 
+func TestReconcileHoldsPendingAuthorizationRunBeforeInitialization(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
+		Name: "held", Namespace: "default", Finalizers: []string{agentRunCleanupFinalizer},
+		Annotations: map[string]string{platformv1alpha1.AuthorizationPendingAnnotation: "true"},
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run).Build()
+	result, err := (&AgentRunReconciler{Client: c}).Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)})
+	if err != nil || result.Requeue || result.RequeueAfter != 0 {
+		t.Fatalf("Reconcile() = (%#v, %v)", result, err)
+	}
+	updated := &platformv1alpha1.AgentRun{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(run), updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status.Phase != "" {
+		t.Fatalf("held run phase = %q, want uninitialized", updated.Status.Phase)
+	}
+}
+
 func TestProjectStateIDForRunUsesSharedHashedIdentity(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "Team-A"},

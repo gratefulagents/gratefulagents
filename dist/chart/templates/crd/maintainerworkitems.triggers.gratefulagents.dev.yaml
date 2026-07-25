@@ -263,6 +263,33 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              authorizedAgentRuns:
+                description: AuthorizedAgentRuns is the controller-issued, immutable-UID
+                  binding used to authorize supervision of ownerless Project-generated
+                  trigger runs. Unlike AgentRuns, it is never derived from labels supplied
+                  by a run.
+                items:
+                  description: MaintainerAuthorizedAgentRunReference is a controller-issued
+                    binding to one immutable AgentRun identity.
+                  properties:
+                    name:
+                      minLength: 1
+                      type: string
+                    uid:
+                      description: |-
+                        UID is a type that holds unique ID values, including UUIDs.  Because we
+                        don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                        intent and helps make sure that UIDs and names do not get conflated.
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  - uid
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               children:
                 items:
                   description: MaintainerWorkItemChildProjection summarizes a child

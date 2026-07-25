@@ -89,9 +89,21 @@ func newMaintainerToolBase(t *testing.T, runs ...*platformv1alpha1.AgentRun) (ma
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace, UID: types.UID("repo-uid")}, Spec: triggersv1alpha1.GitHubRepositorySpec{Maintainer: &triggersv1alpha1.MaintainerSpec{WorkItemCutover: triggersv1alpha1.MaintainerWorkItemCutoverLegacy}}}
-	objects := make([]client.Object, 0, len(runs)+1)
-	objects = append(objects, repository)
+	controller := true
+	project := &triggersv1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "project", Namespace: maintainerTestNamespace, UID: types.UID("project-uid")}}
+	repository := &triggersv1alpha1.GitHubRepository{ObjectMeta: metav1.ObjectMeta{
+		Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace, UID: types.UID("repo-uid"),
+		Annotations: map[string]string{
+			"triggers.gratefulagents.dev/generated-runtime":    "true",
+			"triggers.gratefulagents.dev/project-name":         project.Name,
+			"triggers.gratefulagents.dev/project-uid":          string(project.UID),
+			"triggers.gratefulagents.dev/project-trigger-name": "gh",
+			"triggers.gratefulagents.dev/project-trigger-type": "github",
+		},
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "Project", Name: project.Name, UID: project.UID, Controller: &controller}},
+	}, Spec: triggersv1alpha1.GitHubRepositorySpec{Maintainer: &triggersv1alpha1.MaintainerSpec{WorkItemCutover: triggersv1alpha1.MaintainerWorkItemCutoverLegacy}}}
+	objects := make([]client.Object, 0, len(runs)+2)
+	objects = append(objects, project, repository)
 	for _, run := range runs {
 		objects = append(objects, run)
 		if run.Labels[orchestration.StandingRunRoleLabel] == orchestration.StandingRunRoleMaintainer {
@@ -122,17 +134,50 @@ func maintainerRun() *platformv1alpha1.AgentRun {
 	return &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
 		Name: maintainerTestRunName, Namespace: maintainerTestNamespace, UID: types.UID(maintainerTestRunUID),
 		Labels:          map[string]string{orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleMaintainer, orchestration.SupervisedRunLabel: maintainerTestRepositoryName},
-		OwnerReferences: []metav1.OwnerReference{{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName, UID: types.UID("repo-uid"), Controller: &controller}},
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName, UID: types.UID("repo-uid"), Controller: &controller}},
 	}}
 }
 
 func fleetRun(name string, phase platformv1alpha1.AgentRunPhase) *platformv1alpha1.AgentRun {
 	controller := true
 	return &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace, OwnerReferences: []metav1.OwnerReference{{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName, UID: types.UID("repo-uid"), Controller: &controller}}},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace, OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName, UID: types.UID("repo-uid"), Controller: &controller}}},
 		Spec:       platformv1alpha1.AgentRunSpec{Trigger: platformv1alpha1.TriggerRef{Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName}},
 		Status:     platformv1alpha1.AgentRunStatus{Phase: phase},
 	}
+}
+
+func generatedFleetRun(name string, phase platformv1alpha1.AgentRunPhase) (*platformv1alpha1.AgentRun, *triggersv1alpha1.MaintainerWorkItem) {
+	controller := true
+	runUID, workItemUID := types.UID(name+"-uid"), types.UID("work-item-uid")
+	workItemName := "repo-issue-1"
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: maintainerTestNamespace, UID: runUID,
+			Annotations: map[string]string{"triggers.gratefulagents.dev/runtime-trigger-name": maintainerTestRepositoryName},
+			Labels: map[string]string{
+				triggersv1alpha1.MaintainerWorkItemNameLabelKey: workItemName,
+				triggersv1alpha1.MaintainerWorkItemUIDLabelKey:  string(workItemUID),
+			},
+		},
+		Spec: platformv1alpha1.AgentRunSpec{
+			Trigger: platformv1alpha1.TriggerRef{Kind: maintainerTestRepositoryKind, Name: "gh", Type: "github"},
+			Context: &platformv1alpha1.AgentRunContext{ProjectRef: &platformv1alpha1.ProjectRef{Kind: "Project", Name: "project"}},
+		},
+		Status: platformv1alpha1.AgentRunStatus{Phase: phase},
+	}
+	workItem := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: workItemName, Namespace: maintainerTestNamespace, UID: workItemUID,
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: maintainerTestRepositoryKind, Name: maintainerTestRepositoryName, UID: types.UID("repo-uid"), Controller: &controller}},
+		},
+		Spec: triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 1},
+		Status: triggersv1alpha1.MaintainerWorkItemStatus{
+			AgentRuns:           []triggersv1alpha1.MaintainerWorkItemAgentRunProjection{{Name: name, UID: runUID, Role: triggersv1alpha1.MaintainerWorkItemAgentRunRoleImplementer}},
+			AuthorizedAgentRuns: []triggersv1alpha1.MaintainerAuthorizedAgentRunReference{{Name: name, UID: runUID}},
+		},
+	}
+	return run, workItem
 }
 
 const maintainerTestMode = "auto"
@@ -504,6 +549,141 @@ func TestWakeAgentRunSupportsIndependentSteerAndQueueModes(t *testing.T) {
 	}
 	if out.MessageID != stateStore.messages[0].ID || out.DeliveryMode != "steer" || out.WakeRequested {
 		t.Fatalf("steer receipt = %#v", out)
+	}
+}
+
+func TestWakeAgentRunSupportsOwnerlessGeneratedProjectRuns(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		phase    platformv1alpha1.AgentRunPhase
+		wantWake int64
+	}{
+		{name: "running steer", phase: platformv1alpha1.AgentRunPhaseRunning},
+		{name: "paused wake", phase: platformv1alpha1.AgentRunPhasePaused, wantWake: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			maintainer := maintainerRun()
+			target, workItem := generatedFleetRun("generated-target", tc.phase)
+			base, k8sClient, stateStore := newMaintainerToolBase(t, maintainer, target)
+			if err := k8sClient.Create(context.Background(), workItem); err != nil {
+				t.Fatal(err)
+			}
+			result, err := (&wakeAgentRunTool{maintainerToolBase: base}).Execute(context.Background(), json.RawMessage(`{"run_name":"generated-target","message":"follow the owner directive"}`), "")
+			if err != nil || result.IsError {
+				t.Fatalf("Execute() = (%#v, %v)", result, err)
+			}
+			updated := &platformv1alpha1.AgentRun{}
+			if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(target), updated); err != nil {
+				t.Fatal(err)
+			}
+			if updated.Spec.WakeRequests != tc.wantWake || len(stateStore.messages) != 1 {
+				t.Fatalf("wake=%d messages=%d, want wake=%d messages=1", updated.Spec.WakeRequests, len(stateStore.messages), tc.wantWake)
+			}
+		})
+	}
+}
+
+func TestWakeAgentRunRejectsSpoofedGeneratedProjectBindings(t *testing.T) {
+	t.Parallel()
+	controller := true
+	for _, tc := range []struct {
+		name   string
+		mutate func(*platformv1alpha1.AgentRun, *triggersv1alpha1.MaintainerWorkItem)
+	}{
+		{name: "stale authorized run UID", mutate: func(_ *platformv1alpha1.AgentRun, item *triggersv1alpha1.MaintainerWorkItem) {
+			item.Status.AuthorizedAgentRuns[0].UID = "stale-run"
+		}},
+		{name: "label-derived projection is not authorization", mutate: func(_ *platformv1alpha1.AgentRun, item *triggersv1alpha1.MaintainerWorkItem) {
+			item.Status.AuthorizedAgentRuns = nil
+		}},
+		{name: "stale work item UID label", mutate: func(run *platformv1alpha1.AgentRun, _ *triggersv1alpha1.MaintainerWorkItem) {
+			run.Labels[triggersv1alpha1.MaintainerWorkItemUIDLabelKey] = "stale-item"
+		}},
+		{name: "foreign repository owner", mutate: func(_ *platformv1alpha1.AgentRun, item *triggersv1alpha1.MaintainerWorkItem) {
+			item.OwnerReferences[0].UID = "foreign-repository"
+		}},
+		{name: "conflicting run controller", mutate: func(run *platformv1alpha1.AgentRun, _ *triggersv1alpha1.MaintainerWorkItem) {
+			run.OwnerReferences = []metav1.OwnerReference{{APIVersion: "example.test/v1", Kind: "Other", Name: "other", UID: "other", Controller: &controller}}
+		}},
+		{name: "wrong runtime trigger", mutate: func(run *platformv1alpha1.AgentRun, _ *triggersv1alpha1.MaintainerWorkItem) {
+			run.Annotations["triggers.gratefulagents.dev/runtime-trigger-name"] = "other"
+		}},
+		{name: "wrong project context", mutate: func(run *platformv1alpha1.AgentRun, _ *triggersv1alpha1.MaintainerWorkItem) {
+			run.Spec.Context.ProjectRef.Name = "other-project"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			maintainer := maintainerRun()
+			target, workItem := generatedFleetRun("generated-target", platformv1alpha1.AgentRunPhaseRunning)
+			tc.mutate(target, workItem)
+			base, k8sClient, stateStore := newMaintainerToolBase(t, maintainer, target)
+			if err := k8sClient.Create(context.Background(), workItem); err != nil {
+				t.Fatal(err)
+			}
+			result, err := (&wakeAgentRunTool{maintainerToolBase: base}).Execute(context.Background(), json.RawMessage(`{"run_name":"generated-target","message":"do not deliver"}`), "")
+			if err != nil || !result.IsError || len(stateStore.messages) != 0 {
+				t.Fatalf("Execute() = (%#v, %v), messages=%d", result, err, len(stateStore.messages))
+			}
+		})
+	}
+}
+
+func TestWakeAgentRunRejectsOwnerlessRunForNonGeneratedRepository(t *testing.T) {
+	t.Parallel()
+	maintainer := maintainerRun()
+	target, workItem := generatedFleetRun("generated-target", platformv1alpha1.AgentRunPhaseRunning)
+	base, k8sClient, stateStore := newMaintainerToolBase(t, maintainer, target)
+	if err := k8sClient.Create(context.Background(), workItem); err != nil {
+		t.Fatal(err)
+	}
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace}, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Annotations = nil
+	if err := k8sClient.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (&wakeAgentRunTool{maintainerToolBase: base}).Execute(context.Background(), json.RawMessage(`{"run_name":"generated-target","message":"do not deliver"}`), "")
+	if err != nil || !result.IsError || len(stateStore.messages) != 0 {
+		t.Fatalf("Execute() = (%#v, %v), messages=%d", result, err, len(stateStore.messages))
+	}
+}
+
+func TestFleetRunsIncludesBoundOwnerlessGeneratedProjectRun(t *testing.T) {
+	t.Parallel()
+	maintainer := maintainerRun()
+	bound, workItem := generatedFleetRun("bound", platformv1alpha1.AgentRunPhaseRunning)
+	unbound, _ := generatedFleetRun("unbound", platformv1alpha1.AgentRunPhaseRunning)
+	unbound.Labels = nil
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainer, bound, unbound)
+	if err := k8sClient.Create(context.Background(), workItem); err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := base.fleetRuns(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fleet) != 1 || fleet[0].Name != bound.Name {
+		t.Fatalf("fleet = %#v, want only %q", fleet, bound.Name)
+	}
+}
+
+func TestStopAgentRunTurnSupportsOwnerlessGeneratedProjectRun(t *testing.T) {
+	t.Parallel()
+	maintainer := maintainerRun()
+	target, workItem := generatedFleetRun("generated-target", platformv1alpha1.AgentRunPhaseRunning)
+	base, k8sClient, stateStore := newMaintainerToolBase(t, maintainer, target)
+	if err := k8sClient.Create(context.Background(), workItem); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (&stopAgentRunTurnTool{maintainerToolBase: base}).Execute(context.Background(), json.RawMessage(`{"run_name":"generated-target","reason":"unsafe direction"}`), "")
+	if err != nil || result.IsError {
+		t.Fatalf("Execute() = (%#v, %v)", result, err)
+	}
+	if len(stateStore.sessionMetadata["interrupt"]) == 0 {
+		t.Fatal("ownerless generated run did not receive interrupt")
 	}
 }
 

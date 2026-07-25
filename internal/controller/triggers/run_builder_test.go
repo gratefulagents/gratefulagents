@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,9 +13,22 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
+
+func buildTriggerFakeClient(builder *fake.ClientBuilder) client.Client {
+	return builder.WithInterceptorFuncs(interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, ok := obj.(*platformv1alpha1.AgentRun); ok && obj.GetUID() == "" {
+				obj.SetUID(types.UID("test-" + obj.GetName()))
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	}).Build()
+}
 
 func TestBuildTriggerRunUsesGeneratedProjectProvenance(t *testing.T) {
 	owner := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Labels: generatedProjectRuntimeMetadata("payments", "project-uid", "issues", "GitHub")}}
@@ -81,6 +95,107 @@ func TestCreateTriggerRunRetainsGeneratedProjectRunButKeepsStandaloneOwnership(t
 	}
 	if !created || len(standaloneRun.OwnerReferences) != 1 {
 		t.Fatalf("standalone run created/owners = %t/%#v, want true/one owner reference", created, standaloneRun.OwnerReferences)
+	}
+}
+
+func TestCreateTriggerRunReleasesAuthorizationHoldAfterSideEffects(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	c := buildTriggerFakeClient(fake.NewClientBuilder().WithScheme(scheme))
+	authorized, sideEffectWhileHeld := false, false
+	created, run, err := CreateTriggerRun(context.Background(), c, nil, TriggerRunSpec{
+		RunName: "run", Namespace: "default", TriggerKind: "GitHubRepository", TriggerName: "repo",
+		Defaults: triggerRunTestDefaults(), Scheme: scheme,
+		AuthorizePersisted: func(_ context.Context, persisted *platformv1alpha1.AgentRun, created bool) error {
+			authorized = created && persisted.UID != ""
+			return nil
+		},
+		AfterCreate: func(_ context.Context, persisted *platformv1alpha1.AgentRun, _ bool) error {
+			sideEffectWhileHeld = persisted.Annotations[platformv1alpha1.AuthorizationPendingAnnotation] == "true"
+			return nil
+		},
+	})
+	if err != nil || !created || !authorized || !sideEffectWhileHeld {
+		t.Fatalf("CreateTriggerRun() = created=%t run=%#v err=%v authorized=%t held=%t", created, run, err, authorized, sideEffectWhileHeld)
+	}
+	persisted := &platformv1alpha1.AgentRun{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(run), persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Annotations[platformv1alpha1.AuthorizationPendingAnnotation] != "" {
+		t.Fatal("authorization hold was not released after side effects")
+	}
+}
+
+type failingTriggerSeedStore struct{ store.StateStore }
+
+func (f failingTriggerSeedStore) GetResourceOwner(context.Context, string, string, string) (*store.ResourceOwnership, error) {
+	return nil, nil
+}
+
+func (f failingTriggerSeedStore) CreateSession(context.Context, string, string, string, string) (*store.Session, error) {
+	return nil, errors.New("seed unavailable")
+}
+
+func TestCreateTriggerRunRetainsHoldWhenSessionSeedFails(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	c := buildTriggerFakeClient(fake.NewClientBuilder().WithScheme(scheme))
+	_, run, err := CreateTriggerRun(context.Background(), c, failingTriggerSeedStore{}, TriggerRunSpec{
+		RunName: "held", Namespace: "default", TriggerKind: "GitHubRepository", TriggerName: "repo", SeedMessage: "trigger",
+		Defaults: triggerRunTestDefaults(), Scheme: scheme,
+		AuthorizePersisted: func(context.Context, *platformv1alpha1.AgentRun, bool) error { return nil },
+	})
+	if err == nil {
+		t.Fatal("session seed failure was ignored")
+	}
+	persisted := &platformv1alpha1.AgentRun{}
+	if getErr := c.Get(context.Background(), client.ObjectKeyFromObject(run), persisted); getErr != nil {
+		t.Fatal(getErr)
+	}
+	if persisted.Annotations[platformv1alpha1.AuthorizationPendingAnnotation] != "true" {
+		t.Fatal("authorization hold was released after session seed failure")
+	}
+}
+
+func TestCreateTriggerRunAuthorizesBeforePostCreateSideEffects(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	postCreateCalled := false
+	spec := TriggerRunSpec{
+		RunName: "run", Namespace: "default", TriggerKind: "GitHubRepository", TriggerName: "repo",
+		Defaults: triggerRunTestDefaults(), Scheme: scheme, FetchExistingOnAlreadyExists: true,
+		AuthorizePersisted: func(context.Context, *platformv1alpha1.AgentRun, bool) error { return errors.New("denied") },
+		AfterCreate:        func(context.Context, *platformv1alpha1.AgentRun, bool) error { postCreateCalled = true; return nil },
+	}
+	if _, _, err := CreateTriggerRun(context.Background(), c, nil, spec); err == nil {
+		t.Fatal("authorization failure was ignored")
+	}
+	if postCreateCalled {
+		t.Fatal("post-create side effect ran before authorization")
+	}
+	persisted := &platformv1alpha1.AgentRun{}
+	if err := c.Get(context.Background(), client.ObjectKey{Name: spec.RunName, Namespace: spec.Namespace}, persisted); err == nil && persisted.DeletionTimestamp.IsZero() {
+		t.Fatal("newly-created run was not deleted after authorization failure")
+	}
+
+	untrusted := BuildTriggerRun(spec)
+	existingClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(untrusted).Build()
+	if _, _, err := CreateTriggerRun(context.Background(), existingClient, nil, spec); err == nil {
+		t.Fatal("existing untrusted run was accepted")
+	}
+	if postCreateCalled {
+		t.Fatal("existing untrusted run reached post-create side effects")
 	}
 }
 
