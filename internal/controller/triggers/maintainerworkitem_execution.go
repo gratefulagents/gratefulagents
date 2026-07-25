@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -70,7 +71,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerExecutionCommand(ctx conte
 	if !strings.EqualFold(issue.GetState(), "open") {
 		return r.failAndReleaseMaintainerDispatch(ctx, repository, command, item, fmt.Sprintf("issue #%d is no longer open after dispatch reservation", item.Spec.IssueNumber))
 	}
-	if _, _, err := githubClient.AddLabelsToIssue(ctx, repository.Spec.Owner, repository.Spec.Repo, int(item.Spec.IssueNumber), []string{command.Spec.Dispatch.Mode}); err != nil {
+	if err := applyMaintainerDispatchLabel(ctx, repository, command, item, githubClient); err != nil {
 		if isDefiniteGitHubDispatchError(err) {
 			return r.failAndReleaseMaintainerDispatch(ctx, repository, command, item, "applying trigger label after dispatch reservation: "+err.Error())
 		}
@@ -84,6 +85,36 @@ func (r *GitHubRepositoryReconciler) processMaintainerExecutionCommand(ctx conte
 		return err
 	}
 	return r.completeMaintainerWorkItemCommand(ctx, command, item, "dispatch capacity reserved and trigger label applied", "", observedIssueState(item))
+}
+
+func applyMaintainerDispatchLabel(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, githubClient GitHubTriageClient) error {
+	owner, repo, mode := repository.Spec.Owner, repository.Spec.Repo, command.Spec.Dispatch.Mode
+	if err := ensureMaintainerGitHubLabel(ctx, githubClient, owner, repo, mode); err != nil {
+		return fmt.Errorf("ensuring trigger label: %w", err)
+	}
+	if _, _, err := githubClient.AddLabelsToIssue(ctx, owner, repo, int(item.Spec.IssueNumber), []string{mode}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureMaintainerGitHubLabel(ctx context.Context, githubClient GitHubTriageClient, owner, repo, name string) error {
+	if _, response, err := githubClient.GetLabel(ctx, owner, repo, name); err == nil {
+		return nil
+	} else if response == nil || response.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("get repository label %q: %w", name, err)
+	}
+
+	label := &github.Label{Name: github.Ptr(name), Color: github.Ptr("BFD4F2")}
+	if _, _, err := githubClient.CreateLabel(ctx, owner, repo, label); err == nil {
+		return nil
+	} else {
+		// A concurrent creator may win between the lookup and creation.
+		if _, _, lookupErr := githubClient.GetLabel(ctx, owner, repo, name); lookupErr == nil {
+			return nil
+		}
+		return fmt.Errorf("create repository label %q: %w", name, err)
+	}
 }
 
 //nolint:gocyclo // Typed command variants intentionally share one authorization and idempotency entrypoint.

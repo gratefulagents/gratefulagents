@@ -33,6 +33,8 @@ type GitHubTriageClient interface {
 	CreateIssueComment(context.Context, string, string, int, *github.IssueComment) (*github.IssueComment, *github.Response, error)
 	EditIssueComment(context.Context, string, string, int64, *github.IssueComment) (*github.IssueComment, *github.Response, error)
 	GetIssue(context.Context, string, string, int) (*github.Issue, *github.Response, error)
+	GetLabel(context.Context, string, string, string) (*github.Label, *github.Response, error)
+	CreateLabel(context.Context, string, string, *github.Label) (*github.Label, *github.Response, error)
 	AddLabelsToIssue(context.Context, string, string, int, []string) ([]*github.Label, *github.Response, error)
 	EditIssue(context.Context, string, string, int, *github.IssueRequest) (*github.Issue, *github.Response, error)
 }
@@ -55,6 +57,14 @@ func (a githubTriageAdapter) EditIssueComment(ctx context.Context, owner, repo s
 
 func (a githubTriageAdapter) GetIssue(ctx context.Context, owner, repo string, number int) (*github.Issue, *github.Response, error) {
 	return a.issues.Get(ctx, owner, repo, number)
+}
+
+func (a githubTriageAdapter) GetLabel(ctx context.Context, owner, repo, name string) (*github.Label, *github.Response, error) {
+	return a.issues.GetLabel(ctx, owner, repo, name)
+}
+
+func (a githubTriageAdapter) CreateLabel(ctx context.Context, owner, repo string, label *github.Label) (*github.Label, *github.Response, error) {
+	return a.issues.CreateLabel(ctx, owner, repo, label)
 }
 
 func (a githubTriageAdapter) AddLabelsToIssue(ctx context.Context, owner, repo string, number int, labels []string) ([]*github.Label, *github.Response, error) {

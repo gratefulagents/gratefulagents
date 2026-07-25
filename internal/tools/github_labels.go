@@ -39,7 +39,7 @@ func ensureGitHubLabels(ctx context.Context, runner prReviewRunner, workDir stri
 		if _, ok := existingNames[key]; ok {
 			continue
 		}
-		createOut, createErr := runner.RunGH(ctx, workDir, "label", "create", label, "--color", defaultGitHubLabelColor)
+		createOut, createErr := runner.RunGH(ctx, workDir, "label", "create", "--color", defaultGitHubLabelColor, "--", label)
 		if createErr != nil && !strings.Contains(strings.ToLower(createOut), "already exists") {
 			return fmt.Errorf("create repository label %q: %w\n%s", label, createErr, createOut)
 		}

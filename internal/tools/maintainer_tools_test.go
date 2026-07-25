@@ -473,7 +473,7 @@ func TestDispatchIssueNoteHasGitHubAppAuthorization(t *testing.T) {
 	if err := k8sClient.Create(context.Background(), &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: maintainerTestMode}}); err != nil {
 		t.Fatal(err)
 	}
-	createLabelCall := "label create auto --color " + defaultGitHubLabelColor
+	createLabelCall := "label create --color " + defaultGitHubLabelColor + " -- auto"
 	runner := &fakePRReviewRunner{ghOut: map[string]string{labelListCall: `[]`, createLabelCall: ""}}
 	tool := &dispatchIssueTool{maintainerToolBase: base, runner: runner}
 

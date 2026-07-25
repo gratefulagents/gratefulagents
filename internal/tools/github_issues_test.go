@@ -140,7 +140,7 @@ func TestUpdateGitHubIssueLabelsToolAddsRemovesAndReturnsIssue(t *testing.T) {
 
 func TestUpdateGitHubIssueLabelsToolCreatesMissingLabels(t *testing.T) {
 	repo := testGitRepoDir(t)
-	createCall := "label create sdk --color " + defaultGitHubLabelColor
+	createCall := "label create --color " + defaultGitHubLabelColor + " -- sdk"
 	editCall := "issue edit 7 --add-label sdk"
 	runner := &fakePRReviewRunner{ghOut: map[string]string{
 		issueGuardCall:    `{"number":7}`,
