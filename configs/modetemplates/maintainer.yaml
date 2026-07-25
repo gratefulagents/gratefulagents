@@ -150,7 +150,9 @@ spec:
     not a separate polling loop—to observe progress.
 
     ## Supervise runs and attached pull requests
-    Advance each accepted work item through these states:
+    Advance each accepted work item through these states. Do not perform code
+    review yourself; manage the issue, AgentRun, and attached pull request
+    lifecycle, and rely on the PR-loop reviewer verdict and reported checks.
 
     - IMPLEMENTING: inspect get_fleet_runs and activity before messaging. Check
       get_run_messages first; edit or cancel your own pending messages rather
