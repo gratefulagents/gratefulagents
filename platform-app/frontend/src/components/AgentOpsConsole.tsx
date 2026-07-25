@@ -77,6 +77,7 @@ import {
   type OpsBucket,
 } from "@/lib/agentOps";
 import { client } from "@/lib/client";
+import { useScrollEdgeFade } from "@/hooks/useScrollEdgeFade";
 import { isRunComputing, runActivitySummary } from "@/lib/runStatus";
 import { formatAge } from "@/lib/format";
 import { runPullRequestUrls, pullRequestLabel } from "@/lib/pullRequests";
@@ -214,6 +215,8 @@ export function AgentOpsConsole() {
   const now = useNow();
   const [query, setQuery] = React.useState("");
   const [bucket, setBucket] = React.useState<BucketFilter>("active");
+  // The five run buckets need ~547px; a phone gives them ~358px.
+  const [bucketTabsRef, bucketTabsFadeStyle] = useScrollEdgeFade<HTMLElement>();
   const [phases, setPhases] = React.useState<Set<string>>(new Set());
   const [modes, setModes] = React.useState<Set<string>>(new Set());
   const [sources, setSources] = React.useState<Set<string>>(new Set());
@@ -502,7 +505,12 @@ export function AgentOpsConsole() {
         </div>
       </header>
 
-      <section aria-label="Run overview" className="flex items-stretch gap-1 overflow-x-auto border-b border-border/60 pb-px">
+      <section
+        aria-label="Run overview"
+        ref={bucketTabsRef}
+        style={bucketTabsFadeStyle}
+        className="flex items-stretch gap-1 overflow-x-auto border-b border-border/60 pb-px"
+      >
         {(["all", "attention", "active", "queued", "completed"] as BucketFilter[]).map((key) => {
           const active = bucket === key;
           const count = key === "all" ? runs.length : counts[key];
