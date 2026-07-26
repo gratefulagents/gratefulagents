@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"encoding/json"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -11,17 +13,9 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/store"
 )
 
-func TestNewestObservabilityEventsBoundsAndRestoresChronology(t *testing.T) {
-	events := []observabilityEvent{{id: 5}, {id: 4}, {id: 3}}
-	got, truncated := newestObservabilityEvents(events, 2)
-	if !truncated || len(got) != 2 || got[0].id != 4 || got[1].id != 5 {
-		t.Fatalf("newestObservabilityEvents() = %+v, truncated=%v", got, truncated)
-	}
-}
-
 // The metric-event predicate must stay textually equivalent to migration
 // 040's partial index predicate; otherwise the planner falls back to scanning
-// every chatty activity row in the range before applying LIMIT.
+// every chatty activity row in the range instead of streaming metric rows.
 func TestObservabilityEventTypeListMatchesPartialIndex(t *testing.T) {
 	list := observabilityEventTypeList()
 	if list != "'tool_end', 'subagent_status', 'llm_attempt', 'compact_boundary'" {
@@ -103,5 +97,112 @@ func TestAggregateObservabilityAvoidsDoubleCounting(t *testing.T) {
 	}
 	if len(got.Buckets) != 12 || !got.Buckets[0].Start.Equal(start) {
 		t.Fatalf("half-open UTC buckets incorrect: %+v", got.Buckets)
+	}
+}
+
+// Rows stream out of Postgres without an ORDER BY, so the reduction must be
+// order-independent: shuffling the same events must not change any counter.
+func TestAggregateObservabilityIsOrderIndependent(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	sessionID := uuid.New()
+	sessions := []observabilitySession{{id: sessionID, created: start.Add(time.Minute), metadata: json.RawMessage(`{"metrics":{"cost_usd":2.5}}`)}}
+	event := func(id int64, offset time.Duration, typ, detail string) observabilityEvent {
+		return observabilityEvent{id: id, sessionID: sessionID, typ: typ, created: start.Add(offset), detail: json.RawMessage(detail)}
+	}
+	chronological := []observabilityEvent{
+		event(1, time.Minute, "tool_end", `{"tool":"Bash","tool_use_id":"tool-1","tool_duration_ms":10}`),
+		event(2, 2*time.Minute, "tool_end", `{"tool":"Bash","tool_use_id":"tool-1","is_error":true,"tool_duration_ms":20}`),
+		event(3, 3*time.Minute, "llm_attempt", `{"tool_use_id":"attempt-1","provider":"openai","resolved_model":"model-a","attempt_status":"retrying","failure_kind":"rate_limited"}`),
+		event(4, 4*time.Minute, "llm_attempt", `{"tool_use_id":"attempt-1","provider":"openai","resolved_model":"model-a","attempt_status":"completed","cost_usd":1.25,"input_tokens":40,"output_tokens":8}`),
+		event(5, 5*time.Minute, "subagent_status", `{"task_id":"task-1","subagent_type":"reviewer","status":"failed"}`),
+		event(6, 6*time.Minute, "subagent_status", `{"task_id":"task-1","subagent_type":"reviewer","status":"completed","subagent_duration_ms":30}`),
+	}
+	q := store.ObservabilityQuery{Start: start, End: start.Add(time.Hour), BucketSeconds: 300}
+	want := aggregateObservability(q, sessions, chronological)
+
+	shuffled := []observabilityEvent{chronological[3], chronological[5], chronological[0], chronological[4], chronological[2], chronological[1]}
+	got := aggregateObservability(q, sessions, shuffled)
+	if got.Totals != want.Totals {
+		t.Fatalf("totals depend on row order:\n got %+v\nwant %+v", got.Totals, want.Totals)
+	}
+	// The tool call keeps its earliest terminal row (no error) and the attempt
+	// and subagent task keep their latest (completed, not failed).
+	if want.Totals.ToolCalls != 1 || want.Totals.ToolErrors != 0 || want.Totals.LLMAttempts != 1 || want.Totals.LLMFailures != 0 || want.Totals.SubagentFailures != 0 {
+		t.Fatalf("lifecycle reduction changed: %+v", want.Totals)
+	}
+}
+
+// Every metric event in the requested range must be aggregated. Capping the
+// row set silently reports only the newest slice of the window as if it were
+// the whole range, which understated generation spend by ~60%%.
+func TestAggregateObservabilityCoversEveryEventInRange(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	sessionID := uuid.New()
+	sessions := []observabilitySession{{id: sessionID, created: start, metadata: json.RawMessage(`{}`)}}
+	const attempts = 60_000
+	events := make([]observabilityEvent, 0, attempts)
+	for i := range attempts {
+		events = append(events, observabilityEvent{
+			id:        int64(i + 1),
+			sessionID: sessionID,
+			typ:       "llm_attempt",
+			created:   start.Add(time.Duration(i) * time.Second),
+			detail:    json.RawMessage(`{"tool_use_id":"attempt-` + strconv.Itoa(i) + `","provider":"openai","resolved_model":"model-a","attempt_status":"completed","cost_usd":0.01}`),
+		})
+	}
+	got := aggregateObservability(store.ObservabilityQuery{Start: start, End: start.Add(24 * time.Hour), BucketSeconds: 3600}, sessions, events)
+	if got.Totals.LLMAttempts != attempts {
+		t.Fatalf("LLMAttempts = %d, want %d (no event cap)", got.Totals.LLMAttempts, attempts)
+	}
+	if math.Abs(got.Totals.GenerationCostUSD-float64(attempts)*0.01) > 0.01 {
+		t.Fatalf("GenerationCostUSD = %v, want %v", got.Totals.GenerationCostUSD, float64(attempts)*0.01)
+	}
+}
+
+// Events recorded before the runner stamped cache-accounting flags must still
+// have Anthropic-style cache tokens added; assuming OpenAI semantics erases
+// nearly the entire input of a warm cached run.
+func TestObservabilityInputTokensIncludeCacheFallsBackToProvider(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		detail   string
+		provider string
+		model    string
+		want     bool
+	}{
+		{name: "explicit flag wins", detail: `{"input_tokens_include_cache":true,"input_tokens_include_cache_known":true}`, provider: "anthropic", model: "anthropic/claude-opus-5", want: true},
+		{name: "unknown anthropic is additive", detail: `{}`, provider: "anthropic", model: "anthropic/claude-opus-5", want: false},
+		// Copilot serves Claude models over an OpenAI-compatible surface, so
+		// the provider decides, not the model family.
+		{name: "unknown claude via copilot is inclusive", detail: `{}`, provider: "copilot", model: "copilot/claude-sonnet-4-5", want: true},
+		{name: "unknown openai already includes cache", detail: `{}`, provider: "openai", model: "openai/gpt-5.6", want: true},
+		{name: "provider-qualified model without a provider field", detail: `{}`, provider: "", model: "openrouter/gpt-5.6", want: true},
+		{name: "unknown provider defaults to additive", detail: `{}`, provider: "somegateway", model: "somegateway/model-x", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var d map[string]any
+			if err := json.Unmarshal([]byte(tc.detail), &d); err != nil {
+				t.Fatal(err)
+			}
+			if got := observabilityInputTokensIncludeCache(d, tc.provider, tc.model); got != tc.want {
+				t.Fatalf("observabilityInputTokensIncludeCache() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// An Anthropic attempt from before the accounting flags existed must report
+// the cached prompt in generation input tokens.
+func TestAggregateObservabilityAddsUnflaggedAnthropicCacheTokens(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	sessionID := uuid.New()
+	sessions := []observabilitySession{{id: sessionID, created: start, metadata: json.RawMessage(`{}`)}}
+	events := []observabilityEvent{{
+		id: 1, sessionID: sessionID, typ: "llm_attempt", created: start,
+		detail: json.RawMessage(`{"tool_use_id":"attempt-1","provider":"anthropic","canonical_model":"anthropic/claude-opus-5","attempt_status":"completed","input_tokens":2,"output_tokens":965,"cache_read_input_tokens":66416,"cache_creation_input_tokens":1276}`),
+	}}
+	got := aggregateObservability(store.ObservabilityQuery{Start: start, End: start.Add(time.Hour), BucketSeconds: 300}, sessions, events)
+	if got.Totals.GenerationInputTokens != 67694 {
+		t.Fatalf("GenerationInputTokens = %d, want 67694 (cached prompt included)", got.Totals.GenerationInputTokens)
 	}
 }

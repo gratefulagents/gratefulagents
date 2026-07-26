@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gratefulagents/gratefulagents/internal/usageaccounting"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
 
@@ -26,43 +27,21 @@ func (u *usageTotals) add(other usageTotals) {
 	u.tokensKnown = u.tokensKnown || other.tokensKnown
 }
 
-func normalizedUsageIdentity(value string) string {
-	return strings.NewReplacer("-", "", "_", "", " ", "", ".", "").Replace(strings.ToLower(strings.TrimSpace(value)))
-}
-
-func providerInputIncludesCache(provider string) bool {
-	switch normalizedUsageIdentity(provider) {
-	case "openai", "copilot", "githubcopilot", "azure", "azureopenai", "openrouter", "xai", "openaicompatible":
-		return true
-	default:
-		return false
-	}
-}
-
-func modelInputIncludesCache(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	for _, prefix := range []string{"openai/", "copilot/", "github-copilot/", "azure/", "azure-openai/", "openrouter/", "xai/"} {
-		if strings.HasPrefix(model, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func entryInputIncludesCache(entry *platform.ActivityEntry) bool {
 	if entry == nil {
 		return false
 	}
-	if raw := strings.TrimSpace(entry.InputRaw); raw != "" {
-		var payload struct {
-			InputTokensIncludeCache      bool `json:"input_tokens_include_cache"`
-			InputTokensIncludeCacheKnown bool `json:"input_tokens_include_cache_known"`
-		}
-		if json.Unmarshal([]byte(raw), &payload) == nil && payload.InputTokensIncludeCacheKnown {
-			return payload.InputTokensIncludeCache
-		}
+	var payload struct {
+		InputTokensIncludeCache      bool `json:"input_tokens_include_cache"`
+		InputTokensIncludeCacheKnown bool `json:"input_tokens_include_cache_known"`
 	}
-	return providerInputIncludesCache(entry.LlmAttemptProvider) || modelInputIncludesCache(entry.LlmAttemptModel)
+	if raw := strings.TrimSpace(entry.InputRaw); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &payload)
+	}
+	return usageaccounting.InputIncludesCache(
+		payload.InputTokensIncludeCacheKnown, payload.InputTokensIncludeCache,
+		entry.LlmAttemptProvider, entry.LlmAttemptModel,
+	)
 }
 
 func usageForEntry(entry *platform.ActivityEntry) usageTotals {
