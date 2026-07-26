@@ -5,8 +5,12 @@
 
 /* ── Layout shells ──────────────────────────────────────────────── */
 
+/* Capped to the width the 2-column composition below actually occupies
+   (--measure + gap + sidebar). Against the full --shell the fixed tracks left
+   up to 720px of void on the right at 1920px and the content read as though it
+   had been shunted to the left edge. */
 .mk-page {
-  width: min(calc(100% - 3rem), var(--shell));
+  width: min(calc(100% - 3rem), calc(var(--measure) + 4rem + 22rem));
   margin: 0 auto;
   padding-block: clamp(2rem, 5vh, 3.5rem) 5rem;
 }
@@ -126,7 +130,7 @@
 
 .mk-layout-2col {
   display: grid;
-  grid-template-columns: minmax(0, var(--measure)) minmax(0, 22rem);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
   gap: clamp(2rem, 4vw, 4rem);
   align-items: start;
 }
@@ -139,9 +143,21 @@
   min-width: 0;
 }
 
-.mk-sidebar-card {
+/* The whole aside sticks, not the individual cards: a sticky element cannot
+   escape its containing block, so per-card sticky scrolled away with the aside
+   box and left ~5000px of dead gutter next to this page's long article. */
+.mk-layout-2col > aside {
   position: sticky;
   top: calc(58px + 1.5rem);
+}
+
+.mk-aside-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.mk-sidebar-card {
   padding: 1.4rem;
   border: 1px solid var(--line-strong);
   background: var(--blue-panel);
@@ -300,6 +316,73 @@
   font-size: 0.88rem;
   line-height: 1.6;
 }
+
+/* Answer half of a problem/answer feature card. */
+.mk-feature-card .mk-answer {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  color: var(--chalk);
+}
+
+.mk-answer-label {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--redline-soft);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.mk-feature-card .mk-answer a { color: var(--chalk-bright); }
+.mk-feature-card .mk-answer a:hover { color: var(--redline-soft); }
+
+.mk-feature-card code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  color: var(--chalk-bright);
+  overflow-wrap: break-word;
+}
+
+/* ── On-this-page table of contents ─────────────────────────────── */
+
+.mk-toc ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: toc;
+}
+
+.mk-toc li {
+  counter-increment: toc;
+  border-top: 1px solid var(--line);
+}
+
+.mk-toc li:first-child { border-top: 0; }
+
+.mk-toc a {
+  display: block;
+  padding: 0.5rem 0;
+  color: var(--faded);
+  font-size: 0.84rem;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+.mk-toc a::before {
+  content: counter(toc, decimal-leading-zero) " ";
+  color: var(--line-strong);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.mk-toc a:hover { color: var(--chalk-bright); }
+.mk-toc a:hover::before { color: var(--redline-soft); }
+
+/* Clear the fixed 58px header when jumping to a section. */
+.mk-prose :is(h2, h3)[id] { scroll-margin-top: calc(58px + 1.5rem); }
 
 /* ── Steps / HowTo list ─────────────────────────────────────────── */
 
@@ -462,37 +545,6 @@
 
 .mk-disclaimer a { color: var(--faded); }
 
-/* ── Axis list (evaluation criteria) ───────────────────────────── */
-
-.mk-axis-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
-  gap: 1px;
-  border: 1px solid var(--line-strong);
-  background: var(--line-strong);
-  margin-block: 1.6rem;
-}
-
-.mk-axis {
-  padding: 1.1rem;
-  background: var(--blue-panel);
-}
-
-.mk-axis-label {
-  display: block;
-  margin-bottom: 0.35rem;
-  color: var(--chalk-bright);
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.mk-axis-desc {
-  display: block;
-  color: var(--faded);
-  font-size: 0.82rem;
-  line-height: 1.55;
-}
-
 /* ── Section header inside a page (below hero) ──────────────────── */
 
 .mk-section-head {
@@ -516,8 +568,13 @@
   .mk-layout-2col {
     grid-template-columns: minmax(0, 1fr);
   }
-  .mk-sidebar-card {
+  .mk-layout-2col > aside {
     position: static;
+  }
+  /* Single-column: the aside follows the article, where a table of contents is
+     only noise. The CTA card still earns its place at the end of a long read. */
+  .mk-toc {
+    display: none;
   }
 }
 
@@ -528,9 +585,6 @@
     padding-block: 1.5rem 4rem;
   }
   .mk-feature-grid {
-    grid-template-columns: 1fr;
-  }
-  .mk-axis-list {
     grid-template-columns: 1fr;
   }
 }
