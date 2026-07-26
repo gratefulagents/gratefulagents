@@ -249,18 +249,41 @@ func decodeTranscriptSnapshot(data []byte) (*transcriptSnapshot, error) {
 // cursor advances past them on this turn's assistant reply) — so keeping it
 // would silently drop them from the restored context.
 func persistTranscriptSnapshot(ctx context.Context, sc *sessionclient.Client, items []agent.RunItem, floorMessageID, seenMessageID, selfAssistantMessageID int64) {
-	if len(items) == 0 {
-		if err := sc.ClearTranscriptBlob(ctx); err != nil {
-			log.Printf("WARN: failed to clear transcript snapshot: %v", err)
-		}
-		return
+	if err := persistTranscriptSnapshotRequired(ctx, sc, items, floorMessageID, seenMessageID, selfAssistantMessageID); err != nil {
+		log.Printf("WARN: failed to persist transcript snapshot: %v", err)
 	}
-	writeTranscriptSnapshot(ctx, sc, items, transcriptSnapshot{
+}
+
+func persistTranscriptSnapshotRequired(ctx context.Context, sc *sessionclient.Client, items []agent.RunItem, floorMessageID, seenMessageID, selfAssistantMessageID int64) error {
+	if len(items) == 0 {
+		return sc.ClearTranscriptBlob(ctx)
+	}
+	maxBytes := transcriptSnapshotMaxBytes()
+	if maxBytes <= 0 {
+		return nil
+	}
+	persisted, ok := persistedItemsFromRun(items)
+	if !ok {
+		return fmt.Errorf("transcript contains an item type unknown to the persister")
+	}
+	snap := transcriptSnapshot{
 		Version:                transcriptSnapshotVersion,
 		FloorMessageID:         floorMessageID,
 		SeenMessageID:          seenMessageID,
 		SelfAssistantMessageID: selfAssistantMessageID,
-	}, true)
+		Items:                  persisted,
+	}
+	data, err := encodeTranscriptSnapshot(snap)
+	if err != nil {
+		return fmt.Errorf("encoding transcript snapshot: %w", err)
+	}
+	if len(data) > maxBytes {
+		return sc.ClearTranscriptBlob(ctx)
+	}
+	if err := sc.SaveTranscriptBlob(ctx, data, len(persisted)); err != nil {
+		return fmt.Errorf("saving transcript snapshot: %w", err)
+	}
+	return nil
 }
 
 // persistInFlightTranscriptSnapshot durably upserts a MID-TURN transcript

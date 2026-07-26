@@ -13,7 +13,7 @@ import (
 
 func TestNewRegistry_DefaultTools(t *testing.T) {
 	r := NewRegistry("/tmp/test")
-	expectedTools := []string{"Bash", "Edit", "LSP", "WebFetch", "Write", "glob", "grep", "list_files", "read_file", "think"}
+	expectedTools := []string{"ApplyPatch", "Bash", "Delete", "Edit", "LSP", "Move", "WebFetch", "Write", "glob", "grep", "list_files", "read_file", "think"}
 	names := r.Names()
 
 	if len(names) != len(expectedTools) {

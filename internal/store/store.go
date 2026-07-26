@@ -181,6 +181,12 @@ type PendingInputClearer interface {
 	ClearPendingInputIfID(ctx context.Context, sessionID uuid.UUID, requestID, phase string) (cleared bool, err error)
 }
 
+// DurableAssistantCommitter idempotently commits one assistant response per
+// stable SDK run/pass key, including autonomous passes with no remaining claim.
+type DurableAssistantCommitter interface {
+	AppendAssistantForDurablePass(ctx context.Context, sessionID uuid.UUID, claimToken uuid.UUID, passKey, content string) (*Message, error)
+}
+
 // MessageClaimer provides PostgreSQL's durable claim protocol without forcing
 // lightweight/test StateStore implementations to emulate database CAS.
 type MessageClaimer interface {

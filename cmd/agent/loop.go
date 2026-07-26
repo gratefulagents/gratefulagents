@@ -480,6 +480,8 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		subAgentRegistry = runtimeBundle.SessionState.SubAgentScheduler()
 	}
 	var interruptedSubAgentNotice string
+	var subAgentCheckpoints *subAgentCheckpointWriter
+	resumeAttempted := make(map[string]struct{})
 	if subAgentRegistry != nil {
 		log.Printf("SubAgentScheduler enabled: %d specialist agents", len(specialistAgents))
 		var restoreErr error
@@ -487,7 +489,7 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		if restoreErr != nil {
 			return runResult{Status: "failed", Error: restoreErr.Error()}
 		}
-		subAgentCheckpoints := startSubAgentCheckpointLoop(sc, subAgentRegistry)
+		subAgentCheckpoints = startSubAgentCheckpointLoop(sc, subAgentRegistry)
 		defer func() {
 			if err := subAgentCheckpoints.StopAndFlush(); err != nil {
 				log.Printf("ERROR: final sub-agent checkpoint failed: %v", err)
@@ -1212,6 +1214,19 @@ messageLoop:
 				}
 			}
 
+			durablePass, err := reserveSDKDurablePass(ctx, sc, currentUserMessageID)
+			if err != nil {
+				return runResult{Status: "failed", Error: err.Error()}
+			}
+			storedRun, err := openSDKStoredRun(ctx, cfg, currentUserMessageID, durablePass)
+			if err != nil {
+				return runResult{Status: "failed", Error: fmt.Sprintf("opening durable SDK run: %v", err)}
+			}
+			runCfg.Durable = storedRun.RunConfig()
+			if subAgentRegistry != nil {
+				runCfg.Durable.Children = subAgentRegistry.SchedulerCheckpoint
+			}
+
 			if subAgentRegistry != nil {
 				agent.ConfigureSubAgentScheduler(subAgentRegistry, agent.SubAgentSchedulerConfig{
 					Runner:           runner,
@@ -1228,7 +1243,26 @@ messageLoop:
 					// Sub-agents pinned to other models compact at their own
 					// model's window instead of inheriting the parent's.
 					CompactionModelResolver: compactionResolver,
+					Checkpoint:              subAgentCheckpoints.persistCheckpoint,
 				})
+				for _, task := range subAgentRegistry.ListTasks() {
+					if task.Status != agent.SubAgentTaskReconciling {
+						continue
+					}
+					if _, attempted := resumeAttempted[task.ID]; attempted {
+						continue
+					}
+					resumeCtx := agent.WithNestedRunConfig(ctx, runCfg)
+					if err := subAgentRegistry.ResumeRestoredTask(resumeCtx, task.ID); err != nil {
+						log.Printf("Sub-agent task %s remains reconciling: %v", task.ID, err)
+						if strings.Contains(err.Error(), "reconciliation required") {
+							resumeAttempted[task.ID] = struct{}{}
+						}
+					} else {
+						resumeAttempted[task.ID] = struct{}{}
+						log.Printf("Resumed durable sub-agent task %s", task.ID)
+					}
+				}
 			}
 
 			// Run the turn under its own cancellable context watched by the
@@ -1238,6 +1272,14 @@ messageLoop:
 			interruptWatcher := startTurnInterruptWatcher(ctx, sc, cancelTurn)
 			result, err := runner.Run(turnCtx, turnAgent, inputItems, runCfg)
 			turnInterrupted := interruptWatcher.Finish()
+			if subAgentRegistry != nil {
+				if checkpointErr := subAgentRegistry.FlushCheckpoint(); checkpointErr != nil {
+					subAgentRegistry.CancelAll()
+					if err == nil {
+						err = fmt.Errorf("sub-agent durability checkpoint failed: %w", checkpointErr)
+					}
+				}
+			}
 			cancelTurn()
 			if !turnInterrupted {
 				// A stop request that raced the end of the turn: claim it now
@@ -1246,9 +1288,15 @@ messageLoop:
 					turnInterrupted = true
 				}
 			}
+			releaseFailedRun := func() {
+				if closeErr := closeSDKStoredRun(storedRun); closeErr != nil {
+					log.Printf("WARN: closing failed durable SDK run: %v", closeErr)
+				}
+			}
 			if err != nil {
 				if errors.Is(ctx.Err(), context.Canceled) {
 					flushPodTerminationState(sc, result, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID, currentUserMessageID)
+					releaseFailedRun()
 					return runResult{}
 				}
 				// User-requested interrupt: stop sub-agents too, surface the
@@ -1278,10 +1326,12 @@ messageLoop:
 					})
 					_ = sc.WriteActivity(ctx, "turn_interrupted", turnInterruptNotice(stoppedTasks), nil)
 					_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user.", nil)
+					releaseFailedRun()
 					break agentLoop
 				}
 				if errors.Is(err, context.Canceled) {
 					flushPodTerminationState(sc, result, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID, currentUserMessageID)
+					releaseFailedRun()
 					return runResult{}
 				}
 				// Turn budget exhausted: unlike other turn failures, the SDK
@@ -1317,17 +1367,20 @@ messageLoop:
 						if turnSummary != "" {
 							msg += "\nPartial progress before the budget ran out: " + turnSummary
 						}
+						releaseFailedRun()
 						return runResult{Status: "failed", Error: msg}
 					}
 					notice := turnBudgetNotice(turnNumber, budgetErr.MaxTurns)
 					log.Printf("Turn %d exhausted the %d-turn budget — transcript preserved (%d items), awaiting user", turnNumber, budgetErr.MaxTurns, len(sessionTranscript))
 					_ = sc.WriteActivity(ctx, "turn_budget_exhausted", notice, nil)
 					_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, notice, nil)
+					releaseFailedRun()
 					break agentLoop
 				}
 				// Delegated children must reach a terminal phase — a parent
 				// team run is blocked on this run's result.
 				if cfg.DelegatedChild {
+					releaseFailedRun()
 					return runResult{Status: "failed", Error: fmt.Sprintf("chat session %d failed: %v", turnNumber, err)}
 				}
 				// A failed turn (LLM/API error after the SDK exhausted its
@@ -1358,6 +1411,7 @@ messageLoop:
 					// keeps the durable-tail fallback intact.
 					sessionTranscript = append(sessionTranscript, userItem)
 				}
+				releaseFailedRun()
 				break agentLoop
 			}
 			firstAgentPass = false
@@ -1396,14 +1450,35 @@ messageLoop:
 					displayMessage = turnSummary
 				}
 			}
+			// Persist recoverable state before consuming the user claim. If the
+			// host commit crashes, a replacement reclaims the message and reopens
+			// this same completed SDK pass without repeating model/tool effects.
+			if err := persistTranscriptSnapshotRequired(ctx, sc, sessionTranscript, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID); err != nil {
+				_ = closeSDKStoredRun(storedRun)
+				return runResult{Status: "failed", Error: fmt.Sprintf("persisting pre-commit transcript: %v", err)}
+			}
+			if err := activeWorkspaceSnapshotter.Load().snapshotSync(ctx, "turn-end"); err != nil {
+				_ = closeSDKStoredRun(storedRun)
+				return runResult{Status: "failed", Error: fmt.Sprintf("persisting pre-commit workspace: %v", err)}
+			}
+
+			hostTurnCommitted := false
 			if displayMessage != "" {
-				if msg, err := sc.AppendAssistantAndCompleteClaims(ctx, displayMessage); err != nil {
-					log.Printf("WARN: failed to persist assistant message: %v", err)
+				passKey := fmt.Sprintf("%s:%d:%d", cfg.TaskUID, currentUserMessageID, durablePass)
+				if msg, err := sc.AppendAssistantForDurablePass(ctx, passKey, displayMessage); err != nil {
+					_ = closeSDKStoredRun(storedRun)
+					return runResult{Status: "failed", Error: fmt.Sprintf("committing durable assistant response: %v", err)}
 				} else if msg != nil {
 					// Already in FinalHistory — the next turn's out-of-band
 					// fold must not duplicate it.
 					selfAssistantMessageID = msg.ID
+					hostTurnCommitted = true
 				}
+			} else if err := sc.CompleteClaims(ctx); err != nil {
+				_ = closeSDKStoredRun(storedRun)
+				return runResult{Status: "failed", Error: fmt.Sprintf("completing claims for empty durable response: %v", err)}
+			} else {
+				hostTurnCommitted = true
 			}
 			if err := sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
 				state.CurrentMode = updatedModeName
@@ -1414,19 +1489,22 @@ messageLoop:
 				}
 				return nil
 			}); err != nil {
-				log.Printf("WARN: failed to persist working state after turn: %v", err)
+				_ = closeSDKStoredRun(storedRun)
+				return runResult{Status: "failed", Error: fmt.Sprintf("persisting working state after durable turn: %v", err)}
 			}
-
-			// Durably snapshot the post-turn transcript (one bounded,
-			// upserted row per session) so a pod restart replays full
-			// context. An interruption-reset (empty) transcript clears the
-			// row and resume falls back to the durable tail.
-			persistTranscriptSnapshot(ctx, sc, sessionTranscript, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID)
-
-			// Checkpoint the workspace to the hidden snapshot ref so a hard
-			// kill (OOM, node loss) cannot lose this turn's file changes.
-			// Delta push, skipped when nothing changed.
-			activeWorkspaceSnapshotter.Load().SnapshotAsync("turn-end")
+			if err := persistTranscriptSnapshotRequired(ctx, sc, sessionTranscript, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID); err != nil {
+				_ = closeSDKStoredRun(storedRun)
+				return runResult{Status: "failed", Error: fmt.Sprintf("persisting transcript after durable turn: %v", err)}
+			}
+			if hostTurnCommitted {
+				if err := completeSDKDurablePass(ctx, sc, currentUserMessageID, durablePass); err != nil {
+					_ = closeSDKStoredRun(storedRun)
+					return runResult{Status: "failed", Error: fmt.Sprintf("committing durable SDK pass: %v", err)}
+				}
+			}
+			if err := closeSDKStoredRun(storedRun); err != nil {
+				return runResult{Status: "failed", Error: fmt.Sprintf("closing durable SDK run: %v", err)}
+			}
 
 			// Update the autonomous continuation tracker with this turn's results.
 			if cfg.AutoMode {
