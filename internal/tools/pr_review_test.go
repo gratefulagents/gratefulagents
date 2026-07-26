@@ -24,6 +24,7 @@ func TestRegisterPRReviewTools(t *testing.T) {
 		"resolve_review_thread",
 		"request_re_review",
 		"get_pull_request_checks",
+		"get_github_check_logs",
 	} {
 		if registry.Get(name) == nil {
 			t.Fatalf("expected registered tool %q", name)
@@ -349,6 +350,20 @@ func (r *fakePRReviewRunner) RunGHWithInput(_ context.Context, workDir string, i
 	return r.ghInputOut[key], r.ghInputErr[key]
 }
 
+func (r *fakePRReviewRunner) RunGHLogTail(_ context.Context, workDir string, lineLimit, byteLimit int, args ...string) (string, int, bool, string, error) {
+	key := strings.Join(args, " ")
+	r.ghCalls = append(r.ghCalls, key)
+	r.dirs = append(r.dirs, workDir)
+	writer := newLogTailWriter(lineLimit, byteLimit)
+	_, _ = writer.Write([]byte(r.ghOut[key]))
+	logs, totalLines, truncated := writer.Result()
+	diagnostic := ""
+	if r.ghErr[key] != nil {
+		diagnostic = r.ghOut[key]
+	}
+	return logs, totalLines, truncated, diagnostic, r.ghErr[key]
+}
+
 func prReviewMustJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(value)
@@ -502,6 +517,18 @@ func TestPRReviewToolsHonorRepoPath(t *testing.T) {
 				"api repos/{owner}/{repo}/commits/abc123/status":                `{"statuses":[]}`,
 			},
 		},
+		{
+			name: "get_github_check_logs",
+			tool: func(base prReviewToolBase) interface {
+				Execute(ctx context.Context, input json.RawMessage, workDir string) (Result, error)
+			} {
+				return &getGitHubCheckLogsTool{prReviewToolBase: base}
+			},
+			input: map[string]any{"check_run_id": 123, "repo_path": "repos/lib"},
+			ghOut: map[string]string{
+				"run view --log --job 123": "job log\n",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -550,7 +577,7 @@ func TestGetPullRequestChecksToolSummarizesChecksAndStatuses(t *testing.T) {
 	runner := &fakePRReviewRunner{
 		ghOut: map[string]string{
 			"pr view 7 --json headRefOid": `{"headRefOid":"abc123"}`,
-			"api repos/{owner}/{repo}/commits/abc123/check-runs --paginate": `{"total_count":3,"check_runs":[{"name":"build","status":"completed","conclusion":"success","details_url":"https://ci/1","started_at":"2024-01-01T00:00:00Z","completed_at":"2024-01-01T00:05:00Z"},{"name":"test","status":"completed","conclusion":"failure","details_url":"https://ci/2","started_at":"2024-01-01T00:00:00Z","completed_at":"2024-01-01T00:06:00Z"}]}
+			"api repos/{owner}/{repo}/commits/abc123/check-runs --paginate": `{"total_count":3,"check_runs":[{"id":101,"name":"build","status":"completed","conclusion":"success","details_url":"https://ci/1","started_at":"2024-01-01T00:00:00Z","completed_at":"2024-01-01T00:05:00Z"},{"id":102,"name":"test","status":"completed","conclusion":"failure","details_url":"https://ci/2","started_at":"2024-01-01T00:00:00Z","completed_at":"2024-01-01T00:06:00Z"}]}
 {"total_count":3,"check_runs":[{"name":"lint","status":"in_progress","conclusion":null,"details_url":"https://ci/3","started_at":"2024-01-01T00:00:00Z","completed_at":null}]}`,
 			"api repos/{owner}/{repo}/commits/abc123/status": `{"state":"pending","statuses":[{"context":"legacy/ci","state":"success","target_url":"https://legacy/1","description":"ok"},{"context":"legacy/deploy","state":"pending","target_url":"https://legacy/2","description":"waiting"}]}`,
 		},
@@ -577,7 +604,7 @@ func TestGetPullRequestChecksToolSummarizesChecksAndStatuses(t *testing.T) {
 	if out.HeadSHA != "abc123" {
 		t.Fatalf("head_sha = %q", out.HeadSHA)
 	}
-	if len(out.Checks) != 3 || out.Checks[0].Name != "build" || out.Checks[2].Name != "lint" {
+	if len(out.Checks) != 3 || out.Checks[0].ID != 101 || out.Checks[0].Name != "build" || out.Checks[2].Name != "lint" {
 		t.Fatalf("checks = %#v", out.Checks)
 	}
 	if len(out.Statuses) != 2 || out.Statuses[0].Context != "legacy/ci" {
@@ -594,5 +621,105 @@ func TestGetPullRequestChecksToolSummarizesChecksAndStatuses(t *testing.T) {
 	}
 	if !reflect.DeepEqual(runner.ghCalls, wantCalls) {
 		t.Fatalf("gh calls = %#v, want %#v", runner.ghCalls, wantCalls)
+	}
+}
+
+func TestGetGitHubCheckLogsToolReturnsTail(t *testing.T) {
+	repo := testGitRepoDir(t)
+	runner := &fakePRReviewRunner{ghOut: map[string]string{
+		"run view --log --job 123456": "first\nsecond\nthird\nfourth\n",
+	}}
+	tool := &getGitHubCheckLogsTool{prReviewToolBase: prReviewToolBase{runner: runner}}
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"check_run_id":123456,"tail_lines":2}`), repo)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute() returned error result: %s", result.Content)
+	}
+	var out struct {
+		CheckRunID int64  `json:"check_run_id"`
+		Logs       string `json:"logs"`
+		TotalLines int    `json:"total_lines"`
+		Truncated  bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &out); err != nil {
+		t.Fatalf("result json: %v", err)
+	}
+	if out.CheckRunID != 123456 || out.Logs != "third\nfourth" || out.TotalLines != 4 || !out.Truncated {
+		t.Fatalf("result = %+v", out)
+	}
+	if want := []string{"run view --log --job 123456"}; !reflect.DeepEqual(runner.ghCalls, want) {
+		t.Fatalf("gh calls = %#v, want %#v", runner.ghCalls, want)
+	}
+}
+
+func TestLogTailWriterBoundsLinesAndBytesWhileStreaming(t *testing.T) {
+	writer := newLogTailWriter(2, 12)
+	for _, chunk := range []string{"first\nsec", "ond\nthird", "-is-long"} {
+		if _, err := writer.Write([]byte(chunk)); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+	}
+	logs, totalLines, truncated := writer.Result()
+	if logs != "hird-is-long" || totalLines != 3 || !truncated {
+		t.Fatalf("Result() = (%q, %d, %v)", logs, totalLines, truncated)
+	}
+	if len(logs) > 12 {
+		t.Fatalf("result length = %d, want <= 12", len(logs))
+	}
+}
+
+func TestLogTailWriterHandlesEmptyAndTrailingNewline(t *testing.T) {
+	empty := newLogTailWriter(2, 10)
+	if logs, totalLines, truncated := empty.Result(); logs != "" || totalLines != 0 || truncated {
+		t.Fatalf("empty Result() = (%q, %d, %v)", logs, totalLines, truncated)
+	}
+
+	writer := newLogTailWriter(2, 10)
+	_, _ = writer.Write([]byte("one\ntwo\nthree\n"))
+	if logs, totalLines, truncated := writer.Result(); logs != "two\nthree" || totalLines != 3 || !truncated {
+		t.Fatalf("Result() = (%q, %d, %v)", logs, totalLines, truncated)
+	}
+}
+
+func TestGetGitHubCheckLogsToolValidatesInput(t *testing.T) {
+	repo := testGitRepoDir(t)
+	for _, input := range []string{
+		`{"check_run_id":0}`,
+		`{"check_run_id":123,"tail_lines":-1}`,
+		`{"check_run_id":123,"tail_lines":5001}`,
+	} {
+		runner := &fakePRReviewRunner{}
+		tool := &getGitHubCheckLogsTool{prReviewToolBase: prReviewToolBase{runner: runner}}
+		result, err := tool.Execute(context.Background(), json.RawMessage(input), repo)
+		if err != nil {
+			t.Fatalf("Execute(%s) error = %v", input, err)
+		}
+		if !result.IsError {
+			t.Fatalf("Execute(%s) result = %+v, want error", input, result)
+		}
+		if len(runner.ghCalls) != 0 {
+			t.Fatalf("Execute(%s) made calls %#v", input, runner.ghCalls)
+		}
+	}
+}
+
+func TestGetGitHubCheckLogsToolSurfacesGHFailure(t *testing.T) {
+	repo := testGitRepoDir(t)
+	call := "run view --log --job 123"
+	runner := &fakePRReviewRunner{
+		ghOut: map[string]string{call: "logs unavailable"},
+		ghErr: map[string]error{call: errors.New("exit status 1")},
+	}
+	tool := &getGitHubCheckLogsTool{prReviewToolBase: prReviewToolBase{runner: runner}}
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"check_run_id":123}`), repo)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "logs unavailable") {
+		t.Fatalf("result = %+v", result)
 	}
 }

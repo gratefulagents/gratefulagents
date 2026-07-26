@@ -86,7 +86,7 @@ tool (git_commit, git_push, git_status, git_pull, git_merge, git_merge_abort,
 create_pull_request, update_pull_request, create_github_issue,
 get_github_issue, update_github_issue, close_github_issue,
 update_github_issue_labels, add_github_issue_comment,
-get_pull_request, get_pull_request_checks, list_review_threads,
+get_pull_request, get_pull_request_checks, get_github_check_logs, list_review_threads,
 submit_pull_request_review, reply_to_review_thread, resolve_review_thread,
 request_re_review) accepts
 repo_path to select the repository it acts on; repo_path defaults to the
