@@ -122,8 +122,8 @@ type ObservabilityBreakdown struct {
 }
 
 type ObservabilityDataCompleteness struct {
-	Sessions, SessionsWithMetrics, SessionsWithActivity  int64
-	MetricsComplete, ActivityComplete, ActivityTruncated bool
+	Sessions, SessionsWithMetrics, SessionsWithActivity int64
+	MetricsComplete, ActivityComplete                   bool
 }
 
 type ObservabilityOverview struct {
