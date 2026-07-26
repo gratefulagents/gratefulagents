@@ -122,6 +122,9 @@ var migration040Up string
 //go:embed migrations/041_user_role_parent_models.up.sql
 var migration041Up string
 
+//go:embed migrations/042_sdk_durable_runs.up.sql
+var migration042Up string
+
 // noTxMigrations run statement-by-statement outside a transaction so they can
 // use commands PostgreSQL forbids in transaction blocks, such as
 // CREATE INDEX CONCURRENTLY (which avoids blocking writers during the build).
@@ -234,6 +237,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		{39, migration039Up, false},
 		{40, migration040Up, false},
 		{41, migration041Up, false},
+		{42, migration042Up, false},
 	}
 
 	for _, m := range migrations {

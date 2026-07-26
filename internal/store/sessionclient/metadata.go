@@ -46,8 +46,13 @@ type WorkingState struct {
 	// LastStoppedUserMessageID is the durable cursor floor for a turn the user
 	// explicitly stopped. Replacement pods must not auto-run that same prompt;
 	// only a genuinely newer user message may resume the session.
-	LastStoppedUserMessageID int64     `json:"last_stopped_user_message_id,omitempty"`
-	UpdatedAt                time.Time `json:"updated_at,omitempty"`
+	LastStoppedUserMessageID int64 `json:"last_stopped_user_message_id,omitempty"`
+	// DurableRun* coordinates one stable SDK Runner invocation across pod
+	// replacement and autonomous passes for the same user message.
+	DurableRunMessageID int64     `json:"durable_run_message_id,omitempty"`
+	DurableRunPass      int64     `json:"durable_run_pass,omitempty"`
+	DurableRunNextPass  int64     `json:"durable_run_next_pass,omitempty"`
+	UpdatedAt           time.Time `json:"updated_at,omitempty"`
 }
 
 func (w *WorkingState) normalize() {

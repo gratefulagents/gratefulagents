@@ -23,6 +23,7 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/agentplatform"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
+	sdkdurable "github.com/gratefulagents/sdk/pkg/agentsdk/durable"
 	sdkotel "github.com/gratefulagents/sdk/pkg/agentsdk/otel"
 	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 	sdkproviders "github.com/gratefulagents/sdk/pkg/agentsdk/providers"
@@ -290,6 +291,25 @@ func doRun(ctx context.Context, cfg runConfig, k8sClient *kubernetes.Clientset, 
 		return
 	}
 	cfg.WorkspaceSnapshotKey = workspaceSnapshotKey
+
+	durableRuntime, err := newSDKDurableRuntime(ctx)
+	if err != nil {
+		log.Printf("ERROR: durable SDK runtime setup failed: %v", err)
+		result = runResult{Status: "failed", Error: err.Error()}
+		return result, eventsLogURL
+	}
+	defer func() {
+		if err := durableRuntime.Close(); err != nil {
+			log.Printf("WARN: closing durable SDK runtime: %v", err)
+		}
+	}()
+	cfg.DurableRunStore = durableRuntime.store
+	cfg.DurableRunTenant = sdkdurable.TenantID("k8s-namespace-" + cfg.Namespace)
+	hostname, hostErr := os.Hostname()
+	if hostErr != nil || strings.TrimSpace(hostname) == "" {
+		hostname = "worker-" + cfg.TaskUID
+	}
+	cfg.DurableRunOwner = cfg.Namespace + "/" + cfg.TaskName + "/" + hostname
 
 	checkpointStore, checkpointRoot, err := newWorkspaceObjectStoreFromEnv()
 	if err != nil {

@@ -352,6 +352,13 @@ func (c *Client) ClaimUserMessage(ctx context.Context, message UserMessage) (Use
 	return message, true, nil
 }
 
+func (c *Client) AppendAssistantForDurablePass(ctx context.Context, passKey, content string) (*store.Message, error) {
+	if committer, ok := c.store.(store.DurableAssistantCommitter); ok {
+		return committer.AppendAssistantForDurablePass(ctx, c.sessionID, c.claimToken, passKey, content)
+	}
+	return c.AppendAssistantAndCompleteClaims(ctx, content)
+}
+
 func (c *Client) AppendAssistantAndCompleteClaims(ctx context.Context, content string) (*store.Message, error) {
 	if claimer, ok := c.store.(store.MessageClaimer); ok {
 		return claimer.AppendAssistantAndCompleteClaims(ctx, c.sessionID, c.claimToken, content)

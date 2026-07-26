@@ -751,13 +751,60 @@ func (s *Store) AppendAssistantAndCompleteClaims(ctx context.Context, sessionID 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var row sqlc.ConversationMessage
-	err = tx.QueryRow(ctx, `INSERT INTO conversation_messages (session_id, role, content) VALUES ($1, 'assistant', $2) RETURNING *`, sessionID, content).Scan(
+	err = tx.QueryRow(ctx, `
+		WITH completed AS (
+			UPDATE conversation_messages
+			SET delivery_state = 'completed', claim_token = NULL
+			WHERE session_id = $1 AND role = 'user'
+			  AND delivery_state = 'claimed' AND claim_token = $2
+			RETURNING 1
+		)
+		INSERT INTO conversation_messages (session_id, role, content)
+		SELECT $1, 'assistant', $3 FROM completed LIMIT 1
+		RETURNING *`, sessionID, claimToken, content).Scan(
 		&row.ID, &row.SessionID, &row.Role, &row.Content, &row.Metadata, &row.CreatedAt, &row.DeliveryState, &row.ClaimedAt, &row.DeliverySequence, &row.ClaimToken)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("appending assistant response: no claimed user message remains")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("appending assistant response: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE conversation_messages SET delivery_state = 'completed', claim_token = NULL WHERE session_id = $1 AND role = 'user' AND delivery_state = 'claimed' AND claim_token = $2`, sessionID, claimToken); err != nil {
-		return nil, fmt.Errorf("completing claimed messages: %w", err)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return messageFromRow(row), nil
+}
+
+func (s *Store) AppendAssistantForDurablePass(ctx context.Context, sessionID uuid.UUID, claimToken uuid.UUID, passKey, content string) (*store.Message, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `
+		UPDATE conversation_messages
+		SET delivery_state = 'completed', claim_token = NULL
+		WHERE session_id = $1 AND role = 'user'
+		  AND delivery_state = 'claimed' AND claim_token = $2`, sessionID, claimToken); err != nil {
+		return nil, fmt.Errorf("completing durable pass claims: %w", err)
+	}
+	var row sqlc.ConversationMessage
+	scan := func(r pgx.Row) error {
+		return r.Scan(&row.ID, &row.SessionID, &row.Role, &row.Content, &row.Metadata, &row.CreatedAt, &row.DeliveryState, &row.ClaimedAt, &row.DeliverySequence, &row.ClaimToken)
+	}
+	err = scan(tx.QueryRow(ctx, `
+		INSERT INTO conversation_messages (session_id, role, content, metadata)
+		VALUES ($1, 'assistant', $2, jsonb_build_object('durable_pass_key', $3::text))
+		ON CONFLICT DO NOTHING
+		RETURNING *`, sessionID, content, passKey))
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = scan(tx.QueryRow(ctx, `
+			SELECT * FROM conversation_messages
+			WHERE session_id = $1 AND role = 'assistant'
+			  AND metadata ->> 'durable_pass_key' = $2`, sessionID, passKey))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("committing durable assistant response: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err

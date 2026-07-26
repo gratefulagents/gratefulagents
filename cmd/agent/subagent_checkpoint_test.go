@@ -45,7 +45,7 @@ func newSubAgentCheckpointTestClient(t *testing.T) (*sessionclient.Client, *subA
 	return sc, fake
 }
 
-func TestSubAgentCheckpointRestoresTaskIDsAndTombstones(t *testing.T) {
+func TestSubAgentCheckpointRestoresTaskIDsAndReconcilingState(t *testing.T) {
 	sc, _ := newSubAgentCheckpointTestClient(t)
 	state := agent.SubAgentSchedulerCheckpoint{Records: []agent.SubAgentSchedulerCheckpointRecord{
 		{Task: agent.SubAgentTask{ID: "task_done", AgentName: "reviewer", Status: agent.SubAgentTaskCompleted, Result: "approved"}},
@@ -61,13 +61,15 @@ func TestSubAgentCheckpointRestoresTaskIDsAndTombstones(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(notice, "failed tombstones") {
+	if !strings.Contains(notice, "reconciling") {
 		t.Fatalf("notice = %q", notice)
 	}
 	if got, err := restored.GetStatus("task_done"); err != nil || got.Result != "approved" {
 		t.Fatalf("done = %+v, %v", got, err)
 	}
-	if got, err := restored.GetStatus("task_active"); err != nil || got.Status != agent.SubAgentTaskFailed || !strings.Contains(got.Error, "runtime restarted") {
+	if got, err := restored.GetStatus("task_active"); err != nil ||
+		got.Status != agent.SubAgentTaskReconciling ||
+		!strings.Contains(got.Error, "runtime restarted") {
 		t.Fatalf("active = %+v, %v", got, err)
 	}
 }
@@ -103,6 +105,9 @@ func TestSubAgentCheckpointPreservesCompleteHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	writer := startSubAgentCheckpointLoop(sc, scheduler)
+	if err := writer.persistCheckpoint(scheduler.SchedulerCheckpoint()); err != nil {
+		t.Fatal(err)
+	}
 	if err := writer.StopAndFlush(); err != nil {
 		t.Fatal(err)
 	}

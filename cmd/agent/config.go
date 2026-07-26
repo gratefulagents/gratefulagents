@@ -12,6 +12,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/agentinfra"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
+	sdkdurable "github.com/gratefulagents/sdk/pkg/agentsdk/durable"
 	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 	oauth "github.com/gratefulagents/sdk/pkg/agentsdk/providers/oauth"
 )
@@ -46,6 +47,9 @@ type runConfig struct {
 	WorkspaceCheckpointStore  workspaceObjectStore
 	WorkspaceCheckpointPrefix string
 	WorkspaceCheckpoint       *workspaceCheckpointManifest
+	DurableRunStore           sdkdurable.RunStore
+	DurableRunTenant          sdkdurable.TenantID
+	DurableRunOwner           string
 	GithubToken               string
 	TaskName                  string
 	TaskUID                   string
