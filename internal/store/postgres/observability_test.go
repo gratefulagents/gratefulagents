@@ -141,7 +141,7 @@ func TestAggregateObservabilityCoversEveryEventInRange(t *testing.T) {
 	sessions := []observabilitySession{{id: sessionID, created: start, metadata: json.RawMessage(`{}`)}}
 	const attempts = 60_000
 	events := make([]observabilityEvent, 0, attempts)
-	for i := 0; i < attempts; i++ {
+	for i := range attempts {
 		events = append(events, observabilityEvent{
 			id:        int64(i + 1),
 			sessionID: sessionID,
@@ -172,8 +172,12 @@ func TestObservabilityInputTokensIncludeCacheFallsBackToProvider(t *testing.T) {
 	}{
 		{name: "explicit flag wins", detail: `{"input_tokens_include_cache":true,"input_tokens_include_cache_known":true}`, provider: "anthropic", model: "anthropic/claude-opus-5", want: true},
 		{name: "unknown anthropic is additive", detail: `{}`, provider: "anthropic", model: "anthropic/claude-opus-5", want: false},
-		{name: "unknown claude via copilot is additive", detail: `{}`, provider: "copilot", model: "copilot/claude-sonnet-4-5", want: false},
+		// Copilot serves Claude models over an OpenAI-compatible surface, so
+		// the provider decides, not the model family.
+		{name: "unknown claude via copilot is inclusive", detail: `{}`, provider: "copilot", model: "copilot/claude-sonnet-4-5", want: true},
 		{name: "unknown openai already includes cache", detail: `{}`, provider: "openai", model: "openai/gpt-5.6", want: true},
+		{name: "provider-qualified model without a provider field", detail: `{}`, provider: "", model: "openrouter/gpt-5.6", want: true},
+		{name: "unknown provider defaults to additive", detail: `{}`, provider: "somegateway", model: "somegateway/model-x", want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var d map[string]any

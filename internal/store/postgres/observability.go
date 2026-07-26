@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/gratefulagents/gratefulagents/internal/store"
+	"github.com/gratefulagents/gratefulagents/internal/usageaccounting"
 )
 
 type observabilitySession struct {
@@ -328,9 +329,7 @@ func (a *observabilityAggregator) add(event observabilityEvent) {
 		a.out.Totals.Compactions++
 		b.Totals.Compactions++
 		reclaimed := int64(numberValue(d["tokens_before"]) - numberValue(d["tokens_after"]))
-		if reclaimed < 0 {
-			reclaimed = 0
-		}
+		reclaimed = max(reclaimed, 0)
 		a.out.Totals.TokensReclaimed += reclaimed
 		b.Totals.TokensReclaimed += reclaimed
 	}
@@ -381,21 +380,17 @@ func observabilityAttemptFromDetail(row observabilityRowKey, d map[string]any) *
 }
 
 // observabilityInputTokensIncludeCache reports whether an attempt's
-// input_tokens already cover the cached prompt. Providers differ (OpenAI-style
-// input_tokens include cached tokens, Anthropic-style report them as separate
-// additive fields), so the runner stamps the answer on the event. Older events
-// predate those flags; for them fall back to the provider's documented
-// semantics, because assuming "already included" silently erases the cached
-// prompt — nearly the entire input of a warm Anthropic run.
+// input_tokens already cover the cached prompt. The runner stamps the answer
+// on the event; older events predate those flags, so fall back to the shared
+// provider classification every usage reader uses (internal/usageaccounting).
+// Assuming "already included" would silently erase the cached prompt — nearly
+// the entire input of a warm Anthropic run.
 func observabilityInputTokensIncludeCache(d map[string]any, provider, model string) bool {
-	if boolValue(d["input_tokens_include_cache_known"]) {
-		return boolValue(d["input_tokens_include_cache"])
-	}
-	identity := strings.ToLower(provider + "/" + model)
-	if strings.Contains(identity, "anthropic") || strings.Contains(identity, "claude") {
-		return false
-	}
-	return true
+	return usageaccounting.InputIncludesCache(
+		boolValue(d["input_tokens_include_cache_known"]),
+		boolValue(d["input_tokens_include_cache"]),
+		provider, model,
+	)
 }
 
 func (a *observabilityAggregator) finish() *store.ObservabilityOverview {
