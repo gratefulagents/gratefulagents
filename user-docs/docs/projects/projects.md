@@ -1,5 +1,7 @@
 ---
 title: Projects
+seoTitle: Organize AI Coding Agent Work with Projects | GratefulAgents
+description: Create and manage GratefulAgents projects to share repository, model, runtime, and tool defaults across runs. Includes Entry points, file storage, and sharing.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/projects/projects/ and explain how projects organize work in gratefulagents, then help me create one for my repository.
 ---

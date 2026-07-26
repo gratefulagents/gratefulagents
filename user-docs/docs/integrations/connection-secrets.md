@@ -1,5 +1,7 @@
 ---
 title: Connection Secrets
+seoTitle: Manage Kubernetes Secrets for Integrations | GratefulAgents
+description: Create and rotate Kubernetes Secrets for GitHub, Slack, and Linear connections in GratefulAgents. Safe kubectl patterns to prevent credential leaks.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/integrations/connection-secrets/ and explain how Connection Secrets store integration credentials, then help me add the one I need safely.
 ---

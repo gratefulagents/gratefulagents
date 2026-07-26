@@ -1,5 +1,7 @@
 ---
 title: Skills
+seoTitle: Create and Install Agent Skills | GratefulAgents
+description: Build inline skills or install from the skills.sh catalog in GratefulAgents. Attach reusable agent instructions and MCP server dependencies to projects.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/skill-packages/ and explain how skills work in gratefulagents, then help me install a skill package.
 ---

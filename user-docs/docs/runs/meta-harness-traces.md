@@ -1,5 +1,7 @@
 ---
 title: Meta-Harness trace capture
+seoTitle: Meta-Harness Trace Capture for Agent Runs | GratefulAgents
+description: Meta-Harness trace capture is an operator-level feature that records GratefulAgents run execution traces for platform analysis and self-development use.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/runs/meta-harness-traces/ and explain what gratefulagents records in a run trace and how to read one to understand cost, latency, and failures.
 ---

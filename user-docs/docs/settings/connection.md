@@ -1,5 +1,7 @@
 ---
 title: Connection
+seoTitle: Desktop Workspace Connection Settings | GratefulAgents
+description: Configure the GratefulAgents desktop app backend endpoint and Cloudflare Access values. Manage, switch, and remove locally saved workspace connections.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/connection/ and explain the gratefulagents connection settings and how to run the diagnostics when something is off.
 ---

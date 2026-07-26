@@ -22,25 +22,80 @@ const providers: {mark: MarkName; name: string}[] = [
 const kindGuidePath = '/docs/getting-started/self-hosting-kind/';
 const kindInstallPrompt = 'Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install gratefulagents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.';
 const homepageDescription = 'Run open-source coding agents in your Kubernetes cluster. Trigger work from GitHub, Linear, Slack, or schedules; bring your own models and inspect every run.';
-const structuredData = {
-  '@type': 'SoftwareApplication',
-  '@id': 'https://gratefulagents.dev/#software',
-  name: 'GratefulAgents',
-  applicationCategory: 'DeveloperApplication',
-  operatingSystem: 'Kubernetes, Web, macOS, Windows, Linux, iOS, Android',
-  url: 'https://gratefulagents.dev/',
-  description: homepageDescription,
-  codeRepository: repositoryUrl,
-  license: 'https://www.gnu.org/licenses/agpl-3.0.html',
-  isAccessibleForFree: true,
-  featureList: [
-    'Self-hosted coding agent execution on Kubernetes',
-    'GitHub, Linear, Slack, and scheduled triggers',
-    'Bring-your-own model providers',
-    'Run traces, cost, token, and reliability observability',
-    'Web, desktop, iOS, and Android clients',
-  ],
-};
+
+const faqItems: {q: string; a: string}[] = [
+  {
+    q: 'Is GratefulAgents really self-hosted?',
+    a: 'Yes. The Kubernetes controller, dashboard, and all agent run sandboxes execute entirely inside your own cluster. Nothing phones home to a GratefulAgents cloud. Your source code, prompts, and model responses travel between your cluster and the model provider of your choice — never through our infrastructure.',
+  },
+  {
+    q: 'Do I need Kubernetes experience to get started?',
+    a: 'You need a working cluster, but not deep expertise. The fastest path is the Kind guide: one script spins up a local cluster on a macOS or Linux laptop in minutes. For a persistent server install, the k3s guide walks through a fresh Debian or Ubuntu machine end to end. Both guides cover every prerequisite.',
+  },
+  {
+    q: 'Which AI models can I use?',
+    a: 'Any provider whose credentials you store in your workspace: Claude (Anthropic), OpenAI, OpenRouter (which surfaces many hosted models), Grok (xAI), and GitHub Copilot. Credentials are saved in your workspace and leave your cluster only when an agent makes an inference request directly to that provider\'s API.',
+  },
+  {
+    q: 'How is this different from GitHub Copilot\'s coding agent?',
+    a: 'Copilot\'s coding agent is a cloud SaaS feature. Your code and prompts are processed on GitHub\'s infrastructure, and you cannot inspect the execution harness. GratefulAgents runs entirely in your cluster — you own the sandbox, the model credentials, the traces, and the execution logs. You can also trigger work from Linear, Slack, or cron, not just GitHub issues.',
+  },
+  {
+    q: 'Can agents open pull requests and interact with GitHub?',
+    a: 'Yes. Agents run with your configured GitHub credentials and can read issues, create branches, commit, open pull requests, and post review comments — the same actions a developer would take. You can also trigger runs automatically when a GitHub issue or PR comment matches a pattern and have the agent respond or open a PR directly.',
+  },
+  {
+    q: 'What does GratefulAgents cost?',
+    a: 'The software is free and open source under the AGPL-3.0 licence. You pay only for the model-provider API calls your agents make — charged directly by Anthropic, OpenAI, or whichever provider you configure — and for the compute running your Kubernetes cluster. There is no GratefulAgents subscription or per-seat fee.',
+  },
+  {
+    q: 'Is it ready for production use?',
+    a: 'GratefulAgents is in active early development. It works well for evaluation, prototyping, and internal team use, but you should expect bugs and breaking changes between releases. High availability, managed hosting, and a production support SLA are not documented. We recommend starting with the Kind local demo before committing to a persistent server deployment.',
+  },
+];
+
+const structuredData = [
+  {
+    '@type': 'SoftwareApplication',
+    '@id': 'https://gratefulagents.dev/#software',
+    name: 'GratefulAgents',
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'Kubernetes, Web, macOS, Windows, Linux, iOS, Android',
+    url: 'https://gratefulagents.dev/',
+    description: homepageDescription,
+    codeRepository: repositoryUrl,
+    license: 'https://www.gnu.org/licenses/agpl-3.0.html',
+    isAccessibleForFree: true,
+    offers: {'@type': 'Offer', price: '0', priceCurrency: 'USD'},
+    featureList: [
+      'Self-hosted coding agent execution on Kubernetes',
+      'GitHub, Linear, Slack, and scheduled triggers',
+      'Bring-your-own model providers',
+      'Run traces, cost, token, and reliability observability',
+      'Web, desktop, iOS, and Android clients',
+    ],
+  },
+  {
+    '@type': 'FAQPage',
+    '@id': 'https://gratefulagents.dev/#faq',
+    mainEntity: faqItems.map((item) => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: {'@type': 'Answer', text: item.a},
+    })),
+  },
+  {
+    '@type': 'VideoObject',
+    '@id': 'https://gratefulagents.dev/#hero-video',
+    name: 'GratefulAgents: one agent run from prompt to trace',
+    description: 'A recording of a single agent run — a prompt fans out to a subagent DAG, the work completes, and the full trace is inspected — replayed at 4× speed.',
+    thumbnailUrl: 'https://gratefulagents.dev/screens/run-recording-poster.webp',
+    contentUrl: 'https://gratefulagents.dev/screens/run-recording.mp4',
+    // Commit date of website/public/screens/run-recording.mp4 (28a75fe).
+    // Keep this in sync if the recording is replaced.
+    uploadDate: '2026-07-20',
+  },
+];
 
 const slides = [
   {
@@ -152,7 +207,7 @@ const stations = [
                 height="1506"
                 muted
                 playsinline
-                preload="auto"
+                preload="metadata"
                 aria-label="View full screen: recording of one agent run — a prompt fans out to a subagent DAG, then the finished trace, replayed at 4x speed"
               ></video>
               <span class="video-progress" data-hero-progress aria-hidden="true"></span>
@@ -275,6 +330,56 @@ const stations = [
                 <a href={slide.href}>Open the guide <span aria-hidden="true">→</span></a>
               </footer>
             </article>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- Sheet 08: Why self-hosted -->
+    <section class="why-section" aria-labelledby="why-title">
+      <div class="why-inner">
+        <header class="why-header">
+          <p class="section-kicker">Sheet 08 · Principles</p>
+          <h2 id="why-title">Why run coding agents in your own cluster?</h2>
+          <p class="why-lead">Cloud agent harnesses are convenient, but they come with trade-offs that matter the moment your codebase has proprietary logic, private registries, or compliance requirements. Here is the case for keeping the compute yours.</p>
+        </header>
+        <div class="why-grid">
+          <article class="why-card">
+            <h3>Source code and prompts stay inside your network</h3>
+            <p>When an agent runs in a cloud SaaS harness, your repository content, file diffs, and the natural-language prompts you write all travel to a third-party data centre. With GratefulAgents, every agent run executes inside a sandbox in your own Kubernetes cluster. The only outbound connections are the inference requests your agents make directly to the model provider whose API key you supply — and those requests go straight from your cluster to Anthropic, OpenAI, or whoever you choose.</p>
+          </article>
+          <article class="why-card">
+            <h3>You own the model credentials — and the costs that come with them</h3>
+            <p>GratefulAgents stores all credentials in your workspace. There is no credential relay through our servers. This also means you can use provider-negotiated pricing, API credits, or committed-spend agreements you have directly with Anthropic or OpenAI. You are not locked into a harness vendor's margin on top of the underlying inference cost.</p>
+          </article>
+          <article class="why-card">
+            <h3>The harness itself is inspectable and auditable</h3>
+            <p>GratefulAgents is <a href={repositoryUrl}>open source under AGPL-3.0</a>. You can read every line of the controller, the CRD logic, and the sandbox configuration. Combined with the per-run <a href="/docs/results/observability/">observability console</a> — which records every tool call, every LLM request, and every token — you always know what the agent did and why. A black-box harness cannot offer that. See <a href="/differences/">how this differs from cloud coding agents</a>.</p>
+          </article>
+          <article class="why-card">
+            <h3>Agent compute sits next to your private infrastructure</h3>
+            <p>Agents frequently need to read internal packages, query private databases, or call APIs that are not reachable from the public internet. When the agent sandbox runs inside the same cluster (or the same VPC) as those resources, latency is low and no ingress rules or tunnels are required. You apply the same Kubernetes network policies, RBAC, and pod security standards you already use for the rest of your workloads. For on-premise or air-gapped environments, this is the only viable option. See <a href="/self-hosted-coding-agents/">the full case for self-hosted coding agents</a>.</p>
+          </article>
+        </div>
+        <p class="why-links">
+          Devin and GitHub Copilot's coding agent are cloud services: the checkout, the agent process, and the model credentials live on the vendor's infrastructure. GratefulAgents is the <a href="/differences/">self-hosted alternative</a> — all three stay inside your cluster. Get started with the <a href="/docs/getting-started/self-hosting-kind/">Kind local demo</a> (macOS or Linux laptop, five minutes) or the <a href="/docs/getting-started/self-hosting-k3s/">k3s server install</a> for a persistent deployment.
+        </p>
+      </div>
+    </section>
+
+    <!-- Sheet 09: FAQ -->
+    <section class="faq-section" aria-labelledby="faq-title">
+      <div class="faq-inner">
+        <header class="why-header">
+          <p class="section-kicker">Sheet 09 · Field notes</p>
+          <h2 id="faq-title">Frequently asked questions</h2>
+        </header>
+        <div class="faq-list">
+          {faqItems.map((item) => (
+            <details class="faq-item">
+              <summary class="faq-q">{item.q}</summary>
+              <div class="faq-a"><p>{item.a}</p></div>
+            </details>
           ))}
         </div>
       </div>

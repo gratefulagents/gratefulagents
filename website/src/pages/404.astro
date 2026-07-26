@@ -1,0 +1,54 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base
+  title="Page not found | GratefulAgents"
+  description="The page you requested could not be found. Browse the GratefulAgents user guide or return to the home page."
+  noindex={true}
+>
+  <main id="main" class="notfound-main">
+    <p class="section-kicker">404</p>
+    <h1>Page not found</h1>
+    <p class="notfound-lead">
+      The page you requested does not exist. Here are some helpful starting points.
+    </p>
+    <div class="cta-row">
+      <a href="/" class="btn btn-primary">Home</a>
+      <a href="/docs/" class="btn btn-quiet">User guide</a>
+      <a href="/docs/getting-started/quick-start/" class="btn btn-quiet">Quick start</a>
+      <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-quiet">Local install</a>
+      <a href="/docs/troubleshooting/common-issues/" class="btn btn-quiet">Troubleshooting</a>
+    </div>
+  </main>
+</Base>
+
+<style>
+  .notfound-main {
+    box-sizing: border-box;
+    width: min(calc(100% - 3rem), 40rem);
+    /* Fill the gap between the topbar and the footer so the footer lands near
+       the bottom of the viewport instead of floating in the middle. */
+    min-height: calc(100svh - 58px - 11rem);
+    display: flex;
+    flex-direction: column;
+    justify-content: safe center;
+    margin: 0 auto;
+    padding: clamp(2rem, 8vh, 5rem) 0;
+  }
+  .notfound-main h1 {
+    margin: 0.4rem 0 1rem;
+    color: var(--chalk-bright);
+    font-family: var(--font-display);
+    font-size: clamp(2.4rem, 6vw, 3.6rem);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+  }
+  .notfound-lead {
+    margin: 0 0 1.8rem;
+    color: var(--faded);
+    font-size: 1.05rem;
+    line-height: 1.6;
+  }
+</style>

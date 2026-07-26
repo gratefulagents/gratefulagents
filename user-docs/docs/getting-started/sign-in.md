@@ -1,5 +1,7 @@
 ---
 title: Sign in
+seoTitle: Sign In to GratefulAgents | GratefulAgents
+description: Sign in to GratefulAgents with username and password or Google OAuth. Includes troubleshooting for failed sign-ins and Cloudflare Access deployments.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/getting-started/sign-in/ and explain how signing in to gratefulagents works, then walk me through my first sign-in.
 ---

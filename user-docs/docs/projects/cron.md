@@ -1,5 +1,7 @@
 ---
 title: Cron schedules
+seoTitle: Schedule Recurring AI Agent Runs with Cron | GratefulAgents
+description: Create cron-scheduled Entry points in GratefulAgents to start AI coding agent runs automatically on a recurring schedule with a custom prompt.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/projects/cron/ and help me schedule a recurring agent run with a cron expression, including choosing what the scheduled run should do.
 ---

@@ -1,5 +1,7 @@
 ---
 title: Common issues
+seoTitle: Troubleshoot Common GratefulAgents Issues | GratefulAgents
+description: Diagnose GratefulAgents problems including installation, connection, sign-in, self-hosted Kubernetes setup, missing runs or diffs, and PR automation failures.
 agentPrompt: >-
   My gratefulagents workspace is misbehaving. Read https://gratefulagents.dev/docs/troubleshooting/common-issues/ and help me diagnose and fix the problem step by step, asking me for symptoms as needed.
 ---

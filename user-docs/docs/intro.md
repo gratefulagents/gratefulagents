@@ -1,6 +1,8 @@
 ---
 title: Welcome
 slug: /
+seoTitle: Self-Hosted AI Coding Agent Platform | GratefulAgents
+description: GratefulAgents is a self-hosted, open-source control plane for running AI coding agents. Start chats, organize projects, follow runs, and review results.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/ and explain what gratefulagents is, what it would do for my team, and the shortest path for me to try it.
 ---

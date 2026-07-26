@@ -1,4 +1,21 @@
 User-agent: *
 Allow: /
 
+# This project welcomes indexing by AI/answer-engine crawlers.
+# An llms.txt index is available at https://gratefulagents.dev/llms.txt
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
 Sitemap: https://gratefulagents.dev/sitemap-index.xml

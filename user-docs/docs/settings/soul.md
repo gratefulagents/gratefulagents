@@ -1,5 +1,7 @@
 ---
 title: SOUL persona
+seoTitle: Configure Your SOUL Agent Persona | GratefulAgents
+description: Save a personal SOUL persona in GratefulAgents so teammates can ask an AI agent for your perspective on code reviews, plans, and architectural decisions.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/soul/ and explain what a SOUL persona is in gratefulagents, then help me draft one for my agent.
 ---

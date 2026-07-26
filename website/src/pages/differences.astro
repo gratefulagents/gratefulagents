@@ -1,0 +1,151 @@
+---
+import Base from '../layouts/Base.astro';
+import '../styles/marketing.css';
+import {differenceRows, faqs} from '../data/differences';
+
+const title = 'Self-Hosted Alternative to Devin and GitHub Copilot | GratefulAgents';
+const description =
+  'GratefulAgents is an open-source, self-hosted alternative to Devin and GitHub Copilot. Agents run in your own Kubernetes cluster, on your own model keys.';
+
+const structuredData = [
+  {
+    '@type': 'WebPage',
+    '@id': 'https://gratefulagents.dev/differences/#webpage',
+    name: title,
+    description,
+    url: 'https://gratefulagents.dev/differences/',
+    author: {'@type': 'Organization', '@id': 'https://gratefulagents.dev/#organization'},
+  },
+  {
+    '@type': 'BreadcrumbList',
+    '@id': 'https://gratefulagents.dev/differences/#breadcrumb',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: 'https://gratefulagents.dev/',
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Differences',
+        item: 'https://gratefulagents.dev/differences/',
+      },
+    ],
+  },
+  {
+    '@type': 'FAQPage',
+    '@id': 'https://gratefulagents.dev/differences/#faq',
+    mainEntity: faqs.map((f) => ({
+      '@type': 'Question',
+      name: f.question,
+      acceptedAnswer: {'@type': 'Answer', text: f.answer},
+    })),
+  },
+];
+---
+
+<Base {title} {description} {structuredData}>
+  <main id="main">
+    <div class="mk-page-narrow">
+
+      <nav aria-label="Breadcrumb">
+        <ol class="mk-breadcrumb">
+          <li><a href="/">Home</a></li>
+          <li><span aria-current="page">Differences</span></li>
+        </ol>
+      </nav>
+
+      <div class="mk-hero">
+        <p class="section-kicker">Positioning</p>
+        <h1>The self-hosted alternative to Devin and GitHub Copilot</h1>
+        <p>
+          GratefulAgents is an <strong>open-source coding agent platform that runs inside your own
+          Kubernetes cluster</strong>. Devin and GitHub Copilot's coding agent are cloud services:
+          the checkout, the agent process, and the credentials live on the vendor's infrastructure.
+          GratefulAgents puts all three on yours.
+        </p>
+        <div class="cta-row">
+          <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-primary">
+            Run it locally →
+          </a>
+          <a href="/self-hosted-coding-agents/" class="btn btn-quiet">
+            Why self-host?
+          </a>
+        </div>
+      </div>
+
+      <article class="mk-prose">
+
+        <h2>What changes when you self-host</h2>
+        <p>
+          The difference is architectural, not a feature checklist. On a cloud harness your source
+          code, your prompts, and your model credentials all transit the vendor's network and
+          execute on the vendor's machines. Self-hosting moves that boundary: agents run in sandbox
+          pods in your cluster, against secrets you hold, and every run leaves a trace you can
+          inspect.
+        </p>
+
+        <div class="mk-table-scroll" role="region" aria-label="Architectural differences" tabindex="0">
+          <table class="mk-compare-table mk-compare-wide">
+            <thead>
+              <tr>
+                <th scope="col">Dimension</th>
+                <th scope="col">Devin</th>
+                <th scope="col">Copilot coding agent</th>
+                <th scope="col">GratefulAgents</th>
+              </tr>
+            </thead>
+            <tbody>
+              {differenceRows.map((row) => (
+                <tr>
+                  <td>{row.dimension}</td>
+                  <td>{row.devin}</td>
+                  <td>{row.copilot}</td>
+                  <td>{row.gratefulagents}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          GratefulAgents is in <strong>early development</strong>. It works for evaluation and
+          internal team use, but expect bugs and breaking changes between releases, and note that
+          high availability, managed hosting, and a support SLA are not documented.
+        </p>
+
+        <hr class="mk-divider" />
+
+        <h2>Frequently asked questions</h2>
+        <div class="mk-faq">
+          {faqs.map((f) => (
+            <details class="mk-faq-item">
+              <summary>{f.question}</summary>
+              <div class="mk-faq-answer">{f.answer}</div>
+            </details>
+          ))}
+        </div>
+
+        <p>
+          For the architecture and requirements behind self-hosting, see
+          <a href="/self-hosted-coding-agents/">the case for running coding agents in your own cluster</a>.
+          To try it, the <a href="/docs/getting-started/self-hosting-kind/">Kind quick-start</a>
+          takes about fifteen minutes on a laptop.
+        </p>
+
+      </article>
+
+      <div class="mk-disclaimer">
+        <p>
+          Devin® is a trademark of Cognition AI, Inc. GitHub® and GitHub Copilot® are trademarks of
+          GitHub, Inc. All trademarks are the property of their respective owners. This page
+          describes the authors' understanding of each product at time of writing; capabilities
+          change frequently. Consult each vendor's own documentation for authoritative information.
+        </p>
+      </div>
+
+    </div>
+  </main>
+</Base>

@@ -1,5 +1,7 @@
 ---
 title: Start a run
+seoTitle: Start an AI Coding Agent Run | GratefulAgents
+description: Start a GratefulAgents AI coding agent run from Home or a project. Covers repo-free chats, project defaults, mode selection, and automation triggers.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/runs/start-a-run/ and start my first gratefulagents run with me: help me choose between opening a repository and a repo-free conversation, and explain the launch options.
 ---

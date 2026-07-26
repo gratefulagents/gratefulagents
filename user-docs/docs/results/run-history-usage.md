@@ -1,5 +1,7 @@
 ---
 title: Agent Ops console
+seoTitle: Monitor AI Agent Runs with Agent Ops Console | GratefulAgents
+description: Use the Agent Ops console to track active, queued, and completed coding agent runs. Filter, group, bulk-act, compare attempts, and view team progress.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/results/run-history-usage/ and explain how to use the Agent Ops console to monitor live runs, find the ones that need attention, and review recent outcomes.
 ---

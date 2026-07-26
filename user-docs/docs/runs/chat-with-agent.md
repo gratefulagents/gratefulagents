@@ -1,5 +1,7 @@
 ---
 title: Chat with an agent
+seoTitle: Chat with a Running AI Coding Agent | GratefulAgents
+description: Send messages, attach images, and use slash commands to steer or queue instructions for a live GratefulAgents coding agent. Covers approvals and plan flows.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/runs/chat-with-agent/ and explain how I chat with a running agent: replying, queueing versus steering, and sharing files or images mid-run.
 ---

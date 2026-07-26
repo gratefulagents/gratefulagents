@@ -1,5 +1,7 @@
 ---
 title: Credentials and integrations
+seoTitle: Troubleshoot Credentials and Integrations | GratefulAgents
+description: Fix provider credential, OAuth, GitHub token, Slack, Linear, Cron, and MCP server issues in GratefulAgents. Includes safe recovery and escalation steps.
 agentPrompt: >-
   A credential or integration in my gratefulagents workspace is failing. Read https://gratefulagents.dev/docs/troubleshooting/credentials-integrations/ and debug it with me.
 ---

@@ -1,5 +1,7 @@
 ---
 title: Credentials
+seoTitle: Save Model Provider Credentials | GratefulAgents
+description: Store Anthropic, OpenAI, OpenRouter, xAI, and GitHub credentials in GratefulAgents. Includes OAuth sign-in, integration credential groups, and safe sharing.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/credentials/ and help me add model provider credentials to gratefulagents and choose which providers my runs use.
 ---

@@ -1,0 +1,405 @@
+---
+import Base from '../layouts/Base.astro';
+import '../styles/marketing.css';
+
+// Distinct from the homepage title on purpose: the homepage owns the product
+// query ("self-hosted coding agents for Kubernetes"), while this pillar page
+// targets the informational query. Identical titles would cannibalize both.
+const title = 'Self-Hosted Coding Agents: A Practical Guide | GratefulAgents';
+const description =
+  'Why engineering teams self-host AI coding agents for data residency, IP protection, and cost control, and how GratefulAgents implements it on Kubernetes.';
+
+const structuredData = [
+  {
+    '@type': 'TechArticle',
+    '@id': 'https://gratefulagents.dev/self-hosted-coding-agents/#article',
+    headline: title,
+    description,
+    url: 'https://gratefulagents.dev/self-hosted-coding-agents/',
+    author: {'@type': 'Organization', '@id': 'https://gratefulagents.dev/#organization'},
+    publisher: {'@id': 'https://gratefulagents.dev/#organization'},
+  },
+  {
+    '@type': 'BreadcrumbList',
+    '@id': 'https://gratefulagents.dev/self-hosted-coding-agents/#breadcrumb',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: 'https://gratefulagents.dev/',
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Self-Hosted Coding Agents',
+        item: 'https://gratefulagents.dev/self-hosted-coding-agents/',
+      },
+    ],
+  },
+  {
+    '@type': 'HowTo',
+    '@id': 'https://gratefulagents.dev/self-hosted-coding-agents/#howto',
+    name: 'Run your first self-hosted coding agent on Kubernetes',
+    description:
+      'Bootstrap a local Kubernetes cluster with Kind and deploy GratefulAgents to run your first agent against a GitHub repository.',
+    step: [
+      {
+        '@type': 'HowToStep',
+        position: 1,
+        name: 'Install prerequisites',
+        text: 'Install Docker Desktop (or Docker Engine on Linux). The installer downloads Kind and the other cluster tooling for you.',
+        url: 'https://gratefulagents.dev/docs/getting-started/self-hosting-kind/',
+      },
+      {
+        '@type': 'HowToStep',
+        position: 2,
+        name: 'Clone the repository and run the installer',
+        text: 'Clone github.com/gratefulagents/gratefulagents, then run `make kind-install` to create a single-node Kind cluster and deploy the published release images.',
+        url: 'https://gratefulagents.dev/docs/getting-started/self-hosting-kind/',
+      },
+      {
+        '@type': 'HowToStep',
+        position: 3,
+        name: 'Add your model credentials',
+        text: 'Open the web dashboard, navigate to Settings → Credentials, and add your Claude or OpenAI API key. Your key is stored as a Kubernetes secret in your cluster.',
+        url: 'https://gratefulagents.dev/docs/getting-started/self-hosting-kind/',
+      },
+      {
+        '@type': 'HowToStep',
+        position: 4,
+        name: 'Connect a repository',
+        text: 'Create a GitHubRepository resource pointing at a repository you own, and configure a GitHub App webhook so issues and pull requests can trigger runs.',
+        url: 'https://gratefulagents.dev/docs/integrations/github/',
+      },
+      {
+        '@type': 'HowToStep',
+        position: 5,
+        name: 'Start a run and watch the trace',
+        text: 'Open a GitHub issue or trigger a run from the dashboard. Follow live activity in the Agent Ops console and review the Jaeger trace once the run completes.',
+        url: 'https://gratefulagents.dev/docs/runs/start-a-run/',
+      },
+    ],
+  },
+];
+---
+
+<Base {title} {description} type="article" {structuredData}>
+  <main id="main">
+    <div class="mk-page">
+
+      <nav aria-label="Breadcrumb">
+        <ol class="mk-breadcrumb">
+          <li><a href="/">Home</a></li>
+          <li><span aria-current="page">Self-Hosted Coding Agents</span></li>
+        </ol>
+      </nav>
+
+      <div class="mk-hero">
+        <p class="section-kicker">Architecture guide</p>
+        <h1>Why self-host your coding agents?</h1>
+        <p>
+          A coding agent reads your repository, runs commands against it, and writes code back.
+          Where that happens, who holds the <strong>model credentials</strong>, and what
+          <strong>audit trail</strong> it leaves matter as much as the diff it produces. This guide
+          covers what self-hosting actually changes, the six reasons teams do it, and what running
+          the infrastructure yourself involves.
+        </p>
+        <div class="cta-row">
+          <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-primary">
+            Try GratefulAgents locally →
+          </a>
+          <a href="/differences/" class="btn btn-quiet">What’s different</a>
+        </div>
+      </div>
+
+      <div class="mk-layout-2col">
+        <article class="mk-prose">
+
+          <h2 id="what">What self-hosting actually means</h2>
+          <p>
+            A <em>coding agent</em> is an AI system that autonomously reads code, reasons about a
+            task, calls tools — shell, editor, browser, APIs — and produces commits or pull
+            requests. Unlike a copilot that completes a line at a time, it manages a multi-step plan
+            and iterates until the task is done or a human steps in.
+          </p>
+          <p>
+            <em>Self-hosted</em> means every part of that loop runs on infrastructure you control.
+            The agent process, the sandbox it executes in, and the credentials it uses all sit
+            inside your boundary. On a cloud-managed harness you grant the vendor access to your
+            repositories and the agent runs on their machines instead. Both produce pull requests;
+            they differ in who you have to trust.
+          </p>
+
+          <h2 id="why">Six reasons teams do it</h2>
+
+          <h3>Data residency and regulatory compliance</h3>
+          <p>
+            GDPR, financial-services regulation, government contracting, and plain internal policy
+            all draw a line around where source code may travel. A cloud harness run moves your
+            files, your prompts, and every intermediate output across the vendor's network.
+            Self-hosting takes that vendor out of the path: the checkout, the sandbox, the tool
+            calls, and the run history stay on infrastructure you control.
+          </p>
+          <div class="mk-callout mk-callout-neutral">
+            <strong>Be precise about the inference boundary.</strong> Self-hosting the harness is
+            not the same as keeping every byte on your own hardware. Unless you point GratefulAgents
+            at a model endpoint you host yourself, prompts and the repository context inside them
+            still go to whichever provider you configure — Anthropic, OpenAI, OpenRouter, xAI, or
+            Copilot — under that provider's terms. What you gain is control of that boundary: you
+            choose the provider, you hold the contract and the key, and each run's trace shows
+            exactly what was sent. If your obligations forbid sending code to any third party, you
+            need a self-hosted inference endpoint too.
+          </div>
+
+          <h3>Intellectual property protection</h3>
+          <p>
+            Regulation is not the only reason. Proprietary algorithms, unreleased codebases, and
+            trade-secret infrastructure code are high-value assets, and routing them through a
+            third-party harness creates a trust dependency many security teams will not sign off
+            on. Self-hosting narrows that dependency to a single model provider you pick yourself.
+          </p>
+
+          <h3>Private dependencies and internal registries</h3>
+          <p>
+            Real codebases pull from private package registries, internal APIs, and services that
+            are not routable from the public internet. A cloud agent needs tunnelling or firewall
+            exceptions to reach any of it. An agent running inside your network reaches them the
+            same way a developer's laptop does.
+          </p>
+
+          <h3>Model cost under your own contract</h3>
+          <p>
+            Cloud harnesses bundle inference into the subscription, so you pay their price with no
+            view of the underlying calls. Bringing your own key means your existing Anthropic,
+            OpenAI, Bedrock, or OpenRouter agreement applies, volume discount included. Per-run cost
+            and token counts then show you where the spend actually goes.
+          </p>
+
+          <h3>An audit trail you own</h3>
+          <p>
+            When an autonomous agent changes code, you need to answer: what did it read, which tools
+            did it call, which model responded, and what led to this commit? Cloud harnesses surface
+            some of this, usually as a summary feed. A harness that emits a full distributed trace
+            gives you the whole record — every step, prompt, response, and cost — to replay, audit,
+            and compare across runs.
+          </p>
+
+          <h3>The runtime becomes infrastructure code</h3>
+          <p>
+            Self-hosting on Kubernetes makes the agent runtime a Helm chart and a set of CRD
+            manifests. You can stand up an identical environment in staging, promote the same
+            configuration to production, and keep all of it in version control. A SaaS subscription
+            cannot be diffed or rolled back.
+          </p>
+
+          <h2 id="requirements">What it takes to run one</h2>
+          <p>
+            Running the harness yourself is more work than signing up for a SaaS. Six problems have
+            to be solved, and they are worth understanding before you commit — whether you deploy
+            GratefulAgents or build something in-house. Each one below states the problem, then how
+            GratefulAgents answers it.
+          </p>
+
+          <div class="mk-feature-grid">
+            <div class="mk-feature-card">
+              <h3>Isolated sandboxes</h3>
+              <p>
+                Every run needs somewhere to execute code and call tools that is isolated from other
+                runs and from your cluster's core services — ephemeral, with controlled network and
+                filesystem access.
+              </p>
+              <p class="mk-answer">
+                <span class="mk-answer-label">In GratefulAgents</span>
+                Runs execute in pods provided by
+                <a href="https://github.com/kubernetes-sigs/agent-sandbox" rel="noopener noreferrer">kubernetes-sigs/agent-sandbox</a>,
+                a Kubernetes SIG project for isolated agent execution. Each run gets a fresh pod and
+                scoped secrets, with no cross-contamination between runs.
+              </p>
+            </div>
+            <div class="mk-feature-card">
+              <h3>Credential handling</h3>
+              <p>
+                The harness needs model API keys, GitHub tokens, and registry credentials. They have
+                to be stored securely, scoped per project, and injected into the sandbox without
+                leaking into logs or traces.
+              </p>
+              <p class="mk-answer">
+                <span class="mk-answer-label">In GratefulAgents</span>
+                Keys are Kubernetes secrets in your own cluster, scoped per project. Model calls are
+                never proxied — agents reach Claude, OpenAI, OpenRouter, Grok, or Copilot directly
+                with your key, so no usage data leaves your cluster on the way.
+              </p>
+            </div>
+            <div class="mk-feature-card">
+              <h3>Scheduling and lifecycle</h3>
+              <p>
+                Runs have to be queued, dispatched, watched, retried on failure, and cleaned up.
+                Doing that reliably, and surviving a node restart mid-run, is most of the
+                operational work.
+              </p>
+              <p class="mk-answer">
+                <span class="mk-answer-label">In GratefulAgents</span>
+                A Kubernetes controller manager reconciles custom resources — <code>AgentRun</code>
+                for a single task, <code>Project</code> for shared settings and defaults — so
+                starting a run means applying a manifest. Scheduling, dispatch, and cleanup are the
+                controller's problem, not yours.
+              </p>
+            </div>
+            <div class="mk-feature-card">
+              <h3>Trigger integrations</h3>
+              <p>
+                Agents earn their keep when real events start them: a GitHub issue, a review
+                comment, a Linear ticket, a Slack message, a nightly schedule. Every source needs a
+                webhook receiver, event normalisation, and signature validation.
+              </p>
+              <p class="mk-answer">
+                <span class="mk-answer-label">In GratefulAgents</span>
+                <code>GitHubRepository</code>, <code>LinearProject</code>, <code>SlackAgent</code>,
+                and <code>Cron</code> are CRDs. Triggers are declared next to everything else in
+                your cluster, with no external orchestration service to run.
+              </p>
+            </div>
+            <div class="mk-feature-card">
+              <h3>An observability path</h3>
+              <p>
+                Without a structured record of each run, debugging a regression in agent behaviour
+                is guesswork. You want steps, tool calls, model exchanges, token counts, costs, and
+                errors — not a summary feed.
+              </p>
+              <p class="mk-answer">
+                <span class="mk-answer-label">In GratefulAgents</span>
+                Every run emits a distributed trace to a Jaeger instance the Helm chart deploys. The
+                <a href="/docs/results/observability/">Agent Ops console</a> shows per-run cost,
+                tokens, tool calls, subagent graphs, compaction events, and errors, and lets you
+                compare the same task across models.
+              </p>
+            </div>
+            <div class="mk-feature-card">
+              <h3>A human-in-the-loop surface</h3>
+              <p>
+                Autonomous agents make mistakes. You need to watch a run in progress, steer it,
+                stop it, and resume from a checkpoint — and that rarely happens while you are sat
+                at your desk.
+              </p>
+              <p class="mk-answer">
+                <span class="mk-answer-label">In GratefulAgents</span>
+                Runs operate in <strong>interactive</strong>, <strong>plan</strong>, or
+                <strong>autopilot</strong> mode, switchable mid-run. Steer, stop, and retry from the
+                web dashboard, the desktop client (macOS Apple Silicon, Linux), or iOS and Android.
+              </p>
+            </div>
+          </div>
+
+          <h2 id="start">Your first run, in fifteen minutes</h2>
+          <p>
+            The fastest way to judge any of this is to run it. A local Kind cluster needs no cloud
+            account and no server — just Docker.
+          </p>
+
+          <ol class="mk-steps">
+            <li>
+              <div class="mk-step-body">
+                <span class="mk-step-title">Install prerequisites</span>
+                <span class="mk-step-desc">
+                  Install Docker Desktop, or Docker Engine on Linux. The installer downloads Kind
+                  and the rest of the cluster tooling for you. Full requirements are in
+                  <a href="/docs/getting-started/self-hosting-kind/">the getting-started guide</a>.
+                </span>
+              </div>
+            </li>
+            <li>
+              <div class="mk-step-body">
+                <span class="mk-step-title">Clone and run the installer</span>
+                <span class="mk-step-desc">
+                  Clone the repository, then run <code>make kind-install</code>. This provisions a
+                  single-node Kind cluster and deploys the GratefulAgents chart, including
+                  PostgreSQL/pgvector, MinIO for object storage, and a Jaeger instance for traces.
+                  It prints the local dashboard URL and the command to retrieve your admin password.
+                </span>
+              </div>
+            </li>
+            <li>
+              <div class="mk-step-body">
+                <span class="mk-step-title">Add your model key</span>
+                <span class="mk-step-desc">
+                  Open the dashboard, go to Settings → Credentials, and add your Anthropic Claude or
+                  OpenAI key. It is stored as a Kubernetes secret in your own cluster and is used
+                  only to authenticate your calls to that provider.
+                </span>
+              </div>
+            </li>
+            <li>
+              <div class="mk-step-body">
+                <span class="mk-step-title">Connect a repository</span>
+                <span class="mk-step-desc">
+                  Create a <code>GitHubRepository</code> resource pointing at a repository you
+                  own, and configure a GitHub App webhook so issues and pull requests can trigger
+                  runs.
+                </span>
+              </div>
+            </li>
+            <li>
+              <div class="mk-step-body">
+                <span class="mk-step-title">Start a run and watch the trace</span>
+                <span class="mk-step-desc">
+                  Open a GitHub issue or start a run from the dashboard. Follow the live activity in
+                  the Agent Ops console, then read the Jaeger trace once it finishes.
+                </span>
+              </div>
+            </li>
+          </ol>
+
+          <div class="mk-callout mk-callout-neutral">
+            <strong>Note on current status:</strong> GratefulAgents is in early development. Bugs
+            are expected. It is not yet suitable for production-critical workloads, has no
+            documented high-availability configuration, and there is no managed hosting or support
+            SLA. Treat it as early-adopter software and test it thoroughly before relying on it.
+          </div>
+
+          <h2 id="differences">Where GratefulAgents sits</h2>
+          <p>
+            The best-known coding agents — Devin and GitHub Copilot's coding agent — are cloud
+            services: the checkout, the agent process, and the model credentials all live on the
+            vendor's infrastructure. GratefulAgents puts all three inside a cluster you run. The
+            <a href="/differences/">differences page</a> lays the architecture out side by side.
+          </p>
+
+        </article>
+
+        <aside>
+          <div class="mk-aside-inner">
+            <nav class="mk-sidebar-card mk-toc" aria-label="On this page">
+              <h3>On this page</h3>
+              <ol>
+                <li><a href="#what">What self-hosting means</a></li>
+                <li><a href="#why">Six reasons teams do it</a></li>
+                <li><a href="#requirements">What it takes to run one</a></li>
+                <li><a href="#start">Your first run</a></li>
+                <li><a href="#differences">Where GratefulAgents sits</a></li>
+              </ol>
+            </nav>
+
+            <div class="mk-sidebar-card">
+              <h3>Try it now</h3>
+              <p>
+                Run your first self-hosted coding agent in under fifteen minutes using Kind on your
+                local machine.
+              </p>
+              <div class="cta-row">
+                <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-primary">
+                  Kind quick-start →
+                </a>
+                <a href="/docs/getting-started/self-hosting-k3s/" class="btn btn-quiet">
+                  k3s on a server
+                </a>
+              </div>
+            </div>
+
+          </div>
+        </aside>
+      </div>
+
+    </div>
+  </main>
+</Base>

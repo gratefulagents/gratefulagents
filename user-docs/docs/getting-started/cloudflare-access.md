@@ -1,5 +1,7 @@
 ---
 title: Publish securely with Cloudflare
+seoTitle: Secure k3s Deployment with Cloudflare Access | GratefulAgents
+description: Publish your self-hosted GratefulAgents workspace behind Cloudflare Tunnel and Access. Add service tokens for iOS, Android, and desktop app connections.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/getting-started/cloudflare-access/ and publish my gratefulagents workspace on a public HTTPS hostname behind Cloudflare Access. Ask me for the domain to use, then set up the tunnel and the access policy.
 ---

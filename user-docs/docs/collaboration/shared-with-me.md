@@ -1,5 +1,7 @@
 ---
 title: Shared with me
+seoTitle: Find Shared Projects and Runs | GratefulAgents
+description: Browse projects and runs teammates have shared with you. View your assigned permission, filter results, and open shared resources from the Shared section.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/collaboration/shared-with-me/ and explain how I find and work with the runs and projects other people have shared with me.
 ---

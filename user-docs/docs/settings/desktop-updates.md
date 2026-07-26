@@ -1,5 +1,7 @@
 ---
 title: Desktop updates
+seoTitle: Desktop App Updates for GratefulAgents | GratefulAgents
+description: Keep the GratefulAgents desktop app current. Add a GitHub token for the in-app updater, check for releases, and choose an automatic update frequency.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/desktop-updates/ and explain how gratefulagents desktop app updates work and how I stay on a supported version.
 ---

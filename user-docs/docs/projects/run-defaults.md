@@ -1,5 +1,7 @@
 ---
 title: Run defaults
+seoTitle: Configure AI Agent Run Defaults for Projects | GratefulAgents
+description: Set repository, model, credentials, runtime, tools, and custom instructions as reusable defaults for all GratefulAgents project runs and Entry points.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/projects/run-defaults/ and help me configure run defaults for my project so new runs start with the right repository, mode, and model.
 ---

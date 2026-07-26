@@ -1,5 +1,7 @@
 ---
 title: Maintainer delivery and waiter cutover
+seoTitle: Maintainer Work-Item Delivery and Cutover | GratefulAgents
+description: Reference for MaintainerWorkItemCommand delivery rules, guarded merge conditions, waiter cutover, and branch-protection requirements in GratefulAgents.
 ---
 
 # Maintainer work-item delivery and waiter cutover

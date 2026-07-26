@@ -22,9 +22,11 @@ const fail = (message) => {
 const sitemapIndexPath = join(dist, 'sitemap-index.xml');
 const sitemapPath = join(dist, 'sitemap-0.xml');
 const robotsPath = join(dist, 'robots.txt');
+const llmsPath = join(dist, 'llms.txt');
 if (!existsSync(sitemapIndexPath)) fail('MISSING /sitemap-index.xml');
 if (!existsSync(sitemapPath)) fail('MISSING /sitemap-0.xml');
 if (!existsSync(robotsPath)) fail('MISSING /robots.txt');
+if (!existsSync(llmsPath)) fail('MISSING /llms.txt');
 
 const sitemapIndex = existsSync(sitemapIndexPath) ? readFileSync(sitemapIndexPath, 'utf8') : '';
 const sitemap = existsSync(sitemapPath) ? readFileSync(sitemapPath, 'utf8') : '';
@@ -33,11 +35,18 @@ if (!sitemapIndex.includes(`${origin}/sitemap-0.xml`)) fail('INVALID sitemap ind
 if (!robots.includes(`Sitemap: ${origin}/sitemap-index.xml`)) fail('INVALID robots.txt sitemap directive');
 const sitemapUrls = new Set([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]));
 const descriptions = new Map();
+const titles = new Map();
+
+let indexablePageCount = 0;
 
 for (const page of pages) {
   const html = readFileSync(page, 'utf8');
   const builtPath = `/${relative(dist, page).split(sep).join('/')}`;
-  const route = builtPath === '/index.html' ? '/' : builtPath.replace(/index\.html$/, '');
+  // index.html files map to their containing directory route; other .html
+  // files (e.g. 404.html) map to /<stem>/ to match the rendered canonical.
+  const route = builtPath === '/index.html' ? '/'
+    : builtPath.endsWith('index.html') ? builtPath.replace(/index\.html$/, '')
+    : builtPath.replace(/\.html$/, '/');
   const canonical = `${origin}${route}`;
 
   for (const match of html.matchAll(/href="(\/[^"#]*)(#[^"]*)?"/g)) {
@@ -54,10 +63,21 @@ for (const page of pages) {
   const robotsMeta = html.match(/<meta name="robots" content="([^"]+)"/)?.[1];
   const schemaText = html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/)?.[1];
 
+  // Noindex pages (e.g. 404) are exempt from indexability checks.
+  const isNoindex = robotsMeta?.startsWith('noindex');
+
   if (!title) fail(`MISSING title in ${route}`);
-  else if (title.length > 70) fail(`LONG title (${title.length}) in ${route}`);
+  else {
+    if (title.length > 70) fail(`LONG title (${title.length}) in ${route}`);
+    // Two indexable pages sharing a title compete for the same query.
+    if (!isNoindex) {
+      if (titles.has(title)) fail(`DUPLICATE title in ${route} and ${titles.get(title)}`);
+      titles.set(title, route);
+    }
+  }
   if (!description) fail(`MISSING description in ${route}`);
   else {
+    if (description.length < 70) console.warn(`WARN: short description (${description.length} chars) in ${route}`);
     if (description.length > 160) fail(`LONG description (${description.length}) in ${route}`);
     if (descriptions.has(description)) fail(`DUPLICATE description in ${route} and ${descriptions.get(description)}`);
     descriptions.set(description, route);
@@ -69,7 +89,7 @@ for (const page of pages) {
     const imagePath = new URL(ogImage).pathname;
     if (!existsSync(join(dist, imagePath))) fail(`MISSING social image ${imagePath} in ${route}`);
   }
-  if (!robotsMeta?.startsWith('index, follow')) fail(`INVALID robots meta in ${route}`);
+  if (!isNoindex && !robotsMeta?.startsWith('index, follow')) fail(`INVALID robots meta in ${route}`);
   if (!schemaText) fail(`MISSING JSON-LD in ${route}`);
   else {
     try {
@@ -78,11 +98,24 @@ for (const page of pages) {
       fail(`INVALID JSON-LD in ${route}`);
     }
   }
-  if (!sitemapUrls.has(canonical)) fail(`MISSING sitemap URL ${canonical}`);
+  if (!isNoindex) {
+    if (!sitemapUrls.has(canonical)) fail(`MISSING sitemap URL ${canonical}`);
+    indexablePageCount++;
+  }
+
+  // Every page must have exactly one <h1>.
+  const h1Matches = [...html.matchAll(/<h1[\s>]/g)];
+  if (h1Matches.length === 0) fail(`MISSING h1 in ${route}`);
+  else if (h1Matches.length > 1) fail(`MULTIPLE h1 (${h1Matches.length}) in ${route}`);
+
+  // Every <img> must have an alt attribute (empty string is valid for decorative images).
+  for (const match of html.matchAll(/<img\s[^>]*>/g)) {
+    if (!/\balt=/i.test(match[0])) fail(`IMG missing alt in ${route}: ${match[0].slice(0, 80)}`);
+  }
 }
 
-if (sitemapUrls.size !== pages.length) {
-  fail(`SITEMAP count ${sitemapUrls.size} does not match page count ${pages.length}`);
+if (sitemapUrls.size !== indexablePageCount) {
+  fail(`SITEMAP count ${sitemapUrls.size} does not match indexable page count ${indexablePageCount}`);
 }
 
 console.log(bad
