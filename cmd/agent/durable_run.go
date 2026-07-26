@@ -34,12 +34,12 @@ func newSDKDurableRuntime(ctx context.Context) (*sdkDurableRuntime, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(2)
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("connecting durable SDK database: %w", err)
 	}
 	store, err := sdkdurable.NewPostgresStore(db)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("creating durable SDK store: %w", err)
 	}
 	return &sdkDurableRuntime{db: db, store: store}, nil

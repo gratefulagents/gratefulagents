@@ -1453,7 +1453,9 @@ messageLoop:
 			// Persist recoverable state before consuming the user claim. If the
 			// host commit crashes, a replacement reclaims the message and reopens
 			// this same completed SDK pass without repeating model/tool effects.
-			if err := persistTranscriptSnapshotRequired(ctx, sc, sessionTranscript, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID); err != nil {
+			if err := persistTranscriptSnapshotRequired(
+				ctx, sc, sessionTranscript, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID,
+			); err != nil {
 				_ = closeSDKStoredRun(storedRun)
 				return runResult{Status: "failed", Error: fmt.Sprintf("persisting pre-commit transcript: %v", err)}
 			}
@@ -1492,7 +1494,9 @@ messageLoop:
 				_ = closeSDKStoredRun(storedRun)
 				return runResult{Status: "failed", Error: fmt.Sprintf("persisting working state after durable turn: %v", err)}
 			}
-			if err := persistTranscriptSnapshotRequired(ctx, sc, sessionTranscript, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID); err != nil {
+			if err := persistTranscriptSnapshotRequired(
+				ctx, sc, sessionTranscript, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID,
+			); err != nil {
 				_ = closeSDKStoredRun(storedRun)
 				return runResult{Status: "failed", Error: fmt.Sprintf("persisting transcript after durable turn: %v", err)}
 			}

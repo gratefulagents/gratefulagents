@@ -67,7 +67,9 @@ func TestSubAgentCheckpointRestoresTaskIDsAndReconcilingState(t *testing.T) {
 	if got, err := restored.GetStatus("task_done"); err != nil || got.Result != "approved" {
 		t.Fatalf("done = %+v, %v", got, err)
 	}
-	if got, err := restored.GetStatus("task_active"); err != nil || got.Status != agent.SubAgentTaskReconciling || !strings.Contains(got.Error, "runtime restarted") {
+	if got, err := restored.GetStatus("task_active"); err != nil ||
+		got.Status != agent.SubAgentTaskReconciling ||
+		!strings.Contains(got.Error, "runtime restarted") {
 		t.Fatalf("active = %+v, %v", got, err)
 	}
 }

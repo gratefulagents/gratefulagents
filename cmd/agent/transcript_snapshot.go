@@ -248,13 +248,25 @@ func decodeTranscriptSnapshot(data []byte) (*transcriptSnapshot, error) {
 // (the out-of-band fold skips user messages) nor re-delivered (the resume
 // cursor advances past them on this turn's assistant reply) — so keeping it
 // would silently drop them from the restored context.
-func persistTranscriptSnapshot(ctx context.Context, sc *sessionclient.Client, items []agent.RunItem, floorMessageID, seenMessageID, selfAssistantMessageID int64) {
-	if err := persistTranscriptSnapshotRequired(ctx, sc, items, floorMessageID, seenMessageID, selfAssistantMessageID); err != nil {
+func persistTranscriptSnapshot(
+	ctx context.Context,
+	sc *sessionclient.Client,
+	items []agent.RunItem,
+	floorMessageID, seenMessageID, selfAssistantMessageID int64,
+) {
+	if err := persistTranscriptSnapshotRequired(
+		ctx, sc, items, floorMessageID, seenMessageID, selfAssistantMessageID,
+	); err != nil {
 		log.Printf("WARN: failed to persist transcript snapshot: %v", err)
 	}
 }
 
-func persistTranscriptSnapshotRequired(ctx context.Context, sc *sessionclient.Client, items []agent.RunItem, floorMessageID, seenMessageID, selfAssistantMessageID int64) error {
+func persistTranscriptSnapshotRequired(
+	ctx context.Context,
+	sc *sessionclient.Client,
+	items []agent.RunItem,
+	floorMessageID, seenMessageID, selfAssistantMessageID int64,
+) error {
 	if len(items) == 0 {
 		return sc.ClearTranscriptBlob(ctx)
 	}

@@ -296,9 +296,13 @@ func doRun(ctx context.Context, cfg runConfig, k8sClient *kubernetes.Clientset, 
 	if err != nil {
 		log.Printf("ERROR: durable SDK runtime setup failed: %v", err)
 		result = runResult{Status: "failed", Error: err.Error()}
-		return
+		return result, eventsLogURL
 	}
-	defer durableRuntime.Close()
+	defer func() {
+		if err := durableRuntime.Close(); err != nil {
+			log.Printf("WARN: closing durable SDK runtime: %v", err)
+		}
+	}()
 	cfg.DurableRunStore = durableRuntime.store
 	cfg.DurableRunTenant = sdkdurable.TenantID("k8s-namespace-" + cfg.Namespace)
 	hostname, hostErr := os.Hostname()
