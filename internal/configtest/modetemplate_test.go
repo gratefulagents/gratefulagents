@@ -141,6 +141,22 @@ func TestModeTemplateDeploymentMirrors(t *testing.T) {
 	}
 }
 
+func TestAutonomousModeTemplatesDoNotPauseForInput(t *testing.T) {
+	for _, mode := range []string{"autopilot", "slack"} {
+		t.Run(mode, func(t *testing.T) {
+			path := filepath.Join("..", "..", "configs", "modetemplates", mode+".yaml")
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			instructions := strings.Join(strings.Fields(string(contents)), " ")
+			if !strings.Contains(instructions, "Do not ask the user questions or pause for input") {
+				t.Fatalf("%s does not prevent autonomous user-input pauses", path)
+			}
+		})
+	}
+}
+
 func TestGeneralModeTemplatesKeepContextFocused(t *testing.T) {
 	for _, mode := range []string{"autopilot", "interactive", "slack"} {
 		t.Run(mode, func(t *testing.T) {
