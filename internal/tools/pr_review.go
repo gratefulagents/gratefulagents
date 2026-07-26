@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,10 @@ type prReviewRunner interface {
 	RunGHWithInput(ctx context.Context, workDir, input string, args ...string) (string, error)
 }
 
+type githubCheckLogRunner interface {
+	RunGHLogTail(ctx context.Context, workDir string, lineLimit, byteLimit int, args ...string) (logs string, totalLines int, truncated bool, diagnostic string, err error)
+}
+
 type prReviewExecRunner struct{}
 
 func (prReviewExecRunner) RunGH(ctx context.Context, workDir string, args ...string) (string, error) {
@@ -27,6 +32,21 @@ func (prReviewExecRunner) RunGH(ctx context.Context, workDir string, args ...str
 
 func (prReviewExecRunner) RunGHWithInput(ctx context.Context, workDir, input string, args ...string) (string, error) {
 	return runGHCommand(ctx, workDir, input, true, args...)
+}
+
+func (prReviewExecRunner) RunGHLogTail(ctx context.Context, workDir string, lineLimit, byteLimit int, args ...string) (string, int, bool, string, error) {
+	cmdCtx, cancel := context.WithTimeout(ctx, prReviewCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "gh", args...)
+	cmd.Dir = workDir
+	stdout := newLogTailWriter(lineLimit, byteLimit)
+	stderr := newLogTailWriter(100, 64*1024)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	logs, totalLines, truncated := stdout.Result()
+	diagnostic, _, _ := stderr.Result()
+	return logs, totalLines, truncated, diagnostic, err
 }
 
 func runGHCommand(ctx context.Context, workDir, input string, withInput bool, args ...string) (string, error) {
@@ -938,6 +958,7 @@ func parseCheckRunPages(out string) ([]pullRequestCheckRun, error) {
 const (
 	defaultGitHubCheckLogLines = 1000
 	maxGitHubCheckLogLines     = 5000
+	maxGitHubCheckLogBytes     = 1024 * 1024
 )
 
 type getGitHubCheckLogsTool struct {
@@ -989,12 +1010,15 @@ func (t *getGitHubCheckLogsTool) Execute(ctx context.Context, input json.RawMess
 	if err != nil {
 		return prReviewError("repo_path rejected: " + err.Error())
 	}
-	out, err := t.effectiveRunner().RunGH(ctx, wd, "run", "view", "--log", "--job", strconv.FormatInt(in.CheckRunID, 10))
+	runner, ok := t.effectiveRunner().(githubCheckLogRunner)
+	if !ok {
+		return prReviewError("GitHub check log streaming is unavailable")
+	}
+	logs, totalLines, truncated, diagnostic, err := runner.RunGHLogTail(ctx, wd, in.TailLines, maxGitHubCheckLogBytes, "run", "view", "--log", "--job", strconv.FormatInt(in.CheckRunID, 10))
 	if err != nil {
-		return prReviewError(fmt.Sprintf("gh run view job log failed: %s\n%s", err, out))
+		return prReviewError(fmt.Sprintf("gh run view job log failed: %s\n%s", err, diagnostic))
 	}
 
-	logs, totalLines, truncated := tailLogLines(out, in.TailLines)
 	return prReviewSuccess(map[string]any{
 		"check_run_id": in.CheckRunID,
 		"logs":         logs,
@@ -1003,14 +1027,124 @@ func (t *getGitHubCheckLogsTool) Execute(ctx context.Context, input json.RawMess
 	})
 }
 
-func tailLogLines(logs string, limit int) (string, int, bool) {
-	trimmed := strings.TrimSuffix(logs, "\n")
-	if trimmed == "" {
+type logTailWriter struct {
+	lineLimit     int
+	byteLimit     int
+	lines         [][]byte
+	current       []byte
+	stored        int
+	totalLines    int
+	truncated     bool
+	endedLine     bool
+	currentActive bool
+	sawData       bool
+}
+
+func newLogTailWriter(lineLimit, byteLimit int) *logTailWriter {
+	return &logTailWriter{lineLimit: lineLimit, byteLimit: byteLimit}
+}
+
+func (w *logTailWriter) Write(p []byte) (int, error) {
+	originalLen := len(p)
+	if originalLen > 0 {
+		w.sawData = true
+	}
+	for len(p) > 0 {
+		newline := bytes.IndexByte(p, '\n')
+		if newline < 0 {
+			w.appendCurrent(p)
+			w.endedLine = false
+			break
+		}
+		w.appendCurrent(p[:newline])
+		w.finishLine()
+		p = p[newline+1:]
+	}
+	return originalLen, nil
+}
+
+func (w *logTailWriter) activateCurrent() {
+	if w.currentActive {
+		return
+	}
+	if len(w.lines) > 0 {
+		w.stored++
+	}
+	w.currentActive = true
+	for len(w.lines)+1 > w.lineLimit {
+		w.dropOldestLine()
+	}
+}
+
+func (w *logTailWriter) appendCurrent(p []byte) {
+	if len(p) == 0 {
+		return
+	}
+	w.activateCurrent()
+	if len(p) >= w.byteLimit {
+		w.current = append(w.current[:0], p[len(p)-w.byteLimit:]...)
+		w.lines = nil
+		w.stored = len(w.current)
+		w.truncated = true
+		return
+	}
+	w.current = append(w.current, p...)
+	w.stored += len(p)
+	w.trimBytes()
+}
+
+func (w *logTailWriter) finishLine() {
+	w.activateCurrent()
+	w.totalLines++
+	w.lines = append(w.lines, w.current)
+	w.current = nil
+	w.currentActive = false
+	w.endedLine = true
+	for len(w.lines) > w.lineLimit {
+		w.dropOldestLine()
+	}
+	w.trimBytes()
+}
+
+func (w *logTailWriter) trimBytes() {
+	for w.stored > w.byteLimit && (len(w.lines) > 1 || len(w.lines) == 1 && w.currentActive) {
+		w.dropOldestLine()
+	}
+	if w.stored <= w.byteLimit {
+		return
+	}
+	drop := w.stored - w.byteLimit
+	if len(w.lines) == 1 {
+		w.lines[0] = append([]byte(nil), w.lines[0][drop:]...)
+	} else {
+		w.current = append([]byte(nil), w.current[drop:]...)
+	}
+	w.stored = w.byteLimit
+	w.truncated = true
+}
+
+func (w *logTailWriter) dropOldestLine() {
+	if len(w.lines) == 0 {
+		return
+	}
+	w.stored -= len(w.lines[0])
+	w.lines[0] = nil
+	w.lines = w.lines[1:]
+	if len(w.lines) > 0 || w.currentActive {
+		w.stored--
+	}
+	w.truncated = true
+}
+
+func (w *logTailWriter) Result() (string, int, bool) {
+	if !w.sawData {
 		return "", 0, false
 	}
-	lines := strings.Split(trimmed, "\n")
-	if len(lines) <= limit {
-		return trimmed, len(lines), false
+	totalLines := w.totalLines
+	parts := w.lines
+	if !w.endedLine {
+		totalLines++
+		parts = append(append([][]byte(nil), parts...), w.current)
 	}
-	return strings.Join(lines[len(lines)-limit:], "\n"), len(lines), true
+	return string(bytes.Join(parts, []byte{'\n'})), totalLines, w.truncated
 }

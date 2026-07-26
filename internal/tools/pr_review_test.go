@@ -350,6 +350,20 @@ func (r *fakePRReviewRunner) RunGHWithInput(_ context.Context, workDir string, i
 	return r.ghInputOut[key], r.ghInputErr[key]
 }
 
+func (r *fakePRReviewRunner) RunGHLogTail(_ context.Context, workDir string, lineLimit, byteLimit int, args ...string) (string, int, bool, string, error) {
+	key := strings.Join(args, " ")
+	r.ghCalls = append(r.ghCalls, key)
+	r.dirs = append(r.dirs, workDir)
+	writer := newLogTailWriter(lineLimit, byteLimit)
+	_, _ = writer.Write([]byte(r.ghOut[key]))
+	logs, totalLines, truncated := writer.Result()
+	diagnostic := ""
+	if r.ghErr[key] != nil {
+		diagnostic = r.ghOut[key]
+	}
+	return logs, totalLines, truncated, diagnostic, r.ghErr[key]
+}
+
 func prReviewMustJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(value)
@@ -638,6 +652,35 @@ func TestGetGitHubCheckLogsToolReturnsTail(t *testing.T) {
 	}
 	if want := []string{"run view --log --job 123456"}; !reflect.DeepEqual(runner.ghCalls, want) {
 		t.Fatalf("gh calls = %#v, want %#v", runner.ghCalls, want)
+	}
+}
+
+func TestLogTailWriterBoundsLinesAndBytesWhileStreaming(t *testing.T) {
+	writer := newLogTailWriter(2, 12)
+	for _, chunk := range []string{"first\nsec", "ond\nthird", "-is-long"} {
+		if _, err := writer.Write([]byte(chunk)); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+	}
+	logs, totalLines, truncated := writer.Result()
+	if logs != "hird-is-long" || totalLines != 3 || !truncated {
+		t.Fatalf("Result() = (%q, %d, %v)", logs, totalLines, truncated)
+	}
+	if len(logs) > 12 {
+		t.Fatalf("result length = %d, want <= 12", len(logs))
+	}
+}
+
+func TestLogTailWriterHandlesEmptyAndTrailingNewline(t *testing.T) {
+	empty := newLogTailWriter(2, 10)
+	if logs, totalLines, truncated := empty.Result(); logs != "" || totalLines != 0 || truncated {
+		t.Fatalf("empty Result() = (%q, %d, %v)", logs, totalLines, truncated)
+	}
+
+	writer := newLogTailWriter(2, 10)
+	_, _ = writer.Write([]byte("one\ntwo\nthree\n"))
+	if logs, totalLines, truncated := writer.Result(); logs != "two\nthree" || totalLines != 3 || !truncated {
+		t.Fatalf("Result() = (%q, %d, %v)", logs, totalLines, truncated)
 	}
 }
 
