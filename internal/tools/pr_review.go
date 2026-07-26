@@ -75,6 +75,7 @@ func RegisterPRReviewTools(registry *Registry, workDir string) {
 	registry.Register(&resolveReviewThreadTool{prReviewToolBase: base})
 	registry.Register(&requestReReviewTool{prReviewToolBase: base})
 	registry.Register(&getPullRequestChecksTool{prReviewToolBase: base})
+	registry.Register(&getGitHubCheckLogsTool{prReviewToolBase: base})
 }
 
 const repoPathSchemaDescription = "Workspace-relative path to the git repository the PR belongs to, for example repos/<alias>. Defaults to the workspace root repository."
@@ -808,6 +809,7 @@ type getPullRequestChecksInput struct {
 }
 
 type pullRequestCheckRun struct {
+	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	Status      string `json:"status"`
 	Conclusion  string `json:"conclusion"`
@@ -931,4 +933,84 @@ func parseCheckRunPages(out string) ([]pullRequestCheckRun, error) {
 		checks = append(checks, page.CheckRuns...)
 	}
 	return checks, nil
+}
+
+const (
+	defaultGitHubCheckLogLines = 1000
+	maxGitHubCheckLogLines     = 5000
+)
+
+type getGitHubCheckLogsTool struct {
+	prReviewToolBase
+}
+
+func (t *getGitHubCheckLogsTool) Name() string { return "get_github_check_logs" }
+func (t *getGitHubCheckLogsTool) Description() string {
+	return "Download the log for a GitHub Actions check run. Use a check run ID returned by get_pull_request_checks to diagnose a failing CI job."
+}
+func (t *getGitHubCheckLogsTool) InputSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"check_run_id": {"type": "integer", "description": "GitHub Actions check run/job ID, as returned in the id field from get_pull_request_checks."},
+			"tail_lines": {"type": "integer", "description": "Number of lines to return from the end of the log (default 1000, maximum 5000)."},
+			"repo_path": {"type": "string", "description": "` + repoPathSchemaDescription + `"}
+		},
+		"required": ["check_run_id"]
+	}`)
+}
+func (t *getGitHubCheckLogsTool) IsReadOnly() bool                      { return true }
+func (t *getGitHubCheckLogsTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
+func (t *getGitHubCheckLogsTool) NeedsApproval() bool                   { return false }
+func (t *getGitHubCheckLogsTool) TimeoutSeconds() int                   { return 0 }
+
+type getGitHubCheckLogsInput struct {
+	CheckRunID int64  `json:"check_run_id"`
+	TailLines  int    `json:"tail_lines"`
+	RepoPath   string `json:"repo_path"`
+}
+
+func (t *getGitHubCheckLogsTool) Execute(ctx context.Context, input json.RawMessage, workDir string) (Result, error) {
+	var in getGitHubCheckLogsInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return prReviewError("Invalid input: " + err.Error())
+	}
+	if in.CheckRunID <= 0 {
+		return prReviewError("check_run_id must be positive")
+	}
+	if in.TailLines < 0 || in.TailLines > maxGitHubCheckLogLines {
+		return prReviewError(fmt.Sprintf("tail_lines must be between 0 and %d", maxGitHubCheckLogLines))
+	}
+	if in.TailLines == 0 {
+		in.TailLines = defaultGitHubCheckLogLines
+	}
+
+	wd, err := t.resolveWorkDir(workDir, in.RepoPath)
+	if err != nil {
+		return prReviewError("repo_path rejected: " + err.Error())
+	}
+	out, err := t.effectiveRunner().RunGH(ctx, wd, "run", "view", "--log", "--job", strconv.FormatInt(in.CheckRunID, 10))
+	if err != nil {
+		return prReviewError(fmt.Sprintf("gh run view job log failed: %s\n%s", err, out))
+	}
+
+	logs, totalLines, truncated := tailLogLines(out, in.TailLines)
+	return prReviewSuccess(map[string]any{
+		"check_run_id": in.CheckRunID,
+		"logs":         logs,
+		"total_lines":  totalLines,
+		"truncated":    truncated,
+	})
+}
+
+func tailLogLines(logs string, limit int) (string, int, bool) {
+	trimmed := strings.TrimSuffix(logs, "\n")
+	if trimmed == "" {
+		return "", 0, false
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) <= limit {
+		return trimmed, len(lines), false
+	}
+	return strings.Join(lines[len(lines)-limit:], "\n"), len(lines), true
 }
