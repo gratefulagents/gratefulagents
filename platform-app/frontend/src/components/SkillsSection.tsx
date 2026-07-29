@@ -68,6 +68,14 @@ const emptySkill: Skill = {
   catalogHash: "",
 };
 
+function normalizeSkill(skill: Partial<Skill>): Skill {
+  return {
+    ...emptySkill,
+    ...skill,
+    mcpServerRefs: skill.mcpServerRefs ?? [],
+  };
+}
+
 function phaseTone(phase: string): keyof typeof toneSoft {
   switch (phase) {
     case "Ready":
@@ -103,13 +111,7 @@ export function SkillsSection() {
   const reload = useCallback(async () => {
     try {
       const resp = await client.listSkills({});
-      setSkills(
-        ((resp.skills ?? []) as unknown as Skill[]).map((s) => ({
-          ...emptySkill,
-          ...s,
-          mcpServerRefs: s.mcpServerRefs ?? [],
-        })),
-      );
+      setSkills(((resp.skills ?? []) as unknown as Skill[]).map(normalizeSkill));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load skills");
     }
@@ -191,7 +193,7 @@ export function SkillsSection() {
   async function save(skill: Skill) {
     setBusy(true);
     try {
-      await client.upsertSkill({
+      const saved = await client.upsertSkill({
         name: skill.name.trim(),
         version: skill.version.trim(),
         description: skill.description.trim(),
@@ -201,10 +203,15 @@ export function SkillsSection() {
         gitPath: skill.gitPath.trim(),
         mcpServerRefs: skill.mcpServerRefs,
       });
+      const normalized = normalizeSkill(saved as unknown as Skill);
+      setSkills((current) =>
+        [...current.filter((item) => item.name !== normalized.name), normalized].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      );
       toast.success(`Skill ${skill.name.trim()} saved`);
       setEditing(null);
       setIsNew(false);
-      await reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save skill");
     } finally {
@@ -229,9 +236,9 @@ export function SkillsSection() {
     setBusy(true);
     try {
       await client.deleteSkill({ name });
+      setSkills((current) => current.filter((skill) => skill.name !== name));
       toast.success(`Skill ${name} deleted`);
       if (editing?.name === name) setEditing(null);
-      await reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete skill");
     } finally {
