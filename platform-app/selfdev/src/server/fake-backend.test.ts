@@ -102,4 +102,29 @@ describe("fake backend", () => {
     // The imported fixture itself must stay pristine (structuredClone per server).
     expect(original!.conversation.some((m) => m.content === "hi from test")).toBe(false);
   });
+
+  it("creates, updates, and deletes inline skills", async () => {
+    const name = "selfdev-inline-skill";
+
+    const created = await platform.upsertSkill({
+      name,
+      description: "Initial description",
+      instructions: "Always verify the result.",
+    });
+    expect(created.name).toBe(name);
+    expect(created.instructions).toBe("Always verify the result.");
+    expect((await platform.listSkills({})).skills.some((skill) => skill.name === name)).toBe(true);
+
+    await platform.upsertSkill({
+      name,
+      description: "Updated description",
+      instructions: "Verify twice.",
+    });
+    const updated = (await platform.listSkills({})).skills.find((skill) => skill.name === name);
+    expect(updated?.description).toBe("Updated description");
+    expect(updated?.instructions).toBe("Verify twice.");
+
+    await platform.deleteSkill({ name });
+    expect((await platform.listSkills({})).skills.some((skill) => skill.name === name)).toBe(false);
+  });
 });

@@ -60,8 +60,10 @@ import {
   ProviderOAuthResultSchema,
   ProviderOAuthStartSchema,
   ReadFileResponseSchema,
+  SkillInfoSchema,
   SwitchAgentRunModeResponseSchema,
   type AgentRun,
+  type UpsertSkillRequest,
 } from "../../../frontend/src/rpc/platform/service_pb";
 import {
   AuthService,
@@ -382,6 +384,28 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     // ---- Skills, images, modes, models -------------------------------------
     listSkills: async () =>
       create(ListSkillsResponseSchema, { namespace: s.namespace, skills: s.skillPackages }),
+    upsertSkill: async (req: UpsertSkillRequest) => {
+      const skill = create(SkillInfoSchema, {
+        name: req.name.trim().toLowerCase(),
+        version: req.version.trim(),
+        description: req.description.trim(),
+        instructions: req.instructions.trim(),
+        gitUrl: req.gitUrl.trim(),
+        gitRef: req.gitRef.trim(),
+        gitPath: req.gitPath.trim(),
+        mcpServerRefs: req.mcpServerRefs,
+      });
+      const existing = s.skillPackages.findIndex((item) => item.name === skill.name);
+      if (existing >= 0) s.skillPackages.splice(existing, 1, skill);
+      else s.skillPackages.push(skill);
+      s.skillPackages.sort((a, b) => a.name.localeCompare(b.name));
+      return skill;
+    },
+    deleteSkill: async (req: { name: string }) => {
+      const existing = s.skillPackages.findIndex((item) => item.name === req.name.trim().toLowerCase());
+      if (existing >= 0) s.skillPackages.splice(existing, 1);
+      return {};
+    },
     listRuntimeImages: async () => create(ListRuntimeImagesResponseSchema, { images: s.runtimeImages }),
     listAvailableModes: async () => create(ListAvailableModesResponseSchema, { modes: s.modes }),
     getModeTemplate: async (req: { name: string }) => {
