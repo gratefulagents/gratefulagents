@@ -71,9 +71,11 @@ manager:
     limits:
         cpu: "2"
         memory: 2Gi
+        ephemeral-storage: 256Mi
     requests:
         cpu: 10m
         memory: 64Mi
+        ephemeral-storage: 32Mi
 
   ## Manager pod's affinity
   ##

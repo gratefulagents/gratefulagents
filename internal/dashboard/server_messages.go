@@ -219,6 +219,13 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 	if err := s.k8sClient.Get(ctx, key, run); err != nil {
 		return nil, mapK8sError(fmt.Sprintf("get AgentRun %s/%s", req.Namespace, req.Name), err)
 	}
+	hasMediaAttachments := len(req.GetImageDataUrls()) > 0 || len(req.GetVideoDataUrls()) > 0
+	rejectCommandAttachments := func() error {
+		if !hasMediaAttachments {
+			return nil
+		}
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("attachments cannot be combined with chat control commands"))
+	}
 	readinessErr := func() error {
 		if s.stateStore == nil {
 			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("state store not configured"))
@@ -236,6 +243,9 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 	// Handle /plan and /exit-plan (or /chat) as explicit mode switches into and
 	// out of the plan ModeTemplate. Plan approval itself never uses this path.
 	if targetMode, ok := parseSessionModeCommand(req.Message); ok {
+		if err := rejectCommandAttachments(); err != nil {
+			return nil, err
+		}
 		if err := readinessErr(); err != nil {
 			return nil, err
 		}
@@ -245,6 +255,9 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 	// Handle /autopilot and /stop as autonomy toggles. They map to a mode switch
 	// between the autonomous "autopilot" template and "chat".
 	if autopilotTarget, ok := parseAutopilotCommand(req.Message); ok {
+		if err := rejectCommandAttachments(); err != nil {
+			return nil, err
+		}
 		if err := readinessErr(); err != nil {
 			return nil, err
 		}
@@ -253,6 +266,9 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 
 	// Handle /mode <name> command for configurable mode switching.
 	if targetModeName, ok := parseModeCommand(req.Message); ok {
+		if err := rejectCommandAttachments(); err != nil {
+			return nil, err
+		}
 		if err := readinessErr(); err != nil {
 			return nil, err
 		}
@@ -261,6 +277,9 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 
 	// Handle __action:<id> messages from quick-action buttons.
 	if actionID, freeform, ok := parseActionMessage(req.Message); ok && s.stateStore != nil {
+		if err := rejectCommandAttachments(); err != nil {
+			return nil, err
+		}
 		if err := readinessErr(); err != nil {
 			return nil, err
 		}
@@ -423,6 +442,11 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid image attachment: %w", err))
 	}
+	videoFrames, err := sessionclient.ParseVideoDataURLs(ctx, req.GetVideoDataUrls(), 8-len(images))
+	if err != nil {
+		return nil, videoAttachmentError(err)
+	}
+	images = append(images, videoFrames...)
 	images, err = s.persistMessageImageAssets(ctx, run, images)
 	if err != nil {
 		return nil, messageAssetError(err)

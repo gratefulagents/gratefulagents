@@ -371,30 +371,53 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("setting owner reference on AgentRun: %w", err))
 		}
 	}
+	// Decode attachments before publishing the AgentRun. Video extraction can
+	// take several seconds, and an unowned run must never be visible while that
+	// work is in progress.
+	var preparedSeedImages []sessionclient.MessageImage
+	if s.stateStore != nil && (len(req.GetImageDataUrls()) > 0 || len(req.GetVideoDataUrls()) > 0) {
+		preparedSeedImages, err = sessionclient.ParseImageDataURLs(req.GetImageDataUrls())
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid image attachment: %w", err))
+		}
+		videoFrames, videoErr := sessionclient.ParseVideoDataURLs(ctx, req.GetVideoDataUrls(), 8-len(preparedSeedImages))
+		if videoErr != nil {
+			return nil, videoAttachmentError(videoErr)
+		}
+		preparedSeedImages = append(preparedSeedImages, videoFrames...)
+	}
+
 	if err := s.k8sClient.Create(ctx, run); err != nil {
 		if k8serrors.IsAlreadyExists(err) {
 			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("AgentRun %s/%s already exists", namespace, runName))
 		}
 		return nil, mapK8sError("create AgentRun", err)
 	}
+	// Record ownership immediately after creation. An unowned run is treated as
+	// system-created and can be visible to every authenticated user.
+	if s.stateStore != nil {
+		actor := requestActorFromContext(ctx)
+		if actor.Subject != "" {
+			if err := s.stateStore.SetResourceOwner(ctx, "agent_run", run.Name, run.Namespace, actor.Subject); err != nil {
+				s.rollbackCreatedAgentRun(ctx, run)
+				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("record ownership for AgentRun %s/%s: %w", run.Namespace, run.Name, err))
+			}
+		}
+	}
 	if err := s.initializeDirectIngressStatus(ctx, run); err != nil {
+		s.rollbackCreatedAgentRun(ctx, run)
 		return nil, err
 	}
 
 	// Create Postgres session and seed the user request as the first message.
-	var seededImages []sessionclient.MessageImage
 	if s.stateStore != nil {
 		sess, err := s.stateStore.CreateSession(ctx, run.Name, run.Namespace, "pending", "setup")
 		if err != nil {
 			s.rollbackCreatedAgentRun(ctx, run)
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create session for %s/%s: %w", run.Namespace, run.Name, err))
 		}
-		if userRequest != "" || len(req.GetImageDataUrls()) > 0 {
-			seedImages, err := sessionclient.ParseImageDataURLs(req.GetImageDataUrls())
-			if err != nil {
-				s.rollbackCreatedAgentRun(ctx, run)
-				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid image attachment: %w", err))
-			}
+		if userRequest != "" || len(preparedSeedImages) > 0 {
+			seedImages := preparedSeedImages
 			seedImages, err = s.persistMessageImageAssets(ctx, run, seedImages)
 			if err != nil {
 				s.rollbackCreatedAgentRun(ctx, run)
@@ -405,21 +428,6 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 				s.deleteMessageImageAssets(ctx, seedImages)
 				s.rollbackCreatedAgentRun(ctx, run)
 				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("seed initial user request for %s/%s: %w", run.Namespace, run.Name, err))
-			}
-			seededImages = seedImages
-		}
-	}
-
-	// Record resource ownership. This must succeed: an unowned run is treated
-	// as system-created and becomes visible to every authenticated user, so a
-	// silently dropped ownership record would leak a user's private run.
-	if s.stateStore != nil {
-		actor := requestActorFromContext(ctx)
-		if actor.Subject != "" {
-			if err := s.stateStore.SetResourceOwner(ctx, "agent_run", run.Name, run.Namespace, actor.Subject); err != nil {
-				s.deleteMessageImageAssets(ctx, seededImages)
-				s.rollbackCreatedAgentRun(ctx, run)
-				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("record ownership for AgentRun %s/%s: %w", run.Namespace, run.Name, err))
 			}
 		}
 	}

@@ -6413,6 +6413,10 @@ type SendAgentRunMessageRequest struct {
 	// image_data_urls are optional image attachments for the message, as data URLs
 	// (e.g. "data:image/png;base64,..."). Supported by vision-capable models.
 	ImageDataUrls []string `protobuf:"bytes,5,rep,name=image_data_urls,json=imageDataUrls,proto3" json:"image_data_urls,omitempty"`
+	// video_data_urls accepts one base64 video data URL. The server extracts a
+	// bounded set of representative JPEG frames before delivering the message
+	// to the vision model; the original video is not sent to the model.
+	VideoDataUrls []string `protobuf:"bytes,6,rep,name=video_data_urls,json=videoDataUrls,proto3" json:"video_data_urls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6478,6 +6482,13 @@ func (x *SendAgentRunMessageRequest) GetMessageMode() AgentRunMessageMode {
 func (x *SendAgentRunMessageRequest) GetImageDataUrls() []string {
 	if x != nil {
 		return x.ImageDataUrls
+	}
+	return nil
+}
+
+func (x *SendAgentRunMessageRequest) GetVideoDataUrls() []string {
+	if x != nil {
+		return x.VideoDataUrls
 	}
 	return nil
 }
@@ -6642,7 +6653,10 @@ type CreateAgentRunRequest struct {
 	// When empty, the source's default additional repositories apply.
 	AdditionalRepoUrls []string `protobuf:"bytes,20,rep,name=additional_repo_urls,json=additionalRepoUrls,proto3" json:"additional_repo_urls,omitempty"`
 	// Optional trajectory supervisor. Omit to create the run without an overseer.
-	Overseer      *AgentRunOverseerConfig `protobuf:"bytes,21,opt,name=overseer,proto3" json:"overseer,omitempty"`
+	Overseer *AgentRunOverseerConfig `protobuf:"bytes,21,opt,name=overseer,proto3" json:"overseer,omitempty"`
+	// video_data_urls accepts one base64 video data URL for the initial request.
+	// The server converts it to representative image frames before delivery.
+	VideoDataUrls []string `protobuf:"bytes,22,rep,name=video_data_urls,json=videoDataUrls,proto3" json:"video_data_urls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6792,6 +6806,13 @@ func (x *CreateAgentRunRequest) GetAdditionalRepoUrls() []string {
 func (x *CreateAgentRunRequest) GetOverseer() *AgentRunOverseerConfig {
 	if x != nil {
 		return x.Overseer
+	}
+	return nil
+}
+
+func (x *CreateAgentRunRequest) GetVideoDataUrls() []string {
+	if x != nil {
+		return x.VideoDataUrls
 	}
 	return nil
 }
@@ -28787,20 +28808,21 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x02id\x18\b \x01(\x03R\x02id\x12+\n" +
 	"\x11delivery_sequence\x18\t \x01(\x03R\x10deliverySequence\x12%\n" +
 	"\x0edelivery_state\x18\n" +
-	" \x01(\tR\rdeliveryState\"\xd5\x01\n" +
+	" \x01(\tR\rdeliveryState\"\xfd\x01\n" +
 	"\x1aSendAgentRunMessageRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12C\n" +
 	"\fmessage_mode\x18\x04 \x01(\x0e2 .platform.v1.AgentRunMessageModeR\vmessageMode\x12&\n" +
-	"\x0fimage_data_urls\x18\x05 \x03(\tR\rimageDataUrls\"\x1d\n" +
+	"\x0fimage_data_urls\x18\x05 \x03(\tR\rimageDataUrls\x12&\n" +
+	"\x0fvideo_data_urls\x18\x06 \x03(\tR\rvideoDataUrls\"\x1d\n" +
 	"\x1bSendAgentRunMessageResponse\"o\n" +
 	"\x1cCancelAgentRunMessageRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x03 \x01(\x03R\tmessageId\"\x1f\n" +
-	"\x1dCancelAgentRunMessageResponse\"\xd2\x05\n" +
+	"\x1dCancelAgentRunMessageResponse\"\xfa\x05\n" +
 	"\x15CreateAgentRunRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
@@ -28820,7 +28842,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x0freasoning_level\x18\x12 \x01(\tR\x0ereasoningLevel\x12&\n" +
 	"\x0fimage_data_urls\x18\x13 \x03(\tR\rimageDataUrls\x120\n" +
 	"\x14additional_repo_urls\x18\x14 \x03(\tR\x12additionalRepoUrls\x12?\n" +
-	"\boverseer\x18\x15 \x01(\v2#.platform.v1.AgentRunOverseerConfigR\boverseerJ\x04\b\v\x10\fJ\x04\b\f\x10\rJ\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0f\"\xde\x04\n" +
+	"\boverseer\x18\x15 \x01(\v2#.platform.v1.AgentRunOverseerConfigR\boverseer\x12&\n" +
+	"\x0fvideo_data_urls\x18\x16 \x03(\tR\rvideoDataUrlsJ\x04\b\v\x10\fJ\x04\b\f\x10\rJ\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0f\"\xde\x04\n" +
 	"\rMyCredentials\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x129\n" +
 	"\x19anthropic_api_key_present\x18\x02 \x01(\bR\x16anthropicApiKeyPresent\x123\n" +

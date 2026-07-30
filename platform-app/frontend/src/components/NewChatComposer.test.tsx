@@ -71,6 +71,7 @@ describe("NewChatComposer", () => {
       model: "",
       source: { kind: "Project", name: "briefs" },
       imageDataUrls: [],
+      videoDataUrls: [],
     }));
     expect(client.createProject).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith("/runs/team/run-1");
@@ -82,7 +83,7 @@ describe("NewChatComposer", () => {
 
     render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
     const image = new File([new Uint8Array([1, 2, 3])], "diagram.png", { type: "image/png" });
-    fireEvent.change(screen.getByLabelText("Choose images"), { target: { files: [image] } });
+    fireEvent.change(screen.getByLabelText("Choose images or video"), { target: { files: [image] } });
 
     expect(await screen.findByAltText("diagram.png")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
@@ -93,8 +94,31 @@ describe("NewChatComposer", () => {
       model: "",
       source: { kind: "Project", name: "briefs" },
       imageDataUrls: ["data:image/png;base64,AQID"],
+      videoDataUrls: [],
     }));
     expect(navigate).toHaveBeenCalledWith("/runs/team/run-image");
+  });
+
+  it("starts a video-only chat from an attached file", async () => {
+    watched.projects = [{ namespace: "team", name: "briefs", displayName: "Briefs" }];
+    vi.mocked(client.createAgentRun).mockResolvedValue({ namespace: "team", name: "run-video" } as never);
+
+    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
+    const video = new File([new Uint8Array([1, 2, 3])], "walkthrough.mp4", { type: "video/mp4" });
+    fireEvent.change(screen.getByLabelText("Choose images or video"), { target: { files: [video] } });
+
+    expect(await screen.findByLabelText("walkthrough.mp4")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(client.createAgentRun).toHaveBeenCalledWith({
+      namespace: "team",
+      userRequest: "",
+      model: "",
+      source: { kind: "Project", name: "briefs" },
+      imageDataUrls: [],
+      videoDataUrls: ["data:video/mp4;base64,AQID"],
+    }));
+    expect(navigate).toHaveBeenCalledWith("/runs/team/run-video");
   });
 
   it("accepts pasted images and lets the user remove them", async () => {
@@ -159,6 +183,7 @@ describe("NewChatComposer", () => {
       model: "",
       source: { kind: "Project", name: "personal-workspace" },
       imageDataUrls: [],
+      videoDataUrls: [],
     });
     expect(navigate).toHaveBeenCalledWith("/runs/alice-123/run-1");
   });

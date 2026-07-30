@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type RefObject, type SetStateAction } from "react";
-import { CircleStop, Clock, ImagePlus, RotateCcw, Send } from "lucide-react";
+import { CircleStop, Clock, Paperclip, RotateCcw, Send } from "lucide-react";
 
 import { ImageAttachmentStrip } from "@/components/ImageAttachmentStrip";
 import { ContextUsageBar } from "@/components/run-session/ContextUsageBar";
@@ -10,14 +10,16 @@ import { filterSlashCommands, type SlashCommand } from "@/components/run-session
 import { Button } from "@/components/ui/button";
 import { useAutosizeTextarea } from "@/hooks/useAutosizeTextarea";
 import { useWorkspaceFiles } from "@/hooks/useWorkspaceFiles";
-import type { ImageAttachment } from "@/hooks/useImageAttachments";
+import type { ImageAttachment, VideoAttachment } from "@/hooks/useImageAttachments";
 import { getMentionQuery, matchWorkspaceFiles, type FileMatch } from "@/lib/fileMentions";
 import { cn } from "@/lib/utils";
 import { AgentRunMessageMode, type AgentRun } from "@/rpc/platform/service_pb";
 
 export interface RunSessionFooterAttachments {
   images: ImageAttachment[];
+  videos: VideoAttachment[];
   error: string | null;
+  processing: boolean;
   remove: (id: string) => void;
   addFiles: (files: FileList | File[] | null | undefined) => Promise<void>;
   onPaste: (event: ClipboardEvent) => boolean;
@@ -222,6 +224,7 @@ export function RunSessionFooter({
                   <div className="space-y-2">
                     <ImageAttachmentStrip
                       images={attachments.images}
+                      videos={attachments.videos}
                       onRemove={attachments.remove}
                       className="px-0"
                     />
@@ -231,7 +234,7 @@ export function RunSessionFooter({
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/*"
+                      accept="image/*,video/mp4,video/quicktime,video/webm"
                       multiple
                       className="hidden"
                       onChange={(e) => {
@@ -263,10 +266,11 @@ export function RunSessionFooter({
                         variant="outline"
                         className="size-10 md:size-8"
                         onClick={() => fileInputRef.current?.click()}
-                        disabled={sending || !canSendMessage}
-                        aria-label="Attach image"
+                        disabled={sending || attachments.processing || !canSendMessage}
+                        aria-label="Attach image or video"
+                        title="Attach image or video"
                       >
-                        <ImagePlus className="size-4" />
+                        <Paperclip className="size-4" />
                       </Button>
                       <textarea
                         ref={resolvedTextareaRef}
@@ -346,7 +350,12 @@ export function RunSessionFooter({
                         }}
                         disabled={sending || !canSendMessage}
                       />
-                      {canInterrupt && onInterrupt && !reply.trim() && attachments.images.length === 0 ? (
+                      {canInterrupt &&
+                      onInterrupt &&
+                      !reply.trim() &&
+                      attachments.images.length === 0 &&
+                      attachments.videos.length === 0 &&
+                      !attachments.processing ? (
                         <Button
                           size="icon"
                           variant="destructive"
@@ -364,8 +373,11 @@ export function RunSessionFooter({
                           className="size-10 md:size-8"
                           onClick={handleSend}
                           disabled={
-                            (!reply.trim() && attachments.images.length === 0) ||
+                            (!reply.trim() &&
+                              attachments.images.length === 0 &&
+                              attachments.videos.length === 0) ||
                             sending ||
+                            attachments.processing ||
                             !canSendMessage
                           }
                           aria-label="Send message"
