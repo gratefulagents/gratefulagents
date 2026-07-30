@@ -146,6 +146,17 @@ func messageAssetError(err error) error {
 	return connect.NewError(connect.CodeInternal, fmt.Errorf("storing image attachments as project assets: %w", err))
 }
 
+func videoAttachmentError(err error) error {
+	if errors.Is(err, sessionclient.ErrInvalidVideoAttachment) {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid video attachment: %w", err))
+	}
+	if errors.Is(err, sessionclient.ErrVideoProcessingBusy) {
+		return connect.NewError(connect.CodeResourceExhausted, errors.New("video processing is busy; try again shortly"))
+	}
+	log.Printf("ERROR: processing video attachment: %v", err)
+	return connect.NewError(connect.CodeInternal, errors.New("video processing is temporarily unavailable"))
+}
+
 func imageAssetExtension(mediaType string) string {
 	switch strings.ToLower(strings.TrimSpace(strings.Split(mediaType, ";")[0])) {
 	case "image/jpeg", "image/jpg":

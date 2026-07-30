@@ -23,7 +23,9 @@ afterEach(() => {
 
 const noopAttachments = {
   images: [],
+  videos: [],
   error: null,
+  processing: false,
   remove: vi.fn(),
   addFiles: vi.fn(),
   onPaste: vi.fn(),

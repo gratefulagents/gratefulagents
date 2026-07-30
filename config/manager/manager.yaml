@@ -95,6 +95,8 @@ spec:
             value: github-app-webhook
           - name: OTEL_EXPORTER_OTLP_ENDPOINT
             value: jaeger.jaeger.svc:4317  # schemeless host:port; Jaeger deployed by `make deploy-jaeger`
+          - name: VIDEO_TMP_DIR
+            value: /var/run/video-tmp
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
@@ -119,10 +121,17 @@ spec:
           limits:
             cpu: "2"
             memory: 2Gi
+            ephemeral-storage: 256Mi
           requests:
             cpu: 10m
             memory: 64Mi
-        volumeMounts: []
-      volumes: []
+            ephemeral-storage: 32Mi
+        volumeMounts:
+          - name: video-tmp
+            mountPath: /var/run/video-tmp
+      volumes:
+        - name: video-tmp
+          emptyDir:
+            sizeLimit: 192Mi
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

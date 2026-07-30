@@ -568,8 +568,13 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   );
 
   async function handleSend() {
-    const hasImages = attachments.images.length > 0;
-    if ((!reply.trim() && !hasImages) || sending || !canSendMessage) {
+    const hasAttachments = attachments.images.length > 0 || attachments.videos.length > 0;
+    if (
+      (!reply.trim() && !hasAttachments) ||
+      sending ||
+      attachments.processing ||
+      !canSendMessage
+    ) {
       return;
     }
 
@@ -581,6 +586,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
         message: reply.trim(),
         messageMode: sendMode,
         imageDataUrls: attachments.dataUrls(),
+        videoDataUrls: attachments.videoDataUrls(),
       });
       setReply("");
       attachments.clear();

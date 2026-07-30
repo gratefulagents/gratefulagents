@@ -1131,6 +1131,10 @@ message SendAgentRunMessageRequest {
   // image_data_urls are optional image attachments for the message, as data URLs
   // (e.g. "data:image/png;base64,..."). Supported by vision-capable models.
   repeated string image_data_urls = 5;
+  // video_data_urls accepts one base64 video data URL. The server extracts a
+  // bounded set of representative JPEG frames before delivering the message
+  // to the vision model; the original video is not sent to the model.
+  repeated string video_data_urls = 6;
 }
 
 message SendAgentRunMessageResponse {}
@@ -1172,6 +1176,9 @@ message CreateAgentRunRequest {
   repeated string additional_repo_urls = 20;
   // Optional trajectory supervisor. Omit to create the run without an overseer.
   AgentRunOverseerConfig overseer = 21;
+  // video_data_urls accepts one base64 video data URL for the initial request.
+  // The server converts it to representative image frames before delivery.
+  repeated string video_data_urls = 22;
 }
 
 // MyCredentials describes the calling user's saved provider credentials and the

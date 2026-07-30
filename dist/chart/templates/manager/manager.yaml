@@ -65,6 +65,8 @@ spec:
                       value: {{ .Values.agentImages.worker | quote }}
                     - name: INJECTOR_IMAGE
                       value: {{ .Values.agentImages.injector | quote }}
+                    - name: VIDEO_TMP_DIR
+                      value: /var/run/video-tmp
                     {{- if include "gratefulagents.otlpEndpoint" . }}
                     - name: OTEL_EXPORTER_OTLP_ENDPOINT
                       value: {{ include "gratefulagents.otlpEndpoint" . | quote }}
@@ -156,7 +158,9 @@ spec:
                     {{- else }}
                     {}
                     {{- end }}
-                  volumeMounts: []
+                  volumeMounts:
+                    - name: video-tmp
+                      mountPath: /var/run/video-tmp
             securityContext:
               {{- if .Values.manager.podSecurityContext }}
               {{- toYaml .Values.manager.podSecurityContext | nindent 14 }}
@@ -165,4 +169,7 @@ spec:
               {{- end }}
             serviceAccountName: {{ include "gratefulagents.resourceName" (dict "suffix" "controller-manager" "context" $) }}
             terminationGracePeriodSeconds: 10
-            volumes: []
+            volumes:
+              - name: video-tmp
+                emptyDir:
+                  sizeLimit: 192Mi

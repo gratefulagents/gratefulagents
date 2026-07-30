@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Code } from "@connectrpc/connect";
-import { ArrowUp, ChevronDown, FolderKanban, ImagePlus, SlidersHorizontal } from "lucide-react";
+import { ArrowUp, ChevronDown, FolderKanban, Paperclip, SlidersHorizontal } from "lucide-react";
 
 import { ImageAttachmentStrip } from "@/components/ImageAttachmentStrip";
 import { client } from "@/lib/client";
@@ -191,8 +191,15 @@ export function NewChatComposer({
 
   async function submit() {
     const request = text.trim();
-    const hasImages = attachments.images.length > 0;
-    if ((!request && !hasImages) || projectsLoading || credentialsLoading || projectsError || submitting) return;
+    const hasAttachments = attachments.images.length > 0 || attachments.videos.length > 0;
+    if (
+      (!request && !hasAttachments) ||
+      projectsLoading ||
+      credentialsLoading ||
+      projectsError ||
+      submitting ||
+      attachments.processing
+    ) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -259,6 +266,7 @@ export function NewChatComposer({
         model: model.trim(),
         source: { kind: "Project", name: chatProject.name },
         imageDataUrls: attachments.dataUrls(),
+        videoDataUrls: attachments.videoDataUrls(),
       });
       attachments.clear();
       writeLastProject({ namespace: chatProject.namespace, name: chatProject.name });
@@ -270,24 +278,30 @@ export function NewChatComposer({
   }
 
   const composerDisabled =
-    projectsLoading || credentialsLoading || Boolean(projectsError) || submitting;
+    projectsLoading ||
+    credentialsLoading ||
+    Boolean(projectsError) ||
+    submitting ||
+    attachments.processing;
   const canSubmit =
-    (Boolean(text.trim()) || attachments.images.length > 0) && !composerDisabled;
+    (Boolean(text.trim()) || attachments.images.length > 0 || attachments.videos.length > 0) &&
+    !composerDisabled;
 
   return (
     <div className="flex flex-col gap-2">
       <ImageAttachmentStrip
         images={attachments.images}
+        videos={attachments.videos}
         onRemove={attachments.remove}
         className="px-0"
       />
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/mp4,video/quicktime,video/webm"
         multiple
         className="hidden"
-        aria-label="Choose images"
+        aria-label="Choose images or video"
         onChange={(e) => {
           void attachments.addFiles(e.target.files);
           e.target.value = "";
@@ -321,10 +335,10 @@ export function NewChatComposer({
             size="icon-xs"
             onClick={() => fileInputRef.current?.click()}
             disabled={composerDisabled}
-            aria-label="Attach image"
-            title="Attach image"
+            aria-label="Attach image or video"
+            title="Attach image or video"
           >
-            <ImagePlus />
+            <Paperclip />
           </InputGroupButton>
           {!fixedProject && (
             <DropdownMenu>

@@ -55,9 +55,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -ldflags="-X github.com/gratefulagents/gratefulagents/internal/buildinfo.Version=${APP_VERSION}" \
       -o manager cmd/main.go
 
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+# FFmpeg and FFprobe are used by the dashboard to turn bounded video
+# attachments into representative JPEG frames before model delivery. Keep the
+# runtime non-root and install only the media tools and TLS roots they need.
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /
 COPY --from=builder /workspace/manager .
 COPY --from=web-builder /repo/web/dist /web_dist
