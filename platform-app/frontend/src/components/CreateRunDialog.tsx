@@ -147,6 +147,43 @@ export function CreateRunDialog({
     setInitialized(true);
   }, [defaultSource, defaultNamespace, projects, initialized]);
 
+  // Keep inherited repository values aligned with the live project watch. A
+  // field becomes a run-level override only after the user edits that field.
+  useEffect(() => {
+    if (!initialized) return;
+    const item =
+      projects.find(
+        (project) =>
+          project.name === form.sourceName &&
+          (!form.namespace || project.namespace === form.namespace),
+      ) ?? projects.find((project) => project.name === form.sourceName);
+    if (!item) return;
+
+    setForm((prev) => {
+      const repoUrl = repositoryEdits.repoUrl ? prev.repoUrl : item.repoUrl || "";
+      const additionalRepoUrls = repositoryEdits.additionalRepoUrls
+        ? prev.additionalRepoUrls
+        : [...item.additionalRepoUrls];
+      const baseBranch = repositoryEdits.baseBranch ? prev.baseBranch : item.baseBranch || "";
+      if (
+        repoUrl === prev.repoUrl &&
+        baseBranch === prev.baseBranch &&
+        normalizedList(additionalRepoUrls) === normalizedList(prev.additionalRepoUrls)
+      ) {
+        return prev;
+      }
+      return { ...prev, repoUrl, additionalRepoUrls, baseBranch };
+    });
+  }, [
+    form.namespace,
+    form.sourceName,
+    initialized,
+    projects,
+    repositoryEdits.additionalRepoUrls,
+    repositoryEdits.baseBranch,
+    repositoryEdits.repoUrl,
+  ]);
+
   function update<K extends keyof typeof form>(field: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }

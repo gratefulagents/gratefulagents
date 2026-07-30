@@ -25,7 +25,7 @@ vi.mock("@/lib/client", () => ({ client: {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
-  watched.projects[0].baseBranch = "main";
+  watched.projects = watched.projects.map((project) => ({ ...project, baseBranch: "main" }));
 });
 
 describe("CreateRunDialog overseer", () => {
@@ -74,10 +74,11 @@ describe("CreateRunDialog overseer", () => {
     fireEvent.click(screen.getByRole("button", { name: /New Run/i }));
     await screen.findByRole("button", { name: /Repository/ });
 
-    watched.projects[0].baseBranch = "dev";
+    watched.projects = watched.projects.map((project) => ({ ...project, baseBranch: "dev" }));
     view.rerender(<MemoryRouter><CreateRunDialog defaultSource="project" defaultNamespace="team" /></MemoryRouter>);
 
     fireEvent.click(screen.getByRole("button", { name: /Repository/ }));
+    await waitFor(() => expect(screen.getByLabelText("Base branch")).toHaveProperty("value", "dev"));
     fireEvent.change(screen.getByLabelText("Repository URL"), {
       target: { value: "https://github.com/acme/new-repo" },
     });
