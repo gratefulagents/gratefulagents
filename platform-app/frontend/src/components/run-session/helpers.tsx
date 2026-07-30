@@ -28,6 +28,17 @@ export type BannerConfig = {
 
 export type MainView = "chat" | "graph" | "diff" | "pr" | "errors" | "logs" | "trace";
 
+// Timeline rows can be several viewports tall. Keep neighboring rows mounted
+// even when the pixel-based viewport buffer fits only one large row.
+export const TIMELINE_MIN_OVERSCAN_ITEMS = 2;
+
+export function timelineScrollIndex(
+  where: "top" | "bottom",
+  firstItemIndex: number,
+): number | "LAST" {
+  return where === "top" ? firstItemIndex : "LAST";
+}
+
 export function isMainView(value: string | null): value is MainView {
   return value === "chat" || value === "graph" || value === "diff" || value === "pr" || value === "errors" || value === "logs" || value === "trace";
 }

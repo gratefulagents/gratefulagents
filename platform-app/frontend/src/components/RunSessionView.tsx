@@ -49,7 +49,7 @@ import { RunPullRequestPanel } from "@/components/run-session/RunPullRequestPane
 import { ChatScrollControls } from "@/components/run-session/ChatScrollControls";
 import { buildSlashCommands, type SlashCommand } from "@/components/run-session/slashCommands";
 import { useAvailableModes } from "@/hooks/useAvailableModes";
-import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, findLatestPlanPresentation, getActionButtonVariant, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, renderPlanDialogButton, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
+import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, findLatestPlanPresentation, getActionButtonVariant, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, renderPlanDialogButton, TIMELINE_MIN_OVERSCAN_ITEMS, timelineScrollIndex, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
 import { isActionableInputType, isRunComputing, visibleInputType } from "@/lib/runStatus";
 import { TimelineRow } from "@/components/run-session/TimelineRow";
 import { PendingMessages } from "@/components/run-session/PendingMessages";
@@ -528,12 +528,12 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const scrollChatTo = useCallback((where: "top" | "bottom") => {
     const virtuoso = virtuosoRef.current;
     if (!virtuoso) return;
-    virtuoso.scrollToIndex(
-      where === "top"
-        ? { index: 0, align: "start", behavior: "smooth" }
-        : { index: "LAST", align: "end", behavior: "smooth" },
-    );
-  }, []);
+    virtuoso.scrollToIndex({
+      index: timelineScrollIndex(where, firstItemIndex),
+      align: where === "top" ? "start" : "end",
+      behavior: "smooth",
+    });
+  }, [firstItemIndex]);
 
   if (loading) {
     return (
@@ -942,6 +942,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                   computeItemKey={(_, item) => item.key}
                   components={timelineComponents}
                   increaseViewportBy={600}
+                  minOverscanItemCount={TIMELINE_MIN_OVERSCAN_ITEMS}
                   followOutput="auto"
                   firstItemIndex={firstItemIndex}
                   startReached={handleStartReached}
