@@ -66,6 +66,11 @@ export function CreateRunDialog({
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [repositoryEdits, setRepositoryEdits] = useState({
+    repoUrl: false,
+    additionalRepoUrls: false,
+    baseBranch: false,
+  });
 
   const [overseer, setOverseer] = useState({
     enabled: false,
@@ -148,6 +153,7 @@ export function CreateRunDialog({
 
   function handleSourceChange(name: string) {
     update("sourceName", name);
+    setRepositoryEdits({ repoUrl: false, additionalRepoUrls: false, baseBranch: false });
     const item =
       projects.find((p) => p.name === name && (!form.namespace || p.namespace === form.namespace)) ??
       projects.find((p) => p.name === name);
@@ -242,9 +248,14 @@ export function CreateRunDialog({
       const model = bareModel && provider && !bareModel.includes("/") ? `${provider}/${bareModel}` : bareModel;
       const result = await client.createAgentRun({
         namespace: form.namespace.trim(),
-        repoUrl: form.repoUrl,
-        additionalRepoUrls: form.additionalRepoUrls.map((url) => url.trim()).filter(Boolean),
-        baseBranch: form.baseBranch,
+        // Project repository settings are defaults, not run-level overrides.
+        // Send each field only after an explicit edit so changing one control
+        // cannot submit stale cached values for the others.
+        ...(repositoryEdits.repoUrl ? { repoUrl: form.repoUrl.trim() } : {}),
+        ...(repositoryEdits.additionalRepoUrls
+          ? { additionalRepoUrls: form.additionalRepoUrls.map((url) => url.trim()).filter(Boolean) }
+          : {}),
+        ...(repositoryEdits.baseBranch ? { baseBranch: form.baseBranch.trim() } : {}),
         model,
         reasoningLevel: form.reasoningLevel,
         image: form.image,
@@ -297,6 +308,7 @@ export function CreateRunDialog({
       : "From project";
   const repoModified = Boolean(
     selectedProject &&
+      Object.values(repositoryEdits).some(Boolean) &&
       (form.repoUrl.trim() !== (selectedProject.repoUrl || "").trim() ||
         form.baseBranch.trim() !== (selectedProject.baseBranch || "").trim() ||
         normalizedList(form.additionalRepoUrls) !== normalizedList(selectedProject.additionalRepoUrls)),
@@ -468,7 +480,10 @@ export function CreateRunDialog({
                   <Input
                     id="create-run-repo"
                     value={form.repoUrl}
-                    onChange={(e) => update("repoUrl", e.target.value)}
+                    onChange={(e) => {
+                      setRepositoryEdits((edits) => ({ ...edits, repoUrl: true }));
+                      update("repoUrl", e.target.value);
+                    }}
                     placeholder="https://github.com/org/repo"
                   />
                 </FlowField>
@@ -477,7 +492,10 @@ export function CreateRunDialog({
                     <Input
                       id="create-run-branch"
                       value={form.baseBranch}
-                      onChange={(e) => update("baseBranch", e.target.value)}
+                      onChange={(e) => {
+                        setRepositoryEdits((edits) => ({ ...edits, baseBranch: true }));
+                        update("baseBranch", e.target.value);
+                      }}
                       placeholder="Inherited from project"
                     />
                   </FlowField>
@@ -490,7 +508,10 @@ export function CreateRunDialog({
                   <RepoUrlListInput
                     idPrefix="create-run-additional-repo"
                     value={form.additionalRepoUrls}
-                    onChange={(urls) => update("additionalRepoUrls", urls)}
+                    onChange={(urls) => {
+                      setRepositoryEdits((edits) => ({ ...edits, additionalRepoUrls: true }));
+                      update("additionalRepoUrls", urls);
+                    }}
                   />
                 </FlowField>
               </OptionRow>
