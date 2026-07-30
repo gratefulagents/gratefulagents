@@ -30,6 +30,7 @@ const (
 	ffmpegTimeout      = 20 * time.Second
 	maxProbeOutput     = 64 * 1024
 	maxStderrOutput    = 16 * 1024
+	maxPacketLineBytes = 1024
 )
 
 var (
@@ -45,14 +46,21 @@ var supportedVideoMediaTypes = map[string]bool{
 }
 
 type videoProbe struct {
-	Streams []struct {
-		CodecType string `json:"codec_type"`
-		Width     int    `json:"width"`
-		Height    int    `json:"height"`
-	} `json:"streams"`
-	Format struct {
+	Streams []videoStream `json:"streams"`
+	Format  struct {
 		Duration string `json:"duration"`
 	} `json:"format"`
+}
+
+type videoStream struct {
+	Index       int    `json:"index"`
+	CodecType   string `json:"codec_type"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Duration    string `json:"duration"`
+	Disposition struct {
+		AttachedPicture int `json:"attached_pic"`
+	} `json:"disposition"`
 }
 
 type limitedBuffer struct {
@@ -77,23 +85,74 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return b.Buffer.Write(p)
 }
 
-// ParseVideoDataURLs extracts JPEG frames from one video data URL.
-func ParseVideoDataURLs(ctx context.Context, dataURLs []string, maxFrames int) ([]MessageImage, error) {
-	var dataURL string
-	for _, value := range dataURLs {
-		if strings.TrimSpace(value) == "" {
+type packetDurationWriter struct {
+	line    []byte
+	minimum float64
+	maximum float64
+	found   bool
+}
+
+func (w *packetDurationWriter) Write(p []byte) (int, error) {
+	for _, b := range p {
+		if b == '\n' {
+			w.recordLine()
+			w.line = w.line[:0]
 			continue
 		}
-		if dataURL != "" {
-			return nil, fmt.Errorf("%w: too many videos: maximum 1 per message", ErrInvalidVideoAttachment)
+		if len(w.line) == maxPacketLineBytes {
+			return 0, fmt.Errorf("ffprobe packet line exceeds %d byte limit", maxPacketLineBytes)
 		}
-		dataURL = value
+		w.line = append(w.line, b)
+	}
+	return len(p), nil
+}
+
+func (w *packetDurationWriter) finish() {
+	if len(w.line) > 0 {
+		w.recordLine()
+		w.line = w.line[:0]
+	}
+}
+
+func (w *packetDurationWriter) recordLine() {
+	pts, duration, ok := strings.Cut(strings.TrimSpace(string(w.line)), ",")
+	if !ok {
+		return
+	}
+	packetPTS, err := strconv.ParseFloat(strings.TrimSpace(pts), 64)
+	if err != nil || math.IsNaN(packetPTS) || math.IsInf(packetPTS, 0) {
+		return
+	}
+	packetDuration, err := strconv.ParseFloat(strings.TrimSpace(duration), 64)
+	if err != nil || math.IsNaN(packetDuration) || math.IsInf(packetDuration, 0) || packetDuration < 0 {
+		packetDuration = 0
+	}
+	end := packetPTS + packetDuration
+	if !w.found {
+		w.minimum = packetPTS
+		w.maximum = end
+		w.found = true
+		return
+	}
+	if packetPTS < w.minimum {
+		w.minimum = packetPTS
+	}
+	if end > w.maximum {
+		w.maximum = end
+	}
+}
+
+// ParseVideoDataURLs extracts JPEG frames from one video data URL.
+func ParseVideoDataURLs(ctx context.Context, dataURLs []string, maxFrames int) ([]MessageImage, error) {
+	dataURL, err := singleVideoDataURL(dataURLs)
+	if err != nil {
+		return nil, err
 	}
 	if dataURL == "" {
 		return nil, nil
 	}
-	if maxFrames < 1 || maxFrames > maxVideoFrames {
-		return nil, fmt.Errorf("%w: max frames must be between 1 and %d", ErrInvalidVideoAttachment, maxVideoFrames)
+	if err := validateVideoFrameCount(maxFrames); err != nil {
+		return nil, err
 	}
 
 	// Admit work before allocating the decoded payload. Requests beyond the two
@@ -111,7 +170,31 @@ func ParseVideoDataURLs(ctx context.Context, dataURLs []string, maxFrames int) (
 	if err != nil {
 		return nil, err
 	}
+	return extractVideoFrames(ctx, video, maxFrames)
+}
 
+func singleVideoDataURL(dataURLs []string) (string, error) {
+	var dataURL string
+	for _, value := range dataURLs {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		if dataURL != "" {
+			return "", fmt.Errorf("%w: too many videos: maximum 1 per message", ErrInvalidVideoAttachment)
+		}
+		dataURL = value
+	}
+	return dataURL, nil
+}
+
+func validateVideoFrameCount(maxFrames int) error {
+	if maxFrames < 1 || maxFrames > maxVideoFrames {
+		return fmt.Errorf("%w: max frames must be between 1 and %d", ErrInvalidVideoAttachment, maxVideoFrames)
+	}
+	return nil
+}
+
+func extractVideoFrames(ctx context.Context, video []byte, maxFrames int) ([]MessageImage, error) {
 	tempParent := os.Getenv("VIDEO_TMP_DIR")
 	if tempParent == "" {
 		tempParent = os.TempDir()
@@ -120,7 +203,7 @@ func ParseVideoDataURLs(ctx context.Context, dataURLs []string, maxFrames int) (
 	if err != nil {
 		return nil, fmt.Errorf("create video temp directory: %w", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	inputPath := filepath.Join(dir, "input")
 	if err := os.WriteFile(inputPath, video, 0o600); err != nil {
@@ -128,67 +211,25 @@ func ParseVideoDataURLs(ctx context.Context, dataURLs []string, maxFrames int) (
 	}
 
 	demuxer := videoDemuxer(video)
-	probeCtx, cancelProbe := context.WithTimeout(ctx, ffprobeTimeout)
-	probeOutput := &limitedBuffer{limit: maxProbeOutput}
-	probeErr := runVideoCommand(probeCtx, "ffprobe", probeOutput, "-v", "error", "-protocol_whitelist", "file,pipe", "-f", demuxer, "-i", inputPath, "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json")
-	probeContextErr := probeCtx.Err()
-	cancelProbe()
-	if probeErr != nil {
-		if probeContextErr != nil {
-			return nil, probeContextErr
-		}
-		if errors.Is(probeErr, exec.ErrNotFound) {
-			return nil, fmt.Errorf("run ffprobe: %w", probeErr)
-		}
-		return nil, fmt.Errorf("%w: ffprobe failed", ErrInvalidVideoAttachment)
-	}
-	if probeOutput.truncated {
-		return nil, fmt.Errorf("%w: ffprobe output exceeds %d byte limit", ErrInvalidVideoAttachment, maxProbeOutput)
-	}
-
-	var probe videoProbe
-	if err := json.Unmarshal(probeOutput.Bytes(), &probe); err != nil {
-		return nil, fmt.Errorf("%w: decode ffprobe output: %v", ErrInvalidVideoAttachment, err)
-	}
-	var stream *struct {
-		CodecType string `json:"codec_type"`
-		Width     int    `json:"width"`
-		Height    int    `json:"height"`
-	}
-	for i := range probe.Streams {
-		if probe.Streams[i].CodecType == "video" {
-			stream = &probe.Streams[i]
-			break
-		}
-	}
-	if stream == nil {
-		return nil, fmt.Errorf("%w: video has no video stream", ErrInvalidVideoAttachment)
-	}
-	if stream.Width <= 0 || stream.Height <= 0 || stream.Width > maxVideoDimension || stream.Height > maxVideoDimension || int64(stream.Width)*int64(stream.Height) > maxVideoPixels {
-		return nil, fmt.Errorf("%w: invalid video dimensions %dx%d", ErrInvalidVideoAttachment, stream.Width, stream.Height)
-	}
-	duration, err := strconv.ParseFloat(probe.Format.Duration, 64)
-	if err != nil || math.IsNaN(duration) || math.IsInf(duration, 0) || duration <= 0 || duration > maxVideoDuration.Seconds() {
-		return nil, fmt.Errorf("%w: invalid video duration %q", ErrInvalidVideoAttachment, probe.Format.Duration)
+	stream, duration, err := probeVideo(ctx, demuxer, inputPath)
+	if err != nil {
+		return nil, err
 	}
 
 	outputPattern := filepath.Join(dir, "frame-%06d.jpg")
 	filter := fmt.Sprintf("fps=%g,scale=1600:1600:force_original_aspect_ratio=decrease", float64(maxFrames)/duration)
 	ffmpegCtx, cancelFFmpeg := context.WithTimeout(ctx, ffmpegTimeout)
 	ffmpegOutput := &limitedBuffer{limit: maxProbeOutput}
-	ffmpegErr := runVideoCommand(ffmpegCtx, "ffmpeg", ffmpegOutput, "-v", "error", "-nostdin", "-protocol_whitelist", "file,pipe", "-threads", "1", "-f", demuxer, "-i", inputPath, "-map", "0:v:0", "-filter_threads", "1", "-vf", filter, "-q:v", "4", "-frames:v", strconv.Itoa(maxFrames), outputPattern)
+	ffmpegErr := runVideoCommand(ffmpegCtx, "ffmpeg", ffmpegOutput, "-v", "error", "-nostdin", "-protocol_whitelist", "file,pipe", "-threads", "1", "-f", demuxer, "-i", inputPath, "-map", fmt.Sprintf("0:%d", stream.Index), "-filter_threads", "1", "-vf", filter, "-q:v", "4", "-frames:v", strconv.Itoa(maxFrames), outputPattern)
 	ffmpegContextErr := ffmpegCtx.Err()
 	cancelFFmpeg()
 	if ffmpegErr != nil {
-		if ffmpegContextErr != nil {
-			return nil, ffmpegContextErr
-		}
-		if errors.Is(ffmpegErr, exec.ErrNotFound) {
-			return nil, fmt.Errorf("run ffmpeg: %w", ffmpegErr)
-		}
-		return nil, fmt.Errorf("%w: ffmpeg frame extraction failed", ErrInvalidVideoAttachment)
+		return nil, videoCommandError(ffmpegContextErr, ffmpegErr, "ffmpeg", "ffmpeg frame extraction failed")
 	}
+	return readVideoFrames(dir, maxFrames)
+}
 
+func readVideoFrames(dir string, maxFrames int) ([]MessageImage, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read video frames: %w", err)
@@ -236,6 +277,115 @@ func ParseVideoDataURLs(ctx context.Context, dataURLs []string, maxFrames int) (
 	return frames, nil
 }
 
+func probeVideo(ctx context.Context, demuxer, inputPath string) (videoStream, float64, error) {
+	probeCtx, cancelProbe := context.WithTimeout(ctx, ffprobeTimeout)
+	probeOutput := &limitedBuffer{limit: maxProbeOutput}
+	probeErr := runVideoCommand(probeCtx, "ffprobe", probeOutput, "-v", "error", "-protocol_whitelist", "file,pipe", "-f", demuxer, "-i", inputPath, "-show_entries", "stream=index,codec_type,width,height,duration:stream_disposition=attached_pic:format=duration", "-of", "json")
+	probeContextErr := probeCtx.Err()
+	cancelProbe()
+	if probeErr != nil {
+		return videoStream{}, 0, videoCommandError(probeContextErr, probeErr, "ffprobe", "ffprobe failed")
+	}
+	if probeOutput.truncated {
+		return videoStream{}, 0, fmt.Errorf("%w: ffprobe output exceeds %d byte limit", ErrInvalidVideoAttachment, maxProbeOutput)
+	}
+
+	var probe videoProbe
+	if err := json.Unmarshal(probeOutput.Bytes(), &probe); err != nil {
+		return videoStream{}, 0, fmt.Errorf("%w: decode ffprobe output: %v", ErrInvalidVideoAttachment, err)
+	}
+	stream, err := selectedVideoStream(probe.Streams)
+	if err != nil {
+		return videoStream{}, 0, err
+	}
+	duration, err := probeDuration(ctx, demuxer, inputPath, probe.Format.Duration, stream)
+	if err != nil {
+		return videoStream{}, 0, err
+	}
+	return stream, duration, nil
+}
+
+func selectedVideoStream(streams []videoStream) (videoStream, error) {
+	for _, stream := range streams {
+		if stream.CodecType == "video" && stream.Disposition.AttachedPicture == 0 {
+			if stream.Width <= 0 || stream.Height <= 0 || stream.Width > maxVideoDimension || stream.Height > maxVideoDimension || int64(stream.Width)*int64(stream.Height) > maxVideoPixels {
+				return videoStream{}, fmt.Errorf("%w: invalid video dimensions %dx%d", ErrInvalidVideoAttachment, stream.Width, stream.Height)
+			}
+			return stream, nil
+		}
+	}
+	return videoStream{}, fmt.Errorf("%w: video has no video stream", ErrInvalidVideoAttachment)
+}
+
+func probeDuration(ctx context.Context, demuxer, inputPath, formatDuration string, stream videoStream) (float64, error) {
+	duration, available, err := parseProbeDuration(formatDuration)
+	if err != nil {
+		return 0, invalidVideoDuration(formatDuration)
+	}
+	if !available {
+		duration, available, err = parseProbeDuration(stream.Duration)
+		if err != nil {
+			return 0, invalidVideoDuration(stream.Duration)
+		}
+	}
+	if !available {
+		duration, err = probePacketDuration(ctx, demuxer, inputPath, stream.Index)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if !validVideoDuration(duration) {
+		return 0, invalidVideoDuration(formatDuration)
+	}
+	return duration, nil
+}
+
+func parseProbeDuration(value string) (float64, bool, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.EqualFold(value, "N/A") {
+		return 0, false, nil
+	}
+	duration, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, true, err
+	}
+	return duration, true, nil
+}
+
+func probePacketDuration(ctx context.Context, demuxer, inputPath string, streamIndex int) (float64, error) {
+	probeCtx, cancelProbe := context.WithTimeout(ctx, ffprobeTimeout)
+	packets := &packetDurationWriter{}
+	probeErr := runVideoCommand(probeCtx, "ffprobe", packets, "-v", "error", "-protocol_whitelist", "file,pipe", "-f", demuxer, "-i", inputPath, "-select_streams", strconv.Itoa(streamIndex), "-show_entries", "packet=pts_time,duration_time", "-of", "csv=p=0")
+	probeContextErr := probeCtx.Err()
+	cancelProbe()
+	if probeErr != nil {
+		return 0, videoCommandError(probeContextErr, probeErr, "ffprobe", "ffprobe failed")
+	}
+	packets.finish()
+	if !packets.found {
+		return 0, invalidVideoDuration("")
+	}
+	return packets.maximum - packets.minimum, nil
+}
+
+func validVideoDuration(duration float64) bool {
+	return !math.IsNaN(duration) && !math.IsInf(duration, 0) && duration > 0 && duration <= maxVideoDuration.Seconds()
+}
+
+func invalidVideoDuration(value string) error {
+	return fmt.Errorf("%w: invalid video duration %q", ErrInvalidVideoAttachment, value)
+}
+
+func videoCommandError(contextErr, commandErr error, name, failure string) error {
+	if contextErr != nil {
+		return contextErr
+	}
+	if errors.Is(commandErr, exec.ErrNotFound) {
+		return fmt.Errorf("run %s: %w", name, commandErr)
+	}
+	return fmt.Errorf("%w: %s", ErrInvalidVideoAttachment, failure)
+}
+
 func runVideoCommand(ctx context.Context, name string, stdout io.Writer, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = []string{"LANG=C", "PATH=" + os.Getenv("PATH")}
@@ -250,11 +400,11 @@ func parseVideoDataURL(dataURL string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: not a data URL", ErrInvalidVideoAttachment)
 	}
 	raw = strings.TrimPrefix(raw, "data:")
-	comma := strings.IndexByte(raw, ',')
-	if comma < 0 {
+	metaValue, payload, ok := strings.Cut(raw, ",")
+	if !ok {
 		return nil, fmt.Errorf("%w: malformed data URL: missing comma", ErrInvalidVideoAttachment)
 	}
-	meta := strings.Split(raw[:comma], ";")
+	meta := strings.Split(metaValue, ";")
 	mediaType := strings.ToLower(strings.TrimSpace(meta[0]))
 	if !supportedVideoMediaTypes[mediaType] {
 		return nil, fmt.Errorf("%w: unsupported media type %q", ErrInvalidVideoAttachment, mediaType)
@@ -269,7 +419,7 @@ func parseVideoDataURL(dataURL string) ([]byte, error) {
 	if !base64Encoded {
 		return nil, fmt.Errorf("%w: only base64-encoded data URLs are supported", ErrInvalidVideoAttachment)
 	}
-	payload := strings.TrimSpace(raw[comma+1:])
+	payload = strings.TrimSpace(payload)
 	if payload == "" {
 		return nil, fmt.Errorf("%w: empty video data", ErrInvalidVideoAttachment)
 	}

@@ -154,7 +154,7 @@ func TestParseVideoDataURLsExtractsSortedBoundedFrames(t *testing.T) {
 			t.Fatalf("read command args: %v", err)
 		}
 		gotArgs := string(args)
-		for _, want := range []string{"-f\nmov\n-i\n", "-map\n0:v:0\n"} {
+		for _, want := range []string{"-f\nmov\n-i\n", "-map\n0:0\n"} {
 			if strings.Contains(want, "-map") && argsPath == probeArgsPath {
 				continue
 			}
@@ -176,6 +176,9 @@ func TestParseVideoDataURLsExtractsSortedBoundedFrames(t *testing.T) {
 	if got := filepath.Dir(filepath.Dir(inputPath)); got != videoTempDir {
 		t.Errorf("video temp parent = %q, want %q", got, videoTempDir)
 	}
+	if want := "-show_entries\nstream=index,codec_type,width,height,duration:stream_disposition=attached_pic:format=duration\n"; !strings.Contains(string(probeArgs), want) {
+		t.Errorf("ffprobe arguments %q do not contain %q", probeArgs, want)
+	}
 
 	args, err := os.ReadFile(ffmpegArgsPath)
 	if err != nil {
@@ -185,6 +188,92 @@ func TestParseVideoDataURLsExtractsSortedBoundedFrames(t *testing.T) {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("ffmpeg arguments %q do not contain %q", args, want)
 		}
+	}
+}
+
+func TestParseVideoDataURLsDerivesDurationFromPackets(t *testing.T) {
+	binDir := t.TempDir()
+	argsDir := t.TempDir()
+	probeArgsPath := filepath.Join(argsDir, "ffprobe-args")
+	ffmpegArgsPath := filepath.Join(argsDir, "ffmpeg-args")
+	writeVideoExecutable(t, binDir, "ffprobe", "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+strconv.Quote(probeArgsPath)+"\ncase \"$*\" in\n  *packet=pts_time,duration_time*) printf '0.000000,2.000000\\n2.000000,2.000000\\n' ;;\n  *) printf '%s\\n' '{\"streams\":[{\"index\":4,\"codec_type\":\"video\",\"width\":1920,\"height\":1080,\"duration\":\"N/A\"}],\"format\":{\"duration\":\"N/A\"}}' ;;\nesac\n")
+	writeVideoExecutable(t, binDir, "ffmpeg", "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+strconv.Quote(ffmpegArgsPath)+"\nout=\"\"\nfor arg in \"$@\"; do out=\"$arg\"; done\nprintf frame > \"${out%/*}/frame-000001.jpg\"\n")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	frames, err := ParseVideoDataURLs(context.Background(), []string{videoDataURL("video/mp4", validMP4())}, 1)
+	if err != nil {
+		t.Fatalf("ParseVideoDataURLs() error = %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("got %d frames, want 1", len(frames))
+	}
+
+	probeArgs, err := os.ReadFile(probeArgsPath)
+	if err != nil {
+		t.Fatalf("read ffprobe arguments: %v", err)
+	}
+	for _, want := range []string{"-select_streams\n4\n", "-show_entries\npacket=pts_time,duration_time\n"} {
+		if !strings.Contains(string(probeArgs), want) {
+			t.Errorf("ffprobe arguments %q do not contain %q", probeArgs, want)
+		}
+	}
+	ffmpegArgs, err := os.ReadFile(ffmpegArgsPath)
+	if err != nil {
+		t.Fatalf("read ffmpeg arguments: %v", err)
+	}
+	for _, want := range []string{"-map\n0:4\n", "fps=0.25,scale=1600:1600:force_original_aspect_ratio=decrease\n"} {
+		if !strings.Contains(string(ffmpegArgs), want) {
+			t.Errorf("ffmpeg arguments %q do not contain %q", ffmpegArgs, want)
+		}
+	}
+}
+
+func TestParseVideoDataURLsRejectsPacketDerivedDurationOverLimit(t *testing.T) {
+	binDir := t.TempDir()
+	writeVideoExecutable(t, binDir, "ffprobe", "#!/bin/sh\ncase \"$*\" in\n  *packet=pts_time,duration_time*) printf '0.000000,1.000000\\n121.000000,1.000000\\n' ;;\n  *) printf '%s\\n' '{\"streams\":[{\"index\":0,\"codec_type\":\"video\",\"width\":1920,\"height\":1080,\"duration\":\"N/A\"}],\"format\":{\"duration\":\"N/A\"}}' ;;\nesac\n")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err := ParseVideoDataURLs(context.Background(), []string{
+		videoDataURL("video/mp4", validMP4()),
+	}, 1)
+	if !errors.Is(err, ErrInvalidVideoAttachment) {
+		t.Fatalf("ParseVideoDataURLs() error = %v, want ErrInvalidVideoAttachment", err)
+	}
+}
+
+func TestParseVideoDataURLsSkipsAttachedPictureStream(t *testing.T) {
+	binDir := t.TempDir()
+	argsPath := filepath.Join(t.TempDir(), "ffmpeg-args")
+	writeVideoExecutable(t, binDir, "ffprobe", "#!/bin/sh\nprintf '%s\\n' '{\"streams\":[{\"index\":1,\"codec_type\":\"video\",\"width\":600,\"height\":600,\"duration\":\"4\",\"disposition\":{\"attached_pic\":1}},{\"index\":3,\"codec_type\":\"video\",\"width\":1920,\"height\":1080,\"duration\":\"8\",\"disposition\":{\"attached_pic\":0}}],\"format\":{\"duration\":\"N/A\"}}'\n")
+	writeVideoExecutable(t, binDir, "ffmpeg", "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+strconv.Quote(argsPath)+"\nout=\"\"\nfor arg in \"$@\"; do out=\"$arg\"; done\nprintf frame > \"${out%/*}/frame-000001.jpg\"\n")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	frames, err := ParseVideoDataURLs(context.Background(), []string{videoDataURL("video/mp4", validMP4())}, 2)
+	if err != nil {
+		t.Fatalf("ParseVideoDataURLs() error = %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("got %d frames, want 1", len(frames))
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read ffmpeg arguments: %v", err)
+	}
+	for _, want := range []string{"-map\n0:3\n", "fps=0.25,scale=1600:1600:force_original_aspect_ratio=decrease\n"} {
+		if !strings.Contains(string(args), want) {
+			t.Errorf("ffmpeg arguments %q do not contain %q", args, want)
+		}
+	}
+}
+
+func TestPacketDurationWriterHandlesMissingDurationsAndTimestampOffset(t *testing.T) {
+	packets := &packetDurationWriter{}
+	if _, err := packets.Write([]byte("100.000000,N/A\n104.000000,N/A\n")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	packets.finish()
+	if got := packets.maximum - packets.minimum; got != 4 {
+		t.Fatalf("derived duration = %g, want 4", got)
 	}
 }
 
