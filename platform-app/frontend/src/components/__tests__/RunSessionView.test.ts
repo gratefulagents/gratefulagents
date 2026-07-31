@@ -6,6 +6,8 @@ import {
   bucketActivityByMessage,
   findLatestPlanPresentation,
   planContentForPresentationGroup,
+  TIMELINE_MIN_OVERSCAN_ITEMS,
+  timelineScrollIndex,
 } from "@/components/run-session/helpers";
 import { ActivityEntrySchema } from "@/rpc/platform/service_pb";
 
@@ -20,6 +22,21 @@ describe("messageForQuickAction", () => {
 
   it("routes mode-switch actions through the structured action channel", () => {
     expect(messageForQuickAction({ id: "approve_execute" })).toBe("__action:approve_execute");
+  });
+});
+
+describe("timeline virtualization", () => {
+  it("keeps neighboring rows mounted around very tall timeline items", () => {
+    expect(TIMELINE_MIN_OVERSCAN_ITEMS).toBeGreaterThanOrEqual(2);
+  });
+
+  it("targets the virtual first item instead of the zero-based data index", () => {
+    expect(timelineScrollIndex("top", 100_000)).toBe(100_000);
+    expect(timelineScrollIndex("top", 99_997)).toBe(99_997);
+  });
+
+  it("uses Virtuoso's last-item sentinel for the bottom", () => {
+    expect(timelineScrollIndex("bottom", 99_997)).toBe("LAST");
   });
 });
 
