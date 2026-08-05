@@ -351,7 +351,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		return false, err
 	}
 
-	provider := triggersv1alpha1.NormalizeProvider(d.Provider)
+	provider := d.EffectiveProvider()
 	dedupePermille := int32(0)
 	if scan.Spec.DedupeEnabled() {
 		dedupePermille = scan.Spec.DedupeSimilarityThresholdPermille()
@@ -389,6 +389,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		ExternalID:         externalID,
 		ExternalIdentifier: externalIdentifier,
 		SeedMessage:        BuildSecurityScanPrompt(scan.Spec),
+		Revision:           strings.TrimSpace(scan.Spec.Revision),
 		Defaults:           d,
 		OwnerRef:           scan,
 		Scheme:             r.Scheme,
@@ -560,10 +561,7 @@ func securityScanRunName(sourceName, suffix string) string {
 	}
 	hashBytes := sha1.Sum([]byte(name))
 	hash := hex.EncodeToString(hashBytes[:])[:8]
-	maxBase := 63 - len("secscan-") - len("-") - len(suffix) - len("-") - len(hash)
-	if maxBase < 1 {
-		maxBase = 1
-	}
+	maxBase := max(63-len("secscan-")-len("-")-len(suffix)-len("-")-len(hash), 1)
 	if len(base) > maxBase {
 		base = strings.TrimRight(base[:maxBase], "-")
 	}

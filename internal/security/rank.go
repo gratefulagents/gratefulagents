@@ -47,7 +47,7 @@ type RankRules struct {
 func ParseRankRules(text string) RankRules {
 	rules := RankRules{Weights: DefaultRankWeights()}
 	var prose []string
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		directive, rest, ok := strings.Cut(trimmed, ":")
 		if !ok {
@@ -111,7 +111,7 @@ func parseCategorySeverity(s string) (category, severity string, ok bool) {
 
 func parseCategoryList(s string) []string {
 	var out []string
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		cat := normalizeCategory(part)
 		if knownCategories[cat] {
 			out = append(out, cat)
@@ -122,7 +122,7 @@ func parseCategoryList(s string) []string {
 
 func applyWeightDirective(w *RankWeights, s string) bool {
 	applied := false
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		name, val, found := strings.Cut(part, "=")
 		if !found {
 			continue

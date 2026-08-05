@@ -330,19 +330,20 @@ const DefaultSecurityScanRole = "security-reviewer"
 // spec.workflow is empty: focused hunting tasks per vulnerability class plus a
 // final triage-and-report task that depends on all of them.
 func DefaultSecurityWorkflow() []SecurityScanTask {
-	tasks := []SecurityScanTask{
-		{Name: "attack-surface-mapping", Role: "threat-modeler", Category: "recon", Objective: "Map the application's attack surface: entry points, exposed endpoints, trust boundaries, privileged operations, and data flows from untrusted input to sensitive sinks."},
-		{Name: "authn-authz", Role: "vulnerability-hunter", Category: "authn", Objective: "Hunt for authentication and authorization flaws: missing or bypassable auth checks, broken session handling, privilege escalation paths, and insecure token validation."},
-		{Name: "injection-and-input-handling", Role: "vulnerability-hunter", Category: "injection", Objective: "Hunt for injection and unsafe input handling: SQL/NoSQL/command/template injection, XSS, path traversal, and unsanitized data reaching interpreters or shells."},
-		{Name: "secrets-and-credentials", Role: "secrets-auditor", Category: "secrets", Objective: "Hunt for hardcoded secrets, credentials committed to the repository, secrets leaked into logs or errors, and insecure credential storage or transmission."},
-		{Name: "crypto-and-randomness", Role: "vulnerability-hunter", Category: "crypto", Objective: "Hunt for cryptographic weaknesses: weak or misused algorithms, insecure randomness, missing integrity checks, improper key management, and TLS misconfiguration."},
-		{Name: "ssrf-and-network", Role: "vulnerability-hunter", Category: "ssrf", Objective: "Hunt for server-side request forgery and unsafe network egress: user-controlled URLs, open redirects, DNS rebinding exposure, and missing egress restrictions."},
-		{Name: "deserialization-and-parsing", Role: "vulnerability-hunter", Category: "deserialization", Objective: "Hunt for unsafe deserialization and parser abuse: untrusted data fed to deserializers, XML external entities, prototype pollution, and resource-exhausting parsers."},
-		{Name: "access-control-and-multitenancy", Role: "vulnerability-hunter", Category: "authz", Objective: "Hunt for access-control and tenant-isolation flaws: insecure direct object references, missing ownership checks, and cross-tenant data or resource leakage."},
-		{Name: "dependency-and-supply-chain", Role: "dependency-auditor", Category: "supply-chain", Objective: "Hunt for vulnerable or malicious dependencies, unpinned versions, typosquatting risk, and insecure build or release pipeline steps."},
-		{Name: "infrastructure-and-configuration", Role: "vulnerability-hunter", Category: "misconfiguration", Objective: "Hunt for insecure infrastructure and configuration: overly permissive RBAC or IAM, exposed debug endpoints, missing security headers, and unsafe container or deployment settings."},
-		{Name: "business-logic", Role: "vulnerability-hunter", Category: "logic-flaw", Objective: "Hunt for business-logic flaws: race conditions, state-machine bypasses, abuse of workflows (payments, quotas, invites), and missing server-side enforcement of invariants."},
-	}
+	tasks := make([]SecurityScanTask, 0, 12)
+	tasks = append(tasks,
+		SecurityScanTask{Name: "attack-surface-mapping", Role: "threat-modeler", Category: "recon", Objective: "Map the application's attack surface: entry points, exposed endpoints, trust boundaries, privileged operations, and data flows from untrusted input to sensitive sinks."},
+		SecurityScanTask{Name: "authn-authz", Role: "vulnerability-hunter", Category: "authn", Objective: "Hunt for authentication and authorization flaws: missing or bypassable auth checks, broken session handling, privilege escalation paths, and insecure token validation."},
+		SecurityScanTask{Name: "injection-and-input-handling", Role: "vulnerability-hunter", Category: "injection", Objective: "Hunt for injection and unsafe input handling: SQL/NoSQL/command/template injection, XSS, path traversal, and unsanitized data reaching interpreters or shells."},
+		SecurityScanTask{Name: "secrets-and-credentials", Role: "secrets-auditor", Category: "secrets", Objective: "Hunt for hardcoded secrets, credentials committed to the repository, secrets leaked into logs or errors, and insecure credential storage or transmission."},
+		SecurityScanTask{Name: "crypto-and-randomness", Role: "vulnerability-hunter", Category: "crypto", Objective: "Hunt for cryptographic weaknesses: weak or misused algorithms, insecure randomness, missing integrity checks, improper key management, and TLS misconfiguration."},
+		SecurityScanTask{Name: "ssrf-and-network", Role: "vulnerability-hunter", Category: "ssrf", Objective: "Hunt for server-side request forgery and unsafe network egress: user-controlled URLs, open redirects, DNS rebinding exposure, and missing egress restrictions."},
+		SecurityScanTask{Name: "deserialization-and-parsing", Role: "vulnerability-hunter", Category: "deserialization", Objective: "Hunt for unsafe deserialization and parser abuse: untrusted data fed to deserializers, XML external entities, prototype pollution, and resource-exhausting parsers."},
+		SecurityScanTask{Name: "access-control-and-multitenancy", Role: "vulnerability-hunter", Category: "authz", Objective: "Hunt for access-control and tenant-isolation flaws: insecure direct object references, missing ownership checks, and cross-tenant data or resource leakage."},
+		SecurityScanTask{Name: "dependency-and-supply-chain", Role: "dependency-auditor", Category: "supply-chain", Objective: "Hunt for vulnerable or malicious dependencies, unpinned versions, typosquatting risk, and insecure build or release pipeline steps."},
+		SecurityScanTask{Name: "infrastructure-and-configuration", Role: "vulnerability-hunter", Category: "misconfiguration", Objective: "Hunt for insecure infrastructure and configuration: overly permissive RBAC or IAM, exposed debug endpoints, missing security headers, and unsafe container or deployment settings."},
+		SecurityScanTask{Name: "business-logic", Role: "vulnerability-hunter", Category: "logic-flaw", Objective: "Hunt for business-logic flaws: race conditions, state-machine bypasses, abuse of workflows (payments, quotas, invites), and missing server-side enforcement of invariants."},
+	)
 	dependsOn := make([]string, 0, len(tasks))
 	for _, task := range tasks {
 		dependsOn = append(dependsOn, task.Name)
@@ -461,6 +462,16 @@ type SecurityScanList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitzero"`
 	Items           []SecurityScan `json:"items"`
+}
+
+// EffectiveProvider returns the normalized runtime provider for these run
+// defaults: a provider prefix on model wins, with the legacy provider field
+// as the fallback for specs that still set it.
+func (d AgentRunDefaults) EffectiveProvider() string {
+	if prefix, _ := SplitProviderModel(d.Model); prefix != "" {
+		return prefix
+	}
+	return NormalizeProvider(d.Provider)
 }
 
 func init() {

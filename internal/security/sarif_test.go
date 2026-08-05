@@ -2,6 +2,7 @@ package security
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 )
 
@@ -70,7 +71,7 @@ func TestRenderSARIF(t *testing.T) {
 	if run.Tool.Driver.Rules[0].ID != "info-leak" || run.Tool.Driver.Rules[1].ID != "injection" {
 		t.Errorf("rule ids = %q, %q, want info-leak, injection", run.Tool.Driver.Rules[0].ID, run.Tool.Driver.Rules[1].ID)
 	}
-	if !containsString(run.Tool.Driver.Rules[1].Properties.Tags, "CWE-89") {
+	if !slices.Contains(run.Tool.Driver.Rules[1].Properties.Tags, "CWE-89") {
 		t.Errorf("injection rule tags = %v, want CWE-89", run.Tool.Driver.Rules[1].Properties.Tags)
 	}
 
@@ -137,13 +138,4 @@ func TestRenderSARIFEmpty(t *testing.T) {
 	if !ok || len(results) != 0 {
 		t.Errorf("results = %v, want empty array present", run["results"])
 	}
-}
-
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }

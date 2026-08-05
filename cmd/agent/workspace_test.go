@@ -219,3 +219,32 @@ func TestAdditionalRepoContextLine(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckoutPinnedRevision(t *testing.T) {
+	requireGit(t)
+
+	origin := newBareOrigin(t, "pinned")
+	seed := filepath.Join(t.TempDir(), "pinned-seed")
+	mustGit(t, "", "clone", "--quiet", origin, seed)
+	pinned := strings.TrimSpace(mustGit(t, seed, "rev-parse", "HEAD"))
+	writeFile(t, seed, "later.txt", "newer commit\n")
+	mustGit(t, seed, "add", "-A")
+	mustGit(t, seed, "commit", "--quiet", "-m", "later")
+	mustGit(t, seed, "push", "--quiet", "origin", "main")
+
+	repoDir := filepath.Join(t.TempDir(), "repo")
+	mustGit(t, "", "clone", "--quiet", "--branch", "main", origin, repoDir)
+
+	if err := checkoutPinnedRevision(repoDir, origin, pinned); err != nil {
+		t.Fatalf("checkoutPinnedRevision() error = %v", err)
+	}
+	if head := strings.TrimSpace(mustGit(t, repoDir, "rev-parse", "HEAD")); head != pinned {
+		t.Fatalf("HEAD = %s, want pinned revision %s", head, pinned)
+	}
+
+	if err := checkoutPinnedRevision(repoDir, origin, "0000000000000000000000000000000000000000"); err == nil {
+		t.Fatal("checkoutPinnedRevision(missing revision) = nil error, want failure")
+	} else if !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("checkoutPinnedRevision(missing revision) error = %v, want revision-not-found message", err)
+	}
+}

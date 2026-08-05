@@ -239,6 +239,16 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	s := setupSecurityTestStore(t)
 	ctx := context.Background()
 
+	scan := lifecycleTestScanUpserts(ctx, t, s)
+	finding, other := lifecycleTestFindingUpserts(ctx, t, s, scan)
+	lifecycleTestStatusTransitions(ctx, t, s, scan, finding)
+	lifecycleTestQueriesAndSummaries(ctx, t, s, finding)
+	lifecycleTestScanDeletion(ctx, t, s, finding, other)
+}
+
+func lifecycleTestScanUpserts(ctx context.Context, t *testing.T, s *Store) *store.SecurityScanRecord {
+	t.Helper()
+
 	missing, err := s.GetSecurityScan(ctx, "default", "no-such-run")
 	if err != nil || missing != nil {
 		t.Fatalf("GetSecurityScan(missing) = %v, %v, want nil, nil", missing, err)
@@ -275,6 +285,11 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	if err != nil || len(scans) != 1 {
 		t.Fatalf("ListSecurityScans = %d scans, %v, want 1, nil", len(scans), err)
 	}
+	return scan
+}
+
+func lifecycleTestFindingUpserts(ctx context.Context, t *testing.T, s *Store, scan *store.SecurityScanRecord) (finding, other *store.SecurityFindingRecord) {
+	t.Helper()
 
 	finding, created, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
 		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
@@ -326,7 +341,7 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertSecurityScan(weekly): %v", err)
 	}
-	other, created, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
+	other, created, err = s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
 		ScanID: weeklyScan.ID, Namespace: "default", ScanName: "weekly", RunName: "weekly-1",
 		Fingerprint: "fp-1", Title: "SQL injection", Category: "injection",
 		Severity: "medium", Repository: "org/repo", Score: 10,
@@ -337,6 +352,11 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	if !created || other.ID == finding.ID {
 		t.Errorf("same fingerprint under a different scan_name = created %v id %s, want new row", created, other.ID)
 	}
+	return finding, other
+}
+
+func lifecycleTestStatusTransitions(ctx context.Context, t *testing.T, s *Store, scan *store.SecurityScanRecord, finding *store.SecurityFindingRecord) {
+	t.Helper()
 
 	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, "bogus", "alice", ""); err == nil {
 		t.Error("SetSecurityFindingStatus(bogus) = nil error, want validation error")
@@ -363,6 +383,10 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	if reobserved.Status != "confirmed" {
 		t.Errorf("reobserved.Status = %q, want confirmed to survive re-observation", reobserved.Status)
 	}
+}
+
+func lifecycleTestQueriesAndSummaries(ctx context.Context, t *testing.T, s *Store, finding *store.SecurityFindingRecord) {
+	t.Helper()
 
 	got, err := s.GetSecurityFinding(ctx, "default", finding.ID)
 	if err != nil || got == nil || got.Status != "confirmed" {
@@ -374,7 +398,7 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	if crossEvents, err := s.ListSecurityFindingEvents(ctx, "other-ns", finding.ID, 0); err != nil || len(crossEvents) != 0 {
 		t.Fatalf("ListSecurityFindingEvents(wrong namespace) = %v, %v, want none", crossEvents, err)
 	}
-	events, err = s.ListSecurityFindingEvents(ctx, "default", finding.ID, 0)
+	events, err := s.ListSecurityFindingEvents(ctx, "default", finding.ID, 0)
 	if err != nil || len(events) != 3 || events[1].EventType != "status_changed" || events[1].Actor != "alice" {
 		t.Fatalf("events after status = %v, %v, want status_changed second-newest", events, err)
 	}
@@ -402,6 +426,10 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	if summary["medium"] != 1 || summary["open"] != 1 || summary["open_medium"] != 1 {
 		t.Errorf("summary(weekly) = %v, want medium=1 open=1 open_medium=1", summary)
 	}
+}
+
+func lifecycleTestScanDeletion(ctx context.Context, t *testing.T, s *Store, finding, other *store.SecurityFindingRecord) {
+	t.Helper()
 
 	if err := s.DeleteSecurityScanData(ctx, "default", "nightly"); err != nil {
 		t.Fatalf("DeleteSecurityScanData: %v", err)
@@ -409,7 +437,7 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	if err := s.DeleteSecurityScanData(ctx, "default", "nightly"); err != nil {
 		t.Fatalf("DeleteSecurityScanData(repeat) not idempotent: %v", err)
 	}
-	got, err = s.GetSecurityFinding(ctx, "default", finding.ID)
+	got, err := s.GetSecurityFinding(ctx, "default", finding.ID)
 	if err != nil || got != nil {
 		t.Fatalf("GetSecurityFinding after delete = %v, %v, want nil, nil", got, err)
 	}

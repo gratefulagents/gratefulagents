@@ -115,7 +115,7 @@ func TestDedupeSimilarityMerge(t *testing.T) {
 func TestDedupeCanonicalSelection(t *testing.T) {
 	mk := func(sev, conf string, evidence int, desc string) Finding {
 		f := Finding{Title: "same exact title tokens", Category: "other", Severity: sev, Confidence: conf, Description: desc}
-		for i := 0; i < evidence; i++ {
+		for range evidence {
 			f.Evidence = append(f.Evidence, Evidence{Snippet: "x"})
 		}
 		return f

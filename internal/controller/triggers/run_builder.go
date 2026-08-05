@@ -39,14 +39,17 @@ type TriggerRunSpec struct {
 	ExternalIdentifier string
 	ExternalURL        string
 	SeedMessage        string
-	Defaults           triggersv1alpha1.AgentRunDefaults
-	OwnerRef           client.Object
-	Scheme             *runtime.Scheme
-	Labels             map[string]string
-	Annotations        map[string]string
-	Context            *platformv1alpha1.AgentRunContext
-	ModeRef            *platformv1alpha1.ModeRef
-	GitHubTokenSecret  string
+	// Revision optionally pins the run's primary repository checkout to a
+	// specific commit, tag, or branch instead of the base branch head.
+	Revision          string
+	Defaults          triggersv1alpha1.AgentRunDefaults
+	OwnerRef          client.Object
+	Scheme            *runtime.Scheme
+	Labels            map[string]string
+	Annotations       map[string]string
+	Context           *platformv1alpha1.AgentRunContext
+	ModeRef           *platformv1alpha1.ModeRef
+	GitHubTokenSecret string
 	// OwnerID, when set, is recorded in the collaboration store as the run's
 	// owner so that user can manage the run (stop, delete, share) from the
 	// dashboard. Trigger-created runs without an owner are only manageable by
@@ -124,6 +127,7 @@ func BuildTriggerRun(spec TriggerRunSpec) *platformv1alpha1.AgentRun {
 		Repository: platformv1alpha1.RepositoryContext{
 			URL:             d.RepoURL,
 			BaseBranch:      d.BaseBranch,
+			Revision:        spec.Revision,
 			AdditionalRepos: append([]string(nil), d.AdditionalRepos...),
 		},
 		Context:        runContext,

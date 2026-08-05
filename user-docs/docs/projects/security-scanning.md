@@ -10,7 +10,7 @@ agentPrompt: >-
 
 A **SecurityScan** is a cluster resource that runs an autonomous, agent-driven security review of a git repository. Each scan creates an agent run that fans out focused vulnerability-hunting sub-agents, collects structured findings, deduplicates and ranks them, and produces a Markdown report and a SARIF file. Scans run once per spec change or on a cron schedule.
 
-You create SecurityScans with `kubectl apply`; results appear in the dashboard's **Security** pages and in the resource's status.
+You create and edit SecurityScans from the dashboard's **Security** pages (**Scan configurations** → **New scan**), or with `kubectl apply` if you prefer manifests. Findings and reports appear on the same pages and in the resource's status.
 
 ## What a scan is — and is not
 
@@ -57,7 +57,7 @@ spec:
   # Target
   repoURL: https://github.com/example/webapp.git
   baseBranch: main                    # default "main"
-  revision: ""                        # optional commit pin; empty = head of baseBranch at scan time
+  revision: ""                        # optional commit pin, checked out in the run sandbox; empty = head of baseBranch at scan time
   additionalRepos:                    # dependency repos cloned and scanned alongside the target
     - https://github.com/example/webapp-sdk.git
 

@@ -451,7 +451,7 @@ var stopwords = map[string]bool{
 
 func tokenize(s string) []string {
 	fields := strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
 	})
 	out := fields[:0]
 	for _, t := range fields {

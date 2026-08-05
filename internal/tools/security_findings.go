@@ -219,6 +219,47 @@ func (s *securityScanState) upsertFinding(ctx context.Context, rec *store.Securi
 	return &copied, true, nil
 }
 
+// memFindingMatches applies a SecurityFindingFilter to an in-memory record,
+// mirroring the SQL filtering in the Postgres store.
+func memFindingMatches(rec *store.SecurityFindingRecord, f store.SecurityFindingFilter) bool {
+	if f.Namespace != "" && rec.Namespace != f.Namespace {
+		return false
+	}
+	if f.ScanName != "" && rec.ScanName != f.ScanName {
+		return false
+	}
+	if f.RunName != "" && rec.RunName != f.RunName {
+		return false
+	}
+	if f.Repository != "" && rec.Repository != f.Repository {
+		return false
+	}
+	if f.Severity != "" && rec.Severity != f.Severity {
+		return false
+	}
+	if f.Category != "" && rec.Category != f.Category {
+		return false
+	}
+	if f.Status != "" && rec.Status != f.Status {
+		return false
+	}
+	if f.MinScore > 0 && rec.Score < f.MinScore {
+		return false
+	}
+	if !f.IncludeDuplicates && rec.DuplicateOf != nil {
+		return false
+	}
+	if f.Search != "" {
+		needle := strings.ToLower(f.Search)
+		if !strings.Contains(strings.ToLower(rec.Title), needle) &&
+			!strings.Contains(strings.ToLower(rec.Description), needle) &&
+			!strings.Contains(strings.ToLower(rec.FilePath), needle) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *securityScanState) listFindings(ctx context.Context, f store.SecurityFindingFilter) ([]store.SecurityFindingRecord, error) {
 	if s.findingStore != nil {
 		return s.findingStore.ListSecurityFindings(ctx, f)
@@ -234,42 +275,9 @@ func (s *securityScanState) listFindings(ctx context.Context, f store.SecurityFi
 	}
 	var out []store.SecurityFindingRecord
 	for _, rec := range s.mem {
-		if f.Namespace != "" && rec.Namespace != f.Namespace {
-			continue
+		if memFindingMatches(rec, f) {
+			out = append(out, *rec)
 		}
-		if f.ScanName != "" && rec.ScanName != f.ScanName {
-			continue
-		}
-		if f.RunName != "" && rec.RunName != f.RunName {
-			continue
-		}
-		if f.Repository != "" && rec.Repository != f.Repository {
-			continue
-		}
-		if f.Severity != "" && rec.Severity != f.Severity {
-			continue
-		}
-		if f.Category != "" && rec.Category != f.Category {
-			continue
-		}
-		if f.Status != "" && rec.Status != f.Status {
-			continue
-		}
-		if f.MinScore > 0 && rec.Score < f.MinScore {
-			continue
-		}
-		if !f.IncludeDuplicates && rec.DuplicateOf != nil {
-			continue
-		}
-		if f.Search != "" {
-			needle := strings.ToLower(f.Search)
-			if !strings.Contains(strings.ToLower(rec.Title), needle) &&
-				!strings.Contains(strings.ToLower(rec.Description), needle) &&
-				!strings.Contains(strings.ToLower(rec.FilePath), needle) {
-				continue
-			}
-		}
-		out = append(out, *rec)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Score != out[j].Score {
@@ -284,10 +292,7 @@ func (s *securityScanState) listFindings(ctx context.Context, f store.SecurityFi
 		}
 		return out[i].Fingerprint < out[j].Fingerprint
 	})
-	offset := f.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(f.Offset, 0)
 	if int(offset) >= len(out) {
 		return nil, nil
 	}
@@ -794,6 +799,83 @@ func securitySeverityBreakdown(b *strings.Builder, counts map[string]int32) {
 	fmt.Fprintf(b, "  total    %d\n", counts["total"])
 }
 
+// submitScanPolicy resolves the effective ranking rules and the human-readable
+// policy note for a report submission. Scan policy from the SecurityScan CRD
+// (via run annotations) always applies: the dedupe threshold comes from the
+// scan, and the effective minimum severity is the stricter of the scan's and
+// the model's.
+func submitScanPolicy(in submitSecurityScanReportInput, scanCtx SecurityScanContext, dedupeDesc string) (security.RankRules, string) {
+	rules := security.ParseRankRules(in.RankerRules)
+	minSource := "ranker rules"
+	if modelMin := strings.ToLower(strings.TrimSpace(in.MinSeverity)); modelMin != "" {
+		rules.MinSeverity = modelMin
+		minSource = "tool input"
+	}
+	if scanCtx.MinSeverity != "" && security.SeverityRank(scanCtx.MinSeverity) > security.SeverityRank(rules.MinSeverity) {
+		rules.MinSeverity = scanCtx.MinSeverity
+		minSource = "scan policy"
+	}
+	minDesc := "no minimum severity"
+	if rules.MinSeverity != "" {
+		minDesc = fmt.Sprintf("minimum severity %s from %s", rules.MinSeverity, minSource)
+	}
+	return rules, fmt.Sprintf("Policy applied: %s; %s.", minDesc, dedupeDesc)
+}
+
+// dedupeSubmittedFindings collapses findings per the scan's dedupe policy and
+// returns the canonical findings, the cluster count, and a policy description.
+func dedupeSubmittedFindings(findings []security.Finding, scanCtx SecurityScanContext) ([]security.Finding, int, string) {
+	if scanCtx.DedupePermille == 0 {
+		return findings, len(findings), "dedupe disabled by scan policy"
+	}
+	threshold := float64(0)
+	desc := "default dedupe threshold"
+	if scanCtx.DedupePermille > 0 {
+		threshold = float64(scanCtx.DedupePermille) / 1000
+		desc = fmt.Sprintf("dedupe threshold %.3f from scan policy", threshold)
+	}
+	clusters := security.Dedupe(findings, threshold)
+	canonical := make([]security.Finding, 0, len(clusters))
+	for _, c := range clusters {
+		canonical = append(canonical, c.Canonical)
+	}
+	return canonical, len(clusters), desc
+}
+
+// alreadyFinalizedResult renders the response for a repeat submit whose
+// findings are unchanged since the scan was completed.
+func alreadyFinalizedResult(scanName, priorSummary, policyNote string, counts map[string]int32) Result {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Security scan %q was already finalized and the findings are unchanged; keeping the existing report and completion time.\n", scanName)
+	fmt.Fprintf(&b, "Existing summary: %s\n", priorSummary)
+	securitySeverityBreakdown(&b, counts)
+	b.WriteString(policyNote)
+	return Result{Content: b.String()}
+}
+
+// loadPriorScanState fetches the prior scan record and current finding counts
+// from the persistent store, returning a non-nil done Result when the scan was
+// already finalized with unchanged findings.
+func (t *submitSecurityScanReportTool) loadPriorScanState(ctx context.Context, policyNote string) (priorScan *store.SecurityScanRecord, counts map[string]int32, done *Result, err error) {
+	scanCtx := t.state.scanCtx
+	if _, err := t.state.ensureScan(ctx); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to open the scan record: %v", err)
+	}
+	priorScan, err = t.state.findingStore.GetSecurityScan(ctx, scanCtx.Namespace, scanCtx.RunName)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to load scan record: %v", err)
+	}
+	counts, err = t.state.findingStore.SummarizeSecurityFindings(ctx, scanCtx.Namespace, scanCtx.ScanName, scanCtx.RunName)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to summarize findings: %v", err)
+	}
+	if priorScan != nil && priorScan.Status == "completed" && securityCountsEqual(counts, priorScan.Counts) {
+		res := alreadyFinalizedResult(scanCtx.ScanName, priorScan.Summary, policyNote, priorScan.Counts)
+		return priorScan, counts, &res, nil
+	}
+	return priorScan, counts, nil, nil
+}
+
 func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.RawMessage, _ string) (Result, error) {
 	var in submitSecurityScanReportInput
 	if err := json.Unmarshal(input, &in); err != nil {
@@ -819,49 +901,8 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 		findings = append(findings, securityFindingFromRecord(rec))
 	}
 
-	// Scan policy from the SecurityScan CRD (via run annotations) always
-	// applies: the dedupe threshold comes from the scan, and the effective
-	// minimum severity is the stricter of the scan's and the model's.
-	rules := security.ParseRankRules(in.RankerRules)
-	minSource := "ranker rules"
-	if modelMin := strings.ToLower(strings.TrimSpace(in.MinSeverity)); modelMin != "" {
-		rules.MinSeverity = modelMin
-		minSource = "tool input"
-	}
-	if scanCtx.MinSeverity != "" && security.SeverityRank(scanCtx.MinSeverity) > security.SeverityRank(rules.MinSeverity) {
-		rules.MinSeverity = scanCtx.MinSeverity
-		minSource = "scan policy"
-	}
-
-	var canonical []security.Finding
-	var clusterCount int
-	var dedupeDesc string
-	switch {
-	case scanCtx.DedupePermille == 0:
-		canonical = findings
-		clusterCount = len(findings)
-		dedupeDesc = "dedupe disabled by scan policy"
-	case scanCtx.DedupePermille > 0:
-		threshold := float64(scanCtx.DedupePermille) / 1000
-		clusters := security.Dedupe(findings, threshold)
-		for _, c := range clusters {
-			canonical = append(canonical, c.Canonical)
-		}
-		clusterCount = len(clusters)
-		dedupeDesc = fmt.Sprintf("dedupe threshold %.3f from scan policy", threshold)
-	default:
-		clusters := security.Dedupe(findings, 0)
-		for _, c := range clusters {
-			canonical = append(canonical, c.Canonical)
-		}
-		clusterCount = len(clusters)
-		dedupeDesc = "default dedupe threshold"
-	}
-	minDesc := "no minimum severity"
-	if rules.MinSeverity != "" {
-		minDesc = fmt.Sprintf("minimum severity %s from %s", rules.MinSeverity, minSource)
-	}
-	policyNote := fmt.Sprintf("Policy applied: %s; %s.", minDesc, dedupeDesc)
+	canonical, clusterCount, dedupeDesc := dedupeSubmittedFindings(findings, scanCtx)
+	rules, policyNote := submitScanPolicy(in, scanCtx, dedupeDesc)
 
 	ranked := security.Rank(canonical, rules)
 
@@ -881,24 +922,13 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 	var priorScan *store.SecurityScanRecord
 	var counts map[string]int32
 	if t.state.findingStore != nil {
-		if _, err := t.state.ensureScan(ctx); err != nil {
-			return Result{Content: fmt.Sprintf("failed to open the scan record: %v", err), IsError: true}, nil
-		}
-		priorScan, err = t.state.findingStore.GetSecurityScan(ctx, scanCtx.Namespace, scanCtx.RunName)
+		var done *Result
+		priorScan, counts, done, err = t.loadPriorScanState(ctx, policyNote)
 		if err != nil {
-			return Result{Content: fmt.Sprintf("failed to load scan record: %v", err), IsError: true}, nil
+			return Result{Content: err.Error(), IsError: true}, nil
 		}
-		counts, err = t.state.findingStore.SummarizeSecurityFindings(ctx, scanCtx.Namespace, scanCtx.ScanName, scanCtx.RunName)
-		if err != nil {
-			return Result{Content: fmt.Sprintf("failed to summarize findings: %v", err), IsError: true}, nil
-		}
-		if priorScan != nil && priorScan.Status == "completed" && securityCountsEqual(counts, priorScan.Counts) {
-			var b strings.Builder
-			fmt.Fprintf(&b, "Security scan %q was already finalized and the findings are unchanged; keeping the existing report and completion time.\n", scanCtx.ScanName)
-			fmt.Fprintf(&b, "Existing summary: %s\n", priorScan.Summary)
-			securitySeverityBreakdown(&b, priorScan.Counts)
-			b.WriteString(policyNote)
-			return Result{Content: b.String()}, nil
+		if done != nil {
+			return *done, nil
 		}
 		if priorScan != nil && priorScan.StartedAt != nil {
 			reportInput.StartedAt = *priorScan.StartedAt
@@ -910,12 +940,7 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 		priorSummary := t.state.memSummary
 		t.state.mu.Unlock()
 		if alreadyDone {
-			var b strings.Builder
-			fmt.Fprintf(&b, "Security scan %q was already finalized and the findings are unchanged; keeping the existing report and completion time.\n", scanCtx.ScanName)
-			fmt.Fprintf(&b, "Existing summary: %s\n", priorSummary)
-			securitySeverityBreakdown(&b, counts)
-			b.WriteString(policyNote)
-			return Result{Content: b.String()}, nil
+			return alreadyFinalizedResult(scanCtx.ScanName, priorSummary, policyNote, counts), nil
 		}
 	}
 

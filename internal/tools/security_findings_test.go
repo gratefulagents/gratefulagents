@@ -639,7 +639,7 @@ func TestSecurityFindingInMemoryFallback(t *testing.T) {
 	}
 
 	fingerprint := ""
-	for _, line := range strings.Split(list.Content, "\n") {
+	for line := range strings.SplitSeq(list.Content, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) > 0 && len(fields[0]) == 16 && fields[0] != "FINGERPRINT" {
 			fingerprint = fields[0]

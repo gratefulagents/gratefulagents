@@ -188,6 +188,9 @@ func TestSecurityScanReconcileCreatedRunCarriesScanMetadataOwnerAndDefaultMode(t
 	if run.Annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] != scan.Spec.Revision {
 		t.Fatalf("revision annotation = %q, want %q", run.Annotations[triggersv1alpha1.SecurityScanRevisionAnnotation], scan.Spec.Revision)
 	}
+	if run.Spec.Repository.Revision != scan.Spec.Revision {
+		t.Fatalf("Spec.Repository.Revision = %q, want pinned revision %q", run.Spec.Repository.Revision, scan.Spec.Revision)
+	}
 	if len(run.OwnerReferences) != 1 || run.OwnerReferences[0].Kind != securityScanKind || run.OwnerReferences[0].Name != scan.Name {
 		t.Fatalf("OwnerReferences = %#v, want SecurityScan/%s", run.OwnerReferences, scan.Name)
 	}

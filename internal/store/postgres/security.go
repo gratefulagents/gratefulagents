@@ -213,12 +213,13 @@ const securityFindingColumns = `id, scan_id, namespace, scan_name, run_name, ses
 
 func scanSecurityFindingRow(row pgx.Row, extra ...any) (*store.SecurityFindingRecord, error) {
 	var rec store.SecurityFindingRecord
-	dest := []any{&rec.ID, &rec.ScanID, &rec.Namespace, &rec.ScanName, &rec.RunName, &rec.SessionID,
+	dest := make([]any, 0, 32+len(extra))
+	dest = append(dest, &rec.ID, &rec.ScanID, &rec.Namespace, &rec.ScanName, &rec.RunName, &rec.SessionID,
 		&rec.Fingerprint, &rec.Title, &rec.Category, &rec.Severity, &rec.Confidence, &rec.Repository,
 		&rec.Revision, &rec.FilePath, &rec.StartLine, &rec.EndLine, &rec.Symbol, &rec.CWE,
 		&rec.Description, &rec.Impact, &rec.AttackVector, &rec.Remediation, &rec.References,
 		&rec.SourceAgent, &rec.ScanStep, &rec.Score, &rec.Status, &rec.DuplicateOf,
-		&rec.Occurrences, &rec.Raw, &rec.FirstSeenAt, &rec.LastSeenAt}
+		&rec.Occurrences, &rec.Raw, &rec.FirstSeenAt, &rec.LastSeenAt)
 	dest = append(dest, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
@@ -253,7 +254,7 @@ func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFi
 	if err != nil {
 		return nil, false, fmt.Errorf("beginning finding upsert: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// xmax = 0 distinguishes a fresh insert from a conflict-update: updated
 	// rows carry the deleting/locking transaction id in xmax. This is a
@@ -329,10 +330,7 @@ func (s *Store) ListSecurityFindings(ctx context.Context, f store.SecurityFindin
 	where, args := securityFindingFilterSQL(f)
 	args = append(args, securityLimit(f.Limit, 200, 1000))
 	limitPos := len(args)
-	offset := f.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(f.Offset, 0)
 	args = append(args, offset)
 	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
 		SELECT %s
@@ -397,7 +395,7 @@ func (s *Store) SetSecurityFindingStatus(ctx context.Context, namespace string, 
 	if err != nil {
 		return fmt.Errorf("beginning status update: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var previous string
 	err = tx.QueryRow(ctx, setSecurityFindingStatusSQL, namespace, id, status).Scan(&previous)
@@ -526,7 +524,7 @@ func (s *Store) DeleteSecurityScanData(ctx context.Context, namespace, scanName 
 	if err != nil {
 		return fmt.Errorf("beginning security scan delete: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	// Finding events cascade from findings; findings are deleted explicitly
 	// (rather than relying on the scan_id cascade) so rows re-attributed to
 	// a later run of the same scan are removed too.

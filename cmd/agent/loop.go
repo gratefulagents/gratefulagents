@@ -226,7 +226,8 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		// tools then fall back to an in-memory finding buffer for this run.
 		securityFindingStore, _ := sc.StateStore().(store.SecurityFindingStore)
 		tools.RegisterSecurityScanTools(toolRegistry, securityFindingStore, sc.StateStore(), scanCtx)
-		log.Printf("security scan tools enabled for scan %q (persistent findings: %t)", scanCtx.ScanName, securityFindingStore != nil)
+		log.Printf("security scan tools enabled for scan %q (persistent findings: %t)",
+			scanCtx.ScanName, securityFindingStore != nil)
 	}
 	// Skills use progressive disclosure: advertise only names and summaries,
 	// then load full instructions into context when the model chooses one.

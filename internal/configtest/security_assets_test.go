@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -72,14 +73,7 @@ func TestSecurityScanModeTemplateAsset(t *testing.T) {
 	// the read-only clamp or no finding can ever be recorded.
 	wantTools := []string{"report_security_finding", "update_security_finding", "submit_security_scan_report"}
 	for _, tool := range wantTools {
-		found := false
-		for _, allowed := range mode.Spec.AllowedMutatingTools {
-			if allowed == tool {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(mode.Spec.AllowedMutatingTools, tool) {
 			t.Errorf("allowedMutatingTools must include %q, got %v", tool, mode.Spec.AllowedMutatingTools)
 		}
 	}
