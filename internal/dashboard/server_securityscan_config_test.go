@@ -469,3 +469,119 @@ func TestListAndGetSecurityScanConfigsExposeSpecAndStatus(t *testing.T) {
 		t.Fatalf("ListSecurityScanConfigs = %+v", list.Configs)
 	}
 }
+
+func TestRunSecurityScanNowStampsAnnotationToken(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: ns},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+	}
+	srv, c := newCronTestServer(t, existing)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "nightly", ns, testProjectSubject); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	resp, err := srv.RunSecurityScanNow(projectActorCtx(),
+		&platform.RunSecurityScanNowRequest{Namespace: ns, Name: "nightly"})
+	if err != nil {
+		t.Fatalf("RunSecurityScanNow() error = %v", err)
+	}
+	if resp.Namespace != ns || resp.Name != "nightly" {
+		t.Fatalf("resp = %s/%s, want %s/nightly", resp.Namespace, resp.Name, ns)
+	}
+
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "nightly"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	first := cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation]
+	if first == "" {
+		t.Fatalf("run-now annotation not set: %#v", cr.Annotations)
+	}
+
+	// A later request stamps a fresh token; the spec is untouched.
+	time.Sleep(time.Millisecond)
+	if _, err := srv.RunSecurityScanNow(projectActorCtx(),
+		&platform.RunSecurityScanNowRequest{Namespace: ns, Name: "nightly"}); err != nil {
+		t.Fatalf("second RunSecurityScanNow() error = %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "nightly"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if second := cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation]; second == "" || second == first {
+		t.Fatalf("second token = %q, want a fresh token different from %q", second, first)
+	}
+	if cr.Spec.RepoURL != "https://github.com/example/app.git" || cr.Spec.Suspend {
+		t.Fatalf("spec was modified: %+v", cr.Spec)
+	}
+}
+
+func TestRunSecurityScanNowDeniedForStranger(t *testing.T) {
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "owned", Namespace: "default"},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+	}
+	srv, c := newCronTestServer(t, existing)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "owned", "default", "alice"); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	_, err := srv.RunSecurityScanNow(actorContext("mallory", "member", "", ""),
+		&platform.RunSecurityScanNowRequest{Namespace: "default", Name: "owned"})
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("RunSecurityScanNow by stranger: want PermissionDenied, got %v", err)
+	}
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "owned"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] != "" {
+		t.Fatalf("annotation stamped despite denial: %#v", cr.Annotations)
+	}
+}
+
+func TestRunSecurityScanNowNotFound(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	_, err := srv.RunSecurityScanNow(projectActorCtx(),
+		&platform.RunSecurityScanNowRequest{Namespace: "default", Name: "missing"})
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("RunSecurityScanNow() error = %v, want NotFound", err)
+	}
+}
+
+func TestRunSecurityScanNowRejectsSuspendedScan(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "paused", Namespace: ns},
+		Spec: triggersv1alpha1.SecurityScanSpec{
+			RepoURL: "https://github.com/example/app.git",
+			Suspend: true,
+		},
+	}
+	srv, c := newCronTestServer(t, existing)
+
+	_, err := srv.RunSecurityScanNow(projectActorCtx(),
+		&platform.RunSecurityScanNowRequest{Namespace: ns, Name: "paused"})
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("RunSecurityScanNow(suspended) error = %v, want FailedPrecondition", err)
+	}
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "paused"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] != "" {
+		t.Fatalf("annotation stamped on suspended scan: %#v", cr.Annotations)
+	}
+}
+
+func TestRunSecurityScanNowValidatesRequest(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	_, err := srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{Namespace: "", Name: ""})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("RunSecurityScanNow() error = %v, want InvalidArgument", err)
+	}
+}

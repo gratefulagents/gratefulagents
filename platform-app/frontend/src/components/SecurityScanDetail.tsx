@@ -17,6 +17,7 @@ import {
 import {
   SEVERITIES, SeverityBadge, severityTone,
 } from "@/components/SecurityScanList";
+import { SecurityScanRunPanel } from "@/components/SecurityScanRunPanel";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { downloadBlob } from "@/lib/download";
@@ -154,6 +155,13 @@ export function SecurityScanDetail() {
 
   const selected = findings.find((f) => f.id === selectedId) ?? null;
 
+  // When the linked AgentRun reaches a terminal phase, re-fetch the persisted
+  // scan row, summary, and findings so no stale state lingers on screen.
+  const handleRunSettled = useCallback(() => {
+    void fetchScan();
+    void fetchFindings();
+  }, [fetchScan, fetchFindings]);
+
   async function downloadReport(format: "markdown" | "sarif") {
     if (!namespace || !runName) return;
     setReportNotice(null);
@@ -283,6 +291,14 @@ export function SecurityScanDetail() {
               />
             ))}
           </StatBar>
+
+          {namespace && runName && (
+            <SecurityScanRunPanel
+              namespace={namespace}
+              runName={runName}
+              onRunSettled={handleRunSettled}
+            />
+          )}
 
           {scan.summary && (
             <DetailSection title="Scan Summary">

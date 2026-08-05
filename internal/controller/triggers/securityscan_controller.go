@@ -105,10 +105,101 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
+	if token := pendingManualRunToken(scan); token != "" {
+		return r.reconcileRunNow(ctx, scan, token)
+	}
+
 	if strings.TrimSpace(scan.Spec.Schedule) == "" {
 		return r.reconcileOneShot(ctx, scan)
 	}
 	return r.reconcileScheduled(ctx, scan)
+}
+
+// pendingManualRunToken returns the run-now annotation token when it has not
+// been consumed yet. Suspended scans never reach this point: the suspend
+// branch returns earlier, so a pending token is processed on resume.
+func pendingManualRunToken(scan *triggersv1alpha1.SecurityScan) string {
+	token := strings.TrimSpace(scan.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation])
+	if token == "" || token == scan.Status.LastManualRunToken {
+		return ""
+	}
+	return token
+}
+
+// reconcileRunNow processes a manual run-now request. The request is
+// idempotent and durable across controller restarts: the run name is derived
+// deterministically from the token, so a crash between run creation and the
+// status update re-enters here and CreateTriggerRun observes AlreadyExists
+// instead of creating a second run; the consumed token lives in status, never
+// in memory. Under concurrencyPolicy Forbid (or empty) an active run consumes
+// the token without creating a run and reports ConcurrencyBlocked.
+func (r *SecurityScanReconciler) reconcileRunNow(ctx context.Context, scan *triggersv1alpha1.SecurityScan, token string) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	externalID := "manual-" + securityScanManualRunSuffix(token)
+
+	if scan.Spec.ConcurrencyPolicy == "" || scan.Spec.ConcurrencyPolicy == triggersv1alpha1.SecurityScanConcurrencyForbid {
+		activeRun, err := r.activeScanRun(ctx, scan, externalID)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if activeRun != nil {
+			msg := fmt.Sprintf("manual run skipped: previous run %s still active", activeRun.Name)
+			log.Info("skipping manual scan AgentRun because previous run is still active", "activeRun", activeRun.Name)
+			if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
+				fresh.Status.LastManualRunToken = token
+				fresh.Status.LastError = msg
+				setSecurityScanCondition(fresh, metav1.ConditionFalse, "ConcurrencyBlocked", msg)
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+	}
+
+	runName := securityScanRunName(scan.Name, externalID)
+	created, err := r.createScanRun(ctx, scan, runName, externalID, externalID)
+	if err != nil {
+		log.Error(err, "failed to create manual scan AgentRun", "run", runName)
+		if statusErr := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+			fresh.Status.LastError = err.Error()
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, "CreateRunFailed", err.Error())
+		}); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	now := metav1.NewTime(r.now())
+	generation := scan.Generation
+	oneShot := strings.TrimSpace(scan.Spec.Schedule) == ""
+	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
+		fresh.Status.Phase = "Running"
+		fresh.Status.LastRunName = runName
+		fresh.Status.LastScanTime = &now
+		fresh.Status.LastManualRunToken = token
+		fresh.Status.LastError = ""
+		if oneShot {
+			// The manual run satisfies the current generation, so the
+			// run-once-per-generation path does not immediately start a
+			// second, overlapping run.
+			fresh.Status.ObservedGeneration = generation
+		}
+		if created {
+			fresh.Status.RunsCreated++
+			fresh.Status.ManualRunsCreated++
+		}
+		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ManualRunStarted", "Manual scan AgentRun created")
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// securityScanManualRunSuffix derives a short deterministic run-name suffix
+// from a run-now token, which is opaque and not DNS-safe.
+func securityScanManualRunSuffix(token string) string {
+	hashBytes := sha1.Sum([]byte(token))
+	return hex.EncodeToString(hashBytes[:])[:10]
 }
 
 // reconcileDeletion purges persisted findings before releasing the cleanup
@@ -268,7 +359,7 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 	}
 
 	if scan.Spec.ConcurrencyPolicy == "" || scan.Spec.ConcurrencyPolicy == triggersv1alpha1.SecurityScanConcurrencyForbid {
-		activeRun, err := r.activeScanRun(ctx, scan, scheduledTime)
+		activeRun, err := r.activeScanRun(ctx, scan, scheduledTime.UTC().Format(time.RFC3339))
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -404,18 +495,20 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 	return created, err
 }
 
-func (r *SecurityScanReconciler) activeScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, scheduledTime time.Time) (*platformv1alpha1.AgentRun, error) {
+// activeScanRun returns a non-terminal AgentRun owned by this scan, ignoring
+// the run identified by excludeExternalID (the run the caller is about to
+// create or may have already created for the current tick or manual request).
+func (r *SecurityScanReconciler) activeScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, excludeExternalID string) (*platformv1alpha1.AgentRun, error) {
 	runs := &platformv1alpha1.AgentRunList{}
 	if err := r.List(ctx, runs, client.InNamespace(scan.Namespace), client.MatchingLabels{securityScanLabel: securityScanLabelValue(scan.Name)}); err != nil {
 		return nil, fmt.Errorf("listing AgentRuns: %w", err)
 	}
-	scheduledID := scheduledTime.UTC().Format(time.RFC3339)
 	for i := range runs.Items {
 		run := &runs.Items[i]
 		if !TriggerRunMatches(run, securityScanKind, scan.Name) {
 			continue
 		}
-		if run.Spec.Trigger.ExternalRef != nil && strings.TrimSpace(run.Spec.Trigger.ExternalRef.ID) == scheduledID {
+		if run.Spec.Trigger.ExternalRef != nil && strings.TrimSpace(run.Spec.Trigger.ExternalRef.ID) == excludeExternalID {
 			continue
 		}
 		if !isCronRunTerminal(run.Status.Phase) {

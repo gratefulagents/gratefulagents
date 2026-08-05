@@ -539,6 +539,9 @@ const (
 	// PlatformServiceDeleteSecurityScanProcedure is the fully-qualified name of the PlatformService's
 	// DeleteSecurityScan RPC.
 	PlatformServiceDeleteSecurityScanProcedure = "/platform.v1.PlatformService/DeleteSecurityScan"
+	// PlatformServiceRunSecurityScanNowProcedure is the fully-qualified name of the PlatformService's
+	// RunSecurityScanNow RPC.
+	PlatformServiceRunSecurityScanNowProcedure = "/platform.v1.PlatformService/RunSecurityScanNow"
 	// PlatformServiceGetSecurityOverviewProcedure is the fully-qualified name of the PlatformService's
 	// GetSecurityOverview RPC.
 	PlatformServiceGetSecurityOverviewProcedure = "/platform.v1.PlatformService/GetSecurityOverview"
@@ -792,6 +795,12 @@ type PlatformServiceClient interface {
 	CreateSecurityScan(context.Context, *connect.Request[platform.CreateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	UpdateSecurityScan(context.Context, *connect.Request[platform.UpdateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	DeleteSecurityScan(context.Context, *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error)
+	// RunSecurityScanNow requests an immediate run of a configured SecurityScan
+	// without editing its spec. The dashboard stamps a run-now annotation token
+	// on the CR; the controller creates at most one run per token (recorded in
+	// status), so retried or concurrent duplicate requests never double-run.
+	// Suspended scans are rejected with FailedPrecondition.
+	RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	// GetSecurityOverview aggregates a namespace's security posture for the
 	// dashboard overview page: active and recent scan runs, open finding
 	// counts, and scan configurations that are failing or blocked.
@@ -1826,6 +1835,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityScan")),
 			connect.WithClientOptions(opts...),
 		),
+		runSecurityScanNow: connect.NewClient[platform.RunSecurityScanNowRequest, platform.SecurityScanConfig](
+			httpClient,
+			baseURL+PlatformServiceRunSecurityScanNowProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("RunSecurityScanNow")),
+			connect.WithClientOptions(opts...),
+		),
 		getSecurityOverview: connect.NewClient[platform.GetSecurityOverviewRequest, platform.GetSecurityOverviewResponse](
 			httpClient,
 			baseURL+PlatformServiceGetSecurityOverviewProcedure,
@@ -2012,6 +2027,7 @@ type platformServiceClient struct {
 	createSecurityScan                     *connect.Client[platform.CreateSecurityScanRequest, platform.SecurityScanConfig]
 	updateSecurityScan                     *connect.Client[platform.UpdateSecurityScanRequest, platform.SecurityScanConfig]
 	deleteSecurityScan                     *connect.Client[platform.DeleteSecurityScanRequest, emptypb.Empty]
+	runSecurityScanNow                     *connect.Client[platform.RunSecurityScanNowRequest, platform.SecurityScanConfig]
 	getSecurityOverview                    *connect.Client[platform.GetSecurityOverviewRequest, platform.GetSecurityOverviewResponse]
 	getSecurityScanReport                  *connect.Client[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse]
 }
@@ -2865,6 +2881,11 @@ func (c *platformServiceClient) DeleteSecurityScan(ctx context.Context, req *con
 	return c.deleteSecurityScan.CallUnary(ctx, req)
 }
 
+// RunSecurityScanNow calls platform.v1.PlatformService.RunSecurityScanNow.
+func (c *platformServiceClient) RunSecurityScanNow(ctx context.Context, req *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	return c.runSecurityScanNow.CallUnary(ctx, req)
+}
+
 // GetSecurityOverview calls platform.v1.PlatformService.GetSecurityOverview.
 func (c *platformServiceClient) GetSecurityOverview(ctx context.Context, req *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error) {
 	return c.getSecurityOverview.CallUnary(ctx, req)
@@ -3120,6 +3141,12 @@ type PlatformServiceHandler interface {
 	CreateSecurityScan(context.Context, *connect.Request[platform.CreateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	UpdateSecurityScan(context.Context, *connect.Request[platform.UpdateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	DeleteSecurityScan(context.Context, *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error)
+	// RunSecurityScanNow requests an immediate run of a configured SecurityScan
+	// without editing its spec. The dashboard stamps a run-now annotation token
+	// on the CR; the controller creates at most one run per token (recorded in
+	// status), so retried or concurrent duplicate requests never double-run.
+	// Suspended scans are rejected with FailedPrecondition.
+	RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	// GetSecurityOverview aggregates a namespace's security posture for the
 	// dashboard overview page: active and recent scan runs, open finding
 	// counts, and scan configurations that are failing or blocked.
@@ -4150,6 +4177,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityScan")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceRunSecurityScanNowHandler := connect.NewUnaryHandler(
+		PlatformServiceRunSecurityScanNowProcedure,
+		svc.RunSecurityScanNow,
+		connect.WithSchema(platformServiceMethods.ByName("RunSecurityScanNow")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceGetSecurityOverviewHandler := connect.NewUnaryHandler(
 		PlatformServiceGetSecurityOverviewProcedure,
 		svc.GetSecurityOverview,
@@ -4502,6 +4535,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceUpdateSecurityScanHandler.ServeHTTP(w, r)
 		case PlatformServiceDeleteSecurityScanProcedure:
 			platformServiceDeleteSecurityScanHandler.ServeHTTP(w, r)
+		case PlatformServiceRunSecurityScanNowProcedure:
+			platformServiceRunSecurityScanNowHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityOverviewProcedure:
 			platformServiceGetSecurityOverviewHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanReportProcedure:
@@ -5189,6 +5224,10 @@ func (UnimplementedPlatformServiceHandler) UpdateSecurityScan(context.Context, *
 
 func (UnimplementedPlatformServiceHandler) DeleteSecurityScan(context.Context, *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityScan is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.RunSecurityScanNow is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GetSecurityOverview(context.Context, *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error) {

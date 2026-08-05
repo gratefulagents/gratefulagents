@@ -772,6 +772,13 @@ spec:
                 description: lastError contains the error message from the most recent
                   failed operation.
                 type: string
+              lastManualRunToken:
+                description: |-
+                  lastManualRunToken is the most recent run-now annotation token the
+                  controller has processed. A token equal to this value never creates
+                  another run, making manual run requests idempotent across controller
+                  restarts.
+                type: string
               lastRunName:
                 description: lastRunName is the AgentRun name most recently created
                   by this scan.
@@ -781,6 +788,12 @@ spec:
                   created.
                 format: date-time
                 type: string
+              manualRunsCreated:
+                description: |-
+                  manualRunsCreated is the cumulative number of AgentRuns created from
+                  run-now requests (a subset of runsCreated).
+                format: int32
+                type: integer
               nextScheduleTime:
                 description: |-
                   nextScheduleTime is the next schedule instant the controller expects to

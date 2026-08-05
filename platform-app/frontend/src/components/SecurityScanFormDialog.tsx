@@ -119,6 +119,16 @@ function initialSpec(config?: SecurityScanConfig): SpecState {
   };
 }
 
+// initialDialogSpec prefills the form from `source`; in duplicate mode the
+// name is cleared so the user must choose a new one.
+function initialDialogSpec(source: SecurityScanConfig | undefined, isDuplicate: boolean): SpecState {
+  const spec = initialSpec(source);
+  if (isDuplicate) {
+    spec.name = "";
+  }
+  return spec;
+}
+
 function initialTasks(config?: SecurityScanConfig): TaskState[] {
   return (config?.spec?.workflow ?? []).map((t) => ({
     name: t.name,
@@ -185,33 +195,40 @@ function reportingSummary(spec: SpecState): string {
 
 /**
  * Create/edit dialog for SecurityScan triggers. Pass `config` to edit an
- * existing scan; omit it to create a new one.
+ * existing scan; pass `duplicateFrom` to create a new scan pre-filled from an
+ * existing one (the form is the review step — nothing is created until the
+ * user confirms, and creation can never overwrite the source scan or its
+ * findings); omit both to create a new one from scratch.
  */
 export function SecurityScanFormDialog({
   config,
+  duplicateFrom,
   trigger,
   defaultOpen = false,
   onSaved,
 }: {
   config?: SecurityScanConfig;
+  duplicateFrom?: SecurityScanConfig;
   trigger: React.ReactElement;
   defaultOpen?: boolean;
   onSaved?: (config: SecurityScanConfig) => void;
 }) {
   const isEdit = Boolean(config);
+  const isDuplicate = !isEdit && Boolean(duplicateFrom);
+  const source = config ?? duplicateFrom;
   const [open, setOpen] = useState(defaultOpen);
-  const [spec, setSpec] = useState<SpecState>(() => initialSpec(config));
-  const [tasks, setTasks] = useState<TaskState[]>(() => initialTasks(config));
-  const [rankers, setRankers] = useState<RankerState[]>(() => initialRankers(config));
-  const [postScripts, setPostScripts] = useState<PostScriptState[]>(() => initialPostScripts(config));
+  const [spec, setSpec] = useState<SpecState>(() => initialDialogSpec(source, isDuplicate));
+  const [tasks, setTasks] = useState<TaskState[]>(() => initialTasks(source));
+  const [rankers, setRankers] = useState<RankerState[]>(() => initialRankers(source));
+  const [postScripts, setPostScripts] = useState<PostScriptState[]>(() => initialPostScripts(source));
   const [defaults, setDefaults] = useState<AgentRunDefaults>(
-    () => config?.spec?.defaults ?? emptyDefaults(),
+    () => source?.spec?.defaults ?? emptyDefaults(),
   );
   const [policies, setPolicies] = useState<TriggerPolicies>(() =>
-    resolvedTriggerPolicies(configPolicySource(config)),
+    resolvedTriggerPolicies(configPolicySource(source)),
   );
   const [useSavedCredentials, setUseSavedCredentials] = useState(() =>
-    config ? scanConfigUsesSavedCredentials(config) : true,
+    source ? scanConfigUsesSavedCredentials(source) : true,
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,13 +238,13 @@ export function SecurityScanFormDialog({
   }
 
   function reset() {
-    setSpec(initialSpec(config));
-    setTasks(initialTasks(config));
-    setRankers(initialRankers(config));
-    setPostScripts(initialPostScripts(config));
-    setDefaults(config?.spec?.defaults ?? emptyDefaults());
-    setPolicies(resolvedTriggerPolicies(configPolicySource(config)));
-    setUseSavedCredentials(config ? scanConfigUsesSavedCredentials(config) : true);
+    setSpec(initialDialogSpec(source, isDuplicate));
+    setTasks(initialTasks(source));
+    setRankers(initialRankers(source));
+    setPostScripts(initialPostScripts(source));
+    setDefaults(source?.spec?.defaults ?? emptyDefaults());
+    setPolicies(resolvedTriggerPolicies(configPolicySource(source)));
+    setUseSavedCredentials(source ? scanConfigUsesSavedCredentials(source) : true);
     setError(null);
   }
 
@@ -300,6 +317,10 @@ export function SecurityScanFormDialog({
       setError("Give the scan a repository URL to analyze.");
       return;
     }
+    if (isDuplicate && !spec.name.trim()) {
+      setError("Give the duplicated scan a new name.");
+      return;
+    }
     setSubmitting(true);
     try {
       const requestSpec = buildSpec();
@@ -351,13 +372,19 @@ export function SecurityScanFormDialog({
                 <ShieldAlert className="size-4" />
               </span>
               <DialogTitle className="text-base">
-                {isEdit ? `Edit ${config?.name}` : "New security scan"}
+                {isEdit
+                  ? `Edit ${config?.name}`
+                  : isDuplicate
+                    ? `Duplicate ${duplicateFrom?.name}`
+                    : "New security scan"}
               </DialogTitle>
             </div>
             <DialogDescription>
               {isEdit
                 ? "Saving replaces the scan's spec with the values below."
-                : "Scan a repository for vulnerabilities, once or on a schedule."}
+                : isDuplicate
+                  ? "Review the copied settings and pick a new name. A new scan is created; the source scan and its findings are untouched."
+                  : "Scan a repository for vulnerabilities, once or on a schedule."}
             </DialogDescription>
           </DialogHeader>
 
@@ -402,12 +429,22 @@ export function SecurityScanFormDialog({
 
             {!isEdit ? (
               <div className="grid gap-4 sm:grid-cols-2">
-                <FlowField id="scan-name" label="Name" hint="Optional — derived automatically if empty.">
+                <FlowField
+                  id="scan-name"
+                  label="Name"
+                  required={isDuplicate}
+                  hint={
+                    isDuplicate
+                      ? "Required — the duplicate needs its own name."
+                      : "Optional — derived automatically if empty."
+                  }
+                >
                   <Input
                     id="scan-name"
                     value={spec.name}
                     onChange={(event) => update("name", event.target.value)}
-                    placeholder="nightly-payments-scan"
+                    placeholder={isDuplicate ? `${duplicateFrom?.name}-copy` : "nightly-payments-scan"}
+                    required={isDuplicate}
                   />
                 </FlowField>
               </div>

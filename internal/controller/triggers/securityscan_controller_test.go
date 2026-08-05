@@ -763,3 +763,228 @@ func assertSecurityScanCondition(t *testing.T, scan *triggersv1alpha1.SecuritySc
 	}
 	t.Fatalf("Ready condition missing from %#v", scan.Status.Conditions)
 }
+
+// securityScanWithRunNowToken returns a scheduled scan whose next tick is far
+// in the future (so only the run-now path can create runs) carrying the given
+// run-now annotation token.
+func securityScanWithRunNowToken(now time.Time, token string) *triggersv1alpha1.SecurityScan {
+	next := metav1.NewTime(now.Add(time.Hour))
+	scan := securityScanTestScan()
+	scan.Spec.Schedule = "0 3 * * *"
+	scan.Status.ObservedSchedule = scan.Spec.Schedule
+	scan.Status.ObservedTimeZone = "UTC"
+	scan.Status.NextScheduleTime = &next
+	scan.Annotations = map[string]string{triggersv1alpha1.SecurityScanRunNowAnnotation: token}
+	return scan
+}
+
+func annotateSecurityScanRunNow(t *testing.T, k8sClient client.Client, scan *triggersv1alpha1.SecurityScan, token string) {
+	t.Helper()
+	fresh := getSecurityScan(t, k8sClient, scan)
+	if fresh.Annotations == nil {
+		fresh.Annotations = map[string]string{}
+	}
+	fresh.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] = token
+	if err := k8sClient.Update(context.Background(), fresh); err != nil {
+		t.Fatalf("Update(SecurityScan) error = %v", err)
+	}
+}
+
+func TestSecurityScanRunNowCreatesRunOncePerToken(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanWithRunNowToken(now, "tok-1")
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(runs))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastManualRunToken != "tok-1" {
+		t.Fatalf("LastManualRunToken = %q, want tok-1", updated.Status.LastManualRunToken)
+	}
+	if updated.Status.ManualRunsCreated != 1 || updated.Status.RunsCreated != 1 {
+		t.Fatalf("ManualRunsCreated = %d, RunsCreated = %d, want 1 and 1",
+			updated.Status.ManualRunsCreated, updated.Status.RunsCreated)
+	}
+	if updated.Status.Phase != "Running" || updated.Status.LastRunName != runs[0].Name {
+		t.Fatalf("Phase = %q, LastRunName = %q, want Running and %q",
+			updated.Status.Phase, updated.Status.LastRunName, runs[0].Name)
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionTrue, "ManualRunStarted")
+
+	// A second reconcile with the consumed token creates nothing.
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("second Reconcile() error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns after second reconcile = %d, want 1", len(got))
+	}
+}
+
+func TestSecurityScanRunNowTokenSurvivesControllerRestart(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanWithRunNowToken(now, "tok-restart")
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	// A brand-new reconciler (controller restart) sees the consumed token in
+	// status, not in memory, and never creates a second run.
+	restarted := &SecurityScanReconciler{
+		Client:     k8sClient,
+		Scheme:     reconciler.Scheme,
+		StateStore: newSeedTestStore(),
+		Now:        func() time.Time { return now },
+	}
+	if _, err := restarted.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("restarted Reconcile() error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(got))
+	}
+	if updated := getSecurityScan(t, k8sClient, scan); updated.Status.ManualRunsCreated != 1 {
+		t.Fatalf("ManualRunsCreated = %d, want 1", updated.Status.ManualRunsCreated)
+	}
+}
+
+func TestSecurityScanRunNowIdempotentAfterCrashBeforeStatusWrite(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanWithRunNowToken(now, "tok-crash")
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	// Simulate a crash after the run was created but before the token was
+	// recorded: clear the consumed token and reconcile again. The run name is
+	// derived from the token, so creation dedupes on AlreadyExists.
+	if err := retrySecurityScanStatusUpdate(context.Background(), k8sClient, client.ObjectKeyFromObject(scan), func(fresh *triggersv1alpha1.SecurityScan) {
+		fresh.Status.LastManualRunToken = ""
+	}); err != nil {
+		t.Fatalf("clearing token: %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() after crash error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(got))
+	}
+	if updated := getSecurityScan(t, k8sClient, scan); updated.Status.LastManualRunToken != "tok-crash" {
+		t.Fatalf("LastManualRunToken = %q, want tok-crash", updated.Status.LastManualRunToken)
+	}
+}
+
+func TestSecurityScanRunNowForbidConsumesTokenWithoutRun(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanWithRunNowToken(now, "tok-1")
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	// First token creates a run that stays active (empty phase is
+	// non-terminal).
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	annotateSecurityScanRunNow(t, k8sClient, scan, "tok-2")
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("blocked Reconcile() error = %v", err)
+	}
+
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1 (Forbid must not double-run)", len(got))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastManualRunToken != "tok-2" {
+		t.Fatalf("LastManualRunToken = %q, want tok-2 (token consumed)", updated.Status.LastManualRunToken)
+	}
+	if updated.Status.ManualRunsCreated != 1 {
+		t.Fatalf("ManualRunsCreated = %d, want 1", updated.Status.ManualRunsCreated)
+	}
+	if !strings.Contains(updated.Status.LastError, "still active") {
+		t.Fatalf("LastError = %q, want mention of the active run", updated.Status.LastError)
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, "ConcurrencyBlocked")
+
+	// A consumed blocked token never fires later, even after the active run
+	// finishes.
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	run := runs[0]
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
+	if err := k8sClient.Status().Update(context.Background(), &run); err != nil {
+		t.Fatalf("marking run terminal: %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() after completion error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(got))
+	}
+}
+
+func TestSecurityScanRunNowAllowRunsDespiteActiveRun(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanWithRunNowToken(now, "tok-1")
+	scan.Spec.ConcurrencyPolicy = triggersv1alpha1.SecurityScanConcurrencyAllow
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	annotateSecurityScanRunNow(t, k8sClient, scan, "tok-2")
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("second Reconcile() error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 2 {
+		t.Fatalf("AgentRuns = %d, want 2 (Allow permits overlap)", len(got))
+	}
+	if updated := getSecurityScan(t, k8sClient, scan); updated.Status.ManualRunsCreated != 2 {
+		t.Fatalf("ManualRunsCreated = %d, want 2", updated.Status.ManualRunsCreated)
+	}
+}
+
+func TestSecurityScanRunNowIgnoredWhileSuspended(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanWithRunNowToken(now, "tok-1")
+	scan.Spec.Suspend = true
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 0 {
+		t.Fatalf("AgentRuns = %d, want 0 while suspended", len(got))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.Phase != "Suspended" || updated.Status.LastManualRunToken != "" {
+		t.Fatalf("Phase = %q, LastManualRunToken = %q, want Suspended and unconsumed token",
+			updated.Status.Phase, updated.Status.LastManualRunToken)
+	}
+}
+
+func TestSecurityScanRunNowOneShotSatisfiesGeneration(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Generation = 3
+	scan.Annotations = map[string]string{triggersv1alpha1.SecurityScanRunNowAnnotation: "tok-1"}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("second Reconcile() error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1 (manual run satisfies the generation)", len(got))
+	}
+	if updated := getSecurityScan(t, k8sClient, scan); updated.Status.ObservedGeneration != 3 {
+		t.Fatalf("ObservedGeneration = %d, want 3", updated.Status.ObservedGeneration)
+	}
+}

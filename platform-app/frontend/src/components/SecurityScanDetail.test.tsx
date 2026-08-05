@@ -37,6 +37,12 @@ vi.mock("@/lib/download", () => ({
   downloadBlob,
 }));
 
+// The run panel has its own test suite (SecurityScanRunPanel.test.tsx) and
+// opens watch streams; stub it out here.
+vi.mock("@/components/SecurityScanRunPanel", () => ({
+  SecurityScanRunPanel: () => <div data-testid="scan-run-panel" />,
+}));
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();

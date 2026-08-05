@@ -258,6 +258,12 @@ service PlatformService {
   rpc CreateSecurityScan(CreateSecurityScanRequest) returns (SecurityScanConfig);
   rpc UpdateSecurityScan(UpdateSecurityScanRequest) returns (SecurityScanConfig);
   rpc DeleteSecurityScan(DeleteSecurityScanRequest) returns (google.protobuf.Empty);
+  // RunSecurityScanNow requests an immediate run of a configured SecurityScan
+  // without editing its spec. The dashboard stamps a run-now annotation token
+  // on the CR; the controller creates at most one run per token (recorded in
+  // status), so retried or concurrent duplicate requests never double-run.
+  // Suspended scans are rejected with FailedPrecondition.
+  rpc RunSecurityScanNow(RunSecurityScanNowRequest) returns (SecurityScanConfig);
 
   // GetSecurityOverview aggregates a namespace's security posture for the
   // dashboard overview page: active and recent scan runs, open finding
@@ -4116,6 +4122,11 @@ message UpdateSecurityScanRequest {
 }
 
 message DeleteSecurityScanRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message RunSecurityScanNowRequest {
   string namespace = 1;
   string name = 2;
 }

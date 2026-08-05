@@ -27,6 +27,13 @@ const (
 	SecurityScanDedupePermilleAnnotation = "security.gratefulagents.dev/dedupe-permille"
 )
 
+// SecurityScanRunNowAnnotation is set on a SecurityScan (not its runs) by the
+// dashboard to request an immediate manual run without editing the spec. Its
+// value is an opaque request token; the controller creates at most one run per
+// token and records the consumed token in status.lastManualRunToken, so the
+// request is idempotent and durable across controller restarts.
+const SecurityScanRunNowAnnotation = "security.gratefulagents.dev/run-now"
+
 // SecurityScanSpec defines the desired state of SecurityScan.
 type SecurityScanSpec struct {
 	// repoURL is the git repository URL that is the target of the scan.
@@ -293,6 +300,18 @@ type SecurityScanStatus struct {
 	// runsCreated is the cumulative number of AgentRuns created by this scan.
 	// +optional
 	RunsCreated int32 `json:"runsCreated,omitempty"`
+
+	// lastManualRunToken is the most recent run-now annotation token the
+	// controller has processed. A token equal to this value never creates
+	// another run, making manual run requests idempotent across controller
+	// restarts.
+	// +optional
+	LastManualRunToken string `json:"lastManualRunToken,omitempty"`
+
+	// manualRunsCreated is the cumulative number of AgentRuns created from
+	// run-now requests (a subset of runsCreated).
+	// +optional
+	ManualRunsCreated int32 `json:"manualRunsCreated,omitempty"`
 
 	// findings summarizes persisted findings for the most recent scan run.
 	// +optional

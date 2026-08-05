@@ -1271,3 +1271,11 @@ func (h *PlatformServiceConnectHandler) DeleteSecurityScan(ctx context.Context, 
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
+
+func (h *PlatformServiceConnectHandler) RunSecurityScanNow(ctx context.Context, req *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	resp, err := h.srv.RunSecurityScanNow(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}

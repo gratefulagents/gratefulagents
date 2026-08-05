@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -192,6 +193,58 @@ func (s *Server) UpdateSecurityScan(
 		return nil, mapK8sError("update SecurityScan", err)
 	}
 	return securityScanConfigProto(existing), nil
+}
+
+// RunSecurityScanNow stamps a run-now annotation token on a SecurityScan so
+// the controller creates an immediate AgentRun without a spec edit. The token
+// is opaque and unique per request; the controller records consumed tokens in
+// status.lastManualRunToken, so retried or concurrent duplicate requests never
+// create two runs, and concurrencyPolicy Forbid surfaces ConcurrencyBlocked
+// on the scan status instead of double-running.
+func (s *Server) RunSecurityScanNow(
+	ctx context.Context, req *platform.RunSecurityScanNowRequest,
+) (*platform.SecurityScanConfig, error) {
+	namespace := strings.TrimSpace(req.GetNamespace())
+	name := strings.TrimSpace(req.GetName())
+	if namespace == "" || name == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("namespace and name are required"))
+	}
+	err := s.requireResourceAccess(
+		ctx, securityScanResourceType, name, namespace, AccessCollaborator, "run this security scan")
+	if err != nil {
+		return nil, err
+	}
+
+	token := time.Now().UTC().Format(time.RFC3339Nano)
+	var updated *triggersv1alpha1.SecurityScan
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cr := &triggersv1alpha1.SecurityScan{}
+		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cr); err != nil {
+			return err
+		}
+		if cr.Spec.Suspend {
+			return connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("security scan %s/%s is suspended; resume it before requesting a run", namespace, name))
+		}
+		if cr.Annotations == nil {
+			cr.Annotations = map[string]string{}
+		}
+		cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] = token
+		if err := s.k8sClient.Update(ctx, cr); err != nil {
+			return err
+		}
+		updated = cr
+		return nil
+	})
+	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
+		return nil, mapK8sError(fmt.Sprintf("run SecurityScan %s/%s now", namespace, name), err)
+	}
+	pb := securityScanConfigProto(updated)
+	pb.Owner, pb.MyPermission = s.resourceACL(ctx, securityScanResourceType, updated.Name, updated.Namespace)
+	return pb, nil
 }
 
 // DeleteSecurityScan deletes a SecurityScan trigger.

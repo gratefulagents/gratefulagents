@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { create } from "@bufbuild/protobuf";
 
 import { SecurityScanFormDialog } from "@/components/SecurityScanFormDialog";
 import { client } from "@/lib/client";
+import {
+  SecurityScanConfigSchema,
+  SecurityScanConfigSpecSchema,
+} from "@/rpc/platform/service_pb";
 
 vi.mock("@/lib/client", () => ({
   client: {
@@ -122,5 +127,76 @@ describe("SecurityScanFormDialog", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(client.createSecurityScan).not.toHaveBeenCalled();
+  });
+});
+
+describe("SecurityScanFormDialog duplicate mode", () => {
+  function sourceConfig() {
+    return create(SecurityScanConfigSchema, {
+      namespace: "user-alice",
+      name: "nightly",
+      spec: create(SecurityScanConfigSpecSchema, {
+        repoUrl: "https://github.com/acme/payments.git",
+        schedule: "@daily",
+        minSeverity: "medium",
+      }),
+    });
+  }
+
+  function renderDuplicateDialog() {
+    render(
+      <SecurityScanFormDialog
+        duplicateFrom={sourceConfig()}
+        trigger={<button>Duplicate</button>}
+        defaultOpen
+      />,
+    );
+  }
+
+  it("pre-fills from the source config but requires a new name", async () => {
+    renderDuplicateDialog();
+
+    expect(screen.getByText("Duplicate nightly")).toBeTruthy();
+    expect((screen.getByLabelText(/Repository URL/) as HTMLInputElement).value).toBe(
+      "https://github.com/acme/payments.git",
+    );
+    expect((screen.getByLabelText(/Schedule/) as HTMLInputElement).value).toBe("@daily");
+    expect((screen.getByLabelText(/Name/) as HTMLInputElement).value).toBe("");
+
+    // Submitting without a name is a review-step validation error, not a create.
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Give the duplicated scan a new name.",
+    );
+    expect(client.createSecurityScan).not.toHaveBeenCalled();
+  });
+
+  it("creates a new scan with the copied spec and never updates the source", async () => {
+    renderDuplicateDialog();
+
+    fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "nightly-copy" } });
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(client.createSecurityScan).toHaveBeenCalledTimes(1);
+    });
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.name).toBe("nightly-copy");
+    expect(request.spec?.repoUrl).toBe("https://github.com/acme/payments.git");
+    expect(request.spec?.minSeverity).toBe("medium");
+    expect(client.updateSecurityScan).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a name collision instead of overwriting the existing scan", async () => {
+    vi.mocked(client.createSecurityScan).mockRejectedValueOnce(
+      new Error("[already_exists] SecurityScan user-alice/nightly already exists"),
+    );
+    renderDuplicateDialog();
+
+    fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "nightly" } });
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("already exists");
+    expect(client.updateSecurityScan).not.toHaveBeenCalled();
   });
 });
