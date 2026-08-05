@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { Download, FileText, SquareArrowOutUpRight, X } from "lucide-react";
 
@@ -24,7 +24,7 @@ import { downloadBlob } from "@/lib/download";
 import { toneSoft } from "@/lib/status";
 import type { SecurityFinding, SecurityFindingEvent, SecurityScan } from "@/rpc/platform/service_pb";
 
-const FINDING_STATUSES = [
+export const FINDING_STATUSES = [
   "open",
   "triaged",
   "confirmed",
@@ -33,11 +33,11 @@ const FINDING_STATUSES = [
   "accepted_risk",
 ] as const;
 
-function statusLabel(status: string): string {
+export function statusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
 
-function formatSeen(ts: Timestamp | undefined): string {
+export function formatSeen(ts: Timestamp | undefined): string {
   if (!ts) return "—";
   return timestampDate(ts).toLocaleString();
 }
@@ -52,6 +52,7 @@ const filterSelectClass =
 
 export function SecurityScanDetail() {
   const { namespace, runName } = useParams<{ namespace: string; runName: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [scan, setScan] = useState<SecurityScan | null>(null);
   const [summary, setSummary] = useState<Record<string, number>>({});
@@ -61,10 +62,35 @@ export function SecurityScanDetail() {
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const [severity, setSeverity] = useState("");
-  const [status, setStatus] = useState("");
-  const [category, setCategory] = useState("");
-  const [search, setSearch] = useState("");
+  // Filters live in the URL so a shared link reproduces the same view and
+  // the finding detail page can hand the same context back on return.
+  const severity = searchParams.get("severity") ?? "";
+  const status = searchParams.get("status") ?? "";
+  const category = searchParams.get("category") ?? "";
+  const search = searchParams.get("q") ?? "";
+
+  const setFilter = useCallback(
+    (key: "severity" | "status" | "category" | "q", value: string) => {
+      setSearchParams(
+        (params) => {
+          const next = new URLSearchParams(params);
+          if (value) next.set(key, value);
+          else next.delete(key);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const findingLinkSearch = searchParams.toString();
+
+  const findingHref = useCallback(
+    (id: string) =>
+      `/security/${namespace}/${runName}/findings/${id}${findingLinkSearch ? `?${findingLinkSearch}` : ""}`,
+    [namespace, runName, findingLinkSearch],
+  );
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
@@ -320,14 +346,14 @@ export function SecurityScanDetail() {
               <div className="flex flex-wrap items-center gap-2">
                 <ListSearchInput
                   value={search}
-                  onChange={setSearch}
+                  onChange={(value) => setFilter("q", value)}
                   placeholder="Search findings…"
                 />
                 <select
                   aria-label="Filter by severity"
                   className={filterSelectClass}
                   value={severity}
-                  onChange={(e) => setSeverity(e.target.value)}
+                  onChange={(e) => setFilter("severity", e.target.value)}
                 >
                   <option value="">All severities</option>
                   {SEVERITIES.map((s) => (
@@ -338,7 +364,7 @@ export function SecurityScanDetail() {
                   aria-label="Filter by status"
                   className={filterSelectClass}
                   value={status}
-                  onChange={(e) => setStatus(e.target.value)}
+                  onChange={(e) => setFilter("status", e.target.value)}
                 >
                   <option value="">All statuses</option>
                   {FINDING_STATUSES.map((s) => (
@@ -349,7 +375,7 @@ export function SecurityScanDetail() {
                   aria-label="Filter by category"
                   className={filterSelectClass}
                   value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  onChange={(e) => setFilter("category", e.target.value)}
                 >
                   <option value="">All categories</option>
                   {categories.map((c) => (
@@ -398,9 +424,18 @@ export function SecurityScanDetail() {
                           >
                             {finding.title}
                           </button>
-                          <div className="mt-0.5 truncate font-mono text-[11.5px] text-muted-foreground">
-                            {finding.filePath}
-                            {finding.startLine > 0 && `:${finding.startLine}`}
+                          <div className="mt-0.5 flex items-center gap-2">
+                            <span className="truncate font-mono text-[11.5px] text-muted-foreground">
+                              {finding.filePath}
+                              {finding.startLine > 0 && `:${finding.startLine}`}
+                            </span>
+                            <Link
+                              to={findingHref(finding.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="shrink-0 text-[11.5px] text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+                            >
+                              Open full page
+                            </Link>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -436,14 +471,25 @@ export function SecurityScanDetail() {
                         )}
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Close finding details"
-                      onClick={() => setSelectedId(null)}
-                    >
-                      <X className="size-4" />
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Open finding full page"
+                        nativeButton={false}
+                        render={<Link to={findingHref(selected.id)} />}
+                      >
+                        <SquareArrowOutUpRight className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Close finding details"
+                        onClick={() => setSelectedId(null)}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">

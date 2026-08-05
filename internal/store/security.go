@@ -153,6 +153,11 @@ type SecurityFindingStore interface {
 	// ListSecurityFindingEvents lists the events of a finding in the
 	// namespace, newest first. An empty namespace is rejected with an error.
 	ListSecurityFindingEvents(ctx context.Context, namespace string, id uuid.UUID, limit int32) ([]SecurityFindingEvent, error)
+	// AddSecurityFindingComment appends a "comment" event to the finding's
+	// audit trail and returns the stored event. It returns
+	// ErrSecurityFindingNotFound when no finding matches in the namespace.
+	// An empty namespace is rejected with an error.
+	AddSecurityFindingComment(ctx context.Context, namespace string, id uuid.UUID, actor, body string) (*SecurityFindingEvent, error)
 	// SummarizeSecurityFindings returns counts of non-duplicate findings
 	// keyed by severity ("critical", "high", "medium", "low", "info"), plus
 	// "total" (all findings), "open" (findings with status 'open'), and

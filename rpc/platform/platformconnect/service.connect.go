@@ -524,6 +524,12 @@ const (
 	// PlatformServiceGetSecurityFindingSummaryProcedure is the fully-qualified name of the
 	// PlatformService's GetSecurityFindingSummary RPC.
 	PlatformServiceGetSecurityFindingSummaryProcedure = "/platform.v1.PlatformService/GetSecurityFindingSummary"
+	// PlatformServiceListSecurityFindingEventsProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityFindingEvents RPC.
+	PlatformServiceListSecurityFindingEventsProcedure = "/platform.v1.PlatformService/ListSecurityFindingEvents"
+	// PlatformServiceAddSecurityFindingCommentProcedure is the fully-qualified name of the
+	// PlatformService's AddSecurityFindingComment RPC.
+	PlatformServiceAddSecurityFindingCommentProcedure = "/platform.v1.PlatformService/AddSecurityFindingComment"
 	// PlatformServiceListSecurityScanConfigsProcedure is the fully-qualified name of the
 	// PlatformService's ListSecurityScanConfigs RPC.
 	PlatformServiceListSecurityScanConfigsProcedure = "/platform.v1.PlatformService/ListSecurityScanConfigs"
@@ -786,6 +792,12 @@ type PlatformServiceClient interface {
 	GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error)
 	UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error)
 	GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error)
+	// ListSecurityFindingEvents returns a finding's audit trail (status
+	// changes, re-observations, comments), newest first.
+	ListSecurityFindingEvents(context.Context, *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error)
+	// AddSecurityFindingComment appends a comment event to a finding's audit
+	// trail, attributed to the authenticated caller.
+	AddSecurityFindingComment(context.Context, *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -1805,6 +1817,18 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetSecurityFindingSummary")),
 			connect.WithClientOptions(opts...),
 		),
+		listSecurityFindingEvents: connect.NewClient[platform.ListSecurityFindingEventsRequest, platform.ListSecurityFindingEventsResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityFindingEventsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityFindingEvents")),
+			connect.WithClientOptions(opts...),
+		),
+		addSecurityFindingComment: connect.NewClient[platform.AddSecurityFindingCommentRequest, platform.SecurityFindingEvent](
+			httpClient,
+			baseURL+PlatformServiceAddSecurityFindingCommentProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("AddSecurityFindingComment")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecurityScanConfigs: connect.NewClient[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse](
 			httpClient,
 			baseURL+PlatformServiceListSecurityScanConfigsProcedure,
@@ -2022,6 +2046,8 @@ type platformServiceClient struct {
 	getSecurityFinding                     *connect.Client[platform.GetSecurityFindingRequest, platform.GetSecurityFindingResponse]
 	updateSecurityFindingStatus            *connect.Client[platform.UpdateSecurityFindingStatusRequest, platform.SecurityFinding]
 	getSecurityFindingSummary              *connect.Client[platform.GetSecurityFindingSummaryRequest, platform.GetSecurityFindingSummaryResponse]
+	listSecurityFindingEvents              *connect.Client[platform.ListSecurityFindingEventsRequest, platform.ListSecurityFindingEventsResponse]
+	addSecurityFindingComment              *connect.Client[platform.AddSecurityFindingCommentRequest, platform.SecurityFindingEvent]
 	listSecurityScanConfigs                *connect.Client[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse]
 	getSecurityScanConfig                  *connect.Client[platform.GetSecurityScanConfigRequest, platform.SecurityScanConfig]
 	createSecurityScan                     *connect.Client[platform.CreateSecurityScanRequest, platform.SecurityScanConfig]
@@ -2856,6 +2882,16 @@ func (c *platformServiceClient) GetSecurityFindingSummary(ctx context.Context, r
 	return c.getSecurityFindingSummary.CallUnary(ctx, req)
 }
 
+// ListSecurityFindingEvents calls platform.v1.PlatformService.ListSecurityFindingEvents.
+func (c *platformServiceClient) ListSecurityFindingEvents(ctx context.Context, req *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error) {
+	return c.listSecurityFindingEvents.CallUnary(ctx, req)
+}
+
+// AddSecurityFindingComment calls platform.v1.PlatformService.AddSecurityFindingComment.
+func (c *platformServiceClient) AddSecurityFindingComment(ctx context.Context, req *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error) {
+	return c.addSecurityFindingComment.CallUnary(ctx, req)
+}
+
 // ListSecurityScanConfigs calls platform.v1.PlatformService.ListSecurityScanConfigs.
 func (c *platformServiceClient) ListSecurityScanConfigs(ctx context.Context, req *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {
 	return c.listSecurityScanConfigs.CallUnary(ctx, req)
@@ -3132,6 +3168,12 @@ type PlatformServiceHandler interface {
 	GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error)
 	UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error)
 	GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error)
+	// ListSecurityFindingEvents returns a finding's audit trail (status
+	// changes, re-observations, comments), newest first.
+	ListSecurityFindingEvents(context.Context, *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error)
+	// AddSecurityFindingComment appends a comment event to a finding's audit
+	// trail, attributed to the authenticated caller.
+	AddSecurityFindingComment(context.Context, *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -4147,6 +4189,18 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetSecurityFindingSummary")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListSecurityFindingEventsHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityFindingEventsProcedure,
+		svc.ListSecurityFindingEvents,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityFindingEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceAddSecurityFindingCommentHandler := connect.NewUnaryHandler(
+		PlatformServiceAddSecurityFindingCommentProcedure,
+		svc.AddSecurityFindingComment,
+		connect.WithSchema(platformServiceMethods.ByName("AddSecurityFindingComment")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListSecurityScanConfigsHandler := connect.NewUnaryHandler(
 		PlatformServiceListSecurityScanConfigsProcedure,
 		svc.ListSecurityScanConfigs,
@@ -4525,6 +4579,10 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceUpdateSecurityFindingStatusHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityFindingSummaryProcedure:
 			platformServiceGetSecurityFindingSummaryHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityFindingEventsProcedure:
+			platformServiceListSecurityFindingEventsHandler.ServeHTTP(w, r)
+		case PlatformServiceAddSecurityFindingCommentProcedure:
+			platformServiceAddSecurityFindingCommentHandler.ServeHTTP(w, r)
 		case PlatformServiceListSecurityScanConfigsProcedure:
 			platformServiceListSecurityScanConfigsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanConfigProcedure:
@@ -5204,6 +5262,14 @@ func (UnimplementedPlatformServiceHandler) UpdateSecurityFindingStatus(context.C
 
 func (UnimplementedPlatformServiceHandler) GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityFindingSummary is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityFindingEvents(context.Context, *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityFindingEvents is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) AddSecurityFindingComment(context.Context, *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.AddSecurityFindingComment is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListSecurityScanConfigs(context.Context, *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {

@@ -168,6 +168,20 @@ func (s *fakeSecurityFindingStore) SummarizeSecurityFindings(_ context.Context, 
 	return out, nil
 }
 
+func (s *fakeSecurityFindingStore) AddSecurityFindingComment(_ context.Context, namespace string, id uuid.UUID, actor, body string) (*store.SecurityFindingEvent, error) {
+	event := store.SecurityFindingEvent{
+		ID: int64(len(s.events) + 1), FindingID: id, EventType: "comment",
+		Actor: actor, Note: body, CreatedAt: time.Now(),
+	}
+	for _, rec := range s.findings {
+		if rec.Namespace == namespace && rec.ID == id {
+			s.events = append(s.events, event)
+			return &event, nil
+		}
+	}
+	return nil, store.ErrSecurityFindingNotFound
+}
+
 func (s *fakeSecurityFindingStore) DeleteSecurityScanData(context.Context, string, string) error {
 	return nil
 }

@@ -452,6 +452,32 @@ func (s *Store) ListSecurityFindingEvents(ctx context.Context, namespace string,
 	return out, nil
 }
 
+// addSecurityFindingCommentSQL inserts the comment only when the finding
+// exists in the caller's namespace, so a comment can never be attached to a
+// foreign finding by guessing its UUID.
+const addSecurityFindingCommentSQL = `
+	INSERT INTO security_finding_events (finding_id, event_type, actor, note)
+	SELECT f.id, 'comment', $3, $4
+	FROM security_findings f
+	WHERE f.namespace = $1 AND f.id = $2
+	RETURNING id, finding_id, event_type, actor, note, detail, created_at`
+
+func (s *Store) AddSecurityFindingComment(ctx context.Context, namespace string, id uuid.UUID, actor, body string) (*store.SecurityFindingEvent, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	var ev store.SecurityFindingEvent
+	err := s.pool.QueryRow(ctx, addSecurityFindingCommentSQL, namespace, id, actor, body).
+		Scan(&ev.ID, &ev.FindingID, &ev.EventType, &ev.Actor, &ev.Note, &ev.Detail, &ev.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, store.ErrSecurityFindingNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("adding security finding comment: %w", err)
+	}
+	return &ev, nil
+}
+
 // newSecurityFindingSummary returns a summary map pre-seeded with the fixed
 // keys so callers can gate on them even when no findings match.
 func newSecurityFindingSummary() map[string]int32 {

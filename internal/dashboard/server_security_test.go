@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,9 +27,10 @@ type mockSecurityStore struct {
 	listScansErr error
 	summaryErr   error
 
-	lastGetNamespace    string
-	lastEventsNamespace string
-	lastStatusNamespace string
+	lastGetNamespace     string
+	lastEventsNamespace  string
+	lastStatusNamespace  string
+	lastCommentNamespace string
 
 	summaryNamespace string
 	summaryScanName  string
@@ -129,6 +131,23 @@ func (m *mockSecurityStore) ListSecurityFindingEvents(_ context.Context, namespa
 	return m.events[id], nil
 }
 
+func (m *mockSecurityStore) AddSecurityFindingComment(_ context.Context, namespace string, id uuid.UUID, actor, body string) (*store.SecurityFindingEvent, error) {
+	if namespace == "" {
+		return nil, errors.New("namespace is required")
+	}
+	m.lastCommentNamespace = namespace
+	finding := m.findings[id]
+	if finding == nil || finding.Namespace != namespace {
+		return nil, store.ErrSecurityFindingNotFound
+	}
+	event := store.SecurityFindingEvent{
+		ID: int64(len(m.events[id]) + 1), FindingID: id, EventType: "comment",
+		Actor: actor, Note: body, Detail: []byte(`{}`), CreatedAt: time.Now(),
+	}
+	m.events[id] = append([]store.SecurityFindingEvent{event}, m.events[id]...)
+	return &event, nil
+}
+
 func (m *mockSecurityStore) SummarizeSecurityFindings(_ context.Context, namespace, scanName, runName string) (map[string]int32, error) {
 	if m.summaryErr != nil {
 		return nil, m.summaryErr
@@ -181,6 +200,14 @@ func TestSecurityHandlersRequireCapableStore(t *testing.T) {
 		},
 		"GetSecurityFindingSummary": func() error {
 			_, err := srv.GetSecurityFindingSummary(ctx, &platform.GetSecurityFindingSummaryRequest{Namespace: "default"})
+			return err
+		},
+		"ListSecurityFindingEvents": func() error {
+			_, err := srv.ListSecurityFindingEvents(ctx, &platform.ListSecurityFindingEventsRequest{Id: uuid.NewString()})
+			return err
+		},
+		"AddSecurityFindingComment": func() error {
+			_, err := srv.AddSecurityFindingComment(ctx, &platform.AddSecurityFindingCommentRequest{Id: uuid.NewString(), Body: "hi"})
 			return err
 		},
 		"GetSecurityScanReport": func() error {
@@ -476,5 +503,199 @@ func TestSecurityFindingRPCsHonorRequestedSharedNamespace(t *testing.T) {
 		Id: finding.ID.String(), Namespace: "user-bob",
 	}); connect.CodeOf(err) == 0 {
 		t.Fatal("GetSecurityFinding(foreign personal namespace) succeeded, want error")
+	}
+}
+
+func TestGetSecurityFindingScanOwnership(t *testing.T) {
+	sec := newMockSecurityStore()
+	callerNS := deriveUserNamespaceName("", "alice")
+	finding := newTestFinding(callerNS) // ScanName: "nightly"
+	sec.findings[finding.ID] = finding
+	srv := newSecurityTestServer(t, sec)
+	ctx := actorContext("alice", "admin", "", "")
+
+	got, err := srv.GetSecurityFinding(ctx, &platform.GetSecurityFindingRequest{
+		Id: finding.ID.String(), ScanName: "nightly",
+	})
+	if err != nil {
+		t.Fatalf("GetSecurityFinding(matching scan) error = %v", err)
+	}
+	if got.GetFinding().GetId() != finding.ID.String() {
+		t.Fatalf("finding id = %q, want %q", got.GetFinding().GetId(), finding.ID.String())
+	}
+
+	// A finding reached through another scan's route is NotFound, exactly
+	// like a missing finding, so scan routes cannot leak foreign findings.
+	if _, err := srv.GetSecurityFinding(ctx, &platform.GetSecurityFindingRequest{
+		Id: finding.ID.String(), ScanName: "weekly",
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("scan mismatch code = %v, want NotFound", connect.CodeOf(err))
+	}
+}
+
+func TestListSecurityFindingEvents(t *testing.T) {
+	sec := newMockSecurityStore()
+	callerNS := deriveUserNamespaceName("", "alice")
+	finding := newTestFinding(callerNS)
+	sec.findings[finding.ID] = finding
+	sec.events[finding.ID] = []store.SecurityFindingEvent{
+		{ID: 2, FindingID: finding.ID, EventType: "status_changed", Actor: "alice",
+			Note: "checked", Detail: []byte(`{"from":"open","to":"triaged"}`), CreatedAt: time.Now()},
+		{ID: 1, FindingID: finding.ID, EventType: "reobserved", Actor: "scanner",
+			Detail: []byte(`{}`), CreatedAt: time.Now().Add(-time.Hour)},
+	}
+	srv := newSecurityTestServer(t, sec)
+	ctx := actorContext("alice", "admin", "", "")
+
+	resp, err := srv.ListSecurityFindingEvents(ctx, &platform.ListSecurityFindingEventsRequest{
+		Id: finding.ID.String(), ScanName: "nightly",
+	})
+	if err != nil {
+		t.Fatalf("ListSecurityFindingEvents() error = %v", err)
+	}
+	if len(resp.Events) != 2 {
+		t.Fatalf("events = %d, want 2", len(resp.Events))
+	}
+	first := resp.Events[0]
+	if first.GetEventType() != "status_changed" || first.GetActor() != "alice" ||
+		first.GetNote() != "checked" || first.GetDetail() != `{"from":"open","to":"triaged"}` {
+		t.Fatalf("first event = %+v", first)
+	}
+	if sec.lastEventsNamespace != callerNS {
+		t.Fatalf("events namespace = %q, want %q", sec.lastEventsNamespace, callerNS)
+	}
+
+	if _, err := srv.ListSecurityFindingEvents(ctx, &platform.ListSecurityFindingEventsRequest{
+		Id: finding.ID.String(), ScanName: "weekly",
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("scan mismatch code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.ListSecurityFindingEvents(ctx, &platform.ListSecurityFindingEventsRequest{
+		Id: uuid.NewString(),
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("unknown finding code = %v, want NotFound", connect.CodeOf(err))
+	}
+}
+
+func TestListSecurityFindingEventsCrossNamespaceDenied(t *testing.T) {
+	sec := newMockSecurityStore()
+	foreign := newTestFinding("user-bob")
+	sec.findings[foreign.ID] = foreign
+	sec.events[foreign.ID] = []store.SecurityFindingEvent{{ID: 1, FindingID: foreign.ID, EventType: "comment"}}
+	scheme := newDashboardTestScheme(t)
+	srv := &Server{
+		k8sClient:  fake.NewClientBuilder().WithScheme(scheme).WithObjects(userNamespaceObj("user-bob")).Build(),
+		scheme:     scheme,
+		stateStore: sec,
+	}
+	ctx := actorContext("alice", "member", "", "")
+
+	// Without an explicit namespace the lookup resolves to alice's personal
+	// namespace and misses; requesting bob's namespace outright is denied.
+	if _, err := srv.ListSecurityFindingEvents(ctx, &platform.ListSecurityFindingEventsRequest{
+		Id: foreign.ID.String(),
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("implicit namespace code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.ListSecurityFindingEvents(ctx, &platform.ListSecurityFindingEventsRequest{
+		Id: foreign.ID.String(), Namespace: "user-bob",
+	}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("explicit foreign namespace code = %v, want PermissionDenied", connect.CodeOf(err))
+	}
+}
+
+func TestAddSecurityFindingComment(t *testing.T) {
+	sec := newMockSecurityStore()
+	callerNS := deriveUserNamespaceName("", "alice")
+	finding := newTestFinding(callerNS)
+	sec.findings[finding.ID] = finding
+	srv := newSecurityTestServer(t, sec)
+	ctx := actorContext("alice", "admin", "", "")
+
+	event, err := srv.AddSecurityFindingComment(ctx, &platform.AddSecurityFindingCommentRequest{
+		Id: finding.ID.String(), ScanName: "nightly", Body: "  looks exploitable, needs a fix  ",
+	})
+	if err != nil {
+		t.Fatalf("AddSecurityFindingComment() error = %v", err)
+	}
+	// The comment is stamped with the authenticated actor and trimmed.
+	if event.GetEventType() != "comment" || event.GetActor() != "alice" ||
+		event.GetNote() != "looks exploitable, needs a fix" {
+		t.Fatalf("comment event = %+v", event)
+	}
+	if sec.lastCommentNamespace != callerNS {
+		t.Fatalf("comment namespace = %q, want %q", sec.lastCommentNamespace, callerNS)
+	}
+	if events := sec.events[finding.ID]; len(events) != 1 || events[0].EventType != "comment" {
+		t.Fatalf("stored events = %+v, want one comment", events)
+	}
+}
+
+func TestAddSecurityFindingCommentValidation(t *testing.T) {
+	sec := newMockSecurityStore()
+	callerNS := deriveUserNamespaceName("", "alice")
+	finding := newTestFinding(callerNS)
+	sec.findings[finding.ID] = finding
+	srv := newSecurityTestServer(t, sec)
+	ctx := actorContext("alice", "admin", "", "")
+
+	if _, err := srv.AddSecurityFindingComment(ctx, &platform.AddSecurityFindingCommentRequest{
+		Id: finding.ID.String(), Body: "   ",
+	}); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("empty body code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
+	long := strings.Repeat("x", maxSecurityFindingCommentLen+1)
+	if _, err := srv.AddSecurityFindingComment(ctx, &platform.AddSecurityFindingCommentRequest{
+		Id: finding.ID.String(), Body: long,
+	}); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("oversized body code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
+	// Exactly at the limit is accepted.
+	if _, err := srv.AddSecurityFindingComment(ctx, &platform.AddSecurityFindingCommentRequest{
+		Id: finding.ID.String(), Body: strings.Repeat("x", maxSecurityFindingCommentLen),
+	}); err != nil {
+		t.Fatalf("at-limit body error = %v", err)
+	}
+	if _, err := srv.AddSecurityFindingComment(actorContext("", "", "", ""), &platform.AddSecurityFindingCommentRequest{
+		Id: finding.ID.String(), Body: "hi",
+	}); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("unauthenticated code = %v, want Unauthenticated", connect.CodeOf(err))
+	}
+	if _, err := srv.AddSecurityFindingComment(ctx, &platform.AddSecurityFindingCommentRequest{
+		Id: uuid.NewString(), Body: "hi",
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("unknown finding code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.AddSecurityFindingComment(ctx, &platform.AddSecurityFindingCommentRequest{
+		Id: finding.ID.String(), ScanName: "weekly", Body: "hi",
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("scan mismatch code = %v, want NotFound", connect.CodeOf(err))
+	}
+}
+
+func TestAddSecurityFindingCommentCrossNamespaceDenied(t *testing.T) {
+	sec := newMockSecurityStore()
+	foreign := newTestFinding("user-bob")
+	sec.findings[foreign.ID] = foreign
+	scheme := newDashboardTestScheme(t)
+	srv := &Server{
+		k8sClient:  fake.NewClientBuilder().WithScheme(scheme).WithObjects(userNamespaceObj("user-bob")).Build(),
+		scheme:     scheme,
+		stateStore: sec,
+	}
+	ctx := actorContext("alice", "member", "", "")
+
+	if _, err := srv.AddSecurityFindingComment(ctx, &platform.AddSecurityFindingCommentRequest{
+		Id: foreign.ID.String(), Body: "hi",
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("implicit namespace code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.AddSecurityFindingComment(ctx, &platform.AddSecurityFindingCommentRequest{
+		Id: foreign.ID.String(), Namespace: "user-bob", Body: "hi",
+	}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("explicit foreign namespace code = %v, want PermissionDenied", connect.CodeOf(err))
+	}
+	if len(sec.events[foreign.ID]) != 0 {
+		t.Fatalf("foreign finding gained events: %+v", sec.events[foreign.ID])
 	}
 }

@@ -27,6 +27,7 @@ const SecurityOverview = React.lazy(() => import("@/components/SecurityOverview"
 const SecurityScanList = React.lazy(() => import("@/components/SecurityScanList").then((m) => ({ default: m.SecurityScanList })));
 const SecurityScanConfigList = React.lazy(() => import("@/components/SecurityScanConfigList").then((m) => ({ default: m.SecurityScanConfigList })));
 const SecurityScanDetail = React.lazy(() => import("@/components/SecurityScanDetail").then((m) => ({ default: m.SecurityScanDetail })));
+const SecurityFindingDetail = React.lazy(() => import("@/components/SecurityFindingDetail").then((m) => ({ default: m.SecurityFindingDetail })));
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { OnboardingRedirect } from "@/components/onboarding/OnboardingRedirect";
@@ -527,6 +528,7 @@ function AuthenticatedShell() {
               <Route path="/security/runs" element={<Scroll><SecurityScanList /></Scroll>} />
               <Route path="/security/configs" element={<Scroll><SecurityScanConfigList /></Scroll>} />
               <Route path="/security/:namespace/:runName" element={<Scroll><SecurityScanDetail /></Scroll>} />
+              <Route path="/security/:namespace/:runName/findings/:findingId" element={<Scroll><SecurityFindingDetail /></Scroll>} />
               <Route path="/settings" element={<Scroll><SettingsLayout /></Scroll>}>
                 <Route index element={<SettingsScreen />} />
                 <Route path="connection" element={<SettingsConnectionPage />} />

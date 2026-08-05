@@ -248,6 +248,12 @@ service PlatformService {
   rpc GetSecurityFinding(GetSecurityFindingRequest) returns (GetSecurityFindingResponse);
   rpc UpdateSecurityFindingStatus(UpdateSecurityFindingStatusRequest) returns (SecurityFinding);
   rpc GetSecurityFindingSummary(GetSecurityFindingSummaryRequest) returns (GetSecurityFindingSummaryResponse);
+  // ListSecurityFindingEvents returns a finding's audit trail (status
+  // changes, re-observations, comments), newest first.
+  rpc ListSecurityFindingEvents(ListSecurityFindingEventsRequest) returns (ListSecurityFindingEventsResponse);
+  // AddSecurityFindingComment appends a comment event to a finding's audit
+  // trail, attributed to the authenticated caller.
+  rpc AddSecurityFindingComment(AddSecurityFindingCommentRequest) returns (SecurityFindingEvent);
 
   // Security scanning: SecurityScan trigger configuration (the CRs that
   // create scan runs). ListSecurityScanConfigs returns configured SecurityScan
@@ -3956,6 +3962,11 @@ message GetSecurityFindingRequest {
   // namespace the finding lives in. Empty resolves to the caller's personal
   // namespace; send it when browsing findings in a shared namespace.
   string namespace = 2;
+  // Optional: when set, the finding must belong to this scan (its scan_name
+  // must match) or the request is answered with NotFound. Send it when
+  // resolving a finding from a scan-scoped URL so a finding can never be
+  // read through another scan's route.
+  string scan_name = 3;
 }
 
 // SecurityFindingEvent is one audit-trail entry for a finding.
@@ -3991,6 +4002,32 @@ message GetSecurityFindingSummaryRequest {
 message GetSecurityFindingSummaryResponse {
   // counts maps severity (plus "total" / "open") to the number of findings.
   map<string, int32> counts = 1;
+}
+
+message ListSecurityFindingEventsRequest {
+  string id = 1; // Finding ID
+  // namespace the finding lives in. Empty resolves to the caller's personal
+  // namespace; send it when browsing findings in a shared namespace.
+  string namespace = 2;
+  // Optional: when set, the finding must belong to this scan or the request
+  // is answered with NotFound.
+  string scan_name = 3;
+  int32 limit = 4; // Optional: maximum events to return (default 200)
+}
+
+message ListSecurityFindingEventsResponse {
+  repeated SecurityFindingEvent events = 1; // Newest first
+}
+
+message AddSecurityFindingCommentRequest {
+  string id = 1; // Finding ID
+  // namespace the finding lives in. Empty resolves to the caller's personal
+  // namespace; send it when commenting on findings in a shared namespace.
+  string namespace = 2;
+  // Optional: when set, the finding must belong to this scan or the request
+  // is answered with NotFound.
+  string scan_name = 3;
+  string body = 4; // Comment text; at most 10000 characters
 }
 
 // ---- SecurityScan configuration messages ----

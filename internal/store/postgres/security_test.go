@@ -157,6 +157,7 @@ func TestSecurityStatementsScopeByNamespace(t *testing.T) {
 		"getSecurityFindingSQL":           getSecurityFindingSQL,
 		"setSecurityFindingStatusSQL":     setSecurityFindingStatusSQL,
 		"listSecurityFindingEventsSQL":    listSecurityFindingEventsSQL,
+		"addSecurityFindingCommentSQL":    addSecurityFindingCommentSQL,
 		"deleteSecurityFindingsByScanSQL": deleteSecurityFindingsByScanSQL,
 		"deleteSecurityScansByScanSQL":    deleteSecurityScansByScanSQL,
 	}
@@ -179,6 +180,9 @@ func TestSecurityEmptyNamespaceRejected(t *testing.T) {
 	}
 	if _, err := s.ListSecurityFindingEvents(ctx, "", id, 10); err == nil {
 		t.Error("ListSecurityFindingEvents(empty namespace) = nil error, want error")
+	}
+	if _, err := s.AddSecurityFindingComment(ctx, "", id, "a", "body"); err == nil {
+		t.Error("AddSecurityFindingComment(empty namespace) = nil error, want error")
 	}
 	if err := s.DeleteSecurityScanData(ctx, "", "scan"); err == nil {
 		t.Error("DeleteSecurityScanData(empty namespace) = nil error, want error")
@@ -243,7 +247,36 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	finding, other := lifecycleTestFindingUpserts(ctx, t, s, scan)
 	lifecycleTestStatusTransitions(ctx, t, s, scan, finding)
 	lifecycleTestQueriesAndSummaries(ctx, t, s, finding)
+	lifecycleTestComments(ctx, t, s, finding)
 	lifecycleTestScanDeletion(ctx, t, s, finding, other)
+}
+
+func lifecycleTestComments(ctx context.Context, t *testing.T, s *Store, finding *store.SecurityFindingRecord) {
+	t.Helper()
+
+	if _, err := s.AddSecurityFindingComment(ctx, "default", uuid.New(), "alice", "hi"); !errors.Is(err, store.ErrSecurityFindingNotFound) {
+		t.Errorf("AddSecurityFindingComment(missing) = %v, want ErrSecurityFindingNotFound", err)
+	}
+	if _, err := s.AddSecurityFindingComment(ctx, "other-ns", finding.ID, "alice", "hi"); !errors.Is(err, store.ErrSecurityFindingNotFound) {
+		t.Errorf("AddSecurityFindingComment(wrong namespace) = %v, want ErrSecurityFindingNotFound", err)
+	}
+
+	event, err := s.AddSecurityFindingComment(ctx, "default", finding.ID, "alice", "needs an exploit review")
+	if err != nil {
+		t.Fatalf("AddSecurityFindingComment: %v", err)
+	}
+	if event.EventType != "comment" || event.Actor != "alice" || event.Note != "needs an exploit review" ||
+		event.FindingID != finding.ID || event.ID == 0 || event.CreatedAt.IsZero() {
+		t.Errorf("comment event = %+v", event)
+	}
+
+	events, err := s.ListSecurityFindingEvents(ctx, "default", finding.ID, 0)
+	if err != nil || len(events) != 4 {
+		t.Fatalf("events after comment = %d, %v, want 4", len(events), err)
+	}
+	if events[0].EventType != "comment" || events[0].Note != "needs an exploit review" {
+		t.Errorf("newest event = %+v, want the comment", events[0])
+	}
 }
 
 func lifecycleTestScanUpserts(ctx context.Context, t *testing.T, s *Store) *store.SecurityScanRecord {

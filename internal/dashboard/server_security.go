@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -108,7 +109,7 @@ func (s *Server) GetSecurityFinding(ctx context.Context, req *platform.GetSecuri
 	if err != nil {
 		return nil, err
 	}
-	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace())
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace(), req.GetScanName())
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +138,7 @@ func (s *Server) UpdateSecurityFindingStatus(ctx context.Context, req *platform.
 	if !store.ValidSecurityFindingStatus(req.GetStatus()) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid finding status %q", req.GetStatus()))
 	}
-	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace())
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace(), "")
 	if err != nil {
 		return nil, err
 	}
@@ -172,13 +173,75 @@ func (s *Server) GetSecurityFindingSummary(ctx context.Context, req *platform.Ge
 	return &platform.GetSecurityFindingSummaryResponse{Counts: counts}, nil
 }
 
+// ListSecurityFindingEvents returns a finding's audit trail, newest first.
+func (s *Server) ListSecurityFindingEvents(ctx context.Context, req *platform.ListSecurityFindingEventsRequest) (*platform.ListSecurityFindingEventsResponse, error) {
+	sec, err := s.securityStore()
+	if err != nil {
+		return nil, err
+	}
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace(), req.GetScanName())
+	if err != nil {
+		return nil, err
+	}
+	limit := req.GetLimit()
+	if limit <= 0 {
+		limit = securityFindingEventsLimit
+	}
+	events, err := sec.ListSecurityFindingEvents(ctx, finding.Namespace, finding.ID, limit)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("listing security finding events: %w", err))
+	}
+	resp := &platform.ListSecurityFindingEventsResponse{}
+	for i := range events {
+		resp.Events = append(resp.Events, securityFindingEventProto(&events[i]))
+	}
+	return resp, nil
+}
+
+// maxSecurityFindingCommentLen bounds comment bodies (in characters) so the
+// append-only audit table cannot be flooded with arbitrarily large rows.
+const maxSecurityFindingCommentLen = 10000
+
+// AddSecurityFindingComment appends a comment event to a finding's audit
+// trail, attributed to the authenticated caller.
+func (s *Server) AddSecurityFindingComment(ctx context.Context, req *platform.AddSecurityFindingCommentRequest) (*platform.SecurityFindingEvent, error) {
+	sec, err := s.securityStore()
+	if err != nil {
+		return nil, err
+	}
+	actor := requestActorFromContext(ctx)
+	if actor.Subject == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+	body := strings.TrimSpace(req.GetBody())
+	if body == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("comment body is required"))
+	}
+	if utf8.RuneCountInString(body) > maxSecurityFindingCommentLen {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("comment body exceeds %d characters", maxSecurityFindingCommentLen))
+	}
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace(), req.GetScanName())
+	if err != nil {
+		return nil, err
+	}
+	event, err := sec.AddSecurityFindingComment(ctx, finding.Namespace, finding.ID, actor.Subject, body)
+	if err != nil {
+		if errors.Is(err, store.ErrSecurityFindingNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", finding.ID))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("adding security finding comment: %w", err))
+	}
+	return securityFindingEventProto(event), nil
+}
+
 // authorizedSecurityFinding loads a finding by request ID, scoped to the
 // namespace the caller is authorized to act in (the requested namespace when
 // given, the caller's personal namespace otherwise). A finding that does not
 // exist and one that lives in a namespace the caller may not read are both
 // reported as NotFound so the endpoint cannot be used as a UUID-existence
-// oracle.
-func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.SecurityFindingStore, rawID, requestedNamespace string) (*store.SecurityFindingRecord, error) {
+// oracle. When scanName is non-empty the finding must also belong to that
+// scan; a mismatch is likewise reported as NotFound.
+func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.SecurityFindingStore, rawID, requestedNamespace, scanName string) (*store.SecurityFindingRecord, error) {
 	id, err := uuid.Parse(strings.TrimSpace(rawID))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid finding id %q", rawID))
@@ -191,7 +254,7 @@ func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.Securi
 	if err != nil && !errors.Is(err, store.ErrSecurityFindingNotFound) {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("getting security finding: %w", err))
 	}
-	if err != nil || finding == nil {
+	if err != nil || finding == nil || (scanName != "" && finding.ScanName != scanName) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", id))
 	}
 	return finding, nil
@@ -315,6 +378,22 @@ func (h *PlatformServiceConnectHandler) UpdateSecurityFindingStatus(ctx context.
 
 func (h *PlatformServiceConnectHandler) GetSecurityFindingSummary(ctx context.Context, req *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error) {
 	resp, err := h.srv.GetSecurityFindingSummary(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) ListSecurityFindingEvents(ctx context.Context, req *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error) {
+	resp, err := h.srv.ListSecurityFindingEvents(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) AddSecurityFindingComment(ctx context.Context, req *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error) {
+	resp, err := h.srv.AddSecurityFindingComment(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

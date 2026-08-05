@@ -189,6 +189,23 @@ describe("SecurityScanDetail", () => {
     });
   });
 
+  it("links each finding to its full page carrying the active filters", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+
+    fireEvent.change(screen.getByLabelText("Filter by severity"), { target: { value: "critical" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: "Open full page" }).getAttribute("href")).toBe(
+        `/security/user-alice/nightly-1/findings/${FINDING_ID}?severity=critical`,
+      );
+    });
+  });
+
   it("updates the finding status from the panel and refreshes", async () => {
     getSecurityScan.mockResolvedValue(scanFixture());
     getSecurityFindingSummary.mockResolvedValue({ counts: {} });
