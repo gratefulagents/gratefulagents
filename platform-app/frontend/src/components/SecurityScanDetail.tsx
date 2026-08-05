@@ -118,14 +118,14 @@ export function SecurityScanDetail() {
     setEventsLoading(true);
     setEventsError("");
     try {
-      const resp = await client.getSecurityFinding({ id: selectedId });
+      const resp = await client.getSecurityFinding({ id: selectedId, namespace: namespace ?? "" });
       setEvents(resp.events);
     } catch (e: unknown) {
       setEventsError(e instanceof Error ? e.message : "Failed to load finding history");
     } finally {
       setEventsLoading(false);
     }
-  }, [selectedId]);
+  }, [selectedId, namespace]);
 
   useEffect(() => {
     void fetchScan();
@@ -159,7 +159,12 @@ export function SecurityScanDetail() {
       current.map((f) => (f.id === finding.id ? { ...f, status: nextStatus } : f)),
     );
     try {
-      await client.updateSecurityFindingStatus({ id: finding.id, status: nextStatus, note: "" });
+      await client.updateSecurityFindingStatus({
+        id: finding.id,
+        status: nextStatus,
+        note: "",
+        namespace: namespace ?? "",
+      });
       await Promise.all([fetchFindings(), fetchScan(), fetchEvents()]);
     } catch (e: unknown) {
       setFindings(previous);

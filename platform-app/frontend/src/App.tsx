@@ -24,6 +24,7 @@ const GitHubRepositoryDetail = React.lazy(() => import("@/components/GitHubRepos
 const CronDetail = React.lazy(() => import("@/components/CronDetail").then((m) => ({ default: m.CronDetail })));
 const SlackAgentDetail = React.lazy(() => import("@/components/SlackAgentDetail").then((m) => ({ default: m.SlackAgentDetail })));
 const SecurityScanList = React.lazy(() => import("@/components/SecurityScanList").then((m) => ({ default: m.SecurityScanList })));
+const SecurityScanConfigList = React.lazy(() => import("@/components/SecurityScanConfigList").then((m) => ({ default: m.SecurityScanConfigList })));
 const SecurityScanDetail = React.lazy(() => import("@/components/SecurityScanDetail").then((m) => ({ default: m.SecurityScanDetail })));
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -515,6 +516,7 @@ function AuthenticatedShell() {
               <Route path="/slack" element={<Navigate to="/projects" replace />} />
               <Route path="/slack/:namespace/:name" element={<Scroll><SlackAgentDetail /></Scroll>} />
               <Route path="/security" element={<Scroll><SecurityScanList /></Scroll>} />
+              <Route path="/security/configs" element={<Scroll><SecurityScanConfigList /></Scroll>} />
               <Route path="/security/:namespace/:runName" element={<Scroll><SecurityScanDetail /></Scroll>} />
               <Route path="/settings" element={<Scroll><SettingsLayout /></Scroll>}>
                 <Route index element={<SettingsScreen />} />

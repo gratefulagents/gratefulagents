@@ -2,12 +2,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { ShieldAlert } from "lucide-react";
+import { ShieldAlert, Settings2 } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { TableRowSkeleton } from "@/components/ui/list-state";
 import { filterByQuery } from "@/components/ui/list-search";
 import { ResourceListPage } from "@/components/list-page";
@@ -142,7 +143,13 @@ export function SecurityScanList() {
       emptyDescription={
         query
           ? "Clear the search to see all security scans."
-          : "Create a SecurityScan resource to scan a repository for vulnerabilities."
+          : "Create a scan configuration to scan a repository for vulnerabilities."
+      }
+      actions={
+        <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/configs" />}>
+          <Settings2 />
+          Configure scans
+        </Button>
       }
     >
       <Table>

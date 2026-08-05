@@ -248,6 +248,16 @@ service PlatformService {
   rpc GetSecurityFinding(GetSecurityFindingRequest) returns (GetSecurityFindingResponse);
   rpc UpdateSecurityFindingStatus(UpdateSecurityFindingStatusRequest) returns (SecurityFinding);
   rpc GetSecurityFindingSummary(GetSecurityFindingSummaryRequest) returns (GetSecurityFindingSummaryResponse);
+
+  // Security scanning: SecurityScan trigger configuration (the CRs that
+  // create scan runs). ListSecurityScanConfigs returns configured SecurityScan
+  // resources; the older ListSecurityScans above returns persisted scan
+  // RESULT rows recorded by scan runs.
+  rpc ListSecurityScanConfigs(ListSecurityScanConfigsRequest) returns (ListSecurityScanConfigsResponse);
+  rpc GetSecurityScanConfig(GetSecurityScanConfigRequest) returns (SecurityScanConfig);
+  rpc CreateSecurityScan(CreateSecurityScanRequest) returns (SecurityScanConfig);
+  rpc UpdateSecurityScan(UpdateSecurityScanRequest) returns (SecurityScanConfig);
+  rpc DeleteSecurityScan(DeleteSecurityScanRequest) returns (google.protobuf.Empty);
 }
 
 message ListAgentRunsRequest {
@@ -3929,6 +3939,9 @@ message ListSecurityFindingsResponse {
 
 message GetSecurityFindingRequest {
   string id = 1;
+  // namespace the finding lives in. Empty resolves to the caller's personal
+  // namespace; send it when browsing findings in a shared namespace.
+  string namespace = 2;
 }
 
 // SecurityFindingEvent is one audit-trail entry for a finding.
@@ -3950,6 +3963,9 @@ message UpdateSecurityFindingStatusRequest {
   string id = 1;
   string status = 2; // open, triaged, confirmed, false_positive, fixed, accepted_risk
   string note = 3; // Optional: audit note recorded on the status-change event
+  // namespace the finding lives in. Empty resolves to the caller's personal
+  // namespace; send it when triaging findings in a shared namespace.
+  string namespace = 4;
 }
 
 message GetSecurityFindingSummaryRequest {
@@ -3961,4 +3977,137 @@ message GetSecurityFindingSummaryRequest {
 message GetSecurityFindingSummaryResponse {
   // counts maps severity (plus "total" / "open") to the number of findings.
   map<string, int32> counts = 1;
+}
+
+// ---- SecurityScan configuration messages ----
+//
+// These messages describe the SecurityScan custom resource (the trigger an
+// operator configures to run scans). They are distinct from the SecurityScan
+// message above, which is one persisted scan RESULT row recorded by a run.
+
+// SecurityScanScopeConfig narrows what a scan looks at.
+message SecurityScanScopeConfig {
+  string focus = 1; // free-form guidance about what to prioritize
+  repeated string include_paths = 2;
+  repeated string exclude_paths = 3;
+  repeated string languages = 4;
+}
+
+// SecurityScanTaskConfig is one focused research task in the scan workflow.
+message SecurityScanTaskConfig {
+  string name = 1; // DNS-1123 label; referenced by depends_on
+  string objective = 2;
+  string category = 3;
+  repeated string depends_on = 4;
+  string role = 5;  // empty = security-reviewer
+  string model = 6; // empty = trigger default model
+  int32 max_findings = 7; // 0 = unlimited
+}
+
+// SecurityRankerConfig is operator-authored severity-ranking rule text.
+message SecurityRankerConfig {
+  string name = 1;
+  string rules = 2;
+}
+
+// SecurityPostScriptConfig is a per-finding prompt executed after findings
+// are collected.
+message SecurityPostScriptConfig {
+  string name = 1;
+  string prompt = 2;
+  string run_on = 3; // all | confirmed | high-and-above; empty = all
+}
+
+// SecurityScanDedupeConfig configures duplicate-finding suppression.
+message SecurityScanDedupeConfig {
+  bool enabled = 1;
+  int32 similarity_threshold_permille = 2; // 0-1000; 0 = server default (820)
+}
+
+// SecurityScanConfigSpec mirrors the operator-configurable SecurityScan CRD
+// spec (api/triggers/v1alpha1 SecurityScanSpec).
+message SecurityScanConfigSpec {
+  string repo_url = 1; // required scan target
+  string base_branch = 2; // empty = main
+  string revision = 3; // optional commit pin
+  repeated string additional_repos = 4;
+  SecurityScanScopeConfig scope = 5;
+  // workflow is the research plan; empty = the server default workflow.
+  repeated SecurityScanTaskConfig workflow = 6;
+  int32 parallelism = 7; // 0 = default (4); otherwise 1-16
+  repeated SecurityRankerConfig severity_rankers = 8;
+  repeated SecurityPostScriptConfig post_scripts = 9;
+  SecurityScanDedupeConfig dedupe = 10;
+  string min_severity = 11; // critical|high|medium|low|info; empty = low
+  string fail_on_severity = 12; // critical|high|medium|low|info; empty = off
+  string schedule = 13; // optional cron expression; empty = run once per spec change
+  string time_zone = 14; // IANA zone; empty = UTC
+  bool suspend = 15;
+  string concurrency_policy = 16; // Allow | Forbid; empty = Forbid
+  AgentRunDefaults defaults = 17;
+  string max_runtime = 18; // Go duration string, e.g. "2h"; empty = defaults.timeout
+}
+
+// SecurityScanConfig is one configured SecurityScan CR plus its status.
+message SecurityScanConfig {
+  string namespace = 1;
+  string name = 2;
+  SecurityScanConfigSpec spec = 3;
+  // status
+  string phase = 10;
+  string last_run_name = 11;
+  int64 last_scan_time_unix = 12;
+  int64 next_schedule_time_unix = 13;
+  int32 runs_created = 14;
+  // finding_counts maps severity (plus "total" / "open") to the number of
+  // findings from the most recent scan run.
+  map<string, int32> finding_counts = 15;
+  string last_error = 16;
+  string condition_ready = 17;
+  int64 created_at_unix = 18;
+  // ownership / sharing
+  ResourceOwner owner = 19;
+  string my_permission = 20;
+}
+
+message ListSecurityScanConfigsRequest {
+  string namespace = 1; // Optional: filter by namespace (empty = all visible)
+}
+
+message ListSecurityScanConfigsResponse {
+  repeated SecurityScanConfig configs = 1;
+}
+
+message GetSecurityScanConfigRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityScanRequest {
+  string namespace = 1;
+  // name is optional; when empty the server derives one.
+  string name = 2;
+  SecurityScanConfigSpec spec = 3;
+  // use_saved_credentials wires the scan to the caller's saved per-provider
+  // credentials (plus saved GitHub token) for the selected provider/auth
+  // mode, instead of the explicit secret refs in spec.defaults.
+  bool use_saved_credentials = 4;
+  // policies optionally provisions managed RuntimeProfile/MCPPolicy objects
+  // for this trigger (see TriggerPolicies).
+  TriggerPolicies policies = 5;
+}
+
+// UpdateSecurityScan replaces the SecurityScan spec with the request fields
+// as a whole (same assign-on-save semantics as UpdateCron).
+message UpdateSecurityScanRequest {
+  string namespace = 1;
+  string name = 2;
+  SecurityScanConfigSpec spec = 3;
+  bool use_saved_credentials = 4;
+  TriggerPolicies policies = 5;
+}
+
+message DeleteSecurityScanRequest {
+  string namespace = 1;
+  string name = 2;
 }

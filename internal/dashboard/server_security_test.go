@@ -416,3 +416,52 @@ func TestSecurityFindingForeignAndMissingAreIndistinguishable(t *testing.T) {
 		t.Fatalf("codes = %v/%v, want NotFound/NotFound", connect.CodeOf(foreignErr), connect.CodeOf(missingErr))
 	}
 }
+
+func TestSecurityFindingRPCsHonorRequestedSharedNamespace(t *testing.T) {
+	// Findings listed from a shared (non-personal) namespace must stay
+	// reachable by ID when the client sends the namespace it is routing on,
+	// instead of silently resolving to the caller's personal namespace.
+	sec := newMockSecurityStore()
+	finding := newTestFinding("team-shared")
+	sec.findings[finding.ID] = finding
+	scheme := newDashboardTestScheme(t)
+	srv := &Server{
+		k8sClient:  fake.NewClientBuilder().WithScheme(scheme).WithObjects(sharedNamespaceObj("team-shared")).Build(),
+		scheme:     scheme,
+		stateStore: sec,
+	}
+	ctx := actorContext("alice", "member", "", "")
+
+	got, err := srv.GetSecurityFinding(ctx, &platform.GetSecurityFindingRequest{
+		Id: finding.ID.String(), Namespace: "team-shared",
+	})
+	if err != nil {
+		t.Fatalf("GetSecurityFinding() error = %v", err)
+	}
+	if got.GetFinding().GetId() != finding.ID.String() {
+		t.Fatalf("finding id = %q, want %q", got.GetFinding().GetId(), finding.ID.String())
+	}
+	if sec.lastGetNamespace != "team-shared" || sec.lastEventsNamespace != "team-shared" {
+		t.Fatalf("store queried namespaces %q/%q, want team-shared", sec.lastGetNamespace, sec.lastEventsNamespace)
+	}
+
+	updated, err := srv.UpdateSecurityFindingStatus(ctx, &platform.UpdateSecurityFindingStatusRequest{
+		Id: finding.ID.String(), Namespace: "team-shared", Status: store.SecurityFindingStatusTriaged,
+	})
+	if err != nil {
+		t.Fatalf("UpdateSecurityFindingStatus() error = %v", err)
+	}
+	if updated.GetStatus() != store.SecurityFindingStatusTriaged {
+		t.Fatalf("status = %q, want triaged", updated.GetStatus())
+	}
+	if sec.lastStatusNamespace != "team-shared" {
+		t.Fatalf("status updated in namespace %q, want team-shared", sec.lastStatusNamespace)
+	}
+
+	// An explicitly requested foreign personal namespace stays denied.
+	if _, err := srv.GetSecurityFinding(ctx, &platform.GetSecurityFindingRequest{
+		Id: finding.ID.String(), Namespace: "user-bob",
+	}); connect.CodeOf(err) == 0 {
+		t.Fatal("GetSecurityFinding(foreign personal namespace) succeeded, want error")
+	}
+}

@@ -189,7 +189,7 @@ describe("SecurityScanDetail", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
     await waitFor(() => {
-      expect(getSecurityFinding).toHaveBeenCalledWith({ id: FINDING_ID });
+      expect(getSecurityFinding).toHaveBeenCalledWith({ id: FINDING_ID, namespace: "user-alice" });
     });
 
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "triaged" } });
@@ -199,6 +199,7 @@ describe("SecurityScanDetail", () => {
         id: FINDING_ID,
         status: "triaged",
         note: "",
+        namespace: "user-alice",
       });
     });
     // Optimistic update plus refetch leave the row in the new status.
@@ -228,7 +229,7 @@ describe("SecurityScanDetail", () => {
     expect(screen.getByText("created")).toBeTruthy();
     // sourceAgent also appears in the fact list, so the history adds a second match.
     expect(screen.getAllByText(/scanner-agent/).length).toBeGreaterThan(1);
-    expect(getSecurityFinding).toHaveBeenCalledWith({ id: FINDING_ID });
+    expect(getSecurityFinding).toHaveBeenCalledWith({ id: FINDING_ID, namespace: "user-alice" });
   });
 
   it("shows an error in the history section when the events fetch fails", async () => {

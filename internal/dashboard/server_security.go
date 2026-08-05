@@ -108,7 +108,7 @@ func (s *Server) GetSecurityFinding(ctx context.Context, req *platform.GetSecuri
 	if err != nil {
 		return nil, err
 	}
-	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId())
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace())
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (s *Server) UpdateSecurityFindingStatus(ctx context.Context, req *platform.
 	if !store.ValidSecurityFindingStatus(req.GetStatus()) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid finding status %q", req.GetStatus()))
 	}
-	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId())
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace())
 	if err != nil {
 		return nil, err
 	}
@@ -173,15 +173,17 @@ func (s *Server) GetSecurityFindingSummary(ctx context.Context, req *platform.Ge
 }
 
 // authorizedSecurityFinding loads a finding by request ID, scoped to the
-// namespace the caller is authorized to act in. A finding that does not exist
-// and one that lives in a namespace the caller may not read are both reported
-// as NotFound so the endpoint cannot be used as a UUID-existence oracle.
-func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.SecurityFindingStore, rawID string) (*store.SecurityFindingRecord, error) {
+// namespace the caller is authorized to act in (the requested namespace when
+// given, the caller's personal namespace otherwise). A finding that does not
+// exist and one that lives in a namespace the caller may not read are both
+// reported as NotFound so the endpoint cannot be used as a UUID-existence
+// oracle.
+func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.SecurityFindingStore, rawID, requestedNamespace string) (*store.SecurityFindingRecord, error) {
 	id, err := uuid.Parse(strings.TrimSpace(rawID))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid finding id %q", rawID))
 	}
-	namespace, err := s.authorizeRequestNamespace(ctx, "", nil)
+	namespace, err := s.authorizeRequestNamespace(ctx, requestedNamespace, nil)
 	if err != nil {
 		return nil, err
 	}
