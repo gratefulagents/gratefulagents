@@ -6,7 +6,7 @@ import { CodePane } from "./DetailPanes";
 import { useResolvedEntry } from "./detailContext";
 import { entryIdentity, groupsToUnits, workUnitKey } from "./feedModel";
 import { WorkUnitView } from "./WorkRows";
-import { groupActivityEntries, formatDuration, formatTokens, subagentTitleFromPrompt, type ActivityGroup } from "@/lib/activityGrouping";
+import { groupActivityEntries, formatDuration, formatTokens, subagentPromptMarkdown, subagentTitleFromPrompt, type ActivityGroup } from "@/lib/activityGrouping";
 import { firstLine, formatClock, formatUsd } from "@/lib/activityLogFormat";
 import { getSubagentColor } from "@/lib/subagentColors";
 import { isWaitingStatus } from "@/lib/subagentGraphLayout";
@@ -167,8 +167,8 @@ export function PromptToggle({ prompt }: { prompt: string }) {
         )}
       </button>
       {open && (
-        <div className="mt-1.5">
-          <CodePane text={prompt} maxHeight={320} />
+        <div className="mt-1.5 max-h-80 overflow-y-auto rounded-md border border-border/50 bg-muted/15 px-3 py-2 text-sm">
+          <MarkdownViewer content={prompt} />
         </div>
       )}
     </div>
@@ -189,8 +189,11 @@ export const SubagentCard = memo(function SubagentCard({
       )
     : group.entries.find((e) => e.type === "tool_use" && e.tool === "Agent");
 
+  // Prefer the task's own prompt over the parent tool call's raw JSON input:
+  // a DAG batch shares one tool call whose payload lists every task.
   const promptContent =
-    parentToolEntry?.input || parentToolEntry?.inputRaw || group.subagentPrompt || "";
+    group.subagentPrompt ||
+    subagentPromptMarkdown(parentToolEntry?.input || parentToolEntry?.inputRaw || "");
 
   const toolUseEntries = group.entries.filter(
     (e) =>
@@ -374,16 +377,26 @@ export const InlineSubagentCard = memo(function InlineSubagentCard({
   const metrics: string[] = [];
   if (toolCount > 0) metrics.push(`${toolCount} tools`);
 
+  const promptContent = subagentPromptMarkdown(
+    parentEntry.input || parentEntry.inputRaw || parentEntry.message,
+  );
+
   return (
     <SubagentShell
       name={agentName}
       status={isComplete ? "completed" : "running"}
-      title={firstLine(parentEntry.message || parentEntry.input || "") || agentName}
+      title={
+        firstLine(
+          parentEntry.message ||
+            subagentPromptMarkdown(parentEntry.input || parentEntry.inputRaw),
+        ) || agentName
+      }
       liveLine={isComplete ? "" : "working…"}
       resultPreview={group.resultEntry?.isError ? "" : firstLine(group.resultEntry?.output || "")}
       metrics={metrics}
       timestamp={parentEntry.timestampUnix}
     >
+      {promptContent && <PromptToggle prompt={promptContent} />}
       {childUnits.length > 0 && (
         <div>
           <SectionLabel>Steps</SectionLabel>

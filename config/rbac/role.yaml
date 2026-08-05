@@ -223,6 +223,16 @@ rules:
 - apiGroups:
   - triggers.gratefulagents.dev
   resources:
+  - securityscans
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - triggers.gratefulagents.dev
+  resources:
   - securityscans/finalizers
   verbs:
   - update

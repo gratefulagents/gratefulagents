@@ -89,6 +89,57 @@ export function subagentTitleFromPrompt(prompt: string | undefined): string {
   return "";
 }
 
+type SubagentTaskSpec = {
+  key?: unknown;
+  agent_name?: unknown;
+  message?: unknown;
+  depends_on?: unknown;
+};
+
+function taskSection(task: SubagentTaskSpec): string {
+  const message = typeof task.message === "string" ? task.message : "";
+  const key = typeof task.key === "string" ? task.key : "";
+  const agent = typeof task.agent_name === "string" ? task.agent_name : "";
+  const deps = Array.isArray(task.depends_on)
+    ? task.depends_on.filter((d): d is string => typeof d === "string")
+    : [];
+  const headerParts = [key && `\`${key}\``, agent && `**${agent}**`].filter(Boolean);
+  if (deps.length > 0) headerParts.push(`_after ${deps.join(", ")}_`);
+  const header = headerParts.join(" · ");
+  return header ? `${header}\n\n${message}` : message;
+}
+
+/**
+ * Extracts the human-readable prompt from a subagent tool call's raw input.
+ * The transport payload is JSON like {"mode":"sync","message":"…"} or
+ * {"mode":"sync","tasks":[{key,agent_name,message},…]}; the escaped JSON is
+ * unreadable in the UI, so we surface the message text as markdown instead.
+ * Non-JSON input (an already-plain prompt) is returned unchanged.
+ */
+export function subagentPromptMarkdown(raw: string | undefined): string {
+  const text = (raw ?? "").trim();
+  if (!text.startsWith("{")) return text;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  if (typeof parsed !== "object" || parsed === null) return text;
+  const obj = parsed as { message?: unknown; tasks?: unknown; prompt?: unknown };
+  if (typeof obj.message === "string" && obj.message.trim()) return obj.message;
+  if (typeof obj.prompt === "string" && obj.prompt.trim()) return obj.prompt;
+  if (Array.isArray(obj.tasks)) {
+    const sections = obj.tasks
+      .filter((t): t is SubagentTaskSpec => typeof t === "object" && t !== null)
+      .map(taskSection)
+      .filter(Boolean);
+    if (sections.length === 1) return sections[0];
+    if (sections.length > 1) return sections.join("\n\n---\n\n");
+  }
+  return text;
+}
+
 function hasSubagentGroupingEvidence(entry: ActivityEntry): boolean {
   return (
     SUBAGENT_EVIDENCE_TYPES.has(entry.type) ||
