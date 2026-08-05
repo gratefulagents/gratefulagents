@@ -401,6 +401,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	securityLibrary := triggercontroller.SecurityLibraryReconciler{Client: mgr.GetClient()}
+	if err := (&triggercontroller.SecurityWorkflowReconciler{SecurityLibraryReconciler: securityLibrary}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SecurityWorkflow")
+		os.Exit(1)
+	}
+	if err := (&triggercontroller.SecurityRankerReconciler{SecurityLibraryReconciler: securityLibrary}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SecurityRanker")
+		os.Exit(1)
+	}
+	if err := (&triggercontroller.SecurityPostScriptReconciler{SecurityLibraryReconciler: securityLibrary}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SecurityPostScript")
+		os.Exit(1)
+	}
+
 	if err := (&triggercontroller.SlackAgentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),

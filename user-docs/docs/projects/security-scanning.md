@@ -176,6 +176,45 @@ Set `role` on a workflow task to pick a different specialist, or define your own
 
 Sub-agents report vulnerabilities by calling the `report_security_finding` tool with one structured finding at a time; findings described only in prose are not recorded. During triage the agent can use `list_security_findings` to review what was reported and `update_security_finding` to change a finding's status with a note. The run finishes by calling `submit_security_scan_report` exactly once, which enforces the scan's dedupe and minimum-severity policies, ranks findings, renders the report artifacts, and marks the scan completed.
 
+## Reusable security resources
+
+Workflows, severity rankers, and post-scripts can be shared across scans as namespace-scoped resources instead of being repeated inline in every `SecurityScan`:
+
+- **`SecurityWorkflow`** — `spec.description`, `spec.tasks` (the same task schema as `spec.workflow`), and an optional `spec.parallelism` that overrides the referencing scan's parallelism when set.
+- **`SecurityRanker`** — `spec.description` and `spec.rules`, a list of ranking rule lines in the same language as `spec.severityRankers[].rules`.
+- **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, or `high-and-above`).
+
+A `SecurityScan` references them with:
+
+```yaml
+spec:
+  workflowRef:
+    name: payments-deep-dive       # replaces an inline workflow
+  rankerRefs:
+    - name: payments-priorities    # appended after spec.severityRankers
+  postScriptRefs:
+    - name: write-poc              # appended after spec.postScripts
+```
+
+### Precedence and override rules
+
+- Inline fields keep working unchanged; existing specs need no migration.
+- `workflowRef` and an inline `workflow` are **mutually exclusive**. Setting both makes the controller report `Ready=False` with reason `InvalidSpec` and never create a run; the dashboard rejects the combination at save time.
+- `rankerRefs` and `postScriptRefs` **append** to the inline `severityRankers` and `postScripts` — inline entries come first, referenced entries follow in spec order.
+- A referenced `SecurityWorkflow` with `spec.parallelism` set overrides the scan's own `parallelism` for runs built from it.
+
+### Snapshot semantics (reproducible runs)
+
+References are resolved when each run is **created**, not when it executes or when you read it later. The controller inlines the referenced content into the run's seed prompt (which is persisted at creation), stamps the run with the `security.gratefulagents.dev/resolved-refs` annotation — a JSON array of `{kind, name, generation, hash}` records with a sha256 content hash of each resolved spec — and records the same snapshot in the scan's `status.lastResolvedRefs`. Editing a library resource afterwards changes only future runs; historical runs keep the exact content they were created with.
+
+### Deleting referenced resources
+
+Deleting a workflow, ranker, or post-script through the dashboard is **blocked** while any `SecurityScan` in the namespace still references it; the error lists the referencing scans so you can detach them first. `kubectl delete` cannot be blocked (there is no admission webhook), so a kubectl-deleted resource leaves referencing scans reporting `Ready=False` with reason `UnresolvedReference` at their next run — no run is created until the reference is fixed. Runs that already happened are unaffected either way, because they carry their own snapshot.
+
+### The library and the visual workflow builder
+
+The dashboard's **Security → Library** page (`/security/library`) lists workflows, rankers, and post-scripts with usage counts, and supports create, edit, duplicate, and guarded delete. Workflows are edited in a visual builder: structured task cards (name, objective, category, specialist role picker, model override, max findings), dependency selection limited to the other task names, and a live read-only graph of the dependency DAG. The builder refuses to save cycles, dangling or self dependencies, duplicate names, invalid roles/models, or an empty workflow — the same validation the server enforces on create/update and exposes through the `ValidateSecurityWorkflow` RPC. The scan form's *Workflow tasks* section lets you pick a library workflow (or keep editing inline), and its *Rankers & post-scripts* section attaches library rankers and post-scripts.
+
 ## Findings
 
 A finding is a structured record. Required fields are `title`, `category`, `severity`, and `description`; the rest add location and evidence:

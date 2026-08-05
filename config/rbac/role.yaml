@@ -179,7 +179,10 @@ rules:
   - githubrepositories
   - linearprojects
   - projects
+  - securitypostscripts
+  - securityrankers
   - securityscans
+  - securityworkflows
   - slackagents
   - slackworkspaces
   verbs:
@@ -200,7 +203,10 @@ rules:
   - maintainerworkitems/status
   - projects/status
   - pullrequestmonitors/status
+  - securitypostscripts/status
+  - securityrankers/status
   - securityscans/status
+  - securityworkflows/status
   - slackagents/status
   - slackworkspaces/status
   verbs:
@@ -215,16 +221,6 @@ rules:
   - pullrequestmonitors
   verbs:
   - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - triggers.gratefulagents.dev
-  resources:
-  - securityscans
-  verbs:
   - get
   - list
   - patch

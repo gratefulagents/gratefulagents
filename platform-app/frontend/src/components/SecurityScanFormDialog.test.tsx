@@ -26,6 +26,15 @@ vi.mock("@/lib/client", () => ({
     listMCPServers: vi.fn().mockResolvedValue({ servers: [] }),
     listSkills: vi.fn().mockResolvedValue({ skills: [] }),
     listRuntimeImages: vi.fn().mockResolvedValue({ images: [] }),
+    listSecurityWorkflows: vi.fn().mockResolvedValue({
+      workflows: [{ name: "payments-workflow", tasks: [{ name: "a" }], usageCount: 0, referencingScans: [] }],
+    }),
+    listSecurityRankers: vi.fn().mockResolvedValue({
+      rankers: [{ name: "payments-ranker", rules: ["r"], usageCount: 0, referencingScans: [] }],
+    }),
+    listSecurityPostScripts: vi.fn().mockResolvedValue({
+      postScripts: [{ name: "write-poc", prompt: "p", usageCount: 0, referencingScans: [] }],
+    }),
   },
 }));
 
@@ -198,5 +207,37 @@ describe("SecurityScanFormDialog duplicate mode", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("already exists");
     expect(client.updateSecurityScan).not.toHaveBeenCalled();
+  });
+
+  it("selects a library workflow and refs, sending workflowRef and appended refs", async () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Workflow tasks/ }));
+    const workflowSelect = (await screen.findByLabelText("Library workflow")) as HTMLSelectElement;
+    fireEvent.change(workflowSelect, { target: { value: "payments-workflow" } });
+    // Snapshot semantics are explained next to the picker.
+    expect(screen.getAllByText(/snapshotted/i).length).toBeGreaterThan(0);
+    // Inline task editing is disabled while a library workflow is selected.
+    expect(screen.queryByRole("button", { name: "Add workflow task" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Rankers & post-scripts/ }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /payments-ranker/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /write-poc/ }));
+
+    const form = document.querySelector("form");
+    fireEvent.submit(form as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(client.createSecurityScan).toHaveBeenCalledTimes(1);
+    });
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.workflowRef).toBe("payments-workflow");
+    expect(request.spec?.workflow).toEqual([]);
+    expect(request.spec?.rankerRefs).toEqual(["payments-ranker"]);
+    expect(request.spec?.postScriptRefs).toEqual(["write-poc"]);
   });
 });

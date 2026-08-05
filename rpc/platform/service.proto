@@ -294,6 +294,33 @@ service PlatformService {
   // Suspended scans are rejected with FailedPrecondition.
   rpc RunSecurityScanNow(RunSecurityScanNowRequest) returns (SecurityScanConfig);
 
+  // Reusable security library resources: SecurityWorkflow, SecurityRanker,
+  // and SecurityPostScript CRs referenced by SecurityScan configurations via
+  // workflow_ref / ranker_refs / post_script_refs. Referenced content is
+  // resolved and snapshotted at run-creation time, so edits never change
+  // historical runs. Delete is blocked with FailedPrecondition while
+  // SecurityScans in the namespace still reference the resource.
+  rpc ListSecurityWorkflows(ListSecurityWorkflowsRequest) returns (ListSecurityWorkflowsResponse);
+  rpc GetSecurityWorkflow(GetSecurityWorkflowRequest) returns (SecurityWorkflowResource);
+  rpc CreateSecurityWorkflow(CreateSecurityWorkflowRequest) returns (SecurityWorkflowResource);
+  rpc UpdateSecurityWorkflow(UpdateSecurityWorkflowRequest) returns (SecurityWorkflowResource);
+  rpc DeleteSecurityWorkflow(DeleteSecurityWorkflowRequest) returns (google.protobuf.Empty);
+  // ValidateSecurityWorkflow runs the full server-side workflow validation
+  // (unique task names, acyclic dependencies, resolvable dependsOn entries,
+  // valid roles/models, maxFindings bounds) without persisting anything and
+  // returns structured field errors. Create/Update run the same validation.
+  rpc ValidateSecurityWorkflow(ValidateSecurityWorkflowRequest) returns (ValidateSecurityWorkflowResponse);
+  rpc ListSecurityRankers(ListSecurityRankersRequest) returns (ListSecurityRankersResponse);
+  rpc GetSecurityRanker(GetSecurityRankerRequest) returns (SecurityRankerResource);
+  rpc CreateSecurityRanker(CreateSecurityRankerRequest) returns (SecurityRankerResource);
+  rpc UpdateSecurityRanker(UpdateSecurityRankerRequest) returns (SecurityRankerResource);
+  rpc DeleteSecurityRanker(DeleteSecurityRankerRequest) returns (google.protobuf.Empty);
+  rpc ListSecurityPostScripts(ListSecurityPostScriptsRequest) returns (ListSecurityPostScriptsResponse);
+  rpc GetSecurityPostScript(GetSecurityPostScriptRequest) returns (SecurityPostScriptResource);
+  rpc CreateSecurityPostScript(CreateSecurityPostScriptRequest) returns (SecurityPostScriptResource);
+  rpc UpdateSecurityPostScript(UpdateSecurityPostScriptRequest) returns (SecurityPostScriptResource);
+  rpc DeleteSecurityPostScript(DeleteSecurityPostScriptRequest) returns (google.protobuf.Empty);
+
   // GetSecurityOverview aggregates a namespace's security posture for the
   // dashboard overview page: active and recent scan runs, open finding
   // counts, and scan configurations that are failing or blocked.
@@ -4252,6 +4279,16 @@ message SecurityScanConfigSpec {
   string concurrency_policy = 16; // Allow | Forbid; empty = Forbid
   AgentRunDefaults defaults = 17;
   string max_runtime = 18; // Go duration string, e.g. "2h"; empty = defaults.timeout
+  // workflow_ref names a reusable SecurityWorkflow in the scan's namespace.
+  // Mutually exclusive with an inline workflow; resolved and snapshotted at
+  // run-creation time.
+  string workflow_ref = 19;
+  // ranker_refs name reusable SecurityRanker resources appended after the
+  // inline severity_rankers.
+  repeated string ranker_refs = 20;
+  // post_script_refs name reusable SecurityPostScript resources appended
+  // after the inline post_scripts.
+  repeated string post_script_refs = 21;
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.
@@ -4319,6 +4356,148 @@ message DeleteSecurityScanRequest {
 }
 
 message RunSecurityScanNowRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecurityWorkflowResource is one reusable SecurityWorkflow CR. The proto
+// mirrors the CRD spec with plain, secret-free fields so resources stay
+// import/export-ready.
+message SecurityWorkflowResource {
+  string namespace = 1;
+  string name = 2;
+  string description = 3;
+  repeated SecurityScanTaskConfig tasks = 4;
+  // parallelism, when non-zero, overrides the referencing scan's parallelism
+  // (1-16).
+  int32 parallelism = 5;
+  // usage_count is the number of SecurityScans in the namespace referencing
+  // this workflow.
+  int32 usage_count = 10;
+  // referencing_scans are the names of the SecurityScans counted above.
+  repeated string referencing_scans = 11;
+  int64 generation = 12;
+  int64 created_at_unix = 13;
+}
+
+message ListSecurityWorkflowsRequest {
+  string namespace = 1;
+}
+
+message ListSecurityWorkflowsResponse {
+  repeated SecurityWorkflowResource workflows = 1;
+}
+
+message GetSecurityWorkflowRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityWorkflowRequest {
+  SecurityWorkflowResource workflow = 1;
+}
+
+message UpdateSecurityWorkflowRequest {
+  SecurityWorkflowResource workflow = 1;
+}
+
+message DeleteSecurityWorkflowRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecurityWorkflowValidationError is one structured validation failure
+// addressed to the offending field.
+message SecurityWorkflowValidationError {
+  // field is a JSON-ish path such as "tasks[2].dependsOn".
+  string field = 1;
+  string message = 2;
+}
+
+message ValidateSecurityWorkflowRequest {
+  repeated SecurityScanTaskConfig tasks = 1;
+  int32 parallelism = 2;
+}
+
+message ValidateSecurityWorkflowResponse {
+  bool valid = 1;
+  repeated SecurityWorkflowValidationError errors = 2;
+}
+
+// SecurityRankerResource is one reusable SecurityRanker CR (same rules
+// language as SecurityScanConfigSpec.severity_rankers[].rules).
+message SecurityRankerResource {
+  string namespace = 1;
+  string name = 2;
+  string description = 3;
+  repeated string rules = 4;
+  int32 usage_count = 10;
+  repeated string referencing_scans = 11;
+  int64 generation = 12;
+  int64 created_at_unix = 13;
+}
+
+message ListSecurityRankersRequest {
+  string namespace = 1;
+}
+
+message ListSecurityRankersResponse {
+  repeated SecurityRankerResource rankers = 1;
+}
+
+message GetSecurityRankerRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityRankerRequest {
+  SecurityRankerResource ranker = 1;
+}
+
+message UpdateSecurityRankerRequest {
+  SecurityRankerResource ranker = 1;
+}
+
+message DeleteSecurityRankerRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecurityPostScriptResource is one reusable SecurityPostScript CR.
+message SecurityPostScriptResource {
+  string namespace = 1;
+  string name = 2;
+  string description = 3;
+  string prompt = 4;
+  string run_on = 5; // all | confirmed | high-and-above; empty = all
+  int32 usage_count = 10;
+  repeated string referencing_scans = 11;
+  int64 generation = 12;
+  int64 created_at_unix = 13;
+}
+
+message ListSecurityPostScriptsRequest {
+  string namespace = 1;
+}
+
+message ListSecurityPostScriptsResponse {
+  repeated SecurityPostScriptResource post_scripts = 1;
+}
+
+message GetSecurityPostScriptRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityPostScriptRequest {
+  SecurityPostScriptResource post_script = 1;
+}
+
+message UpdateSecurityPostScriptRequest {
+  SecurityPostScriptResource post_script = 1;
+}
+
+message DeleteSecurityPostScriptRequest {
   string namespace = 1;
   string name = 2;
 }

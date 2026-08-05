@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CalendarClock, Crosshair, GitBranch, ListChecks, Loader2, ShieldAlert, SlidersHorizontal } from "lucide-react";
 
 import {
@@ -41,6 +41,9 @@ import {
   UpdateSecurityScanRequestSchema,
   type AgentRunDefaults,
   type SecurityScanConfig,
+  type SecurityPostScriptResource,
+  type SecurityRankerResource,
+  type SecurityWorkflowResource,
   type TriggerPolicies,
 } from "@/rpc/platform/service_pb";
 
@@ -83,6 +86,9 @@ type SpecState = {
   maxRuntime: string;
   dedupeEnabled: boolean;
   dedupeThreshold: string;
+  workflowRef: string;
+  rankerRefs: string[];
+  postScriptRefs: string[];
 };
 
 function splitList(value: string, separator: RegExp): string[] {
@@ -116,6 +122,9 @@ function initialSpec(config?: SecurityScanConfig): SpecState {
     dedupeThreshold: spec?.dedupe?.similarityThresholdPermille
       ? String(spec.dedupe.similarityThresholdPermille)
       : "",
+    workflowRef: spec?.workflowRef ?? "",
+    rankerRefs: [...(spec?.rankerRefs ?? [])],
+    postScriptRefs: [...(spec?.postScriptRefs ?? [])],
   };
 }
 
@@ -232,6 +241,29 @@ export function SecurityScanFormDialog({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [libraryWorkflows, setLibraryWorkflows] = useState<SecurityWorkflowResource[]>([]);
+  const [libraryRankers, setLibraryRankers] = useState<SecurityRankerResource[]>([]);
+  const [libraryPostScripts, setLibraryPostScripts] = useState<SecurityPostScriptResource[]>([]);
+
+  // The library is optional context: load it when the dialog opens and fall
+  // back to empty pickers when it cannot be listed.
+  useEffect(() => {
+    if (!open) return;
+    void (async () => {
+      try {
+        const [wf, rk, ps] = await Promise.all([
+          client.listSecurityWorkflows({ namespace: "" }),
+          client.listSecurityRankers({ namespace: "" }),
+          client.listSecurityPostScripts({ namespace: "" }),
+        ]);
+        setLibraryWorkflows(wf.workflows);
+        setLibraryRankers(rk.rankers);
+        setLibraryPostScripts(ps.postScripts);
+      } catch {
+        // Library pickers stay empty; inline editing keeps working.
+      }
+    })();
+  }, [open]);
 
   function update<K extends keyof SpecState>(field: K, value: SpecState[K]) {
     setSpec((prev) => ({ ...prev, [field]: value }));
@@ -273,17 +305,24 @@ export function SecurityScanFormDialog({
       revision: spec.revision.trim(),
       additionalRepos: splitList(spec.additionalRepos, /\n/),
       scope,
-      workflow: tasks.map((t) =>
-        create(SecurityScanTaskConfigSchema, {
-          name: t.name.trim(),
-          objective: t.objective.trim(),
-          category: t.category.trim(),
-          role: t.role.trim(),
-          model: t.model.trim(),
-          dependsOn: splitList(t.dependsOn, /[,\n]/),
-          maxFindings: t.maxFindings.trim() ? Number(t.maxFindings) : 0,
-        }),
-      ),
+      // workflowRef and an inline workflow are mutually exclusive; picking a
+      // library workflow drops any inline tasks from the request.
+      workflow: spec.workflowRef
+        ? []
+        : tasks.map((t) =>
+            create(SecurityScanTaskConfigSchema, {
+              name: t.name.trim(),
+              objective: t.objective.trim(),
+              category: t.category.trim(),
+              role: t.role.trim(),
+              model: t.model.trim(),
+              dependsOn: splitList(t.dependsOn, /[,\n]/),
+              maxFindings: t.maxFindings.trim() ? Number(t.maxFindings) : 0,
+            }),
+          ),
+      workflowRef: spec.workflowRef,
+      rankerRefs: spec.rankerRefs,
+      postScriptRefs: spec.postScriptRefs,
       parallelism: spec.parallelism.trim() ? Number(spec.parallelism) : 0,
       severityRankers: rankers.map((r) =>
         create(SecurityRankerConfigSchema, { name: r.name.trim(), rules: r.rules }),
@@ -701,9 +740,47 @@ export function SecurityScanFormDialog({
               <OptionRow
                 icon={ListChecks}
                 title="Workflow tasks"
-                summary={tasks.length ? `${tasks.length} custom task${tasks.length === 1 ? "" : "s"}` : "Default workflow"}
-                modified={tasks.length > 0}
+                summary={
+                  spec.workflowRef
+                    ? `Library workflow: ${spec.workflowRef}`
+                    : tasks.length
+                      ? `${tasks.length} custom task${tasks.length === 1 ? "" : "s"}`
+                      : "Default workflow"
+                }
+                modified={tasks.length > 0 || Boolean(spec.workflowRef)}
               >
+                <FlowField
+                  id="scan-workflow-ref"
+                  label="Library workflow"
+                  hint="Referenced content is resolved and snapshotted when each run starts, so later library edits never change runs that already happened. Mutually exclusive with inline tasks."
+                >
+                  <select
+                    id="scan-workflow-ref"
+                    className={selectClass}
+                    value={spec.workflowRef}
+                    onChange={(event) => update("workflowRef", event.target.value)}
+                  >
+                    <option value="">None — edit tasks inline</option>
+                    {libraryWorkflows.map((workflow) => (
+                      <option key={workflow.name} value={workflow.name}>
+                        {workflow.name} ({workflow.tasks.length} task{workflow.tasks.length === 1 ? "" : "s"})
+                      </option>
+                    ))}
+                    {spec.workflowRef !== "" &&
+                      !libraryWorkflows.some((workflow) => workflow.name === spec.workflowRef) && (
+                        <option value={spec.workflowRef}>{spec.workflowRef}</option>
+                      )}
+                  </select>
+                </FlowField>
+                {spec.workflowRef !== "" && (
+                  <p className="text-xs text-muted-foreground">
+                    This scan runs the library workflow{" "}
+                    <span className="font-mono">{spec.workflowRef}</span>. Inline tasks are
+                    disabled while a library workflow is selected.
+                  </p>
+                )}
+                {spec.workflowRef === "" && (
+                <>
                 <p className="text-xs text-muted-foreground">
                   Leave empty to use the built-in vulnerability-hunting workflow. Custom tasks
                   replace it entirely; depends_on must reference other task names.
@@ -833,22 +910,89 @@ export function SecurityScanFormDialog({
                 >
                   Add workflow task
                 </Button>
+                </>
+                )}
               </OptionRow>
 
               <OptionRow
                 icon={SlidersHorizontal}
                 title="Rankers & post-scripts"
                 summary={
-                  rankers.length || postScripts.length
-                    ? `${rankers.length} ranker${rankers.length === 1 ? "" : "s"} · ${postScripts.length} post-script${postScripts.length === 1 ? "" : "s"}`
+                  rankers.length || postScripts.length || spec.rankerRefs.length || spec.postScriptRefs.length
+                    ? `${rankers.length + spec.rankerRefs.length} ranker${rankers.length + spec.rankerRefs.length === 1 ? "" : "s"} · ${postScripts.length + spec.postScriptRefs.length} post-script${postScripts.length + spec.postScriptRefs.length === 1 ? "" : "s"}`
                     : "None"
                 }
-                modified={rankers.length > 0 || postScripts.length > 0}
+                modified={
+                  rankers.length > 0 ||
+                  postScripts.length > 0 ||
+                  spec.rankerRefs.length > 0 ||
+                  spec.postScriptRefs.length > 0
+                }
               >
                 <p className="text-xs text-muted-foreground">
                   Severity rankers add your ranking rules to the scan prompt; post-scripts run a
                   prompt against each matching finding after the scan.
                 </p>
+                {(libraryRankers.length > 0 || spec.rankerRefs.length > 0) && (
+                  <FlowField
+                    id="scan-ranker-refs"
+                    label="Library rankers"
+                    hint="Appended after the inline rankers below and snapshotted when each run starts."
+                  >
+                    <div className="flex flex-wrap gap-2" id="scan-ranker-refs">
+                      {[...new Set([...libraryRankers.map((r) => r.name), ...spec.rankerRefs])].map((name) => {
+                        const checked = spec.rankerRefs.includes(name);
+                        return (
+                          <label key={name} className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                update(
+                                  "rankerRefs",
+                                  checked
+                                    ? spec.rankerRefs.filter((r) => r !== name)
+                                    : [...spec.rankerRefs, name],
+                                )
+                              }
+                            />
+                            <span className="font-mono">{name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </FlowField>
+                )}
+                {(libraryPostScripts.length > 0 || spec.postScriptRefs.length > 0) && (
+                  <FlowField
+                    id="scan-post-script-refs"
+                    label="Library post-scripts"
+                    hint="Appended after the inline post-scripts below and snapshotted when each run starts."
+                  >
+                    <div className="flex flex-wrap gap-2" id="scan-post-script-refs">
+                      {[...new Set([...libraryPostScripts.map((p) => p.name), ...spec.postScriptRefs])].map((name) => {
+                        const checked = spec.postScriptRefs.includes(name);
+                        return (
+                          <label key={name} className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                update(
+                                  "postScriptRefs",
+                                  checked
+                                    ? spec.postScriptRefs.filter((r) => r !== name)
+                                    : [...spec.postScriptRefs, name],
+                                )
+                              }
+                            />
+                            <span className="font-mono">{name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </FlowField>
+                )}
                 {rankers.map((ranker, index) => (
                   <div key={index} className="space-y-3 rounded-md border p-3">
                     <FlowField id={`scan-ranker-name-${index}`} label="Ranker name">

@@ -333,6 +333,22 @@ func securityScanSpecFromRequest(
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	workflowRef, err := securityResourceRefFromProto("workflow_ref", pb.GetWorkflowRef())
+	if err != nil {
+		return nil, "", "", err
+	}
+	if workflowRef != nil && len(workflow) > 0 {
+		return nil, "", "", connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("workflow_ref and an inline workflow are mutually exclusive: reference a SecurityWorkflow or define the workflow inline, not both"))
+	}
+	rankerRefs, err := securityResourceRefsFromProto("ranker_refs", pb.GetRankerRefs())
+	if err != nil {
+		return nil, "", "", err
+	}
+	postScriptRefs, err := securityResourceRefsFromProto("post_script_refs", pb.GetPostScriptRefs())
+	if err != nil {
+		return nil, "", "", err
+	}
 	rankers, err := securityScanRankersFromProto(pb.GetSeverityRankers())
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
@@ -366,9 +382,12 @@ func securityScanSpecFromRequest(
 		AdditionalRepos:   trimmedNonEmpty(pb.GetAdditionalRepos()),
 		Scope:             securityScanScopeFromProto(pb.GetScope()),
 		Workflow:          workflow,
+		WorkflowRef:       workflowRef,
 		Parallelism:       pb.GetParallelism(),
 		SeverityRankers:   rankers,
+		RankerRefs:        rankerRefs,
 		PostScripts:       postScripts,
+		PostScriptRefs:    postScriptRefs,
 		Dedupe:            dedupe,
 		MinSeverity:       strings.TrimSpace(pb.GetMinSeverity()),
 		FailOnSeverity:    strings.TrimSpace(pb.GetFailOnSeverity()),
@@ -464,13 +483,48 @@ func securityScanWorkflowFromProto(pbTasks []*platform.SecurityScanTaskConfig) (
 	return tasks, nil
 }
 
-func securityScanRankersFromProto(pbRankers []*platform.SecurityRankerConfig) ([]triggersv1alpha1.SecurityRanker, error) {
-	var out []triggersv1alpha1.SecurityRanker
+// securityResourceRefFromProto validates an optional single library resource
+// reference name.
+func securityResourceRefFromProto(field, name string) (*triggersv1alpha1.SecurityResourceRef, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, nil
+	}
+	if err := validateResourceName(name); err != nil {
+		return nil, invalidArgument("invalid %s %q", field, name)
+	}
+	return &triggersv1alpha1.SecurityResourceRef{Name: name}, nil
+}
+
+// securityResourceRefsFromProto validates a list of library resource
+// reference names, rejecting duplicates.
+func securityResourceRefsFromProto(field string, names []string) ([]triggersv1alpha1.SecurityResourceRef, error) {
+	var out []triggersv1alpha1.SecurityResourceRef
+	seen := make(map[string]bool, len(names))
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if err := validateResourceName(name); err != nil {
+			return nil, invalidArgument("invalid %s entry %q", field, name)
+		}
+		if seen[name] {
+			return nil, invalidArgument("duplicate %s entry %q", field, name)
+		}
+		seen[name] = true
+		out = append(out, triggersv1alpha1.SecurityResourceRef{Name: name})
+	}
+	return out, nil
+}
+
+func securityScanRankersFromProto(pbRankers []*platform.SecurityRankerConfig) ([]triggersv1alpha1.SecurityScanRanker, error) {
+	var out []triggersv1alpha1.SecurityScanRanker
 	for _, r := range pbRankers {
 		if strings.TrimSpace(r.GetName()) == "" || strings.TrimSpace(r.GetRules()) == "" {
 			return nil, fmt.Errorf("severity rankers need both a name and rules")
 		}
-		out = append(out, triggersv1alpha1.SecurityRanker{
+		out = append(out, triggersv1alpha1.SecurityScanRanker{
 			Name:  strings.TrimSpace(r.GetName()),
 			Rules: r.GetRules(),
 		})
@@ -478,8 +532,8 @@ func securityScanRankersFromProto(pbRankers []*platform.SecurityRankerConfig) ([
 	return out, nil
 }
 
-func securityScanPostScriptsFromProto(pbScripts []*platform.SecurityPostScriptConfig) ([]triggersv1alpha1.SecurityPostScript, error) {
-	var out []triggersv1alpha1.SecurityPostScript
+func securityScanPostScriptsFromProto(pbScripts []*platform.SecurityPostScriptConfig) ([]triggersv1alpha1.SecurityScanPostScript, error) {
+	var out []triggersv1alpha1.SecurityScanPostScript
 	for _, p := range pbScripts {
 		if strings.TrimSpace(p.GetName()) == "" || strings.TrimSpace(p.GetPrompt()) == "" {
 			return nil, fmt.Errorf("post-scripts need both a name and a prompt")
@@ -489,7 +543,7 @@ func securityScanPostScriptsFromProto(pbScripts []*platform.SecurityPostScriptCo
 		default:
 			return nil, fmt.Errorf("invalid post-script run_on %q (want all, confirmed, or high-and-above)", p.GetRunOn())
 		}
-		out = append(out, triggersv1alpha1.SecurityPostScript{
+		out = append(out, triggersv1alpha1.SecurityScanPostScript{
 			Name:   strings.TrimSpace(p.GetName()),
 			Prompt: p.GetPrompt(),
 			RunOn:  strings.TrimSpace(p.GetRunOn()),
@@ -591,6 +645,15 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 	}
 	if spec.MaxRuntime.Duration != 0 {
 		pb.MaxRuntime = spec.MaxRuntime.Duration.String()
+	}
+	if spec.WorkflowRef != nil {
+		pb.WorkflowRef = spec.WorkflowRef.Name
+	}
+	for _, ref := range spec.RankerRefs {
+		pb.RankerRefs = append(pb.RankerRefs, ref.Name)
+	}
+	for _, ref := range spec.PostScriptRefs {
+		pb.PostScriptRefs = append(pb.PostScriptRefs, ref.Name)
 	}
 	if scope := spec.Scope; scope != nil {
 		pb.Scope = &platform.SecurityScanScopeConfig{

@@ -131,6 +131,9 @@ export function SecurityScanConfigList() {
           <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/runs" />}>
             Scan results
           </Button>
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/library" />}>
+            Library
+          </Button>
           <SecurityScanFormDialog
             trigger={
               <Button size="sm">

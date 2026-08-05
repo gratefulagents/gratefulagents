@@ -61,6 +61,7 @@ type SecurityScanReconciler struct {
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans/finalizers,verbs=update
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows;securityrankers;securitypostscripts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=agentruns,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
@@ -99,6 +100,16 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.LastError = msg
 			setSecurityScanCondition(fresh, metav1.ConditionFalse, "InsecureDefaults", msg)
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	if msg := securityScanInvalidSpecMessage(scan.Spec); msg != "" {
+		if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+			fresh.Status.LastError = msg
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonInvalidSpec, msg)
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -157,12 +168,13 @@ func (r *SecurityScanReconciler) reconcileRunNow(ctx context.Context, scan *trig
 	}
 
 	runName := securityScanRunName(scan.Name, externalID)
-	created, err := r.createScanRun(ctx, scan, runName, externalID, externalID)
+	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, externalID, externalID)
 	if err != nil {
 		log.Error(err, "failed to create manual scan AgentRun", "run", runName)
+		reason := securityScanRunFailureReason(err)
 		if statusErr := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.LastError = err.Error()
-			setSecurityScanCondition(fresh, metav1.ConditionFalse, "CreateRunFailed", err.Error())
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, reason, err.Error())
 		}); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
@@ -187,6 +199,7 @@ func (r *SecurityScanReconciler) reconcileRunNow(ctx context.Context, scan *trig
 		if created {
 			fresh.Status.RunsCreated++
 			fresh.Status.ManualRunsCreated++
+			fresh.Status.LastResolvedRefs = resolvedRefs
 		}
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ManualRunStarted", "Manual scan AgentRun created")
 	}); err != nil {
@@ -272,12 +285,13 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 
 	runName := securityScanRunName(scan.Name, fmt.Sprintf("g%d", scan.Generation))
 	externalID := fmt.Sprintf("generation-%d", scan.Generation)
-	created, err := r.createScanRun(ctx, scan, runName, externalID, externalID)
+	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, externalID, externalID)
 	if err != nil {
 		log.Error(err, "failed to create scan AgentRun", "run", runName)
+		reason := securityScanRunFailureReason(err)
 		if statusErr := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.LastError = err.Error()
-			setSecurityScanCondition(fresh, metav1.ConditionFalse, "CreateRunFailed", err.Error())
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, reason, err.Error())
 		}); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
@@ -294,6 +308,7 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 		fresh.Status.LastError = ""
 		if created {
 			fresh.Status.RunsCreated++
+			fresh.Status.LastResolvedRefs = resolvedRefs
 		}
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ScanStarted", "Scan AgentRun created")
 	}); err != nil {
@@ -388,12 +403,13 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 
 	runName := securityScanRunName(scan.Name, scheduledTime.UTC().Format("20060102150405"))
 	scheduledID := scheduledTime.UTC().Format(time.RFC3339)
-	created, err := r.createScanRun(ctx, scan, runName, scheduledID, scheduledTime.Format(time.RFC3339))
+	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, scheduledID, scheduledTime.Format(time.RFC3339))
 	if err != nil {
 		log.Error(err, "failed to create scheduled scan AgentRun", "scheduledTime", scheduledTime)
+		reason := securityScanRunFailureReason(err)
 		if statusErr := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.LastError = err.Error()
-			setSecurityScanCondition(fresh, metav1.ConditionFalse, "CreateRunFailed", err.Error())
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, reason, err.Error())
 		}); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
@@ -414,6 +430,7 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 		fresh.Status.LastError = ""
 		if created {
 			fresh.Status.RunsCreated++
+			fresh.Status.LastResolvedRefs = resolvedRefs
 		}
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "Scheduled", "SecurityScan schedule is valid")
 	}); err != nil {
@@ -422,7 +439,16 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 	return ctrl.Result{RequeueAfter: requeueAfter(nextScheduledTime.Sub(now))}, nil
 }
 
-func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName, externalID, externalIdentifier string) (bool, error) {
+func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName, externalID, externalIdentifier string) (bool, []triggersv1alpha1.SecurityScanResolvedRef, error) {
+	// Resolve library references at run-creation time and build the prompt
+	// from the resolved snapshot: the seed message is persisted when the run
+	// is created, so later edits to the referenced resources never change
+	// this run.
+	resolved, err := resolveSecurityScanRefs(ctx, r.Client, scan)
+	if err != nil {
+		return false, nil, err
+	}
+
 	d := scan.Spec.Defaults
 	d.RepoURL = scan.Spec.RepoURL
 	d.BaseBranch = scan.Spec.EffectiveBaseBranch()
@@ -443,7 +469,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		TriggerName: scan.Name,
 		Defaults:    d,
 	}); err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	provider := d.EffectiveProvider()
@@ -465,15 +491,18 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		instructionsName := runName + "-instructions"
 		instructions := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: instructionsName, Namespace: scan.Namespace}, Data: map[string]string{"instructions.md": d.CustomInstructions}}
 		if err := ctrl.SetControllerReference(scan, instructions, r.Scheme); err != nil {
-			return false, fmt.Errorf("setting owner reference on instructions ConfigMap: %w", err)
+			return false, nil, fmt.Errorf("setting owner reference on instructions ConfigMap: %w", err)
 		}
 		if err := r.Create(ctx, instructions); err != nil && !apierrors.IsAlreadyExists(err) {
-			return false, fmt.Errorf("creating instructions ConfigMap: %w", err)
+			return false, nil, fmt.Errorf("creating instructions ConfigMap: %w", err)
 		}
 		annotations["platform.gratefulagents.dev/instructions-configmap-ref"] = instructionsName
 	}
 	if triggersv1alpha1.IsOpenAICompatibleProvider(provider) {
 		annotations["platform.gratefulagents.dev/openai-api-mode"] = triggersv1alpha1.NormalizeOpenAIAPIForProvider(provider, d.OpenAIAPI)
+	}
+	if refsJSON := securityScanResolvedRefsJSON(resolved.refs); refsJSON != "" {
+		annotations[triggersv1alpha1.SecurityScanResolvedRefsAnnotation] = refsJSON
 	}
 
 	created, _, err := CreateTriggerRun(ctx, r.Client, r.StateStore, TriggerRunSpec{
@@ -483,7 +512,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		TriggerName:        scan.Name,
 		ExternalID:         externalID,
 		ExternalIdentifier: externalIdentifier,
-		SeedMessage:        BuildSecurityScanPrompt(scan.Spec),
+		SeedMessage:        BuildSecurityScanPrompt(resolved.spec),
 		Revision:           strings.TrimSpace(scan.Spec.Revision),
 		Defaults:           d,
 		OwnerRef:           scan,
@@ -496,7 +525,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		ModeRef:       modeRef,
 		SeedLogPrefix: "securityscan",
 	})
-	return created, err
+	return created, resolved.refs, err
 }
 
 // activeScanRun returns a non-terminal AgentRun owned by this scan, ignoring

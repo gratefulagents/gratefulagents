@@ -26,6 +26,7 @@ const SlackAgentDetail = React.lazy(() => import("@/components/SlackAgentDetail"
 const SecurityOverview = React.lazy(() => import("@/components/SecurityOverview").then((m) => ({ default: m.SecurityOverview })));
 const SecurityScanList = React.lazy(() => import("@/components/SecurityScanList").then((m) => ({ default: m.SecurityScanList })));
 const SecurityScanConfigList = React.lazy(() => import("@/components/SecurityScanConfigList").then((m) => ({ default: m.SecurityScanConfigList })));
+const SecurityLibraryPage = React.lazy(() => import("@/components/SecurityLibraryPage").then((m) => ({ default: m.SecurityLibraryPage })));
 const SecurityScanDetail = React.lazy(() => import("@/components/SecurityScanDetail").then((m) => ({ default: m.SecurityScanDetail })));
 const SecurityFindingDetail = React.lazy(() => import("@/components/SecurityFindingDetail").then((m) => ({ default: m.SecurityFindingDetail })));
 
@@ -527,6 +528,7 @@ function AuthenticatedShell() {
               <Route path="/security" element={<Scroll><SecurityOverview /></Scroll>} />
               <Route path="/security/runs" element={<Scroll><SecurityScanList /></Scroll>} />
               <Route path="/security/configs" element={<Scroll><SecurityScanConfigList /></Scroll>} />
+              <Route path="/security/library" element={<Scroll><SecurityLibraryPage /></Scroll>} />
               <Route path="/security/:namespace/:runName" element={<Scroll><SecurityScanDetail /></Scroll>} />
               <Route path="/security/:namespace/:runName/findings/:findingId" element={<Scroll><SecurityFindingDetail /></Scroll>} />
               <Route path="/settings" element={<Scroll><SettingsLayout /></Scroll>}>

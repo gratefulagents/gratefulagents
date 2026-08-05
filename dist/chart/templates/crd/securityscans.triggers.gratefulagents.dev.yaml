@@ -511,13 +511,34 @@ spec:
                 maximum: 16
                 minimum: 1
                 type: integer
+              postScriptRefs:
+                description: |-
+                  postScriptRefs reference reusable SecurityPostScript resources in the
+                  scan's namespace. They are APPENDED after the inline postScripts. The
+                  referenced content is resolved and snapshotted when each run is
+                  created.
+                items:
+                  description: |-
+                    SecurityResourceRef names a reusable security resource in the same
+                    namespace as the referencing SecurityScan.
+                  properties:
+                    name:
+                      description: name of the referenced resource.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               postScripts:
                 description: |-
                   postScripts are per-finding validation, proof-of-concept, or report
                   prompts executed after the workflow produces findings.
                 items:
                   description: |-
-                    SecurityPostScript is a per-finding validation, proof-of-concept, or report
+                    SecurityScanPostScript is a per-finding validation, proof-of-concept, or report
                     prompt executed after findings are collected.
                   properties:
                     name:
@@ -540,6 +561,27 @@ spec:
                   required:
                   - name
                   - prompt
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              rankerRefs:
+                description: |-
+                  rankerRefs reference reusable SecurityRanker resources in the scan's
+                  namespace. Their rules are APPENDED after the inline severityRankers.
+                  The referenced content is resolved and snapshotted when each run is
+                  created.
+                items:
+                  description: |-
+                    SecurityResourceRef names a reusable security resource in the same
+                    namespace as the referencing SecurityScan.
+                  properties:
+                    name:
+                      description: name of the referenced resource.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
@@ -592,7 +634,7 @@ spec:
                   severityRankers hold operator-authored ranking rule text concatenated
                   into the scan prompt and passed to submit_security_scan_report.
                 items:
-                  description: SecurityRanker is operator-authored severity-ranking
+                  description: SecurityScanRanker is operator-authored severity-ranking
                     rule text.
                   properties:
                     name:
@@ -625,7 +667,8 @@ spec:
                 description: |-
                   workflow is the ordered/parallel research plan executed as focused
                   vulnerability-hunting sub-agents. When empty, the controller uses
-                  DefaultSecurityWorkflow().
+                  DefaultSecurityWorkflow(). Mutually exclusive with workflowRef: setting
+                  both makes the controller report Ready=False with reason InvalidSpec.
                 items:
                   description: |-
                     SecurityScanTask is one focused research task in the scan workflow, executed
@@ -674,6 +717,22 @@ spec:
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
+              workflowRef:
+                description: |-
+                  workflowRef references a reusable SecurityWorkflow in the scan's
+                  namespace whose tasks replace an inline workflow. The referenced
+                  content is resolved and snapshotted when each run is created, so later
+                  edits to the SecurityWorkflow never change historical runs. Mutually
+                  exclusive with workflow.
+                properties:
+                  name:
+                    description: name of the referenced resource.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
             required:
             - defaults
             - repoURL
@@ -779,6 +838,43 @@ spec:
                   another run, making manual run requests idempotent across controller
                   restarts.
                 type: string
+              lastResolvedRefs:
+                description: |-
+                  lastResolvedRefs records the reusable security resources
+                  (SecurityWorkflow, SecurityRanker, SecurityPostScript) that were
+                  resolved and snapshotted into the most recently created run, including
+                  the resource generation and a content hash of the resolved spec. Later
+                  edits to the referenced resources never change historical runs.
+                items:
+                  description: |-
+                    SecurityScanResolvedRef records one reusable security resource resolved and
+                    snapshotted into a scan run at run-creation time.
+                  properties:
+                    generation:
+                      description: |-
+                        generation is metadata.generation of the referenced resource when it
+                        was resolved.
+                      format: int64
+                      type: integer
+                    hash:
+                      description: |-
+                        hash is a sha256 hex digest of the referenced resource's resolved spec
+                        content.
+                      type: string
+                    kind:
+                      description: |-
+                        kind of the referenced resource: SecurityWorkflow, SecurityRanker, or
+                        SecurityPostScript.
+                      type: string
+                    name:
+                      description: name of the referenced resource.
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               lastRunName:
                 description: lastRunName is the AgentRun name most recently created
                   by this scan.

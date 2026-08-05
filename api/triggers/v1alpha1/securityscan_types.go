@@ -62,10 +62,19 @@ type SecurityScanSpec struct {
 
 	// workflow is the ordered/parallel research plan executed as focused
 	// vulnerability-hunting sub-agents. When empty, the controller uses
-	// DefaultSecurityWorkflow().
+	// DefaultSecurityWorkflow(). Mutually exclusive with workflowRef: setting
+	// both makes the controller report Ready=False with reason InvalidSpec.
 	// +listType=atomic
 	// +optional
 	Workflow []SecurityScanTask `json:"workflow,omitempty"`
+
+	// workflowRef references a reusable SecurityWorkflow in the scan's
+	// namespace whose tasks replace an inline workflow. The referenced
+	// content is resolved and snapshotted when each run is created, so later
+	// edits to the SecurityWorkflow never change historical runs. Mutually
+	// exclusive with workflow.
+	// +optional
+	WorkflowRef *SecurityResourceRef `json:"workflowRef,omitempty"`
 
 	// parallelism caps how many workflow tasks may run concurrently.
 	// +kubebuilder:default=4
@@ -78,13 +87,29 @@ type SecurityScanSpec struct {
 	// into the scan prompt and passed to submit_security_scan_report.
 	// +listType=atomic
 	// +optional
-	SeverityRankers []SecurityRanker `json:"severityRankers,omitempty"`
+	SeverityRankers []SecurityScanRanker `json:"severityRankers,omitempty"`
+
+	// rankerRefs reference reusable SecurityRanker resources in the scan's
+	// namespace. Their rules are APPENDED after the inline severityRankers.
+	// The referenced content is resolved and snapshotted when each run is
+	// created.
+	// +listType=atomic
+	// +optional
+	RankerRefs []SecurityResourceRef `json:"rankerRefs,omitempty"`
 
 	// postScripts are per-finding validation, proof-of-concept, or report
 	// prompts executed after the workflow produces findings.
 	// +listType=atomic
 	// +optional
-	PostScripts []SecurityPostScript `json:"postScripts,omitempty"`
+	PostScripts []SecurityScanPostScript `json:"postScripts,omitempty"`
+
+	// postScriptRefs reference reusable SecurityPostScript resources in the
+	// scan's namespace. They are APPENDED after the inline postScripts. The
+	// referenced content is resolved and snapshotted when each run is
+	// created.
+	// +listType=atomic
+	// +optional
+	PostScriptRefs []SecurityResourceRef `json:"postScriptRefs,omitempty"`
 
 	// dedupe configures duplicate-finding suppression.
 	// +optional
@@ -199,8 +224,8 @@ type SecurityScanTask struct {
 	MaxFindings int32 `json:"maxFindings,omitempty"`
 }
 
-// SecurityRanker is operator-authored severity-ranking rule text.
-type SecurityRanker struct {
+// SecurityScanRanker is operator-authored severity-ranking rule text.
+type SecurityScanRanker struct {
 	// name identifies the ranker.
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
@@ -211,9 +236,9 @@ type SecurityRanker struct {
 	Rules string `json:"rules"`
 }
 
-// SecurityPostScript is a per-finding validation, proof-of-concept, or report
+// SecurityScanPostScript is a per-finding validation, proof-of-concept, or report
 // prompt executed after findings are collected.
-type SecurityPostScript struct {
+type SecurityScanPostScript struct {
 	// name identifies the post-script.
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
@@ -316,6 +341,15 @@ type SecurityScanStatus struct {
 	// findings summarizes persisted findings for the most recent scan run.
 	// +optional
 	Findings *SecurityScanFindingCounts `json:"findings,omitempty"`
+
+	// lastResolvedRefs records the reusable security resources
+	// (SecurityWorkflow, SecurityRanker, SecurityPostScript) that were
+	// resolved and snapshotted into the most recently created run, including
+	// the resource generation and a content hash of the resolved spec. Later
+	// edits to the referenced resources never change historical runs.
+	// +listType=atomic
+	// +optional
+	LastResolvedRefs []SecurityScanResolvedRef `json:"lastResolvedRefs,omitempty"`
 
 	// lastError contains the error message from the most recent failed operation.
 	// +optional
@@ -442,7 +476,7 @@ func (t SecurityScanTask) EffectiveRole() string {
 }
 
 // EffectiveRunOn returns the post-script's runOn, defaulting to "all".
-func (p SecurityPostScript) EffectiveRunOn() string {
+func (p SecurityScanPostScript) EffectiveRunOn() string {
 	if p.RunOn == "" {
 		return "all"
 	}
