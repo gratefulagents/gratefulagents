@@ -179,6 +179,7 @@ rules:
   - githubrepositories
   - linearprojects
   - projects
+  - securityscans
   - slackagents
   - slackworkspaces
   verbs:
@@ -214,16 +215,6 @@ rules:
   - pullrequestmonitors
   verbs:
   - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - triggers.gratefulagents.dev
-  resources:
-  - securityscans
-  verbs:
   - get
   - list
   - patch
