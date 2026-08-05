@@ -109,9 +109,11 @@ describe("SecurityOverview", () => {
 
     renderOverview();
 
-    expect(
-      await screen.findByText(/2 new, 5 recurring, 1 resolved/),
-    ).toBeTruthy();
+    const deltas = await screen.findByLabelText("Baseline changes");
+    expect(deltas.textContent).toContain("Since the last baseline:");
+    expect(deltas.textContent).toContain("new2");
+    expect(deltas.textContent).toContain("recurring5");
+    expect(deltas.textContent).toContain("resolved1");
   });
 
   it("degrades to configurations when the store lacks security support", async () => {

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ListState, ListRowSkeleton } from "@/components/ui/list-state";
 import { DetailSection, StatBar, Stat } from "@/components/detail-page";
 import { SeverityCountBadges } from "@/components/SecurityScanList";
+import { BaselineBadge, formatDurationSeconds } from "@/components/security-baseline";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneSoft, type StatusTone } from "@/lib/status";
@@ -185,16 +186,54 @@ export function SecurityOverview() {
             )}
 
             {overview.storeSupported && (
-              <p className="text-[12px] text-muted-foreground/70">
+              <div className="space-y-2">
                 {overview.baselineAvailable ? (
-                  <>
-                    Since the last baseline: {overview.newFindings} new, {overview.recurringFindings} recurring,{" "}
-                    {overview.resolvedFindings} resolved findings.
-                  </>
+                  <div className="flex flex-wrap items-center gap-2 text-[12.5px]" aria-label="Baseline changes">
+                    <span className="text-muted-foreground">Since the last baseline:</span>
+                    {(
+                      [
+                        ["new", overview.newFindings],
+                        ["recurring", overview.recurringFindings],
+                        ["regressed", overview.regressedFindings],
+                        ["reopened", overview.reopenedFindings],
+                        ["resolved", overview.resolvedFindings],
+                      ] as const
+                    ).map(([state, count]) => {
+                      const target = overview.recentScans[0];
+                      const chip = (
+                        <span className="inline-flex items-center gap-1">
+                          <BaselineBadge state={state} />
+                          <span className="font-medium tabular-nums">{count}</span>
+                        </span>
+                      );
+                      return target ? (
+                        <Link
+                          key={state}
+                          to={`/security/${target.namespace}/${target.runName}?baseline=${state}`}
+                          className="hover:opacity-80"
+                          aria-label={`View ${state} findings`}
+                        >
+                          {chip}
+                        </Link>
+                      ) : (
+                        <span key={state}>{chip}</span>
+                      );
+                    })}
+                  </div>
                 ) : (
-                  <>New, recurring, and resolved finding counts appear here once baseline comparisons are available.</>
+                  <p className="text-[12px] text-muted-foreground/70">
+                    New, recurring, and resolved finding counts appear here once baseline comparisons are available.
+                  </p>
                 )}
-              </p>
+                {overview.trends && (overview.trends.triagedCount > 0 || overview.trends.resolvedCount > 0) && (
+                  <p className="text-[12px] text-muted-foreground" aria-label="Triage trends">
+                    Time to triage: median {formatDurationSeconds(overview.trends.medianTimeToTriageSeconds)}
+                    {" "}(avg {formatDurationSeconds(overview.trends.avgTimeToTriageSeconds)}, {overview.trends.triagedCount} triaged)
+                    {" · "}Time to resolution: median {formatDurationSeconds(overview.trends.medianTimeToResolutionSeconds)}
+                    {" "}(avg {formatDurationSeconds(overview.trends.avgTimeToResolutionSeconds)}, {overview.trends.resolvedCount} resolved)
+                  </p>
+                )}
+              </div>
             )}
 
             {overview.activeScans.length > 0 && (

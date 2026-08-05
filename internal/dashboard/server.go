@@ -61,6 +61,10 @@ type Server struct {
 
 	slackConversationLookup slackConversationLookup
 
+	// securityTicketCreator, when non-nil, replaces the default GitHub
+	// issue creator used by CreateSecurityFindingTicket (tests).
+	securityTicketCreator securityIssueCreator
+
 	// metricsCache caches aggregated resource metrics per namespace for a
 	// short TTL: every project/cron/repo get/list/watch tick otherwise lists
 	// all AgentRuns and scans all Postgres session metadata.

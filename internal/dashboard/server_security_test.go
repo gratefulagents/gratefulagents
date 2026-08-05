@@ -36,6 +36,13 @@ type mockSecurityStore struct {
 	summaryScanName  string
 	summaryRunName   string
 	summary          map[string]int32
+
+	lastStatusExpiry *time.Time
+	expireSweeps     []string
+	bulkErr          error
+	lastBulkUpdate   *store.SecurityFindingBulkUpdate
+	savedFilters     []store.SecuritySavedFilter
+	trends           *store.SecurityFindingTrends
 }
 
 func newMockSecurityStore() *mockSecurityStore {
@@ -99,7 +106,8 @@ func (m *mockSecurityStore) GetSecurityFinding(_ context.Context, namespace stri
 	return finding, nil
 }
 
-func (m *mockSecurityStore) SetSecurityFindingStatus(_ context.Context, namespace string, id uuid.UUID, status, actor, note string) error {
+func (m *mockSecurityStore) SetSecurityFindingStatus(_ context.Context, namespace string, id uuid.UUID, status, actor, note string, expiry *time.Time) error {
+	m.lastStatusExpiry = expiry
 	if namespace == "" {
 		return errors.New("namespace is required")
 	}
@@ -158,6 +166,172 @@ func (m *mockSecurityStore) SummarizeSecurityFindings(_ context.Context, namespa
 
 func (m *mockSecurityStore) DeleteSecurityScanData(context.Context, string, string) error {
 	return nil
+}
+
+func (m *mockSecurityStore) SetSecurityFindingAssignee(_ context.Context, namespace string, id uuid.UUID, assignee, actor string) error {
+	if namespace == "" {
+		return errors.New("namespace is required")
+	}
+	finding, ok := m.findings[id]
+	if !ok || finding.Namespace != namespace {
+		return store.ErrSecurityFindingNotFound
+	}
+	finding.Assignee = assignee
+	m.events[id] = append([]store.SecurityFindingEvent{{
+		ID: int64(len(m.events[id]) + 1), FindingID: id, EventType: "assignee_changed",
+		Actor: actor, Detail: []byte(`{}`), CreatedAt: time.Now(),
+	}}, m.events[id]...)
+	return nil
+}
+
+func (m *mockSecurityStore) SetSecurityFindingTicket(_ context.Context, namespace string, id uuid.UUID, ticketURL, provider, actor string) error {
+	if namespace == "" {
+		return errors.New("namespace is required")
+	}
+	if ticketURL != "" {
+		if err := store.ValidateSecurityTicketURL(ticketURL); err != nil {
+			return err
+		}
+	}
+	finding, ok := m.findings[id]
+	if !ok || finding.Namespace != namespace {
+		return store.ErrSecurityFindingNotFound
+	}
+	finding.TicketURL = ticketURL
+	finding.TicketProvider = provider
+	eventType := "ticket_linked"
+	if ticketURL == "" {
+		eventType = "ticket_unlinked"
+	}
+	m.events[id] = append([]store.SecurityFindingEvent{{
+		ID: int64(len(m.events[id]) + 1), FindingID: id, EventType: eventType,
+		Actor: actor, Detail: []byte(`{}`), CreatedAt: time.Now(),
+	}}, m.events[id]...)
+	return nil
+}
+
+func (m *mockSecurityStore) ExpireAcceptedRisks(_ context.Context, namespace string) (int32, error) {
+	if namespace == "" {
+		return 0, errors.New("namespace is required")
+	}
+	m.expireSweeps = append(m.expireSweeps, namespace)
+	return 0, nil
+}
+
+func (m *mockSecurityStore) BulkUpdateSecurityFindings(_ context.Context, namespace, scanName string, ids []uuid.UUID, upd store.SecurityFindingBulkUpdate) error {
+	if namespace == "" {
+		return errors.New("namespace is required")
+	}
+	if m.bulkErr != nil {
+		return m.bulkErr
+	}
+	// Atomic: validate every id before applying anything.
+	for _, id := range ids {
+		finding, ok := m.findings[id]
+		if !ok || finding.Namespace != namespace || (scanName != "" && finding.ScanName != scanName) {
+			return &store.BulkSecurityFindingError{FindingID: id, Err: store.ErrSecurityFindingNotFound}
+		}
+	}
+	for _, id := range ids {
+		finding := m.findings[id]
+		if upd.Status != nil {
+			finding.Status = *upd.Status
+		}
+		if upd.Assignee != nil {
+			finding.Assignee = *upd.Assignee
+		}
+	}
+	m.lastBulkUpdate = &upd
+	return nil
+}
+
+func (m *mockSecurityStore) FinalizeSecurityScanBaseline(_ context.Context, namespace, runName string) (int32, error) {
+	if namespace == "" {
+		return 0, errors.New("namespace is required")
+	}
+	return 0, nil
+}
+
+func (m *mockSecurityStore) ListSecuritySavedFilters(_ context.Context, namespace, owner string) ([]store.SecuritySavedFilter, error) {
+	if namespace == "" || owner == "" {
+		return nil, errors.New("namespace and owner are required")
+	}
+	var out []store.SecuritySavedFilter
+	for _, f := range m.savedFilters {
+		if f.Namespace == namespace && f.Owner == owner {
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+
+func (m *mockSecurityStore) SaveSecuritySavedFilter(_ context.Context, rec *store.SecuritySavedFilter) (*store.SecuritySavedFilter, error) {
+	if rec.Namespace == "" || rec.Owner == "" {
+		return nil, errors.New("namespace and owner are required")
+	}
+	stored := *rec
+	stored.ID = uuid.New()
+	stored.CreatedAt = time.Now()
+	stored.UpdatedAt = stored.CreatedAt
+	for i := range m.savedFilters {
+		f := &m.savedFilters[i]
+		if f.Namespace == rec.Namespace && f.Owner == rec.Owner && f.Name == rec.Name {
+			f.Query = rec.Query
+			f.UpdatedAt = time.Now()
+			out := *f
+			return &out, nil
+		}
+	}
+	m.savedFilters = append(m.savedFilters, stored)
+	out := stored
+	return &out, nil
+}
+
+func (m *mockSecurityStore) DeleteSecuritySavedFilter(_ context.Context, namespace, owner, name string) error {
+	if namespace == "" || owner == "" {
+		return errors.New("namespace and owner are required")
+	}
+	kept := m.savedFilters[:0]
+	for _, f := range m.savedFilters {
+		if f.Namespace == namespace && f.Owner == owner && f.Name == name {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	m.savedFilters = kept
+	return nil
+}
+
+func (m *mockSecurityStore) GetSecurityFindingTrends(_ context.Context, namespace, scanName string) (*store.SecurityFindingTrends, error) {
+	if namespace == "" {
+		return nil, errors.New("namespace is required")
+	}
+	if m.trends != nil {
+		return m.trends, nil
+	}
+	return &store.SecurityFindingTrends{}, nil
+}
+
+func (m *mockSecurityStore) ExportSecurityFindingEvents(_ context.Context, namespace, scanName string, _ int32) ([]store.SecurityFindingAuditRecord, error) {
+	if namespace == "" {
+		return nil, errors.New("namespace is required")
+	}
+	if scanName == "" {
+		return nil, errors.New("scan name is required")
+	}
+	var out []store.SecurityFindingAuditRecord
+	for id, finding := range m.findings {
+		if finding.Namespace != namespace || finding.ScanName != scanName {
+			continue
+		}
+		for _, ev := range m.events[id] {
+			out = append(out, store.SecurityFindingAuditRecord{
+				Event: ev, FindingID: id, Fingerprint: finding.Fingerprint,
+				Title: finding.Title, Severity: finding.Severity, Status: finding.Status,
+			})
+		}
+	}
+	return out, nil
 }
 
 var _ store.SecurityFindingStore = (*mockSecurityStore)(nil)

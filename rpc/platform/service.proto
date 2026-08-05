@@ -254,6 +254,29 @@ service PlatformService {
   // AddSecurityFindingComment appends a comment event to a finding's audit
   // trail, attributed to the authenticated caller.
   rpc AddSecurityFindingComment(AddSecurityFindingCommentRequest) returns (SecurityFindingEvent);
+  // UpdateSecurityFindingAssignee sets or clears (empty assignee) the
+  // finding's assignee, recording an audited assignee_changed event.
+  rpc UpdateSecurityFindingAssignee(UpdateSecurityFindingAssigneeRequest) returns (SecurityFinding);
+  // UpdateSecurityFindingTicket links (non-empty http(s) URL) or unlinks
+  // (empty URL) an external ticket on a finding.
+  rpc UpdateSecurityFindingTicket(UpdateSecurityFindingTicketRequest) returns (SecurityFinding);
+  // CreateSecurityFindingTicket creates a ticket in an external tracker for
+  // a finding and links it. Provider "github" creates an issue through a
+  // GitHubRepository configured in the same namespace; the issue body never
+  // contains raw finding evidence. Linear tickets are link-only: create the
+  // issue in Linear and use UpdateSecurityFindingTicket.
+  rpc CreateSecurityFindingTicket(CreateSecurityFindingTicketRequest) returns (SecurityFinding);
+  // BulkUpdateSecurityFindingStatus applies a status and/or assignee change
+  // to many findings atomically: either every item is applied or none is,
+  // and the response reports the per-item outcome.
+  rpc BulkUpdateSecurityFindingStatus(BulkUpdateSecurityFindingStatusRequest) returns (BulkUpdateSecurityFindingStatusResponse);
+  // Saved finding filters, private to the calling user per namespace.
+  rpc ListSecuritySavedFilters(ListSecuritySavedFiltersRequest) returns (ListSecuritySavedFiltersResponse);
+  rpc SaveSecuritySavedFilter(SaveSecuritySavedFilterRequest) returns (SecuritySavedFilter);
+  rpc DeleteSecuritySavedFilter(DeleteSecuritySavedFilterRequest) returns (google.protobuf.Empty);
+  // ExportSecurityFindingAuditLog returns every audit event for a scan's
+  // findings as a downloadable CSV or JSON document.
+  rpc ExportSecurityFindingAuditLog(ExportSecurityFindingAuditLogRequest) returns (ExportSecurityFindingAuditLogResponse);
 
   // Security scanning: SecurityScan trigger configuration (the CRs that
   // create scan runs). ListSecurityScanConfigs returns configured SecurityScan
@@ -3936,6 +3959,19 @@ message SecurityFinding {
   string raw = 30; // Raw agent-reported finding as JSON
   google.protobuf.Timestamp first_seen_at = 31;
   google.protobuf.Timestamp last_seen_at = 32;
+  string assignee = 33; // Empty = unassigned
+  // accepted_risk_expires_at is set only while status is accepted_risk with
+  // an expiry; past it the finding automatically reopens.
+  google.protobuf.Timestamp accepted_risk_expires_at = 34;
+  string ticket_url = 35; // Linked external ticket (empty = none)
+  string ticket_provider = 36; // e.g. github, linear
+  // baseline_state classifies the finding against the previous scan run:
+  // new, recurring, regressed, resolved, reopened. Empty for findings
+  // recorded before baseline tracking existed.
+  string baseline_state = 37;
+  google.protobuf.Timestamp resolved_at = 38;
+  // triaged_at is when the finding first left status "open".
+  google.protobuf.Timestamp triaged_at = 39;
 }
 
 message ListSecurityFindingsRequest {
@@ -3951,6 +3987,8 @@ message ListSecurityFindingsRequest {
   bool include_duplicates = 10;
   int32 limit = 11;
   int32 offset = 12;
+  string baseline_state = 13; // Optional: new, recurring, regressed, resolved, reopened
+  string assignee = 14; // Optional: filter by assignee
 }
 
 message ListSecurityFindingsResponse {
@@ -3991,6 +4029,9 @@ message UpdateSecurityFindingStatusRequest {
   // namespace the finding lives in. Empty resolves to the caller's personal
   // namespace; send it when triaging findings in a shared namespace.
   string namespace = 4;
+  // Optional expiry, allowed only with status accepted_risk: past it the
+  // finding automatically reopens.
+  google.protobuf.Timestamp accepted_risk_expires_at = 5;
 }
 
 message GetSecurityFindingSummaryRequest {
@@ -4000,8 +4041,122 @@ message GetSecurityFindingSummaryRequest {
 }
 
 message GetSecurityFindingSummaryResponse {
-  // counts maps severity (plus "total" / "open") to the number of findings.
+  // counts maps severity (plus "total" / "open" / "open_<severity>" /
+  // "baseline_<state>" / "baseline_tracked") to the number of findings.
   map<string, int32> counts = 1;
+  // trends aggregates triage/remediation velocity for the summarized scope.
+  SecurityFindingTrends trends = 2;
+}
+
+// SecurityFindingTrends aggregates triage and remediation velocity.
+message SecurityFindingTrends {
+  int32 triaged_count = 1; // Findings that left status "open" at least once
+  int32 resolved_count = 2; // Findings resolved by a later scan run
+  double avg_time_to_triage_seconds = 3;
+  double median_time_to_triage_seconds = 4;
+  double avg_time_to_resolution_seconds = 5;
+  double median_time_to_resolution_seconds = 6;
+}
+
+message UpdateSecurityFindingAssigneeRequest {
+  string id = 1; // Finding ID
+  // namespace the finding lives in. Empty resolves to the caller's personal
+  // namespace.
+  string namespace = 2;
+  string assignee = 3; // Empty clears the assignee
+}
+
+message UpdateSecurityFindingTicketRequest {
+  string id = 1; // Finding ID
+  string namespace = 2;
+  // ticket_url links the ticket when a non-empty absolute http(s) URL, and
+  // unlinks the current ticket when empty.
+  string ticket_url = 3;
+  string ticket_provider = 4; // e.g. github, linear; optional label
+}
+
+message CreateSecurityFindingTicketRequest {
+  string id = 1; // Finding ID
+  string namespace = 2;
+  string provider = 3; // Only "github" creates tickets today
+  // repository_ref names the GitHubRepository resource (same namespace as
+  // the finding) whose credentials create the issue.
+  string repository_ref = 4;
+  string title = 5; // Optional override; default derives from the finding
+  string body = 6; // Optional extra context appended to the safe body
+}
+
+message BulkUpdateSecurityFindingStatusRequest {
+  string namespace = 1;
+  string scan_name = 2; // Optional: all ids must belong to this scan
+  repeated string ids = 3;
+  string status = 4; // Optional: empty = leave status unchanged
+  // set_assignee distinguishes "leave assignee unchanged" (false) from
+  // "assign to `assignee`, clearing when empty" (true).
+  bool set_assignee = 5;
+  string assignee = 6;
+  string note = 7; // Optional audit note recorded on every event
+  // Optional expiry, allowed only with status accepted_risk.
+  google.protobuf.Timestamp accepted_risk_expires_at = 8;
+}
+
+message BulkUpdateSecurityFindingOutcome {
+  string id = 1;
+  bool ok = 2;
+  // error explains why this item failed ("not found") or was rolled back
+  // ("aborted: ..."). Empty when ok.
+  string error = 3;
+}
+
+message BulkUpdateSecurityFindingStatusResponse {
+  // results reports the outcome per requested id, in request order. The
+  // batch is atomic: when any item fails every other item reports aborted.
+  repeated BulkUpdateSecurityFindingOutcome results = 1;
+  int32 updated = 2; // Number of findings updated (0 when the batch aborted)
+}
+
+// SecuritySavedFilter is one saved findings-filter query, private to the
+// user who saved it within a namespace.
+message SecuritySavedFilter {
+  string id = 1;
+  string namespace = 2;
+  string owner = 3;
+  string name = 4;
+  string query = 5; // Filter parameters as a JSON object
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message ListSecuritySavedFiltersRequest {
+  string namespace = 1;
+}
+
+message ListSecuritySavedFiltersResponse {
+  repeated SecuritySavedFilter filters = 1; // Ordered by name
+}
+
+message SaveSecuritySavedFilterRequest {
+  string namespace = 1;
+  string name = 2; // Unique per (namespace, user); saving again replaces
+  string query = 3; // Filter parameters as a JSON object
+}
+
+message DeleteSecuritySavedFilterRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message ExportSecurityFindingAuditLogRequest {
+  string namespace = 1;
+  string scan_name = 2;
+  string format = 3; // "csv" (default) or "json"
+}
+
+message ExportSecurityFindingAuditLogResponse {
+  bytes content = 1;
+  string filename = 2; // Suggested download filename
+  string content_type = 3;
+  int32 event_count = 4;
 }
 
 message ListSecurityFindingEventsRequest {
@@ -4214,6 +4369,10 @@ message GetSecurityOverviewResponse {
   // warnings lists aggregation steps that failed; the remaining fields are
   // still valid (partial result).
   repeated string warnings = 11;
+  // trends aggregates namespace-wide triage/remediation velocity.
+  SecurityFindingTrends trends = 12;
+  int32 regressed_findings = 13;
+  int32 reopened_findings = 14;
 }
 
 message GetSecurityScanReportRequest {

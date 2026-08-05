@@ -255,6 +255,7 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 		phase := "Running"
 		if terminal {
 			phase = "Completed"
+			r.finalizeCompletedRun(ctx, scan)
 		}
 		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.Phase = phase
@@ -337,6 +338,9 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 				return ctrl.Result{}, err
 			}
 			lastRunDone = terminal
+		}
+		if lastRunDone {
+			r.finalizeCompletedRun(ctx, scan)
 		}
 		next := metav1.NewTime(scheduledTime)
 		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
@@ -528,6 +532,36 @@ func (r *SecurityScanReconciler) lastRunTerminal(ctx context.Context, scan *trig
 		return false, fmt.Errorf("getting scan AgentRun: %w", err)
 	}
 	return isCronRunTerminal(run.Status.Phase), nil
+}
+
+// finalizeCompletedRun sweeps expired accepted-risk findings and finalizes
+// the scan-to-scan baseline (marking findings absent from the just-completed
+// run resolved) once the scan's last run has terminated SUCCESSFULLY. A
+// failed or cancelled run never defines a baseline: findings it did not
+// re-observe must not be marked resolved. Both store calls are idempotent,
+// so re-running on every status refresh is safe; errors are best-effort
+// (logged, never failing the reconcile).
+func (r *SecurityScanReconciler) finalizeCompletedRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan) {
+	if r.Findings == nil || scan.Status.LastRunName == "" {
+		return
+	}
+	log := logf.FromContext(ctx)
+	run := &platformv1alpha1.AgentRun{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: scan.Namespace, Name: scan.Status.LastRunName}, run); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Error(err, "failed to get scan AgentRun for baseline finalization", "run", scan.Status.LastRunName)
+		}
+		return
+	}
+	if run.Status.Phase != platformv1alpha1.AgentRunPhaseSucceeded {
+		return
+	}
+	if _, err := r.Findings.ExpireAcceptedRisks(ctx, scan.Namespace); err != nil {
+		log.Error(err, "failed to expire accepted-risk findings", "scan", scan.Name)
+	}
+	if _, err := r.Findings.FinalizeSecurityScanBaseline(ctx, scan.Namespace, scan.Status.LastRunName); err != nil {
+		log.Error(err, "failed to finalize scan baseline", "scan", scan.Name, "run", scan.Status.LastRunName)
+	}
 }
 
 // securityScanSeverities orders severities from most to least severe.

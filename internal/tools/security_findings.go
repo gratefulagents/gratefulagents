@@ -326,7 +326,7 @@ func (s *securityScanState) getFinding(ctx context.Context, id uuid.UUID) (*stor
 func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, status, note string) error {
 	actor := s.scanCtx.RunName
 	if s.findingStore != nil {
-		return s.findingStore.SetSecurityFindingStatus(ctx, s.scanCtx.Namespace, id, status, actor, note)
+		return s.findingStore.SetSecurityFindingStatus(ctx, s.scanCtx.Namespace, id, status, actor, note, nil)
 	}
 	if !store.ValidSecurityFindingStatus(status) {
 		return fmt.Errorf("invalid status %q", status)

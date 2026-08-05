@@ -530,6 +530,30 @@ const (
 	// PlatformServiceAddSecurityFindingCommentProcedure is the fully-qualified name of the
 	// PlatformService's AddSecurityFindingComment RPC.
 	PlatformServiceAddSecurityFindingCommentProcedure = "/platform.v1.PlatformService/AddSecurityFindingComment"
+	// PlatformServiceUpdateSecurityFindingAssigneeProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityFindingAssignee RPC.
+	PlatformServiceUpdateSecurityFindingAssigneeProcedure = "/platform.v1.PlatformService/UpdateSecurityFindingAssignee"
+	// PlatformServiceUpdateSecurityFindingTicketProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityFindingTicket RPC.
+	PlatformServiceUpdateSecurityFindingTicketProcedure = "/platform.v1.PlatformService/UpdateSecurityFindingTicket"
+	// PlatformServiceCreateSecurityFindingTicketProcedure is the fully-qualified name of the
+	// PlatformService's CreateSecurityFindingTicket RPC.
+	PlatformServiceCreateSecurityFindingTicketProcedure = "/platform.v1.PlatformService/CreateSecurityFindingTicket"
+	// PlatformServiceBulkUpdateSecurityFindingStatusProcedure is the fully-qualified name of the
+	// PlatformService's BulkUpdateSecurityFindingStatus RPC.
+	PlatformServiceBulkUpdateSecurityFindingStatusProcedure = "/platform.v1.PlatformService/BulkUpdateSecurityFindingStatus"
+	// PlatformServiceListSecuritySavedFiltersProcedure is the fully-qualified name of the
+	// PlatformService's ListSecuritySavedFilters RPC.
+	PlatformServiceListSecuritySavedFiltersProcedure = "/platform.v1.PlatformService/ListSecuritySavedFilters"
+	// PlatformServiceSaveSecuritySavedFilterProcedure is the fully-qualified name of the
+	// PlatformService's SaveSecuritySavedFilter RPC.
+	PlatformServiceSaveSecuritySavedFilterProcedure = "/platform.v1.PlatformService/SaveSecuritySavedFilter"
+	// PlatformServiceDeleteSecuritySavedFilterProcedure is the fully-qualified name of the
+	// PlatformService's DeleteSecuritySavedFilter RPC.
+	PlatformServiceDeleteSecuritySavedFilterProcedure = "/platform.v1.PlatformService/DeleteSecuritySavedFilter"
+	// PlatformServiceExportSecurityFindingAuditLogProcedure is the fully-qualified name of the
+	// PlatformService's ExportSecurityFindingAuditLog RPC.
+	PlatformServiceExportSecurityFindingAuditLogProcedure = "/platform.v1.PlatformService/ExportSecurityFindingAuditLog"
 	// PlatformServiceListSecurityScanConfigsProcedure is the fully-qualified name of the
 	// PlatformService's ListSecurityScanConfigs RPC.
 	PlatformServiceListSecurityScanConfigsProcedure = "/platform.v1.PlatformService/ListSecurityScanConfigs"
@@ -798,6 +822,29 @@ type PlatformServiceClient interface {
 	// AddSecurityFindingComment appends a comment event to a finding's audit
 	// trail, attributed to the authenticated caller.
 	AddSecurityFindingComment(context.Context, *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error)
+	// UpdateSecurityFindingAssignee sets or clears (empty assignee) the
+	// finding's assignee, recording an audited assignee_changed event.
+	UpdateSecurityFindingAssignee(context.Context, *connect.Request[platform.UpdateSecurityFindingAssigneeRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// UpdateSecurityFindingTicket links (non-empty http(s) URL) or unlinks
+	// (empty URL) an external ticket on a finding.
+	UpdateSecurityFindingTicket(context.Context, *connect.Request[platform.UpdateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// CreateSecurityFindingTicket creates a ticket in an external tracker for
+	// a finding and links it. Provider "github" creates an issue through a
+	// GitHubRepository configured in the same namespace; the issue body never
+	// contains raw finding evidence. Linear tickets are link-only: create the
+	// issue in Linear and use UpdateSecurityFindingTicket.
+	CreateSecurityFindingTicket(context.Context, *connect.Request[platform.CreateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// BulkUpdateSecurityFindingStatus applies a status and/or assignee change
+	// to many findings atomically: either every item is applied or none is,
+	// and the response reports the per-item outcome.
+	BulkUpdateSecurityFindingStatus(context.Context, *connect.Request[platform.BulkUpdateSecurityFindingStatusRequest]) (*connect.Response[platform.BulkUpdateSecurityFindingStatusResponse], error)
+	// Saved finding filters, private to the calling user per namespace.
+	ListSecuritySavedFilters(context.Context, *connect.Request[platform.ListSecuritySavedFiltersRequest]) (*connect.Response[platform.ListSecuritySavedFiltersResponse], error)
+	SaveSecuritySavedFilter(context.Context, *connect.Request[platform.SaveSecuritySavedFilterRequest]) (*connect.Response[platform.SecuritySavedFilter], error)
+	DeleteSecuritySavedFilter(context.Context, *connect.Request[platform.DeleteSecuritySavedFilterRequest]) (*connect.Response[emptypb.Empty], error)
+	// ExportSecurityFindingAuditLog returns every audit event for a scan's
+	// findings as a downloadable CSV or JSON document.
+	ExportSecurityFindingAuditLog(context.Context, *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -1829,6 +1876,54 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("AddSecurityFindingComment")),
 			connect.WithClientOptions(opts...),
 		),
+		updateSecurityFindingAssignee: connect.NewClient[platform.UpdateSecurityFindingAssigneeRequest, platform.SecurityFinding](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityFindingAssigneeProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingAssignee")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityFindingTicket: connect.NewClient[platform.UpdateSecurityFindingTicketRequest, platform.SecurityFinding](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityFindingTicketProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingTicket")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityFindingTicket: connect.NewClient[platform.CreateSecurityFindingTicketRequest, platform.SecurityFinding](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityFindingTicketProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityFindingTicket")),
+			connect.WithClientOptions(opts...),
+		),
+		bulkUpdateSecurityFindingStatus: connect.NewClient[platform.BulkUpdateSecurityFindingStatusRequest, platform.BulkUpdateSecurityFindingStatusResponse](
+			httpClient,
+			baseURL+PlatformServiceBulkUpdateSecurityFindingStatusProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("BulkUpdateSecurityFindingStatus")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecuritySavedFilters: connect.NewClient[platform.ListSecuritySavedFiltersRequest, platform.ListSecuritySavedFiltersResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecuritySavedFiltersProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecuritySavedFilters")),
+			connect.WithClientOptions(opts...),
+		),
+		saveSecuritySavedFilter: connect.NewClient[platform.SaveSecuritySavedFilterRequest, platform.SecuritySavedFilter](
+			httpClient,
+			baseURL+PlatformServiceSaveSecuritySavedFilterProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("SaveSecuritySavedFilter")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSecuritySavedFilter: connect.NewClient[platform.DeleteSecuritySavedFilterRequest, emptypb.Empty](
+			httpClient,
+			baseURL+PlatformServiceDeleteSecuritySavedFilterProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("DeleteSecuritySavedFilter")),
+			connect.WithClientOptions(opts...),
+		),
+		exportSecurityFindingAuditLog: connect.NewClient[platform.ExportSecurityFindingAuditLogRequest, platform.ExportSecurityFindingAuditLogResponse](
+			httpClient,
+			baseURL+PlatformServiceExportSecurityFindingAuditLogProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ExportSecurityFindingAuditLog")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecurityScanConfigs: connect.NewClient[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse](
 			httpClient,
 			baseURL+PlatformServiceListSecurityScanConfigsProcedure,
@@ -2048,6 +2143,14 @@ type platformServiceClient struct {
 	getSecurityFindingSummary              *connect.Client[platform.GetSecurityFindingSummaryRequest, platform.GetSecurityFindingSummaryResponse]
 	listSecurityFindingEvents              *connect.Client[platform.ListSecurityFindingEventsRequest, platform.ListSecurityFindingEventsResponse]
 	addSecurityFindingComment              *connect.Client[platform.AddSecurityFindingCommentRequest, platform.SecurityFindingEvent]
+	updateSecurityFindingAssignee          *connect.Client[platform.UpdateSecurityFindingAssigneeRequest, platform.SecurityFinding]
+	updateSecurityFindingTicket            *connect.Client[platform.UpdateSecurityFindingTicketRequest, platform.SecurityFinding]
+	createSecurityFindingTicket            *connect.Client[platform.CreateSecurityFindingTicketRequest, platform.SecurityFinding]
+	bulkUpdateSecurityFindingStatus        *connect.Client[platform.BulkUpdateSecurityFindingStatusRequest, platform.BulkUpdateSecurityFindingStatusResponse]
+	listSecuritySavedFilters               *connect.Client[platform.ListSecuritySavedFiltersRequest, platform.ListSecuritySavedFiltersResponse]
+	saveSecuritySavedFilter                *connect.Client[platform.SaveSecuritySavedFilterRequest, platform.SecuritySavedFilter]
+	deleteSecuritySavedFilter              *connect.Client[platform.DeleteSecuritySavedFilterRequest, emptypb.Empty]
+	exportSecurityFindingAuditLog          *connect.Client[platform.ExportSecurityFindingAuditLogRequest, platform.ExportSecurityFindingAuditLogResponse]
 	listSecurityScanConfigs                *connect.Client[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse]
 	getSecurityScanConfig                  *connect.Client[platform.GetSecurityScanConfigRequest, platform.SecurityScanConfig]
 	createSecurityScan                     *connect.Client[platform.CreateSecurityScanRequest, platform.SecurityScanConfig]
@@ -2892,6 +2995,47 @@ func (c *platformServiceClient) AddSecurityFindingComment(ctx context.Context, r
 	return c.addSecurityFindingComment.CallUnary(ctx, req)
 }
 
+// UpdateSecurityFindingAssignee calls platform.v1.PlatformService.UpdateSecurityFindingAssignee.
+func (c *platformServiceClient) UpdateSecurityFindingAssignee(ctx context.Context, req *connect.Request[platform.UpdateSecurityFindingAssigneeRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return c.updateSecurityFindingAssignee.CallUnary(ctx, req)
+}
+
+// UpdateSecurityFindingTicket calls platform.v1.PlatformService.UpdateSecurityFindingTicket.
+func (c *platformServiceClient) UpdateSecurityFindingTicket(ctx context.Context, req *connect.Request[platform.UpdateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return c.updateSecurityFindingTicket.CallUnary(ctx, req)
+}
+
+// CreateSecurityFindingTicket calls platform.v1.PlatformService.CreateSecurityFindingTicket.
+func (c *platformServiceClient) CreateSecurityFindingTicket(ctx context.Context, req *connect.Request[platform.CreateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return c.createSecurityFindingTicket.CallUnary(ctx, req)
+}
+
+// BulkUpdateSecurityFindingStatus calls
+// platform.v1.PlatformService.BulkUpdateSecurityFindingStatus.
+func (c *platformServiceClient) BulkUpdateSecurityFindingStatus(ctx context.Context, req *connect.Request[platform.BulkUpdateSecurityFindingStatusRequest]) (*connect.Response[platform.BulkUpdateSecurityFindingStatusResponse], error) {
+	return c.bulkUpdateSecurityFindingStatus.CallUnary(ctx, req)
+}
+
+// ListSecuritySavedFilters calls platform.v1.PlatformService.ListSecuritySavedFilters.
+func (c *platformServiceClient) ListSecuritySavedFilters(ctx context.Context, req *connect.Request[platform.ListSecuritySavedFiltersRequest]) (*connect.Response[platform.ListSecuritySavedFiltersResponse], error) {
+	return c.listSecuritySavedFilters.CallUnary(ctx, req)
+}
+
+// SaveSecuritySavedFilter calls platform.v1.PlatformService.SaveSecuritySavedFilter.
+func (c *platformServiceClient) SaveSecuritySavedFilter(ctx context.Context, req *connect.Request[platform.SaveSecuritySavedFilterRequest]) (*connect.Response[platform.SecuritySavedFilter], error) {
+	return c.saveSecuritySavedFilter.CallUnary(ctx, req)
+}
+
+// DeleteSecuritySavedFilter calls platform.v1.PlatformService.DeleteSecuritySavedFilter.
+func (c *platformServiceClient) DeleteSecuritySavedFilter(ctx context.Context, req *connect.Request[platform.DeleteSecuritySavedFilterRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteSecuritySavedFilter.CallUnary(ctx, req)
+}
+
+// ExportSecurityFindingAuditLog calls platform.v1.PlatformService.ExportSecurityFindingAuditLog.
+func (c *platformServiceClient) ExportSecurityFindingAuditLog(ctx context.Context, req *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error) {
+	return c.exportSecurityFindingAuditLog.CallUnary(ctx, req)
+}
+
 // ListSecurityScanConfigs calls platform.v1.PlatformService.ListSecurityScanConfigs.
 func (c *platformServiceClient) ListSecurityScanConfigs(ctx context.Context, req *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {
 	return c.listSecurityScanConfigs.CallUnary(ctx, req)
@@ -3174,6 +3318,29 @@ type PlatformServiceHandler interface {
 	// AddSecurityFindingComment appends a comment event to a finding's audit
 	// trail, attributed to the authenticated caller.
 	AddSecurityFindingComment(context.Context, *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error)
+	// UpdateSecurityFindingAssignee sets or clears (empty assignee) the
+	// finding's assignee, recording an audited assignee_changed event.
+	UpdateSecurityFindingAssignee(context.Context, *connect.Request[platform.UpdateSecurityFindingAssigneeRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// UpdateSecurityFindingTicket links (non-empty http(s) URL) or unlinks
+	// (empty URL) an external ticket on a finding.
+	UpdateSecurityFindingTicket(context.Context, *connect.Request[platform.UpdateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// CreateSecurityFindingTicket creates a ticket in an external tracker for
+	// a finding and links it. Provider "github" creates an issue through a
+	// GitHubRepository configured in the same namespace; the issue body never
+	// contains raw finding evidence. Linear tickets are link-only: create the
+	// issue in Linear and use UpdateSecurityFindingTicket.
+	CreateSecurityFindingTicket(context.Context, *connect.Request[platform.CreateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// BulkUpdateSecurityFindingStatus applies a status and/or assignee change
+	// to many findings atomically: either every item is applied or none is,
+	// and the response reports the per-item outcome.
+	BulkUpdateSecurityFindingStatus(context.Context, *connect.Request[platform.BulkUpdateSecurityFindingStatusRequest]) (*connect.Response[platform.BulkUpdateSecurityFindingStatusResponse], error)
+	// Saved finding filters, private to the calling user per namespace.
+	ListSecuritySavedFilters(context.Context, *connect.Request[platform.ListSecuritySavedFiltersRequest]) (*connect.Response[platform.ListSecuritySavedFiltersResponse], error)
+	SaveSecuritySavedFilter(context.Context, *connect.Request[platform.SaveSecuritySavedFilterRequest]) (*connect.Response[platform.SecuritySavedFilter], error)
+	DeleteSecuritySavedFilter(context.Context, *connect.Request[platform.DeleteSecuritySavedFilterRequest]) (*connect.Response[emptypb.Empty], error)
+	// ExportSecurityFindingAuditLog returns every audit event for a scan's
+	// findings as a downloadable CSV or JSON document.
+	ExportSecurityFindingAuditLog(context.Context, *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -4201,6 +4368,54 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("AddSecurityFindingComment")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceUpdateSecurityFindingAssigneeHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityFindingAssigneeProcedure,
+		svc.UpdateSecurityFindingAssignee,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingAssignee")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityFindingTicketHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityFindingTicketProcedure,
+		svc.UpdateSecurityFindingTicket,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingTicket")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityFindingTicketHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityFindingTicketProcedure,
+		svc.CreateSecurityFindingTicket,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityFindingTicket")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceBulkUpdateSecurityFindingStatusHandler := connect.NewUnaryHandler(
+		PlatformServiceBulkUpdateSecurityFindingStatusProcedure,
+		svc.BulkUpdateSecurityFindingStatus,
+		connect.WithSchema(platformServiceMethods.ByName("BulkUpdateSecurityFindingStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecuritySavedFiltersHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecuritySavedFiltersProcedure,
+		svc.ListSecuritySavedFilters,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecuritySavedFilters")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceSaveSecuritySavedFilterHandler := connect.NewUnaryHandler(
+		PlatformServiceSaveSecuritySavedFilterProcedure,
+		svc.SaveSecuritySavedFilter,
+		connect.WithSchema(platformServiceMethods.ByName("SaveSecuritySavedFilter")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceDeleteSecuritySavedFilterHandler := connect.NewUnaryHandler(
+		PlatformServiceDeleteSecuritySavedFilterProcedure,
+		svc.DeleteSecuritySavedFilter,
+		connect.WithSchema(platformServiceMethods.ByName("DeleteSecuritySavedFilter")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceExportSecurityFindingAuditLogHandler := connect.NewUnaryHandler(
+		PlatformServiceExportSecurityFindingAuditLogProcedure,
+		svc.ExportSecurityFindingAuditLog,
+		connect.WithSchema(platformServiceMethods.ByName("ExportSecurityFindingAuditLog")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListSecurityScanConfigsHandler := connect.NewUnaryHandler(
 		PlatformServiceListSecurityScanConfigsProcedure,
 		svc.ListSecurityScanConfigs,
@@ -4583,6 +4798,22 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceListSecurityFindingEventsHandler.ServeHTTP(w, r)
 		case PlatformServiceAddSecurityFindingCommentProcedure:
 			platformServiceAddSecurityFindingCommentHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityFindingAssigneeProcedure:
+			platformServiceUpdateSecurityFindingAssigneeHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityFindingTicketProcedure:
+			platformServiceUpdateSecurityFindingTicketHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityFindingTicketProcedure:
+			platformServiceCreateSecurityFindingTicketHandler.ServeHTTP(w, r)
+		case PlatformServiceBulkUpdateSecurityFindingStatusProcedure:
+			platformServiceBulkUpdateSecurityFindingStatusHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecuritySavedFiltersProcedure:
+			platformServiceListSecuritySavedFiltersHandler.ServeHTTP(w, r)
+		case PlatformServiceSaveSecuritySavedFilterProcedure:
+			platformServiceSaveSecuritySavedFilterHandler.ServeHTTP(w, r)
+		case PlatformServiceDeleteSecuritySavedFilterProcedure:
+			platformServiceDeleteSecuritySavedFilterHandler.ServeHTTP(w, r)
+		case PlatformServiceExportSecurityFindingAuditLogProcedure:
+			platformServiceExportSecurityFindingAuditLogHandler.ServeHTTP(w, r)
 		case PlatformServiceListSecurityScanConfigsProcedure:
 			platformServiceListSecurityScanConfigsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanConfigProcedure:
@@ -5270,6 +5501,38 @@ func (UnimplementedPlatformServiceHandler) ListSecurityFindingEvents(context.Con
 
 func (UnimplementedPlatformServiceHandler) AddSecurityFindingComment(context.Context, *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.AddSecurityFindingComment is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityFindingAssignee(context.Context, *connect.Request[platform.UpdateSecurityFindingAssigneeRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityFindingAssignee is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityFindingTicket(context.Context, *connect.Request[platform.UpdateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityFindingTicket is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityFindingTicket(context.Context, *connect.Request[platform.CreateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityFindingTicket is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) BulkUpdateSecurityFindingStatus(context.Context, *connect.Request[platform.BulkUpdateSecurityFindingStatusRequest]) (*connect.Response[platform.BulkUpdateSecurityFindingStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.BulkUpdateSecurityFindingStatus is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecuritySavedFilters(context.Context, *connect.Request[platform.ListSecuritySavedFiltersRequest]) (*connect.Response[platform.ListSecuritySavedFiltersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecuritySavedFilters is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) SaveSecuritySavedFilter(context.Context, *connect.Request[platform.SaveSecuritySavedFilterRequest]) (*connect.Response[platform.SecuritySavedFilter], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.SaveSecuritySavedFilter is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) DeleteSecuritySavedFilter(context.Context, *connect.Request[platform.DeleteSecuritySavedFilterRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecuritySavedFilter is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ExportSecurityFindingAuditLog(context.Context, *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ExportSecurityFindingAuditLog is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListSecurityScanConfigs(context.Context, *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {

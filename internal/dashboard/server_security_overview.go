@@ -41,6 +41,7 @@ func (s *Server) GetSecurityOverview(ctx context.Context, req *platform.GetSecur
 
 	if sec, ok := s.stateStore.(store.SecurityFindingStore); ok {
 		resp.StoreSupported = true
+		s.sweepExpiredAcceptedRisks(ctx, sec, namespace)
 		recentLimit := req.GetRecentLimit()
 		if recentLimit <= 0 {
 			recentLimit = securityOverviewDefaultRecent
@@ -65,10 +66,22 @@ func (s *Server) GetSecurityOverview(ctx context.Context, req *platform.GetSecur
 			resp.Warnings = append(resp.Warnings, fmt.Sprintf("summarizing security findings: %v", err))
 		} else {
 			resp.FindingCounts = counts
+			// Baseline states are classified at write time; any tracked
+			// finding means observation data exists and the counters are
+			// meaningful.
+			resp.BaselineAvailable = counts["baseline_tracked"] > 0
+			resp.NewFindings = counts["baseline_new"]
+			resp.RecurringFindings = counts["baseline_recurring"]
+			resp.ResolvedFindings = counts["baseline_resolved"]
+			resp.RegressedFindings = counts["baseline_regressed"]
+			resp.ReopenedFindings = counts["baseline_reopened"]
 		}
-		// Baseline comparison (new / recurring / resolved counts) is not
-		// persisted yet: BaselineAvailable stays false and the counters zero
-		// until baseline snapshots land.
+		trends, err := sec.GetSecurityFindingTrends(ctx, namespace, "")
+		if err != nil {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("aggregating security finding trends: %v", err))
+		} else {
+			resp.Trends = securityFindingTrendsProto(trends)
+		}
 	}
 
 	configs := &triggersv1alpha1.SecurityScanList{}

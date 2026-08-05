@@ -29,6 +29,8 @@ import {
   formatSeen,
   statusLabel,
 } from "@/components/SecurityScanDetail";
+import { BaselineBadge, ExpiryBadge } from "@/components/security-baseline";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { client } from "@/lib/client";
 import { connectCodeOf, describeRpcError } from "@/lib/rpc-errors";
 import { cn } from "@/lib/utils";
@@ -209,6 +211,15 @@ export function SecurityFindingDetail() {
   const [statusDraft, setStatusDraft] = useState("");
   const [statusNote, setStatusNote] = useState("");
   const [statusSaving, setStatusSaving] = useState(false);
+  const [expiryDraft, setExpiryDraft] = useState("");
+
+  const [assigneeDraft, setAssigneeDraft] = useState<string | null>(null);
+  const [assigneeSaving, setAssigneeSaving] = useState(false);
+
+  const [ticketUrlDraft, setTicketUrlDraft] = useState("");
+  const [ticketProviderDraft, setTicketProviderDraft] = useState("github");
+  const [ticketRepoDraft, setTicketRepoDraft] = useState("");
+  const [ticketBusy, setTicketBusy] = useState(false);
 
   const [comment, setComment] = useState("");
   const [commentSaving, setCommentSaving] = useState(false);
@@ -277,6 +288,10 @@ export function SecurityFindingDetail() {
   useEffect(() => {
     setStatusDraft("");
     setStatusNote("");
+    setExpiryDraft("");
+    setAssigneeDraft(null);
+    setTicketUrlDraft("");
+    setTicketRepoDraft("");
   }, [findingId]);
 
   // Warn before the tab closes while a comment draft would be lost.
@@ -319,6 +334,13 @@ export function SecurityFindingDetail() {
 
   async function applyStatus() {
     if (!finding || !statusDraft || statusDraft === finding.status) return;
+    if (statusDraft === "accepted_risk" && expiryDraft) {
+      const at = new Date(expiryDraft);
+      if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) {
+        toast.error("The accepted-risk expiry must be in the future");
+        return;
+      }
+    }
     setStatusSaving(true);
     try {
       const updated = await client.updateSecurityFindingStatus({
@@ -326,10 +348,15 @@ export function SecurityFindingDetail() {
         status: statusDraft,
         note: statusNote.trim(),
         namespace: namespace ?? "",
+        acceptedRiskExpiresAt:
+          statusDraft === "accepted_risk" && expiryDraft
+            ? timestampFromDate(new Date(expiryDraft))
+            : undefined,
       });
       setFinding(updated);
       setStatusDraft("");
       setStatusNote("");
+      setExpiryDraft("");
       toast.success(`Status set to ${statusLabel(updated.status)}`);
       void refreshEvents();
     } catch (e: unknown) {
@@ -339,6 +366,87 @@ export function SecurityFindingDetail() {
       void fetchAll();
     } finally {
       setStatusSaving(false);
+    }
+  }
+
+  async function applyAssignee() {
+    if (!finding || assigneeDraft === null) return;
+    setAssigneeSaving(true);
+    try {
+      const updated = await client.updateSecurityFindingAssignee({
+        id: finding.id,
+        namespace: namespace ?? "",
+        assignee: assigneeDraft.trim(),
+      });
+      setFinding(updated);
+      setAssigneeDraft(null);
+      toast.success(updated.assignee ? `Assigned to ${updated.assignee}` : "Assignee cleared");
+      void refreshEvents();
+    } catch (e: unknown) {
+      toast.error(describeRpcError(e, "update the assignee"));
+    } finally {
+      setAssigneeSaving(false);
+    }
+  }
+
+  async function linkTicket() {
+    if (!finding || !ticketUrlDraft.trim()) return;
+    setTicketBusy(true);
+    try {
+      const updated = await client.updateSecurityFindingTicket({
+        id: finding.id,
+        namespace: namespace ?? "",
+        ticketUrl: ticketUrlDraft.trim(),
+        ticketProvider: ticketProviderDraft,
+      });
+      setFinding(updated);
+      setTicketUrlDraft("");
+      toast.success("Ticket linked");
+      void refreshEvents();
+    } catch (e: unknown) {
+      toast.error(describeRpcError(e, "link the ticket"));
+    } finally {
+      setTicketBusy(false);
+    }
+  }
+
+  async function unlinkTicket() {
+    if (!finding) return;
+    setTicketBusy(true);
+    try {
+      const updated = await client.updateSecurityFindingTicket({
+        id: finding.id,
+        namespace: namespace ?? "",
+        ticketUrl: "",
+      });
+      setFinding(updated);
+      toast.success("Ticket unlinked");
+      void refreshEvents();
+    } catch (e: unknown) {
+      toast.error(describeRpcError(e, "unlink the ticket"));
+    } finally {
+      setTicketBusy(false);
+    }
+  }
+
+  async function createGitHubTicket() {
+    if (!finding || !ticketRepoDraft.trim()) return;
+    setTicketBusy(true);
+    try {
+      const updated = await client.createSecurityFindingTicket({
+        id: finding.id,
+        namespace: namespace ?? "",
+        provider: "github",
+        repositoryRef: ticketRepoDraft.trim(),
+      });
+      setFinding(updated);
+      setTicketRepoDraft("");
+      toast.success("GitHub issue created and linked");
+      void refreshEvents();
+    } catch (e: unknown) {
+      toast.error(describeRpcError(e, "create the GitHub issue"));
+    } finally {
+      setTicketBusy(false);
     }
   }
 
@@ -435,6 +543,10 @@ export function SecurityFindingDetail() {
             <Badge variant="outline" className="capitalize">
               {statusLabel(finding.status)}
             </Badge>
+            <BaselineBadge state={finding.baselineState} />
+            {finding.status === "accepted_risk" && (
+              <ExpiryBadge ts={finding.acceptedRiskExpiresAt} />
+            )}
           </>
         }
         subtitle={
@@ -535,6 +647,26 @@ export function SecurityFindingDetail() {
           <Fact label="Occurrences" mono value={String(finding.occurrences)} />
           <Fact label="First seen" value={formatSeen(finding.firstSeenAt)} />
           <Fact label="Last seen" value={formatSeen(finding.lastSeenAt)} />
+          <Fact label="Triaged" value={finding.triagedAt ? formatSeen(finding.triagedAt) : ""} />
+          <Fact label="Resolved" value={finding.resolvedAt ? formatSeen(finding.resolvedAt) : ""} />
+          <Fact
+            label="Baseline"
+            value={finding.baselineState ? <BaselineBadge state={finding.baselineState} /> : ""}
+          />
+          <Fact label="Assignee" value={finding.assignee || ""} />
+          <Fact
+            label="Ticket"
+            value={
+              finding.ticketUrl ? (
+                <FactLink href={finding.ticketUrl}>
+                  {finding.ticketProvider ? `${finding.ticketProvider}: ` : ""}
+                  {finding.ticketUrl}
+                </FactLink>
+              ) : (
+                ""
+              )
+            }
+          />
           <Fact label="Source agent" mono value={finding.sourceAgent || ""} />
           <Fact label="Scan step" mono value={finding.scanStep || ""} />
           <Fact label="Fingerprint" mono value={finding.fingerprint || ""} />
@@ -664,51 +796,207 @@ export function SecurityFindingDetail() {
       </DetailSection>
 
       <DetailSection title="Triage">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <label
-              htmlFor="finding-status"
-              className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <label
+                htmlFor="finding-status"
+                className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+              >
+                Status
+              </label>
+              <select
+                id="finding-status"
+                className={filterSelectClass}
+                value={statusDraft || finding.status}
+                disabled={statusSaving}
+                onChange={(e) => setStatusDraft(e.target.value)}
+              >
+                {FINDING_STATUSES.map((s) => (
+                  <option key={s} value={s}>{statusLabel(s)}</option>
+                ))}
+              </select>
+            </div>
+            {(statusDraft || finding.status) === "accepted_risk" && (
+              <div className="space-y-1">
+                <label
+                  htmlFor="finding-risk-expiry"
+                  className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+                >
+                  Accepted until (optional)
+                </label>
+                <input
+                  id="finding-risk-expiry"
+                  type="datetime-local"
+                  value={expiryDraft}
+                  disabled={statusSaving}
+                  onChange={(e) => setExpiryDraft(e.target.value)}
+                  className="h-8 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                />
+              </div>
+            )}
+            <div className="min-w-0 flex-1 space-y-1">
+              <label
+                htmlFor="finding-status-note"
+                className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+              >
+                Note (optional)
+              </label>
+              <input
+                id="finding-status-note"
+                type="text"
+                value={statusNote}
+                disabled={statusSaving}
+                onChange={(e) => setStatusNote(e.target.value)}
+                placeholder="Why is the status changing?"
+                className="h-8 w-full rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              />
+            </div>
+            <Button
+              size="sm"
+              disabled={statusSaving || !statusDraft || statusDraft === finding.status}
+              onClick={() => void applyStatus()}
             >
-              Status
-            </label>
-            <select
-              id="finding-status"
-              className={filterSelectClass}
-              value={statusDraft || finding.status}
-              disabled={statusSaving}
-              onChange={(e) => setStatusDraft(e.target.value)}
-            >
-              {FINDING_STATUSES.map((s) => (
-                <option key={s} value={s}>{statusLabel(s)}</option>
-              ))}
-            </select>
+              {statusSaving ? "Saving…" : "Update status"}
+            </Button>
           </div>
-          <div className="min-w-0 flex-1 space-y-1">
-            <label
-              htmlFor="finding-status-note"
-              className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <label
+                htmlFor="finding-assignee"
+                className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+              >
+                Assignee
+              </label>
+              <input
+                id="finding-assignee"
+                type="text"
+                value={assigneeDraft ?? finding.assignee}
+                disabled={assigneeSaving}
+                onChange={(e) => setAssigneeDraft(e.target.value)}
+                placeholder="Unassigned"
+                className="h-8 w-56 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={assigneeSaving || assigneeDraft === null || assigneeDraft.trim() === finding.assignee}
+              onClick={() => void applyAssignee()}
             >
-              Note (optional)
-            </label>
-            <input
-              id="finding-status-note"
-              type="text"
-              value={statusNote}
-              disabled={statusSaving}
-              onChange={(e) => setStatusNote(e.target.value)}
-              placeholder="Why is the status changing?"
-              className="h-8 w-full rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-            />
+              {assigneeSaving ? "Saving…" : "Set assignee"}
+            </Button>
+            {finding.assignee && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={assigneeSaving}
+                onClick={() => {
+                  setAssigneeDraft("");
+                  void (async () => {
+                    setAssigneeSaving(true);
+                    try {
+                      const updated = await client.updateSecurityFindingAssignee({
+                        id: finding.id,
+                        namespace: namespace ?? "",
+                        assignee: "",
+                      });
+                      setFinding(updated);
+                      setAssigneeDraft(null);
+                      toast.success("Assignee cleared");
+                      void refreshEvents();
+                    } catch (e: unknown) {
+                      toast.error(describeRpcError(e, "clear the assignee"));
+                    } finally {
+                      setAssigneeSaving(false);
+                    }
+                  })();
+                }}
+              >
+                Clear
+              </Button>
+            )}
           </div>
-          <Button
-            size="sm"
-            disabled={statusSaving || !statusDraft || statusDraft === finding.status}
-            onClick={() => void applyStatus()}
-          >
-            {statusSaving ? "Saving…" : "Update status"}
-          </Button>
         </div>
+      </DetailSection>
+
+      <DetailSection
+        title="Ticket"
+        description="Track remediation in an external issue tracker. Created issues never include raw evidence."
+      >
+        {finding.ticketUrl ? (
+          <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+            {finding.ticketProvider && (
+              <Badge variant="outline" className="text-[11px] capitalize">{finding.ticketProvider}</Badge>
+            )}
+            <FactLink href={finding.ticketUrl}>{finding.ticketUrl}</FactLink>
+            <Button variant="outline" size="sm" disabled={ticketBusy} onClick={() => void unlinkTicket()}>
+              {ticketBusy ? "Working…" : "Unlink"}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-0 flex-1 space-y-1">
+                <label
+                  htmlFor="finding-ticket-url"
+                  className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+                >
+                  Link an existing ticket
+                </label>
+                <input
+                  id="finding-ticket-url"
+                  type="url"
+                  value={ticketUrlDraft}
+                  disabled={ticketBusy}
+                  onChange={(e) => setTicketUrlDraft(e.target.value)}
+                  placeholder="https://github.com/org/repo/issues/123 or a Linear issue URL"
+                  className="h-8 w-full rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                />
+              </div>
+              <select
+                aria-label="Ticket provider"
+                className={filterSelectClass}
+                value={ticketProviderDraft}
+                disabled={ticketBusy}
+                onChange={(e) => setTicketProviderDraft(e.target.value)}
+              >
+                <option value="github">GitHub</option>
+                <option value="linear">Linear</option>
+                <option value="other">Other</option>
+              </select>
+              <Button size="sm" variant="outline" disabled={ticketBusy || !ticketUrlDraft.trim()} onClick={() => void linkTicket()}>
+                Link ticket
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <label
+                  htmlFor="finding-ticket-repo"
+                  className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+                >
+                  Create a GitHub issue via a configured repository
+                </label>
+                <input
+                  id="finding-ticket-repo"
+                  type="text"
+                  value={ticketRepoDraft}
+                  disabled={ticketBusy}
+                  onChange={(e) => setTicketRepoDraft(e.target.value)}
+                  placeholder="GitHubRepository resource name"
+                  className="h-8 w-72 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                />
+              </div>
+              <Button size="sm" disabled={ticketBusy || !ticketRepoDraft.trim()} onClick={() => void createGitHubTicket()}>
+                {ticketBusy ? "Working…" : "Create GitHub issue"}
+              </Button>
+            </div>
+            <p className="text-[12px] text-muted-foreground">
+              Linear issues are link-only: create the issue in Linear, then paste its URL above.
+            </p>
+          </div>
+        )}
       </DetailSection>
 
       <DetailSection title="Comments & History">

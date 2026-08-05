@@ -113,7 +113,7 @@ func (s *fakeSecurityFindingStore) GetSecurityFinding(_ context.Context, namespa
 	return nil, nil
 }
 
-func (s *fakeSecurityFindingStore) SetSecurityFindingStatus(_ context.Context, namespace string, id uuid.UUID, status, actor, note string) error {
+func (s *fakeSecurityFindingStore) SetSecurityFindingStatus(_ context.Context, namespace string, id uuid.UUID, status, actor, note string, _ *time.Time) error {
 	if namespace == "" {
 		return fmt.Errorf("namespace is required")
 	}
@@ -1084,4 +1084,46 @@ func TestReportSecurityFindingBindsScanRecord(t *testing.T) {
 	if len(findingStore.scans) != 1 {
 		t.Errorf("expected exactly one scan record, got %d", len(findingStore.scans))
 	}
+}
+
+// Collaboration methods are not exercised by the agent tools; stubs satisfy
+// the store.SecurityFindingStore interface.
+func (s *fakeSecurityFindingStore) SetSecurityFindingAssignee(context.Context, string, uuid.UUID, string, string) error {
+	return nil
+}
+
+func (s *fakeSecurityFindingStore) SetSecurityFindingTicket(context.Context, string, uuid.UUID, string, string, string) error {
+	return nil
+}
+
+func (s *fakeSecurityFindingStore) ExpireAcceptedRisks(context.Context, string) (int32, error) {
+	return 0, nil
+}
+
+func (s *fakeSecurityFindingStore) BulkUpdateSecurityFindings(context.Context, string, string, []uuid.UUID, store.SecurityFindingBulkUpdate) error {
+	return nil
+}
+
+func (s *fakeSecurityFindingStore) FinalizeSecurityScanBaseline(context.Context, string, string) (int32, error) {
+	return 0, nil
+}
+
+func (s *fakeSecurityFindingStore) ListSecuritySavedFilters(context.Context, string, string) ([]store.SecuritySavedFilter, error) {
+	return nil, nil
+}
+
+func (s *fakeSecurityFindingStore) SaveSecuritySavedFilter(_ context.Context, rec *store.SecuritySavedFilter) (*store.SecuritySavedFilter, error) {
+	return rec, nil
+}
+
+func (s *fakeSecurityFindingStore) DeleteSecuritySavedFilter(context.Context, string, string, string) error {
+	return nil
+}
+
+func (s *fakeSecurityFindingStore) GetSecurityFindingTrends(context.Context, string, string) (*store.SecurityFindingTrends, error) {
+	return &store.SecurityFindingTrends{}, nil
+}
+
+func (s *fakeSecurityFindingStore) ExportSecurityFindingEvents(context.Context, string, string, int32) ([]store.SecurityFindingAuditRecord, error) {
+	return nil, nil
 }

@@ -204,6 +204,33 @@ Findings start as **open** and move through a triage lifecycle; every status cha
 
 Change a finding's status from the dashboard, or from inside an agent run with the `update_security_finding` tool.
 
+### Triage & collaboration
+
+Findings carry collaboration state beyond the status itself, and every change is an audited event in the finding's history:
+
+- **Assignee** — assign a finding to a teammate (or clear it) from the finding page or in bulk from the scan detail table; the findings table can be filtered by assignee.
+- **Bulk triage** — select multiple findings in the scan detail table and apply a status change (with an audit note) or an assignee in one operation. The batch is atomic: either every selected finding is updated or none is, and the result reports per-finding outcomes, so a stale selection can never half-apply.
+- **Accepted-risk expiry** — when accepting a risk you can set an optional expiry. Past the deadline the finding automatically reopens (`accepted_risk_expired` event); the table shows an "expires in Xd" / "expired" badge while the acceptance is in effect.
+- **Tickets** — link a finding to an external tracker issue (any `http(s)` URL, labeled with a provider such as GitHub or Linear), or create a GitHub issue directly through a `GitHubRepository` configured in the same namespace. Created issues carry only the finding's title, severity, category, location, and a link back to the dashboard — never raw evidence, impact analysis, or attack-vector text. Linear is link-only: create the issue in Linear and paste its URL. Linking and unlinking are audited (`ticket_linked` / `ticket_unlinked`).
+- **Saved views** — save the current filter combination (severity, status, category, search, baseline state, assignee) under a name and re-apply it later. Saved views are private to the user who created them within a namespace.
+- **Audit export** — download every audit event for a scan's findings (status changes, comments, assignments, ticket links, baseline transitions) as CSV or JSON from the scan detail page.
+
+### Baselines
+
+Every finding observation is recorded per scan run, which lets consecutive runs of the same scan be compared deterministically. Each finding carries a **baseline state**:
+
+| State | Meaning |
+| --- | --- |
+| `new` | First observed by the latest run. |
+| `recurring` | Observed by the previous run and again by the latest one. |
+| `regressed` | Was suppressed (`fixed`, or `false_positive`/`accepted_risk` with a severity increase) and the evidence reappeared; the finding reopens automatically. |
+| `resolved` | Present in an earlier run but absent from the latest successfully completed run. Nothing is deleted; `resolved_at` is stamped and a `resolved` event recorded. |
+| `reopened` | A resolved finding whose evidence reappeared in a later run. |
+
+Baseline resolution happens only when a scan run terminates **successfully** and has submitted its report — a failed or cancelled run never marks findings resolved. Suppression is sticky for `false_positive` and `accepted_risk` findings as long as the evidence is unchanged (the fingerprint pins evidence and location identity); a severity increase under the same fingerprint regresses the suppression to `open`, preserving the prior decision in the audit history. `fixed` findings always regress when they reappear.
+
+The security overview shows namespace-wide baseline deltas (new / recurring / regressed / reopened / resolved) once observation data exists, plus **trend metrics**: average and median time-to-triage (first status change out of `open`) and time-to-resolution (from first sighting to baseline resolution).
+
 ### Dedupe
 
 Findings persist across runs of the same scan. Their storage key is `(namespace, scan name, repository, fingerprint)`, so re-observing a fingerprint in a later run increments its occurrence count and preserves its triage status. Finding and status counts are scoped to the scan across all of its runs.

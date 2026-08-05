@@ -185,6 +185,8 @@ describe("SecurityScanDetail", () => {
         status: "",
         category: "",
         search: "",
+        baselineState: "",
+        assignee: "",
       });
     });
   });

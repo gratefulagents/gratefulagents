@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"connectrpc.com/connect"
@@ -79,6 +80,7 @@ func (s *Server) ListSecurityFindings(ctx context.Context, req *platform.ListSec
 	if err != nil {
 		return nil, err
 	}
+	s.sweepExpiredAcceptedRisks(ctx, sec, namespace)
 	findings, err := sec.ListSecurityFindings(ctx, store.SecurityFindingFilter{
 		Namespace:         namespace,
 		ScanName:          req.GetScanName(),
@@ -90,6 +92,8 @@ func (s *Server) ListSecurityFindings(ctx context.Context, req *platform.ListSec
 		Search:            req.GetSearch(),
 		MinScore:          req.GetMinScore(),
 		IncludeDuplicates: req.GetIncludeDuplicates(),
+		BaselineState:     req.GetBaselineState(),
+		Assignee:          req.GetAssignee(),
 		Limit:             req.GetLimit(),
 		Offset:            req.GetOffset(),
 	})
@@ -142,7 +146,18 @@ func (s *Server) UpdateSecurityFindingStatus(ctx context.Context, req *platform.
 	if err != nil {
 		return nil, err
 	}
-	if err := sec.SetSecurityFindingStatus(ctx, finding.Namespace, finding.ID, req.GetStatus(), actor.Subject, req.GetNote()); err != nil {
+	var expiry *time.Time
+	if req.GetAcceptedRiskExpiresAt() != nil {
+		if req.GetStatus() != store.SecurityFindingStatusAcceptedRisk {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("accepted_risk_expires_at is only valid with status %q", store.SecurityFindingStatusAcceptedRisk))
+		}
+		t := req.GetAcceptedRiskExpiresAt().AsTime()
+		if !t.After(time.Now()) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("accepted_risk_expires_at must be in the future"))
+		}
+		expiry = &t
+	}
+	if err := sec.SetSecurityFindingStatus(ctx, finding.Namespace, finding.ID, req.GetStatus(), actor.Subject, req.GetNote(), expiry); err != nil {
 		if errors.Is(err, store.ErrSecurityFindingNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", finding.ID))
 		}
@@ -166,11 +181,18 @@ func (s *Server) GetSecurityFindingSummary(ctx context.Context, req *platform.Ge
 	if err != nil {
 		return nil, err
 	}
+	s.sweepExpiredAcceptedRisks(ctx, sec, namespace)
 	counts, err := sec.SummarizeSecurityFindings(ctx, namespace, req.GetScanName(), req.GetRunName())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("summarizing security findings: %w", err))
 	}
-	return &platform.GetSecurityFindingSummaryResponse{Counts: counts}, nil
+	resp := &platform.GetSecurityFindingSummaryResponse{Counts: counts}
+	// Trends are per scan (or namespace-wide); a run-scoped summary keeps
+	// the same scope as its scan.
+	if trends, err := sec.GetSecurityFindingTrends(ctx, namespace, req.GetScanName()); err == nil {
+		resp.Trends = securityFindingTrendsProto(trends)
+	}
+	return resp, nil
 }
 
 // ListSecurityFindingEvents returns a finding's audit trail, newest first.
@@ -283,42 +305,55 @@ func securityScanProto(in *store.SecurityScanRecord) *platform.SecurityScan {
 
 func securityFindingProto(in *store.SecurityFindingRecord) *platform.SecurityFinding {
 	out := &platform.SecurityFinding{
-		Id:           in.ID.String(),
-		ScanId:       in.ScanID.String(),
-		Namespace:    in.Namespace,
-		ScanName:     in.ScanName,
-		RunName:      in.RunName,
-		Fingerprint:  in.Fingerprint,
-		Title:        in.Title,
-		Category:     in.Category,
-		Severity:     in.Severity,
-		Confidence:   in.Confidence,
-		Repository:   in.Repository,
-		Revision:     in.Revision,
-		FilePath:     in.FilePath,
-		StartLine:    in.StartLine,
-		EndLine:      in.EndLine,
-		Symbol:       in.Symbol,
-		Cwe:          in.CWE,
-		Description:  in.Description,
-		Impact:       in.Impact,
-		AttackVector: in.AttackVector,
-		Remediation:  in.Remediation,
-		References:   in.References,
-		SourceAgent:  in.SourceAgent,
-		ScanStep:     in.ScanStep,
-		Score:        in.Score,
-		Status:       in.Status,
-		Occurrences:  in.Occurrences,
-		Raw:          string(in.Raw),
-		FirstSeenAt:  timestamppb.New(in.FirstSeenAt),
-		LastSeenAt:   timestamppb.New(in.LastSeenAt),
+		Id:             in.ID.String(),
+		ScanId:         in.ScanID.String(),
+		Namespace:      in.Namespace,
+		ScanName:       in.ScanName,
+		RunName:        in.RunName,
+		Fingerprint:    in.Fingerprint,
+		Title:          in.Title,
+		Category:       in.Category,
+		Severity:       in.Severity,
+		Confidence:     in.Confidence,
+		Repository:     in.Repository,
+		Revision:       in.Revision,
+		FilePath:       in.FilePath,
+		StartLine:      in.StartLine,
+		EndLine:        in.EndLine,
+		Symbol:         in.Symbol,
+		Cwe:            in.CWE,
+		Description:    in.Description,
+		Impact:         in.Impact,
+		AttackVector:   in.AttackVector,
+		Remediation:    in.Remediation,
+		References:     in.References,
+		SourceAgent:    in.SourceAgent,
+		ScanStep:       in.ScanStep,
+		Score:          in.Score,
+		Status:         in.Status,
+		Occurrences:    in.Occurrences,
+		Raw:            string(in.Raw),
+		FirstSeenAt:    timestamppb.New(in.FirstSeenAt),
+		LastSeenAt:     timestamppb.New(in.LastSeenAt),
+		Assignee:       in.Assignee,
+		TicketUrl:      in.TicketURL,
+		TicketProvider: in.TicketProvider,
+		BaselineState:  in.BaselineState,
 	}
 	if in.SessionID != nil {
 		out.SessionId = in.SessionID.String()
 	}
 	if in.DuplicateOf != nil {
 		out.DuplicateOf = in.DuplicateOf.String()
+	}
+	if in.AcceptedRiskExpiresAt != nil {
+		out.AcceptedRiskExpiresAt = timestamppb.New(*in.AcceptedRiskExpiresAt)
+	}
+	if in.ResolvedAt != nil {
+		out.ResolvedAt = timestamppb.New(*in.ResolvedAt)
+	}
+	if in.TriagedAt != nil {
+		out.TriagedAt = timestamppb.New(*in.TriagedAt)
 	}
 	return out
 }
