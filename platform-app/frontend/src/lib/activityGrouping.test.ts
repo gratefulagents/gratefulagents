@@ -1,7 +1,7 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 
-import { groupActivityEntries } from "@/lib/activityGrouping";
+import { groupActivityEntries, subagentPromptMarkdown } from "@/lib/activityGrouping";
 import { ActivityEntrySchema } from "@/rpc/platform/service_pb";
 
 function entry(partial: MessageInitShape<typeof ActivityEntrySchema>) {
@@ -207,5 +207,49 @@ describe("registry task snapshots (consolidated subagent engine)", () => {
     expect(groups.find((g) => g.kind === "subagent")?.subagentDescription).toBe(
       "Summarize the findings",
     );
+  });
+});
+
+describe("subagentPromptMarkdown", () => {
+  it("returns plain-text prompts unchanged", () => {
+    expect(subagentPromptMarkdown("Fix the failing lint\n\n- item one")).toBe(
+      "Fix the failing lint\n\n- item one",
+    );
+  });
+
+  it("returns empty string for undefined input", () => {
+    expect(subagentPromptMarkdown(undefined)).toBe("");
+  });
+
+  it("extracts the message from a single-message payload", () => {
+    const raw = JSON.stringify({ mode: "sync", message: "Do the **thing**\n\n1. step" });
+    expect(subagentPromptMarkdown(raw)).toBe("Do the **thing**\n\n1. step");
+  });
+
+  it("extracts the sole task message from a tasks payload", () => {
+    const raw = JSON.stringify({
+      mode: "sync",
+      tasks: [{ agent_name: "executor", key: "backend", message: "Fix CI lint" }],
+    });
+    expect(subagentPromptMarkdown(raw)).toBe("`backend` · **executor**\n\nFix CI lint");
+  });
+
+  it("renders multi-task payloads as separated markdown sections", () => {
+    const raw = JSON.stringify({
+      mode: "background",
+      tasks: [
+        { key: "a", agent_name: "executor", message: "First task" },
+        { key: "b", agent_name: "test-engineer", message: "Second task", depends_on: ["a"] },
+      ],
+    });
+    const md = subagentPromptMarkdown(raw);
+    expect(md).toContain("`a` · **executor**\n\nFirst task");
+    expect(md).toContain("\n\n---\n\n");
+    expect(md).toContain("`b` · **test-engineer** · _after a_\n\nSecond task");
+  });
+
+  it("falls back to the raw text for unparseable or unrecognized JSON", () => {
+    expect(subagentPromptMarkdown('{"broken": ')).toBe('{"broken":');
+    expect(subagentPromptMarkdown('{"other": true}')).toBe('{"other": true}');
   });
 });
