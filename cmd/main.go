@@ -390,6 +390,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	securityFindingStore, _ := sharedStateStore.(store.SecurityFindingStore)
+	if err := (&triggercontroller.SecurityScanReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		StateStore: sharedStateStore,
+		Findings:   securityFindingStore,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SecurityScan")
+		os.Exit(1)
+	}
+
 	if err := (&triggercontroller.SlackAgentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),

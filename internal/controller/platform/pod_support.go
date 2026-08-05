@@ -1321,6 +1321,7 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 		{Name: "REPO_URL", Value: run.Spec.Repository.URL},
 		{Name: "ADDITIONAL_REPO_URLS", Value: strings.Join(run.Spec.Repository.AdditionalRepos, ",")},
 		{Name: "BASE_BRANCH", Value: firstNonEmpty(run.Spec.Repository.BaseBranch, "main")},
+		{Name: "REPO_REVISION", Value: run.Spec.Repository.Revision},
 		{Name: "MODEL", Value: run.Spec.Model},
 		{Name: "AI_PROVIDER", Value: effectiveProvider(run)},
 		{Name: "MODEL_FALLBACKS", Value: modelFallbacksForRun(run)},

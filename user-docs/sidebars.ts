@@ -35,6 +35,7 @@ const sidebars: SidebarsConfig = {
         'projects/projects',
         'projects/run-defaults',
         'projects/cron',
+        'projects/security-scanning',
       ],
     },
     {

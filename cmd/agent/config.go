@@ -23,6 +23,7 @@ type runConfig struct {
 	AdditionalRepoURLs       []string // extra repos cloned at startup into repos/<name> under RepoDir
 	Repoless                 bool     // true when no repository is attached (plain chat in an empty sandbox)
 	BaseBranch               string
+	RepoRevision             string // pinned commit/tag/branch checked out after clone; empty keeps the base branch head
 	Model                    string
 	Provider                 string
 	BaseURL                  string
@@ -159,6 +160,7 @@ func loadRunConfig() (runConfig, error) {
 		AdditionalRepoURLs:       additionalRepoURLs,
 		Repoless:                 repoURL == "",
 		BaseBranch:               agentinfra.EnvOrDefault("BASE_BRANCH", "main"),
+		RepoRevision:             strings.TrimSpace(os.Getenv("REPO_REVISION")),
 		Model:                    model,
 		Provider:                 provider,
 		BaseURL:                  baseURL,

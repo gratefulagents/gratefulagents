@@ -1230,3 +1230,44 @@ func (h *PlatformServiceConnectHandler) GetPresence(ctx context.Context, req *co
 	}
 	return connect.NewResponse(resp), nil
 }
+
+// --- SecurityScan configuration ---
+
+func (h *PlatformServiceConnectHandler) ListSecurityScanConfigs(ctx context.Context, req *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {
+	resp, err := h.srv.ListSecurityScanConfigs(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) GetSecurityScanConfig(ctx context.Context, req *connect.Request[platform.GetSecurityScanConfigRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	resp, err := h.srv.GetSecurityScanConfig(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) CreateSecurityScan(ctx context.Context, req *connect.Request[platform.CreateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	resp, err := h.srv.CreateSecurityScan(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateSecurityScan(ctx context.Context, req *connect.Request[platform.UpdateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	resp, err := h.srv.UpdateSecurityScan(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) DeleteSecurityScan(ctx context.Context, req *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error) {
+	if _, err := h.srv.DeleteSecurityScan(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&emptypb.Empty{}), nil
+}

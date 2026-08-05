@@ -32,6 +32,12 @@ func setupWorkspace(cfg *runConfig) error {
 		return fmt.Errorf("cloning repo: %w", err)
 	}
 
+	if cfg.RepoRevision != "" {
+		if err := checkoutPinnedRevision(cfg.RepoDir, cfg.RepoURL, cfg.RepoRevision); err != nil {
+			return err
+		}
+	}
+
 	// Create or resume the working branch named after the AgentRun so PRs have a clean source branch.
 	branchName := cfg.TaskName
 	remoteExists := remoteBranchExists(cfg.RepoDir, branchName)
@@ -123,6 +129,25 @@ func gitRemoteWritePromptSection(mode agentpolicy.GitRemoteWrites) string {
 Git remote writes are disabled by runtime policy. Do not attempt to push or create a pull request.
 The git_push and create_pull_request tools are unavailable, and shell git push commands are blocked.
 Workspace edits, local commits, fetches, and pulls remain available.`
+}
+
+// checkoutPinnedRevision detaches a fresh clone at the run's pinned revision
+// so the working branch created afterwards starts from it instead of the base
+// branch head. The clone only has the base branch's history, so revisions
+// outside it (tags, other branches, unreached commits) are fetched from
+// origin before failing the run.
+func checkoutPinnedRevision(repoDir, repoURL, revision string) error {
+	log.Printf("Checking out pinned revision %s...", revision)
+	if err := agentinfra.GitExec(repoDir, "checkout", "--detach", revision); err == nil {
+		return nil
+	}
+	if err := agentinfra.GitExec(repoDir, "fetch", "origin", revision); err != nil {
+		return fmt.Errorf("pinned revision %q does not exist in %s: %w", revision, repoURL, err)
+	}
+	if err := agentinfra.GitExec(repoDir, "checkout", "--detach", "FETCH_HEAD"); err != nil {
+		return fmt.Errorf("checking out pinned revision %q: %w", revision, err)
+	}
+	return nil
 }
 
 func remoteBranchExists(repoDir, branchName string) bool {

@@ -3,6 +3,7 @@ package platform
 // Dashboard and manager-side pod inspection paths use the controller-manager
 // service account, so these permissions must be generated into the manager role.
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
+// +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 // +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=agentruns,verbs=delete
 // +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=guardrailpolicies;mcppolicies;roleinstructions;runtimeprofiles,verbs=get;list;watch
 // The dashboard provisions namespaced RuntimeProfiles, MCPPolicies, and

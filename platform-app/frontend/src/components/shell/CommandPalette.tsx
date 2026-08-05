@@ -19,6 +19,7 @@ import {
   Server,
   KeyRound,
   Blocks,
+  ShieldAlert,
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -110,6 +111,15 @@ export function CommandPalette({ open, onOpenChange, extraItems = [], runLabels 
         icon: <Activity className="size-4" />,
         keywords: ["metrics", "usage", "cost", "tokens", "tools", "errors", "history"],
         action: () => navigate("/observability"),
+      },
+      {
+        id: "nav.security",
+        group: "Go to",
+        label: "Security Scans",
+        hint: "Scan runs and finding triage",
+        icon: <ShieldAlert className="size-4" />,
+        keywords: ["security", "scans", "findings", "vulnerabilities", "triage"],
+        action: () => navigate("/security"),
       },
       {
         id: "nav.shared",
@@ -366,6 +376,7 @@ function isActiveRoute(item: PaletteItem, pathname: string): boolean {
     "nav.projects": "/projects",
     "nav.agent-ops": "/runs",
     "nav.observability": "/observability",
+    "nav.security": "/security",
     "nav.shared": "/shared",
     "nav.settings-connection": "/settings/connection",
     "nav.settings-credentials": "/settings/credentials",

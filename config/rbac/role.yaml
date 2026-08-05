@@ -199,6 +199,7 @@ rules:
   - maintainerworkitems/status
   - projects/status
   - pullrequestmonitors/status
+  - securityscans/status
   - slackagents/status
   - slackworkspaces/status
   verbs:
@@ -218,3 +219,19 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - triggers.gratefulagents.dev
+  resources:
+  - securityscans
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - triggers.gratefulagents.dev
+  resources:
+  - securityscans/finalizers
+  verbs:
+  - update
