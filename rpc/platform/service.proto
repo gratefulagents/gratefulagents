@@ -239,6 +239,15 @@ service PlatformService {
   // the calling user's current Claude OAuth credential. Provider tokens and
   // raw credential material never leave the server.
   rpc GetMyAnthropicUsage(GetMyAnthropicUsageRequest) returns (MyAnthropicUsage);
+
+  // Security scanning: scans and deduplicated findings recorded by the
+  // security scan feature, backed by the optional Postgres state store.
+  rpc ListSecurityScans(ListSecurityScansRequest) returns (ListSecurityScansResponse);
+  rpc GetSecurityScan(GetSecurityScanRequest) returns (SecurityScan);
+  rpc ListSecurityFindings(ListSecurityFindingsRequest) returns (ListSecurityFindingsResponse);
+  rpc GetSecurityFinding(GetSecurityFindingRequest) returns (GetSecurityFindingResponse);
+  rpc UpdateSecurityFindingStatus(UpdateSecurityFindingStatusRequest) returns (SecurityFinding);
+  rpc GetSecurityFindingSummary(GetSecurityFindingSummaryRequest) returns (GetSecurityFindingSummaryResponse);
 }
 
 message ListAgentRunsRequest {
@@ -3828,4 +3837,128 @@ message AnthropicUsageLimit {
   string label = 1;
   double used_percent = 2;
   int64 reset_at_unix = 3;
+}
+
+// SecurityScan is one security scan run for a repository, unique per
+// (namespace, run_name).
+message SecurityScan {
+  string id = 1;
+  string namespace = 2;
+  string scan_name = 3;
+  string run_name = 4;
+  string repository = 5;
+  string revision = 6;
+  string status = 7;
+  string summary = 8;
+  google.protobuf.Timestamp started_at = 9;
+  google.protobuf.Timestamp completed_at = 10;
+  // counts maps severity (plus "total" / "open") to the number of findings.
+  map<string, int32> counts = 11;
+}
+
+message ListSecurityScansRequest {
+  string namespace = 1;
+  string scan_name = 2; // Optional: filter by scan name (empty = all)
+  int32 limit = 3;
+}
+
+message ListSecurityScansResponse {
+  repeated SecurityScan scans = 1;
+}
+
+message GetSecurityScanRequest {
+  string namespace = 1;
+  string run_name = 2;
+}
+
+// SecurityFinding is one deduplicated security finding, unique per
+// (namespace, repository, fingerprint).
+message SecurityFinding {
+  string id = 1;
+  string scan_id = 2;
+  string namespace = 3;
+  string scan_name = 4;
+  string run_name = 5;
+  string session_id = 6;
+  string fingerprint = 7;
+  string title = 8;
+  string category = 9;
+  string severity = 10; // critical, high, medium, low, info
+  string confidence = 11;
+  string repository = 12;
+  string revision = 13;
+  string file_path = 14;
+  int32 start_line = 15;
+  int32 end_line = 16;
+  string symbol = 17;
+  repeated string cwe = 18;
+  string description = 19;
+  string impact = 20;
+  string attack_vector = 21;
+  string remediation = 22;
+  repeated string references = 23;
+  string source_agent = 24;
+  string scan_step = 25;
+  double score = 26;
+  string status = 27; // open, triaged, confirmed, false_positive, fixed, accepted_risk
+  string duplicate_of = 28; // Finding ID this one duplicates (empty = canonical)
+  int32 occurrences = 29;
+  string raw = 30; // Raw agent-reported finding as JSON
+  google.protobuf.Timestamp first_seen_at = 31;
+  google.protobuf.Timestamp last_seen_at = 32;
+}
+
+message ListSecurityFindingsRequest {
+  string namespace = 1;
+  string scan_name = 2; // Optional: filter by scan name
+  string run_name = 3; // Optional: filter by scan run name
+  string repository = 4; // Optional: filter by repository
+  string severity = 5; // Optional: filter by severity
+  string status = 6; // Optional: filter by status
+  string category = 7; // Optional: filter by category
+  string search = 8; // Optional: free-text search
+  double min_score = 9; // Optional: minimum score
+  bool include_duplicates = 10;
+  int32 limit = 11;
+  int32 offset = 12;
+}
+
+message ListSecurityFindingsResponse {
+  repeated SecurityFinding findings = 1;
+}
+
+message GetSecurityFindingRequest {
+  string id = 1;
+}
+
+// SecurityFindingEvent is one audit-trail entry for a finding.
+message SecurityFindingEvent {
+  int64 id = 1;
+  string event_type = 2;
+  string actor = 3;
+  string note = 4;
+  string detail = 5; // Event detail as JSON
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message GetSecurityFindingResponse {
+  SecurityFinding finding = 1;
+  repeated SecurityFindingEvent events = 2; // Newest first
+}
+
+message UpdateSecurityFindingStatusRequest {
+  string id = 1;
+  string status = 2; // open, triaged, confirmed, false_positive, fixed, accepted_risk
+  string note = 3; // Optional: audit note recorded on the status-change event
+}
+
+message GetSecurityFindingSummaryRequest {
+  string namespace = 1;
+  string scan_name = 2; // Optional: restrict to one scan name
+  string run_name = 3; // Optional: restrict to one scan run
+}
+
+message GetSecurityFindingSummaryResponse {
+  // counts maps severity (plus "total" / "open") to the number of findings.
+  map<string, int32> counts = 1;
 }

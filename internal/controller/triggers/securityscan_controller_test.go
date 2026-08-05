@@ -1,0 +1,340 @@
+package triggers
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/store"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+)
+
+func TestSecurityScanReconcileSuspendedScanCreatesNoRuns(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.Suspend = true
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	result, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan))
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Fatalf("RequeueAfter = %v, want 0", result.RequeueAfter)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 0 {
+		t.Fatalf("AgentRuns = %d, want 0", len(got))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.Phase != "Suspended" {
+		t.Fatalf("Phase = %q, want Suspended", updated.Status.Phase)
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, "Suspended")
+}
+
+func TestSecurityScanReconcileOneShotCreatesExactlyOneRun(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	reconciler, k8sClient, stateStore := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("first Reconcile() error = %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("second Reconcile() error = %v", err)
+	}
+
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want exactly one", len(runs))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastRunName != runs[0].Name {
+		t.Fatalf("LastRunName = %q, want %q", updated.Status.LastRunName, runs[0].Name)
+	}
+	if updated.Status.RunsCreated != 1 {
+		t.Fatalf("RunsCreated = %d, want 1", updated.Status.RunsCreated)
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionTrue, "ScanUpToDate")
+
+	sessionID := stateStore.sessions[scan.Namespace+"/"+runs[0].Name]
+	messages := stateStore.messages[sessionID]
+	if len(messages) != 1 || messages[0].Content != BuildSecurityScanPrompt(scan.Spec) {
+		t.Fatalf("seed messages = %#v, want one security scan prompt", messages)
+	}
+}
+
+func TestSecurityScanReconcileScheduledScanCreatesDueRun(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 1, 30, 0, time.UTC)
+	due := metav1.NewTime(time.Date(2026, 1, 1, 0, 1, 0, 0, time.UTC))
+	scan := securityScanTestScan()
+	scan.Spec.Schedule = "* * * * *"
+	scan.Status.ObservedSchedule = scan.Spec.Schedule
+	scan.Status.ObservedTimeZone = "UTC"
+	scan.Status.NextScheduleTime = &due
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	result, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan))
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 30*time.Second {
+		t.Fatalf("RequeueAfter = %v, want 30s", result.RequeueAfter)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(got))
+	}
+}
+
+func TestSecurityScanReconcileScheduledScanRequeuesBeforeTick(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 1, 30, 0, time.UTC)
+	next := metav1.NewTime(time.Date(2026, 1, 1, 0, 2, 0, 0, time.UTC))
+	scan := securityScanTestScan()
+	scan.Spec.Schedule = "* * * * *"
+	scan.Status.ObservedSchedule = scan.Spec.Schedule
+	scan.Status.ObservedTimeZone = "UTC"
+	scan.Status.NextScheduleTime = &next
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	result, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan))
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 30*time.Second {
+		t.Fatalf("RequeueAfter = %v, want 30s", result.RequeueAfter)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 0 {
+		t.Fatalf("AgentRuns = %d, want 0", len(got))
+	}
+}
+
+func TestSecurityScanReconcileForbidSkipsDueTickWhilePriorRunIsActive(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 1, 30, 0, time.UTC)
+	due := metav1.NewTime(time.Date(2026, 1, 1, 0, 1, 0, 0, time.UTC))
+	scan := securityScanTestScan()
+	scan.Spec.Schedule = "* * * * *"
+	scan.Status.ObservedSchedule = scan.Spec.Schedule
+	scan.Status.ObservedTimeZone = "UTC"
+	scan.Status.NextScheduleTime = &due
+	activeRun := securityScanPriorRun(scan, platformv1alpha1.AgentRunPhaseRunning)
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, activeRun)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns = %d, want only active prior run", len(got))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastError == "" {
+		t.Fatal("LastError = empty, want concurrency block message")
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, "ConcurrencyBlocked")
+}
+
+func TestSecurityScanReconcileAllowCreatesDueRunWhilePriorRunIsActive(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 1, 30, 0, time.UTC)
+	due := metav1.NewTime(time.Date(2026, 1, 1, 0, 1, 0, 0, time.UTC))
+	scan := securityScanTestScan()
+	scan.Spec.Schedule = "* * * * *"
+	scan.Spec.ConcurrencyPolicy = triggersv1alpha1.SecurityScanConcurrencyAllow
+	scan.Status.ObservedSchedule = scan.Spec.Schedule
+	scan.Status.ObservedTimeZone = "UTC"
+	scan.Status.NextScheduleTime = &due
+	activeRun := securityScanPriorRun(scan, platformv1alpha1.AgentRunPhaseRunning)
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, activeRun)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 2 {
+		t.Fatalf("AgentRuns = %d, want active prior run plus due run", len(got))
+	}
+}
+
+func TestSecurityScanReconcileCreatedRunCarriesScanMetadataOwnerAndDefaultMode(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.Revision = "abc123"
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(runs))
+	}
+	run := runs[0]
+	if run.Annotations[securityScanNameAnnotation] != scan.Name {
+		t.Fatalf("scan-name annotation = %q, want %q", run.Annotations[securityScanNameAnnotation], scan.Name)
+	}
+	if run.Annotations[securityScanRepositoryAnnotation] != scan.Spec.RepoURL {
+		t.Fatalf("repository annotation = %q, want %q", run.Annotations[securityScanRepositoryAnnotation], scan.Spec.RepoURL)
+	}
+	if run.Annotations[securityScanRevisionAnnotation] != scan.Spec.Revision {
+		t.Fatalf("revision annotation = %q, want %q", run.Annotations[securityScanRevisionAnnotation], scan.Spec.Revision)
+	}
+	if len(run.OwnerReferences) != 1 || run.OwnerReferences[0].Kind != securityScanKind || run.OwnerReferences[0].Name != scan.Name {
+		t.Fatalf("OwnerReferences = %#v, want SecurityScan/%s", run.OwnerReferences, scan.Name)
+	}
+	if run.Spec.ModeRef == nil || run.Spec.ModeRef.Name != securityScanModeTemplate {
+		t.Fatalf("ModeRef = %#v, want default %q", run.Spec.ModeRef, securityScanModeTemplate)
+	}
+}
+
+func TestSecurityScanReconcileInvalidScheduleRecordsFailureCondition(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.Schedule = "not a cron expression"
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	result, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan))
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != time.Minute {
+		t.Fatalf("RequeueAfter = %v, want 1m", result.RequeueAfter)
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastError == "" {
+		t.Fatal("LastError = empty, want invalid schedule error")
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, "InvalidSchedule")
+}
+
+func TestSecurityScanReconcileFailsReadyConditionWhenFindingsMeetThreshold(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.FailOnSeverity = "high"
+	findings := securityScanFindingStore{counts: map[string]int32{"total": 2, "open": 2, "critical": 1, "high": 1}}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = findings
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.Findings == nil || updated.Status.Findings.Critical != 1 || updated.Status.Findings.High != 1 {
+		t.Fatalf("Findings = %#v, want critical and high counts", updated.Status.Findings)
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, "FindingsExceedThreshold")
+}
+
+type securityScanFindingStore struct {
+	store.SecurityFindingStore
+	counts map[string]int32
+}
+
+func (s securityScanFindingStore) SummarizeSecurityFindings(context.Context, string, string, string) (map[string]int32, error) {
+	return s.counts, nil
+}
+
+func newSecurityScanReconciler(t *testing.T, now time.Time, objects ...client.Object) (*SecurityScanReconciler, client.Client, *seedTestStore) {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(platform): %v", err)
+	}
+	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(triggers): %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(core): %v", err)
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&triggersv1alpha1.SecurityScan{}, &platformv1alpha1.AgentRun{}).
+		WithObjects(objects...).
+		Build()
+	stateStore := newSeedTestStore()
+	return &SecurityScanReconciler{
+		Client:     k8sClient,
+		Scheme:     scheme,
+		StateStore: stateStore,
+		Now:        func() time.Time { return now },
+	}, k8sClient, stateStore
+}
+
+func securityScanTestScan() *triggersv1alpha1.SecurityScan {
+	return &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nightly-security",
+			Namespace: "default",
+			UID:       types.UID("security-scan-uid"),
+		},
+		Spec: triggersv1alpha1.SecurityScanSpec{
+			RepoURL:    "https://github.com/acme/widget.git",
+			BaseBranch: "main",
+			Defaults: triggersv1alpha1.AgentRunDefaults{
+				Model:    "gpt-5.4",
+				Provider: triggersv1alpha1.ProviderOpenAI,
+				Secrets: triggersv1alpha1.AgentRunSecrets{ProviderKeys: []platformv1alpha1.ProviderKeyRef{{
+					Provider:   triggersv1alpha1.ProviderOpenAI,
+					SecretName: "openai-key",
+				}}},
+			},
+		},
+	}
+}
+
+func securityScanPriorRun(scan *triggersv1alpha1.SecurityScan, phase platformv1alpha1.AgentRunPhase) *platformv1alpha1.AgentRun {
+	return &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "secscan-prior-run",
+			Namespace: scan.Namespace,
+			Labels:    map[string]string{securityScanLabel: scan.Name},
+		},
+		Spec: platformv1alpha1.AgentRunSpec{Trigger: platformv1alpha1.TriggerRef{
+			Kind: securityScanKind,
+			Name: scan.Name,
+			ExternalRef: &platformv1alpha1.ExternalRef{
+				ID: "2026-01-01T00:00:00Z",
+			},
+		}},
+		Status: platformv1alpha1.AgentRunStatus{Phase: phase},
+	}
+}
+
+func securityScanRequest(scan *triggersv1alpha1.SecurityScan) ctrl.Request {
+	return ctrl.Request{NamespacedName: client.ObjectKeyFromObject(scan)}
+}
+
+func securityScanRuns(t *testing.T, k8sClient client.Client, namespace string) []platformv1alpha1.AgentRun {
+	t.Helper()
+	runs := &platformv1alpha1.AgentRunList{}
+	if err := k8sClient.List(context.Background(), runs, client.InNamespace(namespace)); err != nil {
+		t.Fatalf("List(AgentRun) error = %v", err)
+	}
+	return runs.Items
+}
+
+func getSecurityScan(t *testing.T, k8sClient client.Client, scan *triggersv1alpha1.SecurityScan) *triggersv1alpha1.SecurityScan {
+	t.Helper()
+	updated := &triggersv1alpha1.SecurityScan{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(scan), updated); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	return updated
+}
+
+func assertSecurityScanCondition(t *testing.T, scan *triggersv1alpha1.SecurityScan, wantStatus metav1.ConditionStatus, wantReason string) {
+	t.Helper()
+	for _, condition := range scan.Status.Conditions {
+		if condition.Type == triggersv1alpha1.ConditionSecurityScanReady {
+			if condition.Status != wantStatus || condition.Reason != wantReason {
+				t.Fatalf("Ready condition = %#v, want status %q and reason %q", condition, wantStatus, wantReason)
+			}
+			return
+		}
+	}
+	t.Fatalf("Ready condition missing from %#v", scan.Status.Conditions)
+}

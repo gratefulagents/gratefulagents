@@ -11,6 +11,7 @@ const ROUTE_LABELS: Record<string, { label: string; to: string }> = {
   "/linear": { label: "Linear", to: "/linear" },
   "/github": { label: "GitHub", to: "/github" },
   "/cron": { label: "Cron", to: "/cron" },
+  "/security": { label: "Security", to: "/security" },
   "/shared": { label: "Shared", to: "/shared" },
   "/settings": { label: "Settings", to: "/settings" },
   "/resources": { label: "Resources", to: "/resources/skills" },
@@ -31,6 +32,7 @@ const DETAIL_PREFIX: Array<{
   { prefix: "/linear/", root: ROUTE_LABELS["/linear"] },
   { prefix: "/github/", root: ROUTE_LABELS["/github"] },
   { prefix: "/cron/", root: ROUTE_LABELS["/cron"] },
+  { prefix: "/security/", root: ROUTE_LABELS["/security"] },
   { prefix: "/runs/", root: ROUTE_LABELS["/runs"] },
 ];
 

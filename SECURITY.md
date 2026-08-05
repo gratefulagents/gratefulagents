@@ -23,3 +23,7 @@ The project is in early development and does not publish a formal security-suppo
 ## Disclosure
 
 Please give maintainers time to assess and coordinate a fix before public disclosure. The project does not promise a specific response or remediation timeline.
+
+## Agent-run security scans
+
+The platform's [security scanning feature](user-docs/docs/projects/security-scanning.md) runs AI agents that report findings about scanned repositories. These scans are a research aid, not a security guarantee: the scanned code is untrusted input to the scanning agents, findings are AI-generated and may be wrong or incomplete, and every finding requires human validation before it is treated as a real vulnerability. Do not forward unvalidated scan output as a vulnerability report. If a validated finding affects this project, report it privately through the process above.

@@ -15,7 +15,7 @@ This project is in early development, and bugs are expected. If you find one, he
 ## Architecture
 
 - The controller manager reconciles platform and trigger resources, exposes the dashboard, and can receive GitHub webhooks.
-- Kubernetes CRDs represent resources such as `AgentRun`, `Project`, `GitHubRepository`, `LinearProject`, `SlackAgent`, and `Cron`.
+- Kubernetes CRDs represent resources such as `AgentRun`, `Project`, `GitHubRepository`, `LinearProject`, `SlackAgent`, `Cron`, and `SecurityScan`.
 - [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) provides the sandbox infrastructure used for agent-run workloads.
 - The chart can deploy PostgreSQL with pgvector, MinIO, and Jaeger. The installers generate persistent credentials for the bundled PostgreSQL and MinIO services.
 
@@ -88,6 +88,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the backend-generation boundaries, UI
 - [Website and user documentation](https://gratefulagents.dev/)
 - [Self-host with Kind](user-docs/docs/getting-started/self-hosting-kind.md)
 - [Self-host with k3s](user-docs/docs/getting-started/self-hosting-k3s.md)
+- [Security scanning](user-docs/docs/projects/security-scanning.md)
 - [Troubleshooting](user-docs/docs/troubleshooting/common-issues.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security reporting](SECURITY.md)

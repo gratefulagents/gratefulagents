@@ -506,6 +506,24 @@ const (
 	// PlatformServiceGetMyAnthropicUsageProcedure is the fully-qualified name of the PlatformService's
 	// GetMyAnthropicUsage RPC.
 	PlatformServiceGetMyAnthropicUsageProcedure = "/platform.v1.PlatformService/GetMyAnthropicUsage"
+	// PlatformServiceListSecurityScansProcedure is the fully-qualified name of the PlatformService's
+	// ListSecurityScans RPC.
+	PlatformServiceListSecurityScansProcedure = "/platform.v1.PlatformService/ListSecurityScans"
+	// PlatformServiceGetSecurityScanProcedure is the fully-qualified name of the PlatformService's
+	// GetSecurityScan RPC.
+	PlatformServiceGetSecurityScanProcedure = "/platform.v1.PlatformService/GetSecurityScan"
+	// PlatformServiceListSecurityFindingsProcedure is the fully-qualified name of the PlatformService's
+	// ListSecurityFindings RPC.
+	PlatformServiceListSecurityFindingsProcedure = "/platform.v1.PlatformService/ListSecurityFindings"
+	// PlatformServiceGetSecurityFindingProcedure is the fully-qualified name of the PlatformService's
+	// GetSecurityFinding RPC.
+	PlatformServiceGetSecurityFindingProcedure = "/platform.v1.PlatformService/GetSecurityFinding"
+	// PlatformServiceUpdateSecurityFindingStatusProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityFindingStatus RPC.
+	PlatformServiceUpdateSecurityFindingStatusProcedure = "/platform.v1.PlatformService/UpdateSecurityFindingStatus"
+	// PlatformServiceGetSecurityFindingSummaryProcedure is the fully-qualified name of the
+	// PlatformService's GetSecurityFindingSummary RPC.
+	PlatformServiceGetSecurityFindingSummaryProcedure = "/platform.v1.PlatformService/GetSecurityFindingSummary"
 )
 
 // PlatformServiceClient is a client for the platform.v1.PlatformService service.
@@ -736,6 +754,14 @@ type PlatformServiceClient interface {
 	// the calling user's current Claude OAuth credential. Provider tokens and
 	// raw credential material never leave the server.
 	GetMyAnthropicUsage(context.Context, *connect.Request[platform.GetMyAnthropicUsageRequest]) (*connect.Response[platform.MyAnthropicUsage], error)
+	// Security scanning: scans and deduplicated findings recorded by the
+	// security scan feature, backed by the optional Postgres state store.
+	ListSecurityScans(context.Context, *connect.Request[platform.ListSecurityScansRequest]) (*connect.Response[platform.ListSecurityScansResponse], error)
+	GetSecurityScan(context.Context, *connect.Request[platform.GetSecurityScanRequest]) (*connect.Response[platform.SecurityScan], error)
+	ListSecurityFindings(context.Context, *connect.Request[platform.ListSecurityFindingsRequest]) (*connect.Response[platform.ListSecurityFindingsResponse], error)
+	GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error)
+	UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error)
+	GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error)
 }
 
 // NewPlatformServiceClient constructs a client for the platform.v1.PlatformService service. By
@@ -1697,6 +1723,42 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetMyAnthropicUsage")),
 			connect.WithClientOptions(opts...),
 		),
+		listSecurityScans: connect.NewClient[platform.ListSecurityScansRequest, platform.ListSecurityScansResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityScansProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityScans")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityScan: connect.NewClient[platform.GetSecurityScanRequest, platform.SecurityScan](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityScanProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityScan")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecurityFindings: connect.NewClient[platform.ListSecurityFindingsRequest, platform.ListSecurityFindingsResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityFindingsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityFindings")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityFinding: connect.NewClient[platform.GetSecurityFindingRequest, platform.GetSecurityFindingResponse](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityFindingProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityFinding")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityFindingStatus: connect.NewClient[platform.UpdateSecurityFindingStatusRequest, platform.SecurityFinding](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityFindingStatusProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingStatus")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityFindingSummary: connect.NewClient[platform.GetSecurityFindingSummaryRequest, platform.GetSecurityFindingSummaryResponse](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityFindingSummaryProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityFindingSummary")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -1860,6 +1922,12 @@ type platformServiceClient struct {
 	getMyOpenAIUsage                       *connect.Client[platform.GetMyOpenAIUsageRequest, platform.MyOpenAIUsage]
 	getMyCopilotUsage                      *connect.Client[platform.GetMyCopilotUsageRequest, platform.MyCopilotUsage]
 	getMyAnthropicUsage                    *connect.Client[platform.GetMyAnthropicUsageRequest, platform.MyAnthropicUsage]
+	listSecurityScans                      *connect.Client[platform.ListSecurityScansRequest, platform.ListSecurityScansResponse]
+	getSecurityScan                        *connect.Client[platform.GetSecurityScanRequest, platform.SecurityScan]
+	listSecurityFindings                   *connect.Client[platform.ListSecurityFindingsRequest, platform.ListSecurityFindingsResponse]
+	getSecurityFinding                     *connect.Client[platform.GetSecurityFindingRequest, platform.GetSecurityFindingResponse]
+	updateSecurityFindingStatus            *connect.Client[platform.UpdateSecurityFindingStatusRequest, platform.SecurityFinding]
+	getSecurityFindingSummary              *connect.Client[platform.GetSecurityFindingSummaryRequest, platform.GetSecurityFindingSummaryResponse]
 }
 
 // ListAgentRuns calls platform.v1.PlatformService.ListAgentRuns.
@@ -2656,6 +2724,36 @@ func (c *platformServiceClient) GetMyAnthropicUsage(ctx context.Context, req *co
 	return c.getMyAnthropicUsage.CallUnary(ctx, req)
 }
 
+// ListSecurityScans calls platform.v1.PlatformService.ListSecurityScans.
+func (c *platformServiceClient) ListSecurityScans(ctx context.Context, req *connect.Request[platform.ListSecurityScansRequest]) (*connect.Response[platform.ListSecurityScansResponse], error) {
+	return c.listSecurityScans.CallUnary(ctx, req)
+}
+
+// GetSecurityScan calls platform.v1.PlatformService.GetSecurityScan.
+func (c *platformServiceClient) GetSecurityScan(ctx context.Context, req *connect.Request[platform.GetSecurityScanRequest]) (*connect.Response[platform.SecurityScan], error) {
+	return c.getSecurityScan.CallUnary(ctx, req)
+}
+
+// ListSecurityFindings calls platform.v1.PlatformService.ListSecurityFindings.
+func (c *platformServiceClient) ListSecurityFindings(ctx context.Context, req *connect.Request[platform.ListSecurityFindingsRequest]) (*connect.Response[platform.ListSecurityFindingsResponse], error) {
+	return c.listSecurityFindings.CallUnary(ctx, req)
+}
+
+// GetSecurityFinding calls platform.v1.PlatformService.GetSecurityFinding.
+func (c *platformServiceClient) GetSecurityFinding(ctx context.Context, req *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error) {
+	return c.getSecurityFinding.CallUnary(ctx, req)
+}
+
+// UpdateSecurityFindingStatus calls platform.v1.PlatformService.UpdateSecurityFindingStatus.
+func (c *platformServiceClient) UpdateSecurityFindingStatus(ctx context.Context, req *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return c.updateSecurityFindingStatus.CallUnary(ctx, req)
+}
+
+// GetSecurityFindingSummary calls platform.v1.PlatformService.GetSecurityFindingSummary.
+func (c *platformServiceClient) GetSecurityFindingSummary(ctx context.Context, req *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error) {
+	return c.getSecurityFindingSummary.CallUnary(ctx, req)
+}
+
 // PlatformServiceHandler is an implementation of the platform.v1.PlatformService service.
 type PlatformServiceHandler interface {
 	ListAgentRuns(context.Context, *connect.Request[platform.ListAgentRunsRequest]) (*connect.Response[platform.ListAgentRunsResponse], error)
@@ -2884,6 +2982,14 @@ type PlatformServiceHandler interface {
 	// the calling user's current Claude OAuth credential. Provider tokens and
 	// raw credential material never leave the server.
 	GetMyAnthropicUsage(context.Context, *connect.Request[platform.GetMyAnthropicUsageRequest]) (*connect.Response[platform.MyAnthropicUsage], error)
+	// Security scanning: scans and deduplicated findings recorded by the
+	// security scan feature, backed by the optional Postgres state store.
+	ListSecurityScans(context.Context, *connect.Request[platform.ListSecurityScansRequest]) (*connect.Response[platform.ListSecurityScansResponse], error)
+	GetSecurityScan(context.Context, *connect.Request[platform.GetSecurityScanRequest]) (*connect.Response[platform.SecurityScan], error)
+	ListSecurityFindings(context.Context, *connect.Request[platform.ListSecurityFindingsRequest]) (*connect.Response[platform.ListSecurityFindingsResponse], error)
+	GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error)
+	UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error)
+	GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error)
 }
 
 // NewPlatformServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -3841,6 +3947,42 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetMyAnthropicUsage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListSecurityScansHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityScansProcedure,
+		svc.ListSecurityScans,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityScans")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityScanHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityScanProcedure,
+		svc.GetSecurityScan,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityScan")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecurityFindingsHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityFindingsProcedure,
+		svc.ListSecurityFindings,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityFindings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityFindingHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityFindingProcedure,
+		svc.GetSecurityFinding,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityFinding")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityFindingStatusHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityFindingStatusProcedure,
+		svc.UpdateSecurityFindingStatus,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityFindingSummaryHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityFindingSummaryProcedure,
+		svc.GetSecurityFindingSummary,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityFindingSummary")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/platform.v1.PlatformService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PlatformServiceListAgentRunsProcedure:
@@ -4159,6 +4301,18 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceGetMyCopilotUsageHandler.ServeHTTP(w, r)
 		case PlatformServiceGetMyAnthropicUsageProcedure:
 			platformServiceGetMyAnthropicUsageHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityScansProcedure:
+			platformServiceListSecurityScansHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityScanProcedure:
+			platformServiceGetSecurityScanHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityFindingsProcedure:
+			platformServiceListSecurityFindingsHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityFindingProcedure:
+			platformServiceGetSecurityFindingHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityFindingStatusProcedure:
+			platformServiceUpdateSecurityFindingStatusHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityFindingSummaryProcedure:
+			platformServiceGetSecurityFindingSummaryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -4798,4 +4952,28 @@ func (UnimplementedPlatformServiceHandler) GetMyCopilotUsage(context.Context, *c
 
 func (UnimplementedPlatformServiceHandler) GetMyAnthropicUsage(context.Context, *connect.Request[platform.GetMyAnthropicUsageRequest]) (*connect.Response[platform.MyAnthropicUsage], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetMyAnthropicUsage is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityScans(context.Context, *connect.Request[platform.ListSecurityScansRequest]) (*connect.Response[platform.ListSecurityScansResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityScans is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityScan(context.Context, *connect.Request[platform.GetSecurityScanRequest]) (*connect.Response[platform.SecurityScan], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityScan is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityFindings(context.Context, *connect.Request[platform.ListSecurityFindingsRequest]) (*connect.Response[platform.ListSecurityFindingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityFindings is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityFinding is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityFindingStatus is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityFindingSummary is not implemented"))
 }

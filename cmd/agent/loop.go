@@ -221,6 +221,13 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		)
 	}
 	tools.RegisterPlanTools(toolRegistry, sc.StateStore(), sc.SessionID())
+	if scanCtx, ok := tools.SecurityScanContextFromRun(run, cfg.Namespace, cfg.TaskName, sc.SessionID()); ok {
+		// nil when the state store has no Postgres-backed finding storage; the
+		// tools then fall back to an in-memory finding buffer for this run.
+		securityFindingStore, _ := sc.StateStore().(store.SecurityFindingStore)
+		tools.RegisterSecurityScanTools(toolRegistry, securityFindingStore, sc.StateStore(), scanCtx)
+		log.Printf("security scan tools enabled for scan %q (persistent findings: %t)", scanCtx.ScanName, securityFindingStore != nil)
+	}
 	// Skills use progressive disclosure: advertise only names and summaries,
 	// then load full instructions into context when the model chooses one.
 	loadSkillTool := tools.RegisterLoadSkillTool(ctx, toolRegistry, crdClient, run)
