@@ -1,7 +1,7 @@
 ---
 title: Security scanning
 seoTitle: Autonomous AI Security Scans with SecurityScan | GratefulAgents
-description: Run one-shot or scheduled AI security scans against a repository with the SecurityScan resource, triage deduplicated findings, and export Markdown and SARIF reports.
+description: Run one-shot or scheduled AI security scans with the SecurityScan resource, triage deduplicated findings, and export Markdown and SARIF reports.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/projects/security-scanning/ and help me configure a SecurityScan for my repository, including scope, workflow tasks, ranking rules, and how to triage the findings.
 ---
@@ -237,7 +237,7 @@ When the scan submits its report, two artifacts are saved on the scan's agent ru
 - **`security_report`** — a Markdown report with the executive summary and ranked findings.
 - **`security_sarif`** — a SARIF 2.1.0 file suitable for importing into code-scanning tools; each result carries the finding fingerprint for cross-referencing.
 
-In the dashboard, the **Security** section lists scans with their status and per-severity finding counts. Each scan links to a detail page where you can filter findings by severity, status, category, and text search, and change a finding's status inline — for example, marking a validated non-issue as `false_positive` or a real one as `confirmed`.
+In the dashboard, **Security** in the sidebar opens an overview of active and recent scans, open critical/high finding counts, and any scan configurations that are failing, blocked, or suspended, with shortcuts to the full run history and to scan configurations. Each scan run links to a detail page where you can filter findings by severity, status, category, and text search, change a finding's status inline — for example, marking a validated non-issue as `false_positive` or a real one as `confirmed` — download the Markdown report and SARIF artifact, and jump to the underlying agent run.
 
 On the cluster side, `kubectl get securityscans` shows the repository, schedule, last scan time, and critical/high/total finding counts. The resource status also records the last run name, next scheduled time, cumulative runs created, scan-scoped finding counts, and a `Ready` condition. With `failOnSeverity` set, `Ready` turns `False` with reason `FindingsExceedThreshold` while open scan findings at or above that severity exist — useful for alerting on scan results.
 

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { ShieldAlert, Settings2 } from "lucide-react";
+import { ShieldAlert, Settings2, SquareArrowOutUpRight } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -160,6 +160,7 @@ export function SecurityScanList() {
             <TableHead>Repository</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Findings</TableHead>
+            <TableHead>Agent Run</TableHead>
             <TableHead className="text-right">Last Scan</TableHead>
           </TableRow>
         </TableHeader>
@@ -187,6 +188,16 @@ export function SecurityScanList() {
               </TableCell>
               <TableCell>
                 <SeverityCountBadges counts={scan.counts} />
+              </TableCell>
+              <TableCell>
+                <Link
+                  to={`/runs/${scan.namespace}/${scan.runName}`}
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  aria-label={`View agent run ${scan.runName}`}
+                >
+                  <SquareArrowOutUpRight className="size-3" aria-hidden />
+                  View run
+                </Link>
               </TableCell>
               <TableCell className="text-right text-muted-foreground">
                 {formatAge(lastScanUnix(scan), now)}

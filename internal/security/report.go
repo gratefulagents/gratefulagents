@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+// Session artifact kinds under which scan reports are stored. Written by the
+// agent's submit_security_scan_report tool and read back by the dashboard's
+// GetSecurityScanReport RPC.
+const (
+	ReportArtifactKind = "security_report"
+	SARIFArtifactKind  = "security_sarif"
+)
+
 // ReportInput carries everything needed to render a scan report.
 type ReportInput struct {
 	ScanName    string

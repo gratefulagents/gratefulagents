@@ -38,7 +38,12 @@ export const sections: SidebarSection[] = [
   {
     label: 'Projects and schedules',
     kind: 'Project',
-    items: ['projects/projects', 'projects/run-defaults', 'projects/cron'],
+    items: [
+      'projects/projects',
+      'projects/run-defaults',
+      'projects/cron',
+      'projects/security-scanning',
+    ],
   },
   {
     label: 'Integrations',

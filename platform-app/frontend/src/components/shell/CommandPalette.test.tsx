@@ -53,15 +53,15 @@ describe("CommandPalette", () => {
   });
   afterEach(cleanup);
 
-  it("offers a Security Scans entry that navigates to /security", async () => {
+  it("offers a Security entry that navigates to /security", async () => {
     renderPalette();
 
     fireEvent.change(screen.getByPlaceholderText("Search or run a command…"), {
       target: { value: "security" },
     });
 
-    const item = await screen.findByText("Security Scans");
-    expect(screen.getByText("Scan runs and finding triage")).toBeTruthy();
+    const item = await screen.findByText("Security");
+    expect(screen.getByText("Overview, scan runs, and finding triage")).toBeTruthy();
 
     fireEvent.click(item);
 
@@ -77,6 +77,6 @@ describe("CommandPalette", () => {
       target: { value: "vulnerabilities" },
     });
 
-    expect(await screen.findByText("Security Scans")).toBeTruthy();
+    expect(await screen.findByText("Security")).toBeTruthy();
   });
 });

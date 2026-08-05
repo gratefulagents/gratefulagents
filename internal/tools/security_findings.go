@@ -31,10 +31,11 @@ const (
 	SecurityScanDedupePermilleAnnotation = triggersv1alpha1.SecurityScanDedupePermilleAnnotation
 )
 
-// Session artifact kinds written by submit_security_scan_report.
+// Session artifact kinds written by submit_security_scan_report, aliased from
+// the security package so the dashboard's report reader cannot drift.
 const (
-	SecurityReportArtifactKind = "security_report"
-	SecuritySARIFArtifactKind  = "security_sarif"
+	SecurityReportArtifactKind = security.ReportArtifactKind
+	SecuritySARIFArtifactKind  = security.SARIFArtifactKind
 )
 
 // SecurityScanContext identifies the security scan a run belongs to.

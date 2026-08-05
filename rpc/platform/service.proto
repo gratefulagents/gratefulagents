@@ -258,6 +258,14 @@ service PlatformService {
   rpc CreateSecurityScan(CreateSecurityScanRequest) returns (SecurityScanConfig);
   rpc UpdateSecurityScan(UpdateSecurityScanRequest) returns (SecurityScanConfig);
   rpc DeleteSecurityScan(DeleteSecurityScanRequest) returns (google.protobuf.Empty);
+
+  // GetSecurityOverview aggregates a namespace's security posture for the
+  // dashboard overview page: active and recent scan runs, open finding
+  // counts, and scan configurations that are failing or blocked.
+  rpc GetSecurityOverview(GetSecurityOverviewRequest) returns (GetSecurityOverviewResponse);
+  // GetSecurityScanReport returns a report artifact (Markdown or SARIF)
+  // written by a finished security scan run.
+  rpc GetSecurityScanReport(GetSecurityScanReportRequest) returns (GetSecurityScanReportResponse);
 }
 
 message ListAgentRunsRequest {
@@ -4110,4 +4118,67 @@ message UpdateSecurityScanRequest {
 message DeleteSecurityScanRequest {
   string namespace = 1;
   string name = 2;
+}
+
+message GetSecurityOverviewRequest {
+  string namespace = 1;
+  // recent_limit caps the recent scans returned (server default when 0).
+  int32 recent_limit = 2;
+}
+
+// SecurityScanConfigIssue is one SecurityScan configuration that needs
+// operator attention: not Ready, blocked, or suspended.
+message SecurityScanConfigIssue {
+  string namespace = 1;
+  string name = 2;
+  string phase = 3;
+  // ready_reason is the Ready condition's reason when the condition is not
+  // True (e.g. Suspended, InsecureDefaults, ConcurrencyBlocked,
+  // FindingsExceedThreshold).
+  string ready_reason = 4;
+  string message = 5;
+  bool suspended = 6;
+}
+
+message GetSecurityOverviewResponse {
+  // store_supported is false when the configured state store cannot persist
+  // security scan data (no Postgres); scan and finding fields are then empty
+  // while configuration fields stay populated from the cluster.
+  bool store_supported = 1;
+  // active_scans are persisted scan runs that have not completed yet.
+  repeated SecurityScan active_scans = 2;
+  // recent_scans are the newest persisted scan runs, newest first.
+  repeated SecurityScan recent_scans = 3;
+  // finding_counts maps severity (plus "total" / "open" / "open_<severity>")
+  // to the number of findings across the namespace.
+  map<string, int32> finding_counts = 4;
+  // config_count is the number of SecurityScan configurations visible to the
+  // caller in the namespace.
+  int32 config_count = 5;
+  // config_issues are configurations that are failing, blocked, or suspended.
+  repeated SecurityScanConfigIssue config_issues = 6;
+  // baseline_available reports whether baseline comparison data exists; the
+  // new/recurring/resolved counters below are meaningless until it is true.
+  bool baseline_available = 7;
+  int32 new_findings = 8;
+  int32 recurring_findings = 9;
+  int32 resolved_findings = 10;
+  // warnings lists aggregation steps that failed; the remaining fields are
+  // still valid (partial result).
+  repeated string warnings = 11;
+}
+
+message GetSecurityScanReportRequest {
+  string namespace = 1;
+  string run_name = 2;
+  // format selects the artifact: "markdown" (default) or "sarif".
+  string format = 3;
+}
+
+message GetSecurityScanReportResponse {
+  string content = 1;
+  string format = 2;
+  // filename is a suggested download filename for the artifact.
+  string filename = 3;
+  google.protobuf.Timestamp updated_at = 4;
 }

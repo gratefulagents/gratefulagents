@@ -11,13 +11,15 @@ import {
   SecurityScanSchema,
 } from "@/rpc/platform/service_pb";
 
-const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, listSecurityFindings, updateSecurityFindingStatus } =
+const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, listSecurityFindings, updateSecurityFindingStatus, getSecurityScanReport, downloadBlob } =
   vi.hoisted(() => ({
     getSecurityScan: vi.fn(),
     getSecurityFinding: vi.fn(),
     getSecurityFindingSummary: vi.fn(),
     listSecurityFindings: vi.fn(),
     updateSecurityFindingStatus: vi.fn(),
+    getSecurityScanReport: vi.fn(),
+    downloadBlob: vi.fn(),
   }));
 
 vi.mock("@/lib/client", () => ({
@@ -27,7 +29,12 @@ vi.mock("@/lib/client", () => ({
     getSecurityFindingSummary,
     listSecurityFindings,
     updateSecurityFindingStatus,
+    getSecurityScanReport,
   },
+}));
+
+vi.mock("@/lib/download", () => ({
+  downloadBlob,
 }));
 
 afterEach(() => {
@@ -244,5 +251,101 @@ describe("SecurityScanDetail", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByText("events unavailable")).toBeTruthy();
+  });
+
+  it("links to the underlying agent run", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    expect(
+      (await screen.findByRole("button", { name: /Agent run/ })).getAttribute("href"),
+    ).toBe("/runs/user-alice/nightly-1");
+  });
+
+  it("downloads the Markdown report and SARIF artifact", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanReport.mockResolvedValue({
+      content: "# Security Scan Report",
+      format: "markdown",
+      filename: "nightly-nightly-1.md",
+    });
+
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Report/ }));
+
+    await waitFor(() => {
+      expect(getSecurityScanReport).toHaveBeenCalledWith({
+        namespace: "user-alice",
+        runName: "nightly-1",
+        format: "markdown",
+      });
+    });
+    await waitFor(() => {
+      expect(downloadBlob).toHaveBeenCalledWith(
+        "nightly-nightly-1.md",
+        expect.anything(),
+        "text/markdown",
+      );
+    });
+
+    getSecurityScanReport.mockResolvedValue({
+      content: "{}",
+      format: "sarif",
+      filename: "nightly-nightly-1.sarif",
+    });
+    fireEvent.click(screen.getByRole("button", { name: /SARIF/ }));
+
+    await waitFor(() => {
+      expect(getSecurityScanReport).toHaveBeenLastCalledWith({
+        namespace: "user-alice",
+        runName: "nightly-1",
+        format: "sarif",
+      });
+    });
+    await waitFor(() => {
+      expect(downloadBlob).toHaveBeenLastCalledWith(
+        "nightly-nightly-1.sarif",
+        expect.anything(),
+        "application/json",
+      );
+    });
+  });
+
+  it("shows helpful copy when the report is not available", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanReport.mockRejectedValue(
+      new Error("security scan user-alice/nightly-1 has no markdown report yet"),
+    );
+
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Report/ }));
+
+    expect(
+      await screen.findByText(/has no markdown report yet/),
+    ).toBeTruthy();
+    expect(downloadBlob).not.toHaveBeenCalled();
+  });
+
+  it("explains that reports arrive after the run finishes for running scans", async () => {
+    const running = scanFixture();
+    running.status = "running";
+    getSecurityScan.mockResolvedValue(running);
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    expect(
+      await screen.findByText(/This scan run has not finished/),
+    ).toBeTruthy();
   });
 });

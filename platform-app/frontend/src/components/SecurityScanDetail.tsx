@@ -1,8 +1,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { X } from "lucide-react";
+import { Download, FileText, SquareArrowOutUpRight, X } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -19,6 +19,7 @@ import {
 } from "@/components/SecurityScanList";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
+import { downloadBlob } from "@/lib/download";
 import { toneSoft } from "@/lib/status";
 import type { SecurityFinding, SecurityFindingEvent, SecurityScan } from "@/rpc/platform/service_pb";
 
@@ -66,6 +67,9 @@ export function SecurityScanDetail() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
+
+  const [reportBusy, setReportBusy] = useState<"markdown" | "sarif" | null>(null);
+  const [reportNotice, setReportNotice] = useState<string | null>(null);
 
   const [events, setEvents] = useState<SecurityFindingEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -150,6 +154,24 @@ export function SecurityScanDetail() {
 
   const selected = findings.find((f) => f.id === selectedId) ?? null;
 
+  async function downloadReport(format: "markdown" | "sarif") {
+    if (!namespace || !runName) return;
+    setReportNotice(null);
+    setReportBusy(format);
+    try {
+      const resp = await client.getSecurityScanReport({ namespace, runName, format });
+      downloadBlob(
+        resp.filename || `${runName}.${format === "sarif" ? "sarif" : "md"}`,
+        new TextEncoder().encode(resp.content),
+        format === "sarif" ? "application/json" : "text/markdown",
+      );
+    } catch (e: unknown) {
+      setReportNotice(e instanceof Error ? e.message : "Failed to fetch the scan report");
+    } finally {
+      setReportBusy(null);
+    }
+  }
+
   async function changeStatus(finding: SecurityFinding, nextStatus: string) {
     setActionError(null);
     setStatusSaving(true);
@@ -186,7 +208,7 @@ export function SecurityScanDetail() {
       {scan && (
         <div className="space-y-7">
           <DetailHeader
-            parentLabel="Security Scans"
+            parentLabel="Security"
             parentTo="/security"
             title={scan.runName}
             meta={
@@ -200,7 +222,50 @@ export function SecurityScanDetail() {
                 {scan.revision && ` @ ${scan.revision.slice(0, 12)}`}
               </span>
             }
+            actions={
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={<Link to={`/runs/${scan.namespace}/${scan.runName}`} />}
+                >
+                  <SquareArrowOutUpRight />
+                  Agent run
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={reportBusy !== null}
+                  onClick={() => void downloadReport("markdown")}
+                >
+                  <FileText />
+                  {reportBusy === "markdown" ? "Fetching…" : "Report"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={reportBusy !== null}
+                  onClick={() => void downloadReport("sarif")}
+                >
+                  <Download />
+                  {reportBusy === "sarif" ? "Fetching…" : "SARIF"}
+                </Button>
+              </>
+            }
           />
+
+          {scan.status.toLowerCase() === "running" && (
+            <p className="text-[12.5px] text-muted-foreground">
+              This scan run has not finished. The Markdown report and SARIF artifact become
+              available once the run submits its results.
+            </p>
+          )}
+          {reportNotice && (
+            <p role="status" className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-[12.5px] text-muted-foreground">
+              {reportNotice}
+            </p>
+          )}
 
           <StatBar>
             <Stat label="Total" value={summary["total"] ?? 0} />

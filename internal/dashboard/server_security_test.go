@@ -23,6 +23,9 @@ type mockSecurityStore struct {
 	events     map[uuid.UUID][]store.SecurityFindingEvent
 	lastFilter store.SecurityFindingFilter
 
+	listScansErr error
+	summaryErr   error
+
 	lastGetNamespace    string
 	lastEventsNamespace string
 	lastStatusNamespace string
@@ -55,6 +58,9 @@ func (m *mockSecurityStore) GetSecurityScan(_ context.Context, namespace, runNam
 }
 
 func (m *mockSecurityStore) ListSecurityScans(_ context.Context, namespace, scanName string, _ int32) ([]store.SecurityScanRecord, error) {
+	if m.listScansErr != nil {
+		return nil, m.listScansErr
+	}
 	var out []store.SecurityScanRecord
 	for _, scan := range m.scans {
 		if scan.Namespace == namespace && (scanName == "" || scan.ScanName == scanName) {
@@ -124,6 +130,9 @@ func (m *mockSecurityStore) ListSecurityFindingEvents(_ context.Context, namespa
 }
 
 func (m *mockSecurityStore) SummarizeSecurityFindings(_ context.Context, namespace, scanName, runName string) (map[string]int32, error) {
+	if m.summaryErr != nil {
+		return nil, m.summaryErr
+	}
 	m.summaryNamespace, m.summaryScanName, m.summaryRunName = namespace, scanName, runName
 	return m.summary, nil
 }
@@ -172,6 +181,10 @@ func TestSecurityHandlersRequireCapableStore(t *testing.T) {
 		},
 		"GetSecurityFindingSummary": func() error {
 			_, err := srv.GetSecurityFindingSummary(ctx, &platform.GetSecurityFindingSummaryRequest{Namespace: "default"})
+			return err
+		},
+		"GetSecurityScanReport": func() error {
+			_, err := srv.GetSecurityScanReport(ctx, &platform.GetSecurityScanReportRequest{Namespace: "default", RunName: "scan-1"})
 			return err
 		},
 	}

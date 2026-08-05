@@ -114,7 +114,7 @@ export function SecurityScanConfigList() {
       }
       actions={
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security" />}>
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/runs" />}>
             Scan results
           </Button>
           <SecurityScanFormDialog

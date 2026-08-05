@@ -115,8 +115,8 @@ export function CommandPalette({ open, onOpenChange, extraItems = [], runLabels 
       {
         id: "nav.security",
         group: "Go to",
-        label: "Security Scans",
-        hint: "Scan runs and finding triage",
+        label: "Security",
+        hint: "Overview, scan runs, and finding triage",
         icon: <ShieldAlert className="size-4" />,
         keywords: ["security", "scans", "findings", "vulnerabilities", "triage"],
         action: () => navigate("/security"),
