@@ -9,12 +9,13 @@ package triggers
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=projects/status,verbs=get;update;patch
 
 // The dashboard (served from the controller-manager binary) manages Cron,
-// GitHubRepository, and LinearProject triggers through its write RPCs:
-// create/update/delete for crons and GitHub repositories (onboarding,
-// settings, rollback of partially-created triggers) and update for Linear
-// projects (run-defaults editor). The reconcilers' own markers only cover
-// get/list/watch/update/patch, so grant the write verbs here.
-// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=crons;githubrepositories;linearprojects,verbs=get;list;watch;create;update;patch;delete
+// GitHubRepository, LinearProject, and SecurityScan triggers through its write
+// RPCs: create/update/delete for crons, GitHub repositories, and security
+// scans (onboarding, settings, rollback of partially-created triggers) and
+// update for Linear projects (run-defaults editor). The reconcilers' own
+// markers only cover get/list/watch/update/patch, so grant the write verbs
+// here.
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=crons;githubrepositories;linearprojects;securityscans,verbs=get;list;watch;create;update;patch;delete
 
 // The dashboard also manages Connection resources (shared GitHub/Slack/Linear
 // credential references used by project triggers) through its

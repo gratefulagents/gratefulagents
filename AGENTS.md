@@ -18,6 +18,35 @@ Use the root `Makefile` for most workflows:
 
 Frontend work (React source, web build, Tauri shells) happens in `platform-app/`; see its README and Makefile (`make lint`, `make test`, `make tauri-dev`, ...). API changes start with the `.proto` files in `rpc/` at the repo root: run `make gen-rpc` to regenerate the Go and TypeScript stubs, then implement the server side here and the UI in `platform-app/frontend/src/`.
 
+## Adding a New CRD
+
+A new CRD is not done when the types compile. Missing one of these steps produces a
+runtime-only failure (a `forbidden` RBAC error, or an API server that has never heard of
+the resource) that no unit test catches, so walk the whole list:
+
+1. **Types** in `api/<group>/v1alpha1/`, then `make manifests generate` to regenerate the
+   CRD base in `config/crd/bases/` and `zz_generated.deepcopy.go`.
+2. **Scheme registration** in the group's `groupversion_info.go` and, if a reconciler owns
+   it, wiring in `cmd/main.go`.
+3. **Kustomize**: add the generated base to `config/crd/kustomization.yaml`, or
+   kustomize/`config/default` installs never create the resource.
+4. **Helm chart**: mirror the generated base into `dist/chart/templates/crd/` with the
+   standard `{{- if .Values.crd.enable }}` wrapper.
+5. **RBAC**: reconciler markers usually cover `get;list;watch;update;patch` only. Anything
+   the dashboard creates or deletes on the user's behalf also needs `create` and `delete` —
+   add the resource to the dashboard marker in
+   `internal/controller/triggers/rbac_markers.go` (or the platform equivalent), regenerate
+   `config/rbac/role.yaml`, and sync `dist/chart/templates/rbac/manager-role.yaml`.
+   Add `<resource>/status` and, when the controller uses a finalizer,
+   `<resource>/finalizers`.
+6. **Bootstrap assets**: if the CRD ships default objects, put them in `configs/<kind>/`
+   and mirror them byte-identically into `dist/chart/files/bootstrap/<kind>/`.
+7. **Dashboard parity**: see the section below — an operator must be able to configure the
+   resource without `kubectl`.
+8. **Guards**: `internal/configtest` asserts CRD base/kustomization/chart parity and the
+   manager role's write verbs. Extend the tables there for the new kind so a missing step
+   fails a test instead of production.
+
 ## Coding Style & Naming Conventions
 Let tooling own formatting: Go uses `gofmt` and `goimports`. Follow existing names: lowercase Go packages and `*_test.go` tests. Do not hand-edit generated files such as `api/**/zz_generated.deepcopy.go` or `rpc/**/*connect`.
 

@@ -179,6 +179,7 @@ rules:
   - githubrepositories
   - linearprojects
   - projects
+  - securityscans
   - slackagents
   - slackworkspaces
   verbs:
