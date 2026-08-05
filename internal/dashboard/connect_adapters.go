@@ -1406,3 +1406,35 @@ func (h *PlatformServiceConnectHandler) DeleteSecurityPostScript(ctx context.Con
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
+
+func (h *PlatformServiceConnectHandler) GenerateSecurityDraft(ctx context.Context, req *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {
+	resp, err := h.srv.GenerateSecurityDraft(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) GetSecurityDraft(ctx context.Context, req *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error) {
+	resp, err := h.srv.GetSecurityDraft(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) ExportSecurityPack(ctx context.Context, req *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error) {
+	resp, err := h.srv.ExportSecurityPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) ImportSecurityPack(ctx context.Context, req *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error) {
+	resp, err := h.srv.ImportSecurityPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}

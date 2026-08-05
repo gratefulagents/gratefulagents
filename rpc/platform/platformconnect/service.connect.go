@@ -620,6 +620,18 @@ const (
 	// PlatformServiceDeleteSecurityPostScriptProcedure is the fully-qualified name of the
 	// PlatformService's DeleteSecurityPostScript RPC.
 	PlatformServiceDeleteSecurityPostScriptProcedure = "/platform.v1.PlatformService/DeleteSecurityPostScript"
+	// PlatformServiceGenerateSecurityDraftProcedure is the fully-qualified name of the
+	// PlatformService's GenerateSecurityDraft RPC.
+	PlatformServiceGenerateSecurityDraftProcedure = "/platform.v1.PlatformService/GenerateSecurityDraft"
+	// PlatformServiceGetSecurityDraftProcedure is the fully-qualified name of the PlatformService's
+	// GetSecurityDraft RPC.
+	PlatformServiceGetSecurityDraftProcedure = "/platform.v1.PlatformService/GetSecurityDraft"
+	// PlatformServiceExportSecurityPackProcedure is the fully-qualified name of the PlatformService's
+	// ExportSecurityPack RPC.
+	PlatformServiceExportSecurityPackProcedure = "/platform.v1.PlatformService/ExportSecurityPack"
+	// PlatformServiceImportSecurityPackProcedure is the fully-qualified name of the PlatformService's
+	// ImportSecurityPack RPC.
+	PlatformServiceImportSecurityPackProcedure = "/platform.v1.PlatformService/ImportSecurityPack"
 	// PlatformServiceGetSecurityOverviewProcedure is the fully-qualified name of the PlatformService's
 	// GetSecurityOverview RPC.
 	PlatformServiceGetSecurityOverviewProcedure = "/platform.v1.PlatformService/GetSecurityOverview"
@@ -934,6 +946,25 @@ type PlatformServiceClient interface {
 	CreateSecurityPostScript(context.Context, *connect.Request[platform.CreateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
 	UpdateSecurityPostScript(context.Context, *connect.Request[platform.UpdateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
 	DeleteSecurityPostScript(context.Context, *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error)
+	// AI-assisted authoring. GenerateSecurityDraft launches a bounded,
+	// repo-less draft-generation AgentRun that uses only the caller's saved
+	// provider credentials (no repository, GitHub token, or other secrets);
+	// GetSecurityDraft polls that run and, once it finishes, returns the
+	// parsed draft plus the same structured validation errors manual authoring
+	// produces. Drafts are never persisted server-side: the client loads them
+	// into the normal editor and saving goes through the regular
+	// Create/Update RPCs and their validation.
+	GenerateSecurityDraft(context.Context, *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error)
+	GetSecurityDraft(context.Context, *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error)
+	// Security pack portability. ExportSecurityPack serializes selected
+	// reusable security resources and scan configurations into a versioned,
+	// provenance-stamped JSON document with every credential/secret reference
+	// stripped. ImportSecurityPack validates such a document (size, schema
+	// version, per-item validation identical to manual authoring) and reports
+	// per-item outcomes; items are only created when apply is true, using the
+	// caller's namespace authorization and the configured collision policy.
+	ExportSecurityPack(context.Context, *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error)
+	ImportSecurityPack(context.Context, *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error)
 	// GetSecurityOverview aggregates a namespace's security posture for the
 	// dashboard overview page: active and recent scan runs, open finding
 	// counts, and scan configurations that are failing or blocked.
@@ -2130,6 +2161,30 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPostScript")),
 			connect.WithClientOptions(opts...),
 		),
+		generateSecurityDraft: connect.NewClient[platform.GenerateSecurityDraftRequest, platform.GenerateSecurityDraftResponse](
+			httpClient,
+			baseURL+PlatformServiceGenerateSecurityDraftProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GenerateSecurityDraft")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityDraft: connect.NewClient[platform.GetSecurityDraftRequest, platform.GetSecurityDraftResponse](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityDraftProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityDraft")),
+			connect.WithClientOptions(opts...),
+		),
+		exportSecurityPack: connect.NewClient[platform.ExportSecurityPackRequest, platform.ExportSecurityPackResponse](
+			httpClient,
+			baseURL+PlatformServiceExportSecurityPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ExportSecurityPack")),
+			connect.WithClientOptions(opts...),
+		),
+		importSecurityPack: connect.NewClient[platform.ImportSecurityPackRequest, platform.ImportSecurityPackResponse](
+			httpClient,
+			baseURL+PlatformServiceImportSecurityPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ImportSecurityPack")),
+			connect.WithClientOptions(opts...),
+		),
 		getSecurityOverview: connect.NewClient[platform.GetSecurityOverviewRequest, platform.GetSecurityOverviewResponse](
 			httpClient,
 			baseURL+PlatformServiceGetSecurityOverviewProcedure,
@@ -2343,6 +2398,10 @@ type platformServiceClient struct {
 	createSecurityPostScript               *connect.Client[platform.CreateSecurityPostScriptRequest, platform.SecurityPostScriptResource]
 	updateSecurityPostScript               *connect.Client[platform.UpdateSecurityPostScriptRequest, platform.SecurityPostScriptResource]
 	deleteSecurityPostScript               *connect.Client[platform.DeleteSecurityPostScriptRequest, emptypb.Empty]
+	generateSecurityDraft                  *connect.Client[platform.GenerateSecurityDraftRequest, platform.GenerateSecurityDraftResponse]
+	getSecurityDraft                       *connect.Client[platform.GetSecurityDraftRequest, platform.GetSecurityDraftResponse]
+	exportSecurityPack                     *connect.Client[platform.ExportSecurityPackRequest, platform.ExportSecurityPackResponse]
+	importSecurityPack                     *connect.Client[platform.ImportSecurityPackRequest, platform.ImportSecurityPackResponse]
 	getSecurityOverview                    *connect.Client[platform.GetSecurityOverviewRequest, platform.GetSecurityOverviewResponse]
 	getSecurityScanReport                  *connect.Client[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse]
 }
@@ -3332,6 +3391,26 @@ func (c *platformServiceClient) DeleteSecurityPostScript(ctx context.Context, re
 	return c.deleteSecurityPostScript.CallUnary(ctx, req)
 }
 
+// GenerateSecurityDraft calls platform.v1.PlatformService.GenerateSecurityDraft.
+func (c *platformServiceClient) GenerateSecurityDraft(ctx context.Context, req *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {
+	return c.generateSecurityDraft.CallUnary(ctx, req)
+}
+
+// GetSecurityDraft calls platform.v1.PlatformService.GetSecurityDraft.
+func (c *platformServiceClient) GetSecurityDraft(ctx context.Context, req *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error) {
+	return c.getSecurityDraft.CallUnary(ctx, req)
+}
+
+// ExportSecurityPack calls platform.v1.PlatformService.ExportSecurityPack.
+func (c *platformServiceClient) ExportSecurityPack(ctx context.Context, req *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error) {
+	return c.exportSecurityPack.CallUnary(ctx, req)
+}
+
+// ImportSecurityPack calls platform.v1.PlatformService.ImportSecurityPack.
+func (c *platformServiceClient) ImportSecurityPack(ctx context.Context, req *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error) {
+	return c.importSecurityPack.CallUnary(ctx, req)
+}
+
 // GetSecurityOverview calls platform.v1.PlatformService.GetSecurityOverview.
 func (c *platformServiceClient) GetSecurityOverview(ctx context.Context, req *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error) {
 	return c.getSecurityOverview.CallUnary(ctx, req)
@@ -3648,6 +3727,25 @@ type PlatformServiceHandler interface {
 	CreateSecurityPostScript(context.Context, *connect.Request[platform.CreateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
 	UpdateSecurityPostScript(context.Context, *connect.Request[platform.UpdateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
 	DeleteSecurityPostScript(context.Context, *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error)
+	// AI-assisted authoring. GenerateSecurityDraft launches a bounded,
+	// repo-less draft-generation AgentRun that uses only the caller's saved
+	// provider credentials (no repository, GitHub token, or other secrets);
+	// GetSecurityDraft polls that run and, once it finishes, returns the
+	// parsed draft plus the same structured validation errors manual authoring
+	// produces. Drafts are never persisted server-side: the client loads them
+	// into the normal editor and saving goes through the regular
+	// Create/Update RPCs and their validation.
+	GenerateSecurityDraft(context.Context, *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error)
+	GetSecurityDraft(context.Context, *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error)
+	// Security pack portability. ExportSecurityPack serializes selected
+	// reusable security resources and scan configurations into a versioned,
+	// provenance-stamped JSON document with every credential/secret reference
+	// stripped. ImportSecurityPack validates such a document (size, schema
+	// version, per-item validation identical to manual authoring) and reports
+	// per-item outcomes; items are only created when apply is true, using the
+	// caller's namespace authorization and the configured collision policy.
+	ExportSecurityPack(context.Context, *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error)
+	ImportSecurityPack(context.Context, *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error)
 	// GetSecurityOverview aggregates a namespace's security posture for the
 	// dashboard overview page: active and recent scan runs, open finding
 	// counts, and scan configurations that are failing or blocked.
@@ -4840,6 +4938,30 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPostScript")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceGenerateSecurityDraftHandler := connect.NewUnaryHandler(
+		PlatformServiceGenerateSecurityDraftProcedure,
+		svc.GenerateSecurityDraft,
+		connect.WithSchema(platformServiceMethods.ByName("GenerateSecurityDraft")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityDraftHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityDraftProcedure,
+		svc.GetSecurityDraft,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityDraft")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceExportSecurityPackHandler := connect.NewUnaryHandler(
+		PlatformServiceExportSecurityPackProcedure,
+		svc.ExportSecurityPack,
+		connect.WithSchema(platformServiceMethods.ByName("ExportSecurityPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceImportSecurityPackHandler := connect.NewUnaryHandler(
+		PlatformServiceImportSecurityPackProcedure,
+		svc.ImportSecurityPack,
+		connect.WithSchema(platformServiceMethods.ByName("ImportSecurityPack")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceGetSecurityOverviewHandler := connect.NewUnaryHandler(
 		PlatformServiceGetSecurityOverviewProcedure,
 		svc.GetSecurityOverview,
@@ -5246,6 +5368,14 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceUpdateSecurityPostScriptHandler.ServeHTTP(w, r)
 		case PlatformServiceDeleteSecurityPostScriptProcedure:
 			platformServiceDeleteSecurityPostScriptHandler.ServeHTTP(w, r)
+		case PlatformServiceGenerateSecurityDraftProcedure:
+			platformServiceGenerateSecurityDraftHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityDraftProcedure:
+			platformServiceGetSecurityDraftHandler.ServeHTTP(w, r)
+		case PlatformServiceExportSecurityPackProcedure:
+			platformServiceExportSecurityPackHandler.ServeHTTP(w, r)
+		case PlatformServiceImportSecurityPackProcedure:
+			platformServiceImportSecurityPackHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityOverviewProcedure:
 			platformServiceGetSecurityOverviewHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanReportProcedure:
@@ -6041,6 +6171,22 @@ func (UnimplementedPlatformServiceHandler) UpdateSecurityPostScript(context.Cont
 
 func (UnimplementedPlatformServiceHandler) DeleteSecurityPostScript(context.Context, *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityPostScript is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GenerateSecurityDraft(context.Context, *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GenerateSecurityDraft is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityDraft(context.Context, *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityDraft is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ExportSecurityPack(context.Context, *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ExportSecurityPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ImportSecurityPack(context.Context, *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ImportSecurityPack is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GetSecurityOverview(context.Context, *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error) {

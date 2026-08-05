@@ -215,6 +215,30 @@ Deleting a workflow, ranker, or post-script through the dashboard is **blocked**
 
 The dashboard's **Security → Library** page (`/security/library`) lists workflows, rankers, and post-scripts with usage counts, and supports create, edit, duplicate, and guarded delete. Workflows are edited in a visual builder: structured task cards (name, objective, category, specialist role picker, model override, max findings), dependency selection limited to the other task names, and a live read-only graph of the dependency DAG. The builder refuses to save cycles, dangling or self dependencies, duplicate names, invalid roles/models, or an empty workflow — the same validation the server enforces on create/update and exposes through the `ValidateSecurityWorkflow` RPC. The scan form's *Workflow tasks* section lets you pick a library workflow (or keep editing inline), and its *Rankers & post-scripts* section attaches library rankers and post-scripts.
 
+### AI-assisted authoring
+
+Both the workflow and the post-script tabs of the library offer **Generate with AI**. Describe what you want in plain language and the platform launches a *bounded, repo-less* generation run: it clones nothing, receives no GitHub token, uses only your own saved provider credentials, and runs under the dedicated `security-draft` mode template with a short runtime cap. Your request text is passed as untrusted data — it cannot change the run's rules, tools, or output contract.
+
+When the run finishes, the platform extracts the single JSON draft it produced, parses it defensively, and validates it with exactly the same rules manual authoring uses. The draft then opens in the normal editor with a review banner and any validation errors listed. Nothing is persisted server-side: the draft exists only in your browser until you save it through the regular create flow, which validates it again.
+
+### Import and export (security packs)
+
+**Export pack** serializes selected workflows, rankers, post-scripts, and scan configurations into a single JSON document:
+
+```json
+{
+  "schemaVersion": "security-pack/v1",
+  "exportedAt": "2026-01-01T00:00:00Z",
+  "exportedBy": "alice",
+  "sourceNamespace": "user-alice",
+  "items": [{ "kind": "SecurityWorkflow", "name": "payments-deep-dive", "spec": { } }]
+}
+```
+
+Packs never carry credentials. Secret references (`defaults.secrets`, provider keys, OAuth secret names) and the admin-only escape hatches (`kubernetesAdmin`, `disableCommandSandbox`) are stripped on export — and stripped again on import as defense in depth — so an imported scan configuration must be given its own credentials before it can run.
+
+**Import pack** accepts a document of at most 1 MiB and up to 200 items. Import always starts as a **dry run**: every item is validated exactly like manual authoring and the per-item outcome (`would-create`, `skipped`, `renamed`, `failed` with field errors) is shown before anything is created. Choose what happens when a name already exists — fail the item, skip it, or import it under a new name — then apply. Imported scan configurations are owned by the importer, exactly like scans created through the dashboard.
+
 ## Findings
 
 A finding is a structured record. Required fields are `title`, `category`, `severity`, and `description`; the rest add location and evidence:

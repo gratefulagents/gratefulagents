@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { Copy, Pencil, Plus, Trash2, Workflow } from "lucide-react";
 
@@ -26,6 +26,14 @@ import {
   workflowTasksToProto,
   type WorkflowTaskDraft,
 } from "@/components/SecurityWorkflowBuilder";
+import {
+  GenerateSecurityDraftDialog,
+  type SecurityDraft,
+} from "@/components/SecurityDraftDialog";
+import {
+  ExportSecurityPackDialog,
+  ImportSecurityPackDialog,
+} from "@/components/SecurityPackDialogs";
 import { client } from "@/lib/client";
 import {
   CreateSecurityPostScriptRequestSchema,
@@ -64,15 +72,23 @@ function WorkflowEditorDialog({
   mode,
   trigger,
   onSaved,
+  defaultOpen = false,
+  notice,
+  onClosed,
 }: {
   source?: SecurityWorkflowResource;
   mode: "create" | "edit" | "duplicate";
-  trigger: React.ReactElement;
+  trigger?: React.ReactElement;
   onSaved: () => void;
+  /** Open immediately (used when an AI draft is loaded for review). */
+  defaultOpen?: boolean;
+  /** Banner shown above the form, e.g. the AI-draft review warning. */
+  notice?: React.ReactNode;
+  onClosed?: () => void;
 }) {
   const isEdit = mode === "edit";
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState(() => (isEdit ? (source?.name ?? "") : ""));
+  const [open, setOpen] = useState(defaultOpen);
+  const [name, setName] = useState(() => (mode === "duplicate" ? "" : (source?.name ?? "")));
   const [description, setDescription] = useState(() => source?.description ?? "");
   const [parallelism, setParallelism] = useState(() =>
     source?.parallelism ? String(source.parallelism) : "",
@@ -89,7 +105,7 @@ function WorkflowEditorDialog({
   const blocked = validationErrors.length > 0 || parallelismInvalid || name.trim() === "";
 
   function reset() {
-    setName(isEdit ? (source?.name ?? "") : "");
+    setName(mode === "duplicate" ? "" : (source?.name ?? ""));
     setDescription(source?.description ?? "");
     setParallelism(source?.parallelism ? String(source.parallelism) : "");
     setTasks(workflowTasksFromProto(source?.tasks ?? []));
@@ -141,10 +157,13 @@ function WorkflowEditorDialog({
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
-        if (!nextOpen) reset();
+        if (!nextOpen) {
+          reset();
+          onClosed?.();
+        }
       }}
     >
-      <DialogTrigger render={trigger} />
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent className="flex w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl max-h-[92vh]" showCloseButton>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader className="space-y-1 border-b px-6 py-5">
@@ -158,6 +177,7 @@ function WorkflowEditorDialog({
             <DialogDescription>{SNAPSHOT_COPY}</DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+            {notice}
             <div className="grid gap-3 sm:grid-cols-2">
               <FlowField id="wf-name" label="Name" required>
                 <Input
@@ -224,7 +244,7 @@ function RankerEditorDialog({
 }) {
   const isEdit = mode === "edit";
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState(() => (isEdit ? (source?.name ?? "") : ""));
+  const [name, setName] = useState(() => (mode === "duplicate" ? "" : (source?.name ?? "")));
   const [description, setDescription] = useState(() => source?.description ?? "");
   const [rules, setRules] = useState(() => (source?.rules ?? []).join("\n"));
   const [submitting, setSubmitting] = useState(false);
@@ -233,7 +253,7 @@ function RankerEditorDialog({
   const blocked = name.trim() === "" || rules.trim() === "";
 
   function reset() {
-    setName(isEdit ? (source?.name ?? "") : "");
+    setName(mode === "duplicate" ? "" : (source?.name ?? ""));
     setDescription(source?.description ?? "");
     setRules((source?.rules ?? []).join("\n"));
     setError(null);
@@ -339,15 +359,23 @@ function PostScriptEditorDialog({
   mode,
   trigger,
   onSaved,
+  defaultOpen = false,
+  notice,
+  onClosed,
 }: {
   source?: SecurityPostScriptResource;
   mode: "create" | "edit" | "duplicate";
-  trigger: React.ReactElement;
+  trigger?: React.ReactElement;
   onSaved: () => void;
+  /** Open immediately (used when an AI draft is loaded for review). */
+  defaultOpen?: boolean;
+  /** Banner shown above the form, e.g. the AI-draft review warning. */
+  notice?: React.ReactNode;
+  onClosed?: () => void;
 }) {
   const isEdit = mode === "edit";
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState(() => (isEdit ? (source?.name ?? "") : ""));
+  const [open, setOpen] = useState(defaultOpen);
+  const [name, setName] = useState(() => (mode === "duplicate" ? "" : (source?.name ?? "")));
   const [description, setDescription] = useState(() => source?.description ?? "");
   const [prompt, setPrompt] = useState(() => source?.prompt ?? "");
   const [runOn, setRunOn] = useState(() => source?.runOn || "all");
@@ -357,7 +385,7 @@ function PostScriptEditorDialog({
   const blocked = name.trim() === "" || prompt.trim() === "";
 
   function reset() {
-    setName(isEdit ? (source?.name ?? "") : "");
+    setName(mode === "duplicate" ? "" : (source?.name ?? ""));
     setDescription(source?.description ?? "");
     setPrompt(source?.prompt ?? "");
     setRunOn(source?.runOn || "all");
@@ -396,8 +424,17 @@ function PostScriptEditorDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) reset(); }}>
-      <DialogTrigger render={trigger} />
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          reset();
+          onClosed?.();
+        }
+      }}
+    >
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent className="flex w-full max-w-xl flex-col gap-0 overflow-hidden p-0 sm:max-w-xl max-h-[92vh]" showCloseButton>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader className="space-y-1 border-b px-6 py-5">
@@ -411,6 +448,7 @@ function PostScriptEditorDialog({
             <DialogDescription>{SNAPSHOT_COPY}</DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+            {notice}
             <FlowField id="ps-name" label="Name" required>
               <Input
                 id="ps-name"
@@ -483,6 +521,11 @@ export function SecurityLibraryPage() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState("workflows");
   const [pendingDelete, setPendingDelete] = useState<{ kind: string; name: string } | null>(null);
+  const [scanConfigNames, setScanConfigNames] = useState<string[]>([]);
+  // AI drafts live only in the client until the operator saves them through
+  // the normal create flow; the counter forces the editor to remount per draft.
+  const [draft, setDraft] = useState<{ id: number; value: SecurityDraft } | null>(null);
+  const draftSeq = useRef(0);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -496,6 +539,14 @@ export function SecurityLibraryPage() {
       setWorkflows(wf.workflows);
       setRankers(rk.rankers);
       setPostScripts(ps.postScripts);
+      // Scan configurations are only needed for pack export; a failure there
+      // must not blank the library itself.
+      try {
+        const scans = await client.listSecurityScanConfigs({ namespace: "" });
+        setScanConfigNames(scans.configs.map((config) => config.name));
+      } catch {
+        setScanConfigNames([]);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load the security library");
     } finally {
@@ -529,8 +580,32 @@ export function SecurityLibraryPage() {
 
   const onSaved = () => {
     setActionError(null);
+    setDraft(null);
     void fetchAll();
   };
+
+  const acceptDraft = useCallback((value: SecurityDraft) => {
+    draftSeq.current += 1;
+    setDraft({ id: draftSeq.current, value });
+  }, []);
+
+  const draftNotice = (errors: SecurityDraft["validationErrors"]) => (
+    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5 text-sm">
+      <p className="font-medium">AI draft — review before saving.</p>
+      <p className="text-muted-foreground">
+        Generated content is untrusted until you review it. Nothing is saved until you submit this form.
+      </p>
+      {errors.length > 0 && (
+        <ul className="mt-1.5 list-disc pl-4 text-xs text-destructive" data-testid="draft-validation-errors">
+          {errors.map((e) => (
+            <li key={`${e.field}-${e.message}`}>
+              {e.field}: {e.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 
   const visibleWorkflows = filterByQuery(workflows, query, (w) => [w.name, w.description]);
   const visibleRankers = filterByQuery(rankers, query, (r) => [r.name, r.description]);
@@ -554,6 +629,37 @@ export function SecurityLibraryPage() {
           {actionError}
         </p>
       )}
+      <div className="flex flex-wrap gap-2">
+        <ExportSecurityPackDialog
+          workflows={workflows.map((w) => w.name)}
+          rankers={rankers.map((r) => r.name)}
+          postScripts={postScripts.map((p) => p.name)}
+          scanConfigs={scanConfigNames}
+        />
+        <ImportSecurityPackDialog onImported={onSaved} />
+      </div>
+      {draft?.value.workflow && (
+        <WorkflowEditorDialog
+          key={`draft-workflow-${draft.id}`}
+          mode="create"
+          source={draft.value.workflow}
+          defaultOpen
+          notice={draftNotice(draft.value.validationErrors)}
+          onClosed={() => setDraft(null)}
+          onSaved={onSaved}
+        />
+      )}
+      {draft?.value.postScript && (
+        <PostScriptEditorDialog
+          key={`draft-post-script-${draft.id}`}
+          mode="create"
+          source={draft.value.postScript}
+          defaultOpen
+          notice={draftNotice(draft.value.validationErrors)}
+          onClosed={() => setDraft(null)}
+          onSaved={onSaved}
+        />
+      )}
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="workflows">Workflows ({workflows.length})</TabsTrigger>
@@ -562,15 +668,18 @@ export function SecurityLibraryPage() {
         </TabsList>
 
         <TabsContent value="workflows" className="space-y-3 pt-3">
-          <WorkflowEditorDialog
-            mode="create"
-            onSaved={onSaved}
-            trigger={
-              <Button size="sm">
-                <Plus className="size-3.5" /> New workflow
-              </Button>
-            }
-          />
+          <div className="flex flex-wrap gap-2">
+            <WorkflowEditorDialog
+              mode="create"
+              onSaved={onSaved}
+              trigger={
+                <Button size="sm">
+                  <Plus className="size-3.5" /> New workflow
+                </Button>
+              }
+            />
+            <GenerateSecurityDraftDialog kind="workflow" onDraft={acceptDraft} />
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -708,15 +817,18 @@ export function SecurityLibraryPage() {
         </TabsContent>
 
         <TabsContent value="post-scripts" className="space-y-3 pt-3">
-          <PostScriptEditorDialog
-            mode="create"
-            onSaved={onSaved}
-            trigger={
-              <Button size="sm">
-                <Plus className="size-3.5" /> New post-script
-              </Button>
-            }
-          />
+          <div className="flex flex-wrap gap-2">
+            <PostScriptEditorDialog
+              mode="create"
+              onSaved={onSaved}
+              trigger={
+                <Button size="sm">
+                  <Plus className="size-3.5" /> New post-script
+                </Button>
+              }
+            />
+            <GenerateSecurityDraftDialog kind="post-script" onDraft={acceptDraft} />
+          </div>
           <Table>
             <TableHeader>
               <TableRow>

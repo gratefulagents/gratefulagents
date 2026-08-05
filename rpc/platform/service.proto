@@ -321,6 +321,27 @@ service PlatformService {
   rpc UpdateSecurityPostScript(UpdateSecurityPostScriptRequest) returns (SecurityPostScriptResource);
   rpc DeleteSecurityPostScript(DeleteSecurityPostScriptRequest) returns (google.protobuf.Empty);
 
+  // AI-assisted authoring. GenerateSecurityDraft launches a bounded,
+  // repo-less draft-generation AgentRun that uses only the caller's saved
+  // provider credentials (no repository, GitHub token, or other secrets);
+  // GetSecurityDraft polls that run and, once it finishes, returns the
+  // parsed draft plus the same structured validation errors manual authoring
+  // produces. Drafts are never persisted server-side: the client loads them
+  // into the normal editor and saving goes through the regular
+  // Create/Update RPCs and their validation.
+  rpc GenerateSecurityDraft(GenerateSecurityDraftRequest) returns (GenerateSecurityDraftResponse);
+  rpc GetSecurityDraft(GetSecurityDraftRequest) returns (GetSecurityDraftResponse);
+
+  // Security pack portability. ExportSecurityPack serializes selected
+  // reusable security resources and scan configurations into a versioned,
+  // provenance-stamped JSON document with every credential/secret reference
+  // stripped. ImportSecurityPack validates such a document (size, schema
+  // version, per-item validation identical to manual authoring) and reports
+  // per-item outcomes; items are only created when apply is true, using the
+  // caller's namespace authorization and the configured collision policy.
+  rpc ExportSecurityPack(ExportSecurityPackRequest) returns (ExportSecurityPackResponse);
+  rpc ImportSecurityPack(ImportSecurityPackRequest) returns (ImportSecurityPackResponse);
+
   // GetSecurityOverview aggregates a namespace's security posture for the
   // dashboard overview page: active and recent scan runs, open finding
   // counts, and scan configurations that are failing or blocked.
@@ -4500,6 +4521,123 @@ message UpdateSecurityPostScriptRequest {
 message DeleteSecurityPostScriptRequest {
   string namespace = 1;
   string name = 2;
+}
+
+// SecurityDraftKind selects which reusable security resource an AI-assisted
+// draft describes.
+enum SecurityDraftKind {
+  SECURITY_DRAFT_KIND_UNSPECIFIED = 0;
+  SECURITY_DRAFT_KIND_WORKFLOW = 1;
+  SECURITY_DRAFT_KIND_POST_SCRIPT = 2;
+}
+
+message GenerateSecurityDraftRequest {
+  string namespace = 1;
+  SecurityDraftKind kind = 2;
+  // request_text is the operator's natural-language description of the
+  // workflow or post-script to draft (at most 4000 characters). It is
+  // treated as untrusted data by the generation run.
+  string request_text = 3;
+  // model optionally overrides the generation model (may carry a provider
+  // prefix such as "anthropic/claude-sonnet-4-6"). Empty uses the caller's
+  // provider default.
+  string model = 4;
+}
+
+message GenerateSecurityDraftResponse {
+  string namespace = 1;
+  // run_name is the repo-less draft-generation AgentRun to poll with
+  // GetSecurityDraft.
+  string run_name = 2;
+}
+
+// SecurityDraftStatus is the lifecycle of one draft-generation run.
+enum SecurityDraftStatus {
+  SECURITY_DRAFT_STATUS_UNSPECIFIED = 0;
+  SECURITY_DRAFT_STATUS_RUNNING = 1;
+  SECURITY_DRAFT_STATUS_COMPLETED = 2;
+  SECURITY_DRAFT_STATUS_FAILED = 3;
+}
+
+message GetSecurityDraftRequest {
+  string namespace = 1;
+  string run_name = 2;
+}
+
+message GetSecurityDraftResponse {
+  SecurityDraftStatus status = 1;
+  // error explains a FAILED draft (run failure or unparseable output).
+  string error = 2;
+  // phase is the underlying AgentRun phase, for progress display.
+  string phase = 3;
+  // workflow is set for COMPLETED workflow drafts (namespace/usage fields
+  // are empty; the draft exists only in this response).
+  SecurityWorkflowResource workflow = 4;
+  // post_script is set for COMPLETED post-script drafts.
+  SecurityPostScriptResource post_script = 5;
+  // validation_errors are the same structured errors manual authoring
+  // produces; a draft with errors must be fixed in the editor before it can
+  // be saved.
+  repeated SecurityWorkflowValidationError validation_errors = 6;
+}
+
+message ExportSecurityPackRequest {
+  string namespace = 1;
+  // Names of resources to include; unknown names fail the export so packs
+  // are never silently incomplete.
+  repeated string workflows = 2;
+  repeated string rankers = 3;
+  repeated string post_scripts = 4;
+  repeated string scan_configs = 5;
+}
+
+message ExportSecurityPackResponse {
+  // data is the UTF-8 JSON pack document (schema security-pack/v1) with all
+  // credential and secret references stripped.
+  bytes data = 1;
+  string filename = 2;
+  int32 item_count = 3;
+}
+
+// SecurityPackCollisionPolicy controls what an import does when an item's
+// name already exists in the target namespace.
+enum SecurityPackCollisionPolicy {
+  SECURITY_PACK_COLLISION_POLICY_UNSPECIFIED = 0;
+  SECURITY_PACK_COLLISION_POLICY_FAIL = 1;
+  SECURITY_PACK_COLLISION_POLICY_SKIP = 2;
+  SECURITY_PACK_COLLISION_POLICY_RENAME = 3;
+}
+
+message ImportSecurityPackRequest {
+  string namespace = 1;
+  // data is a security-pack/v1 JSON document (max 1 MiB).
+  bytes data = 2;
+  // apply=false (the default) is a dry run: the pack is fully validated and
+  // per-item outcomes are reported, but nothing is created.
+  bool apply = 3;
+  SecurityPackCollisionPolicy collision_policy = 4;
+}
+
+// SecurityPackItemResult is the outcome of one pack item during import.
+message SecurityPackItemResult {
+  string kind = 1;
+  string name = 2;
+  // action: created, would-create, renamed, skipped, failed.
+  string action = 3;
+  // final_name differs from name when the collision policy renamed the item.
+  string final_name = 4;
+  string error = 5;
+  repeated SecurityWorkflowValidationError validation_errors = 6;
+}
+
+message ImportSecurityPackResponse {
+  bool applied = 1;
+  // source provenance echoed from the pack document.
+  string schema_version = 2;
+  string source_namespace = 3;
+  string exported_at = 4;
+  string exported_by = 5;
+  repeated SecurityPackItemResult items = 6;
 }
 
 message GetSecurityOverviewRequest {
