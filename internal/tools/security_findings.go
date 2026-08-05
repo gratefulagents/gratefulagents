@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,15 +16,19 @@ import (
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/security"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 )
 
-// AgentRun annotations set by the SecurityScan controller on scan runs.
+// AgentRun annotations set by the SecurityScan controller on scan runs,
+// aliased from the triggers API so the two cannot drift.
 const (
-	SecurityScanNameAnnotation       = "security.gratefulagents.dev/scan-name"
-	SecurityScanRepositoryAnnotation = "security.gratefulagents.dev/repository"
-	SecurityScanRevisionAnnotation   = "security.gratefulagents.dev/revision"
+	SecurityScanNameAnnotation           = triggersv1alpha1.SecurityScanNameAnnotation
+	SecurityScanRepositoryAnnotation     = triggersv1alpha1.SecurityScanRepositoryAnnotation
+	SecurityScanRevisionAnnotation       = triggersv1alpha1.SecurityScanRevisionAnnotation
+	SecurityScanMinSeverityAnnotation    = triggersv1alpha1.SecurityScanMinSeverityAnnotation
+	SecurityScanDedupePermilleAnnotation = triggersv1alpha1.SecurityScanDedupePermilleAnnotation
 )
 
 // Session artifact kinds written by submit_security_scan_report.
@@ -38,13 +44,19 @@ type SecurityScanContext struct {
 	RunName    string
 	Repository string
 	Revision   string
-	SessionID  uuid.UUID
+	// MinSeverity is the scan's operator-set severity floor ("" = unset).
+	MinSeverity string
+	// DedupePermille is the scan's dedupe similarity threshold in permille:
+	// 0 disables dedupe, negative means unset (use the built-in default).
+	DedupePermille int32
+	SessionID      uuid.UUID
 }
 
 // SecurityScanContextFromRun extracts scan context from AgentRun annotations
 // set by the SecurityScan controller (security.gratefulagents.dev/scan-name,
-// .../repository, .../revision). It returns (ctx, true) only when the
-// scan-name annotation is present, i.e. the run is a security scan run.
+// .../repository, .../revision, .../min-severity, .../dedupe-permille). It
+// returns (ctx, true) only when the scan-name annotation is present, i.e.
+// the run is a security scan run.
 func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runName string, sessionID uuid.UUID) (SecurityScanContext, bool) {
 	if run == nil {
 		return SecurityScanContext{}, false
@@ -53,13 +65,25 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 	if scanName == "" {
 		return SecurityScanContext{}, false
 	}
+	minSeverity := strings.ToLower(strings.TrimSpace(run.Annotations[SecurityScanMinSeverityAnnotation]))
+	if security.SeverityRank(minSeverity) < 0 {
+		minSeverity = ""
+	}
+	dedupePermille := int32(-1)
+	if raw := strings.TrimSpace(run.Annotations[SecurityScanDedupePermilleAnnotation]); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v >= 0 {
+			dedupePermille = int32(v)
+		}
+	}
 	return SecurityScanContext{
-		ScanName:   scanName,
-		Namespace:  namespace,
-		RunName:    runName,
-		Repository: strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
-		Revision:   strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
-		SessionID:  sessionID,
+		ScanName:       scanName,
+		Namespace:      namespace,
+		RunName:        runName,
+		Repository:     strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
+		Revision:       strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
+		MinSeverity:    minSeverity,
+		DedupePermille: dedupePermille,
+		SessionID:      sessionID,
 	}, true
 }
 
@@ -90,9 +114,14 @@ type securityScanState struct {
 	stateStore   store.StateStore
 	scanCtx      SecurityScanContext
 
-	mu     sync.Mutex
-	mem    []*store.SecurityFindingRecord
-	scanID uuid.UUID
+	mu        sync.Mutex
+	mem       []*store.SecurityFindingRecord
+	memEvents []store.SecurityFindingEvent
+	scanID    uuid.UUID
+
+	memCompleted bool
+	memSummary   string
+	memCounts    map[string]int32
 }
 
 // ensureScan lazily creates (or reuses) the security_scans row this run's
@@ -205,6 +234,18 @@ func (s *securityScanState) listFindings(ctx context.Context, f store.SecurityFi
 	}
 	var out []store.SecurityFindingRecord
 	for _, rec := range s.mem {
+		if f.Namespace != "" && rec.Namespace != f.Namespace {
+			continue
+		}
+		if f.ScanName != "" && rec.ScanName != f.ScanName {
+			continue
+		}
+		if f.RunName != "" && rec.RunName != f.RunName {
+			continue
+		}
+		if f.Repository != "" && rec.Repository != f.Repository {
+			continue
+		}
 		if f.Severity != "" && rec.Severity != f.Severity {
 			continue
 		}
@@ -214,10 +255,17 @@ func (s *securityScanState) listFindings(ctx context.Context, f store.SecurityFi
 		if f.Status != "" && rec.Status != f.Status {
 			continue
 		}
+		if f.MinScore > 0 && rec.Score < f.MinScore {
+			continue
+		}
+		if !f.IncludeDuplicates && rec.DuplicateOf != nil {
+			continue
+		}
 		if f.Search != "" {
 			needle := strings.ToLower(f.Search)
-			if !strings.Contains(strings.ToLower(rec.FilePath), needle) &&
-				!strings.Contains(strings.ToLower(rec.Title), needle) {
+			if !strings.Contains(strings.ToLower(rec.Title), needle) &&
+				!strings.Contains(strings.ToLower(rec.Description), needle) &&
+				!strings.Contains(strings.ToLower(rec.FilePath), needle) {
 				continue
 			}
 		}
@@ -231,17 +279,48 @@ func (s *securityScanState) listFindings(ctx context.Context, f store.SecurityFi
 		if ri != rj {
 			return ri > rj
 		}
-		return out[i].Title < out[j].Title
+		if !out[i].LastSeenAt.Equal(out[j].LastSeenAt) {
+			return out[i].LastSeenAt.After(out[j].LastSeenAt)
+		}
+		return out[i].Fingerprint < out[j].Fingerprint
 	})
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if int(offset) >= len(out) {
+		return nil, nil
+	}
+	out = out[offset:]
 	if int32(len(out)) > limit {
 		out = out[:limit]
 	}
 	return out, nil
 }
 
-func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, status, actor, note string) error {
+// getFinding looks up a finding by id, scoped to this scan's namespace.
+// It returns (nil, nil) when no finding matches.
+func (s *securityScanState) getFinding(ctx context.Context, id uuid.UUID) (*store.SecurityFindingRecord, error) {
 	if s.findingStore != nil {
-		return s.findingStore.SetSecurityFindingStatus(ctx, id, status, actor, note)
+		return s.findingStore.GetSecurityFinding(ctx, s.scanCtx.Namespace, id)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, rec := range s.mem {
+		if rec.ID == id {
+			copied := *rec
+			return &copied, nil
+		}
+	}
+	return nil, nil
+}
+
+// setFindingStatus updates the status of a finding in this scan's namespace.
+// The audit actor is always this run's name; the model cannot supply it.
+func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, status, note string) error {
+	actor := s.scanCtx.RunName
+	if s.findingStore != nil {
+		return s.findingStore.SetSecurityFindingStatus(ctx, s.scanCtx.Namespace, id, status, actor, note)
 	}
 	if !store.ValidSecurityFindingStatus(status) {
 		return fmt.Errorf("invalid status %q", status)
@@ -249,42 +328,86 @@ func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, rec := range s.mem {
-		if rec.ID == id {
-			rec.Status = status
-			return nil
+		if rec.ID != id {
+			continue
 		}
+		detail, _ := json.Marshal(map[string]string{"from": rec.Status, "to": status})
+		rec.Status = status
+		s.memEvents = append(s.memEvents, store.SecurityFindingEvent{
+			FindingID: id,
+			EventType: "status_changed",
+			Actor:     actor,
+			Note:      note,
+			Detail:    detail,
+			CreatedAt: time.Now().UTC(),
+		})
+		return nil
 	}
-	return fmt.Errorf("finding %s not found", id)
+	return store.ErrSecurityFindingNotFound
 }
 
-// resolveFindingID resolves an update target from an explicit id or a
-// fingerprint returned by report_security_finding / list_security_findings.
-func (s *securityScanState) resolveFindingID(ctx context.Context, id, fingerprint string) (uuid.UUID, error) {
+// summarizeMemLocked mirrors the Postgres SummarizeSecurityFindings contract
+// over the in-memory buffer: non-duplicate rows counted per severity, plus
+// total, open, and open_<severity> keys. Caller must hold s.mu.
+func (s *securityScanState) summarizeMemLocked() map[string]int32 {
+	counts := map[string]int32{
+		"total": 0, "open": 0,
+		"open_critical": 0, "open_high": 0, "open_medium": 0, "open_low": 0, "open_info": 0,
+	}
+	for _, rec := range s.mem {
+		if rec.DuplicateOf != nil {
+			continue
+		}
+		counts[rec.Severity]++
+		counts["total"]++
+		if rec.Status == store.SecurityFindingStatusOpen {
+			counts["open"]++
+			counts["open_"+rec.Severity]++
+		}
+	}
+	return counts
+}
+
+// resolveFinding resolves an update target from an explicit id or a
+// fingerprint and verifies it belongs to this run's scan (same namespace AND
+// same scan name), so a model-supplied id cannot re-triage findings of other
+// scans or namespaces.
+func (s *securityScanState) resolveFinding(ctx context.Context, id, fingerprint string) (*store.SecurityFindingRecord, error) {
 	if id != "" {
 		parsed, err := uuid.Parse(id)
 		if err != nil {
-			return uuid.Nil, fmt.Errorf("invalid finding id %q: %v", id, err)
+			return nil, fmt.Errorf("invalid finding id %q: %v", id, err)
 		}
-		return parsed, nil
+		rec, err := s.getFinding(ctx, parsed)
+		if err != nil && !errors.Is(err, store.ErrSecurityFindingNotFound) {
+			return nil, fmt.Errorf("failed to look up finding: %v", err)
+		}
+		if rec == nil || errors.Is(err, store.ErrSecurityFindingNotFound) {
+			return nil, fmt.Errorf("no finding with id %s in this scan (use list_security_findings to see recorded findings)", parsed)
+		}
+		if rec.Namespace != s.scanCtx.Namespace || rec.ScanName != s.scanCtx.ScanName {
+			return nil, fmt.Errorf("finding %s does not belong to security scan %q; this run can only update findings of its own scan", parsed, s.scanCtx.ScanName)
+		}
+		return rec, nil
 	}
 	if fingerprint == "" {
-		return uuid.Nil, fmt.Errorf("either id or fingerprint is required")
+		return nil, fmt.Errorf("either id or fingerprint is required")
 	}
 	records, err := s.listFindings(ctx, store.SecurityFindingFilter{
 		Namespace:         s.scanCtx.Namespace,
-		RunName:           s.scanCtx.RunName,
+		ScanName:          s.scanCtx.ScanName,
 		IncludeDuplicates: true,
 		Limit:             1000,
 	})
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("failed to look up finding: %v", err)
+		return nil, fmt.Errorf("failed to look up finding: %v", err)
 	}
-	for _, rec := range records {
-		if rec.Fingerprint == fingerprint {
-			return rec.ID, nil
+	for i := range records {
+		if records[i].Fingerprint == fingerprint {
+			return &records[i], nil
 		}
 	}
-	return uuid.Nil, fmt.Errorf("no finding with fingerprint %q in this scan (use list_security_findings to see recorded findings)", fingerprint)
+	return nil, fmt.Errorf("no finding with fingerprint %q in this scan (use list_security_findings to see recorded findings)", fingerprint)
 }
 
 // securityFindingRecord converts a normalized, validated finding into a store
@@ -364,17 +487,44 @@ func (t *reportSecurityFindingTool) Name() string { return "report_security_find
 func (t *reportSecurityFindingTool) Description() string {
 	return "Record one security finding for this scan. The input IS the finding object " +
 		"itself (flat fields, no wrapper), matching the platform security finding schema. " +
-		"The finding is normalized, validated, stamped with this scan's repository/revision, " +
-		"and deduplicated by fingerprint: reporting the same issue twice merges into the " +
-		"existing finding instead of creating a duplicate. Returns the finding fingerprint. " +
+		"The finding is normalized, validated, and deduplicated by fingerprint: reporting " +
+		"the same issue twice merges into the existing finding instead of creating a " +
+		"duplicate. The scanned repository and revision are stamped from the scan " +
+		"configuration automatically; do not supply them. Returns the finding fingerprint. " +
 		"This tool only records platform scan state — it never mutates the workspace, the " +
 		"repository, or the network — so it is safe and available on read-only scan runs."
+}
+
+// reportFindingInputSchema is security.FindingJSONSchema minus the
+// repository/revision properties: those are always stamped from the scan
+// context (never model-supplied), so the model must not be told to send them.
+var reportFindingInputSchema = buildReportFindingInputSchema()
+
+func buildReportFindingInputSchema() json.RawMessage {
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(security.FindingJSONSchema), &schema); err != nil {
+		return json.RawMessage(security.FindingJSONSchema)
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return json.RawMessage(security.FindingJSONSchema)
+	}
+	delete(props, "repository")
+	delete(props, "revision")
+	if sa, ok := props["source_agent"].(map[string]any); ok {
+		sa["description"] = "Optional sub-agent label; recorded as \"<run-name>/<label>\" so attribution always includes this run."
+	}
+	out, err := json.Marshal(schema)
+	if err != nil {
+		return json.RawMessage(security.FindingJSONSchema)
+	}
+	return out
 }
 
 func (t *reportSecurityFindingTool) InputSchema() json.RawMessage {
 	// Flat option: the tool input is the finding object itself, so the model
 	// does not need a {"finding": {...}} wrapper.
-	return json.RawMessage(security.FindingJSONSchema)
+	return reportFindingInputSchema
 }
 
 func (t *reportSecurityFindingTool) IsReadOnly() bool                      { return true }
@@ -389,14 +539,19 @@ func (t *reportSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 	if err := dec.Decode(&finding); err != nil {
 		return Result{Content: fmt.Sprintf("invalid input: %v (the input must be a single flat finding object; see the tool schema for the allowed fields)", err), IsError: true}, nil
 	}
-	if finding.Repository == "" {
-		finding.Repository = t.state.scanCtx.Repository
-	}
-	if finding.Revision == "" {
-		finding.Revision = t.state.scanCtx.Revision
-	}
-	if finding.SourceAgent == "" {
+	// Repository and revision are stamped unconditionally: they are part of
+	// the finding dedupe key (namespace, scan_name, repository, fingerprint),
+	// so a model-supplied value could forge another scan's identity and
+	// overwrite its findings.
+	finding.Repository = t.state.scanCtx.Repository
+	finding.Revision = t.state.scanCtx.Revision
+	// SourceAgent is always anchored to this run's name; a model-supplied
+	// value is kept only as a sub-agent label suffix ("<run-name>/<label>")
+	// so attribution cannot be forged.
+	if label := strings.TrimSpace(finding.SourceAgent); label == "" || label == t.state.scanCtx.RunName {
 		finding.SourceAgent = t.state.scanCtx.RunName
+	} else {
+		finding.SourceAgent = t.state.scanCtx.RunName + "/" + label
 	}
 	finding.Normalize()
 	if err := finding.Validate(); err != nil {
@@ -448,7 +603,7 @@ func (t *listSecurityFindingsTool) InputSchema() json.RawMessage {
 			"severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Only findings with this severity"},
 			"category": {"type": "string", "description": "Only findings in this category, e.g. injection"},
 			"status": {"type": "string", "enum": ["open", "triaged", "confirmed", "false_positive", "fixed", "accepted_risk"], "description": "Only findings with this status"},
-			"search": {"type": "string", "description": "Substring match on file path or title"},
+			"search": {"type": "string", "description": "Substring match on title, description, or file path"},
 			"limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max findings to return (default 200)"}
 		}
 	}`)
@@ -513,17 +668,17 @@ type updateSecurityFindingInput struct {
 	Fingerprint string `json:"fingerprint"`
 	Status      string `json:"status"`
 	Note        string `json:"note"`
-	Actor       string `json:"actor"`
 }
 
 func (t *updateSecurityFindingTool) Name() string { return "update_security_finding" }
 
 func (t *updateSecurityFindingTool) Description() string {
-	return "Set the status of a recorded security finding with an audit note: confirmed " +
-		"(you built a PoC or proved exploitability), false_positive (you disproved it), " +
-		"triaged, fixed, accepted_risk, or open. Identify the finding by the fingerprint " +
-		"returned from report_security_finding / list_security_findings (or its id). " +
-		"Only updates platform scan state; safe on read-only scan runs."
+	return "Set the status of a security finding recorded by this scan with an audit note: " +
+		"confirmed (you built a PoC or proved exploitability), false_positive (you disproved " +
+		"it), triaged, fixed, accepted_risk, or open. Identify the finding by the fingerprint " +
+		"returned from report_security_finding / list_security_findings (or its id). Only " +
+		"findings belonging to this scan can be updated; the audit trail records this run as " +
+		"the actor. Only updates platform scan state; safe on read-only scan runs."
 }
 
 func (t *updateSecurityFindingTool) InputSchema() json.RawMessage {
@@ -533,8 +688,7 @@ func (t *updateSecurityFindingTool) InputSchema() json.RawMessage {
 			"fingerprint": {"type": "string", "description": "Fingerprint of the finding to update"},
 			"id": {"type": "string", "description": "Finding UUID, as an alternative to fingerprint"},
 			"status": {"type": "string", "enum": ["open", "triaged", "confirmed", "false_positive", "fixed", "accepted_risk"], "description": "New status"},
-			"note": {"type": "string", "description": "Why the status changed, e.g. the PoC that confirmed it or the reasoning that disproved it"},
-			"actor": {"type": "string", "description": "Who/what changed the status; defaults to this run's name"}
+			"note": {"type": "string", "description": "Why the status changed, e.g. the PoC that confirmed it or the reasoning that disproved it"}
 		},
 		"required": ["status", "note"]
 	}`)
@@ -562,18 +716,17 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 	if note == "" {
 		return Result{Content: "note is required: explain why the status changed", IsError: true}, nil
 	}
-	actor := strings.TrimSpace(in.Actor)
-	if actor == "" {
-		actor = t.state.scanCtx.RunName
-	}
-	id, err := t.state.resolveFindingID(ctx, strings.TrimSpace(in.ID), strings.TrimSpace(in.Fingerprint))
+	rec, err := t.state.resolveFinding(ctx, strings.TrimSpace(in.ID), strings.TrimSpace(in.Fingerprint))
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	if err := t.state.setFindingStatus(ctx, id, status, actor, note); err != nil {
+	if err := t.state.setFindingStatus(ctx, rec.ID, status, note); err != nil {
+		if errors.Is(err, store.ErrSecurityFindingNotFound) {
+			return Result{Content: fmt.Sprintf("no finding with id %s in this scan (use list_security_findings to see recorded findings)", rec.ID), IsError: true}, nil
+		}
 		return Result{Content: fmt.Sprintf("failed to update finding: %v", err), IsError: true}, nil
 	}
-	return Result{Content: fmt.Sprintf("Finding %s status set to %s.", id, status)}, nil
+	return Result{Content: fmt.Sprintf("Finding %s status set to %s.", rec.ID, status)}, nil
 }
 
 // --- submit_security_scan_report ---
@@ -593,8 +746,10 @@ func (t *submitSecurityScanReportTool) Name() string { return "submit_security_s
 func (t *submitSecurityScanReportTool) Description() string {
 	return "Finalize this security scan: deduplicate and rank all recorded findings, render " +
 		"the markdown report and SARIF output as session artifacts, and mark the scan " +
-		"completed with a severity breakdown. Call this exactly once, after every finding " +
-		"has been reported and triaged. Only writes platform scan state (no workspace, " +
+		"completed with a severity breakdown. The scan's configured minimum severity and " +
+		"dedupe policy are always enforced. Call this exactly once, after every finding " +
+		"has been reported and triaged; calling it again returns the existing result " +
+		"unless the findings changed. Only writes platform scan state (no workspace, " +
 		"repository, or network mutation), so it is available on read-only scan runs."
 }
 
@@ -604,7 +759,7 @@ func (t *submitSecurityScanReportTool) InputSchema() json.RawMessage {
 		"properties": {
 			"summary": {"type": "string", "description": "One-paragraph executive summary of the scan outcome"},
 			"ranker_rules": {"type": "string", "description": "Optional ranker rules text (severity-floor:, severity-ceiling:, exclude:, min-severity:, weight: directives plus prose)"},
-			"min_severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Drop findings below this severity from the report"}
+			"min_severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Drop findings below this severity from the report; the scan's configured minimum severity still applies when stricter"}
 		},
 		"required": ["summary"]
 	}`)
@@ -614,6 +769,30 @@ func (t *submitSecurityScanReportTool) IsReadOnly() bool                      { 
 func (t *submitSecurityScanReportTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
 func (t *submitSecurityScanReportTool) NeedsApproval() bool                   { return false }
 func (t *submitSecurityScanReportTool) TimeoutSeconds() int                   { return 0 }
+
+// securityCountsEqual reports whether two summary maps hold the same counts,
+// treating missing keys as zero.
+func securityCountsEqual(a, b map[string]int32) bool {
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	for k, v := range b {
+		if a[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+func securitySeverityBreakdown(b *strings.Builder, counts map[string]int32) {
+	b.WriteString("Severity breakdown:\n")
+	for _, sev := range security.Severities {
+		fmt.Fprintf(b, "  %-8s %d\n", sev, counts[sev])
+	}
+	fmt.Fprintf(b, "  total    %d\n", counts["total"])
+}
 
 func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.RawMessage, _ string) (Result, error) {
 	var in submitSecurityScanReportInput
@@ -640,15 +819,50 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 		findings = append(findings, securityFindingFromRecord(rec))
 	}
 
-	clusters := security.Dedupe(findings, 0)
-	canonical := make([]security.Finding, 0, len(clusters))
-	for _, c := range clusters {
-		canonical = append(canonical, c.Canonical)
-	}
+	// Scan policy from the SecurityScan CRD (via run annotations) always
+	// applies: the dedupe threshold comes from the scan, and the effective
+	// minimum severity is the stricter of the scan's and the model's.
 	rules := security.ParseRankRules(in.RankerRules)
-	if min := strings.ToLower(strings.TrimSpace(in.MinSeverity)); min != "" {
-		rules.MinSeverity = min
+	minSource := "ranker rules"
+	if modelMin := strings.ToLower(strings.TrimSpace(in.MinSeverity)); modelMin != "" {
+		rules.MinSeverity = modelMin
+		minSource = "tool input"
 	}
+	if scanCtx.MinSeverity != "" && security.SeverityRank(scanCtx.MinSeverity) > security.SeverityRank(rules.MinSeverity) {
+		rules.MinSeverity = scanCtx.MinSeverity
+		minSource = "scan policy"
+	}
+
+	var canonical []security.Finding
+	var clusterCount int
+	var dedupeDesc string
+	switch {
+	case scanCtx.DedupePermille == 0:
+		canonical = findings
+		clusterCount = len(findings)
+		dedupeDesc = "dedupe disabled by scan policy"
+	case scanCtx.DedupePermille > 0:
+		threshold := float64(scanCtx.DedupePermille) / 1000
+		clusters := security.Dedupe(findings, threshold)
+		for _, c := range clusters {
+			canonical = append(canonical, c.Canonical)
+		}
+		clusterCount = len(clusters)
+		dedupeDesc = fmt.Sprintf("dedupe threshold %.3f from scan policy", threshold)
+	default:
+		clusters := security.Dedupe(findings, 0)
+		for _, c := range clusters {
+			canonical = append(canonical, c.Canonical)
+		}
+		clusterCount = len(clusters)
+		dedupeDesc = "default dedupe threshold"
+	}
+	minDesc := "no minimum severity"
+	if rules.MinSeverity != "" {
+		minDesc = fmt.Sprintf("minimum severity %s from %s", rules.MinSeverity, minSource)
+	}
+	policyNote := fmt.Sprintf("Policy applied: %s; %s.", minDesc, dedupeDesc)
+
 	ranked := security.Rank(canonical, rules)
 
 	now := time.Now().UTC()
@@ -661,7 +875,11 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 		CompletedAt: now,
 		Ranked:      ranked,
 	}
+
+	// Second submit with unchanged findings: keep the existing completed
+	// scan record (and its completed_at) instead of silently re-stamping it.
 	var priorScan *store.SecurityScanRecord
+	var counts map[string]int32
 	if t.state.findingStore != nil {
 		if _, err := t.state.ensureScan(ctx); err != nil {
 			return Result{Content: fmt.Sprintf("failed to open the scan record: %v", err), IsError: true}, nil
@@ -670,8 +888,34 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 		if err != nil {
 			return Result{Content: fmt.Sprintf("failed to load scan record: %v", err), IsError: true}, nil
 		}
+		counts, err = t.state.findingStore.SummarizeSecurityFindings(ctx, scanCtx.Namespace, scanCtx.ScanName, scanCtx.RunName)
+		if err != nil {
+			return Result{Content: fmt.Sprintf("failed to summarize findings: %v", err), IsError: true}, nil
+		}
+		if priorScan != nil && priorScan.Status == "completed" && securityCountsEqual(counts, priorScan.Counts) {
+			var b strings.Builder
+			fmt.Fprintf(&b, "Security scan %q was already finalized and the findings are unchanged; keeping the existing report and completion time.\n", scanCtx.ScanName)
+			fmt.Fprintf(&b, "Existing summary: %s\n", priorScan.Summary)
+			securitySeverityBreakdown(&b, priorScan.Counts)
+			b.WriteString(policyNote)
+			return Result{Content: b.String()}, nil
+		}
 		if priorScan != nil && priorScan.StartedAt != nil {
 			reportInput.StartedAt = *priorScan.StartedAt
+		}
+	} else {
+		t.state.mu.Lock()
+		counts = t.state.summarizeMemLocked()
+		alreadyDone := t.state.memCompleted && securityCountsEqual(counts, t.state.memCounts)
+		priorSummary := t.state.memSummary
+		t.state.mu.Unlock()
+		if alreadyDone {
+			var b strings.Builder
+			fmt.Fprintf(&b, "Security scan %q was already finalized and the findings are unchanged; keeping the existing report and completion time.\n", scanCtx.ScanName)
+			fmt.Fprintf(&b, "Existing summary: %s\n", priorSummary)
+			securitySeverityBreakdown(&b, counts)
+			b.WriteString(policyNote)
+			return Result{Content: b.String()}, nil
 		}
 	}
 
@@ -694,12 +938,7 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 		artifactNote = "No artifact store available; report artifacts were not persisted."
 	}
 
-	var counts map[string]int32
 	if t.state.findingStore != nil {
-		counts, err = t.state.findingStore.SummarizeSecurityFindings(ctx, scanCtx.Namespace, scanCtx.ScanName, scanCtx.RunName)
-		if err != nil {
-			return Result{Content: fmt.Sprintf("failed to summarize findings: %v", err), IsError: true}, nil
-		}
 		scan := priorScan
 		if scan == nil {
 			scan = &store.SecurityScanRecord{
@@ -719,20 +958,21 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 			return Result{Content: fmt.Sprintf("failed to update scan record: %v", err), IsError: true}, nil
 		}
 	} else {
-		counts = make(map[string]int32, len(security.Severities)+1)
-		for sev, n := range security.Summarize(findings) {
-			counts[sev] = int32(n)
-		}
+		t.state.mu.Lock()
+		t.state.memCompleted = true
+		t.state.memSummary = summary
+		t.state.memCounts = counts
+		t.state.mu.Unlock()
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Security scan %q finalized: %d finding(s) recorded, %d after dedupe, %d in the report.\n",
-		scanCtx.ScanName, len(findings), len(clusters), len(ranked))
-	b.WriteString("Severity breakdown:\n")
-	for _, sev := range security.Severities {
-		fmt.Fprintf(&b, "  %-8s %d\n", sev, counts[sev])
-	}
-	fmt.Fprintf(&b, "  total    %d\n", counts["total"])
+		scanCtx.ScanName, len(findings), clusterCount, len(ranked))
+	b.WriteString(policyNote + "\n")
+	securitySeverityBreakdown(&b, counts)
 	b.WriteString(artifactNote)
+	if t.state.findingStore == nil {
+		b.WriteString("\nIn-memory mode (no Postgres): findings, counts, and status events are scoped to this process and not persisted across runs; counts cover stored (fingerprint-merged) non-duplicate findings, matching the Postgres counting.")
+	}
 	return Result{Content: b.String()}, nil
 }

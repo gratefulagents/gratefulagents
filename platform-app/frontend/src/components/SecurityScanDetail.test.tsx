@@ -6,13 +6,15 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { SecurityScanDetail } from "@/components/SecurityScanDetail";
 import {
+  SecurityFindingEventSchema,
   SecurityFindingSchema,
   SecurityScanSchema,
 } from "@/rpc/platform/service_pb";
 
-const { getSecurityScan, getSecurityFindingSummary, listSecurityFindings, updateSecurityFindingStatus } =
+const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, listSecurityFindings, updateSecurityFindingStatus } =
   vi.hoisted(() => ({
     getSecurityScan: vi.fn(),
+    getSecurityFinding: vi.fn(),
     getSecurityFindingSummary: vi.fn(),
     listSecurityFindings: vi.fn(),
     updateSecurityFindingStatus: vi.fn(),
@@ -21,6 +23,7 @@ const { getSecurityScan, getSecurityFindingSummary, listSecurityFindings, update
 vi.mock("@/lib/client", () => ({
   client: {
     getSecurityScan,
+    getSecurityFinding,
     getSecurityFindingSummary,
     listSecurityFindings,
     updateSecurityFindingStatus,
@@ -78,6 +81,27 @@ function findingFixture(status = "open") {
   });
 }
 
+function findingEventsResponse() {
+  return {
+    finding: findingFixture(),
+    events: [
+      create(SecurityFindingEventSchema, {
+        id: 2n,
+        eventType: "status_changed",
+        actor: "alice",
+        note: "confirmed exploitable",
+        createdAt: timestampFromDate(new Date("2026-02-03T10:00:00Z")),
+      }),
+      create(SecurityFindingEventSchema, {
+        id: 1n,
+        eventType: "created",
+        actor: "scanner-agent",
+        createdAt: timestampFromDate(new Date("2026-02-01T00:00:00Z")),
+      }),
+    ],
+  };
+}
+
 function renderDetail() {
   render(
     <MemoryRouter initialEntries={["/security/user-alice/nightly-1"]}>
@@ -111,6 +135,7 @@ describe("SecurityScanDetail", () => {
     getSecurityScan.mockResolvedValue(scanFixture());
     getSecurityFindingSummary.mockResolvedValue({ counts: {} });
     listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
 
     renderDetail();
 
@@ -157,11 +182,16 @@ describe("SecurityScanDetail", () => {
     listSecurityFindings
       .mockResolvedValueOnce({ findings: [findingFixture()] })
       .mockResolvedValue({ findings: [findingFixture("triaged")] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
     updateSecurityFindingStatus.mockResolvedValue(findingFixture("triaged"));
 
     renderDetail();
 
     fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await waitFor(() => {
+      expect(getSecurityFinding).toHaveBeenCalledWith({ id: FINDING_ID });
+    });
+
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "triaged" } });
 
     await waitFor(() => {
@@ -175,6 +205,43 @@ describe("SecurityScanDetail", () => {
     await waitFor(() => {
       expect(listSecurityFindings.mock.calls.length).toBeGreaterThan(1);
     });
+    // The audit history is refetched after the status change.
+    await waitFor(() => {
+      expect(getSecurityFinding.mock.calls.length).toBeGreaterThan(1);
+    });
     expect((screen.getByLabelText("Status") as HTMLSelectElement).value).toBe("triaged");
+  });
+
+  it("renders the finding's audit history in the panel", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
+
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+
+    expect(await screen.findByText("status changed")).toBeTruthy();
+    expect(screen.getByText(/· alice/)).toBeTruthy();
+    expect(screen.getByText("confirmed exploitable")).toBeTruthy();
+    expect(screen.getByText("created")).toBeTruthy();
+    // sourceAgent also appears in the fact list, so the history adds a second match.
+    expect(screen.getAllByText(/scanner-agent/).length).toBeGreaterThan(1);
+    expect(getSecurityFinding).toHaveBeenCalledWith({ id: FINDING_ID });
+  });
+
+  it("shows an error in the history section when the events fetch fails", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    getSecurityFinding.mockRejectedValue(new Error("events unavailable"));
+
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText("events unavailable")).toBeTruthy();
   });
 });

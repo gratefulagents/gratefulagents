@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -30,14 +32,20 @@ const (
 	// spec.defaults.modeRef is not set.
 	securityScanModeTemplate = "security-scan"
 
-	// Agent-side security tools read these annotations to bind reported
-	// findings to the scan.
-	securityScanNameAnnotation       = "security.gratefulagents.dev/scan-name"
-	securityScanRepositoryAnnotation = "security.gratefulagents.dev/repository"
-	securityScanRevisionAnnotation   = "security.gratefulagents.dev/revision"
-
 	// securityScanLabel marks AgentRuns created by a SecurityScan for listing.
 	securityScanLabel = "security.gratefulagents.dev/scan"
+
+	// securityScanCleanupFinalizer keeps SecurityScan resources around long
+	// enough for the controller to purge persisted findings from the store.
+	securityScanCleanupFinalizer = "triggers.gratefulagents.dev/cleanup"
+
+	// securityScanCleanupDeadline bounds how long a failing findings store can
+	// delay SecurityScan deletion. Past this deadline the finalizer is removed
+	// even when the purge keeps failing, so a permanently broken store cannot
+	// wedge deletion; the orphaned rows are keyed by (namespace, scan name)
+	// and DeleteSecurityScanData is idempotent, so a later cleanup can still
+	// remove them.
+	securityScanCleanupDeadline = 15 * time.Minute
 )
 
 type SecurityScanReconciler struct {
@@ -52,6 +60,7 @@ type SecurityScanReconciler struct {
 
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans/finalizers,verbs=update
 // +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=agentruns,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
@@ -60,6 +69,18 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	scan := &triggersv1alpha1.SecurityScan{}
 	if err := r.Get(ctx, req.NamespacedName, scan); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if !scan.DeletionTimestamp.IsZero() {
+		return r.reconcileDeletion(ctx, scan)
+	}
+
+	if !controllerutil.ContainsFinalizer(scan, securityScanCleanupFinalizer) {
+		if err := retrySecurityScanPatch(ctx, r.Client, client.ObjectKeyFromObject(scan), func(fresh *triggersv1alpha1.SecurityScan) {
+			controllerutil.AddFinalizer(fresh, securityScanCleanupFinalizer)
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	if scan.Spec.Suspend {
@@ -74,10 +95,59 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
+	if msg := insecureScanDefaults(scan.Spec.Defaults); msg != "" {
+		if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+			fresh.Status.LastError = msg
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, "InsecureDefaults", msg)
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
 	if strings.TrimSpace(scan.Spec.Schedule) == "" {
 		return r.reconcileOneShot(ctx, scan)
 	}
 	return r.reconcileScheduled(ctx, scan)
+}
+
+// reconcileDeletion purges persisted findings before releasing the cleanup
+// finalizer. When Findings is nil there is no persisted data to purge and the
+// finalizer is released immediately. Transient store errors are returned so
+// controller-runtime requeues with exponential backoff, but once the deletion
+// has been pending longer than securityScanCleanupDeadline the finalizer is
+// removed anyway: a permanently failing store orphans the persisted rows
+// instead of wedging deletion forever.
+func (r *SecurityScanReconciler) reconcileDeletion(ctx context.Context, scan *triggersv1alpha1.SecurityScan) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(scan, securityScanCleanupFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	if r.Findings != nil {
+		if err := r.Findings.DeleteSecurityScanData(ctx, scan.Namespace, scan.Name); err != nil {
+			if r.now().Sub(scan.DeletionTimestamp.Time) < securityScanCleanupDeadline {
+				return ctrl.Result{}, fmt.Errorf("purging security scan data for %s/%s: %w", scan.Namespace, scan.Name, err)
+			}
+			logf.FromContext(ctx).Error(err, "removing SecurityScan cleanup finalizer despite purge failure: cleanup deadline exceeded", "scan", scan.Name)
+		}
+	}
+	if err := retrySecurityScanPatch(ctx, r.Client, client.ObjectKeyFromObject(scan), func(fresh *triggersv1alpha1.SecurityScan) {
+		controllerutil.RemoveFinalizer(fresh, securityScanCleanupFinalizer)
+	}); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	return ctrl.Result{}, nil
+}
+
+// insecureScanDefaults rejects defaults that would run untrusted third-party
+// code without the command sandbox or with cluster-admin privileges.
+func insecureScanDefaults(d triggersv1alpha1.AgentRunDefaults) string {
+	switch {
+	case d.DisableCommandSandbox:
+		return "spec.defaults.disableCommandSandbox is not allowed for SecurityScans: scans execute untrusted third-party code"
+	case d.KubernetesAdmin:
+		return "spec.defaults.kubernetesAdmin is not allowed for SecurityScans: scans execute untrusted third-party code"
+	}
+	return ""
 }
 
 // reconcileOneShot runs the scan exactly once per spec generation: the run is
@@ -95,7 +165,7 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 		if terminal {
 			phase = "Completed"
 		}
-		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan, scan.Status.LastRunName), func(fresh *triggersv1alpha1.SecurityScan) {
+		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.Phase = phase
 			fresh.Status.LastError = ""
 			setSecurityScanCondition(fresh, metav1.ConditionTrue, "ScanUpToDate", "Scan already ran for the current spec generation")
@@ -124,7 +194,7 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 
 	now := metav1.NewTime(r.now())
 	generation := scan.Generation
-	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan, runName), func(fresh *triggersv1alpha1.SecurityScan) {
+	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 		fresh.Status.Phase = "Running"
 		fresh.Status.ObservedGeneration = generation
 		fresh.Status.LastRunName = runName
@@ -157,10 +227,31 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 
 	now := r.now()
 	scheduledTime := nextSecurityScanScheduleTime(scan, schedule, observedSchedule, observedTimeZone, now)
+	if scheduledTime.IsZero() {
+		err := fmt.Errorf("failed to compute next schedule time")
+		if statusErr := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+			fresh.Status.LastError = err.Error()
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, "ScheduleError", err.Error())
+		}); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
 
 	if scheduledTime.After(now) {
+		lastRunDone := false
+		if scan.Status.LastRunName != "" {
+			terminal, err := r.lastRunTerminal(ctx, scan)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			lastRunDone = terminal
+		}
 		next := metav1.NewTime(scheduledTime)
-		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan, scan.Status.LastRunName), func(fresh *triggersv1alpha1.SecurityScan) {
+		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
+			if lastRunDone && fresh.Status.Phase == "Running" {
+				fresh.Status.Phase = "Completed"
+			}
 			if fresh.Status.Phase == "" || fresh.Status.Phase == "Suspended" {
 				fresh.Status.Phase = "Scheduled"
 			}
@@ -186,7 +277,7 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 			next := metav1.NewTime(nextScheduledTime)
 			msg := fmt.Sprintf("skipped tick %s: previous run %s still active", scheduledTime.UTC().Format(time.RFC3339), activeRun.Name)
 			log.Info("skipping scheduled scan AgentRun because previous run is still active", "scheduledTime", scheduledTime, "activeRun", activeRun.Name)
-			if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan, scan.Status.LastRunName), func(fresh *triggersv1alpha1.SecurityScan) {
+			if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 				fresh.Status.NextScheduleTime = &next
 				fresh.Status.ObservedSchedule = observedSchedule
 				fresh.Status.ObservedTimeZone = observedTimeZone
@@ -217,7 +308,7 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 	nextScheduledTime := schedule.Next(now)
 	last := metav1.NewTime(scheduledTime)
 	next := metav1.NewTime(nextScheduledTime)
-	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan, runName), func(fresh *triggersv1alpha1.SecurityScan) {
+	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 		fresh.Status.Phase = "Running"
 		fresh.Status.LastScanTime = &last
 		fresh.Status.NextScheduleTime = &next
@@ -251,14 +342,29 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		modeRef = &platformv1alpha1.ModeRef{Name: securityScanModeTemplate}
 	}
 
+	if err := validateTriggerRunDefaults(TriggerRunSpec{
+		Namespace:   scan.Namespace,
+		TriggerKind: securityScanKind,
+		TriggerName: scan.Name,
+		Defaults:    d,
+	}); err != nil {
+		return false, err
+	}
+
 	provider := triggersv1alpha1.NormalizeProvider(d.Provider)
+	dedupePermille := int32(0)
+	if scan.Spec.DedupeEnabled() {
+		dedupePermille = scan.Spec.DedupeSimilarityThresholdPermille()
+	}
 	annotations := map[string]string{
-		runModeAnnotation:                "auto",
-		securityScanNameAnnotation:       scan.Name,
-		securityScanRepositoryAnnotation: scan.Spec.RepoURL,
+		runModeAnnotation: "auto",
+		triggersv1alpha1.SecurityScanNameAnnotation:           scan.Name,
+		triggersv1alpha1.SecurityScanRepositoryAnnotation:     scan.Spec.RepoURL,
+		triggersv1alpha1.SecurityScanMinSeverityAnnotation:    scan.Spec.EffectiveMinSeverity(),
+		triggersv1alpha1.SecurityScanDedupePermilleAnnotation: strconv.Itoa(int(dedupePermille)),
 	}
 	if rev := strings.TrimSpace(scan.Spec.Revision); rev != "" {
-		annotations[securityScanRevisionAnnotation] = rev
+		annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] = rev
 	}
 	if strings.TrimSpace(d.CustomInstructions) != "" {
 		instructionsName := runName + "-instructions"
@@ -286,7 +392,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		Defaults:           d,
 		OwnerRef:           scan,
 		Scheme:             r.Scheme,
-		Labels:             map[string]string{securityScanLabel: scan.Name},
+		Labels:             map[string]string{securityScanLabel: securityScanLabelValue(scan.Name)},
 		Annotations:        annotations,
 		Context: &platformv1alpha1.AgentRunContext{
 			ProjectRef: &platformv1alpha1.ProjectRef{Kind: securityScanKind, Name: scan.Name},
@@ -299,7 +405,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 
 func (r *SecurityScanReconciler) activeScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, scheduledTime time.Time) (*platformv1alpha1.AgentRun, error) {
 	runs := &platformv1alpha1.AgentRunList{}
-	if err := r.List(ctx, runs, client.InNamespace(scan.Namespace), client.MatchingLabels{securityScanLabel: scan.Name}); err != nil {
+	if err := r.List(ctx, runs, client.InNamespace(scan.Namespace), client.MatchingLabels{securityScanLabel: securityScanLabelValue(scan.Name)}); err != nil {
 		return nil, fmt.Errorf("listing AgentRuns: %w", err)
 	}
 	scheduledID := scheduledTime.UTC().Format(time.RFC3339)
@@ -330,43 +436,68 @@ func (r *SecurityScanReconciler) lastRunTerminal(ctx context.Context, scan *trig
 	return isCronRunTerminal(run.Status.Phase), nil
 }
 
-// summarizeFindings refreshes finding counts from the finding store. It is
-// best-effort: a nil store or a summarize error leaves status.findings as is.
-func (r *SecurityScanReconciler) summarizeFindings(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName string) *triggersv1alpha1.SecurityScanFindingCounts {
-	if r.Findings == nil || runName == "" {
+// securityScanSeverities orders severities from most to least severe.
+var securityScanSeverities = []string{"critical", "high", "medium", "low", "info"}
+
+// securityScanFindingSummary carries scan-wide finding counts plus open
+// counts by severity used to evaluate spec.failOnSeverity.
+type securityScanFindingSummary struct {
+	counts         *triggersv1alpha1.SecurityScanFindingCounts
+	openBySeverity map[string]int32
+}
+
+// summarizeFindings refreshes finding counts from the finding store,
+// aggregated across every run of the scan (runName is intentionally empty so
+// findings re-attributed across runs stay counted). It is best-effort: a nil
+// store or a summarize error leaves status.findings as is.
+func (r *SecurityScanReconciler) summarizeFindings(ctx context.Context, scan *triggersv1alpha1.SecurityScan) *securityScanFindingSummary {
+	if r.Findings == nil {
 		return nil
 	}
-	counts, err := r.Findings.SummarizeSecurityFindings(ctx, scan.Namespace, scan.Name, runName)
+	counts, err := r.Findings.SummarizeSecurityFindings(ctx, scan.Namespace, scan.Name, "")
 	if err != nil {
-		logf.FromContext(ctx).Error(err, "failed to summarize security findings", "run", runName)
+		logf.FromContext(ctx).Error(err, "failed to summarize security findings", "scan", scan.Name)
 		return nil
 	}
-	return &triggersv1alpha1.SecurityScanFindingCounts{
-		Total:    counts["total"],
-		Open:     counts["open"],
-		Critical: counts["critical"],
-		High:     counts["high"],
-		Medium:   counts["medium"],
-		Low:      counts["low"],
-		Info:     counts["info"],
+	openBySeverity := make(map[string]int32, len(securityScanSeverities))
+	for _, severity := range securityScanSeverities {
+		if open, ok := counts["open_"+severity]; ok {
+			openBySeverity[severity] = open
+			continue
+		}
+		openBySeverity[severity] = counts[severity]
+	}
+	return &securityScanFindingSummary{
+		counts: &triggersv1alpha1.SecurityScanFindingCounts{
+			Total:    counts["total"],
+			Open:     counts["open"],
+			Critical: counts["critical"],
+			High:     counts["high"],
+			Medium:   counts["medium"],
+			Low:      counts["low"],
+			Info:     counts["info"],
+		},
+		openBySeverity: openBySeverity,
 	}
 }
 
 // updateStatus applies mutate to a fresh copy of the scan, then folds in the
 // finding counts and the failOnSeverity threshold, which overrides the Ready
-// condition set by mutate.
-func (r *SecurityScanReconciler) updateStatus(ctx context.Context, scan *triggersv1alpha1.SecurityScan, findings *triggersv1alpha1.SecurityScanFindingCounts, mutate func(*triggersv1alpha1.SecurityScan)) error {
+// condition set by mutate. The threshold only counts open findings, so
+// findings triaged away no longer trip it.
+func (r *SecurityScanReconciler) updateStatus(ctx context.Context, scan *triggersv1alpha1.SecurityScan, findings *securityScanFindingSummary, mutate func(*triggersv1alpha1.SecurityScan)) error {
 	failOn := scan.Spec.FailOnSeverity
 	err := retrySecurityScanStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(scan), func(fresh *triggersv1alpha1.SecurityScan) {
 		mutate(fresh)
-		if findings != nil {
-			fresh.Status.Findings = findings
-		}
-		if failOn == "" || fresh.Status.Findings == nil {
+		if findings == nil {
 			return
 		}
-		if n := findingsAtOrAbove(fresh.Status.Findings, failOn); n > 0 {
-			msg := fmt.Sprintf("%d findings at or above severity %q", n, failOn)
+		fresh.Status.Findings = findings.counts
+		if failOn == "" {
+			return
+		}
+		if n := openFindingsAtOrAbove(findings.openBySeverity, failOn); n > 0 {
+			msg := fmt.Sprintf("%d open findings at or above severity %q", n, failOn)
 			setSecurityScanCondition(fresh, metav1.ConditionFalse, "FindingsExceedThreshold", msg)
 		}
 	})
@@ -376,22 +507,12 @@ func (r *SecurityScanReconciler) updateStatus(ctx context.Context, scan *trigger
 	return nil
 }
 
-// findingsAtOrAbove counts findings with severity at or above min.
-func findingsAtOrAbove(counts *triggersv1alpha1.SecurityScanFindingCounts, min string) int32 {
-	bySeverity := []struct {
-		severity string
-		count    int32
-	}{
-		{"critical", counts.Critical},
-		{"high", counts.High},
-		{"medium", counts.Medium},
-		{"low", counts.Low},
-		{"info", counts.Info},
-	}
+// openFindingsAtOrAbove counts open findings with severity at or above min.
+func openFindingsAtOrAbove(openBySeverity map[string]int32, min string) int32 {
 	var total int32
-	for _, entry := range bySeverity {
-		total += entry.count
-		if entry.severity == min {
+	for _, severity := range securityScanSeverities {
+		total += openBySeverity[severity]
+		if severity == min {
 			return total
 		}
 	}
@@ -411,6 +532,20 @@ func nextSecurityScanScheduleTime(scan *triggersv1alpha1.SecurityScan, schedule 
 		return schedule.Next(scan.Status.LastScanTime.Time)
 	}
 	return schedule.Next(now)
+}
+
+// securityScanLabelValue converts a scan name into a valid label value: names
+// longer than the 63-character label limit are truncated and suffixed with a
+// short hash. TriggerRunMatches on the untruncated trigger name remains the
+// authoritative run-ownership check.
+func securityScanLabelValue(scanName string) string {
+	if len(scanName) <= 63 {
+		return scanName
+	}
+	hashBytes := sha1.Sum([]byte(scanName))
+	hash := hex.EncodeToString(hashBytes[:])[:8]
+	truncated := strings.TrimRight(scanName[:63-len(hash)-1], "-.")
+	return truncated + "-" + hash
 }
 
 func securityScanRunName(sourceName, suffix string) string {
@@ -442,6 +577,18 @@ func setSecurityScanCondition(scan *triggersv1alpha1.SecurityScan, status metav1
 		ObservedGeneration: scan.Generation,
 		Reason:             reason,
 		Message:            message,
+	})
+}
+
+func retrySecurityScanPatch(ctx context.Context, c client.Client, key client.ObjectKey, mutate func(*triggersv1alpha1.SecurityScan)) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		fresh := &triggersv1alpha1.SecurityScan{}
+		if err := c.Get(ctx, key, fresh); err != nil {
+			return err
+		}
+		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		mutate(fresh)
+		return c.Patch(ctx, fresh, patch)
 	})
 }
 

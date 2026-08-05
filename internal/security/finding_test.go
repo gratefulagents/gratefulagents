@@ -277,3 +277,99 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestNormalizeReferencesKeepOnlyHTTP(t *testing.T) {
+	f := Finding{
+		Title: "t", Category: "xss", Severity: "high", Description: "d",
+		References: []string{
+			"https://example.com/advisory",
+			"http://example.org/notes",
+			"HTTPS://example.com/upper",
+			"javascript:alert(1)",
+			"data:text/html;base64,PHNjcmlwdD4=",
+			"file:///etc/passwd",
+			"ftp://example.com/file",
+			"https://",
+			"not a url",
+			"://bad",
+			"",
+		},
+	}
+	f.Normalize()
+	want := []string{
+		"HTTPS://example.com/upper",
+		"http://example.org/notes",
+		"https://example.com/advisory",
+	}
+	if !equalStrings(f.References, want) {
+		t.Errorf("References = %v, want %v", f.References, want)
+	}
+}
+
+func TestNormalizeRedactsCredentials(t *testing.T) {
+	// Token shapes are assembled at runtime so no credential-shaped literal
+	// appears in the source.
+	awsKey := "AKIA" + "IOSFODNN7EXAMPLE"
+	awsKey2 := "AKIA" + "0123456789ABCDEF"
+	ghToken := "ghp" + "_" + strings.Repeat("ab12", 6)
+	ghsToken := "ghs" + "_" + strings.Repeat("CD34", 6)
+	openaiKey := "sk" + "-" + strings.Repeat("proj", 8)
+	slackToken := "xoxb" + "-123456789012-" + strings.Repeat("x", 12)
+	googleKey := "AIza" + strings.Repeat("Sy-9_", 7)
+	jwt := "eyJ" + strings.Repeat("a1", 8) + "." + "eyJ" + strings.Repeat("b2", 8) + "." + strings.Repeat("c3", 8)
+	pem := "-----BEGIN RSA PRIVATE" + " KEY-----\nMIIEowIBAAKCAQEA7\nanotherline==\n-----END RSA PRIVATE" + " KEY-----"
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"pem private key block", "key:\n" + pem + "\ntrailer", "key:\n[REDACTED]\ntrailer"},
+		{"aws access key id", "creds := \"" + awsKey + "\"", "creds := \"[REDACTED]\""},
+		{"github token", "token = " + ghToken, "token = [REDACTED]"},
+		{"github server token", ghsToken, "[REDACTED]"},
+		{"openai key", openaiKey, "[REDACTED]"},
+		{"slack token", slackToken, "[REDACTED]"},
+		{"google api key", googleKey, "[REDACTED]"},
+		{"jwt", "bearer " + jwt, "bearer [REDACTED]"},
+		{"two tokens in one field", "a=" + awsKey + " b=" + awsKey2, "a=[REDACTED] b=[REDACTED]"},
+		{
+			"ordinary code passes through",
+			"func Query(db *sql.DB, id string) error {\n\trows, err := db.Query(\"SELECT * FROM users WHERE id = \" + id)\n\treturn err\n}",
+			"func Query(db *sql.DB, id string) error {\n\trows, err := db.Query(\"SELECT * FROM users WHERE id = \" + id)\n\treturn err\n}",
+		},
+		{"short sk prefix untouched", "skew := sk-tooShort12", "skew := sk-tooShort12"},
+		{"pem mention without block untouched", "rotate the RSA private key material", "rotate the RSA private key material"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			title := awsKey + " leaked"
+			f := Finding{
+				Title: title, Category: "secrets", Severity: "high",
+				Description:  tt.in,
+				Impact:       tt.in,
+				AttackVector: tt.in,
+				Remediation:  tt.in,
+				Evidence:     []Evidence{{Snippet: tt.in}},
+			}
+			f.Normalize()
+			for field, got := range map[string]string{
+				"Description": f.Description, "Impact": f.Impact,
+				"AttackVector": f.AttackVector, "Remediation": f.Remediation,
+				"Evidence.Snippet": f.Evidence[0].Snippet,
+			} {
+				if got != tt.want {
+					t.Errorf("%s = %q, want %q", field, got, tt.want)
+				}
+			}
+			if f.Title != title {
+				t.Errorf("Title = %q, want untouched", f.Title)
+			}
+
+			f.Normalize() // idempotent: a second pass changes nothing
+			if f.Evidence[0].Snippet != tt.want {
+				t.Errorf("second Normalize Snippet = %q, want %q", f.Evidence[0].Snippet, tt.want)
+			}
+		})
+	}
+}

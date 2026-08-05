@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -111,7 +112,7 @@ func (s *Server) GetSecurityFinding(ctx context.Context, req *platform.GetSecuri
 	if err != nil {
 		return nil, err
 	}
-	events, err := sec.ListSecurityFindingEvents(ctx, finding.ID, securityFindingEventsLimit)
+	events, err := sec.ListSecurityFindingEvents(ctx, finding.Namespace, finding.ID, securityFindingEventsLimit)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("listing security finding events: %w", err))
 	}
@@ -140,10 +141,13 @@ func (s *Server) UpdateSecurityFindingStatus(ctx context.Context, req *platform.
 	if err != nil {
 		return nil, err
 	}
-	if err := sec.SetSecurityFindingStatus(ctx, finding.ID, req.GetStatus(), actor.Subject, req.GetNote()); err != nil {
+	if err := sec.SetSecurityFindingStatus(ctx, finding.Namespace, finding.ID, req.GetStatus(), actor.Subject, req.GetNote()); err != nil {
+		if errors.Is(err, store.ErrSecurityFindingNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", finding.ID))
+		}
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("updating security finding status: %w", err))
 	}
-	updated, err := sec.GetSecurityFinding(ctx, finding.ID)
+	updated, err := sec.GetSecurityFinding(ctx, finding.Namespace, finding.ID)
 	if err != nil || updated == nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reloading security finding: %w", err))
 	}
@@ -168,22 +172,25 @@ func (s *Server) GetSecurityFindingSummary(ctx context.Context, req *platform.Ge
 	return &platform.GetSecurityFindingSummaryResponse{Counts: counts}, nil
 }
 
-// authorizedSecurityFinding loads a finding by request ID and verifies the
-// caller may act in the finding's namespace.
+// authorizedSecurityFinding loads a finding by request ID, scoped to the
+// namespace the caller is authorized to act in. A finding that does not exist
+// and one that lives in a namespace the caller may not read are both reported
+// as NotFound so the endpoint cannot be used as a UUID-existence oracle.
 func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.SecurityFindingStore, rawID string) (*store.SecurityFindingRecord, error) {
 	id, err := uuid.Parse(strings.TrimSpace(rawID))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid finding id %q", rawID))
 	}
-	finding, err := sec.GetSecurityFinding(ctx, id)
+	namespace, err := s.authorizeRequestNamespace(ctx, "", nil)
 	if err != nil {
+		return nil, err
+	}
+	finding, err := sec.GetSecurityFinding(ctx, namespace, id)
+	if err != nil && !errors.Is(err, store.ErrSecurityFindingNotFound) {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("getting security finding: %w", err))
 	}
-	if finding == nil {
+	if err != nil || finding == nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", id))
-	}
-	if _, err := s.authorizeRequestNamespace(ctx, finding.Namespace, nil); err != nil {
-		return nil, err
 	}
 	return finding, nil
 }

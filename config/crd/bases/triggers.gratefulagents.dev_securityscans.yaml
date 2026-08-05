@@ -107,6 +107,10 @@ spec:
                 description: |-
                   defaults holds the fields used when creating AgentRuns. The controller
                   forces defaults.repoURL and defaults.baseBranch from the scan target.
+                  Because scans ingest untrusted third-party code, defaults requesting
+                  disableCommandSandbox or kubernetesAdmin are rejected: the controller
+                  refuses to create runs and reports Ready=False with reason
+                  InsecureDefaults.
                 properties:
                   additionalRepos:
                     description: |-

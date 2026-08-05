@@ -8,6 +8,25 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+// Annotations set by the SecurityScan controller on every scan AgentRun.
+// Agent-side security tools read them to bind reported findings to the scan
+// and to enforce the scan's reporting policy.
+const (
+	// SecurityScanNameAnnotation is the SecurityScan name that created the run.
+	SecurityScanNameAnnotation = "security.gratefulagents.dev/scan-name"
+	// SecurityScanRepositoryAnnotation is the scanned repository URL.
+	SecurityScanRepositoryAnnotation = "security.gratefulagents.dev/repository"
+	// SecurityScanRevisionAnnotation is the pinned revision, when set.
+	SecurityScanRevisionAnnotation = "security.gratefulagents.dev/revision"
+	// SecurityScanMinSeverityAnnotation is spec.minSeverity after defaulting
+	// (EffectiveMinSeverity).
+	SecurityScanMinSeverityAnnotation = "security.gratefulagents.dev/min-severity"
+	// SecurityScanDedupePermilleAnnotation is the dedupe similarity threshold
+	// in permille (DedupeSimilarityThresholdPermille), or "0" when dedupe is
+	// disabled.
+	SecurityScanDedupePermilleAnnotation = "security.gratefulagents.dev/dedupe-permille"
+)
+
 // SecurityScanSpec defines the desired state of SecurityScan.
 type SecurityScanSpec struct {
 	// repoURL is the git repository URL that is the target of the scan.
@@ -102,6 +121,10 @@ type SecurityScanSpec struct {
 
 	// defaults holds the fields used when creating AgentRuns. The controller
 	// forces defaults.repoURL and defaults.baseBranch from the scan target.
+	// Because scans ingest untrusted third-party code, defaults requesting
+	// disableCommandSandbox or kubernetesAdmin are rejected: the controller
+	// refuses to create runs and reports Ready=False with reason
+	// InsecureDefaults.
 	Defaults AgentRunDefaults `json:"defaults"`
 
 	// maxRuntime optionally caps the runtime of each scan AgentRun,

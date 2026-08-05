@@ -20,7 +20,7 @@ import {
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneSoft } from "@/lib/status";
-import type { SecurityFinding, SecurityScan } from "@/rpc/platform/service_pb";
+import type { SecurityFinding, SecurityFindingEvent, SecurityScan } from "@/rpc/platform/service_pb";
 
 const FINDING_STATUSES = [
   "open",
@@ -67,6 +67,10 @@ export function SecurityScanDetail() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
 
+  const [events, setEvents] = useState<SecurityFindingEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState("");
+
   const fetchScan = useCallback(async () => {
     if (!namespace || !runName) return;
     setLoading(true);
@@ -105,6 +109,24 @@ export function SecurityScanDetail() {
     }
   }, [namespace, runName, severity, status, category, search]);
 
+  const fetchEvents = useCallback(async () => {
+    if (!selectedId) {
+      setEvents([]);
+      setEventsError("");
+      return;
+    }
+    setEventsLoading(true);
+    setEventsError("");
+    try {
+      const resp = await client.getSecurityFinding({ id: selectedId });
+      setEvents(resp.events);
+    } catch (e: unknown) {
+      setEventsError(e instanceof Error ? e.message : "Failed to load finding history");
+    } finally {
+      setEventsLoading(false);
+    }
+  }, [selectedId]);
+
   useEffect(() => {
     void fetchScan();
   }, [fetchScan]);
@@ -112,6 +134,10 @@ export function SecurityScanDetail() {
   useEffect(() => {
     void fetchFindings();
   }, [fetchFindings]);
+
+  useEffect(() => {
+    void fetchEvents();
+  }, [fetchEvents]);
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -134,7 +160,7 @@ export function SecurityScanDetail() {
     );
     try {
       await client.updateSecurityFindingStatus({ id: finding.id, status: nextStatus, note: "" });
-      await Promise.all([fetchFindings(), fetchScan()]);
+      await Promise.all([fetchFindings(), fetchScan(), fetchEvents()]);
     } catch (e: unknown) {
       setFindings(previous);
       setActionError(e instanceof Error ? e.message : "Failed to update finding status");
@@ -418,6 +444,38 @@ export function SecurityScanDetail() {
                       </pre>
                     </details>
                   )}
+
+                  <section aria-label="Finding history" className="space-y-1.5">
+                    <h4 className="text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70">
+                      History
+                    </h4>
+                    {eventsLoading ? (
+                      <p className="text-[12px] text-muted-foreground">Loading history…</p>
+                    ) : eventsError ? (
+                      <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-[12px]">
+                        {eventsError}
+                      </p>
+                    ) : events.length === 0 ? (
+                      <p className="text-[12px] text-muted-foreground">No history recorded.</p>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {events.map((event) => (
+                          <li key={String(event.id)} className="text-[12px] leading-relaxed">
+                            <span className="font-medium capitalize">{statusLabel(event.eventType)}</span>
+                            {event.actor && (
+                              <span className="text-muted-foreground"> · {event.actor}</span>
+                            )}
+                            {event.createdAt && (
+                              <span className="text-muted-foreground"> · {formatSeen(event.createdAt)}</span>
+                            )}
+                            {event.note && (
+                              <div className="text-muted-foreground">{event.note}</div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
                 </aside>
               )}
             </div>

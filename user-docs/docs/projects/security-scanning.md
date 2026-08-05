@@ -19,6 +19,7 @@ Understand the trust boundaries before acting on results:
 - **Scanned code is untrusted input.** The scan reads the target repository, and everything a finding contains — titles, descriptions, code snippets — is derived from that repository by a model. Treat finding text as untrusted when you copy it into tickets, chat, or other systems.
 - **Scans are read-only research.** Scan runs use the `security-scan` mode by default, which clamps the run to read-only, and workflow tasks assume read-only specialist roles. The finding tools only write scan state on the platform; a scan does not modify the repository. The one exception is the `exploit-validator` role, which may build a proof of concept inside the sandbox — never against live or third-party systems.
 - **Findings are AI-generated.** Expect false positives and missed issues. A scan is a research aid that points humans at suspicious code; it is not a compliance scanner, and its findings require human validation before you treat them as real vulnerabilities or disclose them.
+- **Sandboxing is required.** A scan whose `spec.defaults` disables the command sandbox or requests Kubernetes-admin access is rejected with `Ready=False` and reason `InsecureDefaults`.
 
 ## A minimal one-shot scan
 
@@ -108,16 +109,17 @@ spec:
       prompt: "Re-read the cited code and confirm the finding is exploitable; downgrade it if not."
       runOn: high-and-above             # one of: all (default), confirmed, high-and-above
 
-  # Duplicate suppression. Enabled by default.
+  # Duplicate suppression. This policy is enforced when the report is submitted.
   dedupe:
     enabled: true                       # default true
     similarityThresholdPermille: 820    # default 820 = findings with similarity >= 0.82 merge
 
-  # Findings below this severity are excluded from the report. Default "low".
+  # Findings below this severity are excluded from the report. The controller
+  # stamps this policy on the run and the report tool enforces it. Default "low".
   minSeverity: low
 
   # When set, the scan's Ready condition becomes False with reason
-  # FindingsExceedThreshold while findings at or above this severity exist.
+  # FindingsExceedThreshold while OPEN findings at or above this severity exist.
   failOnSeverity: high
 
   # Schedule: standard 5-field cron or a descriptor such as "@daily".
@@ -133,6 +135,7 @@ spec:
   # AgentRun defaults for scan runs (model, provider, secrets, runtime, and so on).
   # The controller forces defaults.repoURL and defaults.baseBranch from the scan
   # target, and applies the "security-scan" mode unless defaults.modeRef is set.
+  # disableCommandSandbox and kubernetesAdmin are not allowed for SecurityScans.
   defaults:
     model: gpt-5.4
     provider: openai
@@ -171,7 +174,7 @@ The platform ships six `RoleInstruction` specialists used by the default plan �
 
 Set `role` on a workflow task to pick a different specialist, or define your own `RoleInstruction` and reference it by name.
 
-Sub-agents report vulnerabilities by calling the `report_security_finding` tool with one structured finding at a time; findings described only in prose are not recorded. During triage the agent can use `list_security_findings` to review what was reported and `update_security_finding` to change a finding's status with a note. The run finishes by calling `submit_security_scan_report` exactly once, which deduplicates, ranks, renders the report artifacts, and marks the scan completed.
+Sub-agents report vulnerabilities by calling the `report_security_finding` tool with one structured finding at a time; findings described only in prose are not recorded. During triage the agent can use `list_security_findings` to review what was reported and `update_security_finding` to change a finding's status with a note. The run finishes by calling `submit_security_scan_report` exactly once, which enforces the scan's dedupe and minimum-severity policies, ranks findings, renders the report artifacts, and marks the scan completed.
 
 ## Findings
 
@@ -189,6 +192,8 @@ A finding is a structured record. Required fields are `title`, `category`, `seve
 | `evidence` | Code citations: `file_path`, `start_line`, `end_line`, `snippet`, `note`. |
 | `references`, `tags` | External references and free-form labels. |
 
+The platform stamps a finding's repository and revision and anchors source-agent identity to the run, so the agent cannot forge its provenance. It accepts only well-formed `http` and `https` reference URLs, and redacts obvious credential material from finding prose and evidence snippets before storage.
+
 Every finding gets a stable **fingerprint** derived from its category, location, and normalized title, so the same issue reported twice merges instead of duplicating.
 
 ### Lifecycle
@@ -201,7 +206,9 @@ Change a finding's status from the dashboard, or from inside an agent run with t
 
 ### Dedupe
 
-Findings with the same fingerprint always merge. Beyond that, two findings merge when their similarity meets the configured threshold (default 0.82; set `spec.dedupe.similarityThresholdPermille` to tune, or `spec.dedupe.enabled: false` to disable). Similarity compares title and description tokens, boosted when findings sit in the same file with overlapping line ranges or share a CWE. The surviving canonical finding of each cluster is the one with the highest severity, then highest confidence, then most evidence, then longest description.
+Findings persist across runs of the same scan. Their storage key is `(namespace, scan name, repository, fingerprint)`, so re-observing a fingerprint in a later run increments its occurrence count and preserves its triage status. Finding and status counts are scoped to the scan across all of its runs.
+
+At report submission, the controller-stamped dedupe policy controls similarity suppression rather than only guiding the agent. Findings with the same fingerprint always merge; beyond that, findings merge when similarity meets the configured threshold (default 0.82; set `spec.dedupe.similarityThresholdPermille` to tune). Set `spec.dedupe.enabled: false` to stamp dedupe permille `0` and disable report-time dedupe. Similarity compares title and description tokens, boosted when findings sit in the same file with overlapping line ranges or share a CWE. The surviving canonical finding of each cluster is the one with the highest severity, then highest confidence, then most evidence, then longest description.
 
 ### Ranking
 
@@ -218,7 +225,7 @@ weight: <severity|confidence|exploitability|exposure>=<float>[,<name>=<float>...
 - `severity-floor` raises every finding of a category to at least the given severity; floors apply before the `min-severity` filter, so a floored finding cannot be filtered out by it.
 - `severity-ceiling` caps a category's severity.
 - `exclude` drops whole categories from the report.
-- `min-severity` filters findings below a severity (in addition to `spec.minSeverity`).
+- `min-severity` filters findings below a severity. The report tool always applies the stricter of this model-supplied value and the controller-stamped `spec.minSeverity` policy.
 - `weight` rebalances the four scoring dimensions.
 
 Lines that are not valid directives are kept as prose and given to the triage agent verbatim, so you can mix directives with plain-language ranking guidance.
@@ -232,15 +239,19 @@ When the scan submits its report, two artifacts are saved on the scan's agent ru
 
 In the dashboard, the **Security** section lists scans with their status and per-severity finding counts. Each scan links to a detail page where you can filter findings by severity, status, category, and text search, and change a finding's status inline — for example, marking a validated non-issue as `false_positive` or a real one as `confirmed`.
 
-On the cluster side, `kubectl get securityscans` shows the repository, schedule, last scan time, and critical/high/total finding counts. The resource status also records the last run name, next scheduled time, cumulative runs created, the latest finding summary, and a `Ready` condition. With `failOnSeverity` set, `Ready` turns `False` with reason `FindingsExceedThreshold` while findings at or above that severity exist for the latest run — useful for alerting on scan results.
+On the cluster side, `kubectl get securityscans` shows the repository, schedule, last scan time, and critical/high/total finding counts. The resource status also records the last run name, next scheduled time, cumulative runs created, scan-scoped finding counts, and a `Ready` condition. With `failOnSeverity` set, `Ready` turns `False` with reason `FindingsExceedThreshold` while open scan findings at or above that severity exist — useful for alerting on scan results.
 
 ## Scheduling behavior
 
 - **One-shot** (no `schedule`): the scan runs when created and again whenever the spec generation changes.
-- **Scheduled**: standard five-field cron expressions and descriptors such as `@daily` are supported, evaluated in `timeZone` (default UTC). The default `concurrencyPolicy` is `Forbid`: a due tick is skipped while a previous scan run is still active. Set `Allow` to permit overlapping runs.
+- **Scheduled**: standard five-field cron expressions and descriptors such as `@daily` are supported, evaluated in `timeZone` (default UTC). The default `concurrencyPolicy` is `Forbid`: a due tick is skipped while a previous scan run is still active. Set `Allow` to permit overlapping runs. When a scheduled run finishes, the scan phase becomes `Completed` until the next run starts.
 - **Suspend**: set `spec.suspend: true` to pause new scan runs without deleting the resource; status stays readable.
 
+A malformed schedule sets `Ready=False` with reason `InvalidSchedule`. A schedule that parses but cannot produce a next time sets `Ready=False` with reason `ScheduleError` instead of repeatedly reconciling it.
+
 Skipped ticks are not backfilled, matching [Cron schedule](./cron.md) semantics.
+
+**Deletion.** Deleting a SecurityScan removes its stored scans, findings, and triage history: the controller holds a cleanup finalizer and purges the persisted data before the resource disappears. If the findings store is unreachable, deletion is retried with backoff and released after a bounded grace period so a failing store cannot wedge the resource; the run artifacts (Markdown report and SARIF) live with their agent runs and follow the run's own lifecycle.
 
 ## Operational guidance
 
@@ -248,4 +259,4 @@ Skipped ticks are not backfilled, matching [Cron schedule](./cron.md) semantics.
 
 **Parallelism.** `parallelism` (default 4) trades wall-clock time against concurrent load: each in-flight task is a live sub-agent consuming provider rate limits and sandbox resources. Raise it toward 16 for wide, independent workflows when your provider limits allow; lower it to 1–2 on constrained clusters or strict rate limits.
 
-**Triage discipline.** Treat a fresh scan as a candidate list, not a report you forward. Validate each finding against the cited evidence, mark non-issues `false_positive` (the audit trail keeps them from being re-litigated on the next scan — reported duplicates merge into the existing finding instead of reopening it), mark real issues `confirmed`, and move them to `fixed` or `accepted_risk` once resolved. Use `postScripts` with `runOn: high-and-above` to make the scan itself re-verify its most important findings before they reach you, and ranker `exclude:` directives to silence categories that are consistently noise in your codebase.
+**Triage discipline.** Treat a fresh scan as a candidate list, not a report you forward. Validate each finding against the cited evidence, mark non-issues `false_positive` (the audit trail keeps them from being re-litigated on the next scan — reported duplicates merge into the existing finding instead of reopening it), mark real issues `confirmed`, and move them to `fixed` or `accepted_risk` once resolved. Changing a false positive, or any other finding, away from `open` updates the scan's open counts and clears its contribution to `failOnSeverity`. Use `postScripts` with `runOn: high-and-above` to make the scan itself re-verify its most important findings before they reach you, and ranker `exclude:` directives to silence categories that are consistently noise in your codebase.

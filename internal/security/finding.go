@@ -11,7 +11,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -288,6 +290,51 @@ func normalizeStringSet(in []string, transform func(string) string) []string {
 	return out
 }
 
+// normalizeReference keeps only well-formed http/https URLs. References are
+// model-authored and rendered as clickable links in the dashboard, so other
+// schemes (javascript:, data:, file:, ...) and malformed values are dropped.
+func normalizeReference(s string) string {
+	s = strings.TrimSpace(s)
+	u, err := url.Parse(s)
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		if u.Host == "" {
+			return ""
+		}
+		return s
+	default:
+		return ""
+	}
+}
+
+// RedactedMarker replaces credential material found in model-authored text.
+const RedactedMarker = "[REDACTED]"
+
+// redactionPatterns match obvious credential material: PEM private key
+// blocks and well-known provider token shapes. Deliberately conservative —
+// no generic entropy heuristics — so ordinary code passes through unchanged.
+var redactionPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`),
+	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),                                              // AWS access key ID
+	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{20,}`),                                    // GitHub token
+	regexp.MustCompile(`sk-[A-Za-z0-9]{20,}`),                                           // OpenAI-style secret key
+	regexp.MustCompile(`xox[abprs]-[A-Za-z0-9-]{10,}`),                                  // Slack token
+	regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`),                                         // Google API key
+	regexp.MustCompile(`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`), // JWT
+}
+
+// redactSecrets replaces credential material in model-authored text with
+// RedactedMarker. It is idempotent: no pattern matches the marker itself.
+func redactSecrets(s string) string {
+	for _, re := range redactionPatterns {
+		s = re.ReplaceAllLiteralString(s, RedactedMarker)
+	}
+	return s
+}
+
 func normalizeCWE(s string) string {
 	s = strings.ToUpper(strings.TrimSpace(s))
 	s = strings.TrimPrefix(s, "CWE-")
@@ -301,8 +348,9 @@ func normalizeCWE(s string) string {
 
 // Normalize canonicalizes the finding in place: trims and clamps text,
 // alias-maps severity/confidence/category, dedupes and sorts CWE, tags, and
-// references, normalizes file paths and line numbers, and recomputes the
-// Fingerprint.
+// references (keeping only http/https reference URLs), redacts obvious
+// credential material from prose and evidence snippets, normalizes file
+// paths and line numbers, and recomputes the Fingerprint.
 func (f *Finding) Normalize() {
 	if f == nil {
 		return
@@ -328,10 +376,10 @@ func (f *Finding) Normalize() {
 
 	f.CWE = normalizeStringSet(f.CWE, normalizeCWE)
 
-	f.Description = clampText(f.Description, maxTextLen)
-	f.Impact = clampText(f.Impact, maxTextLen)
-	f.AttackVector = clampText(f.AttackVector, maxTextLen)
-	f.Remediation = clampText(f.Remediation, maxTextLen)
+	f.Description = redactSecrets(clampText(f.Description, maxTextLen))
+	f.Impact = redactSecrets(clampText(f.Impact, maxTextLen))
+	f.AttackVector = redactSecrets(clampText(f.AttackVector, maxTextLen))
+	f.Remediation = redactSecrets(clampText(f.Remediation, maxTextLen))
 
 	if len(f.Evidence) == 0 {
 		f.Evidence = nil
@@ -345,11 +393,11 @@ func (f *Finding) Normalize() {
 		if e.EndLine < 0 {
 			e.EndLine = 0
 		}
-		e.Snippet = clampText(e.Snippet, maxSnippetLen)
+		e.Snippet = redactSecrets(clampText(e.Snippet, maxSnippetLen))
 		e.Note = strings.TrimSpace(e.Note)
 	}
 
-	f.References = normalizeStringSet(f.References, nil)
+	f.References = normalizeStringSet(f.References, normalizeReference)
 	f.SourceAgent = strings.TrimSpace(f.SourceAgent)
 	f.ScanStep = strings.TrimSpace(f.ScanStep)
 	f.Tags = normalizeStringSet(f.Tags, func(s string) string { return strings.ToLower(s) })

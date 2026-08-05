@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS security_findings (
     namespace       TEXT NOT NULL,
     scan_name       TEXT NOT NULL,
     run_name        TEXT NOT NULL,
-    session_id      UUID,
+    session_id      UUID REFERENCES agent_sessions(id) ON DELETE SET NULL,
     fingerprint     TEXT NOT NULL,
     title           TEXT NOT NULL,
     category        TEXT NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS security_findings (
     raw             JSONB NOT NULL DEFAULT '{}',
     first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (namespace, repository, fingerprint)
+    UNIQUE (namespace, scan_name, repository, fingerprint)
 );
 
 CREATE INDEX IF NOT EXISTS idx_security_findings_namespace_scan_name

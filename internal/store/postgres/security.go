@@ -26,6 +26,22 @@ func securitySeverityRankSQL(expr string) string {
 		" ELSE -1 END"
 }
 
+// escapeSecurityLike escapes the LIKE/ILIKE metacharacters %, _, and the
+// default escape character backslash so a search term matches literally.
+func escapeSecurityLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
+// requireSecurityNamespace rejects empty namespaces so per-finding
+// operations fail closed instead of matching across all namespaces.
+func requireSecurityNamespace(namespace string) error {
+	if namespace == "" {
+		return errors.New("namespace is required")
+	}
+	return nil
+}
+
 // securityFindingFilterSQL builds a parameterized WHERE clause for the
 // filter. It returns an empty string when no conditions apply.
 func securityFindingFilterSQL(f store.SecurityFindingFilter) (string, []any) {
@@ -57,7 +73,7 @@ func securityFindingFilterSQL(f store.SecurityFindingFilter) (string, []any) {
 		add("status = $%d", f.Status)
 	}
 	if f.Search != "" {
-		args = append(args, "%"+f.Search+"%")
+		args = append(args, "%"+escapeSecurityLike(f.Search)+"%")
 		n := len(args)
 		conds = append(conds, fmt.Sprintf("(title ILIKE $%d OR description ILIKE $%d OR file_path ILIKE $%d)", n, n, n))
 	}
@@ -240,7 +256,11 @@ func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFi
 	defer tx.Rollback(ctx)
 
 	// xmax = 0 distinguishes a fresh insert from a conflict-update: updated
-	// rows carry the deleting/locking transaction id in xmax.
+	// rows carry the deleting/locking transaction id in xmax. This is a
+	// heuristic: a concurrent row lock (e.g. SELECT ... FOR UPDATE or a
+	// speculative insert race) can set xmax on a freshly inserted row and
+	// report it as a merge. The only consequence is a spurious "reobserved"
+	// event; the stored finding itself is unaffected.
 	var created bool
 	row := tx.QueryRow(ctx, `
 		INSERT INTO security_findings (scan_id, namespace, scan_name, run_name, session_id,
@@ -249,7 +269,7 @@ func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFi
 			references_urls, source_agent, scan_step, score, status, duplicate_of, occurrences, raw)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
 			$19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
-		ON CONFLICT (namespace, repository, fingerprint) DO UPDATE SET
+		ON CONFLICT (namespace, scan_name, repository, fingerprint) DO UPDATE SET
 			scan_id = EXCLUDED.scan_id,
 			scan_name = EXCLUDED.scan_name,
 			run_name = EXCLUDED.run_name,
@@ -340,11 +360,16 @@ func (s *Store) ListSecurityFindings(ctx context.Context, f store.SecurityFindin
 	return out, nil
 }
 
-func (s *Store) GetSecurityFinding(ctx context.Context, id uuid.UUID) (*store.SecurityFindingRecord, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT `+securityFindingColumns+`
-		FROM security_findings
-		WHERE id = $1`, id)
+const getSecurityFindingSQL = `
+	SELECT ` + securityFindingColumns + `
+	FROM security_findings
+	WHERE namespace = $1 AND id = $2`
+
+func (s *Store) GetSecurityFinding(ctx context.Context, namespace string, id uuid.UUID) (*store.SecurityFindingRecord, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	row := s.pool.QueryRow(ctx, getSecurityFindingSQL, namespace, id)
 	rec, err := scanSecurityFindingRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -355,7 +380,16 @@ func (s *Store) GetSecurityFinding(ctx context.Context, id uuid.UUID) (*store.Se
 	return rec, nil
 }
 
-func (s *Store) SetSecurityFindingStatus(ctx context.Context, id uuid.UUID, status, actor, note string) error {
+const setSecurityFindingStatusSQL = `
+	UPDATE security_findings f SET status = $3
+	FROM security_findings prev
+	WHERE f.namespace = $1 AND f.id = $2 AND prev.id = f.id
+	RETURNING prev.status`
+
+func (s *Store) SetSecurityFindingStatus(ctx context.Context, namespace string, id uuid.UUID, status, actor, note string) error {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return err
+	}
 	if !store.ValidSecurityFindingStatus(status) {
 		return fmt.Errorf("invalid security finding status %q", status)
 	}
@@ -366,13 +400,9 @@ func (s *Store) SetSecurityFindingStatus(ctx context.Context, id uuid.UUID, stat
 	defer tx.Rollback(ctx)
 
 	var previous string
-	err = tx.QueryRow(ctx, `
-		UPDATE security_findings f SET status = $2
-		FROM security_findings prev
-		WHERE f.id = $1 AND prev.id = $1
-		RETURNING prev.status`, id, status).Scan(&previous)
+	err = tx.QueryRow(ctx, setSecurityFindingStatusSQL, namespace, id, status).Scan(&previous)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("security finding %s not found", id)
+		return store.ErrSecurityFindingNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("updating security finding status: %w", err)
@@ -393,13 +423,19 @@ func (s *Store) SetSecurityFindingStatus(ctx context.Context, id uuid.UUID, stat
 	return nil
 }
 
-func (s *Store) ListSecurityFindingEvents(ctx context.Context, id uuid.UUID, limit int32) ([]store.SecurityFindingEvent, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, finding_id, event_type, actor, note, detail, created_at
-		FROM security_finding_events
-		WHERE finding_id = $1
-		ORDER BY created_at DESC, id DESC
-		LIMIT $2`, id, securityLimit(limit, 200, 1000))
+const listSecurityFindingEventsSQL = `
+	SELECT e.id, e.finding_id, e.event_type, e.actor, e.note, e.detail, e.created_at
+	FROM security_finding_events e
+	JOIN security_findings f ON f.id = e.finding_id
+	WHERE f.namespace = $1 AND e.finding_id = $2
+	ORDER BY e.created_at DESC, e.id DESC
+	LIMIT $3`
+
+func (s *Store) ListSecurityFindingEvents(ctx context.Context, namespace string, id uuid.UUID, limit int32) ([]store.SecurityFindingEvent, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, listSecurityFindingEventsSQL, namespace, id, securityLimit(limit, 200, 1000))
 	if err != nil {
 		return nil, fmt.Errorf("listing security finding events: %w", err)
 	}
@@ -416,6 +452,27 @@ func (s *Store) ListSecurityFindingEvents(ctx context.Context, id uuid.UUID, lim
 		return nil, fmt.Errorf("listing security finding events: %w", err)
 	}
 	return out, nil
+}
+
+// newSecurityFindingSummary returns a summary map pre-seeded with the fixed
+// keys so callers can gate on them even when no findings match.
+func newSecurityFindingSummary() map[string]int32 {
+	return map[string]int32{
+		"total": 0, "open": 0,
+		"open_critical": 0, "open_high": 0, "open_medium": 0, "open_low": 0, "open_info": 0,
+	}
+}
+
+// addSecurityFindingSummaryCount folds one (severity, status, count) group
+// into the summary, maintaining the per-severity, total, open, and
+// open_<severity> keys.
+func addSecurityFindingSummaryCount(summary map[string]int32, severity, status string, count int32) {
+	summary[severity] += count
+	summary["total"] += count
+	if status == store.SecurityFindingStatusOpen {
+		summary["open"] += count
+		summary["open_"+severity] += count
+	}
 }
 
 func (s *Store) SummarizeSecurityFindings(ctx context.Context, namespace, scanName, runName string) (map[string]int32, error) {
@@ -438,18 +495,14 @@ func (s *Store) SummarizeSecurityFindings(ctx context.Context, namespace, scanNa
 		return nil, fmt.Errorf("summarizing security findings: %w", err)
 	}
 	defer rows.Close()
-	summary := map[string]int32{"total": 0, "open": 0}
+	summary := newSecurityFindingSummary()
 	for rows.Next() {
 		var severity, status string
 		var count int64
 		if err := rows.Scan(&severity, &status, &count); err != nil {
 			return nil, fmt.Errorf("scanning security summary: %w", err)
 		}
-		summary[severity] += int32(count)
-		summary["total"] += int32(count)
-		if status == store.SecurityFindingStatusOpen {
-			summary["open"] += int32(count)
-		}
+		addSecurityFindingSummaryCount(summary, severity, status, int32(count))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("summarizing security findings: %w", err)
@@ -457,22 +510,31 @@ func (s *Store) SummarizeSecurityFindings(ctx context.Context, namespace, scanNa
 	return summary, nil
 }
 
-func (s *Store) DeleteSecurityScanData(ctx context.Context, namespace, runName string) error {
+const deleteSecurityFindingsByScanSQL = `
+	DELETE FROM security_findings WHERE namespace = $1 AND scan_name = $2`
+
+const deleteSecurityScansByScanSQL = `
+	DELETE FROM security_scans WHERE namespace = $1 AND scan_name = $2`
+
+// DeleteSecurityScanData removes every scan run, finding, and event for the
+// named scan. It is called when a SecurityScan resource is deleted.
+func (s *Store) DeleteSecurityScanData(ctx context.Context, namespace, scanName string) error {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning security scan delete: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	// Findings can outlive the scan run that first observed them (merges
-	// refresh run_name), so delete by finding run_name and cascade from the
-	// scan row itself.
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM security_findings WHERE namespace = $1 AND run_name = $2`, namespace, runName); err != nil {
+	// Finding events cascade from findings; findings are deleted explicitly
+	// (rather than relying on the scan_id cascade) so rows re-attributed to
+	// a later run of the same scan are removed too.
+	if _, err := tx.Exec(ctx, deleteSecurityFindingsByScanSQL, namespace, scanName); err != nil {
 		return fmt.Errorf("deleting security findings: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM security_scans WHERE namespace = $1 AND run_name = $2`, namespace, runName); err != nil {
-		return fmt.Errorf("deleting security scan: %w", err)
+	if _, err := tx.Exec(ctx, deleteSecurityScansByScanSQL, namespace, scanName); err != nil {
+		return fmt.Errorf("deleting security scans: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("committing security scan delete: %w", err)
