@@ -90,7 +90,9 @@ type githubPullRequest struct {
 }
 
 type githubRef struct {
-	Ref string `json:"ref"`
+	Ref  string              `json:"ref"`
+	SHA  string              `json:"sha"`
+	Repo githubRepositoryRef `json:"repo"`
 }
 
 type githubRepositoryRef struct {
@@ -162,6 +164,14 @@ func (h *GitHubWebhookHandler) handlePullRequestEvent(ctx context.Context, gh *t
 		eventType = PREventSynchronize
 	default:
 		return nil
+	}
+
+	if gh != nil {
+		if scanEvent := securityScanEventFromPR(&event); scanEvent != nil {
+			if err := h.dispatchSecurityScanEvent(ctx, gh, *scanEvent); err != nil {
+				logf.FromContext(ctx).WithName("github-webhook").Error(err, "security scan PR event dispatch failed", "pr", event.PullRequest.Number)
+			}
+		}
 	}
 
 	return h.dispatchPREvent(ctx, gh, PullRequestEvent{

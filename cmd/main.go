@@ -392,10 +392,12 @@ func main() {
 
 	securityFindingStore, _ := sharedStateStore.(store.SecurityFindingStore)
 	if err := (&triggercontroller.SecurityScanReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		StateStore: sharedStateStore,
-		Findings:   securityFindingStore,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		StateStore:       sharedStateStore,
+		Findings:         securityFindingStore,
+		Recorder:         mgr.GetEventRecorderFor("securityscan-controller"),
+		DashboardBaseURL: strings.TrimSpace(os.Getenv("DASHBOARD_PUBLIC_BASE_URL")),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityScan")
 		os.Exit(1)

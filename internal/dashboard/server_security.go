@@ -11,7 +11,9 @@ import (
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
@@ -167,7 +169,28 @@ func (s *Server) UpdateSecurityFindingStatus(ctx context.Context, req *platform.
 	if err != nil || updated == nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reloading security finding: %w", err))
 	}
+	s.nudgeSecurityScanStatusRefresh(ctx, finding.Namespace, finding.ScanName)
 	return securityFindingProto(updated), nil
+}
+
+// nudgeSecurityScanStatusRefresh stamps the status-refresh annotation on the
+// SecurityScan CR after finding triage so the controller re-reconciles,
+// refreshes finding counts, and re-publishes any GitHub check with the
+// post-triage conclusion. Best-effort: a missing CR or update error only
+// delays the refresh to the next reconcile.
+func (s *Server) nudgeSecurityScanStatusRefresh(ctx context.Context, namespace, scanName string) {
+	if s.k8sClient == nil || namespace == "" || scanName == "" {
+		return
+	}
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: scanName}, cr); err != nil {
+		return
+	}
+	if cr.Annotations == nil {
+		cr.Annotations = map[string]string{}
+	}
+	cr.Annotations[triggersv1alpha1.SecurityScanStatusRefreshAnnotation] = time.Now().UTC().Format(time.RFC3339Nano)
+	_ = s.k8sClient.Update(ctx, cr)
 }
 
 // GetSecurityFindingSummary returns severity -> count aggregates (plus

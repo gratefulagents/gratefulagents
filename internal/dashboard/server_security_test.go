@@ -168,6 +168,14 @@ func (m *mockSecurityStore) DeleteSecurityScanData(context.Context, string, stri
 	return nil
 }
 
+func (m *mockSecurityStore) ClaimSecurityNotifications(_ context.Context, _, _, _ string, fingerprints []string) ([]string, error) {
+	return fingerprints, nil
+}
+
+func (m *mockSecurityStore) ReleaseSecurityNotifications(context.Context, string, string, string, []string) error {
+	return nil
+}
+
 func (m *mockSecurityStore) SetSecurityFindingAssignee(_ context.Context, namespace string, id uuid.UUID, assignee, actor string) error {
 	if namespace == "" {
 		return errors.New("namespace is required")

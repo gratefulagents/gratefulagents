@@ -4278,6 +4278,77 @@ message SecurityScanDedupeConfig {
   int32 similarity_threshold_permille = 2; // 0-1000; 0 = server default (820)
 }
 
+// SecurityScanTriggersConfig configures repository-event driven scan runs.
+message SecurityScanTriggersConfig {
+  // repository_ref names the GitHubRepository (same namespace) whose webhook
+  // deliveries trigger the scan and whose credentials publish checks and
+  // read diffs. Required when on_pull_request or on_push is set.
+  string repository_ref = 1;
+  bool on_pull_request = 2;
+  bool on_push = 3;
+  // branches restricts push triggers (glob patterns; empty = every branch).
+  repeated string branches = 4;
+  // diff_scope scopes event runs to changed files, falling back to a full
+  // scan (stated in prompt and status) when the diff is unavailable.
+  bool diff_scope = 5;
+  // allow_forks permits scan runs for fork PRs. Fork runs never receive the
+  // repository's GitHub credentials.
+  bool allow_forks = 6;
+}
+
+// SecurityScanChecksConfig configures GitHub check publishing.
+message SecurityScanChecksConfig {
+  bool enabled = 1;
+  // include_finding_summaries opts in to finding titles+locations in the
+  // check summary. Default: counts and a dashboard link only. Evidence is
+  // never published in either mode.
+  bool include_finding_summaries = 2;
+  // upload_sarif opts in to uploading the stored SARIF report artifact to
+  // GitHub code scanning.
+  bool upload_sarif = 3;
+}
+
+// SecurityScanNotificationRuleConfig routes new/regressed findings to Slack,
+// GitHub issues, and/or Linear issues, deduplicated per finding fingerprint.
+message SecurityScanNotificationRuleConfig {
+  string name = 1; // required, unique per scan
+  string min_severity = 2; // critical|high|medium|low|info; empty = high
+  string notify_on = 3; // new | regressed | new-and-regressed (default)
+  // slack_webhook_secret_ref names a Secret with the incoming-webhook URL
+  // under key "url". Empty disables the Slack channel.
+  string slack_webhook_secret_ref = 4;
+  // github_issues enables GitHub issue creation.
+  bool github_issues = 5;
+  // github_repository_ref optionally overrides the trigger repository used
+  // for issue creation.
+  string github_repository_ref = 6;
+  // linear_api_key_secret_ref names a Secret with a Linear API key under key
+  // "api-key". Both linear fields set enable the Linear channel.
+  string linear_api_key_secret_ref = 7;
+  string linear_team_id = 8;
+}
+
+// SecurityScanCheckState is the last GitHub check publish attempt.
+message SecurityScanCheckState {
+  string run_name = 1;
+  string revision = 2;
+  string conclusion = 3; // success | failure | neutral
+  string url = 4;
+  int64 published_at_unix = 5;
+  string error = 6; // last publish failure; retried automatically
+  bool sarif_uploaded = 7;
+  string sarif_error = 8;
+}
+
+// SecurityScanNotificationState is the last notification delivery attempt.
+message SecurityScanNotificationState {
+  string last_run_name = 1;
+  int32 sent = 2;
+  int32 suppressed = 3;
+  string last_error = 4; // retried automatically without double-sending
+  int64 last_notified_at_unix = 5;
+}
+
 // SecurityScanConfigSpec mirrors the operator-configurable SecurityScan CRD
 // spec (api/triggers/v1alpha1 SecurityScanSpec).
 message SecurityScanConfigSpec {
@@ -4310,6 +4381,12 @@ message SecurityScanConfigSpec {
   // post_script_refs name reusable SecurityPostScript resources appended
   // after the inline post_scripts.
   repeated string post_script_refs = 21;
+  // triggers configures repository-event driven scan runs.
+  SecurityScanTriggersConfig triggers = 22;
+  // checks configures GitHub check publishing on the scanned commit.
+  SecurityScanChecksConfig checks = 23;
+  // notifications route new/regressed findings to Slack/GitHub/Linear.
+  repeated SecurityScanNotificationRuleConfig notifications = 24;
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.
@@ -4332,6 +4409,15 @@ message SecurityScanConfig {
   // ownership / sharing
   ResourceOwner owner = 19;
   string my_permission = 20;
+  // last_check reports the most recent GitHub check publish attempt.
+  SecurityScanCheckState last_check = 21;
+  // last_notifications reports the most recent notification delivery attempt.
+  SecurityScanNotificationState last_notifications = 22;
+  // last_event_revision is the platform-stamped head SHA of the most recent
+  // repository event processed for this scan.
+  string last_event_revision = 23;
+  // event_runs_created counts AgentRuns created from repository events.
+  int32 event_runs_created = 24;
 }
 
 message ListSecurityScanConfigsRequest {

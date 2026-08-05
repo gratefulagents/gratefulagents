@@ -231,7 +231,7 @@ func setupSecurityTestStore(t *testing.T) *Store {
 	if err := Migrate(ctx, pool); err != nil {
 		t.Fatalf("running migrations: %v", err)
 	}
-	for _, table := range []string{"security_finding_events", "security_finding_observations", "security_findings", "security_saved_filters", "security_scans"} {
+	for _, table := range []string{"security_finding_events", "security_finding_observations", "security_notification_markers", "security_findings", "security_saved_filters", "security_scans"} {
 		if _, err := pool.Exec(ctx, "DELETE FROM "+table); err != nil {
 			t.Fatalf("cleaning table %s: %v", table, err)
 		}
@@ -484,5 +484,52 @@ func lifecycleTestScanDeletion(ctx context.Context, t *testing.T, s *Store, find
 
 	if _, err := s.GetSecurityFinding(ctx, "default", uuid.New()); err != nil {
 		t.Fatalf("GetSecurityFinding(random) = %v, want nil error", err)
+	}
+}
+
+func TestSecurityNotificationMarkers(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+
+	if _, err := s.ClaimSecurityNotifications(ctx, "", "scan", "rule/slack", []string{"fp"}); err == nil {
+		t.Error("ClaimSecurityNotifications(empty namespace) = nil error, want error")
+	}
+
+	claimed, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-1", "fp-2"})
+	if err != nil {
+		t.Fatalf("ClaimSecurityNotifications: %v", err)
+	}
+	if len(claimed) != 2 {
+		t.Fatalf("claimed = %v, want both fingerprints", claimed)
+	}
+
+	again, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-1", "fp-2", "fp-3"})
+	if err != nil {
+		t.Fatalf("ClaimSecurityNotifications(repeat): %v", err)
+	}
+	if len(again) != 1 || again[0] != "fp-3" {
+		t.Fatalf("repeat claimed = %v, want only fp-3", again)
+	}
+
+	// A different rule key claims independently.
+	other, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/github", []string{"fp-1"})
+	if err != nil || len(other) != 1 {
+		t.Fatalf("other-rule claim = %v, %v; want fp-1 claimed", other, err)
+	}
+
+	if err := s.ReleaseSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-1"}); err != nil {
+		t.Fatalf("ReleaseSecurityNotifications: %v", err)
+	}
+	reclaimed, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-1"})
+	if err != nil || len(reclaimed) != 1 {
+		t.Fatalf("reclaim after release = %v, %v; want fp-1 claimable again", reclaimed, err)
+	}
+
+	if err := s.DeleteSecurityScanData(ctx, "default", "scan"); err != nil {
+		t.Fatalf("DeleteSecurityScanData: %v", err)
+	}
+	afterDelete, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-2"})
+	if err != nil || len(afterDelete) != 1 {
+		t.Fatalf("claim after scan delete = %v, %v; want markers purged", afterDelete, err)
 	}
 }

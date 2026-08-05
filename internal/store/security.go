@@ -338,4 +338,14 @@ type SecurityFindingStore interface {
 	// (namespace, scan_name). Idempotent. It is called when a SecurityScan
 	// resource is deleted.
 	DeleteSecurityScanData(ctx context.Context, namespace, scanName string) error
+	// ClaimSecurityNotifications persists notification dedupe markers for
+	// the (namespace, scanName, ruleKey, fingerprint) tuples and returns the
+	// subset of fingerprints that were newly claimed (not already marked).
+	// Callers send only for claimed fingerprints, so a finding never
+	// notifies twice for the same rule/channel.
+	ClaimSecurityNotifications(ctx context.Context, namespace, scanName, ruleKey string, fingerprints []string) ([]string, error)
+	// ReleaseSecurityNotifications removes previously claimed markers so a
+	// failed delivery can be retried. Releasing an absent marker is not an
+	// error.
+	ReleaseSecurityNotifications(ctx context.Context, namespace, scanName, ruleKey string, fingerprints []string) error
 }

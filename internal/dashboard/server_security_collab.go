@@ -355,6 +355,7 @@ func (s *Server) BulkUpdateSecurityFindingStatus(ctx context.Context, req *platf
 		resp.Results = append(resp.Results, &platform.BulkUpdateSecurityFindingOutcome{Id: id.String(), Ok: true})
 	}
 	resp.Updated = int32(len(ids))
+	s.nudgeSecurityScanStatusRefresh(ctx, namespace, req.GetScanName())
 	return resp, nil
 }
 

@@ -751,6 +751,10 @@ func (s *Store) DeleteSecurityScanData(ctx context.Context, namespace, scanName 
 		DELETE FROM security_finding_observations WHERE namespace = $1 AND scan_name = $2`, namespace, scanName); err != nil {
 		return fmt.Errorf("deleting security finding observations: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM security_notification_markers WHERE namespace = $1 AND scan_name = $2`, namespace, scanName); err != nil {
+		return fmt.Errorf("deleting security notification markers: %w", err)
+	}
 	if _, err := tx.Exec(ctx, deleteSecurityScansByScanSQL, namespace, scanName); err != nil {
 		return fmt.Errorf("deleting security scans: %w", err)
 	}
@@ -761,3 +765,54 @@ func (s *Store) DeleteSecurityScanData(ctx context.Context, namespace, scanName 
 }
 
 var _ store.SecurityFindingStore = (*Store)(nil)
+
+// ClaimSecurityNotifications inserts markers for the fingerprints and
+// returns the ones newly claimed. Already-marked fingerprints are skipped, so
+// a finding never notifies twice for the same rule/channel.
+func (s *Store) ClaimSecurityNotifications(ctx context.Context, namespace, scanName, ruleKey string, fingerprints []string) ([]string, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	if len(fingerprints) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		INSERT INTO security_notification_markers (namespace, scan_name, rule_key, fingerprint)
+		SELECT $1, $2, $3, fp FROM unnest($4::text[]) AS fp
+		ON CONFLICT DO NOTHING
+		RETURNING fingerprint`, namespace, scanName, ruleKey, fingerprints)
+	if err != nil {
+		return nil, fmt.Errorf("claiming security notification markers: %w", err)
+	}
+	defer rows.Close()
+	var claimed []string
+	for rows.Next() {
+		var fp string
+		if err := rows.Scan(&fp); err != nil {
+			return nil, fmt.Errorf("scanning claimed notification marker: %w", err)
+		}
+		claimed = append(claimed, fp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading claimed notification markers: %w", err)
+	}
+	return claimed, nil
+}
+
+// ReleaseSecurityNotifications removes markers so a failed delivery can be
+// retried. Idempotent.
+func (s *Store) ReleaseSecurityNotifications(ctx context.Context, namespace, scanName, ruleKey string, fingerprints []string) error {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return err
+	}
+	if len(fingerprints) == 0 {
+		return nil
+	}
+	if _, err := s.pool.Exec(ctx, `
+		DELETE FROM security_notification_markers
+		WHERE namespace = $1 AND scan_name = $2 AND rule_key = $3 AND fingerprint = ANY($4::text[])`,
+		namespace, scanName, ruleKey, fingerprints); err != nil {
+		return fmt.Errorf("releasing security notification markers: %w", err)
+	}
+	return nil
+}

@@ -585,3 +585,111 @@ func TestRunSecurityScanNowValidatesRequest(t *testing.T) {
 		t.Fatalf("RunSecurityScanNow() error = %v, want InvalidArgument", err)
 	}
 }
+
+func TestCreateSecurityScanEventTriggersChecksAndNotificationsRoundTrip(t *testing.T) {
+	srv, c := newCronTestServer(t)
+	srv.stateStore = newMockStateStore()
+	ns := testUserNS()
+
+	spec := fullSecurityScanSpec()
+	spec.Triggers = &platform.SecurityScanTriggersConfig{
+		RepositoryRef: "widget-repo",
+		OnPullRequest: true,
+		OnPush:        true,
+		Branches:      []string{"main", "release/*"},
+		DiffScope:     true,
+		AllowForks:    true,
+	}
+	spec.Checks = &platform.SecurityScanChecksConfig{
+		Enabled:                 true,
+		IncludeFindingSummaries: true,
+		UploadSarif:             true,
+	}
+	spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{{
+		Name:                  "critical-alerts",
+		MinSeverity:           "critical",
+		NotifyOn:              "new",
+		SlackWebhookSecretRef: "slack-webhook",
+		GithubIssues:          true,
+		LinearApiKeySecretRef: "linear-key",
+		LinearTeamId:          "team-1",
+	}}
+
+	resp, err := srv.CreateSecurityScan(projectActorCtx(), &platform.CreateSecurityScanRequest{Name: "event-scan", Spec: spec})
+	if err != nil {
+		t.Fatalf("CreateSecurityScan() error = %v", err)
+	}
+
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "event-scan"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	tr := cr.Spec.Triggers
+	if tr == nil || tr.RepositoryRef == nil || tr.RepositoryRef.Name != "widget-repo" ||
+		!tr.OnPullRequest || !tr.OnPush || !tr.DiffScope || !tr.AllowForks || len(tr.Branches) != 2 {
+		t.Fatalf("Triggers = %+v", tr)
+	}
+	if cr.Spec.Checks == nil || !cr.Spec.Checks.Enabled || !cr.Spec.Checks.IncludeFindingSummaries || !cr.Spec.Checks.UploadSARIF {
+		t.Fatalf("Checks = %+v", cr.Spec.Checks)
+	}
+	if len(cr.Spec.Notifications) != 1 {
+		t.Fatalf("Notifications = %+v", cr.Spec.Notifications)
+	}
+	rule := cr.Spec.Notifications[0]
+	if rule.Name != "critical-alerts" || rule.MinSeverity != "critical" || rule.NotifyOn != "new" ||
+		rule.Slack == nil || rule.Slack.WebhookSecretRef != "slack-webhook" ||
+		rule.GitHubIssues == nil || rule.Linear == nil || rule.Linear.TeamID != "team-1" {
+		t.Fatalf("rule = %+v", rule)
+	}
+
+	ps := resp.GetSpec()
+	if ps.GetTriggers() == nil || ps.GetTriggers().GetRepositoryRef() != "widget-repo" ||
+		ps.GetChecks() == nil || !ps.GetChecks().GetUploadSarif() ||
+		len(ps.GetNotifications()) != 1 || ps.GetNotifications()[0].GetSlackWebhookSecretRef() != "slack-webhook" {
+		t.Fatalf("proto spec round-trip = %+v", ps)
+	}
+}
+
+func TestCreateSecurityScanRejectsInvalidEventConfig(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	srv.stateStore = newMockStateStore()
+
+	cases := []struct {
+		name   string
+		mutate func(spec *platform.SecurityScanConfigSpec)
+	}{
+		{"triggers without repository ref", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Triggers = &platform.SecurityScanTriggersConfig{OnPullRequest: true}
+		}},
+		{"checks without triggers", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Checks = &platform.SecurityScanChecksConfig{Enabled: true}
+		}},
+		{"notification without channel", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{{Name: "r1"}}
+		}},
+		{"duplicate notification names", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{
+				{Name: "r1", SlackWebhookSecretRef: "s"},
+				{Name: "r1", SlackWebhookSecretRef: "s"},
+			}
+		}},
+		{"linear key without team", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{{Name: "r1", LinearApiKeySecretRef: "k"}}
+		}},
+		{"invalid notify_on", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{{Name: "r1", SlackWebhookSecretRef: "s", NotifyOn: "always"}}
+		}},
+	}
+	for _, tc := range cases {
+		spec := fullSecurityScanSpec()
+		tc.mutate(spec)
+		_, err := srv.CreateSecurityScan(projectActorCtx(), &platform.CreateSecurityScanRequest{Name: "bad", Spec: spec})
+		if err == nil {
+			t.Errorf("%s: CreateSecurityScan() = nil error, want InvalidArgument", tc.name)
+			continue
+		}
+		if connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Errorf("%s: code = %v, want InvalidArgument (%v)", tc.name, connect.CodeOf(err), err)
+		}
+	}
+}

@@ -186,6 +186,14 @@ func (s *fakeSecurityFindingStore) DeleteSecurityScanData(context.Context, strin
 	return nil
 }
 
+func (s *fakeSecurityFindingStore) ClaimSecurityNotifications(_ context.Context, _, _, _ string, fingerprints []string) ([]string, error) {
+	return fingerprints, nil
+}
+
+func (s *fakeSecurityFindingStore) ReleaseSecurityNotifications(context.Context, string, string, string, []string) error {
+	return nil
+}
+
 type securityArtifactTestStore struct {
 	store.StateStore
 	artifacts map[string]string

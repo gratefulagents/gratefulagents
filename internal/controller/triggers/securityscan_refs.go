@@ -43,10 +43,35 @@ func securityScanRunFailureReason(err error) string {
 
 // securityScanInvalidSpecMessage returns a non-empty message when the scan
 // spec is statically invalid: workflowRef and an inline workflow are mutually
-// exclusive.
+// exclusive, event triggers and checks require a repository reference, and
+// notification rules need a unique name plus at least one channel.
 func securityScanInvalidSpecMessage(spec triggersv1alpha1.SecurityScanSpec) string {
 	if spec.WorkflowRef != nil && len(spec.Workflow) > 0 {
 		return "spec.workflowRef and spec.workflow are mutually exclusive: reference a SecurityWorkflow or define the workflow inline, not both"
+	}
+	if t := spec.Triggers; t != nil && (t.OnPullRequest || t.OnPush) {
+		if t.RepositoryRef == nil || strings.TrimSpace(t.RepositoryRef.Name) == "" {
+			return "spec.triggers.repositoryRef is required when onPullRequest or onPush is set: it names the GitHubRepository whose webhook deliveries trigger this scan"
+		}
+	}
+	if c := spec.Checks; c != nil && c.Enabled {
+		if spec.Triggers == nil || spec.Triggers.RepositoryRef == nil || strings.TrimSpace(spec.Triggers.RepositoryRef.Name) == "" {
+			return "spec.checks.enabled requires spec.triggers.repositoryRef: the referenced GitHubRepository supplies the credentials that publish checks"
+		}
+	}
+	seenRules := map[string]bool{}
+	for i, rule := range spec.Notifications {
+		name := strings.TrimSpace(rule.Name)
+		if name == "" {
+			return fmt.Sprintf("spec.notifications[%d].name is required", i)
+		}
+		if seenRules[name] {
+			return fmt.Sprintf("spec.notifications[%d].name %q is duplicated: rule names key the persisted notification dedupe markers and must be unique", i, name)
+		}
+		seenRules[name] = true
+		if rule.Slack == nil && rule.GitHubIssues == nil && rule.Linear == nil {
+			return fmt.Sprintf("spec.notifications[%d] (%q) configures no channel: set slack, githubIssues, and/or linear", i, name)
+		}
 	}
 	return ""
 }

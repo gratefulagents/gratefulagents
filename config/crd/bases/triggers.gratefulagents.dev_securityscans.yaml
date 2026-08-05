@@ -76,6 +76,29 @@ spec:
                 default: main
                 description: baseBranch is the branch of repoURL that is scanned.
                 type: string
+              checks:
+                description: |-
+                  checks configures publishing a GitHub check on the scanned commit
+                  after each scan run with a recorded revision reaches a terminal phase.
+                properties:
+                  enabled:
+                    description: |-
+                      enabled turns on check publishing. Requires spec.triggers.repositoryRef
+                      for credentials.
+                    type: boolean
+                  includeFindingSummaries:
+                    description: |-
+                      includeFindingSummaries opts in to listing finding titles and file
+                      locations in the check summary. The default summary contains only
+                      severity counts and a dashboard link; evidence and proof-of-concept
+                      content is never published in either mode.
+                    type: boolean
+                  uploadSARIF:
+                    description: |-
+                      uploadSARIF opts in to uploading the scan's stored SARIF report
+                      artifact to GitHub code scanning for the scanned commit.
+                    type: boolean
+                type: object
               concurrencyPolicy:
                 description: |-
                   concurrencyPolicy controls whether a scheduled tick may create a new
@@ -504,6 +527,102 @@ spec:
                 - low
                 - info
                 type: string
+              notifications:
+                description: |-
+                  notifications are rules that send Slack messages and/or create
+                  GitHub/Linear issues for new or regressed findings at or above a
+                  severity threshold. Each (finding fingerprint, rule, channel) notifies
+                  at most once; the sent marker is persisted in the findings store.
+                items:
+                  description: |-
+                    SecurityScanNotificationRule routes new/regressed findings at or above a
+                    severity threshold to Slack, GitHub issues, and/or Linear issues.
+                  properties:
+                    githubIssues:
+                      description: |-
+                        githubIssues, when set, creates one GitHub issue per newly notified
+                        finding using the referenced repository's credentials. Issue bodies
+                        contain identifying metadata and a dashboard link, never evidence.
+                      properties:
+                        repositoryRef:
+                          description: |-
+                            repositoryRef names the GitHubRepository (same namespace) whose
+                            credentials create the issues. When empty, spec.triggers.repositoryRef
+                            is used.
+                          properties:
+                            name:
+                              description: name of the referenced resource.
+                              maxLength: 253
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      type: object
+                    linear:
+                      description: linear, when set, creates one Linear issue per
+                        newly notified finding.
+                      properties:
+                        apiKeySecretRef:
+                          description: |-
+                            apiKeySecretRef names a Secret in the scan's namespace holding a
+                            Linear API key under the key "api-key".
+                          minLength: 1
+                          type: string
+                        teamID:
+                          description: teamID is the Linear team the issues are created
+                            in.
+                          minLength: 1
+                          type: string
+                      required:
+                      - apiKeySecretRef
+                      - teamID
+                      type: object
+                    minSeverity:
+                      description: minSeverity is the lowest severity that notifies.
+                        Defaults to "high".
+                      enum:
+                      - critical
+                      - high
+                      - medium
+                      - low
+                      - info
+                      type: string
+                    name:
+                      description: |-
+                        name identifies the rule; it keys the persisted per-finding dedupe
+                        marker, so renaming a rule re-notifies.
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    notifyOn:
+                      description: |-
+                        notifyOn selects which baseline states notify. Defaults to
+                        "new-and-regressed".
+                      enum:
+                      - new
+                      - regressed
+                      - new-and-regressed
+                      type: string
+                    slack:
+                      description: |-
+                        slack, when set, posts one message per run summarizing the newly
+                        notified findings to a Slack incoming webhook.
+                      properties:
+                        webhookSecretRef:
+                          description: |-
+                            webhookSecretRef names a Secret in the scan's namespace holding the
+                            Slack incoming-webhook URL under the key "url".
+                          minLength: 1
+                          type: string
+                      required:
+                      - webhookSecretRef
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               parallelism:
                 default: 4
                 description: parallelism caps how many workflow tasks may run concurrently.
@@ -663,6 +782,63 @@ spec:
                   timeZone is the IANA time zone used to evaluate schedule.
                   When omitted, UTC is used.
                 type: string
+              triggers:
+                description: |-
+                  triggers configures repository-event driven scan runs: authorized
+                  GitHub pull_request and push webhook deliveries for the referenced
+                  GitHubRepository create scan runs pinned to the event's head commit.
+                properties:
+                  allowForks:
+                    description: |-
+                      allowForks permits scan runs for pull requests whose head repository
+                      differs from the base repository. Fork runs never receive the
+                      repository's GitHub credentials: the configured GitHub token secret is
+                      stripped from the run so untrusted contributions cannot exfiltrate
+                      write tokens. Default false: fork PRs are skipped with an observable
+                      condition and event.
+                    type: boolean
+                  branches:
+                    description: |-
+                      branches restricts push triggers to branches matching any of these
+                      glob patterns (path.Match syntax; a trailing "*" acts as a prefix
+                      match). Empty matches every branch.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  diffScope:
+                    description: |-
+                      diffScope scopes event-triggered scans to the files changed between
+                      the merge base and the head (pull requests) or the push's
+                      before..after range. When the diff cannot be computed the scan falls
+                      back to the full repository and the fallback is stated in the run
+                      prompt and the scan condition.
+                    type: boolean
+                  onPullRequest:
+                    description: |-
+                      onPullRequest creates a scan run for pull_request opened, reopened,
+                      ready_for_review, and synchronize deliveries, pinned to the PR head SHA.
+                    type: boolean
+                  onPush:
+                    description: |-
+                      onPush creates a scan run for push deliveries, pinned to the pushed
+                      head SHA.
+                    type: boolean
+                  repositoryRef:
+                    description: |-
+                      repositoryRef names the GitHubRepository in the scan's namespace whose
+                      webhook deliveries trigger this scan and whose credentials publish
+                      checks and read diffs. Required when onPullRequest or onPush is set.
+                    properties:
+                      name:
+                        description: name of the referenced resource.
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
               workflow:
                 description: |-
                   workflow is the ordered/parallel research plan executed as focused
@@ -801,6 +977,12 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              eventRunsCreated:
+                description: |-
+                  eventRunsCreated is the cumulative number of AgentRuns created from
+                  repository events (a subset of runsCreated).
+                format: int32
+                type: integer
               findings:
                 description: findings summarizes persisted findings for the most recent
                   scan run.
@@ -827,9 +1009,68 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              lastCheck:
+                description: lastCheck records the most recent GitHub check publish
+                  attempt.
+                properties:
+                  conclusion:
+                    description: |-
+                      conclusion is the published check conclusion: success, failure, or
+                      neutral.
+                    type: string
+                  error:
+                    description: |-
+                      error is the most recent publish failure; empty after a successful
+                      publish. Failures are retried on subsequent reconciles.
+                    type: string
+                  publishedAt:
+                    description: publishedAt is when the check was last successfully
+                      published.
+                    format: date-time
+                    type: string
+                  revision:
+                    description: revision is the commit SHA the check was published
+                      on.
+                    type: string
+                  runName:
+                    description: runName is the AgentRun the check reports on.
+                    type: string
+                  sarifError:
+                    description: sarifError is the most recent SARIF upload failure,
+                      if any.
+                    type: string
+                  sarifUploaded:
+                    description: |-
+                      sarifUploaded reports whether the run's SARIF artifact was uploaded to
+                      GitHub code scanning.
+                    type: boolean
+                  stateHash:
+                    description: |-
+                      stateHash fingerprints the published (run, revision, conclusion,
+                      counts) tuple; a differing desired state triggers a re-publish, e.g.
+                      after findings are triaged.
+                    type: string
+                  url:
+                    description: url links to the published check run or commit status
+                      target.
+                    type: string
+                type: object
               lastError:
                 description: lastError contains the error message from the most recent
                   failed operation.
+                type: string
+              lastEventRevision:
+                description: |-
+                  lastEventRevision is the platform-stamped head SHA of the most recent
+                  repository event that created (or attempted) a scan run. It matches
+                  the commit any published check is reported on.
+                type: string
+              lastEventToken:
+                description: |-
+                  lastEventToken is the most recent scan-event annotation token the
+                  controller has processed. A token equal to this value never creates
+                  another run, making repository-event triggers idempotent across
+                  webhook redeliveries and controller restarts.
                 type: string
               lastManualRunToken:
                 description: |-
@@ -838,6 +1079,36 @@ spec:
                   another run, making manual run requests idempotent across controller
                   restarts.
                 type: string
+              lastNotifications:
+                description: |-
+                  lastNotifications records the most recent notification delivery
+                  attempt.
+                properties:
+                  lastError:
+                    description: |-
+                      lastError is the most recent delivery failure; empty after a fully
+                      successful evaluation. Failed deliveries release their dedupe claim
+                      and are retried on subsequent reconciles.
+                    type: string
+                  lastNotifiedAt:
+                    description: lastNotifiedAt is when a notification was last delivered.
+                    format: date-time
+                    type: string
+                  lastRunName:
+                    description: lastRunName is the AgentRun whose findings were last
+                      evaluated.
+                    type: string
+                  sent:
+                    description: sent is the cumulative number of notifications delivered.
+                    format: int32
+                    type: integer
+                  suppressed:
+                    description: |-
+                      suppressed is the cumulative number of findings skipped because their
+                      (rule, channel, fingerprint) marker was already persisted.
+                    format: int32
+                    type: integer
+                type: object
               lastResolvedRefs:
                 description: |-
                   lastResolvedRefs records the reusable security resources

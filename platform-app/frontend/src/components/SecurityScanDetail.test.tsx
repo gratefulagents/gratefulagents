@@ -11,11 +11,12 @@ import {
   SecurityScanSchema,
 } from "@/rpc/platform/service_pb";
 
-const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, listSecurityFindings, updateSecurityFindingStatus, getSecurityScanReport, downloadBlob } =
+const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, getSecurityScanConfig, listSecurityFindings, updateSecurityFindingStatus, getSecurityScanReport, downloadBlob } =
   vi.hoisted(() => ({
     getSecurityScan: vi.fn(),
     getSecurityFinding: vi.fn(),
     getSecurityFindingSummary: vi.fn(),
+    getSecurityScanConfig: vi.fn().mockRejectedValue(new Error("not configured")),
     listSecurityFindings: vi.fn(),
     updateSecurityFindingStatus: vi.fn(),
     getSecurityScanReport: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("@/lib/client", () => ({
     getSecurityScan,
     getSecurityFinding,
     getSecurityFindingSummary,
+    getSecurityScanConfig,
     listSecurityFindings,
     updateSecurityFindingStatus,
     getSecurityScanReport,
@@ -372,5 +374,53 @@ describe("SecurityScanDetail", () => {
     expect(
       await screen.findByText(/This scan run has not finished/),
     ).toBeTruthy();
+  });
+});
+
+describe("SecurityScanDetail repository integration state", () => {
+  it("surfaces the last check publish state and notification state with errors", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: { critical: 1, total: 1, open: 1 } });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      lastCheck: {
+        runName: "nightly-1",
+        revision: "abc123def456789",
+        conclusion: "failure",
+        url: "",
+        error: "publishing check: 502 from api.github.com",
+        sarifUploaded: false,
+        sarifError: "",
+      },
+      lastNotifications: {
+        lastRunName: "nightly-1",
+        sent: 3,
+        suppressed: 2,
+        lastError: "rule \"alerts\" slack: webhook returned 500",
+      },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByText("Repository integration")).toBeTruthy();
+    expect(screen.getByText(/publish failed — publishing check: 502/)).toBeTruthy();
+    expect(screen.getAllByText(/retried automatically/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/3 sent/)).toBeTruthy();
+    expect(screen.getByText(/2 suppressed as duplicates/)).toBeTruthy();
+    expect(screen.getByText(/webhook returned 500/)).toBeTruthy();
+  });
+
+  it("hides the integration card when the scan config has no check or notification state", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({ namespace: "user-alice", name: "nightly" });
+
+    renderDetail();
+
+    await screen.findByText("nightly-1");
+    expect(screen.queryByText("Repository integration")).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { useEffect, useState } from "react";
-import { CalendarClock, Crosshair, GitBranch, ListChecks, Loader2, ShieldAlert, SlidersHorizontal } from "lucide-react";
+import { Bell, CalendarClock, Crosshair, GitBranch, GitPullRequest, ListChecks, Loader2, ShieldAlert, SlidersHorizontal } from "lucide-react";
 
 import {
   Dialog,
@@ -33,9 +33,12 @@ import { toneText } from "@/lib/status";
 import {
   CreateSecurityScanRequestSchema,
   SecurityScanConfigSpecSchema,
+  SecurityScanChecksConfigSchema,
   SecurityScanDedupeConfigSchema,
+  SecurityScanNotificationRuleConfigSchema,
   SecurityScanScopeConfigSchema,
   SecurityScanTaskConfigSchema,
+  SecurityScanTriggersConfigSchema,
   SecurityPostScriptConfigSchema,
   SecurityRankerConfigSchema,
   UpdateSecurityScanRequestSchema,
@@ -66,6 +69,17 @@ type TaskState = {
 type RankerState = { name: string; rules: string };
 type PostScriptState = { name: string; prompt: string; runOn: string };
 
+type NotificationRuleState = {
+  name: string;
+  minSeverity: string;
+  notifyOn: string;
+  slackWebhookSecretRef: string;
+  githubIssues: boolean;
+  githubRepositoryRef: string;
+  linearApiKeySecretRef: string;
+  linearTeamId: string;
+};
+
 type SpecState = {
   name: string;
   repoUrl: string;
@@ -89,6 +103,15 @@ type SpecState = {
   workflowRef: string;
   rankerRefs: string[];
   postScriptRefs: string[];
+  triggersRepositoryRef: string;
+  onPullRequest: boolean;
+  onPush: boolean;
+  triggerBranches: string;
+  diffScope: boolean;
+  allowForks: boolean;
+  checksEnabled: boolean;
+  includeFindingSummaries: boolean;
+  uploadSarif: boolean;
 };
 
 function splitList(value: string, separator: RegExp): string[] {
@@ -125,7 +148,29 @@ function initialSpec(config?: SecurityScanConfig): SpecState {
     workflowRef: spec?.workflowRef ?? "",
     rankerRefs: [...(spec?.rankerRefs ?? [])],
     postScriptRefs: [...(spec?.postScriptRefs ?? [])],
+    triggersRepositoryRef: spec?.triggers?.repositoryRef ?? "",
+    onPullRequest: spec?.triggers?.onPullRequest ?? false,
+    onPush: spec?.triggers?.onPush ?? false,
+    triggerBranches: spec?.triggers?.branches.join(", ") ?? "",
+    diffScope: spec?.triggers?.diffScope ?? false,
+    allowForks: spec?.triggers?.allowForks ?? false,
+    checksEnabled: spec?.checks?.enabled ?? false,
+    includeFindingSummaries: spec?.checks?.includeFindingSummaries ?? false,
+    uploadSarif: spec?.checks?.uploadSarif ?? false,
   };
+}
+
+function initialNotifications(config?: SecurityScanConfig): NotificationRuleState[] {
+  return (config?.spec?.notifications ?? []).map((r) => ({
+    name: r.name,
+    minSeverity: r.minSeverity,
+    notifyOn: r.notifyOn || "new-and-regressed",
+    slackWebhookSecretRef: r.slackWebhookSecretRef,
+    githubIssues: r.githubIssues,
+    githubRepositoryRef: r.githubRepositoryRef,
+    linearApiKeySecretRef: r.linearApiKeySecretRef,
+    linearTeamId: r.linearTeamId,
+  }));
 }
 
 // initialDialogSpec prefills the form from `source`; in duplicate mode the
@@ -202,6 +247,22 @@ function reportingSummary(spec: SpecState): string {
   return parts.join(" · ");
 }
 
+function repositoryEventsSummary(spec: SpecState): string {
+  const parts: string[] = [];
+  if (spec.onPullRequest) parts.push("pull requests");
+  if (spec.onPush) parts.push("pushes");
+  if (!parts.length) return "Off";
+  if (spec.diffScope) parts.push("diff scope");
+  if (spec.checksEnabled) parts.push("checks");
+  if (spec.allowForks) parts.push("forks allowed");
+  return parts.join(" · ");
+}
+
+function notificationsSummary(rules: NotificationRuleState[]): string {
+  if (!rules.length) return "Off";
+  return `${rules.length} rule${rules.length === 1 ? "" : "s"}`;
+}
+
 /**
  * Create/edit dialog for SecurityScan triggers. Pass `config` to edit an
  * existing scan; pass `duplicateFrom` to create a new scan pre-filled from an
@@ -230,6 +291,9 @@ export function SecurityScanFormDialog({
   const [tasks, setTasks] = useState<TaskState[]>(() => initialTasks(source));
   const [rankers, setRankers] = useState<RankerState[]>(() => initialRankers(source));
   const [postScripts, setPostScripts] = useState<PostScriptState[]>(() => initialPostScripts(source));
+  const [notifications, setNotifications] = useState<NotificationRuleState[]>(() =>
+    initialNotifications(source),
+  );
   const [defaults, setDefaults] = useState<AgentRunDefaults>(
     () => source?.spec?.defaults ?? emptyDefaults(),
   );
@@ -269,11 +333,16 @@ export function SecurityScanFormDialog({
     setSpec((prev) => ({ ...prev, [field]: value }));
   }
 
+  function updateNotification(index: number, patch: Partial<NotificationRuleState>) {
+    setNotifications((prev) => prev.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
+  }
+
   function reset() {
     setSpec(initialDialogSpec(source, isDuplicate));
     setTasks(initialTasks(source));
     setRankers(initialRankers(source));
     setPostScripts(initialPostScripts(source));
+    setNotifications(initialNotifications(source));
     setDefaults(source?.spec?.defaults ?? emptyDefaults());
     setPolicies(resolvedTriggerPolicies(configPolicySource(source)));
     setUseSavedCredentials(source ? scanConfigUsesSavedCredentials(source) : true);
@@ -346,7 +415,58 @@ export function SecurityScanFormDialog({
       concurrencyPolicy: spec.concurrencyPolicy,
       defaults: normalizedDefaults,
       maxRuntime: spec.maxRuntime.trim(),
+      triggers:
+        spec.onPullRequest || spec.onPush || spec.triggersRepositoryRef.trim()
+          ? create(SecurityScanTriggersConfigSchema, {
+              repositoryRef: spec.triggersRepositoryRef.trim(),
+              onPullRequest: spec.onPullRequest,
+              onPush: spec.onPush,
+              branches: splitList(spec.triggerBranches, /[,\n]/),
+              diffScope: spec.diffScope,
+              allowForks: spec.allowForks,
+            })
+          : undefined,
+      checks: spec.checksEnabled
+        ? create(SecurityScanChecksConfigSchema, {
+            enabled: true,
+            includeFindingSummaries: spec.includeFindingSummaries,
+            uploadSarif: spec.uploadSarif,
+          })
+        : undefined,
+      notifications: notifications.map((r) =>
+        create(SecurityScanNotificationRuleConfigSchema, {
+          name: r.name.trim(),
+          minSeverity: r.minSeverity,
+          notifyOn: r.notifyOn === "new-and-regressed" ? "" : r.notifyOn,
+          slackWebhookSecretRef: r.slackWebhookSecretRef.trim(),
+          githubIssues: r.githubIssues,
+          githubRepositoryRef: r.githubRepositoryRef.trim(),
+          linearApiKeySecretRef: r.linearApiKeySecretRef.trim(),
+          linearTeamId: r.linearTeamId.trim(),
+        }),
+      ),
     });
+  }
+
+  function validateEventConfig(): string | null {
+    if ((spec.onPullRequest || spec.onPush) && !spec.triggersRepositoryRef.trim()) {
+      return "Repository events need a GitHub repository connection: set the repository reference in the Repository events section.";
+    }
+    if (spec.checksEnabled && !spec.triggersRepositoryRef.trim()) {
+      return "Publishing checks needs the repository reference in the Repository events section — its credentials post the check.";
+    }
+    for (const rule of notifications) {
+      if (!rule.name.trim()) {
+        return "Every notification rule needs a name.";
+      }
+      if (!rule.slackWebhookSecretRef.trim() && !rule.githubIssues && !rule.linearApiKeySecretRef.trim()) {
+        return `Notification rule "${rule.name}" needs at least one channel (Slack, GitHub issues, or Linear).`;
+      }
+      if (Boolean(rule.linearApiKeySecretRef.trim()) !== Boolean(rule.linearTeamId.trim())) {
+        return `Notification rule "${rule.name}": Linear needs both the API key secret and the team ID.`;
+      }
+    }
+    return null;
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -358,6 +478,11 @@ export function SecurityScanFormDialog({
     }
     if (isDuplicate && !spec.name.trim()) {
       setError("Give the duplicated scan a new name.");
+      return;
+    }
+    const eventError = validateEventConfig();
+    if (eventError) {
+      setError(eventError);
       return;
     }
     setSubmitting(true);
@@ -735,6 +860,272 @@ export function SecurityScanFormDialog({
                     </FlowField>
                   </div>
                 )}
+              </OptionRow>
+
+              <OptionRow
+                icon={GitPullRequest}
+                title="Repository events"
+                summary={repositoryEventsSummary(spec)}
+                modified={spec.onPullRequest || spec.onPush || spec.checksEnabled}
+              >
+                <FlowField
+                  id="scan-trigger-repository-ref"
+                  label="GitHub repository connection"
+                  hint="Name of a GitHubRepository resource in this namespace. Its webhook deliveries trigger the scan and its credentials publish checks and read diffs — the scan run itself never receives them."
+                >
+                  <Input
+                    id="scan-trigger-repository-ref"
+                    value={spec.triggersRepositoryRef}
+                    onChange={(event) => update("triggersRepositoryRef", event.target.value)}
+                    placeholder="my-repo-connection"
+                  />
+                </FlowField>
+                <FlowSwitchRow
+                  id="scan-on-pull-request"
+                  label="Scan pull requests"
+                  hint="Run a scan pinned to the PR head commit when a PR is opened, reopened, or updated."
+                  control={
+                    <Switch
+                      id="scan-on-pull-request"
+                      checked={spec.onPullRequest}
+                      onCheckedChange={(checked) => update("onPullRequest", checked)}
+                    />
+                  }
+                />
+                <FlowSwitchRow
+                  id="scan-on-push"
+                  label="Scan pushes"
+                  hint="Run a scan pinned to the pushed head commit."
+                  control={
+                    <Switch
+                      id="scan-on-push"
+                      checked={spec.onPush}
+                      onCheckedChange={(checked) => update("onPush", checked)}
+                    />
+                  }
+                />
+                {spec.onPush && (
+                  <FlowField
+                    id="scan-trigger-branches"
+                    label="Push branch filters"
+                    hint="Comma-separated globs, e.g. main, release/*. Empty = every branch."
+                  >
+                    <Input
+                      id="scan-trigger-branches"
+                      value={spec.triggerBranches}
+                      onChange={(event) => update("triggerBranches", event.target.value)}
+                      placeholder="main, release/*"
+                      className="font-mono"
+                    />
+                  </FlowField>
+                )}
+                <FlowSwitchRow
+                  id="scan-diff-scope"
+                  label="Diff scope"
+                  hint="Focus event-triggered scans on the files changed since the merge base (PRs) or the push range. Falls back to a full scan — stated in the run prompt and scan status — when the diff cannot be computed."
+                  control={
+                    <Switch
+                      id="scan-diff-scope"
+                      checked={spec.diffScope}
+                      onCheckedChange={(checked) => update("diffScope", checked)}
+                    />
+                  }
+                />
+                <FlowSwitchRow
+                  id="scan-allow-forks"
+                  label="Allow fork pull requests"
+                  hint="Off (recommended): PRs from forks are skipped with a visible condition. On: fork PRs are scanned, but the run's GitHub credential is stripped so untrusted contributions can never reach a write token."
+                  control={
+                    <Switch
+                      id="scan-allow-forks"
+                      checked={spec.allowForks}
+                      onCheckedChange={(checked) => update("allowForks", checked)}
+                    />
+                  }
+                />
+                <FlowSwitchRow
+                  id="scan-checks-enabled"
+                  label="Publish GitHub checks"
+                  hint="After each scan of a specific commit, publish a check with the pass/fail conclusion from the fail-on severity policy. The default summary contains only severity counts and a dashboard link."
+                  control={
+                    <Switch
+                      id="scan-checks-enabled"
+                      checked={spec.checksEnabled}
+                      onCheckedChange={(checked) => update("checksEnabled", checked)}
+                    />
+                  }
+                />
+                {spec.checksEnabled && (
+                  <>
+                    <FlowSwitchRow
+                      id="scan-include-finding-summaries"
+                      label="Include finding titles in the check"
+                      hint="Opt-in: adds finding titles and file locations to the check summary. Evidence and proof-of-concept content is never published either way."
+                      control={
+                        <Switch
+                          id="scan-include-finding-summaries"
+                          checked={spec.includeFindingSummaries}
+                          onCheckedChange={(checked) => update("includeFindingSummaries", checked)}
+                        />
+                      }
+                    />
+                    <FlowSwitchRow
+                      id="scan-upload-sarif"
+                      label="Upload SARIF to code scanning"
+                      hint="Opt-in: upload the scan's SARIF report to GitHub code scanning for the scanned commit."
+                      control={
+                        <Switch
+                          id="scan-upload-sarif"
+                          checked={spec.uploadSarif}
+                          onCheckedChange={(checked) => update("uploadSarif", checked)}
+                        />
+                      }
+                    />
+                  </>
+                )}
+              </OptionRow>
+
+              <OptionRow
+                icon={Bell}
+                title="Notifications"
+                summary={notificationsSummary(notifications)}
+                modified={notifications.length > 0}
+              >
+                <p className="text-xs text-muted-foreground">
+                  Rules notify about new or regressed findings after each successful run. Each finding
+                  notifies at most once per rule and channel — the sent marker is persisted, so retries
+                  and re-runs never repeat a notification. Messages carry severity, title, location, and
+                  a dashboard link, never evidence.
+                </p>
+                {notifications.map((rule, index) => (
+                  <div key={index} className="space-y-3 rounded-md border p-3">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FlowField id={`scan-notify-name-${index}`} label="Rule name" required>
+                        <Input
+                          id={`scan-notify-name-${index}`}
+                          value={rule.name}
+                          onChange={(event) => updateNotification(index, { name: event.target.value })}
+                          placeholder="critical-alerts"
+                        />
+                      </FlowField>
+                      <FlowField id={`scan-notify-min-severity-${index}`} label="Minimum severity">
+                        <select
+                          id={`scan-notify-min-severity-${index}`}
+                          className={selectClass}
+                          value={rule.minSeverity}
+                          onChange={(event) => updateNotification(index, { minSeverity: event.target.value })}
+                        >
+                          <option value="">high (default)</option>
+                          {SEVERITY_OPTIONS.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      </FlowField>
+                    </div>
+                    <FlowField id={`scan-notify-on-${index}`} label="Notify on">
+                      <select
+                        id={`scan-notify-on-${index}`}
+                        className={selectClass}
+                        value={rule.notifyOn}
+                        onChange={(event) => updateNotification(index, { notifyOn: event.target.value })}
+                      >
+                        <option value="new-and-regressed">new and regressed findings</option>
+                        <option value="new">new findings only</option>
+                        <option value="regressed">regressed findings only</option>
+                      </select>
+                    </FlowField>
+                    <FlowField
+                      id={`scan-notify-slack-${index}`}
+                      label="Slack webhook secret"
+                      hint='Secret in this namespace with the incoming-webhook URL under key "url". Empty = no Slack message.'
+                    >
+                      <Input
+                        id={`scan-notify-slack-${index}`}
+                        value={rule.slackWebhookSecretRef}
+                        onChange={(event) => updateNotification(index, { slackWebhookSecretRef: event.target.value })}
+                        placeholder="slack-security-webhook"
+                      />
+                    </FlowField>
+                    <FlowSwitchRow
+                      id={`scan-notify-github-${index}`}
+                      label="Create GitHub issues"
+                      hint="One issue per finding via the repository connection's credentials. Bodies contain metadata and a dashboard link, never evidence."
+                      control={
+                        <Switch
+                          id={`scan-notify-github-${index}`}
+                          checked={rule.githubIssues}
+                          onCheckedChange={(checked) => updateNotification(index, { githubIssues: checked })}
+                        />
+                      }
+                    />
+                    {rule.githubIssues && (
+                      <FlowField
+                        id={`scan-notify-github-repo-${index}`}
+                        label="GitHub repository connection override"
+                        hint="Empty = use the Repository events connection."
+                      >
+                        <Input
+                          id={`scan-notify-github-repo-${index}`}
+                          value={rule.githubRepositoryRef}
+                          onChange={(event) => updateNotification(index, { githubRepositoryRef: event.target.value })}
+                          placeholder="security-tracker-repo"
+                        />
+                      </FlowField>
+                    )}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FlowField
+                        id={`scan-notify-linear-key-${index}`}
+                        label="Linear API key secret"
+                        hint='Secret with the key under "api-key". Set together with the team ID.'
+                      >
+                        <Input
+                          id={`scan-notify-linear-key-${index}`}
+                          value={rule.linearApiKeySecretRef}
+                          onChange={(event) => updateNotification(index, { linearApiKeySecretRef: event.target.value })}
+                          placeholder="linear-api-key"
+                        />
+                      </FlowField>
+                      <FlowField id={`scan-notify-linear-team-${index}`} label="Linear team ID">
+                        <Input
+                          id={`scan-notify-linear-team-${index}`}
+                          value={rule.linearTeamId}
+                          onChange={(event) => updateNotification(index, { linearTeamId: event.target.value })}
+                          placeholder="TEAM-uuid"
+                        />
+                      </FlowField>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setNotifications((prev) => prev.filter((_, i) => i !== index))}
+                    >
+                      Remove rule
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setNotifications((prev) => [
+                      ...prev,
+                      {
+                        name: "",
+                        minSeverity: "",
+                        notifyOn: "new-and-regressed",
+                        slackWebhookSecretRef: "",
+                        githubIssues: false,
+                        githubRepositoryRef: "",
+                        linearApiKeySecretRef: "",
+                        linearTeamId: "",
+                      },
+                    ])
+                  }
+                >
+                  Add notification rule
+                </Button>
               </OptionRow>
 
               <OptionRow

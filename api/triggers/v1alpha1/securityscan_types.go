@@ -34,6 +34,24 @@ const (
 // request is idempotent and durable across controller restarts.
 const SecurityScanRunNowAnnotation = "security.gratefulagents.dev/run-now"
 
+// SecurityScanEventAnnotation is set on a SecurityScan (not its runs) by the
+// GitHub webhook ingress when an authorized pull_request or push delivery
+// matches the scan's spec.triggers. Its value is a JSON-encoded
+// SecurityScanTriggerEvent whose token is derived deterministically from
+// (repository, event kind, head SHA), so redeliveries carry the same token.
+// The controller creates at most one run per token and records the consumed
+// token in status.lastEventToken, making event processing idempotent and
+// durable across controller restarts. The revision inside the payload is
+// stamped by the platform from the webhook payload and is never
+// model-controlled.
+const SecurityScanEventAnnotation = "security.gratefulagents.dev/scan-event"
+
+// SecurityScanStatusRefreshAnnotation is stamped on a SecurityScan by the
+// dashboard after finding triage so the controller re-reconciles, refreshes
+// finding counts, and re-publishes the GitHub check with the post-triage
+// conclusion. Its value is an opaque timestamp; only inequality matters.
+const SecurityScanStatusRefreshAnnotation = "security.gratefulagents.dev/status-refresh"
+
 // SecurityScanSpec defines the desired state of SecurityScan.
 type SecurityScanSpec struct {
 	// repoURL is the git repository URL that is the target of the scan.
@@ -163,6 +181,170 @@ type SecurityScanSpec struct {
 	// overriding defaults.timeout.
 	// +optional
 	MaxRuntime metav1.Duration `json:"maxRuntime,omitempty"`
+
+	// triggers configures repository-event driven scan runs: authorized
+	// GitHub pull_request and push webhook deliveries for the referenced
+	// GitHubRepository create scan runs pinned to the event's head commit.
+	// +optional
+	Triggers *SecurityScanTriggers `json:"triggers,omitempty"`
+
+	// checks configures publishing a GitHub check on the scanned commit
+	// after each scan run with a recorded revision reaches a terminal phase.
+	// +optional
+	Checks *SecurityScanChecks `json:"checks,omitempty"`
+
+	// notifications are rules that send Slack messages and/or create
+	// GitHub/Linear issues for new or regressed findings at or above a
+	// severity threshold. Each (finding fingerprint, rule, channel) notifies
+	// at most once; the sent marker is persisted in the findings store.
+	// +listType=atomic
+	// +optional
+	Notifications []SecurityScanNotificationRule `json:"notifications,omitempty"`
+}
+
+// SecurityScanTriggers configures repository-event driven scan runs.
+type SecurityScanTriggers struct {
+	// repositoryRef names the GitHubRepository in the scan's namespace whose
+	// webhook deliveries trigger this scan and whose credentials publish
+	// checks and read diffs. Required when onPullRequest or onPush is set.
+	// +optional
+	RepositoryRef *SecurityResourceRef `json:"repositoryRef,omitempty"`
+
+	// onPullRequest creates a scan run for pull_request opened, reopened,
+	// ready_for_review, and synchronize deliveries, pinned to the PR head SHA.
+	// +optional
+	OnPullRequest bool `json:"onPullRequest,omitempty"`
+
+	// onPush creates a scan run for push deliveries, pinned to the pushed
+	// head SHA.
+	// +optional
+	OnPush bool `json:"onPush,omitempty"`
+
+	// branches restricts push triggers to branches matching any of these
+	// glob patterns (path.Match syntax; a trailing "*" acts as a prefix
+	// match). Empty matches every branch.
+	// +listType=atomic
+	// +optional
+	Branches []string `json:"branches,omitempty"`
+
+	// diffScope scopes event-triggered scans to the files changed between
+	// the merge base and the head (pull requests) or the push's
+	// before..after range. When the diff cannot be computed the scan falls
+	// back to the full repository and the fallback is stated in the run
+	// prompt and the scan condition.
+	// +optional
+	DiffScope bool `json:"diffScope,omitempty"`
+
+	// allowForks permits scan runs for pull requests whose head repository
+	// differs from the base repository. Fork runs never receive the
+	// repository's GitHub credentials: the configured GitHub token secret is
+	// stripped from the run so untrusted contributions cannot exfiltrate
+	// write tokens. Default false: fork PRs are skipped with an observable
+	// condition and event.
+	// +optional
+	AllowForks bool `json:"allowForks,omitempty"`
+}
+
+// SecurityScanChecks configures GitHub check publishing for scan runs.
+type SecurityScanChecks struct {
+	// enabled turns on check publishing. Requires spec.triggers.repositoryRef
+	// for credentials.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// includeFindingSummaries opts in to listing finding titles and file
+	// locations in the check summary. The default summary contains only
+	// severity counts and a dashboard link; evidence and proof-of-concept
+	// content is never published in either mode.
+	// +optional
+	IncludeFindingSummaries bool `json:"includeFindingSummaries,omitempty"`
+
+	// uploadSARIF opts in to uploading the scan's stored SARIF report
+	// artifact to GitHub code scanning for the scanned commit.
+	// +optional
+	UploadSARIF bool `json:"uploadSARIF,omitempty"`
+}
+
+// SecurityScanNotificationRule routes new/regressed findings at or above a
+// severity threshold to Slack, GitHub issues, and/or Linear issues.
+type SecurityScanNotificationRule struct {
+	// name identifies the rule; it keys the persisted per-finding dedupe
+	// marker, so renaming a rule re-notifies.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+
+	// minSeverity is the lowest severity that notifies. Defaults to "high".
+	// +kubebuilder:validation:Enum=critical;high;medium;low;info
+	// +optional
+	MinSeverity string `json:"minSeverity,omitempty"`
+
+	// notifyOn selects which baseline states notify. Defaults to
+	// "new-and-regressed".
+	// +kubebuilder:validation:Enum=new;regressed;new-and-regressed
+	// +optional
+	NotifyOn string `json:"notifyOn,omitempty"`
+
+	// slack, when set, posts one message per run summarizing the newly
+	// notified findings to a Slack incoming webhook.
+	// +optional
+	Slack *SecurityScanSlackNotification `json:"slack,omitempty"`
+
+	// githubIssues, when set, creates one GitHub issue per newly notified
+	// finding using the referenced repository's credentials. Issue bodies
+	// contain identifying metadata and a dashboard link, never evidence.
+	// +optional
+	GitHubIssues *SecurityScanGitHubIssueNotification `json:"githubIssues,omitempty"`
+
+	// linear, when set, creates one Linear issue per newly notified finding.
+	// +optional
+	Linear *SecurityScanLinearNotification `json:"linear,omitempty"`
+}
+
+// SecurityScanSlackNotification posts to a Slack incoming webhook.
+type SecurityScanSlackNotification struct {
+	// webhookSecretRef names a Secret in the scan's namespace holding the
+	// Slack incoming-webhook URL under the key "url".
+	// +kubebuilder:validation:MinLength=1
+	WebhookSecretRef string `json:"webhookSecretRef"`
+}
+
+// SecurityScanGitHubIssueNotification creates GitHub issues for findings.
+type SecurityScanGitHubIssueNotification struct {
+	// repositoryRef names the GitHubRepository (same namespace) whose
+	// credentials create the issues. When empty, spec.triggers.repositoryRef
+	// is used.
+	// +optional
+	RepositoryRef *SecurityResourceRef `json:"repositoryRef,omitempty"`
+}
+
+// SecurityScanLinearNotification creates Linear issues for findings.
+type SecurityScanLinearNotification struct {
+	// apiKeySecretRef names a Secret in the scan's namespace holding a
+	// Linear API key under the key "api-key".
+	// +kubebuilder:validation:MinLength=1
+	APIKeySecretRef string `json:"apiKeySecretRef"`
+
+	// teamID is the Linear team the issues are created in.
+	// +kubebuilder:validation:MinLength=1
+	TeamID string `json:"teamID"`
+}
+
+// EffectiveMinSeverity returns the rule's minSeverity, defaulting to "high".
+func (r SecurityScanNotificationRule) EffectiveMinSeverity() string {
+	if r.MinSeverity == "" {
+		return "high"
+	}
+	return r.MinSeverity
+}
+
+// EffectiveNotifyOn returns the rule's notifyOn, defaulting to
+// "new-and-regressed".
+func (r SecurityScanNotificationRule) EffectiveNotifyOn() string {
+	if r.NotifyOn == "" {
+		return "new-and-regressed"
+	}
+	return r.NotifyOn
 }
 
 // SecurityScanScope narrows what a scan looks at.
@@ -338,6 +520,33 @@ type SecurityScanStatus struct {
 	// +optional
 	ManualRunsCreated int32 `json:"manualRunsCreated,omitempty"`
 
+	// lastEventToken is the most recent scan-event annotation token the
+	// controller has processed. A token equal to this value never creates
+	// another run, making repository-event triggers idempotent across
+	// webhook redeliveries and controller restarts.
+	// +optional
+	LastEventToken string `json:"lastEventToken,omitempty"`
+
+	// lastEventRevision is the platform-stamped head SHA of the most recent
+	// repository event that created (or attempted) a scan run. It matches
+	// the commit any published check is reported on.
+	// +optional
+	LastEventRevision string `json:"lastEventRevision,omitempty"`
+
+	// eventRunsCreated is the cumulative number of AgentRuns created from
+	// repository events (a subset of runsCreated).
+	// +optional
+	EventRunsCreated int32 `json:"eventRunsCreated,omitempty"`
+
+	// lastCheck records the most recent GitHub check publish attempt.
+	// +optional
+	LastCheck *SecurityScanCheckStatus `json:"lastCheck,omitempty"`
+
+	// lastNotifications records the most recent notification delivery
+	// attempt.
+	// +optional
+	LastNotifications *SecurityScanNotificationStatus `json:"lastNotifications,omitempty"`
+
 	// findings summarizes persisted findings for the most recent scan run.
 	// +optional
 	Findings *SecurityScanFindingCounts `json:"findings,omitempty"`
@@ -366,6 +575,78 @@ type SecurityScanStatus struct {
 const (
 	ConditionSecurityScanReady = "Ready"
 )
+
+// SecurityScanCheckStatus records the most recent GitHub check publish
+// attempt for a scan run.
+type SecurityScanCheckStatus struct {
+	// runName is the AgentRun the check reports on.
+	// +optional
+	RunName string `json:"runName,omitempty"`
+
+	// revision is the commit SHA the check was published on.
+	// +optional
+	Revision string `json:"revision,omitempty"`
+
+	// conclusion is the published check conclusion: success, failure, or
+	// neutral.
+	// +optional
+	Conclusion string `json:"conclusion,omitempty"`
+
+	// url links to the published check run or commit status target.
+	// +optional
+	URL string `json:"url,omitempty"`
+
+	// publishedAt is when the check was last successfully published.
+	// +optional
+	PublishedAt *metav1.Time `json:"publishedAt,omitempty"`
+
+	// stateHash fingerprints the published (run, revision, conclusion,
+	// counts) tuple; a differing desired state triggers a re-publish, e.g.
+	// after findings are triaged.
+	// +optional
+	StateHash string `json:"stateHash,omitempty"`
+
+	// error is the most recent publish failure; empty after a successful
+	// publish. Failures are retried on subsequent reconciles.
+	// +optional
+	Error string `json:"error,omitempty"`
+
+	// sarifUploaded reports whether the run's SARIF artifact was uploaded to
+	// GitHub code scanning.
+	// +optional
+	SARIFUploaded bool `json:"sarifUploaded,omitempty"`
+
+	// sarifError is the most recent SARIF upload failure, if any.
+	// +optional
+	SARIFError string `json:"sarifError,omitempty"`
+}
+
+// SecurityScanNotificationStatus records the most recent notification
+// delivery attempt.
+type SecurityScanNotificationStatus struct {
+	// lastRunName is the AgentRun whose findings were last evaluated.
+	// +optional
+	LastRunName string `json:"lastRunName,omitempty"`
+
+	// sent is the cumulative number of notifications delivered.
+	// +optional
+	Sent int32 `json:"sent,omitempty"`
+
+	// suppressed is the cumulative number of findings skipped because their
+	// (rule, channel, fingerprint) marker was already persisted.
+	// +optional
+	Suppressed int32 `json:"suppressed,omitempty"`
+
+	// lastError is the most recent delivery failure; empty after a fully
+	// successful evaluation. Failed deliveries release their dedupe claim
+	// and are retried on subsequent reconciles.
+	// +optional
+	LastError string `json:"lastError,omitempty"`
+
+	// lastNotifiedAt is when a notification was last delivered.
+	// +optional
+	LastNotifiedAt *metav1.Time `json:"lastNotifiedAt,omitempty"`
+}
 
 // SecurityScanConcurrencyPolicy controls overlapping scheduled scan AgentRuns.
 type SecurityScanConcurrencyPolicy string

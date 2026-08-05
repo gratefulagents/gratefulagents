@@ -241,3 +241,110 @@ describe("SecurityScanFormDialog duplicate mode", () => {
     expect(request.spec?.postScriptRefs).toEqual(["write-poc"]);
   });
 });
+
+describe("SecurityScanFormDialog repository events and notifications", () => {
+  it("submits repository event triggers, checks, and notification rules", async () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Repository events/ }));
+    fireEvent.change(screen.getByLabelText("GitHub repository connection"), {
+      target: { value: "widget-repo" },
+    });
+    fireEvent.click(screen.getByRole("switch", { name: "Scan pull requests" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Scan pushes" }));
+    fireEvent.change(screen.getByLabelText("Push branch filters"), {
+      target: { value: "main, release/*" },
+    });
+    fireEvent.click(screen.getByRole("switch", { name: "Diff scope" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Publish GitHub checks" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Upload SARIF to code scanning" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Notifications/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add notification rule" }));
+    fireEvent.change(screen.getByLabelText(/Rule name/), { target: { value: "critical-alerts" } });
+    fireEvent.change(screen.getByLabelText("Minimum severity"), { target: { value: "critical" } });
+    fireEvent.change(screen.getByLabelText("Slack webhook secret"), {
+      target: { value: "slack-webhook" },
+    });
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => {
+      expect(client.createSecurityScan).toHaveBeenCalledTimes(1);
+    });
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.triggers?.repositoryRef).toBe("widget-repo");
+    expect(request.spec?.triggers?.onPullRequest).toBe(true);
+    expect(request.spec?.triggers?.onPush).toBe(true);
+    expect(request.spec?.triggers?.branches).toEqual(["main", "release/*"]);
+    expect(request.spec?.triggers?.diffScope).toBe(true);
+    expect(request.spec?.triggers?.allowForks).toBe(false);
+    expect(request.spec?.checks?.enabled).toBe(true);
+    expect(request.spec?.checks?.uploadSarif).toBe(true);
+    expect(request.spec?.checks?.includeFindingSummaries).toBe(false);
+    expect(request.spec?.notifications).toHaveLength(1);
+    expect(request.spec?.notifications?.[0].name).toBe("critical-alerts");
+    expect(request.spec?.notifications?.[0].minSeverity).toBe("critical");
+    expect(request.spec?.notifications?.[0].slackWebhookSecretRef).toBe("slack-webhook");
+  });
+
+  it("explains fork and credential safety in the section help text", () => {
+    renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: /Repository events/ }));
+    expect(screen.getByText(/the scan run itself never receives them/)).toBeTruthy();
+    expect(screen.getByText(/GitHub credential is stripped/)).toBeTruthy();
+  });
+
+  it("blocks event triggers without a repository connection", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Repository events/ }));
+    fireEvent.click(screen.getByRole("switch", { name: "Scan pull requests" }));
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/repository reference/i);
+    expect(client.createSecurityScan).not.toHaveBeenCalled();
+  });
+
+  it("blocks notification rules without a channel", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Notifications/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add notification rule" }));
+    fireEvent.change(screen.getByLabelText(/Rule name/), { target: { value: "no-channel" } });
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/at least one channel/i);
+    expect(client.createSecurityScan).not.toHaveBeenCalled();
+  });
+
+  it("requires Linear key and team together", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Notifications/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add notification rule" }));
+    fireEvent.change(screen.getByLabelText(/Rule name/), { target: { value: "linear-only" } });
+    fireEvent.change(screen.getByLabelText("Linear API key secret"), {
+      target: { value: "linear-key" },
+    });
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/both the API key secret and the team ID/i);
+    expect(client.createSecurityScan).not.toHaveBeenCalled();
+  });
+});

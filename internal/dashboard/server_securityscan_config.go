@@ -374,6 +374,18 @@ func securityScanSpecFromRequest(
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	triggers, err := securityScanTriggersFromProto(pb.GetTriggers())
+	if err != nil {
+		return nil, "", "", err
+	}
+	checks, err := securityScanChecksFromProto(pb.GetChecks(), triggers)
+	if err != nil {
+		return nil, "", "", err
+	}
+	notifications, err := securityScanNotificationsFromProto(pb.GetNotifications())
+	if err != nil {
+		return nil, "", "", err
+	}
 
 	spec := &triggersv1alpha1.SecurityScanSpec{
 		RepoURL:           repoURL,
@@ -397,6 +409,9 @@ func securityScanSpecFromRequest(
 		ConcurrencyPolicy: policy,
 		Defaults:          defaults,
 		MaxRuntime:        maxRuntime,
+		Triggers:          triggers,
+		Checks:            checks,
+		Notifications:     notifications,
 	}
 	return spec, provider, authMode, nil
 }
@@ -625,6 +640,33 @@ func securityScanConfigProto(cr *triggersv1alpha1.SecurityScan) *platform.Securi
 	if pb.ConditionReady == "" {
 		pb.ConditionReady = string(metav1.ConditionUnknown)
 	}
+	pb.LastEventRevision = cr.Status.LastEventRevision
+	pb.EventRunsCreated = cr.Status.EventRunsCreated
+	if check := cr.Status.LastCheck; check != nil {
+		pb.LastCheck = &platform.SecurityScanCheckState{
+			RunName:       check.RunName,
+			Revision:      check.Revision,
+			Conclusion:    check.Conclusion,
+			Url:           check.URL,
+			Error:         check.Error,
+			SarifUploaded: check.SARIFUploaded,
+			SarifError:    check.SARIFError,
+		}
+		if check.PublishedAt != nil {
+			pb.LastCheck.PublishedAtUnix = check.PublishedAt.Unix()
+		}
+	}
+	if notif := cr.Status.LastNotifications; notif != nil {
+		pb.LastNotifications = &platform.SecurityScanNotificationState{
+			LastRunName: notif.LastRunName,
+			Sent:        notif.Sent,
+			Suppressed:  notif.Suppressed,
+			LastError:   notif.LastError,
+		}
+		if notif.LastNotifiedAt != nil {
+			pb.LastNotifications.LastNotifiedAtUnix = notif.LastNotifiedAt.Unix()
+		}
+	}
 	return pb
 }
 
@@ -688,5 +730,151 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 			SimilarityThresholdPermille: d.SimilarityThresholdPermille,
 		}
 	}
+	if t := spec.Triggers; t != nil {
+		pb.Triggers = &platform.SecurityScanTriggersConfig{
+			OnPullRequest: t.OnPullRequest,
+			OnPush:        t.OnPush,
+			Branches:      append([]string(nil), t.Branches...),
+			DiffScope:     t.DiffScope,
+			AllowForks:    t.AllowForks,
+		}
+		if t.RepositoryRef != nil {
+			pb.Triggers.RepositoryRef = t.RepositoryRef.Name
+		}
+	}
+	if c := spec.Checks; c != nil {
+		pb.Checks = &platform.SecurityScanChecksConfig{
+			Enabled:                 c.Enabled,
+			IncludeFindingSummaries: c.IncludeFindingSummaries,
+			UploadSarif:             c.UploadSARIF,
+		}
+	}
+	for _, rule := range spec.Notifications {
+		pbRule := &platform.SecurityScanNotificationRuleConfig{
+			Name:        rule.Name,
+			MinSeverity: rule.MinSeverity,
+			NotifyOn:    rule.NotifyOn,
+		}
+		if rule.Slack != nil {
+			pbRule.SlackWebhookSecretRef = rule.Slack.WebhookSecretRef
+		}
+		if rule.GitHubIssues != nil {
+			pbRule.GithubIssues = true
+			if rule.GitHubIssues.RepositoryRef != nil {
+				pbRule.GithubRepositoryRef = rule.GitHubIssues.RepositoryRef.Name
+			}
+		}
+		if rule.Linear != nil {
+			pbRule.LinearApiKeySecretRef = rule.Linear.APIKeySecretRef
+			pbRule.LinearTeamId = rule.Linear.TeamID
+		}
+		pb.Notifications = append(pb.Notifications, pbRule)
+	}
 	return pb
+}
+
+// securityScanTriggersFromProto validates and converts the triggers config.
+func securityScanTriggersFromProto(pb *platform.SecurityScanTriggersConfig) (*triggersv1alpha1.SecurityScanTriggers, error) {
+	if pb == nil {
+		return nil, nil
+	}
+	repoRef := strings.TrimSpace(pb.GetRepositoryRef())
+	if (pb.GetOnPullRequest() || pb.GetOnPush()) && repoRef == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("triggers.repository_ref is required when on_pull_request or on_push is set"))
+	}
+	t := &triggersv1alpha1.SecurityScanTriggers{
+		OnPullRequest: pb.GetOnPullRequest(),
+		OnPush:        pb.GetOnPush(),
+		Branches:      trimmedNonEmpty(pb.GetBranches()),
+		DiffScope:     pb.GetDiffScope(),
+		AllowForks:    pb.GetAllowForks(),
+	}
+	if repoRef != "" {
+		t.RepositoryRef = &triggersv1alpha1.SecurityResourceRef{Name: repoRef}
+	}
+	if !t.OnPullRequest && !t.OnPush && !t.DiffScope && !t.AllowForks && t.RepositoryRef == nil && len(t.Branches) == 0 {
+		return nil, nil
+	}
+	return t, nil
+}
+
+// securityScanChecksFromProto converts the checks config.
+func securityScanChecksFromProto(pb *platform.SecurityScanChecksConfig, triggers *triggersv1alpha1.SecurityScanTriggers) (*triggersv1alpha1.SecurityScanChecks, error) {
+	if pb == nil {
+		return nil, nil
+	}
+	if pb.GetEnabled() && (triggers == nil || triggers.RepositoryRef == nil) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("checks.enabled requires triggers.repository_ref: the referenced GitHubRepository supplies the credentials that publish checks"))
+	}
+	if !pb.GetEnabled() && !pb.GetIncludeFindingSummaries() && !pb.GetUploadSarif() {
+		return nil, nil
+	}
+	return &triggersv1alpha1.SecurityScanChecks{
+		Enabled:                 pb.GetEnabled(),
+		IncludeFindingSummaries: pb.GetIncludeFindingSummaries(),
+		UploadSARIF:             pb.GetUploadSarif(),
+	}, nil
+}
+
+// securityScanNotificationsFromProto validates and converts notification
+// rules.
+func securityScanNotificationsFromProto(pbRules []*platform.SecurityScanNotificationRuleConfig) ([]triggersv1alpha1.SecurityScanNotificationRule, error) {
+	if len(pbRules) == 0 {
+		return nil, nil
+	}
+	invalid := func(format string, args ...any) error {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(format, args...))
+	}
+	seen := map[string]bool{}
+	rules := make([]triggersv1alpha1.SecurityScanNotificationRule, 0, len(pbRules))
+	for i, pb := range pbRules {
+		name := strings.TrimSpace(pb.GetName())
+		if name == "" {
+			return nil, invalid("notifications[%d].name is required", i)
+		}
+		if len(name) > 63 {
+			return nil, invalid("notifications[%d].name exceeds 63 characters", i)
+		}
+		if seen[name] {
+			return nil, invalid("notifications[%d].name %q is duplicated: rule names must be unique", i, name)
+		}
+		seen[name] = true
+		if err := validateSecuritySeverity(fmt.Sprintf("notifications[%d].min_severity", i), pb.GetMinSeverity()); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		switch strings.TrimSpace(pb.GetNotifyOn()) {
+		case "", "new", "regressed", "new-and-regressed":
+		default:
+			return nil, invalid("notifications[%d].notify_on %q invalid (want new, regressed, or new-and-regressed)", i, pb.GetNotifyOn())
+		}
+		rule := triggersv1alpha1.SecurityScanNotificationRule{
+			Name:        name,
+			MinSeverity: strings.TrimSpace(pb.GetMinSeverity()),
+			NotifyOn:    strings.TrimSpace(pb.GetNotifyOn()),
+		}
+		if ref := strings.TrimSpace(pb.GetSlackWebhookSecretRef()); ref != "" {
+			rule.Slack = &triggersv1alpha1.SecurityScanSlackNotification{WebhookSecretRef: ref}
+		}
+		if pb.GetGithubIssues() {
+			rule.GitHubIssues = &triggersv1alpha1.SecurityScanGitHubIssueNotification{}
+			if ref := strings.TrimSpace(pb.GetGithubRepositoryRef()); ref != "" {
+				rule.GitHubIssues.RepositoryRef = &triggersv1alpha1.SecurityResourceRef{Name: ref}
+			}
+		}
+		linearKey := strings.TrimSpace(pb.GetLinearApiKeySecretRef())
+		linearTeam := strings.TrimSpace(pb.GetLinearTeamId())
+		if (linearKey == "") != (linearTeam == "") {
+			return nil, invalid("notifications[%d]: linear_api_key_secret_ref and linear_team_id must be set together", i)
+		}
+		if linearKey != "" {
+			rule.Linear = &triggersv1alpha1.SecurityScanLinearNotification{APIKeySecretRef: linearKey, TeamID: linearTeam}
+		}
+		if rule.Slack == nil && rule.GitHubIssues == nil && rule.Linear == nil {
+			return nil, invalid("notifications[%d] (%q) configures no channel: set slack, github_issues, and/or linear", i, name)
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
 }

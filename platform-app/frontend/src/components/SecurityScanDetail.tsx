@@ -30,6 +30,7 @@ import type {
   SecurityFinding,
   SecurityFindingEvent,
   SecurityScan,
+  SecurityScanConfig,
   SecuritySavedFilter,
 } from "@/rpc/platform/service_pb";
 
@@ -64,6 +65,7 @@ export function SecurityScanDetail() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [scan, setScan] = useState<SecurityScan | null>(null);
+  const [scanConfig, setScanConfig] = useState<SecurityScanConfig | null>(null);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [findings, setFindings] = useState<SecurityFinding[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,6 +142,15 @@ export function SecurityScanDetail() {
       ]);
       setScan(scanResp);
       setSummary(summaryResp.counts);
+      // Repository integration state (check publishing / notifications)
+      // lives on the SecurityScan trigger config; best-effort.
+      if (scanResp.scanName) {
+        try {
+          setScanConfig(await client.getSecurityScanConfig({ namespace, name: scanResp.scanName }));
+        } catch {
+          setScanConfig(null);
+        }
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load security scan");
     } finally {
@@ -477,6 +488,59 @@ export function SecurityScanDetail() {
               This scan run has not finished. The Markdown report and SARIF artifact become
               available once the run submits its results.
             </p>
+          )}
+
+          {scanConfig && (scanConfig.lastCheck || scanConfig.lastNotifications) && (
+            <section
+              aria-label="Repository integration"
+              className="space-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[12.5px]"
+            >
+              <p className="font-medium text-foreground">Repository integration</p>
+              {scanConfig.lastCheck && (
+                <p className="text-muted-foreground">
+                  GitHub check on{" "}
+                  <span className="font-mono">{scanConfig.lastCheck.revision.slice(0, 12)}</span>:{" "}
+                  {scanConfig.lastCheck.error ? (
+                    <span className="text-destructive">
+                      publish failed — {scanConfig.lastCheck.error} (retried automatically)
+                    </span>
+                  ) : (
+                    <>
+                      <Badge variant="outline" className="capitalize">{scanConfig.lastCheck.conclusion}</Badge>
+                      {scanConfig.lastCheck.url && (
+                        <>
+                          {" "}
+                          <a
+                            className="underline underline-offset-2"
+                            href={scanConfig.lastCheck.url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            view check
+                          </a>
+                        </>
+                      )}
+                    </>
+                  )}
+                  {scanConfig.lastCheck.sarifError && (
+                    <span className="text-destructive"> · SARIF upload failed — {scanConfig.lastCheck.sarifError}</span>
+                  )}
+                  {scanConfig.lastCheck.sarifUploaded && " · SARIF uploaded to code scanning"}
+                </p>
+              )}
+              {scanConfig.lastNotifications && (
+                <p className="text-muted-foreground">
+                  Notifications: {scanConfig.lastNotifications.sent} sent,{" "}
+                  {scanConfig.lastNotifications.suppressed} suppressed as duplicates
+                  {scanConfig.lastNotifications.lastError ? (
+                    <span className="text-destructive">
+                      {" "}
+                      — last error: {scanConfig.lastNotifications.lastError} (retried automatically)
+                    </span>
+                  ) : null}
+                </p>
+              )}
+            </section>
           )}
           {reportNotice && (
             <p role="status" className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-[12.5px] text-muted-foreground">
