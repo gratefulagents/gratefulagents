@@ -135,8 +135,8 @@ func (c *githubSecurityIssueCreator) CreateIssue(ctx context.Context, gh *trigge
 	}
 	ghc := github.NewClient(nil).WithAuthToken(token)
 	issue, _, err := ghc.Issues.Create(ctx, gh.Spec.Owner, gh.Spec.Repo, &github.IssueRequest{
-		Title: github.Ptr(title),
-		Body:  github.Ptr(body),
+		Title: &title,
+		Body:  &body,
 	})
 	if err != nil {
 		return "", fmt.Errorf("creating GitHub issue: %w", err)

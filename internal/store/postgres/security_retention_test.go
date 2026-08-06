@@ -147,11 +147,11 @@ func TestPurgeExpiredSecurityDataIsNamespaceScopedAndBatched(t *testing.T) {
 	ctx := context.Background()
 
 	retentionSeedScan(ctx, t, s, pool, "team-a", "nightly", "a-1", 100)
-	retentionSeedScan(ctx, t, s, pool, "team-b", "nightly", "b-1", 100)
+	retentionSeedScan(ctx, t, s, pool, "team-b", "weekly", "b-1", 90)
 	for _, fp := range []string{"fp-1", "fp-2", "fp-3"} {
 		retentionSeedFinding(ctx, t, s, pool, "team-a", "nightly", "a-1", fp, 100)
 	}
-	otherID := retentionSeedFinding(ctx, t, s, pool, "team-b", "nightly", "b-1", "fp-other", 100)
+	otherID := retentionSeedFinding(ctx, t, s, pool, "team-b", "weekly", "b-1", "fp-other", 100)
 
 	policy := store.SecurityRetentionPolicy{FindingDays: 30}
 	counts, moreWork, err := s.PurgeExpiredSecurityData(ctx, "team-a", policy, 2)
@@ -165,8 +165,8 @@ func TestPurgeExpiredSecurityDataIsNamespaceScopedAndBatched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PurgeExpiredSecurityData(resume): %v", err)
 	}
-	if counts.FindingsDeleted != 1 {
-		t.Fatalf("resumed batch = %+v, want the final deletion", counts)
+	if counts.FindingsDeleted != 1 || moreWork {
+		t.Fatalf("resumed batch = %+v moreWork = %v, want final deletion and no more work", counts, moreWork)
 	}
 
 	if got, err := s.GetSecurityFinding(ctx, "team-b", otherID); err != nil || got == nil {

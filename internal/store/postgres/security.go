@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -579,14 +580,7 @@ func (s *Store) CorrelateSecurityFindings(ctx context.Context, namespace, scanNa
 	changed := false
 	for i, sd := range sides {
 		other := sides[1-i]
-		already := false
-		for _, fp := range sd.correlated {
-			if fp == other.fp {
-				already = true
-				break
-			}
-		}
-		if already {
+		if slices.Contains(sd.correlated, other.fp) {
 			continue
 		}
 		if _, err := tx.Exec(ctx, `

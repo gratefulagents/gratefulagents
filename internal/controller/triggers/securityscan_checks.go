@@ -67,18 +67,19 @@ func (p *githubSecurityCheckPublisher) PublishCheck(ctx context.Context, gh *tri
 	}
 	ghc := github.NewClient(nil).WithAuthToken(token)
 	if gh.Spec.GitHubApp != nil {
+		status := "completed"
 		opts := github.CreateCheckRunOptions{
 			Name:       check.Name,
 			HeadSHA:    check.Revision,
-			Status:     github.Ptr("completed"),
-			Conclusion: github.Ptr(check.Conclusion),
+			Status:     &status,
+			Conclusion: &check.Conclusion,
 			Output: &github.CheckRunOutput{
-				Title:   github.Ptr(check.Title),
-				Summary: github.Ptr(check.Summary),
+				Title:   &check.Title,
+				Summary: &check.Summary,
 			},
 		}
 		if check.DetailsURL != "" {
-			opts.DetailsURL = github.Ptr(check.DetailsURL)
+			opts.DetailsURL = &check.DetailsURL
 		}
 		run, _, err := ghc.Checks.CreateCheckRun(ctx, gh.Spec.Owner, gh.Spec.Repo, opts)
 		if err != nil {
@@ -96,12 +97,12 @@ func (p *githubSecurityCheckPublisher) PublishCheck(ctx context.Context, gh *tri
 		description = description[:140]
 	}
 	status := &github.RepoStatus{
-		State:       github.Ptr(state),
-		Context:     github.Ptr(check.Name),
-		Description: github.Ptr(description),
+		State:       &state,
+		Context:     &check.Name,
+		Description: &description,
 	}
 	if check.DetailsURL != "" {
-		status.TargetURL = github.Ptr(check.DetailsURL)
+		status.TargetURL = &check.DetailsURL
 	}
 	created, _, err := ghc.Repositories.CreateStatus(ctx, gh.Spec.Owner, gh.Spec.Repo, check.Revision, status)
 	if err != nil {
@@ -126,9 +127,9 @@ func (p *githubSecurityCheckPublisher) UploadSARIF(ctx context.Context, gh *trig
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 	ghc := github.NewClient(nil).WithAuthToken(token)
 	analysis := &github.SarifAnalysis{
-		CommitSHA: github.Ptr(revision),
-		Ref:       github.Ptr(ref),
-		Sarif:     github.Ptr(encoded),
+		CommitSHA: &revision,
+		Ref:       &ref,
+		Sarif:     &encoded,
 	}
 	id, _, err := ghc.CodeScanning.UploadSarif(ctx, gh.Spec.Owner, gh.Spec.Repo, analysis)
 	if err != nil {
@@ -266,6 +267,32 @@ func securityScanSARIFRef(scan *triggersv1alpha1.SecurityScan, ev *SecurityScanT
 	return "refs/heads/" + scan.Spec.EffectiveBaseBranch()
 }
 
+func (r *SecurityScanReconciler) uploadRunCheckSARIF(
+	ctx context.Context, scan *triggersv1alpha1.SecurityScan, run *platformv1alpha1.AgentRun,
+	gh *triggersv1alpha1.GitHubRepository, revision string, status *triggersv1alpha1.SecurityScanCheckStatus,
+) bool {
+	retry := false
+	sarif, err := r.scanRunSARIF(ctx, scan, run.Name)
+	switch {
+	case err != nil:
+		status.SARIFError = "reading SARIF artifact: " + err.Error()
+		retry = true
+	case sarif == "":
+		status.SARIFError = "the run stored no SARIF report artifact"
+	default:
+		if _, err := r.checkPublisher().UploadSARIF(ctx, gh, revision, securityScanSARIFRef(scan, runTriggerEvent(run)), sarif); err != nil {
+			status.SARIFError = err.Error()
+			retry = true
+		} else {
+			status.SARIFUploaded = true
+		}
+	}
+	if status.SARIFError != "" {
+		r.recordScanEvent(scan, corev1.EventTypeWarning, "SARIFUploadFailed", status.SARIFError)
+	}
+	return retry
+}
+
 // publishRunCheck publishes the GitHub check for the scan's last run when
 // checks are enabled, the run is terminal, and it carries a platform-stamped
 // revision. Publishing is idempotent per state hash and re-runs whenever the
@@ -369,24 +396,7 @@ func (r *SecurityScanReconciler) publishRunCheck(ctx context.Context, scan *trig
 	}
 	retry := false
 	if sarifWanted && !sarifDone {
-		sarif, sarifErr := r.scanRunSARIF(ctx, scan, run.Name)
-		switch {
-		case sarifErr != nil:
-			newStatus.SARIFError = "reading SARIF artifact: " + sarifErr.Error()
-			retry = true
-		case sarif == "":
-			newStatus.SARIFError = "the run stored no SARIF report artifact"
-		default:
-			if _, err := r.checkPublisher().UploadSARIF(ctx, gh, revision, securityScanSARIFRef(scan, runTriggerEvent(run)), sarif); err != nil {
-				newStatus.SARIFError = err.Error()
-				retry = true
-			} else {
-				newStatus.SARIFUploaded = true
-			}
-		}
-		if newStatus.SARIFError != "" {
-			r.recordScanEvent(scan, corev1.EventTypeWarning, "SARIFUploadFailed", newStatus.SARIFError)
-		}
+		retry = r.uploadRunCheckSARIF(ctx, scan, run, gh, revision, newStatus)
 	}
 
 	if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {

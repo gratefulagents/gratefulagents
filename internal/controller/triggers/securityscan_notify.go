@@ -43,8 +43,8 @@ func (n *defaultSecurityScanNotifier) CreateGitHubIssue(ctx context.Context, gh 
 	}
 	ghc := github.NewClient(nil).WithAuthToken(token)
 	issue, _, err := ghc.Issues.Create(ctx, gh.Spec.Owner, gh.Spec.Repo, &github.IssueRequest{
-		Title: github.Ptr(title),
-		Body:  github.Ptr(body),
+		Title: &title,
+		Body:  &body,
 	})
 	if err != nil {
 		return "", fmt.Errorf("creating GitHub issue: %w", err)
@@ -166,6 +166,68 @@ func buildSecurityNotificationIssueBody(f store.SecurityFindingRecord, dashboard
 	return b.String()
 }
 
+type securityNotificationChannel struct {
+	name string
+	send func(ctx context.Context, findings []store.SecurityFindingRecord) error
+}
+
+func matchingSecurityNotificationFindings(rule triggersv1alpha1.SecurityScanNotificationRule, findings []store.SecurityFindingRecord) []store.SecurityFindingRecord {
+	matched := make([]store.SecurityFindingRecord, 0, len(findings))
+	for _, finding := range findings {
+		if notificationRuleMatches(rule, finding) {
+			matched = append(matched, finding)
+		}
+	}
+	return matched
+}
+
+func (r *SecurityScanReconciler) securityNotificationChannels(scan *triggersv1alpha1.SecurityScan, rule triggersv1alpha1.SecurityScanNotificationRule) []securityNotificationChannel {
+	var channels []securityNotificationChannel
+	if rule.Slack != nil {
+		slackRule := rule
+		channels = append(channels, securityNotificationChannel{name: "slack", send: func(ctx context.Context, batch []store.SecurityFindingRecord) error {
+			webhookURL, err := ReadSecretValue(ctx, r.Client, scan.Namespace, slackRule.Slack.WebhookSecretRef, "url")
+			if err != nil {
+				return fmt.Errorf("reading slack webhook secret: %w", err)
+			}
+			return r.notifier().SendSlack(ctx, strings.TrimSpace(webhookURL), buildSecurityNotificationSlackText(scan, slackRule, batch, r.DashboardBaseURL))
+		}})
+	}
+	if rule.GitHubIssues != nil {
+		ghRule := rule
+		channels = append(channels, securityNotificationChannel{name: "github", send: func(ctx context.Context, batch []store.SecurityFindingRecord) error {
+			gh, err := r.notificationRepository(ctx, scan, ghRule.GitHubIssues.RepositoryRef)
+			if err != nil {
+				return err
+			}
+			for _, finding := range batch {
+				title := fmt.Sprintf("[security][%s] %s", finding.Severity, finding.Title)
+				if _, err := r.notifier().CreateGitHubIssue(ctx, gh, title, buildSecurityNotificationIssueBody(finding, r.DashboardBaseURL)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}})
+	}
+	if rule.Linear != nil {
+		linRule := rule
+		channels = append(channels, securityNotificationChannel{name: "linear", send: func(ctx context.Context, batch []store.SecurityFindingRecord) error {
+			apiKey, err := ReadSecretValue(ctx, r.Client, scan.Namespace, linRule.Linear.APIKeySecretRef, "api-key")
+			if err != nil {
+				return fmt.Errorf("reading Linear API key secret: %w", err)
+			}
+			for _, finding := range batch {
+				title := fmt.Sprintf("[security][%s] %s", finding.Severity, finding.Title)
+				if _, err := r.notifier().CreateLinearIssue(ctx, strings.TrimSpace(apiKey), linRule.Linear.TeamID, title, buildSecurityNotificationIssueBody(finding, r.DashboardBaseURL)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}})
+	}
+	return channels
+}
+
 // notifyRunFindings evaluates the scan's notification rules against the last
 // run's findings once the run has terminated successfully. Duplicate noise is
 // suppressed with persisted (scan, rule/channel, fingerprint) markers claimed
@@ -206,63 +268,12 @@ func (r *SecurityScanReconciler) notifyRunFindings(ctx context.Context, scan *tr
 	var sent, suppressed int32
 	var failures []string
 	for _, rule := range rules {
-		matched := make([]store.SecurityFindingRecord, 0, len(findings))
-		for _, f := range findings {
-			if notificationRuleMatches(rule, f) {
-				matched = append(matched, f)
-			}
-		}
+		matched := matchingSecurityNotificationFindings(rule, findings)
 		if len(matched) == 0 {
 			continue
 		}
 
-		type channel struct {
-			name string
-			send func(ctx context.Context, findings []store.SecurityFindingRecord) error
-		}
-		var channels []channel
-		if rule.Slack != nil {
-			slackRule := rule
-			channels = append(channels, channel{name: "slack", send: func(ctx context.Context, batch []store.SecurityFindingRecord) error {
-				webhookURL, err := ReadSecretValue(ctx, r.Client, scan.Namespace, slackRule.Slack.WebhookSecretRef, "url")
-				if err != nil {
-					return fmt.Errorf("reading slack webhook secret: %w", err)
-				}
-				return r.notifier().SendSlack(ctx, strings.TrimSpace(webhookURL), buildSecurityNotificationSlackText(scan, slackRule, batch, r.DashboardBaseURL))
-			}})
-		}
-		if rule.GitHubIssues != nil {
-			ghRule := rule
-			channels = append(channels, channel{name: "github", send: func(ctx context.Context, batch []store.SecurityFindingRecord) error {
-				gh, err := r.notificationRepository(ctx, scan, ghRule.GitHubIssues.RepositoryRef)
-				if err != nil {
-					return err
-				}
-				for _, f := range batch {
-					title := fmt.Sprintf("[security][%s] %s", f.Severity, f.Title)
-					if _, err := r.notifier().CreateGitHubIssue(ctx, gh, title, buildSecurityNotificationIssueBody(f, r.DashboardBaseURL)); err != nil {
-						return err
-					}
-				}
-				return nil
-			}})
-		}
-		if rule.Linear != nil {
-			linRule := rule
-			channels = append(channels, channel{name: "linear", send: func(ctx context.Context, batch []store.SecurityFindingRecord) error {
-				apiKey, err := ReadSecretValue(ctx, r.Client, scan.Namespace, linRule.Linear.APIKeySecretRef, "api-key")
-				if err != nil {
-					return fmt.Errorf("reading Linear API key secret: %w", err)
-				}
-				for _, f := range batch {
-					title := fmt.Sprintf("[security][%s] %s", f.Severity, f.Title)
-					if _, err := r.notifier().CreateLinearIssue(ctx, strings.TrimSpace(apiKey), linRule.Linear.TeamID, title, buildSecurityNotificationIssueBody(f, r.DashboardBaseURL)); err != nil {
-						return err
-					}
-				}
-				return nil
-			}})
-		}
+		channels := r.securityNotificationChannels(scan, rule)
 
 		fingerprints := make([]string, 0, len(matched))
 		byFingerprint := make(map[string]store.SecurityFindingRecord, len(matched))

@@ -166,15 +166,8 @@ func securityPolicyPackToProto(cr *triggersv1alpha1.SecurityPolicyPack, referenc
 }
 
 func (s *Server) ListSecurityPolicyPacks(ctx context.Context, req *platform.ListSecurityPolicyPacksRequest) (*platform.ListSecurityPolicyPacksResponse, error) {
-	namespace, err := s.authorizeSecurityLibraryNamespace(ctx, req.GetNamespace())
-	if err != nil {
-		return nil, err
-	}
 	list := &triggersv1alpha1.SecurityPolicyPackList{}
-	if err := s.k8sClient.List(ctx, list, client.InNamespace(namespace)); err != nil {
-		return nil, mapK8sError("list SecurityPolicyPacks", err)
-	}
-	usage, err := s.securityLibraryUsage(ctx, namespace, "SecurityPolicyPack")
+	usage, err := s.listSecurityLibraryResources(ctx, req.GetNamespace(), "SecurityPolicyPack", "SecurityPolicyPacks", list)
 	if err != nil {
 		return nil, err
 	}
@@ -239,18 +232,11 @@ func (s *Server) UpdateSecurityPolicyPack(ctx context.Context, req *platform.Upd
 		return nil, err
 	}
 	cr := &triggersv1alpha1.SecurityPolicyPack{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: req.GetPolicyPack().GetName()}, cr); err != nil {
-		return nil, mapK8sError(fmt.Sprintf("get SecurityPolicyPack %s/%s", namespace, req.GetPolicyPack().GetName()), err)
-	}
-	cr.Spec = spec
-	if err := s.k8sClient.Update(ctx, cr); err != nil {
-		return nil, mapK8sError("update SecurityPolicyPack", err)
-	}
-	usage, err := s.securityLibraryUsage(ctx, namespace, "SecurityPolicyPack")
+	usage, err := s.updateSecurityLibraryResource(ctx, namespace, req.GetPolicyPack().GetName(), "SecurityPolicyPack", cr, func() { cr.Spec = spec })
 	if err != nil {
 		return nil, err
 	}
-	return securityPolicyPackToProto(cr, usage[cr.Name]), nil
+	return securityPolicyPackToProto(cr, usage), nil
 }
 
 func (s *Server) DeleteSecurityPolicyPack(ctx context.Context, req *platform.DeleteSecurityPolicyPackRequest) (*emptypb.Empty, error) {

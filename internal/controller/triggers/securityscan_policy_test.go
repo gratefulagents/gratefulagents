@@ -13,8 +13,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func boolPtr(b bool) *bool { return &b }
-
 func runtimeProfileRef(name string) *platformv1alpha1.NamedRef {
 	return &platformv1alpha1.NamedRef{Name: name}
 }
@@ -153,7 +151,7 @@ func TestApplySecurityPolicyPackPrecedence(t *testing.T) {
 		{
 			name: "dedupe scan override allowed when not enforced",
 			spec: triggersv1alpha1.SecurityScanSpec{
-				Dedupe: &triggersv1alpha1.SecurityScanDedupe{Enabled: boolPtr(false)},
+				Dedupe: &triggersv1alpha1.SecurityScanDedupe{Enabled: new(bool)},
 			},
 			pack: triggersv1alpha1.SecurityPolicyPackSpec{
 				Dedupe: &triggersv1alpha1.SecurityScanDedupe{SimilarityThresholdPermille: 900},
@@ -167,7 +165,7 @@ func TestApplySecurityPolicyPackPrecedence(t *testing.T) {
 		{
 			name: "dedupe enforced disable rejected",
 			spec: triggersv1alpha1.SecurityScanSpec{
-				Dedupe: &triggersv1alpha1.SecurityScanDedupe{Enabled: boolPtr(false)},
+				Dedupe: &triggersv1alpha1.SecurityScanDedupe{Enabled: new(bool)},
 			},
 			pack: triggersv1alpha1.SecurityPolicyPackSpec{
 				Enforced: []string{triggersv1alpha1.SecurityPolicyFieldDedupe},

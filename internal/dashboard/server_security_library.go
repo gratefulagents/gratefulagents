@@ -173,16 +173,26 @@ func securityWorkflowToProto(cr *triggersv1alpha1.SecurityWorkflow, referencing 
 	return pb
 }
 
-func (s *Server) ListSecurityWorkflows(ctx context.Context, req *platform.ListSecurityWorkflowsRequest) (*platform.ListSecurityWorkflowsResponse, error) {
-	namespace, err := s.authorizeSecurityLibraryNamespace(ctx, req.GetNamespace())
+func (s *Server) listSecurityLibraryResources(
+	ctx context.Context, requestedNamespace, kind, plural string, list client.ObjectList,
+) (map[string][]string, error) {
+	namespace, err := s.authorizeSecurityLibraryNamespace(ctx, requestedNamespace)
 	if err != nil {
 		return nil, err
 	}
-	list := &triggersv1alpha1.SecurityWorkflowList{}
 	if err := s.k8sClient.List(ctx, list, client.InNamespace(namespace)); err != nil {
-		return nil, mapK8sError("list SecurityWorkflows", err)
+		return nil, mapK8sError("list "+plural, err)
 	}
-	usage, err := s.securityLibraryUsage(ctx, namespace, "SecurityWorkflow")
+	usage, err := s.securityLibraryUsage(ctx, namespace, kind)
+	if err != nil {
+		return nil, err
+	}
+	return usage, nil
+}
+
+func (s *Server) ListSecurityWorkflows(ctx context.Context, req *platform.ListSecurityWorkflowsRequest) (*platform.ListSecurityWorkflowsResponse, error) {
+	list := &triggersv1alpha1.SecurityWorkflowList{}
+	usage, err := s.listSecurityLibraryResources(ctx, req.GetNamespace(), "SecurityWorkflow", "SecurityWorkflows", list)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +247,23 @@ func (s *Server) CreateSecurityWorkflow(ctx context.Context, req *platform.Creat
 	return securityWorkflowToProto(cr, nil), nil
 }
 
+func (s *Server) updateSecurityLibraryResource(
+	ctx context.Context, namespace, name, kind string, cr client.Object, setSpec func(),
+) ([]string, error) {
+	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cr); err != nil {
+		return nil, mapK8sError(fmt.Sprintf("get %s %s/%s", kind, namespace, name), err)
+	}
+	setSpec()
+	if err := s.k8sClient.Update(ctx, cr); err != nil {
+		return nil, mapK8sError("update "+kind, err)
+	}
+	usage, err := s.securityLibraryUsage(ctx, namespace, kind)
+	if err != nil {
+		return nil, err
+	}
+	return usage[name], nil
+}
+
 func (s *Server) UpdateSecurityWorkflow(ctx context.Context, req *platform.UpdateSecurityWorkflowRequest) (*platform.SecurityWorkflowResource, error) {
 	namespace, err := s.authorizeSecurityLibraryNamespace(ctx, req.GetWorkflow().GetNamespace())
 	if err != nil {
@@ -247,18 +274,11 @@ func (s *Server) UpdateSecurityWorkflow(ctx context.Context, req *platform.Updat
 		return nil, err
 	}
 	cr := &triggersv1alpha1.SecurityWorkflow{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: req.GetWorkflow().GetName()}, cr); err != nil {
-		return nil, mapK8sError(fmt.Sprintf("get SecurityWorkflow %s/%s", namespace, req.GetWorkflow().GetName()), err)
-	}
-	cr.Spec = spec
-	if err := s.k8sClient.Update(ctx, cr); err != nil {
-		return nil, mapK8sError("update SecurityWorkflow", err)
-	}
-	usage, err := s.securityLibraryUsage(ctx, namespace, "SecurityWorkflow")
+	usage, err := s.updateSecurityLibraryResource(ctx, namespace, req.GetWorkflow().GetName(), "SecurityWorkflow", cr, func() { cr.Spec = spec })
 	if err != nil {
 		return nil, err
 	}
-	return securityWorkflowToProto(cr, usage[cr.Name]), nil
+	return securityWorkflowToProto(cr, usage), nil
 }
 
 func (s *Server) DeleteSecurityWorkflow(ctx context.Context, req *platform.DeleteSecurityWorkflowRequest) (*emptypb.Empty, error) {
@@ -336,15 +356,8 @@ func securityRankerToProto(cr *triggersv1alpha1.SecurityRanker, referencing []st
 }
 
 func (s *Server) ListSecurityRankers(ctx context.Context, req *platform.ListSecurityRankersRequest) (*platform.ListSecurityRankersResponse, error) {
-	namespace, err := s.authorizeSecurityLibraryNamespace(ctx, req.GetNamespace())
-	if err != nil {
-		return nil, err
-	}
 	list := &triggersv1alpha1.SecurityRankerList{}
-	if err := s.k8sClient.List(ctx, list, client.InNamespace(namespace)); err != nil {
-		return nil, mapK8sError("list SecurityRankers", err)
-	}
-	usage, err := s.securityLibraryUsage(ctx, namespace, "SecurityRanker")
+	usage, err := s.listSecurityLibraryResources(ctx, req.GetNamespace(), "SecurityRanker", "SecurityRankers", list)
 	if err != nil {
 		return nil, err
 	}
@@ -409,18 +422,11 @@ func (s *Server) UpdateSecurityRanker(ctx context.Context, req *platform.UpdateS
 		return nil, err
 	}
 	cr := &triggersv1alpha1.SecurityRanker{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: req.GetRanker().GetName()}, cr); err != nil {
-		return nil, mapK8sError(fmt.Sprintf("get SecurityRanker %s/%s", namespace, req.GetRanker().GetName()), err)
-	}
-	cr.Spec = spec
-	if err := s.k8sClient.Update(ctx, cr); err != nil {
-		return nil, mapK8sError("update SecurityRanker", err)
-	}
-	usage, err := s.securityLibraryUsage(ctx, namespace, "SecurityRanker")
+	usage, err := s.updateSecurityLibraryResource(ctx, namespace, req.GetRanker().GetName(), "SecurityRanker", cr, func() { cr.Spec = spec })
 	if err != nil {
 		return nil, err
 	}
-	return securityRankerToProto(cr, usage[cr.Name]), nil
+	return securityRankerToProto(cr, usage), nil
 }
 
 func (s *Server) DeleteSecurityRanker(ctx context.Context, req *platform.DeleteSecurityRankerRequest) (*emptypb.Empty, error) {
@@ -476,15 +482,8 @@ func securityPostScriptToProto(cr *triggersv1alpha1.SecurityPostScript, referenc
 }
 
 func (s *Server) ListSecurityPostScripts(ctx context.Context, req *platform.ListSecurityPostScriptsRequest) (*platform.ListSecurityPostScriptsResponse, error) {
-	namespace, err := s.authorizeSecurityLibraryNamespace(ctx, req.GetNamespace())
-	if err != nil {
-		return nil, err
-	}
 	list := &triggersv1alpha1.SecurityPostScriptList{}
-	if err := s.k8sClient.List(ctx, list, client.InNamespace(namespace)); err != nil {
-		return nil, mapK8sError("list SecurityPostScripts", err)
-	}
-	usage, err := s.securityLibraryUsage(ctx, namespace, "SecurityPostScript")
+	usage, err := s.listSecurityLibraryResources(ctx, req.GetNamespace(), "SecurityPostScript", "SecurityPostScripts", list)
 	if err != nil {
 		return nil, err
 	}
@@ -549,18 +548,11 @@ func (s *Server) UpdateSecurityPostScript(ctx context.Context, req *platform.Upd
 		return nil, err
 	}
 	cr := &triggersv1alpha1.SecurityPostScript{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: req.GetPostScript().GetName()}, cr); err != nil {
-		return nil, mapK8sError(fmt.Sprintf("get SecurityPostScript %s/%s", namespace, req.GetPostScript().GetName()), err)
-	}
-	cr.Spec = spec
-	if err := s.k8sClient.Update(ctx, cr); err != nil {
-		return nil, mapK8sError("update SecurityPostScript", err)
-	}
-	usage, err := s.securityLibraryUsage(ctx, namespace, "SecurityPostScript")
+	usage, err := s.updateSecurityLibraryResource(ctx, namespace, req.GetPostScript().GetName(), "SecurityPostScript", cr, func() { cr.Spec = spec })
 	if err != nil {
 		return nil, err
 	}
-	return securityPostScriptToProto(cr, usage[cr.Name]), nil
+	return securityPostScriptToProto(cr, usage), nil
 }
 
 func (s *Server) DeleteSecurityPostScript(ctx context.Context, req *platform.DeleteSecurityPostScriptRequest) (*emptypb.Empty, error) {

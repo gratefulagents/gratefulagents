@@ -405,5 +405,5 @@ func (r *SecurityScanReconciler) recordScanEvent(scan *triggersv1alpha1.Security
 	if r.Recorder == nil {
 		return
 	}
-	r.Recorder.Event(scan, eventType, reason, message)
+	r.Recorder.Eventf(scan, nil, eventType, reason, reason, message)
 }

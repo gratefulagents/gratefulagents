@@ -74,7 +74,7 @@ func TestGenerateSecurityDraftCreatesBoundedRepolessRun(t *testing.T) {
 	if run.Spec.Secrets == nil {
 		t.Fatal("secrets missing")
 	}
-	if run.Spec.Secrets.GitHubTokenSecret != "" || run.Spec.Secrets.ClaudeAPIKeySecret != "" || run.Spec.Secrets.OpenAIOAuthSecret != "" {
+	if run.Spec.Secrets.GitHubTokenSecret != "" || run.Spec.Secrets.OpenAIOAuthSecret != "" {
 		t.Errorf("unexpected extra secrets: %+v", run.Spec.Secrets)
 	}
 	if keys := run.Spec.Secrets.ProviderKeys; len(keys) != 1 ||

@@ -18,7 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -60,7 +60,7 @@ type SecurityScanReconciler struct {
 	Now      func() time.Time
 	// Recorder, when non-nil, emits Kubernetes events for skipped fork
 	// contributions, check publish failures, and notification failures.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 	// DiffLister computes diff-scope changed files; nil uses the GitHub
 	// compare API with the trigger repository's read-only credential.
 	DiffLister SecurityScanDiffLister

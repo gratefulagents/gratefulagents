@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -87,10 +88,8 @@ func (s *fakeSecurityFindingStore) CorrelateSecurityFindings(_ context.Context, 
 	}
 	changed := false
 	link := func(rec *store.SecurityFindingRecord, other string) {
-		for _, fp := range rec.CorrelatedFingerprints {
-			if fp == other {
-				return
-			}
+		if slices.Contains(rec.CorrelatedFingerprints, other) {
+			return
 		}
 		rec.CorrelatedFingerprints = append(rec.CorrelatedFingerprints, other)
 		s.events = append(s.events, store.SecurityFindingEvent{FindingID: rec.ID, EventType: "correlated", Actor: actor, Note: reason})
@@ -1236,6 +1235,17 @@ func TestIngestScannerResultsBatchBounds(t *testing.T) {
 	}
 }
 
+func assertScannerRawPayload(t *testing.T, scannerRec *store.SecurityFindingRecord) {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(scannerRec.Raw, &raw); err != nil {
+		t.Fatalf("raw payload: %v", err)
+	}
+	if _, ok := raw["scanner_record"]; !ok {
+		t.Errorf("raw payload missing scanner_record: %s", scannerRec.Raw)
+	}
+}
+
 func TestIngestScannerResultsPersistsProvenanceAndCorrelates(t *testing.T) {
 	findingStore := newFakeSecurityFindingStore()
 	registry := newSecurityTestRegistry(t, findingStore, nil)
@@ -1303,13 +1313,7 @@ func TestIngestScannerResultsPersistsProvenanceAndCorrelates(t *testing.T) {
 	}
 
 	// The raw payload preserves the scanner record verbatim.
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(scannerRec.Raw, &raw); err != nil {
-		t.Fatalf("raw payload: %v", err)
-	}
-	if _, ok := raw["scanner_record"]; !ok {
-		t.Errorf("raw payload missing scanner_record: %s", scannerRec.Raw)
-	}
+	assertScannerRawPayload(t, scannerRec)
 }
 
 func TestIngestScannerResultsRerunConvergesAndKeepsCorrelation(t *testing.T) {

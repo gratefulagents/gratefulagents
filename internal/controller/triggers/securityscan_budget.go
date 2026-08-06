@@ -82,11 +82,7 @@ func securityScanPostScriptNames(scan *triggersv1alpha1.SecurityScan, pack *trig
 func (r *SecurityScanReconciler) enforceSecurityBudgets(ctx context.Context, scan *triggersv1alpha1.SecurityScan) {
 	log := logf.FromContext(ctx)
 	pack := r.scanPolicyPack(ctx, scan)
-	var packBudgets *triggersv1alpha1.SecurityScanBudgets
-	if pack != nil {
-		packBudgets = pack.Spec.Budgets
-	}
-	effective := mergeSecurityScanBudgets(scan.Spec.Budgets, packBudgets)
+	effective := effectiveSecurityScanBudgets(scan, pack)
 	if effective == nil || effective.IsZero() {
 		if scan.Status.Budget == nil {
 			return
@@ -157,8 +153,8 @@ func (r *SecurityScanReconciler) enforceSecurityBudgets(ctx context.Context, sca
 		} else if cancelled {
 			log.Info("cancelled scan AgentRun: budget exceeded", "run", run.Name, "reason", msg)
 			if r.Recorder != nil {
-				r.Recorder.Eventf(scan, corev1.EventTypeWarning, securityScanReasonBudgetExceeded,
-					"cancelled run %s: %s (completed work is preserved)", run.Name, msg)
+				r.Recorder.Eventf(scan, nil, corev1.EventTypeWarning, securityScanReasonBudgetExceeded,
+					securityScanReasonBudgetExceeded, "cancelled run %s: %s (completed work is preserved)", run.Name, msg)
 			}
 		}
 	}

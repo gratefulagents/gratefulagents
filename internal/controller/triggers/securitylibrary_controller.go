@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"slices"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -63,11 +64,8 @@ func countSecurityLibraryReferences(
 	var referencing []string
 	for i := range scans.Items {
 		scan := &scans.Items[i]
-		for _, ref := range securityScanRefNames(scan, kind) {
-			if ref == name {
-				referencing = append(referencing, scan.Name)
-				break
-			}
+		if slices.Contains(securityScanRefNames(scan, kind), name) {
+			referencing = append(referencing, scan.Name)
 		}
 	}
 	return referencing, nil

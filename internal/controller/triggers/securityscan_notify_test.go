@@ -40,7 +40,7 @@ func (s *notifyTestFindingStore) ClaimSecurityNotifications(_ context.Context, n
 	if s.claimErr != nil {
 		return nil, s.claimErr
 	}
-	var claimed []string
+	claimed := make([]string, 0, len(fingerprints))
 	for _, fp := range fingerprints {
 		key := namespace + "/" + scanName + "/" + ruleKey + "/" + fp
 		if s.markers[key] {

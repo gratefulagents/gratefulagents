@@ -200,6 +200,67 @@ func (s *Server) ImportSecurityPack(ctx context.Context, req *platform.ImportSec
 	return resp, nil
 }
 
+type decodedSecurityPackItem struct {
+	buildCR func(name string) client.Object
+	probe   func(name string) client.Object
+	errs    []triggersv1alpha1.SecurityWorkflowFieldError
+}
+
+func decodeSecurityPackItem(item securityPackItem, namespace string) (decodedSecurityPackItem, error) {
+	decoded := decodedSecurityPackItem{}
+	switch item.Kind {
+	case securityPackKindWorkflow:
+		var spec triggersv1alpha1.SecurityWorkflowSpec
+		if err := json.Unmarshal(item.Spec, &spec); err != nil {
+			return decoded, fmt.Errorf("invalid SecurityWorkflow spec: %w", err)
+		}
+		decoded.errs = triggersv1alpha1.ValidateSecurityWorkflowTasks(spec.Tasks)
+		if parallelism := spec.Parallelism; parallelism != 0 && (parallelism < 1 || parallelism > 16) {
+			decoded.errs = append(decoded.errs, triggersv1alpha1.SecurityWorkflowFieldError{
+				Field: "parallelism", Message: fmt.Sprintf("parallelism %d out of range (want 0 for none, or 1-16)", parallelism),
+			})
+		}
+		decoded.probe = func(string) client.Object { return &triggersv1alpha1.SecurityWorkflow{} }
+		decoded.buildCR = func(name string) client.Object {
+			return &triggersv1alpha1.SecurityWorkflow{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec}
+		}
+	case securityPackKindRanker:
+		var spec triggersv1alpha1.SecurityRankerSpec
+		if err := json.Unmarshal(item.Spec, &spec); err != nil {
+			return decoded, fmt.Errorf("invalid SecurityRanker spec: %w", err)
+		}
+		decoded.errs = triggersv1alpha1.ValidateSecurityRankerRules(spec.Rules)
+		decoded.probe = func(string) client.Object { return &triggersv1alpha1.SecurityRanker{} }
+		decoded.buildCR = func(name string) client.Object {
+			return &triggersv1alpha1.SecurityRanker{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec}
+		}
+	case securityPackKindPostScript:
+		var spec triggersv1alpha1.SecurityPostScriptSpec
+		if err := json.Unmarshal(item.Spec, &spec); err != nil {
+			return decoded, fmt.Errorf("invalid SecurityPostScript spec: %w", err)
+		}
+		decoded.errs = triggersv1alpha1.ValidateSecurityPostScriptSpec(spec)
+		decoded.probe = func(string) client.Object { return &triggersv1alpha1.SecurityPostScript{} }
+		decoded.buildCR = func(name string) client.Object {
+			return &triggersv1alpha1.SecurityPostScript{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec}
+		}
+	case securityPackKindScan:
+		var spec triggersv1alpha1.SecurityScanSpec
+		if err := json.Unmarshal(item.Spec, &spec); err != nil {
+			return decoded, fmt.Errorf("invalid SecurityScan spec: %w", err)
+		}
+		spec = sanitizeSecurityScanSpecForExport(spec)
+		decoded.errs = validateImportedSecurityScanSpec(&spec)
+		decoded.probe = func(string) client.Object { return &triggersv1alpha1.SecurityScan{} }
+		decoded.buildCR = func(name string) client.Object {
+			return &triggersv1alpha1.SecurityScan{TypeMeta: metav1.TypeMeta{APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "SecurityScan"}, ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec}
+		}
+	default:
+		return decoded, fmt.Errorf("unsupported item kind %q", item.Kind)
+	}
+	return decoded, nil
+}
+
 func (s *Server) importSecurityPackItem(
 	ctx context.Context, namespace string, item securityPackItem,
 	policy platform.SecurityPackCollisionPolicy, apply bool, claimed map[string]bool,
@@ -219,72 +280,11 @@ func (s *Server) importSecurityPackItem(
 	}
 
 	// Decode and validate the spec exactly like manual authoring would.
-	var (
-		buildCR func(name string) client.Object
-		errs    []triggersv1alpha1.SecurityWorkflowFieldError
-		probe   func(name string) client.Object
-	)
-	switch item.Kind {
-	case securityPackKindWorkflow:
-		var spec triggersv1alpha1.SecurityWorkflowSpec
-		if err := json.Unmarshal(item.Spec, &spec); err != nil {
-			return fail("invalid SecurityWorkflow spec: %v", err)
-		}
-		errs = triggersv1alpha1.ValidateSecurityWorkflowTasks(spec.Tasks)
-		if p := spec.Parallelism; p != 0 && (p < 1 || p > 16) {
-			errs = append(errs, triggersv1alpha1.SecurityWorkflowFieldError{
-				Field: "parallelism", Message: fmt.Sprintf("parallelism %d out of range (want 0 for none, or 1-16)", p),
-			})
-		}
-		probe = func(name string) client.Object { return &triggersv1alpha1.SecurityWorkflow{} }
-		buildCR = func(name string) client.Object {
-			return &triggersv1alpha1.SecurityWorkflow{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec,
-			}
-		}
-	case securityPackKindRanker:
-		var spec triggersv1alpha1.SecurityRankerSpec
-		if err := json.Unmarshal(item.Spec, &spec); err != nil {
-			return fail("invalid SecurityRanker spec: %v", err)
-		}
-		errs = triggersv1alpha1.ValidateSecurityRankerRules(spec.Rules)
-		probe = func(name string) client.Object { return &triggersv1alpha1.SecurityRanker{} }
-		buildCR = func(name string) client.Object {
-			return &triggersv1alpha1.SecurityRanker{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec,
-			}
-		}
-	case securityPackKindPostScript:
-		var spec triggersv1alpha1.SecurityPostScriptSpec
-		if err := json.Unmarshal(item.Spec, &spec); err != nil {
-			return fail("invalid SecurityPostScript spec: %v", err)
-		}
-		errs = triggersv1alpha1.ValidateSecurityPostScriptSpec(spec)
-		probe = func(name string) client.Object { return &triggersv1alpha1.SecurityPostScript{} }
-		buildCR = func(name string) client.Object {
-			return &triggersv1alpha1.SecurityPostScript{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec,
-			}
-		}
-	case securityPackKindScan:
-		var spec triggersv1alpha1.SecurityScanSpec
-		if err := json.Unmarshal(item.Spec, &spec); err != nil {
-			return fail("invalid SecurityScan spec: %v", err)
-		}
-		spec = sanitizeSecurityScanSpecForExport(spec) // defense in depth: never import secrets
-		errs = validateImportedSecurityScanSpec(&spec)
-		probe = func(name string) client.Object { return &triggersv1alpha1.SecurityScan{} }
-		buildCR = func(name string) client.Object {
-			return &triggersv1alpha1.SecurityScan{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: triggersv1alpha1.GroupVersion.String(), Kind: "SecurityScan",
-				},
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec,
-			}
-		}
-	default:
-		return fail("unsupported item kind %q", item.Kind)
+	decoded, err := decodeSecurityPackItem(item, namespace)
+	if err != nil {
+		return fail("%v", err)
 	}
+	buildCR, probe, errs := decoded.buildCR, decoded.probe, decoded.errs
 	if len(errs) != 0 {
 		result.Action = "failed"
 		result.Error = "spec failed validation"

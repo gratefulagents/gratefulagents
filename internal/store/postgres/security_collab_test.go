@@ -198,52 +198,7 @@ func TestSecurityBaselineLifecycle(t *testing.T) {
 	s := setupSecurityTestStore(t)
 	ctx := context.Background()
 
-	scan1 := collabTestScan(ctx, t, s, "nightly", "nightly-1", true)
-	a1, createdA, err := s.UpsertSecurityFinding(ctx, collabTestFinding(scan1, "fp-a", "high"))
-	if err != nil || !createdA {
-		t.Fatalf("upsert A: created=%v err=%v", createdA, err)
-	}
-	if a1.BaselineState != store.SecurityFindingBaselineNew {
-		t.Errorf("A baseline = %q, want new", a1.BaselineState)
-	}
-	b1, _, err := s.UpsertSecurityFinding(ctx, collabTestFinding(scan1, "fp-b", "medium"))
-	if err != nil {
-		t.Fatalf("upsert B: %v", err)
-	}
-	// A duplicate child of A: must never distort baseline counts or get
-	// resolved by finalization.
-	dupRec := collabTestFinding(scan1, "fp-a-dup", "high")
-	dupRec.DuplicateOf = &a1.ID
-	dup, _, err := s.UpsertSecurityFinding(ctx, dupRec)
-	if err != nil {
-		t.Fatalf("upsert dup: %v", err)
-	}
-
-	if _, err := s.FinalizeSecurityScanBaseline(ctx, "default", "nightly-1"); err != nil {
-		t.Fatalf("finalize run1: %v", err)
-	}
-
-	// Run 2 reobserves A (recurring) but not B.
-	scan2 := collabTestScan(ctx, t, s, "nightly", "nightly-2", true)
-	a2, created, err := s.UpsertSecurityFinding(ctx, collabTestFinding(scan2, "fp-a", "high"))
-	if err != nil || created {
-		t.Fatalf("reobserve A: created=%v err=%v", created, err)
-	}
-	if a2.BaselineState != store.SecurityFindingBaselineRecurring || a2.Occurrences != 2 {
-		t.Errorf("A after run2 = baseline %q occurrences %d, want recurring/2", a2.BaselineState, a2.Occurrences)
-	}
-	resolved, err := s.FinalizeSecurityScanBaseline(ctx, "default", "nightly-2")
-	if err != nil {
-		t.Fatalf("finalize run2: %v", err)
-	}
-	if resolved != 1 {
-		t.Errorf("finalize run2 resolved %d findings, want 1 (only B)", resolved)
-	}
-	// Finalization is idempotent.
-	if again, err := s.FinalizeSecurityScanBaseline(ctx, "default", "nightly-2"); err != nil || again != 0 {
-		t.Errorf("finalize run2 again = %d, %v, want 0, nil", again, err)
-	}
-
+	a1, b1, dup := testSecurityBaselineFirstTwoRuns(t, s, ctx)
 	bAfter, err := s.GetSecurityFinding(ctx, "default", b1.ID)
 	if err != nil || bAfter == nil {
 		t.Fatalf("get B: %v", err)
@@ -296,6 +251,56 @@ func TestSecurityBaselineLifecycle(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].ID != a1.ID {
 		t.Errorf("list assignee=alice = %d rows, err %v", len(got), err)
 	}
+}
+
+func testSecurityBaselineFirstTwoRuns(t *testing.T, s *Store, ctx context.Context) (*store.SecurityFindingRecord, *store.SecurityFindingRecord, *store.SecurityFindingRecord) {
+	scan1 := collabTestScan(ctx, t, s, "nightly", "nightly-1", true)
+	a1, createdA, err := s.UpsertSecurityFinding(ctx, collabTestFinding(scan1, "fp-a", "high"))
+	if err != nil || !createdA {
+		t.Fatalf("upsert A: created=%v err=%v", createdA, err)
+	}
+	if a1.BaselineState != store.SecurityFindingBaselineNew {
+		t.Errorf("A baseline = %q, want new", a1.BaselineState)
+	}
+	b1, _, err := s.UpsertSecurityFinding(ctx, collabTestFinding(scan1, "fp-b", "medium"))
+	if err != nil {
+		t.Fatalf("upsert B: %v", err)
+	}
+	// A duplicate child of A: must never distort baseline counts or get
+	// resolved by finalization.
+	dupRec := collabTestFinding(scan1, "fp-a-dup", "high")
+	dupRec.DuplicateOf = &a1.ID
+	dup, _, err := s.UpsertSecurityFinding(ctx, dupRec)
+	if err != nil {
+		t.Fatalf("upsert dup: %v", err)
+	}
+
+	if _, err := s.FinalizeSecurityScanBaseline(ctx, "default", "nightly-1"); err != nil {
+		t.Fatalf("finalize run1: %v", err)
+	}
+
+	// Run 2 reobserves A (recurring) but not B.
+	scan2 := collabTestScan(ctx, t, s, "nightly", "nightly-2", true)
+	a2, created, err := s.UpsertSecurityFinding(ctx, collabTestFinding(scan2, "fp-a", "high"))
+	if err != nil || created {
+		t.Fatalf("reobserve A: created=%v err=%v", created, err)
+	}
+	if a2.BaselineState != store.SecurityFindingBaselineRecurring || a2.Occurrences != 2 {
+		t.Errorf("A after run2 = baseline %q occurrences %d, want recurring/2", a2.BaselineState, a2.Occurrences)
+	}
+	resolved, err := s.FinalizeSecurityScanBaseline(ctx, "default", "nightly-2")
+	if err != nil {
+		t.Fatalf("finalize run2: %v", err)
+	}
+	if resolved != 1 {
+		t.Errorf("finalize run2 resolved %d findings, want 1 (only B)", resolved)
+	}
+	// Finalization is idempotent.
+	if again, err := s.FinalizeSecurityScanBaseline(ctx, "default", "nightly-2"); err != nil || again != 0 {
+		t.Errorf("finalize run2 again = %d, %v, want 0, nil", again, err)
+	}
+
+	return a1, b1, dup
 }
 
 func TestSecurityBaselineRegressionFlows(t *testing.T) {

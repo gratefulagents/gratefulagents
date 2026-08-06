@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -415,10 +416,8 @@ func (s *securityScanState) recordCorrelation(ctx context.Context, repository, f
 	}
 	changed := false
 	link := func(rec *store.SecurityFindingRecord, other string) {
-		for _, fp := range rec.CorrelatedFingerprints {
-			if fp == other {
-				return
-			}
+		if slices.Contains(rec.CorrelatedFingerprints, other) {
+			return
 		}
 		rec.CorrelatedFingerprints = append(rec.CorrelatedFingerprints, other)
 		detail, _ := json.Marshal(map[string]string{"correlated_fingerprint": other, "reason": reason})

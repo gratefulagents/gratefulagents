@@ -102,7 +102,7 @@ func (r *SecurityScanReconciler) sweepSecurityRetention(ctx context.Context, sca
 	}
 
 	if !counts.IsZero() && r.Recorder != nil {
-		r.Recorder.Eventf(scan, corev1.EventTypeNormal, "RetentionSweep",
+		r.Recorder.Eventf(scan, nil, corev1.EventTypeNormal, "RetentionSweep", "RetentionSweep",
 			"retention purge batch: %d scan rows, %d findings, %d reports, %d evidence redactions, %d PoC redactions, %d audit events (moreWork=%t)",
 			counts.ScansDeleted, counts.FindingsDeleted, counts.ReportsDeleted,
 			counts.EvidenceRedacted, counts.PoCsRedacted, counts.AuditEventsDeleted, moreWork)

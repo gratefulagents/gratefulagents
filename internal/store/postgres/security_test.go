@@ -554,43 +554,7 @@ func TestSecurityNotificationMarkers(t *testing.T) {
 	}
 }
 
-func TestSecurityScannerProvenanceAndCorrelation(t *testing.T) {
-	s := setupSecurityTestStore(t)
-	ctx := context.Background()
-
-	scan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
-		Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
-		Repository: "org/repo",
-	})
-	if err != nil {
-		t.Fatalf("UpsertSecurityScan: %v", err)
-	}
-
-	agent, _, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
-		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
-		Fingerprint: "agent-fp", Title: "Weak crypto", Category: "crypto",
-		Severity: "high", Repository: "org/repo", FilePath: "crypto/hash.go",
-	})
-	if err != nil {
-		t.Fatalf("agent upsert: %v", err)
-	}
-	if agent.SourceKind != "agent" {
-		t.Errorf("empty SourceKind must default to agent, got %q", agent.SourceKind)
-	}
-
-	scanner, created, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
-		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
-		Fingerprint: "scanner-fp", Title: "Weak crypto (G401)", Category: "crypto",
-		Severity: "high", Confidence: "firm", Repository: "org/repo", FilePath: "crypto/hash.go",
-		SourceKind: "scanner", Tool: "gosec", ToolVersion: "2.18.2", RuleID: "G401",
-	})
-	if err != nil || !created {
-		t.Fatalf("scanner upsert: created=%v err=%v", created, err)
-	}
-	if scanner.SourceKind != "scanner" || scanner.Tool != "gosec" || scanner.ToolVersion != "2.18.2" || scanner.RuleID != "G401" {
-		t.Errorf("scanner provenance = %q/%q/%q/%q", scanner.SourceKind, scanner.Tool, scanner.ToolVersion, scanner.RuleID)
-	}
-
+func assertSecurityFindingCorrelation(t *testing.T, s *Store, ctx context.Context, agent, scanner *store.SecurityFindingRecord) {
 	// Correlate both ways; neither row is deleted or rewritten.
 	changed, err := s.CorrelateSecurityFindings(ctx, "default", "nightly", "org/repo", "agent-fp", "scanner-fp", "same location and shared CWE", "nightly-1")
 	if err != nil || !changed {
@@ -632,12 +596,52 @@ func TestSecurityScannerProvenanceAndCorrelation(t *testing.T) {
 		}
 	}
 
+}
+
+func TestSecurityScannerProvenanceAndCorrelation(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+
+	scan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
+		Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
+		Repository: "org/repo",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSecurityScan: %v", err)
+	}
+
+	agent, _, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
+		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
+		Fingerprint: "agent-fp", Title: "Weak crypto", Category: "crypto",
+		Severity: "high", Repository: "org/repo", FilePath: "crypto/hash.go",
+	})
+	if err != nil {
+		t.Fatalf("agent upsert: %v", err)
+	}
+	if agent.SourceKind != "agent" {
+		t.Errorf("empty SourceKind must default to agent, got %q", agent.SourceKind)
+	}
+
+	scanner, created, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
+		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
+		Fingerprint: "scanner-fp", Title: "Weak crypto (G401)", Category: "crypto",
+		Severity: "high", Confidence: "firm", Repository: "org/repo", FilePath: "crypto/hash.go",
+		SourceKind: "scanner", Tool: "gosec", ToolVersion: "2.18.2", RuleID: "G401",
+	})
+	if err != nil || !created {
+		t.Fatalf("scanner upsert: created=%v err=%v", created, err)
+	}
+	if scanner.SourceKind != "scanner" || scanner.Tool != "gosec" || scanner.ToolVersion != "2.18.2" || scanner.RuleID != "G401" {
+		t.Errorf("scanner provenance = %q/%q/%q/%q", scanner.SourceKind, scanner.Tool, scanner.ToolVersion, scanner.RuleID)
+	}
+
+	assertSecurityFindingCorrelation(t, s, ctx, agent, scanner)
 	// Idempotent: re-correlating changes nothing and appends no event.
-	changed, err = s.CorrelateSecurityFindings(ctx, "default", "nightly", "org/repo", "scanner-fp", "agent-fp", "again", "nightly-1")
+	changed, err := s.CorrelateSecurityFindings(ctx, "default", "nightly", "org/repo", "scanner-fp", "agent-fp", "again", "nightly-1")
 	if err != nil || changed {
 		t.Errorf("re-correlate: changed=%v err=%v, want false/nil", changed, err)
 	}
-	agentRow, _ = s.GetSecurityFinding(ctx, "default", agent.ID)
+	agentRow, _ := s.GetSecurityFinding(ctx, "default", agent.ID)
 	if len(agentRow.CorrelatedFingerprints) != 1 {
 		t.Errorf("re-correlate duplicated fingerprints: %v", agentRow.CorrelatedFingerprints)
 	}

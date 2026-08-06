@@ -396,7 +396,7 @@ func main() {
 		Scheme:           mgr.GetScheme(),
 		StateStore:       sharedStateStore,
 		Findings:         securityFindingStore,
-		Recorder:         mgr.GetEventRecorderFor("securityscan-controller"),
+		Recorder:         mgr.GetEventRecorder("securityscan-controller"),
 		DashboardBaseURL: strings.TrimSpace(os.Getenv("DASHBOARD_PUBLIC_BASE_URL")),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityScan")
@@ -404,19 +404,27 @@ func main() {
 	}
 
 	securityLibrary := triggercontroller.SecurityLibraryReconciler{Client: mgr.GetClient()}
-	if err := (&triggercontroller.SecurityWorkflowReconciler{SecurityLibraryReconciler: securityLibrary}).SetupWithManager(mgr); err != nil {
+	if err := (&triggercontroller.SecurityWorkflowReconciler{
+		SecurityLibraryReconciler: securityLibrary,
+	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityWorkflow")
 		os.Exit(1)
 	}
-	if err := (&triggercontroller.SecurityRankerReconciler{SecurityLibraryReconciler: securityLibrary}).SetupWithManager(mgr); err != nil {
+	if err := (&triggercontroller.SecurityRankerReconciler{
+		SecurityLibraryReconciler: securityLibrary,
+	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityRanker")
 		os.Exit(1)
 	}
-	if err := (&triggercontroller.SecurityPostScriptReconciler{SecurityLibraryReconciler: securityLibrary}).SetupWithManager(mgr); err != nil {
+	if err := (&triggercontroller.SecurityPostScriptReconciler{
+		SecurityLibraryReconciler: securityLibrary,
+	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityPostScript")
 		os.Exit(1)
 	}
-	if err := (&triggercontroller.SecurityPolicyPackReconciler{SecurityLibraryReconciler: securityLibrary}).SetupWithManager(mgr); err != nil {
+	if err := (&triggercontroller.SecurityPolicyPackReconciler{
+		SecurityLibraryReconciler: securityLibrary,
+	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityPolicyPack")
 		os.Exit(1)
 	}

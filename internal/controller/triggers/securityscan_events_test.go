@@ -208,7 +208,7 @@ func TestSecurityScanEventReconcileIsIdempotentAcrossReplays(t *testing.T) {
 	ev := testPushEvent()
 	stampScanEvent(t, k8sClient, scan, ev)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
 			t.Fatalf("Reconcile() #%d error = %v", i, err)
 		}

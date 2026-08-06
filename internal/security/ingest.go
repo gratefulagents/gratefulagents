@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -320,7 +321,6 @@ func correlatable(agent, scanner Finding) (string, bool) {
 func Correlate(findings []Finding) []Correlation {
 	var agents, scanners []Finding
 	for _, f := range findings {
-		f := f
 		if f.Fingerprint == "" {
 			f.Fingerprint = Fingerprint(f)
 		}
@@ -391,10 +391,5 @@ func ApplyCorrelations(findings []Finding, correlations []Correlation) {
 }
 
 func containsString(set []string, s string) bool {
-	for _, v := range set {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(set, s)
 }

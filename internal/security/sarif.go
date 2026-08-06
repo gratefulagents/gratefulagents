@@ -286,7 +286,7 @@ func sarifScannerRun(tool string, ranked []RankedFinding) sarifRun {
 // fingerprint under partialFingerprints["gratefulagentsFindingFingerprint/v1"]
 // plus source attribution (and correlated fingerprints) under properties.
 func RenderSARIF(in ReportInput) ([]byte, error) {
-	var agent []RankedFinding
+	agent := make([]RankedFinding, 0, len(in.Ranked))
 	scanners := map[string][]RankedFinding{}
 	for _, r := range in.Ranked {
 		if r.Finding.IsScannerFinding() {

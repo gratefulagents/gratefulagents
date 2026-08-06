@@ -58,7 +58,11 @@ func TestSecurityPolicyPackCRUDLifecycle(t *testing.T) {
 	srv, c := newCronTestServer(t)
 	ns := testUserNS()
 	ctx := projectActorCtx()
+	testSecurityPolicyPackCreateAndRead(t, srv, c, ns, ctx)
+	testSecurityPolicyPackUpdateListDelete(t, srv, ctx)
+}
 
+func testSecurityPolicyPackCreateAndRead(t *testing.T, srv *Server, c client.Client, ns string, ctx context.Context) {
 	created, err := srv.CreateSecurityPolicyPack(ctx, &platform.CreateSecurityPolicyPackRequest{PolicyPack: testSecurityPolicyPackResource("")})
 	if err != nil {
 		t.Fatalf("CreateSecurityPolicyPack() error = %v", err)
@@ -90,6 +94,9 @@ func TestSecurityPolicyPackCRUDLifecycle(t *testing.T) {
 		t.Fatalf("budgets = %+v", cr.Spec.Budgets)
 	}
 
+}
+
+func testSecurityPolicyPackUpdateListDelete(t *testing.T, srv *Server, ctx context.Context) {
 	got, err := srv.GetSecurityPolicyPack(ctx, &platform.GetSecurityPolicyPackRequest{Name: "org-policy"})
 	if err != nil {
 		t.Fatalf("GetSecurityPolicyPack() error = %v", err)

@@ -68,7 +68,7 @@ func (s *sarifArtifactStore) GetArtifact(context.Context, uuid.UUID, string) (*s
 	return &store.Artifact{Content: s.content}, nil
 }
 
-func securityScanChecksTestFixture(t *testing.T, phase platformv1alpha1.AgentRunPhase) (*SecurityScanReconciler, *triggersv1alpha1.SecurityScan, *fakeSecurityCheckPublisher, *checksTestFindingStore) {
+func securityScanChecksTestFixture(t *testing.T) (*SecurityScanReconciler, *triggersv1alpha1.SecurityScan, *fakeSecurityCheckPublisher, *checksTestFindingStore) {
 	t.Helper()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanEventTestScan()
@@ -83,7 +83,7 @@ func securityScanChecksTestFixture(t *testing.T, phase platformv1alpha1.AgentRun
 				triggersv1alpha1.SecurityScanRevisionAnnotation: "abc1234def",
 			},
 		},
-		Status: platformv1alpha1.AgentRunStatus{Phase: phase},
+		Status: platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseSucceeded},
 	}
 	gh := securityScanEventTestRepo(scan.Namespace)
 	reconciler, _, _ := newSecurityScanReconciler(t, now, scan, run, gh)
@@ -130,7 +130,7 @@ func TestSecurityScanCheckConclusionMapping(t *testing.T) {
 }
 
 func TestPublishRunCheckDefaultSummaryContainsNoFindingDetails(t *testing.T) {
-	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t, platformv1alpha1.AgentRunPhaseSucceeded)
+	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t)
 
 	if retry := reconciler.publishRunCheck(context.Background(), scan); retry {
 		t.Fatal("publishRunCheck retry = true, want false on success")
@@ -165,7 +165,7 @@ func TestPublishRunCheckDefaultSummaryContainsNoFindingDetails(t *testing.T) {
 }
 
 func TestPublishRunCheckOptInSummariesIncludeTitleAndLocationOnly(t *testing.T) {
-	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t, platformv1alpha1.AgentRunPhaseSucceeded)
+	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t)
 	scan.Spec.Checks.IncludeFindingSummaries = true
 
 	if reconciler.publishRunCheck(context.Background(), scan) {
@@ -183,7 +183,7 @@ func TestPublishRunCheckOptInSummariesIncludeTitleAndLocationOnly(t *testing.T) 
 }
 
 func TestPublishRunCheckRetriesFailuresWithoutCorruptingState(t *testing.T) {
-	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t, platformv1alpha1.AgentRunPhaseSucceeded)
+	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t)
 	publisher.publishErr = fmt.Errorf("boom: 502 from api.github.com")
 
 	if !reconciler.publishRunCheck(context.Background(), scan) {
@@ -212,7 +212,7 @@ func TestPublishRunCheckRetriesFailuresWithoutCorruptingState(t *testing.T) {
 }
 
 func TestPublishRunCheckIdempotentAndRepublishesAfterTriage(t *testing.T) {
-	reconciler, scan, publisher, findings := securityScanChecksTestFixture(t, platformv1alpha1.AgentRunPhaseSucceeded)
+	reconciler, scan, publisher, findings := securityScanChecksTestFixture(t)
 
 	if reconciler.publishRunCheck(context.Background(), scan) {
 		t.Fatal("first publish should succeed")
@@ -241,7 +241,7 @@ func TestPublishRunCheckIdempotentAndRepublishesAfterTriage(t *testing.T) {
 }
 
 func TestPublishRunCheckSkipsRunsWithoutRevision(t *testing.T) {
-	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t, platformv1alpha1.AgentRunPhaseSucceeded)
+	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t)
 	stored := &platformv1alpha1.AgentRun{}
 	if err := reconciler.Get(context.Background(), client.ObjectKey{Namespace: scan.Namespace, Name: scan.Status.LastRunName}, stored); err != nil {
 		t.Fatalf("get run: %v", err)
@@ -260,7 +260,7 @@ func TestPublishRunCheckSkipsRunsWithoutRevision(t *testing.T) {
 }
 
 func TestPublishRunCheckUploadsSARIFWhenOptedIn(t *testing.T) {
-	reconciler, scan, publisher, findings := securityScanChecksTestFixture(t, platformv1alpha1.AgentRunPhaseSucceeded)
+	reconciler, scan, publisher, findings := securityScanChecksTestFixture(t)
 	scan.Spec.Checks.UploadSARIF = true
 	sessionID := uuid.New()
 	findings.scanRec = &store.SecurityScanRecord{SessionID: &sessionID}
@@ -282,7 +282,7 @@ func TestPublishRunCheckUploadsSARIFWhenOptedIn(t *testing.T) {
 }
 
 func TestPublishRunCheckDisabledDoesNothing(t *testing.T) {
-	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t, platformv1alpha1.AgentRunPhaseSucceeded)
+	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t)
 	scan.Spec.Checks = nil
 	if reconciler.publishRunCheck(context.Background(), scan) {
 		t.Fatal("retry = true, want false")

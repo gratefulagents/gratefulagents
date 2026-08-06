@@ -574,7 +574,7 @@ func securityResourceRefFromProto(field, name string) (*triggersv1alpha1.Securit
 // securityResourceRefsFromProto validates a list of library resource
 // reference names, rejecting duplicates.
 func securityResourceRefsFromProto(field string, names []string) ([]triggersv1alpha1.SecurityResourceRef, error) {
-	var out []triggersv1alpha1.SecurityResourceRef
+	out := make([]triggersv1alpha1.SecurityResourceRef, 0, len(names))
 	seen := make(map[string]bool, len(names))
 	for _, raw := range names {
 		name := strings.TrimSpace(raw)
@@ -594,7 +594,7 @@ func securityResourceRefsFromProto(field string, names []string) ([]triggersv1al
 }
 
 func securityScanRankersFromProto(pbRankers []*platform.SecurityRankerConfig) ([]triggersv1alpha1.SecurityScanRanker, error) {
-	var out []triggersv1alpha1.SecurityScanRanker
+	out := make([]triggersv1alpha1.SecurityScanRanker, 0, len(pbRankers))
 	for _, r := range pbRankers {
 		if strings.TrimSpace(r.GetName()) == "" || strings.TrimSpace(r.GetRules()) == "" {
 			return nil, fmt.Errorf("severity rankers need both a name and rules")
@@ -608,7 +608,7 @@ func securityScanRankersFromProto(pbRankers []*platform.SecurityRankerConfig) ([
 }
 
 func securityScanPostScriptsFromProto(pbScripts []*platform.SecurityPostScriptConfig) ([]triggersv1alpha1.SecurityScanPostScript, error) {
-	var out []triggersv1alpha1.SecurityScanPostScript
+	out := make([]triggersv1alpha1.SecurityScanPostScript, 0, len(pbScripts))
 	for _, p := range pbScripts {
 		if strings.TrimSpace(p.GetName()) == "" || strings.TrimSpace(p.GetPrompt()) == "" {
 			return nil, fmt.Errorf("post-scripts need both a name and a prompt")

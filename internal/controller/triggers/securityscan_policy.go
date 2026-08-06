@@ -343,8 +343,7 @@ func (r *SecurityScanReconciler) scanPolicyPack(ctx context.Context, scan *trigg
 // effectiveSecurityScanBudgets returns the scan's budgets merged with the
 // referenced policy pack's defaults, for controller-side monitoring. All
 // inputs come from CRD specs; model output can never influence the result.
-func (r *SecurityScanReconciler) effectiveSecurityScanBudgets(ctx context.Context, scan *triggersv1alpha1.SecurityScan) *triggersv1alpha1.SecurityScanBudgets {
-	pack := r.scanPolicyPack(ctx, scan)
+func effectiveSecurityScanBudgets(scan *triggersv1alpha1.SecurityScan, pack *triggersv1alpha1.SecurityPolicyPack) *triggersv1alpha1.SecurityScanBudgets {
 	if pack == nil {
 		return mergeSecurityScanBudgets(scan.Spec.Budgets, nil)
 	}

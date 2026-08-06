@@ -45,10 +45,17 @@ func TestSecuritySuppressionMatchSQL(t *testing.T) {
 // events, excludes them from default lists/summaries while keeping them
 // retrievable via the explicit filter, and expiry restores them with a
 // preserved audit trail.
-func TestSecuritySuppressionLifecycle(t *testing.T) {
+type securitySuppressionFixture struct {
+	s          *Store
+	ctx        context.Context
+	vendored   *store.SecurityFindingRecord
+	firstParty *store.SecurityFindingRecord
+	rule       store.SecuritySuppressionRule
+}
+
+func newSecuritySuppressionFixture(t *testing.T) securitySuppressionFixture {
 	s := setupSecurityTestStore(t)
 	ctx := context.Background()
-
 	scan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
 		Namespace: "default", ScanName: "nightly", RunName: "nightly-1", Repository: "org/repo",
 	})
@@ -88,6 +95,22 @@ func TestSecuritySuppressionLifecycle(t *testing.T) {
 		t.Fatalf("ApplySecuritySuppressions(again) = %d, %v, want 0, nil", n, err)
 	}
 
+	return securitySuppressionFixture{s: s, ctx: ctx, vendored: vendored, firstParty: firstParty, rule: rule}
+}
+
+func securitySuppressedEventCount(events []store.SecurityFindingEvent) int {
+	count := 0
+	for _, event := range events {
+		if event.EventType == "suppressed" {
+			count++
+		}
+	}
+	return count
+}
+
+func assertSecuritySuppressionInitialState(t *testing.T, fixture securitySuppressionFixture) {
+	s, ctx := fixture.s, fixture.ctx
+	vendored, firstParty, rule := fixture.vendored, fixture.firstParty, fixture.rule
 	// The finding row is marked, never deleted or erased.
 	got, err := s.GetSecurityFinding(ctx, "default", vendored.ID)
 	if err != nil || got == nil {
@@ -104,12 +127,7 @@ func TestSecuritySuppressionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSecurityFindingEvents: %v", err)
 	}
-	suppressedEvents := 0
-	for _, ev := range events {
-		if ev.EventType == "suppressed" {
-			suppressedEvents++
-		}
-	}
+	suppressedEvents := securitySuppressedEventCount(events)
 	if suppressedEvents != 1 {
 		t.Fatalf("suppressed events = %d, want exactly 1 (idempotent)", suppressedEvents)
 	}
@@ -150,6 +168,12 @@ func TestSecuritySuppressionLifecycle(t *testing.T) {
 		t.Fatalf("included summary = %v, want suppressed folded into counts", included)
 	}
 
+}
+
+func TestSecuritySuppressionLifecycle(t *testing.T) {
+	fixture := newSecuritySuppressionFixture(t)
+	assertSecuritySuppressionInitialState(t, fixture)
+	s, ctx, vendored, rule := fixture.s, fixture.ctx, fixture.vendored, fixture.rule
 	// A rule edit refreshes metadata on the already-suppressed finding
 	// without a second event.
 	newExpires := time.Now().UTC().Add(30 * time.Minute)
@@ -186,7 +210,7 @@ func TestSecuritySuppressionLifecycle(t *testing.T) {
 	if restored.SuppressedBy != "" || restored.SuppressionExpiresAt != nil || restored.SuppressedAt != nil {
 		t.Fatalf("expired finding still suppressed: %+v", restored)
 	}
-	events, err = s.ListSecurityFindingEvents(ctx, "default", vendored.ID, 0)
+	events, err := s.ListSecurityFindingEvents(ctx, "default", vendored.ID, 0)
 	if err != nil {
 		t.Fatalf("ListSecurityFindingEvents(after expiry): %v", err)
 	}
@@ -202,7 +226,7 @@ func TestSecuritySuppressionLifecycle(t *testing.T) {
 	if !sawSuppressed || !sawExpired {
 		t.Fatalf("audit trail = %+v, want suppressed AND suppression_expired preserved", events)
 	}
-	listed, err = s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ScanName: "nightly"})
+	listed, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ScanName: "nightly"})
 	if err != nil || len(listed) != 2 {
 		t.Fatalf("default list after expiry = %d findings, %v, want 2", len(listed), err)
 	}
