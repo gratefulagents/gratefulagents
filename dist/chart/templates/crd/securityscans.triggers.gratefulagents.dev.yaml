@@ -556,6 +556,35 @@ spec:
                 required:
                 - secrets
                 type: object
+              execution:
+                description: execution controls how the workflow DAG is executed.
+                properties:
+                  mode:
+                    description: |-
+                      mode selects the execution engine. "coordinator" (default) seeds a
+                      single orchestrating run that delegates to in-process sub-agents;
+                      "deterministic" compiles the workflow into controller-scheduled
+                      per-task AgentRuns with platform-enforced dependencies, retries,
+                      budgets, and concurrency.
+                    enum:
+                    - coordinator
+                    - deterministic
+                    type: string
+                  retryBackoff:
+                    description: |-
+                      retryBackoff is the base delay before a failed task attempt is
+                      rescheduled; it doubles per attempt and is capped at 15 minutes.
+                      Default 30s. Rate-limited failures always wait at least this long.
+                    type: string
+                  taskMaxRetries:
+                    description: |-
+                      taskMaxRetries is the default per-task retry budget for tasks that do
+                      not set maxRetries (default 1).
+                    format: int32
+                    maximum: 10
+                    minimum: 0
+                    type: integer
+                type: object
               failOnSeverity:
                 description: |-
                   failOnSeverity, when set, makes the controller report a Ready=False
@@ -687,6 +716,16 @@ spec:
                 maximum: 16
                 minimum: 1
                 type: integer
+              parameterValues:
+                additionalProperties:
+                  type: string
+                description: |-
+                  parameterValues are values substituted for {{params.<name>}}
+                  references in task objectives. The accepted names are declared by the
+                  referenced SecurityWorkflow's parameters, or free-form for inline
+                  workflows.
+                maxProperties: 32
+                type: object
               policyPackRef:
                 description: |-
                   policyPackRef references a SecurityPolicyPack in the scan's namespace.
@@ -935,10 +974,49 @@ spec:
                         type: string
                       type: array
                       x-kubernetes-list-type: atomic
+                    forEach:
+                      description: |-
+                        forEach names a dependency task; this task fans out with one instance
+                        per record of that task's JSON-array structured output. Records are
+                        exposed to the objective template as {{item}} / {{item.<field>}}. The
+                        named task must be listed in dependsOn and must declare outputSchema.
+                      maxLength: 63
+                      type: string
+                    maxCostUSD:
+                      description: |-
+                        maxCostUSD is a decimal USD ceiling (e.g. "5" or "2.50") on this
+                        task's LLM spend in deterministic execution, mapped to the task run's
+                        spec.limits.maxCostUsd. Empty means no task-level ceiling.
+                      pattern: ^([0-9]+(\.[0-9]+)?)?$
+                      type: string
                     maxFindings:
                       description: |-
                         maxFindings caps how many findings this task may report. Zero means
                         unlimited.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    maxInstances:
+                      description: maxInstances caps forEach fan-out instances. Zero
+                        defaults to 10.
+                      format: int32
+                      maximum: 50
+                      minimum: 0
+                      type: integer
+                    maxRetries:
+                      description: |-
+                        maxRetries is this task's retry budget in deterministic execution:
+                        how many times a failed attempt is rescheduled before the task is
+                        marked Failed. Nil inherits spec.execution.taskMaxRetries (default 1).
+                      format: int32
+                      maximum: 10
+                      minimum: 0
+                      type: integer
+                    maxTurns:
+                      description: |-
+                        maxTurns is a hard per-task model-turn budget in deterministic
+                        execution, mapped to the task run's spec.limits.maxTurns. Zero means
+                        no task-level limit.
                       format: int32
                       minimum: 0
                       type: integer
@@ -956,11 +1034,56 @@ spec:
                         sub-agent.
                       minLength: 1
                       type: string
+                    outputSchema:
+                      description: |-
+                        outputSchema is an optional JSON Schema (object form) contract for
+                        this task's structured output. Tasks with a schema must publish their
+                        output via the submit_task_output tool; dependents consume it through
+                        {{tasks.<name>...}} template references.
+                      maxLength: 16384
+                      type: string
+                    repeats:
+                      description: |-
+                        repeats configures ensemble execution: run this many identical
+                        instances of the task and let dependents consume all of their
+                        outputs. Zero or one means a single instance.
+                      format: int32
+                      maximum: 5
+                      minimum: 0
+                      type: integer
                     role:
                       default: security-reviewer
                       description: role is the RoleInstruction name assumed by this
                         task's sub-agent.
                       type: string
+                    timeout:
+                      description: |-
+                        timeout is a hard per-task runtime limit in deterministic execution,
+                        mapped to the task run's spec.limits.maxRuntime. Zero means no
+                        task-level limit.
+                      type: string
+                    tools:
+                      description: |-
+                        tools narrows which tools this task's run may use in deterministic
+                        execution, mapped to the task run's spec.toolPolicy. It can only
+                        narrow, never widen, tool access.
+                      properties:
+                        allowed:
+                          description: |-
+                            allowed, when non-empty, restricts the task's run to these tool names
+                            (unknown names are ignored).
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        denied:
+                          description: denied tools are removed even when allowed;
+                            deny wins.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      type: object
                   required:
                   - name
                   - objective
@@ -1217,6 +1340,134 @@ spec:
                   another run, making repository-event triggers idempotent across
                   webhook redeliveries and controller restarts.
                 type: string
+              lastExecution:
+                description: |-
+                  lastExecution is the observed state of the most recent deterministic
+                  workflow execution.
+                properties:
+                  completedAt:
+                    description: completedAt is when the execution reached a terminal
+                      phase.
+                    format: date-time
+                    type: string
+                  effectiveParallelism:
+                    description: effectiveParallelism is the concurrency bound actually
+                      applied.
+                    format: int32
+                    type: integer
+                  effectiveParallelismNote:
+                    description: |-
+                      effectiveParallelismNote explains how the bound was derived (e.g.
+                      clamped by the mode template's sub-agent ceiling).
+                    type: string
+                  id:
+                    description: |-
+                      id is the external id / run-suffix of the scan invocation this
+                      execution belongs to.
+                    type: string
+                  lastResumeToken:
+                    description: |-
+                      lastResumeToken is the most recent resume-scan annotation token the
+                      controller has processed, making resume requests idempotent.
+                    type: string
+                  mode:
+                    description: 'mode is the execution engine used: coordinator or
+                      deterministic.'
+                    type: string
+                  phase:
+                    description: |-
+                      phase is the execution's coarse state: Running, Succeeded, Failed, or
+                      Resuming.
+                    type: string
+                  startedAt:
+                    description: startedAt is when the execution started.
+                    format: date-time
+                    type: string
+                  tasks:
+                    description: tasks is the per-task-instance execution state.
+                    items:
+                      description: |-
+                        SecurityScanTaskExecutionStatus is the observed state of one task instance
+                        in deterministic execution. State is one of Pending, Blocked, Running,
+                        Succeeded, Failed, or Skipped.
+                      properties:
+                        attempts:
+                          description: attempts is how many attempts have started
+                            for this task instance.
+                          format: int32
+                          type: integer
+                        finishedAt:
+                          description: finishedAt is when the task instance reached
+                            a terminal state.
+                          format: date-time
+                          type: string
+                        instance:
+                          description: |-
+                            instance distinguishes forEach fan-out and ensemble-repeat instances
+                            of the same task (0-based).
+                          format: int32
+                          type: integer
+                        lastError:
+                          description: lastError summarizes the most recent failure.
+                          type: string
+                        name:
+                          description: name is the workflow task name.
+                          type: string
+                        nextRetryTime:
+                          description: |-
+                            nextRetryTime is when the next attempt may be scheduled after a
+                            retryable failure.
+                          format: date-time
+                          type: string
+                        retries:
+                          description: retries records the finished failed attempts.
+                          items:
+                            description: |-
+                              SecurityScanTaskAttempt records one finished attempt of a task instance in
+                              deterministic execution.
+                            properties:
+                              class:
+                                description: 'class is the failure classification:
+                                  retryable or non-retryable.'
+                                type: string
+                              finishedAt:
+                                description: finishedAt is when the attempt reached
+                                  a terminal phase.
+                                format: date-time
+                                type: string
+                              reason:
+                                description: reason summarizes why the attempt failed.
+                                type: string
+                              runName:
+                                description: runName is the AgentRun that served this
+                                  attempt.
+                                type: string
+                              startedAt:
+                                description: startedAt is when the attempt's run was
+                                  created.
+                                format: date-time
+                                type: string
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        runName:
+                          description: |-
+                            runName is the AgentRun currently or most recently serving this task
+                            instance.
+                          type: string
+                        startedAt:
+                          description: startedAt is when the first attempt started.
+                          format: date-time
+                          type: string
+                        state:
+                          description: |-
+                            state is the task instance's current state: Pending, Blocked,
+                            Running, Succeeded, Failed, or Skipped.
+                          type: string
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                type: object
               lastManualRunToken:
                 description: |-
                   lastManualRunToken is the most recent run-now annotation token the

@@ -284,9 +284,9 @@ spec:
                       maxLength: 253
                       type: string
                     useParentModel:
-                      description: UseParentModel bypasses provider and platform role
-                        mappings so the role always uses the parent run's currently
-                        selected model.
+                      description: |-
+                        UseParentModel bypasses provider and platform role mappings so the role
+                        always uses the parent run's currently selected model.
                       type: boolean
                   required:
                   - role
@@ -481,6 +481,28 @@ spec:
                       - name
                       - type
                       type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                type: object
+              toolPolicy:
+                description: |-
+                  ToolPolicy narrows which tools the run's worker registers. It is
+                  applied by the worker on top of the mode/profile permission policy and
+                  can only narrow, never widen, tool access.
+                properties:
+                  allowedTools:
+                    description: |-
+                      allowedTools, when non-empty, restricts the registry to these tool
+                      names (unknown names are ignored).
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  deniedTools:
+                    description: deniedTools are removed from the registry even when
+                      allowed; deny wins.
+                    items:
+                      type: string
                     type: array
                     x-kubernetes-list-type: atomic
                 type: object
@@ -992,6 +1014,13 @@ spec:
                 type: integer
               startedAt:
                 format: date-time
+                type: string
+              structuredOutput:
+                description: |-
+                  StructuredOutput is size-capped JSON output submitted by the run via
+                  the submit_task_output tool for consumption by orchestrating
+                  controllers.
+                maxLength: 65536
                 type: string
               teamSummary:
                 description: AgentRunTeamSummary captures the parent-visible team

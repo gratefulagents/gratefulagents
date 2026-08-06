@@ -125,6 +125,7 @@ func (r *SecurityWorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	errs := triggersv1alpha1.ValidateSecurityWorkflowTasks(workflow.Spec.Tasks)
+	errs = append(errs, triggersv1alpha1.ValidateSecurityWorkflowParameters(workflow.Spec.Parameters)...)
 	return ctrl.Result{}, client.IgnoreNotFound(
 		r.reconcileStatus(ctx, workflow, "SecurityWorkflow", &workflow.Status, errs))
 }

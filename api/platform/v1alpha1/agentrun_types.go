@@ -414,6 +414,19 @@ type AgentRunRoleModelOverride struct {
 	UseParentModel bool `json:"useParentModel,omitempty"`
 }
 
+// AgentRunToolPolicy narrows which tools the run's worker registers.
+type AgentRunToolPolicy struct {
+	// allowedTools, when non-empty, restricts the registry to these tool
+	// names (unknown names are ignored).
+	// +listType=atomic
+	// +optional
+	AllowedTools []string `json:"allowedTools,omitempty"`
+	// deniedTools are removed from the registry even when allowed; deny wins.
+	// +listType=atomic
+	// +optional
+	DeniedTools []string `json:"deniedTools,omitempty"`
+}
+
 // AgentRunSpec defines the desired state of AgentRun.
 type AgentRunSpec struct {
 	Trigger    TriggerRef        `json:"trigger"`
@@ -473,6 +486,11 @@ type AgentRunSpec struct {
 	// +optional
 	SkillRefs []NamedRef      `json:"skillRefs,omitempty"`
 	Limits    *AgentRunLimits `json:"limits,omitempty"`
+	// ToolPolicy narrows which tools the run's worker registers. It is
+	// applied by the worker on top of the mode/profile permission policy and
+	// can only narrow, never widen, tool access.
+	// +optional
+	ToolPolicy *AgentRunToolPolicy `json:"toolPolicy,omitempty"`
 	// +optional
 	Secrets *AgentRunSecrets `json:"secrets,omitempty"`
 	// DisableCommandSandbox completely disables the bubblewrap (bwrap)
@@ -746,6 +764,13 @@ type AgentRunStatus struct {
 	// signals it has finished work. Used by the runner to detect completion.
 	// +optional
 	CompletionRequested bool `json:"completionRequested,omitempty"`
+
+	// StructuredOutput is size-capped JSON output submitted by the run via
+	// the submit_task_output tool for consumption by orchestrating
+	// controllers.
+	// +kubebuilder:validation:MaxLength=65536
+	// +optional
+	StructuredOutput string `json:"structuredOutput,omitempty"`
 
 	// +listType=map
 	// +listMapKey=type

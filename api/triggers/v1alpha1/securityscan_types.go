@@ -6,7 +6,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // Annotations set by the SecurityScan controller on every scan AgentRun.
 // Agent-side security tools read them to bind reported findings to the scan
@@ -39,6 +43,14 @@ const (
 // token and records the consumed token in status.lastManualRunToken, so the
 // request is idempotent and durable across controller restarts.
 const SecurityScanRunNowAnnotation = "security.gratefulagents.dev/run-now"
+
+// SecurityScanResumeAnnotation is set on a SecurityScan (not its runs) to
+// resume a failed deterministic execution. Its value is an opaque request
+// token; the controller resets failed tasks for a fresh attempt at most once
+// per token and records the consumed token in
+// status.lastExecution.lastResumeToken, so the request is idempotent and
+// durable across controller restarts.
+const SecurityScanResumeAnnotation = "security.gratefulagents.dev/resume-scan"
 
 // SecurityScanEventAnnotation is set on a SecurityScan (not its runs) by the
 // GitHub webhook ingress when an authorized pull_request or push delivery
@@ -106,6 +118,18 @@ type SecurityScanSpec struct {
 	// +kubebuilder:validation:Maximum=16
 	// +optional
 	Parallelism int32 `json:"parallelism,omitempty"`
+
+	// execution controls how the workflow DAG is executed.
+	// +optional
+	Execution *SecurityScanExecution `json:"execution,omitempty"`
+
+	// parameterValues are values substituted for {{params.<name>}}
+	// references in task objectives. The accepted names are declared by the
+	// referenced SecurityWorkflow's parameters, or free-form for inline
+	// workflows.
+	// +kubebuilder:validation:MaxProperties=32
+	// +optional
+	ParameterValues map[string]string `json:"parameterValues,omitempty"`
 
 	// severityRankers hold operator-authored ranking rule text concatenated
 	// into the scan prompt and passed to submit_security_scan_report.
@@ -430,6 +454,121 @@ type SecurityScanTask struct {
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	MaxFindings int32 `json:"maxFindings,omitempty"`
+
+	// maxRetries is this task's retry budget in deterministic execution:
+	// how many times a failed attempt is rescheduled before the task is
+	// marked Failed. Nil inherits spec.execution.taskMaxRetries (default 1).
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=10
+	// +optional
+	MaxRetries *int32 `json:"maxRetries,omitempty"`
+
+	// timeout is a hard per-task runtime limit in deterministic execution,
+	// mapped to the task run's spec.limits.maxRuntime. Zero means no
+	// task-level limit.
+	// +optional
+	Timeout metav1.Duration `json:"timeout,omitempty"`
+
+	// maxTurns is a hard per-task model-turn budget in deterministic
+	// execution, mapped to the task run's spec.limits.maxTurns. Zero means
+	// no task-level limit.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxTurns int32 `json:"maxTurns,omitempty"`
+
+	// maxCostUSD is a decimal USD ceiling (e.g. "5" or "2.50") on this
+	// task's LLM spend in deterministic execution, mapped to the task run's
+	// spec.limits.maxCostUsd. Empty means no task-level ceiling.
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?)?$`
+	// +optional
+	MaxCostUSD string `json:"maxCostUSD,omitempty"`
+
+	// tools narrows which tools this task's run may use in deterministic
+	// execution, mapped to the task run's spec.toolPolicy. It can only
+	// narrow, never widen, tool access.
+	// +optional
+	Tools *SecurityScanTaskTools `json:"tools,omitempty"`
+
+	// outputSchema is an optional JSON Schema (object form) contract for
+	// this task's structured output. Tasks with a schema must publish their
+	// output via the submit_task_output tool; dependents consume it through
+	// {{tasks.<name>...}} template references.
+	// +kubebuilder:validation:MaxLength=16384
+	// +optional
+	OutputSchema string `json:"outputSchema,omitempty"`
+
+	// forEach names a dependency task; this task fans out with one instance
+	// per record of that task's JSON-array structured output. Records are
+	// exposed to the objective template as {{item}} / {{item.<field>}}. The
+	// named task must be listed in dependsOn and must declare outputSchema.
+	// +kubebuilder:validation:MaxLength=63
+	// +optional
+	ForEach string `json:"forEach,omitempty"`
+
+	// maxInstances caps forEach fan-out instances. Zero defaults to 10.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
+	// +optional
+	MaxInstances int32 `json:"maxInstances,omitempty"`
+
+	// repeats configures ensemble execution: run this many identical
+	// instances of the task and let dependents consume all of their
+	// outputs. Zero or one means a single instance.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=5
+	// +optional
+	Repeats int32 `json:"repeats,omitempty"`
+}
+
+// SecurityScanTaskTools narrows which tools a task's run may use in
+// deterministic execution. It is mapped to the task run's spec.toolPolicy
+// and can only narrow, never widen, tool access.
+type SecurityScanTaskTools struct {
+	// allowed, when non-empty, restricts the task's run to these tool names
+	// (unknown names are ignored).
+	// +listType=atomic
+	// +optional
+	Allowed []string `json:"allowed,omitempty"`
+
+	// denied tools are removed even when allowed; deny wins.
+	// +listType=atomic
+	// +optional
+	Denied []string `json:"denied,omitempty"`
+}
+
+// Execution modes accepted by SecurityScanExecution.Mode.
+const (
+	// SecurityScanExecutionModeCoordinator seeds a single orchestrating run
+	// that delegates to in-process sub-agents.
+	SecurityScanExecutionModeCoordinator = "coordinator"
+	// SecurityScanExecutionModeDeterministic compiles the workflow into
+	// controller-scheduled per-task AgentRuns.
+	SecurityScanExecutionModeDeterministic = "deterministic"
+)
+
+// SecurityScanExecution controls how the workflow DAG is executed.
+type SecurityScanExecution struct {
+	// mode selects the execution engine. "coordinator" (default) seeds a
+	// single orchestrating run that delegates to in-process sub-agents;
+	// "deterministic" compiles the workflow into controller-scheduled
+	// per-task AgentRuns with platform-enforced dependencies, retries,
+	// budgets, and concurrency.
+	// +kubebuilder:validation:Enum=coordinator;deterministic
+	// +optional
+	Mode string `json:"mode,omitempty"`
+
+	// taskMaxRetries is the default per-task retry budget for tasks that do
+	// not set maxRetries (default 1).
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=10
+	// +optional
+	TaskMaxRetries *int32 `json:"taskMaxRetries,omitempty"`
+
+	// retryBackoff is the base delay before a failed task attempt is
+	// rescheduled; it doubles per attempt and is capped at 15 minutes.
+	// Default 30s. Rate-limited failures always wait at least this long.
+	// +optional
+	RetryBackoff metav1.Duration `json:"retryBackoff,omitempty"`
 }
 
 // SecurityScanRanker is operator-authored severity-ranking rule text.
@@ -551,6 +690,165 @@ type SecurityScanFindingCounts struct {
 	Info int32 `json:"info,omitempty"`
 }
 
+// Task states reported in SecurityScanTaskExecutionStatus.State.
+const (
+	// SecurityScanTaskStatePending means the task is ready to be scheduled.
+	SecurityScanTaskStatePending = "Pending"
+	// SecurityScanTaskStateBlocked means the task waits on dependencies.
+	SecurityScanTaskStateBlocked = "Blocked"
+	// SecurityScanTaskStateRunning means the task's AgentRun is active.
+	SecurityScanTaskStateRunning = "Running"
+	// SecurityScanTaskStateSucceeded means the task finished successfully.
+	SecurityScanTaskStateSucceeded = "Succeeded"
+	// SecurityScanTaskStateFailed means the task exhausted its retry budget.
+	SecurityScanTaskStateFailed = "Failed"
+	// SecurityScanTaskStateSkipped means the task never ran (e.g. a
+	// dependency failed).
+	SecurityScanTaskStateSkipped = "Skipped"
+)
+
+// Failure classes reported in SecurityScanTaskAttempt.Class.
+const (
+	// SecurityScanTaskFailureRetryable marks a failure worth retrying.
+	SecurityScanTaskFailureRetryable = "retryable"
+	// SecurityScanTaskFailureNonRetryable marks a failure that consumes the
+	// task immediately regardless of remaining retry budget.
+	SecurityScanTaskFailureNonRetryable = "non-retryable"
+)
+
+// Execution phases reported in SecurityScanExecutionStatus.Phase.
+const (
+	// SecurityScanExecutionPhaseRunning means tasks are still executing.
+	SecurityScanExecutionPhaseRunning = "Running"
+	// SecurityScanExecutionPhaseSucceeded means every task succeeded.
+	SecurityScanExecutionPhaseSucceeded = "Succeeded"
+	// SecurityScanExecutionPhaseFailed means at least one task failed
+	// terminally.
+	SecurityScanExecutionPhaseFailed = "Failed"
+	// SecurityScanExecutionPhaseResuming means a resume request is resetting
+	// failed tasks for a fresh attempt.
+	SecurityScanExecutionPhaseResuming = "Resuming"
+)
+
+// SecurityScanTaskAttempt records one finished attempt of a task instance in
+// deterministic execution.
+type SecurityScanTaskAttempt struct {
+	// runName is the AgentRun that served this attempt.
+	// +optional
+	RunName string `json:"runName,omitempty"`
+
+	// startedAt is when the attempt's run was created.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+
+	// finishedAt is when the attempt reached a terminal phase.
+	// +optional
+	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+
+	// reason summarizes why the attempt failed.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// class is the failure classification: retryable or non-retryable.
+	// +optional
+	Class string `json:"class,omitempty"`
+}
+
+// SecurityScanTaskExecutionStatus is the observed state of one task instance
+// in deterministic execution. State is one of Pending, Blocked, Running,
+// Succeeded, Failed, or Skipped.
+type SecurityScanTaskExecutionStatus struct {
+	// name is the workflow task name.
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// instance distinguishes forEach fan-out and ensemble-repeat instances
+	// of the same task (0-based).
+	// +optional
+	Instance int32 `json:"instance,omitempty"`
+
+	// state is the task instance's current state: Pending, Blocked,
+	// Running, Succeeded, Failed, or Skipped.
+	// +optional
+	State string `json:"state,omitempty"`
+
+	// runName is the AgentRun currently or most recently serving this task
+	// instance.
+	// +optional
+	RunName string `json:"runName,omitempty"`
+
+	// attempts is how many attempts have started for this task instance.
+	// +optional
+	Attempts int32 `json:"attempts,omitempty"`
+
+	// retries records the finished failed attempts.
+	// +listType=atomic
+	// +optional
+	Retries []SecurityScanTaskAttempt `json:"retries,omitempty"`
+
+	// nextRetryTime is when the next attempt may be scheduled after a
+	// retryable failure.
+	// +optional
+	NextRetryTime *metav1.Time `json:"nextRetryTime,omitempty"`
+
+	// lastError summarizes the most recent failure.
+	// +optional
+	LastError string `json:"lastError,omitempty"`
+
+	// startedAt is when the first attempt started.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+
+	// finishedAt is when the task instance reached a terminal state.
+	// +optional
+	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+}
+
+// SecurityScanExecutionStatus is the observed state of one deterministic
+// workflow execution.
+type SecurityScanExecutionStatus struct {
+	// id is the external id / run-suffix of the scan invocation this
+	// execution belongs to.
+	// +optional
+	ID string `json:"id,omitempty"`
+
+	// mode is the execution engine used: coordinator or deterministic.
+	// +optional
+	Mode string `json:"mode,omitempty"`
+
+	// phase is the execution's coarse state: Running, Succeeded, Failed, or
+	// Resuming.
+	// +optional
+	Phase string `json:"phase,omitempty"`
+
+	// effectiveParallelism is the concurrency bound actually applied.
+	// +optional
+	EffectiveParallelism int32 `json:"effectiveParallelism,omitempty"`
+
+	// effectiveParallelismNote explains how the bound was derived (e.g.
+	// clamped by the mode template's sub-agent ceiling).
+	// +optional
+	EffectiveParallelismNote string `json:"effectiveParallelismNote,omitempty"`
+
+	// tasks is the per-task-instance execution state.
+	// +listType=atomic
+	// +optional
+	Tasks []SecurityScanTaskExecutionStatus `json:"tasks,omitempty"`
+
+	// startedAt is when the execution started.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+
+	// completedAt is when the execution reached a terminal phase.
+	// +optional
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+
+	// lastResumeToken is the most recent resume-scan annotation token the
+	// controller has processed, making resume requests idempotent.
+	// +optional
+	LastResumeToken string `json:"lastResumeToken,omitempty"`
+}
+
 // SecurityScanStatus defines the observed state of SecurityScan.
 type SecurityScanStatus struct {
 	// phase is a coarse human-readable state of the scan trigger.
@@ -626,6 +924,11 @@ type SecurityScanStatus struct {
 	// attempt.
 	// +optional
 	LastNotifications *SecurityScanNotificationStatus `json:"lastNotifications,omitempty"`
+
+	// lastExecution is the observed state of the most recent deterministic
+	// workflow execution.
+	// +optional
+	LastExecution *SecurityScanExecutionStatus `json:"lastExecution,omitempty"`
 
 	// findings summarizes persisted findings for the most recent scan run.
 	// +optional
@@ -884,6 +1187,36 @@ func (s SecurityScanSpec) EffectiveMinSeverity() string {
 	return s.MinSeverity
 }
 
+// EffectiveExecutionMode returns spec.execution.mode, defaulting to
+// "coordinator".
+func (s SecurityScanSpec) EffectiveExecutionMode() string {
+	if s.Execution == nil || s.Execution.Mode == "" {
+		return SecurityScanExecutionModeCoordinator
+	}
+	return s.Execution.Mode
+}
+
+// EffectiveTaskMaxRetries returns the task's retry budget: task.maxRetries
+// when set, otherwise spec.execution.taskMaxRetries, otherwise 1.
+func (s SecurityScanSpec) EffectiveTaskMaxRetries(task SecurityScanTask) int32 {
+	if task.MaxRetries != nil {
+		return *task.MaxRetries
+	}
+	if s.Execution != nil && s.Execution.TaskMaxRetries != nil {
+		return *s.Execution.TaskMaxRetries
+	}
+	return 1
+}
+
+// EffectiveRetryBackoff returns spec.execution.retryBackoff, defaulting to
+// 30 seconds.
+func (s SecurityScanSpec) EffectiveRetryBackoff() time.Duration {
+	if s.Execution == nil || s.Execution.RetryBackoff.Duration <= 0 {
+		return 30 * time.Second
+	}
+	return s.Execution.RetryBackoff.Duration
+}
+
 // DedupeEnabled reports whether duplicate-finding suppression is on. Dedupe
 // defaults to enabled.
 func (s SecurityScanSpec) DedupeEnabled() bool {
@@ -908,6 +1241,24 @@ func (t SecurityScanTask) EffectiveRole() string {
 		return DefaultSecurityScanRole
 	}
 	return t.Role
+}
+
+// EffectiveMaxInstances returns the task's forEach fan-out cap, defaulting to
+// 10 when maxInstances is zero.
+func (t SecurityScanTask) EffectiveMaxInstances() int32 {
+	if t.MaxInstances == 0 {
+		return 10
+	}
+	return t.MaxInstances
+}
+
+// EffectiveRepeats returns how many identical instances of the task run as
+// an ensemble. Repeats <= 1 means a single instance.
+func (t SecurityScanTask) EffectiveRepeats() int32 {
+	if t.Repeats <= 1 {
+		return 1
+	}
+	return t.Repeats
 }
 
 // EffectiveRunOn returns the post-script's runOn, defaulting to "all".

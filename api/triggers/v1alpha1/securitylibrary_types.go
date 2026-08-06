@@ -46,6 +46,27 @@ type SecurityScanResolvedRef struct {
 	Hash string `json:"hash,omitempty"`
 }
 
+// SecurityWorkflowParameter declares one scan-time input substituted for
+// {{params.<name>}} references in task objectives.
+type SecurityWorkflowParameter struct {
+	// name identifies the parameter and is referenced as {{params.<name>}}.
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z_][a-zA-Z0-9_]*$`
+	Name string `json:"name"`
+
+	// description explains what the parameter controls.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// default is the value used when a scan omits the parameter.
+	// +optional
+	Default string `json:"default,omitempty"`
+
+	// required, when true, means a scan must supply a value.
+	// +optional
+	Required bool `json:"required,omitempty"`
+}
+
 // SecurityWorkflowSpec defines a reusable security scan research plan.
 type SecurityWorkflowSpec struct {
 	// description explains what this workflow hunts for.
@@ -58,6 +79,14 @@ type SecurityWorkflowSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +listType=atomic
 	Tasks []SecurityScanTask `json:"tasks"`
+
+	// parameters declares the scan-time inputs substituted for
+	// {{params.<name>}} references in task objectives. Scans supply values
+	// via spec.parameterValues.
+	// +kubebuilder:validation:MaxItems=32
+	// +listType=atomic
+	// +optional
+	Parameters []SecurityWorkflowParameter `json:"parameters,omitempty"`
 
 	// parallelism optionally caps how many tasks may run concurrently in
 	// scans using this workflow, overriding the scan's parallelism.
