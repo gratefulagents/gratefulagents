@@ -144,6 +144,17 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		log.Printf("Mode template allowlists mutating tools %v", allowed)
 	}
 
+	// AgentRun spec.toolPolicy, forwarded by the controller as env vars: a
+	// narrow-only tool name filter (deny wins) layered on top of the
+	// mode/profile permission filtering above. Control-flow tools stay exempt
+	// inside the registry so the run can always finish.
+	allowedToolNames := tools.SplitToolNameList(os.Getenv("AGENTRUN_ALLOWED_TOOLS"))
+	deniedToolNames := tools.SplitToolNameList(os.Getenv("AGENTRUN_DENIED_TOOLS"))
+	if len(allowedToolNames) > 0 || len(deniedToolNames) > 0 {
+		registryOpts = append(registryOpts, tools.WithToolNameFilter(allowedToolNames, deniedToolNames))
+		log.Printf("Run tool policy narrows the registry: allowed=%v denied=%v", allowedToolNames, deniedToolNames)
+	}
+
 	// Browser tools are on by default when the selected runtime image includes
 	// Chromium. Operators can opt out with ENABLE_BROWSER_TOOLS=false.
 	if browserToolsEnabled() {
@@ -228,6 +239,22 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		tools.RegisterSecurityScanTools(toolRegistry, securityFindingStore, sc.StateStore(), scanCtx)
 		log.Printf("security scan tools enabled for scan %q (persistent findings: %t)",
 			scanCtx.ScanName, securityFindingStore != nil)
+	}
+	// submit_task_output: typed-result sink for deterministic workflow task
+	// runs, gated on the controller-forwarded output schema. The persister is
+	// a narrow callback into this package's status patcher so the tool never
+	// holds a raw cluster client; last write wins on status.structuredOutput.
+	if outputSchema := strings.TrimSpace(os.Getenv("AGENTRUN_TASK_OUTPUT_SCHEMA")); outputSchema != "" {
+		persistStructuredOutput := func(persistCtx context.Context, outputJSON string) error {
+			return patchAgentRunStatus(persistCtx, crdClient, cfg.TaskName, cfg.Namespace, func(run *platformv1alpha1.AgentRun) {
+				run.Status.StructuredOutput = outputJSON
+			})
+		}
+		if err := tools.RegisterTaskOutputTool(toolRegistry, outputSchema, persistStructuredOutput); err != nil {
+			log.Printf("WARN: submit_task_output unavailable: %v", err)
+		} else {
+			log.Printf("submit_task_output enabled (task output schema present)")
+		}
 	}
 	// Skills use progressive disclosure: advertise only names and summaries,
 	// then load full instructions into context when the model chooses one.

@@ -1353,6 +1353,7 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 	envs = append(envs, openAIOAuthEnvs(run)...)
 	envs = append(envs, providerOAuthEnvs(run)...)
 	envs = append(envs, modeConstraintEnvs(run)...)
+	envs = append(envs, toolPolicyEnvs(run)...)
 	envs = append(envs, gitIdentityEnvs(run)...)
 	envs = append(envs, extraEnv...)
 
@@ -1556,6 +1557,50 @@ func modeConstraintEnvs(run *platformv1alpha1.AgentRun) []corev1.EnvVar {
 	}
 
 	return envs
+}
+
+// taskOutputSchemaAnnotation carries the JSON Schema for the run's typed
+// structured output, stamped by the SecurityScan controller on deterministic
+// workflow task runs. It is forwarded to the worker as
+// AGENTRUN_TASK_OUTPUT_SCHEMA, which gates registration of submit_task_output.
+const taskOutputSchemaAnnotation = "security.gratefulagents.dev/task-output-schema"
+
+// maxTaskOutputSchemaBytes caps the schema forwarded to the worker. The
+// submitted output itself is capped at status.structuredOutput's
+// MaxLength=65536, so a schema past that size is certainly malformed;
+// oversized schemas are dropped rather than truncated (a truncated schema is
+// never valid JSON).
+const maxTaskOutputSchemaBytes = 65536
+
+// toolPolicyEnvs produces env vars from spec.toolPolicy so the worker narrows
+// its tool registry (comma-separated names; deny wins, narrow-only).
+func toolPolicyEnvs(run *platformv1alpha1.AgentRun) []corev1.EnvVar {
+	if run == nil {
+		return nil
+	}
+	var envs []corev1.EnvVar
+	if policy := run.Spec.ToolPolicy; policy != nil {
+		if allowed := joinToolNames(policy.AllowedTools); allowed != "" {
+			envs = append(envs, corev1.EnvVar{Name: "AGENTRUN_ALLOWED_TOOLS", Value: allowed})
+		}
+		if denied := joinToolNames(policy.DeniedTools); denied != "" {
+			envs = append(envs, corev1.EnvVar{Name: "AGENTRUN_DENIED_TOOLS", Value: denied})
+		}
+	}
+	if schema := strings.TrimSpace(run.Annotations[taskOutputSchemaAnnotation]); schema != "" && len(schema) <= maxTaskOutputSchemaBytes {
+		envs = append(envs, corev1.EnvVar{Name: "AGENTRUN_TASK_OUTPUT_SCHEMA", Value: schema})
+	}
+	return envs
+}
+
+func joinToolNames(names []string) string {
+	cleaned := make([]string, 0, len(names))
+	for _, name := range names {
+		if name = strings.TrimSpace(name); name != "" {
+			cleaned = append(cleaned, name)
+		}
+	}
+	return strings.Join(cleaned, ",")
 }
 
 func parentIdentityForRun(run *platformv1alpha1.AgentRun) (namespace, name, uid string) {
