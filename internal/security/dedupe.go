@@ -156,6 +156,13 @@ func Dedupe(findings []Finding, threshold float64) []Cluster {
 		}
 		if matched < 0 {
 			for i := range clusters {
+				// Similarity never merges across source kinds: an agent
+				// finding and a scanner finding describing the same issue
+				// are correlated (Correlate), keeping both provenances,
+				// rather than silently collapsed into one record.
+				if clusters[i].Canonical.IsScannerFinding() != f.IsScannerFinding() {
+					continue
+				}
 				if Similarity(clusters[i].Canonical, f) >= threshold {
 					matched = i
 					break

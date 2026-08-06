@@ -78,7 +78,7 @@ type SecurityScanReconciler struct {
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans/finalizers,verbs=update
-// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows;securityrankers;securitypostscripts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows;securityrankers;securitypostscripts;securitypolicypacks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=agentruns,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
@@ -133,6 +133,26 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
+	// Retention sweeps run only here — never in the deletion/finalizer path
+	// above — so a slow or failing purge can never delay scan deletion.
+	retentionRequeue := r.sweepSecurityRetention(ctx, scan)
+
+	res, err := r.reconcileActive(ctx, scan)
+	if err != nil {
+		return res, err
+	}
+	// Budget enforcement runs after the dispatch so its BudgetExceeded
+	// condition is not overwritten by the branch's own status refresh.
+	r.enforceSecurityBudgets(ctx, scan)
+	if retentionRequeue > 0 && (res.RequeueAfter == 0 || retentionRequeue < res.RequeueAfter) {
+		res.RequeueAfter = retentionRequeue
+	}
+	return res, nil
+}
+
+// reconcileActive dispatches a live (non-deleted, non-suspended, valid) scan
+// to the manual, event, one-shot, or scheduled path.
+func (r *SecurityScanReconciler) reconcileActive(ctx context.Context, scan *triggersv1alpha1.SecurityScan) (ctrl.Result, error) {
 	if token := pendingManualRunToken(scan); token != "" {
 		return r.reconcileRunNow(ctx, scan, token)
 	}
@@ -505,6 +525,20 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 	if scan.Spec.MaxRuntime.Duration > 0 {
 		d.Timeout = scan.Spec.MaxRuntime
 	}
+	// Budgets come from the RESOLVED spec (scan merged with the policy pack,
+	// enforced floors already checked), so every limit derives from CRD spec
+	// before prompt construction and model output can never relax it. What
+	// the run supports natively becomes an AgentRun limit; the rest is
+	// monitored controller-side each reconcile.
+	var runLimits *platformv1alpha1.AgentRunLimits
+	if budgets := resolved.spec.Budgets; budgets != nil {
+		if budgets.MaxRuntime.Duration > 0 && (d.Timeout.Duration == 0 || budgets.MaxRuntime.Duration < d.Timeout.Duration) {
+			d.Timeout = budgets.MaxRuntime
+		}
+		if strings.TrimSpace(budgets.MaxCostUSD) != "" {
+			runLimits = &platformv1alpha1.AgentRunLimits{MaxCostUsd: strings.TrimSpace(budgets.MaxCostUSD)}
+		}
+	}
 	var modeRef *platformv1alpha1.ModeRef
 	if d.ModeRef == nil {
 		modeRef = &platformv1alpha1.ModeRef{Name: securityScanModeTemplate}
@@ -520,15 +554,17 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 	}
 
 	provider := d.EffectiveProvider()
+	// Reporting-policy annotations come from the RESOLVED spec so policy
+	// pack defaults and enforced floors apply to what agents may report.
 	dedupePermille := int32(0)
-	if scan.Spec.DedupeEnabled() {
-		dedupePermille = scan.Spec.DedupeSimilarityThresholdPermille()
+	if resolved.spec.DedupeEnabled() {
+		dedupePermille = resolved.spec.DedupeSimilarityThresholdPermille()
 	}
 	annotations := map[string]string{
 		runModeAnnotation: "auto",
 		triggersv1alpha1.SecurityScanNameAnnotation:           scan.Name,
 		triggersv1alpha1.SecurityScanRepositoryAnnotation:     scan.Spec.RepoURL,
-		triggersv1alpha1.SecurityScanMinSeverityAnnotation:    scan.Spec.EffectiveMinSeverity(),
+		triggersv1alpha1.SecurityScanMinSeverityAnnotation:    resolved.spec.EffectiveMinSeverity(),
 		triggersv1alpha1.SecurityScanDedupePermilleAnnotation: strconv.Itoa(int(dedupePermille)),
 	}
 	if rev := strings.TrimSpace(scan.Spec.Revision); rev != "" {
@@ -581,6 +617,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 			ProjectRef: &platformv1alpha1.ProjectRef{Kind: securityScanKind, Name: scan.Name},
 		},
 		ModeRef:       modeRef,
+		Limits:        runLimits,
 		SeedLogPrefix: "securityscan",
 	})
 	return created, resolved.refs, err
@@ -633,6 +670,7 @@ func (r *SecurityScanReconciler) finalizeCompletedRun(ctx context.Context, scan 
 		return
 	}
 	log := logf.FromContext(ctx)
+	r.sweepSecuritySuppressions(ctx, scan)
 	run := &platformv1alpha1.AgentRun{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: scan.Namespace, Name: scan.Status.LastRunName}, run); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -679,7 +717,7 @@ func (r *SecurityScanReconciler) summarizeFindings(ctx context.Context, scan *tr
 	if r.Findings == nil {
 		return nil
 	}
-	counts, err := r.Findings.SummarizeSecurityFindings(ctx, scan.Namespace, scan.Name, "")
+	counts, err := r.Findings.SummarizeSecurityFindings(ctx, scan.Namespace, scan.Name, "", false)
 	if err != nil {
 		logf.FromContext(ctx).Error(err, "failed to summarize security findings", "scan", scan.Name)
 		return nil
@@ -711,9 +749,14 @@ func (r *SecurityScanReconciler) summarizeFindings(ctx context.Context, scan *tr
 // condition set by mutate. The threshold only counts open findings, so
 // findings triaged away no longer trip it.
 func (r *SecurityScanReconciler) updateStatus(ctx context.Context, scan *triggersv1alpha1.SecurityScan, findings *securityScanFindingSummary, mutate func(*triggersv1alpha1.SecurityScan)) error {
-	failOn := scan.Spec.FailOnSeverity
+	failOn := r.effectiveFailOnSeverity(ctx, scan)
 	err := retrySecurityScanStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(scan), func(fresh *triggersv1alpha1.SecurityScan) {
 		mutate(fresh)
+		// A recorded budget breach stays visible until the budget evaluation
+		// clears it, like the failOnSeverity threshold below.
+		if fresh.Status.Budget != nil && fresh.Status.Budget.Exceeded {
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonBudgetExceeded, fresh.Status.Budget.Message)
+		}
 		if findings == nil {
 			return
 		}

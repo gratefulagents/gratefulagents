@@ -34,6 +34,11 @@ import {
   ExportSecurityPackDialog,
   ImportSecurityPackDialog,
 } from "@/components/SecurityPackDialogs";
+import {
+  PolicyPackEditorDialog,
+  packBudgetSummary,
+  packRetentionSummary,
+} from "@/components/SecurityPolicyPackDialog";
 import { client } from "@/lib/client";
 import {
   CreateSecurityPostScriptRequestSchema,
@@ -45,6 +50,7 @@ import {
   UpdateSecurityPostScriptRequestSchema,
   UpdateSecurityRankerRequestSchema,
   UpdateSecurityWorkflowRequestSchema,
+  type SecurityPolicyPackResource,
   type SecurityPostScriptResource,
   type SecurityRankerResource,
   type SecurityWorkflowResource,
@@ -515,6 +521,7 @@ export function SecurityLibraryPage() {
   const [workflows, setWorkflows] = useState<SecurityWorkflowResource[]>([]);
   const [rankers, setRankers] = useState<SecurityRankerResource[]>([]);
   const [postScripts, setPostScripts] = useState<SecurityPostScriptResource[]>([]);
+  const [policyPacks, setPolicyPacks] = useState<SecurityPolicyPackResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -531,14 +538,16 @@ export function SecurityLibraryPage() {
     setLoading(true);
     setError("");
     try {
-      const [wf, rk, ps] = await Promise.all([
+      const [wf, rk, ps, pp] = await Promise.all([
         client.listSecurityWorkflows({ namespace: "" }),
         client.listSecurityRankers({ namespace: "" }),
         client.listSecurityPostScripts({ namespace: "" }),
+        client.listSecurityPolicyPacks({ namespace: "" }),
       ]);
       setWorkflows(wf.workflows);
       setRankers(rk.rankers);
       setPostScripts(ps.postScripts);
+      setPolicyPacks(pp.policyPacks);
       // Scan configurations are only needed for pack export; a failure there
       // must not blank the library itself.
       try {
@@ -566,6 +575,8 @@ export function SecurityLibraryPage() {
         await client.deleteSecurityWorkflow({ namespace: "", name: pendingDelete.name });
       } else if (pendingDelete.kind === "ranker") {
         await client.deleteSecurityRanker({ namespace: "", name: pendingDelete.name });
+      } else if (pendingDelete.kind === "policy-pack") {
+        await client.deleteSecurityPolicyPack({ namespace: "", name: pendingDelete.name });
       } else {
         await client.deleteSecurityPostScript({ namespace: "", name: pendingDelete.name });
       }
@@ -610,6 +621,7 @@ export function SecurityLibraryPage() {
   const visibleWorkflows = filterByQuery(workflows, query, (w) => [w.name, w.description]);
   const visibleRankers = filterByQuery(rankers, query, (r) => [r.name, r.description]);
   const visiblePostScripts = filterByQuery(postScripts, query, (p) => [p.name, p.description]);
+  const visiblePolicyPacks = filterByQuery(policyPacks, query, (p) => [p.name, p.description]);
 
   return (
     <ResourceListPage
@@ -665,6 +677,7 @@ export function SecurityLibraryPage() {
           <TabsTrigger value="workflows">Workflows ({workflows.length})</TabsTrigger>
           <TabsTrigger value="rankers">Rankers ({rankers.length})</TabsTrigger>
           <TabsTrigger value="post-scripts">Post-scripts ({postScripts.length})</TabsTrigger>
+          <TabsTrigger value="policy-packs">Policy packs ({policyPacks.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="workflows" className="space-y-3 pt-3">
@@ -887,6 +900,113 @@ export function SecurityLibraryPage() {
                   </TableCell>
                 </TableRow>
               ))}
+            </TableBody>
+          </Table>
+        </TabsContent>
+
+        <TabsContent value="policy-packs" className="space-y-3 pt-3">
+          <div className="flex flex-wrap gap-2">
+            <PolicyPackEditorDialog
+              mode="create"
+              onSaved={onSaved}
+              trigger={
+                <Button size="sm">
+                  <Plus className="size-3.5" /> New policy pack
+                </Button>
+              }
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Policy packs supply scan defaults, floors that referencing scans may not relax
+            (enforced fields), governed finding suppressions, data retention, and budgets.
+          </p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Enforced</TableHead>
+                <TableHead>Suppressions</TableHead>
+                <TableHead>Retention / budgets</TableHead>
+                <TableHead>Used by</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visiblePolicyPacks.length === 0 && !loading && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                    No policy packs yet.
+                  </TableCell>
+                </TableRow>
+              )}
+              {visiblePolicyPacks.map((pack) => {
+                const retention = packRetentionSummary(pack.retention);
+                const budgets = packBudgetSummary(pack.budgets);
+                return (
+                  <TableRow key={pack.name} data-testid={`policy-pack-row-${pack.name}`}>
+                    <TableCell className="font-mono text-[13px]">{pack.name}</TableCell>
+                    <TableCell className="max-w-60 truncate text-muted-foreground">{pack.description}</TableCell>
+                    <TableCell>
+                      {pack.enforced.length === 0 ? (
+                        <span className="text-muted-foreground">none</span>
+                      ) : (
+                        <span className="flex flex-wrap gap-1" title="Scans may not relax these fields.">
+                          {pack.enforced.map((field) => (
+                            <Badge key={field} variant="secondary" className="text-[11px]">
+                              {field}
+                            </Badge>
+                          ))}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {pack.suppressions.length === 0
+                        ? "—"
+                        : `${pack.suppressions.length} rule${pack.suppressions.length === 1 ? "" : "s"}`}
+                    </TableCell>
+                    <TableCell className="max-w-64 text-[12px] text-muted-foreground">
+                      <div className="space-y-0.5">
+                        <div className="truncate">{retention ? `retention: ${retention}` : "retention: keep forever"}</div>
+                        <div className="truncate">{budgets ? `budgets: ${budgets}` : "budgets: unlimited"}</div>
+                      </div>
+                    </TableCell>
+                    <TableCell>{usageBadge(pack.usageCount, pack.referencingScans)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex items-center gap-1">
+                        <PolicyPackEditorDialog
+                          mode="edit"
+                          source={pack}
+                          onSaved={onSaved}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${pack.name}`}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <PolicyPackEditorDialog
+                          mode="duplicate"
+                          source={pack}
+                          onSaved={onSaved}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${pack.name}`}>
+                              <Copy className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${pack.name}`}
+                          onClick={() => setPendingDelete({ kind: "policy-pack", name: pack.name })}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TabsContent>

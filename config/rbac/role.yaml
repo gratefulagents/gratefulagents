@@ -179,6 +179,7 @@ rules:
   - githubrepositories
   - linearprojects
   - projects
+  - securitypolicypacks
   - securitypostscripts
   - securityrankers
   - securityscans
@@ -203,6 +204,7 @@ rules:
   - maintainerworkitems/status
   - projects/status
   - pullrequestmonitors/status
+  - securitypolicypacks/status
   - securitypostscripts/status
   - securityrankers/status
   - securityscans/status

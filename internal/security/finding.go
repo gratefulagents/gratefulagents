@@ -101,7 +101,35 @@ type Finding struct {
 	ScanStep    string   `json:"scan_step,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 
+	// Provenance. SourceKind is SourceKindAgent (the default; "" means
+	// agent) or SourceKindScanner for findings ingested from deterministic
+	// tools. Tool, ToolVersion, and RuleID identify the deterministic tool
+	// and rule that produced a scanner finding; they are empty for agent
+	// findings.
+	SourceKind  string `json:"source_kind,omitempty"`
+	Tool        string `json:"tool,omitempty"`
+	ToolVersion string `json:"tool_version,omitempty"`
+	RuleID      string `json:"rule_id,omitempty"`
+
+	// CorrelatedFingerprints lists fingerprints of findings from the other
+	// source kind (agent vs scanner) that describe the same issue. A
+	// correlation never merges or rewrites either side: both findings keep
+	// their own provenance and this cross-reference is recorded on both.
+	CorrelatedFingerprints []string `json:"correlated_fingerprints,omitempty"`
+
 	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+// Source kinds recorded in finding provenance.
+const (
+	SourceKindAgent   = "agent"
+	SourceKindScanner = "scanner"
+)
+
+// IsScannerFinding reports whether the finding was ingested from a
+// deterministic scanner tool (rather than authored by a scanning agent).
+func (f Finding) IsScannerFinding() bool {
+	return normalizeToken(f.SourceKind) == SourceKindScanner
 }
 
 var severityAliases = map[string]string{
@@ -402,6 +430,12 @@ func (f *Finding) Normalize() {
 	f.ScanStep = strings.TrimSpace(f.ScanStep)
 	f.Tags = normalizeStringSet(f.Tags, func(s string) string { return strings.ToLower(s) })
 
+	f.SourceKind = normalizeToken(f.SourceKind)
+	f.Tool = strings.TrimSpace(f.Tool)
+	f.ToolVersion = strings.TrimSpace(f.ToolVersion)
+	f.RuleID = strings.TrimSpace(f.RuleID)
+	f.CorrelatedFingerprints = normalizeStringSet(f.CorrelatedFingerprints, strings.ToLower)
+
 	f.Fingerprint = Fingerprint(*f)
 }
 
@@ -433,6 +467,18 @@ func (f Finding) Validate() error {
 		default:
 			problems = append(problems, fmt.Sprintf("unknown confidence %q (known: %s, %s, %s)", f.Confidence, ConfidenceConfirmed, ConfidenceFirm, ConfidenceTentative))
 		}
+	}
+	switch normalizeToken(f.SourceKind) {
+	case "", SourceKindAgent:
+	case SourceKindScanner:
+		if strings.TrimSpace(f.Tool) == "" {
+			problems = append(problems, "tool is required for scanner findings")
+		}
+		if strings.TrimSpace(f.RuleID) == "" {
+			problems = append(problems, "rule_id is required for scanner findings")
+		}
+	default:
+		problems = append(problems, fmt.Sprintf("unknown source_kind %q (known: %s, %s)", f.SourceKind, SourceKindAgent, SourceKindScanner))
 	}
 	if len(problems) == 0 {
 		return nil
@@ -478,10 +524,19 @@ func sortedTokenSet(s string) []string {
 	return out
 }
 
-// Fingerprint computes a stable 16-hex-character identity for a finding from
-// its repository, file path, category, CWEs, and normalized title tokens.
-// Whitespace, casing, and word order in the title do not change the result.
+// Fingerprint computes a stable 16-hex-character identity for a finding.
+//
+// Agent findings hash repository, file path, category, CWEs, and normalized
+// title tokens: whitespace, casing, and word order in the title do not
+// change the result. Scanner findings (SourceKind == SourceKindScanner) use
+// a deliberately different derivation — see scannerFingerprint — so an
+// agent finding and a scanner finding can never share an identity and
+// merging the two sources is always an explicit correlation act, never a
+// key collision.
 func Fingerprint(f Finding) string {
+	if f.IsScannerFinding() {
+		return scannerFingerprint(f)
+	}
 	cwes := normalizeStringSet(f.CWE, normalizeCWE)
 	parts := []string{
 		strings.ToLower(strings.TrimSpace(f.Repository)),

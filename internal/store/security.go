@@ -62,13 +62,24 @@ type SecurityFindingRecord struct {
 	References   []string
 	SourceAgent  string
 	ScanStep     string
-	Score        float64
-	Status       string
-	DuplicateOf  *uuid.UUID
-	Occurrences  int32
-	Raw          json.RawMessage
-	FirstSeenAt  time.Time
-	LastSeenAt   time.Time
+	// Provenance: SourceKind is "agent" or "scanner"; Tool, ToolVersion,
+	// and RuleID identify the deterministic scanner rule for scanner
+	// findings and are empty for agent findings.
+	SourceKind  string
+	Tool        string
+	ToolVersion string
+	RuleID      string
+	// CorrelatedFingerprints cross-references findings from the other
+	// source kind that describe the same issue. Recording a correlation
+	// never merges or rewrites either side.
+	CorrelatedFingerprints []string
+	Score                  float64
+	Status                 string
+	DuplicateOf            *uuid.UUID
+	Occurrences            int32
+	Raw                    json.RawMessage
+	FirstSeenAt            time.Time
+	LastSeenAt             time.Time
 	// Collaboration / lifecycle fields.
 	Assignee              string
 	AcceptedRiskExpiresAt *time.Time
@@ -80,6 +91,15 @@ type SecurityFindingRecord struct {
 	ResolvedAt    *time.Time
 	// TriagedAt is when the finding first left status "open".
 	TriagedAt *time.Time
+	// Governed suppression fields (SecurityPolicyPack suppression rules).
+	// A finding is suppressed while SuppressedBy is non-empty: it is
+	// excluded from failOnSeverity gating and default list/summary results
+	// but never deleted, and every transition is audited.
+	SuppressedBy         string
+	SuppressedReason     string
+	SuppressedOwner      string
+	SuppressionExpiresAt *time.Time
+	SuppressedAt         *time.Time
 }
 
 // SecurityFindingFilter selects findings for listing. Zero-value string
@@ -97,8 +117,31 @@ type SecurityFindingFilter struct {
 	IncludeDuplicates bool
 	BaselineState     string
 	Assignee          string
-	Limit             int32
-	Offset            int32
+	// Suppressed controls how governed-suppressed findings are filtered:
+	// SecuritySuppressedExclude (or "") omits them, SecuritySuppressedInclude
+	// returns suppressed and unsuppressed findings alike, and
+	// SecuritySuppressedOnly returns only suppressed findings.
+	Suppressed string
+	Limit      int32
+	Offset     int32
+}
+
+// Suppressed filter values for SecurityFindingFilter and the
+// ListSecurityFindings RPC.
+const (
+	SecuritySuppressedExclude = "exclude"
+	SecuritySuppressedInclude = "include"
+	SecuritySuppressedOnly    = "only"
+)
+
+// ValidSecuritySuppressedFilter reports whether s is a known suppressed
+// filter value ("" means exclude).
+func ValidSecuritySuppressedFilter(s string) bool {
+	switch s {
+	case "", SecuritySuppressedExclude, SecuritySuppressedInclude, SecuritySuppressedOnly:
+		return true
+	}
+	return false
 }
 
 // SecurityFindingEvent is one audit-trail entry for a finding.
@@ -222,6 +265,42 @@ func (e *BulkSecurityFindingError) Error() string {
 
 func (e *BulkSecurityFindingError) Unwrap() error { return e.Err }
 
+// SecuritySuppressionMatcher selects the findings a suppression rule
+// applies to. All set fields must match (AND); at least one is required.
+type SecuritySuppressionMatcher struct {
+	// Category matches the finding's category exactly.
+	Category string
+	// CWE matches findings whose CWE list contains this identifier.
+	CWE string
+	// PathGlob matches the finding's file path with a glob pattern where
+	// '*' matches any run of characters and '?' matches one character.
+	PathGlob string
+	// Fingerprint matches the finding's fingerprint exactly.
+	Fingerprint string
+}
+
+// IsZero reports whether no matcher field is set.
+func (m SecuritySuppressionMatcher) IsZero() bool {
+	return m.Category == "" && m.CWE == "" && m.PathGlob == "" && m.Fingerprint == ""
+}
+
+// SecuritySuppressionRule is one governed suppression rule, typically
+// "<policy pack name>/<rule name>".
+type SecuritySuppressionRule struct {
+	// ID identifies the rule; it is recorded on suppressed findings and in
+	// their audit events.
+	ID string
+	// Reason documents why matched findings are suppressed.
+	Reason string
+	// Owner is who is accountable for the suppression.
+	Owner string
+	// Matcher selects the findings to suppress.
+	Matcher SecuritySuppressionMatcher
+	// ExpiresAt optionally bounds the suppression; past it,
+	// ExpireSecuritySuppressions clears it.
+	ExpiresAt *time.Time
+}
+
 // SecurityFindingAuditRecord is one exported audit-trail entry joined with
 // identifying finding fields.
 type SecurityFindingAuditRecord struct {
@@ -231,6 +310,54 @@ type SecurityFindingAuditRecord struct {
 	Title       string
 	Severity    string
 	Status      string
+}
+
+// SecurityRetentionPolicy is a per-class retention configuration in days.
+// 0 keeps the class forever. Cutoffs are computed against the row's most
+// recent activity timestamp (last_seen_at for findings, completed_at for
+// scan runs, created_at for audit events).
+type SecurityRetentionPolicy struct {
+	// ScanDays bounds completed scan run records and their per-run
+	// observation rows. A scan run row is only deleted once no finding is
+	// attributed to it anymore, so finding identity is never cascaded away.
+	ScanDays int32
+	// FindingDays bounds finding rows; expired rows are deleted together
+	// with their audit events.
+	FindingDays int32
+	// ReportDays bounds the scan report artifacts (markdown and SARIF).
+	ReportDays int32
+	// EvidenceDays bounds finding evidence (code snippets/citations).
+	// Expired evidence is REDACTED in place: the finding row, its identity,
+	// and its audit history are preserved, and an "evidence_purged" audit
+	// event is appended.
+	EvidenceDays int32
+	// PoCDays bounds proof-of-concept / attack-vector narratives. Expired
+	// content is REDACTED in place like evidence, with a "poc_purged" audit
+	// event.
+	PoCDays int32
+	// AuditEventDays bounds finding audit-trail events.
+	AuditEventDays int32
+}
+
+// IsZero reports whether no retention class is configured.
+func (p SecurityRetentionPolicy) IsZero() bool {
+	return p == SecurityRetentionPolicy{}
+}
+
+// SecurityRetentionCounts reports how many rows one purge batch affected,
+// per class.
+type SecurityRetentionCounts struct {
+	ScansDeleted       int32
+	FindingsDeleted    int32
+	ReportsDeleted     int32
+	EvidenceRedacted   int32
+	PoCsRedacted       int32
+	AuditEventsDeleted int32
+}
+
+// IsZero reports whether the batch affected no rows.
+func (c SecurityRetentionCounts) IsZero() bool {
+	return c == SecurityRetentionCounts{}
 }
 
 // SecurityFindingStore persists security scans, findings, and finding events.
@@ -257,6 +384,18 @@ type SecurityFindingStore interface {
 	// reopened) and one observation row is recorded for the run in the same
 	// transaction. The bool reports whether a new row was created.
 	UpsertSecurityFinding(ctx context.Context, rec *SecurityFindingRecord) (*SecurityFindingRecord, bool, error)
+	// CorrelateSecurityFindings records that the two findings identified by
+	// fingerprint within (namespace, scanName, repository) describe the
+	// same issue: each side's correlated_fingerprints gains the other's
+	// fingerprint and a "correlated" audit event is appended to any side
+	// that changed. Neither row's content, provenance, or status is
+	// otherwise touched — a correlated pair lists both sources instead of
+	// one absorbing the other. Idempotent: re-correlating an already
+	// cross-referenced pair changes nothing and appends no event. The bool
+	// reports whether anything changed. It returns
+	// ErrSecurityFindingNotFound when either fingerprint does not match a
+	// finding; an empty namespace is rejected with an error.
+	CorrelateSecurityFindings(ctx context.Context, namespace, scanName, repository, fingerprintA, fingerprintB, reason, actor string) (bool, error)
 	// ListSecurityFindings lists findings matching the filter, ordered by
 	// score desc, severity desc, last_seen_at desc. Limit defaults to 200
 	// and is capped at 1000.
@@ -284,6 +423,20 @@ type SecurityFindingStore interface {
 	// finding. It is idempotent and namespace-scoped; it returns the number
 	// of findings expired.
 	ExpireAcceptedRisks(ctx context.Context, namespace string) (int32, error)
+	// ApplySecuritySuppressions marks the scan's findings that match any of
+	// the rules as suppressed (recording rule id, reason, owner, and expiry)
+	// and appends a "suppressed" audit event per newly suppressed finding.
+	// Findings are never deleted or erased. Already-suppressed findings are
+	// left under their current rule, though a finding suppressed by the same
+	// rule id has its reason/owner/expiry refreshed without a new event, so
+	// re-running with edited rules converges. Idempotent; returns the number
+	// of findings newly suppressed.
+	ApplySecuritySuppressions(ctx context.Context, namespace, scanName string, rules []SecuritySuppressionRule) (int32, error)
+	// ExpireSecuritySuppressions clears suppressions whose expiry has passed
+	// and appends a "suppression_expired" event per finding. The finding row
+	// and its audit history are preserved. Idempotent and namespace-scoped;
+	// returns the number of suppressions expired.
+	ExpireSecuritySuppressions(ctx context.Context, namespace string) (int32, error)
 	// BulkUpdateSecurityFindings applies upd to every finding in ids inside
 	// one transaction, scoped to (namespace, scanName). The batch is fully
 	// atomic: when any id is missing, a duplicate child, or otherwise
@@ -332,12 +485,28 @@ type SecurityFindingStore interface {
 	// It also emits "baseline_<state>" keys (baseline_new,
 	// baseline_recurring, baseline_regressed, baseline_resolved,
 	// baseline_reopened) plus "baseline_tracked" counting findings with any
-	// baseline state. Empty scanName / runName match all.
-	SummarizeSecurityFindings(ctx context.Context, namespace, scanName, runName string) (map[string]int32, error)
+	// baseline state. It also reports "source_agent" / "source_scanner"
+	// counts by finding provenance and "correlated" counting findings with
+	// at least one recorded cross-source correlation. Empty scanName /
+	// runName match all. Governed-suppressed
+	// findings are excluded from every count unless includeSuppressed is
+	// true; either way their number is reported under the "suppressed" key.
+	SummarizeSecurityFindings(ctx context.Context, namespace, scanName, runName string, includeSuppressed bool) (map[string]int32, error)
 	// DeleteSecurityScanData removes every scan run, finding, and event for
 	// (namespace, scan_name). Idempotent. It is called when a SecurityScan
 	// resource is deleted.
 	DeleteSecurityScanData(ctx context.Context, namespace, scanName string) error
+	// PurgeExpiredSecurityData applies the retention policy to the
+	// namespace's persisted security data: one bounded batch per call, each
+	// class purged by its own namespace-scoped, deterministically ordered,
+	// LIMIT-bounded statement so a single call stays cheap. Scan runs,
+	// findings, reports, and audit events are deleted; expired evidence and
+	// PoC content are redacted in place so the finding row and its audit
+	// history survive (an audit event records each redaction). moreWork is
+	// true when any class hit batchLimit, i.e. the caller should call again.
+	// Idempotent and resumable: re-running never re-purges already-purged
+	// rows. batchLimit <= 0 uses a small default.
+	PurgeExpiredSecurityData(ctx context.Context, namespace string, policy SecurityRetentionPolicy, batchLimit int) (SecurityRetentionCounts, bool, error)
 	// ClaimSecurityNotifications persists notification dedupe markers for
 	// the (namespace, scanName, ruleKey, fingerprint) tuples and returns the
 	// subset of fingerprints that were newly claimed (not already marked).

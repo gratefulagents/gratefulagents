@@ -49,6 +49,14 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 		ConcurrencyPolicy: "Allow",
 		Defaults:          fullCronDefaults(),
 		MaxRuntime:        "2h",
+		Budgets: &platform.SecurityScanBudgetsConfig{
+			MaxModelJobs:      12,
+			MaxCostUsd:        "3.75",
+			MaxTokens:         250000,
+			MaxRuntime:        "90m",
+			MaxFindings:       40,
+			MaxValidationJobs: 4,
+		},
 	}
 }
 
@@ -88,6 +96,10 @@ func TestCreateSecurityScanHappyPathFullSpec(t *testing.T) {
 		ps.Defaults == nil || ps.Defaults.Model != "claude-sonnet-4-6" {
 		t.Fatalf("proto spec = %+v", ps)
 	}
+	if ps.Budgets == nil || ps.Budgets.MaxCostUsd != "3.75" || ps.Budgets.MaxRuntime != "1h30m0s" ||
+		ps.Budgets.MaxFindings != 40 {
+		t.Fatalf("proto budgets = %+v", ps.Budgets)
+	}
 }
 
 func assertFullScanSpec(t *testing.T, spec triggersv1alpha1.SecurityScanSpec) {
@@ -107,6 +119,11 @@ func assertFullScanSpec(t *testing.T, spec triggersv1alpha1.SecurityScanSpec) {
 	}
 	if spec.MaxRuntime.Duration != 2*time.Hour {
 		t.Fatalf("MaxRuntime = %s, want 2h", spec.MaxRuntime.Duration)
+	}
+	if spec.Budgets == nil || spec.Budgets.MaxModelJobs != 12 || spec.Budgets.MaxCostUSD != "3.75" ||
+		spec.Budgets.MaxTokens != 250000 || spec.Budgets.MaxRuntime.Duration != 90*time.Minute ||
+		spec.Budgets.MaxFindings != 40 || spec.Budgets.MaxValidationJobs != 4 {
+		t.Fatalf("Budgets = %+v", spec.Budgets)
 	}
 	if spec.Defaults.RepoURL != "https://github.com/example/payments.git" || spec.Defaults.Model != "claude-sonnet-4-6" {
 		t.Fatalf("Defaults = %+v", spec.Defaults)
@@ -228,6 +245,21 @@ func TestCreateSecurityScanValidationFailures(t *testing.T) {
 			return s
 		}()},
 		{"bad max_runtime", func() *platform.SecurityScanConfigSpec { s := base(); s.MaxRuntime = "banana"; return s }()},
+		{"bad budgets max_runtime", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Budgets = &platform.SecurityScanBudgetsConfig{MaxRuntime: "banana"}
+			return s
+		}()},
+		{"bad budgets max_cost_usd", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Budgets = &platform.SecurityScanBudgetsConfig{MaxCostUsd: "$5"}
+			return s
+		}()},
+		{"negative budgets max_findings", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Budgets = &platform.SecurityScanBudgetsConfig{MaxFindings: -1}
+			return s
+		}()},
 		{"bad defaults timeout", func() *platform.SecurityScanConfigSpec {
 			s := base()
 			s.Defaults = &platform.AgentRunDefaults{Timeout: "banana"}
@@ -435,6 +467,18 @@ func TestListAndGetSecurityScanConfigsExposeSpecAndStatus(t *testing.T) {
 			RunsCreated:      3,
 			LastError:        "boom",
 			Findings:         &triggersv1alpha1.SecurityScanFindingCounts{Total: 4, Open: 2, Critical: 1, High: 1},
+			Budget: &triggersv1alpha1.SecurityScanBudgetStatus{
+				Effective: &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 3, MaxCostUSD: "5"},
+				Exceeded:  true,
+				Message:   "persisted findings 4 exceed budgets.maxFindings 3",
+			},
+			Retention: &triggersv1alpha1.SecurityScanRetentionStatus{
+				LastSweepTime:  &lastScan,
+				FindingsPurged: 7,
+				PoCRedacted:    2,
+				MoreWork:       true,
+				LastError:      "sweep hiccup",
+			},
 			Conditions: []metav1.Condition{
 				{Type: triggersv1alpha1.ConditionSecurityScanReady, Status: metav1.ConditionTrue, Reason: "Ready"},
 			},
@@ -459,6 +503,15 @@ func TestListAndGetSecurityScanConfigsExposeSpecAndStatus(t *testing.T) {
 	}
 	if got.FindingCounts["total"] != 4 || got.FindingCounts["open"] != 2 || got.FindingCounts["critical"] != 1 {
 		t.Fatalf("FindingCounts = %+v", got.FindingCounts)
+	}
+	if !got.BudgetExceeded || got.BudgetMessage == "" ||
+		got.GetEffectiveBudgets().GetMaxFindings() != 3 || got.GetEffectiveBudgets().GetMaxCostUsd() != "5" {
+		t.Fatalf("budget status = exceeded=%v message=%q effective=%+v", got.BudgetExceeded, got.BudgetMessage, got.GetEffectiveBudgets())
+	}
+	if got.GetRetention().GetLastSweepTimeUnix() != lastScan.Unix() ||
+		got.GetRetention().GetFindingsPurged() != 7 || got.GetRetention().GetPocRedacted() != 2 ||
+		!got.GetRetention().GetMoreWork() || got.GetRetention().GetLastError() != "sweep hiccup" {
+		t.Fatalf("retention status = %+v", got.GetRetention())
 	}
 
 	list, err := srv.ListSecurityScanConfigs(context.Background(), &platform.ListSecurityScanConfigsRequest{Namespace: "default"})

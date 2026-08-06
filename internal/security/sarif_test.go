@@ -139,3 +139,68 @@ func TestRenderSARIFEmpty(t *testing.T) {
 		t.Errorf("results = %v, want empty array present", run["results"])
 	}
 }
+
+func TestRenderSARIFScannerRunAttribution(t *testing.T) {
+	raw, err := RenderSARIF(testScannerReportInput(t))
+	if err != nil {
+		t.Fatalf("RenderSARIF: %v", err)
+	}
+	var log struct {
+		Runs []struct {
+			Tool struct {
+				Driver struct {
+					Name    string `json:"name"`
+					Version string `json:"version"`
+					Rules   []struct {
+						ID string `json:"id"`
+					} `json:"rules"`
+				} `json:"driver"`
+			} `json:"tool"`
+			Results []struct {
+				RuleID     string         `json:"ruleId"`
+				Properties map[string]any `json:"properties"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(raw, &log); err != nil {
+		t.Fatalf("SARIF output is not valid JSON: %v", err)
+	}
+	if len(log.Runs) != 2 {
+		t.Fatalf("runs = %d, want 2 (agent run + gosec run)", len(log.Runs))
+	}
+
+	agentRun := log.Runs[0]
+	if agentRun.Tool.Driver.Name != "gratefulagents-security-scan" {
+		t.Errorf("agent driver = %q", agentRun.Tool.Driver.Name)
+	}
+	if len(agentRun.Results) != 1 || agentRun.Results[0].RuleID != "crypto" {
+		t.Fatalf("agent results = %+v", agentRun.Results)
+	}
+	props := agentRun.Results[0].Properties
+	if props["sourceKind"] != "agent" || props["sourceAgent"] != "scan-run-1" {
+		t.Errorf("agent result properties = %v", props)
+	}
+	if _, ok := props["correlatedFingerprints"]; !ok {
+		t.Errorf("agent result missing correlatedFingerprints: %v", props)
+	}
+
+	scannerRun := log.Runs[1]
+	// The scanner's findings are attributed to the scanner's own driver
+	// and rule ids — gratefulagents must not claim another tool's rules.
+	if scannerRun.Tool.Driver.Name != "gosec" || scannerRun.Tool.Driver.Version != "2.18.2" {
+		t.Errorf("scanner driver = %q %q, want gosec 2.18.2", scannerRun.Tool.Driver.Name, scannerRun.Tool.Driver.Version)
+	}
+	if len(scannerRun.Tool.Driver.Rules) != 1 || scannerRun.Tool.Driver.Rules[0].ID != "G401" {
+		t.Errorf("scanner rules = %+v, want [G401]", scannerRun.Tool.Driver.Rules)
+	}
+	if len(scannerRun.Results) != 1 || scannerRun.Results[0].RuleID != "G401" {
+		t.Fatalf("scanner results = %+v", scannerRun.Results)
+	}
+	sprops := scannerRun.Results[0].Properties
+	if sprops["sourceKind"] != "scanner" || sprops["tool"] != "gosec" || sprops["toolVersion"] != "2.18.2" || sprops["ruleId"] != "G401" {
+		t.Errorf("scanner result properties = %v", sprops)
+	}
+	if _, ok := sprops["correlatedFingerprints"]; !ok {
+		t.Errorf("scanner result missing correlatedFingerprints: %v", sprops)
+	}
+}

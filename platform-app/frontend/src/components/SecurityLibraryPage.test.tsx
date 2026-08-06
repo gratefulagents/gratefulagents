@@ -6,6 +6,7 @@ import { ConnectError, Code } from "@connectrpc/connect";
 
 import { SecurityLibraryPage } from "@/components/SecurityLibraryPage";
 import {
+  SecurityPolicyPackResourceSchema,
   SecurityPostScriptResourceSchema,
   SecurityRankerResourceSchema,
   SecurityWorkflowResourceSchema,
@@ -15,6 +16,7 @@ const {
   listSecurityWorkflows,
   listSecurityRankers,
   listSecurityPostScripts,
+  listSecurityPolicyPacks,
   deleteSecurityWorkflow,
   validateSecurityWorkflow,
   createSecurityWorkflow,
@@ -25,10 +27,14 @@ const {
   updateSecurityPostScript,
   deleteSecurityRanker,
   deleteSecurityPostScript,
+  createSecurityPolicyPack,
+  updateSecurityPolicyPack,
+  deleteSecurityPolicyPack,
 } = vi.hoisted(() => ({
   listSecurityWorkflows: vi.fn(),
   listSecurityRankers: vi.fn(),
   listSecurityPostScripts: vi.fn(),
+  listSecurityPolicyPacks: vi.fn(),
   deleteSecurityWorkflow: vi.fn(),
   validateSecurityWorkflow: vi.fn(),
   createSecurityWorkflow: vi.fn(),
@@ -39,6 +45,9 @@ const {
   updateSecurityPostScript: vi.fn(),
   deleteSecurityRanker: vi.fn(),
   deleteSecurityPostScript: vi.fn(),
+  createSecurityPolicyPack: vi.fn(),
+  updateSecurityPolicyPack: vi.fn(),
+  deleteSecurityPolicyPack: vi.fn(),
 }));
 
 vi.mock("@/lib/client", () => ({
@@ -46,6 +55,7 @@ vi.mock("@/lib/client", () => ({
     listSecurityWorkflows,
     listSecurityRankers,
     listSecurityPostScripts,
+    listSecurityPolicyPacks,
     deleteSecurityWorkflow,
     validateSecurityWorkflow,
     createSecurityWorkflow,
@@ -56,6 +66,9 @@ vi.mock("@/lib/client", () => ({
     updateSecurityPostScript,
     deleteSecurityRanker,
     deleteSecurityPostScript,
+    createSecurityPolicyPack,
+    updateSecurityPolicyPack,
+    deleteSecurityPolicyPack,
   },
 }));
 
@@ -94,6 +107,30 @@ function seedLists() {
         name: "write-poc",
         prompt: "write a poc",
         runOn: "high-and-above",
+        usageCount: 1,
+        referencingScans: ["scan-a"],
+      }),
+    ],
+  });
+  listSecurityPolicyPacks.mockResolvedValue({
+    policyPacks: [
+      create(SecurityPolicyPackResourceSchema, {
+        namespace: "user-alice",
+        name: "prod-policy",
+        description: "prod floors",
+        minSeverity: "medium",
+        failOnSeverity: "high",
+        enforced: ["minSeverity", "budgets"],
+        suppressions: [
+          {
+            name: "vendored",
+            reason: "third-party",
+            owner: "sec-team",
+            matcher: { pathGlob: "vendor/**" },
+          },
+        ],
+        retention: { findingDays: 90 },
+        budgets: { maxCostUsd: "5", maxFindings: 100 },
         usageCount: 1,
         referencingScans: ["scan-a"],
       }),
@@ -169,5 +206,94 @@ describe("SecurityLibraryPage", () => {
     expect(nameInput.value).toBe("");
     // The single task from the source workflow is prefilled.
     expect(screen.getByTestId("workflow-task-0")).toBeTruthy();
+  });
+
+  it("lists policy packs with enforced badges, suppressions, and summaries", async () => {
+    seedLists();
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("tab", { name: /Policy packs/ }));
+    const row = await screen.findByTestId("policy-pack-row-prod-policy");
+    expect(row.textContent).toContain("prod-policy");
+    expect(row.textContent).toContain("prod floors");
+    expect(row.textContent).toContain("minSeverity");
+    expect(row.textContent).toContain("budgets");
+    expect(row.textContent).toContain("1 rule");
+    expect(row.textContent).toContain("findings 90d");
+    expect(row.textContent).toContain("$5");
+    expect(row.textContent).toContain("1 scan");
+  });
+
+  it("creates a policy pack from the dialog", async () => {
+    seedLists();
+    createSecurityPolicyPack.mockResolvedValue({});
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("tab", { name: /Policy packs/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /New policy pack/ }));
+    fireEvent.change(await screen.findByLabelText(/^Name/), { target: { value: "team-pack" } });
+    fireEvent.change(screen.getByLabelText("Minimum severity", { selector: "select" }), {
+      target: { value: "high" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create policy pack" }));
+    await waitFor(() => expect(createSecurityPolicyPack).toHaveBeenCalledTimes(1));
+    const request = createSecurityPolicyPack.mock.calls[0][0];
+    expect(request.policyPack.name).toBe("team-pack");
+    expect(request.policyPack.minSeverity).toBe("high");
+  });
+
+  it("blocks a suppression rule without a matcher client-side", async () => {
+    seedLists();
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("tab", { name: /Policy packs/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /New policy pack/ }));
+    fireEvent.change(await screen.findByLabelText(/^Name/), { target: { value: "team-pack" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add suppression rule" }));
+    fireEvent.change(screen.getByLabelText(/Rule name/), { target: { value: "noisy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create policy pack" }));
+    const errors = await screen.findByTestId("pp-validation-errors");
+    expect(errors.textContent).toContain("at least one matcher field");
+    expect(errors.textContent).toContain("reason");
+    expect(errors.textContent).toContain("owner");
+    expect(createSecurityPolicyPack).not.toHaveBeenCalled();
+  });
+
+  it("surfaces server validation errors verbatim in the pack dialog", async () => {
+    seedLists();
+    createSecurityPolicyPack.mockRejectedValue(
+      new ConnectError(
+        'enforced[0]: enforcing budgets requires at least one budget limit to be set',
+        Code.InvalidArgument,
+      ),
+    );
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("tab", { name: /Policy packs/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /New policy pack/ }));
+    fireEvent.change(await screen.findByLabelText(/^Name/), { target: { value: "team-pack" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create policy pack" }));
+    const error = await screen.findByTestId("pp-server-error");
+    expect(error.textContent).toContain("enforcing budgets requires at least one budget limit");
+  });
+
+  it("surfaces the policy pack delete guard naming referencing scans", async () => {
+    seedLists();
+    deleteSecurityPolicyPack.mockRejectedValue(
+      new ConnectError(
+        'SecurityPolicyPack "prod-policy" is still referenced by security scans: scan-a',
+        Code.FailedPrecondition,
+      ),
+    );
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("tab", { name: /Policy packs/ }));
+    await screen.findByTestId("policy-pack-row-prod-policy");
+    fireEvent.click(screen.getByRole("button", { name: "Delete prod-policy" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("library-action-error").textContent).toContain("scan-a");
+    });
+    expect(deleteSecurityPolicyPack).toHaveBeenCalledWith({ namespace: "", name: "prod-policy" });
   });
 });

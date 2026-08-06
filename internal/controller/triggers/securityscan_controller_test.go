@@ -242,7 +242,7 @@ type securityScanFindingStore struct {
 	counts map[string]int32
 }
 
-func (s securityScanFindingStore) SummarizeSecurityFindings(context.Context, string, string, string) (map[string]int32, error) {
+func (s securityScanFindingStore) SummarizeSecurityFindings(context.Context, string, string, string, bool) (map[string]int32, error) {
 	return s.counts, nil
 }
 
@@ -253,7 +253,7 @@ type recordingSecurityScanFindingStore struct {
 	runName  string
 }
 
-func (s *recordingSecurityScanFindingStore) SummarizeSecurityFindings(_ context.Context, _, scanName, runName string) (map[string]int32, error) {
+func (s *recordingSecurityScanFindingStore) SummarizeSecurityFindings(_ context.Context, _, scanName, runName string, _ bool) (map[string]int32, error) {
 	s.scanName = scanName
 	s.runName = runName
 	return s.counts, nil
@@ -274,7 +274,7 @@ func (s *deletingSecurityScanFindingStore) DeleteSecurityScanData(_ context.Cont
 	return s.err
 }
 
-func (s *deletingSecurityScanFindingStore) SummarizeSecurityFindings(context.Context, string, string, string) (map[string]int32, error) {
+func (s *deletingSecurityScanFindingStore) SummarizeSecurityFindings(context.Context, string, string, string, bool) (map[string]int32, error) {
 	return nil, nil
 }
 
@@ -987,4 +987,28 @@ func TestSecurityScanRunNowOneShotSatisfiesGeneration(t *testing.T) {
 	if updated := getSecurityScan(t, k8sClient, scan); updated.Status.ObservedGeneration != 3 {
 		t.Fatalf("ObservedGeneration = %d, want 3", updated.Status.ObservedGeneration)
 	}
+}
+
+func (s securityScanFindingStore) ApplySecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
+func (s securityScanFindingStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
+	return 0, nil
+}
+
+func (s *recordingSecurityScanFindingStore) ApplySecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
+func (s *recordingSecurityScanFindingStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
+	return 0, nil
+}
+
+func (s *deletingSecurityScanFindingStore) ApplySecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
+func (s *deletingSecurityScanFindingStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
+	return 0, nil
 }

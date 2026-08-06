@@ -299,6 +299,56 @@ func generateSecurityScanName() string {
 	return "securityscan-" + suffix
 }
 
+// securityScanBudgetsFromProto converts and validates a budgets block shared
+// by the SecurityScan and SecurityPolicyPack conversions. A nil/empty proto
+// yields nil (no budgets).
+func securityScanBudgetsFromProto(pb *platform.SecurityScanBudgetsConfig) (*triggersv1alpha1.SecurityScanBudgets, error) {
+	if pb == nil {
+		return nil, nil
+	}
+	budgets := &triggersv1alpha1.SecurityScanBudgets{
+		MaxModelJobs:      pb.GetMaxModelJobs(),
+		MaxCostUSD:        strings.TrimSpace(pb.GetMaxCostUsd()),
+		MaxTokens:         pb.GetMaxTokens(),
+		MaxFindings:       pb.GetMaxFindings(),
+		MaxValidationJobs: pb.GetMaxValidationJobs(),
+	}
+	if value := strings.TrimSpace(pb.GetMaxRuntime()); value != "" {
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("invalid budgets.max_runtime %q: %w", value, err))
+		}
+		budgets.MaxRuntime = metav1.Duration{Duration: d}
+	}
+	if errs := triggersv1alpha1.ValidateSecurityScanBudgets("budgets", budgets); len(errs) != 0 {
+		return nil, securityLibraryInvalidArgument(errs)
+	}
+	if budgets.IsZero() {
+		return nil, nil
+	}
+	return budgets, nil
+}
+
+// securityScanBudgetsToProto converts a budgets block for the SecurityScan
+// and SecurityPolicyPack protos. Nil/empty budgets yield nil.
+func securityScanBudgetsToProto(b *triggersv1alpha1.SecurityScanBudgets) *platform.SecurityScanBudgetsConfig {
+	if b == nil || b.IsZero() {
+		return nil
+	}
+	pb := &platform.SecurityScanBudgetsConfig{
+		MaxModelJobs:      b.MaxModelJobs,
+		MaxCostUsd:        b.MaxCostUSD,
+		MaxTokens:         b.MaxTokens,
+		MaxFindings:       b.MaxFindings,
+		MaxValidationJobs: b.MaxValidationJobs,
+	}
+	if b.MaxRuntime.Duration != 0 {
+		pb.MaxRuntime = b.MaxRuntime.Duration.String()
+	}
+	return pb
+}
+
 // securityScanSpecFromRequest validates the shared create/update spec and
 // builds the SecurityScanSpec, also returning the resolved provider and auth
 // mode so callers can wire saved credentials.
@@ -349,6 +399,10 @@ func securityScanSpecFromRequest(
 	if err != nil {
 		return nil, "", "", err
 	}
+	policyPackRef, err := securityResourceRefFromProto("policy_pack_ref", pb.GetPolicyPackRef())
+	if err != nil {
+		return nil, "", "", err
+	}
 	rankers, err := securityScanRankersFromProto(pb.GetSeverityRankers())
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
@@ -360,6 +414,10 @@ func securityScanSpecFromRequest(
 	dedupe, err := securityScanDedupeFromProto(pb.GetDedupe())
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	budgets, err := securityScanBudgetsFromProto(pb.GetBudgets())
+	if err != nil {
+		return nil, "", "", err
 	}
 	var maxRuntime metav1.Duration
 	if value := strings.TrimSpace(pb.GetMaxRuntime()); value != "" {
@@ -400,6 +458,7 @@ func securityScanSpecFromRequest(
 		RankerRefs:        rankerRefs,
 		PostScripts:       postScripts,
 		PostScriptRefs:    postScriptRefs,
+		PolicyPackRef:     policyPackRef,
 		Dedupe:            dedupe,
 		MinSeverity:       strings.TrimSpace(pb.GetMinSeverity()),
 		FailOnSeverity:    strings.TrimSpace(pb.GetFailOnSeverity()),
@@ -409,6 +468,7 @@ func securityScanSpecFromRequest(
 		ConcurrencyPolicy: policy,
 		Defaults:          defaults,
 		MaxRuntime:        maxRuntime,
+		Budgets:           budgets,
 		Triggers:          triggers,
 		Checks:            checks,
 		Notifications:     notifications,
@@ -642,6 +702,26 @@ func securityScanConfigProto(cr *triggersv1alpha1.SecurityScan) *platform.Securi
 	}
 	pb.LastEventRevision = cr.Status.LastEventRevision
 	pb.EventRunsCreated = cr.Status.EventRunsCreated
+	if budget := cr.Status.Budget; budget != nil {
+		pb.EffectiveBudgets = securityScanBudgetsToProto(budget.Effective)
+		pb.BudgetExceeded = budget.Exceeded
+		pb.BudgetMessage = budget.Message
+	}
+	if retention := cr.Status.Retention; retention != nil {
+		pb.Retention = &platform.SecurityScanRetentionState{
+			ScansPurged:       retention.ScansPurged,
+			FindingsPurged:    retention.FindingsPurged,
+			ReportsPurged:     retention.ReportsPurged,
+			EvidenceRedacted:  retention.EvidenceRedacted,
+			PocRedacted:       retention.PoCRedacted,
+			AuditEventsPurged: retention.AuditEventsPurged,
+			MoreWork:          retention.MoreWork,
+			LastError:         retention.LastError,
+		}
+		if retention.LastSweepTime != nil {
+			pb.Retention.LastSweepTimeUnix = retention.LastSweepTime.Unix()
+		}
+	}
 	if check := cr.Status.LastCheck; check != nil {
 		pb.LastCheck = &platform.SecurityScanCheckState{
 			RunName:       check.RunName,
@@ -688,6 +768,7 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 	if spec.MaxRuntime.Duration != 0 {
 		pb.MaxRuntime = spec.MaxRuntime.Duration.String()
 	}
+	pb.Budgets = securityScanBudgetsToProto(spec.Budgets)
 	if spec.WorkflowRef != nil {
 		pb.WorkflowRef = spec.WorkflowRef.Name
 	}
@@ -696,6 +777,9 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 	}
 	for _, ref := range spec.PostScriptRefs {
 		pb.PostScriptRefs = append(pb.PostScriptRefs, ref.Name)
+	}
+	if spec.PolicyPackRef != nil {
+		pb.PolicyPackRef = spec.PolicyPackRef.Name
 	}
 	if scope := spec.Scope; scope != nil {
 		pb.Scope = &platform.SecurityScanScopeConfig{

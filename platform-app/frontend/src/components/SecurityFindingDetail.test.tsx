@@ -472,3 +472,66 @@ describe("SecurityFindingDetail helpers", () => {
     });
   });
 });
+
+describe("SecurityFindingDetail provenance and suppression", () => {
+  it("renders scanner provenance facts as plain text", async () => {
+    mockHappyPath({
+      finding: findingFixture({
+        sourceKind: "scanner",
+        tool: "semgrep <img src=x>",
+        toolVersion: "1.50.0",
+        ruleId: "go.lang.security.sqli",
+        correlatedFingerprints: ["fp-agent-9"],
+      }),
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+    expect(screen.getByText("deterministic scanner")).toBeTruthy();
+    // Untrusted tool strings render verbatim as text, never as HTML.
+    expect(screen.getByText("semgrep <img src=x> 1.50.0")).toBeTruthy();
+    expect(document.querySelector("img[src='x']")).toBeNull();
+    expect(screen.getByText("go.lang.security.sqli")).toBeTruthy();
+    expect(screen.getByText("fp-agent-9")).toBeTruthy();
+  });
+
+  it("defaults the source to agent when no provenance is recorded", async () => {
+    mockHappyPath();
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+    expect(screen.getByText("agent")).toBeTruthy();
+    expect(screen.queryByText("deterministic scanner")).toBeNull();
+  });
+
+  it("explains a governed suppression with rule, reason, owner, and expiry", async () => {
+    mockHappyPath({
+      finding: findingFixture({
+        suppressedBy: "prod-policy/vendored",
+        suppressedReason: "third-party code, tracked upstream",
+        suppressedOwner: "sec-team",
+        suppressedAt: timestampFromDate(new Date("2026-02-01T00:00:00Z")),
+        suppressionExpiresAt: timestampFromDate(new Date("2026-06-01T00:00:00Z")),
+      }),
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+    expect(screen.getByText("suppressed")).toBeTruthy();
+    const details = screen.getByTestId("suppression-details");
+    expect(details.textContent).toContain("prod-policy/vendored");
+    expect(details.textContent).toContain("Reason: third-party code, tracked upstream");
+    expect(details.textContent).toContain("Owner: sec-team");
+    expect(details.textContent).toContain("Unsuppresses automatically on");
+    expect(details.textContent).toContain("never deleted");
+  });
+
+  it("shows no suppression section for unsuppressed findings", async () => {
+    mockHappyPath();
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+    expect(screen.queryByTestId("suppression-details")).toBeNull();
+    expect(screen.queryByText("suppressed")).toBeNull();
+  });
+});

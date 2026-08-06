@@ -320,6 +320,43 @@ weight: <severity|confidence|exploitability|exposure>=<float>[,<name>=<float>...
 
 Lines that are not valid directives are kept as prose and given to the triage agent verbatim, so you can mix directives with plain-language ranking guidance.
 
+### Deterministic scanner ingestion
+
+Agent findings can be complemented with results from deterministic tools (semgrep, gosec, trivy, gitleaks, ...) that the scan agent runs in the workspace. The agent adapts each tool result into the canonical **scanner record** contract and submits batches with the `ingest_scanner_results` tool — at most 500 records and 4 MiB of input per call. Every record in a batch is validated against the contract; if any record is invalid the whole batch is rejected with per-record errors (`records[3]: rule_id is required; ...`) and nothing is ingested.
+
+```json
+{
+  "records": [
+    {
+      "tool": "gosec",
+      "tool_version": "2.18.2",
+      "rule_id": "G401",
+      "rule_name": "Use of weak cryptographic primitive",
+      "message": "Use of weak cryptographic primitive md5",
+      "severity": "HIGH",
+      "file_path": "internal/crypto/hash.go",
+      "start_line": 42,
+      "end_line": 44,
+      "symbol": "hashPassword",
+      "cwe": "CWE-327",
+      "references": ["https://cwe.mitre.org/data/definitions/327.html"],
+      "raw_evidence": "sum := md5.Sum(password)",
+      "extra": {"confidence": "HIGH"}
+    }
+  ]
+}
+```
+
+`tool`, `rule_id`, `message`, `severity`, and `file_path` are required. Tool severities are mapped onto the platform scale (`ERROR` → high, `WARNING`/`moderate` → medium, `note`/`UNKNOWN` → info, `CRITICAL`/`HIGH`/`MEDIUM`/`LOW` as-is); a severity that cannot be mapped rejects the record. The category is taken from an explicit `category` when given, otherwise derived from the CWE, falling back to `other`. Accepted records go through the same normalization and secret-redaction pipeline as agent findings, and the original scanner record is preserved verbatim (minus redacted secrets) in the finding's raw payload.
+
+**Fingerprints.** A scanner finding's fingerprint is derived from `(tool, rule id, repository, normalized path, symbol-or-line anchor)` — never from the message text — so re-running the same tool converges onto the same finding row (occurrences increment, triage status persists) even across tool upgrades that reword messages. This derivation is deliberately distinct from agent fingerprints (which hash category, location, and title tokens): an agent finding and a scanner finding can never collide on identity, so combining the two sources is always an explicit, audited correlation rather than an accidental merge.
+
+**Correlation, not merging.** When an agent finding and a scanner finding describe the same issue — same file, line ranges overlapping or starting within 5 lines, and either a shared CWE or a matching category — the platform records a correlation on **both** rows (`correlated` audit events, cross-referenced fingerprints). Neither side is deleted or rewritten to look like the other: the agent finding keeps its confidence semantics and narrative, the scanner finding keeps its tool/version/rule identity. Report-time dedupe likewise never merges across the two source kinds. Correlations appear in finding lists, in the summary (`source_agent` / `source_scanner` / `correlated` counts), in the Markdown report ("Correlated with: ..."), and in SARIF.
+
+**Provenance guarantees.** Every finding carries a `source_kind` (`agent` or `scanner`); scanner findings additionally carry the tool name, tool version, and rule id, stamped at ingestion and impossible for the model to forge through `report_security_finding`. Reports attribute each finding to its source: the Markdown report labels findings `agent <run>` or `scanner <tool> <version>, rule <id>`, and the SARIF output emits one run per source — agent findings under the `gratefulagents-security-scan` driver and each scanner's findings under that tool's own driver name, version, and real rule ids, so gratefulagents never claims another tool's rules as its own.
+
+**Neither source is authoritative.** Deterministic tools attest that a rule matched (scanner findings are stored with `firm` confidence), not that the issue is exploitable; agents hypothesize, validate, and explain but can miss or over-report. Use the agent for what each source cannot do alone: prioritize correlated findings first (two independent signals), spend bounded validation effort confirming or disproving scanner matches with `update_security_finding`, and treat agent-only and scanner-only findings as complementary leads rather than letting either side suppress the other.
+
 ## Reports, status, and the dashboard
 
 When the scan submits its report, two artifacts are saved on the scan's agent run:
@@ -344,6 +381,63 @@ A malformed schedule sets `Ready=False` with reason `InvalidSchedule`. A schedul
 Skipped ticks are not backfilled, matching [Cron schedule](./cron.md) semantics.
 
 **Deletion.** Deleting a SecurityScan removes its stored scans, findings, and triage history: the controller holds a cleanup finalizer and purges the persisted data before the resource disappears. If the findings store is unreachable, deletion is retried with backoff and released after a bounded grace period so a failing store cannot wedge the resource; the run artifacts (Markdown report and SARIF) live with their agent runs and follow the run's own lifecycle.
+
+## Retention and budgets
+
+A `SecurityPolicyPack` referenced by `spec.policyPackRef` can govern how long scan data is kept and how much a scan run may consume.
+
+### Retention
+
+`spec.retention` on the policy pack sets per-class day counts. `0` (or omitting a class) keeps that class forever — retention is entirely opt-in, and nothing is purged by default.
+
+```yaml
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPolicyPack
+metadata:
+  name: org-policy
+spec:
+  retention:
+    scanDays: 180        # completed scan-run records and per-run observations
+    findingDays: 365     # finding rows (deleted with their audit events)
+    reportDays: 90       # Markdown/SARIF report artifacts
+    evidenceDays: 30     # evidence snippets — redacted in place
+    pocDays: 14          # PoC / attack-vector narratives — redacted in place
+    auditEventDays: 730  # finding audit-trail events
+```
+
+Every count must be between 0 and 3650 days (10 years).
+
+**How the sweep works.** The SecurityScan controller runs the purge as a bounded, resumable background sweep: at most one small batch per reconcile (each class purged by its own namespace-scoped, deterministically ordered, LIMIT-bounded statement), requeuing promptly while a batch reports more work and hourly otherwise. The outcome is observable on the scan: `status.retention` records the last sweep time, cumulative per-class counters, the more-work flag, and the last error, and a `RetentionSweep` event carries each batch's counts. The sweep never runs in the deletion path, so retention work can never slow or wedge the scan-deletion finalizer and its bounded (15-minute) cleanup guarantee.
+
+**What deletion vs. redaction means.** Scan-run records, finding rows, report artifacts, and audit events past their windows are **deleted**. Evidence and PoC content are **redacted in place** instead: the finding row keeps its identity, severity, triage status, and full audit history, only the code snippets (`evidence`) and the exploit narrative (`attack_vector`) are removed, and an `evidence_purged` / `poc_purged` audit event records the redaction. A scan-run record is only deleted once no finding is attributed to it anymore, so finding identity is never cascade-deleted by scan retention.
+
+**Privacy implications of evidence retention.** Evidence snippets are verbatim copies of your source code — including any secrets a finding cites — and PoC narratives describe how to exploit the issue. They are the most sensitive data the scanner stores. If your compliance posture limits how long source excerpts or exploit instructions may live outside the repository, set `evidenceDays`/`pocDays` shorter than `findingDays`: the finding remains actionable (title, location, severity, remediation, audit trail) while the sensitive payload ages out.
+
+**Migration and rollback.** Retention ships with store migration `047_security_retention`: it only adds purge-supporting indexes and extends the artifact-kind constraint to cover the `security_report`/`security_sarif` artifact kinds. It is applied automatically on startup, additive, and safe on populated databases. Rolling back (`047_security_retention.down.sql`) drops the indexes and restores the previous artifact-kind constraint; no data is modified in either direction. Purged data itself is not recoverable by rollback — take database backups before enabling aggressive retention, and note that redactions are recorded in the audit trail, so you can always tell what was removed by policy.
+
+### Budgets
+
+`spec.budgets` caps what one scan run may consume. It exists on both the policy pack (defaults for every referencing scan) and the scan (`SecurityScan.spec.budgets`); precedence matches every other pack field — pack default < scan — unless the pack lists `budgets` in `enforced`, in which case a scan may tighten but never raise a limit the pack sets.
+
+```yaml
+spec:
+  budgets:
+    maxModelJobs: 16       # sub-agent runs the scan run may spawn
+    maxCostUSD: "5"        # decimal USD ceiling on LLM spend
+    maxTokens: 500000      # total tokens (input + output)
+    maxRuntime: 2h         # wall-clock cap on the scan run
+    maxFindings: 200       # persisted findings cap
+    maxValidationJobs: 8   # post-script (validation/PoC) sub-agent runs
+  enforced: ["budgets"]
+```
+
+Enforcement is entirely platform-side and model output can never relax it:
+
+- Every limit is computed from the CRD spec merged with the policy pack **before** the run prompt is built; a scan that raises an enforced limit is rejected with `Ready=False` reason `PolicyViolation` and no run is created.
+- What the run can self-limit is written into the created AgentRun's limits: `maxRuntime` (the smallest of `budgets.maxRuntime`, `spec.maxRuntime`, and `defaults.timeout` wins) and `maxCostUSD`.
+- Everything else is monitored by the controller on each reconcile from platform-observed data: cost and tokens from the run's usage metrics, model/validation jobs from the run's child status, and the finding cap from the **persisted** finding count — never from what the model reports. The cap is stated in the prompt as guidance only.
+- When a hard limit is exceeded, the controller cancels the run gracefully (the same cancel-requested mechanism the dashboard stop button uses) and sets `Ready=False` with reason `BudgetExceeded`, a message naming the exceeded limit, and a warning event. **Completed work is preserved**: findings already persisted, reports, and the scan's status survive; nothing is deleted.
+- The effective budgets and any already-exceeded state are published on `status.budget` (and through the dashboard API), so an operator can see — before starting the next run — that, for example, the persisted findings already exceed `maxFindings`.
 
 ## Operational guidance
 

@@ -19,8 +19,9 @@ import {
 } from "@/components/SecurityScanList";
 import { SecurityScanRunPanel } from "@/components/SecurityScanRunPanel";
 import {
-  BASELINE_STATES, BaselineBadge, ExpiryBadge,
+  BASELINE_STATES, BaselineBadge, ExpiryBadge, SuppressedBadge, suppressionSummary,
 } from "@/components/security-baseline";
+import { packBudgetSummary } from "@/components/SecurityPolicyPackDialog";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { downloadBlob } from "@/lib/download";
@@ -81,9 +82,10 @@ export function SecurityScanDetail() {
   const search = searchParams.get("q") ?? "";
   const baseline = searchParams.get("baseline") ?? "";
   const assigneeFilter = searchParams.get("assignee") ?? "";
+  const suppressed = searchParams.get("suppressed") ?? "";
 
   const setFilter = useCallback(
-    (key: "severity" | "status" | "category" | "q" | "baseline" | "assignee", value: string) => {
+    (key: "severity" | "status" | "category" | "q" | "baseline" | "assignee" | "suppressed", value: string) => {
       setSearchParams(
         (params) => {
           const next = new URLSearchParams(params);
@@ -171,6 +173,7 @@ export function SecurityScanDetail() {
         search,
         baselineState: baseline,
         assignee: assigneeFilter,
+        suppressed,
       });
       setFindings(resp.findings);
     } catch (e: unknown) {
@@ -178,7 +181,7 @@ export function SecurityScanDetail() {
     } finally {
       setFindingsLoading(false);
     }
-  }, [namespace, runName, severity, status, category, search, baseline, assigneeFilter]);
+  }, [namespace, runName, severity, status, category, search, baseline, assigneeFilter, suppressed]);
 
   const fetchEvents = useCallback(async () => {
     if (!selectedId) {
@@ -284,7 +287,7 @@ export function SecurityScanDetail() {
     void fetchSavedFilters();
   }, [fetchSavedFilters]);
 
-  const FILTER_KEYS = ["severity", "status", "category", "q", "baseline", "assignee"] as const;
+  const FILTER_KEYS = ["severity", "status", "category", "q", "baseline", "assignee", "suppressed"] as const;
 
   function currentFilterQuery(): string {
     const query: Record<string, string> = {};
@@ -548,6 +551,54 @@ export function SecurityScanDetail() {
             </p>
           )}
 
+          {scanConfig?.budgetExceeded && (
+            <div
+              role="alert"
+              data-testid="budget-warning"
+              className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2.5 text-[12.5px]"
+            >
+              <p className="font-medium">Budget exceeded — new runs of this scan will not start.</p>
+              <p className="text-muted-foreground">{scanConfig.budgetMessage}</p>
+            </div>
+          )}
+
+          {scanConfig && (scanConfig.effectiveBudgets || scanConfig.retention) && (
+            <section
+              aria-label="Budgets and retention"
+              className="space-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[12.5px]"
+            >
+              <p className="font-medium text-foreground">Budgets &amp; retention</p>
+              {scanConfig.effectiveBudgets && (
+                <p className="text-muted-foreground" data-testid="effective-budgets">
+                  Effective budgets (scan merged with its policy pack):{" "}
+                  {packBudgetSummary(scanConfig.effectiveBudgets)}. Platform-observed usage is
+                  checked against these limits before and during each run
+                  {scanConfig.budgetExceeded ? "" : "; no limit is currently exceeded"}.
+                </p>
+              )}
+              {scanConfig.retention && (
+                <p className="text-muted-foreground" data-testid="retention-sweep">
+                  Retention sweep
+                  {scanConfig.retention.lastSweepTimeUnix > 0n &&
+                    ` (last ran ${new Date(Number(scanConfig.retention.lastSweepTimeUnix) * 1000).toLocaleString()})`}
+                  : {String(scanConfig.retention.scansPurged)} scan runs,{" "}
+                  {String(scanConfig.retention.findingsPurged)} findings, and{" "}
+                  {String(scanConfig.retention.reportsPurged)} reports purged;{" "}
+                  {String(scanConfig.retention.evidenceRedacted)} evidence and{" "}
+                  {String(scanConfig.retention.pocRedacted)} PoC entries redacted;{" "}
+                  {String(scanConfig.retention.auditEventsPurged)} audit events purged
+                  {scanConfig.retention.moreWork ? " · sweep still in progress" : ""}
+                  {scanConfig.retention.lastError ? (
+                    <span className="text-destructive">
+                      {" "}
+                      · last sweep error: {scanConfig.retention.lastError} (retried automatically)
+                    </span>
+                  ) : null}
+                </p>
+              )}
+            </section>
+          )}
+
           <StatBar>
             <Stat label="Total" value={summary["total"] ?? 0} />
             <Stat label="Open" value={summary["open"] ?? 0} />
@@ -639,6 +690,16 @@ export function SecurityScanDetail() {
                   {BASELINE_STATES.map((b) => (
                     <option key={b} value={b}>{b}</option>
                   ))}
+                </select>
+                <select
+                  aria-label="Filter suppressed findings"
+                  className={filterSelectClass}
+                  value={suppressed}
+                  onChange={(e) => setFilter("suppressed", e.target.value)}
+                >
+                  <option value="">Hide suppressed</option>
+                  <option value="include">Include suppressed</option>
+                  <option value="only">Only suppressed</option>
                 </select>
                 <input
                   aria-label="Filter by assignee"
@@ -864,6 +925,7 @@ export function SecurityScanDetail() {
                             {finding.status === "accepted_risk" && (
                               <ExpiryBadge ts={finding.acceptedRiskExpiresAt} />
                             )}
+                            <SuppressedBadge finding={finding} />
                           </span>
                         </TableCell>
                         <TableCell>
@@ -895,6 +957,7 @@ export function SecurityScanDetail() {
                         {selected.category && (
                           <Badge variant="outline" className="text-[11px]">{selected.category}</Badge>
                         )}
+                        <SuppressedBadge finding={selected} />
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -937,6 +1000,18 @@ export function SecurityScanDetail() {
                       ))}
                     </select>
                   </div>
+
+                  {selected.suppressedBy && (
+                    <p
+                      role="note"
+                      data-testid="finding-suppression-note"
+                      className="rounded-md border border-violet-500/40 bg-violet-500/10 px-2.5 py-2 text-[12px]"
+                    >
+                      <span className="font-medium">Suppressed by policy</span> —{" "}
+                      {suppressionSummary(selected)}
+                      {selected.suppressedReason ? `. Reason: ${selected.suppressedReason}` : ""}
+                    </p>
+                  )}
 
                   {selected.description && (
                     <FindingText label="Description" text={selected.description} />

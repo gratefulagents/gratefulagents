@@ -29,7 +29,7 @@ import {
   formatSeen,
   statusLabel,
 } from "@/components/SecurityScanDetail";
-import { BaselineBadge, ExpiryBadge } from "@/components/security-baseline";
+import { BaselineBadge, ExpiryBadge, SuppressedBadge } from "@/components/security-baseline";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { client } from "@/lib/client";
 import { connectCodeOf, describeRpcError } from "@/lib/rpc-errors";
@@ -547,6 +547,7 @@ export function SecurityFindingDetail() {
             {finding.status === "accepted_risk" && (
               <ExpiryBadge ts={finding.acceptedRiskExpiresAt} />
             )}
+            <SuppressedBadge finding={finding} />
           </>
         }
         subtitle={
@@ -599,6 +600,32 @@ export function SecurityFindingDetail() {
           </>
         }
       />
+
+      {finding.suppressedBy && (
+        <section
+          aria-label="Suppression"
+          data-testid="suppression-details"
+          className="space-y-1 rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-2.5 text-[12.5px]"
+        >
+          <p className="font-medium">
+            Suppressed by policy rule <span className="font-mono">{finding.suppressedBy}</span>
+          </p>
+          <p className="text-muted-foreground">
+            {finding.suppressedReason && (
+              <>Reason: {finding.suppressedReason}. </>
+            )}
+            {finding.suppressedOwner && <>Owner: {finding.suppressedOwner}. </>}
+            {finding.suppressedAt && <>Suppressed since {formatSeen(finding.suppressedAt)}. </>}
+            {finding.suppressionExpiresAt
+              ? `Unsuppresses automatically on ${formatSeen(finding.suppressionExpiresAt)}.`
+              : "No expiry — suppressed until the pack rule is removed."}
+          </p>
+          <p className="text-muted-foreground">
+            Suppressed findings are excluded from fail-on-severity gating and default listings,
+            but are never deleted; every suppression transition is audited.
+          </p>
+        </section>
+      )}
 
       <DetailSection title="Overview">
         <FactList>
@@ -669,6 +696,40 @@ export function SecurityFindingDetail() {
           />
           <Fact label="Source agent" mono value={finding.sourceAgent || ""} />
           <Fact label="Scan step" mono value={finding.scanStep || ""} />
+          <Fact
+            label="Source"
+            value={
+              finding.sourceKind === "scanner" ? (
+                <Badge variant="outline" className="text-[11px]">deterministic scanner</Badge>
+              ) : (
+                <Badge variant="outline" className="text-[11px]">agent</Badge>
+              )
+            }
+          />
+          <Fact
+            label="Tool"
+            mono
+            value={
+              finding.tool
+                ? `${finding.tool}${finding.toolVersion ? ` ${finding.toolVersion}` : ""}`
+                : ""
+            }
+          />
+          <Fact label="Rule ID" mono value={finding.ruleId || ""} />
+          <Fact
+            label="Correlated sources"
+            value={
+              finding.correlatedFingerprints.length > 0 ? (
+                <span className="flex flex-col gap-0.5">
+                  {finding.correlatedFingerprints.map((fp) => (
+                    <span key={fp} className="break-all font-mono text-[12px]">{fp}</span>
+                  ))}
+                </span>
+              ) : (
+                ""
+              )
+            }
+          />
           <Fact label="Fingerprint" mono value={finding.fingerprint || ""} />
           <Fact
             label="Duplicate of"

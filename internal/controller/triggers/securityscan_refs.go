@@ -49,6 +49,9 @@ func securityScanInvalidSpecMessage(spec triggersv1alpha1.SecurityScanSpec) stri
 	if spec.WorkflowRef != nil && len(spec.Workflow) > 0 {
 		return "spec.workflowRef and spec.workflow are mutually exclusive: reference a SecurityWorkflow or define the workflow inline, not both"
 	}
+	if errs := triggersv1alpha1.ValidateSecurityScanBudgets("spec.budgets", spec.Budgets); len(errs) != 0 {
+		return errs[0].Error()
+	}
 	if t := spec.Triggers; t != nil && (t.OnPullRequest || t.OnPush) {
 		if t.RepositoryRef == nil || strings.TrimSpace(t.RepositoryRef.Name) == "" {
 			return "spec.triggers.repositoryRef is required when onPullRequest or onPush is set: it names the GitHubRepository whose webhook deliveries trigger this scan"
@@ -80,20 +83,27 @@ func securityScanInvalidSpecMessage(spec triggersv1alpha1.SecurityScanSpec) stri
 // resource reference resolved into inline content, plus the provenance
 // snapshot of what was resolved.
 type resolvedSecurityScanSpec struct {
-	// spec has workflowRef replaced by the referenced tasks and
-	// rankerRefs/postScriptRefs appended after the inline entries.
+	// spec has workflowRef replaced by the referenced tasks, the policy
+	// pack's defaults and enforced floors applied, and
+	// rankerRefs/postScriptRefs (including pack defaults) appended after the
+	// inline entries.
 	spec triggersv1alpha1.SecurityScanSpec
 	// refs records generation and content hash per resolved resource, in
-	// spec order (workflowRef, rankerRefs, postScriptRefs).
+	// spec order (policyPackRef, workflowRef, rankerRefs, postScriptRefs).
 	refs []triggersv1alpha1.SecurityScanResolvedRef
 }
 
-// resolveSecurityScanRefs resolves spec.workflowRef, spec.rankerRefs, and
-// spec.postScriptRefs against the scan's namespace at run-creation time. The
-// resolved content is inlined into the returned spec so the run prompt is
-// built from a snapshot: later edits to the referenced resources never change
-// runs that were already created. A missing reference returns a
-// *securityScanRefError with reason UnresolvedReference.
+// resolveSecurityScanRefs resolves spec.policyPackRef, spec.workflowRef,
+// spec.rankerRefs, and spec.postScriptRefs against the scan's namespace at
+// run-creation time. The resolved content is inlined into the returned spec
+// so the run prompt is built from a snapshot: later edits to the referenced
+// resources never change runs that were already created. The policy pack is
+// applied BEFORE prompt construction (precedence: platform defaults < policy
+// pack < scan configuration) and its enforced fields are checked here, so
+// model output can never affect enforcement; a violating scan returns a
+// *securityScanRefError with reason PolicyViolation and no run is created. A
+// missing reference returns a *securityScanRefError with reason
+// UnresolvedReference.
 func resolveSecurityScanRefs(
 	ctx context.Context, c client.Reader, scan *triggersv1alpha1.SecurityScan,
 ) (*resolvedSecurityScanSpec, error) {
@@ -103,8 +113,26 @@ func resolveSecurityScanRefs(
 
 	resolved := &resolvedSecurityScanSpec{spec: *scan.Spec.DeepCopy()}
 	resolved.spec.WorkflowRef = nil
+	resolved.spec.PolicyPackRef = nil
 	resolved.spec.RankerRefs = nil
 	resolved.spec.PostScriptRefs = nil
+
+	var pack *triggersv1alpha1.SecurityPolicyPack
+	if ref := scan.Spec.PolicyPackRef; ref != nil {
+		pack = &triggersv1alpha1.SecurityPolicyPack{}
+		if err := getSecurityScanRef(ctx, c, scan.Namespace, ref.Name, "SecurityPolicyPack", pack); err != nil {
+			return nil, err
+		}
+		// Enforcement fails closed: an invalid pack rejects the scan instead
+		// of silently enforcing nothing.
+		if errs := triggersv1alpha1.ValidateSecurityPolicyPackSpec(pack.Spec); len(errs) != 0 {
+			return nil, &securityScanRefError{
+				reason:  securityScanReasonPolicyViolation,
+				message: fmt.Sprintf("SecurityPolicyPack %q is invalid: %s", pack.Name, errs[0].Error()),
+			}
+		}
+		resolved.refs = append(resolved.refs, resolvedSecurityRef("SecurityPolicyPack", pack.Name, pack.Generation, pack.Spec))
+	}
 
 	if ref := scan.Spec.WorkflowRef; ref != nil {
 		workflow := &triggersv1alpha1.SecurityWorkflow{}
@@ -118,7 +146,28 @@ func resolveSecurityScanRefs(
 		resolved.refs = append(resolved.refs, resolvedSecurityRef("SecurityWorkflow", workflow.Name, workflow.Generation, workflow.Spec))
 	}
 
-	for _, ref := range scan.Spec.RankerRefs {
+	rankerRefs := append([]triggersv1alpha1.SecurityResourceRef(nil), scan.Spec.RankerRefs...)
+	postScriptRefs := append([]triggersv1alpha1.SecurityResourceRef(nil), scan.Spec.PostScriptRefs...)
+	if pack != nil {
+		// The pack is applied after workflow resolution so requiredCategories
+		// checks the effective task list, and before ranker/post-script
+		// resolution so pack defaults are resolved and snapshotted too.
+		spec, violations := applySecurityPolicyPack(resolved.spec, pack)
+		if len(violations) != 0 {
+			return nil, &securityScanRefError{
+				reason: securityScanReasonPolicyViolation,
+				message: fmt.Sprintf("scan violates enforced SecurityPolicyPack %q: %s",
+					pack.Name, strings.Join(violations, "; ")),
+			}
+		}
+		rankerRefs = spec.RankerRefs
+		postScriptRefs = spec.PostScriptRefs
+		spec.RankerRefs = nil
+		spec.PostScriptRefs = nil
+		resolved.spec = spec
+	}
+
+	for _, ref := range rankerRefs {
 		ranker := &triggersv1alpha1.SecurityRanker{}
 		if err := getSecurityScanRef(ctx, c, scan.Namespace, ref.Name, "SecurityRanker", ranker); err != nil {
 			return nil, err
@@ -130,7 +179,7 @@ func resolveSecurityScanRefs(
 		resolved.refs = append(resolved.refs, resolvedSecurityRef("SecurityRanker", ranker.Name, ranker.Generation, ranker.Spec))
 	}
 
-	for _, ref := range scan.Spec.PostScriptRefs {
+	for _, ref := range postScriptRefs {
 		script := &triggersv1alpha1.SecurityPostScript{}
 		if err := getSecurityScanRef(ctx, c, scan.Namespace, ref.Name, "SecurityPostScript", script); err != nil {
 			return nil, err

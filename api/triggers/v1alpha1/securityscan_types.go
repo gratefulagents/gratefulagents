@@ -129,6 +129,15 @@ type SecurityScanSpec struct {
 	// +optional
 	PostScriptRefs []SecurityResourceRef `json:"postScriptRefs,omitempty"`
 
+	// policyPackRef references a SecurityPolicyPack in the scan's namespace.
+	// The pack supplies defaults (precedence: platform defaults < policy
+	// pack < scan configuration), enforced floors the scan may not relax,
+	// and governed finding suppressions. It is resolved and snapshotted at
+	// run-creation time; a scan violating an enforced pack field is rejected
+	// with Ready=False reason PolicyViolation and no run is created.
+	// +optional
+	PolicyPackRef *SecurityResourceRef `json:"policyPackRef,omitempty"`
+
 	// dedupe configures duplicate-finding suppression.
 	// +optional
 	Dedupe *SecurityScanDedupe `json:"dedupe,omitempty"`
@@ -181,6 +190,17 @@ type SecurityScanSpec struct {
 	// overriding defaults.timeout.
 	// +optional
 	MaxRuntime metav1.Duration `json:"maxRuntime,omitempty"`
+
+	// budgets caps what each scan run may consume. Unset fields inherit the
+	// referenced policy pack's budgets; when the pack lists "budgets" in
+	// enforced, this scan may not raise any limit the pack sets. Enforcement
+	// is entirely platform-side: what the run can self-limit (runtime, cost)
+	// is written into the created AgentRun's limits, everything else (model
+	// jobs, tokens, findings, validation jobs) is monitored by the
+	// controller from platform-observed usage and the run is cancelled when
+	// a hard limit is exceeded. Completed work is preserved.
+	// +optional
+	Budgets *SecurityScanBudgets `json:"budgets,omitempty"`
 
 	// triggers configures repository-event driven scan runs: authorized
 	// GitHub pull_request and push webhook deliveries for the referenced
@@ -453,6 +473,60 @@ type SecurityScanDedupe struct {
 	SimilarityThresholdPermille int32 `json:"similarityThresholdPermille,omitempty"`
 }
 
+// SecurityScanBudgets caps what one scan run may consume. Zero/empty fields
+// are unlimited (or inherit the referenced policy pack's value). All limits
+// derive from the CRD spec and are enforced platform-side: what the AgentRun
+// supports natively (maxRuntime, maxCostUSD) is written into the created
+// run's limits; everything else is monitored by the controller from
+// platform-observed usage data, never from model output.
+type SecurityScanBudgets struct {
+	// maxModelJobs caps how many sub-agent runs (child AgentRuns) the scan
+	// run may spawn. Monitored controller-side from the run's child status.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxModelJobs int32 `json:"maxModelJobs,omitempty"`
+
+	// maxCostUSD is a decimal USD ceiling (e.g. "5" or "2.50") on the scan
+	// run's LLM spend. Written into the created AgentRun's
+	// limits.maxCostUsd and re-checked controller-side from the run's usage
+	// metrics.
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?)?$`
+	// +optional
+	MaxCostUSD string `json:"maxCostUSD,omitempty"`
+
+	// maxTokens caps the scan run's total LLM tokens (input + output).
+	// Monitored controller-side from the run's usage metrics.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxTokens int64 `json:"maxTokens,omitempty"`
+
+	// maxRuntime caps the scan run's wall-clock runtime. Written into the
+	// created AgentRun's limits.maxRuntime; the smallest of this,
+	// spec.maxRuntime, and defaults.timeout wins.
+	// +optional
+	MaxRuntime metav1.Duration `json:"maxRuntime,omitempty"`
+
+	// maxFindings caps how many findings the scan may persist. Enforced by
+	// controller-side monitoring of the persisted finding count (the cap is
+	// also stated in the run prompt as guidance, but model output is never
+	// trusted for enforcement).
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxFindings int32 `json:"maxFindings,omitempty"`
+
+	// maxValidationJobs caps how many post-script (validation /
+	// proof-of-concept) sub-agent runs the scan run may spawn. Monitored
+	// controller-side from the run's child status.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxValidationJobs int32 `json:"maxValidationJobs,omitempty"`
+}
+
+// IsZero reports whether no budget field is set.
+func (b SecurityScanBudgets) IsZero() bool {
+	return b == SecurityScanBudgets{}
+}
+
 // SecurityScanFindingCounts summarizes findings by severity.
 type SecurityScanFindingCounts struct {
 	// +optional
@@ -551,6 +625,18 @@ type SecurityScanStatus struct {
 	// +optional
 	Findings *SecurityScanFindingCounts `json:"findings,omitempty"`
 
+	// retention reports the most recent retention sweep run for this scan's
+	// policy pack retention configuration.
+	// +optional
+	Retention *SecurityScanRetentionStatus `json:"retention,omitempty"`
+
+	// budget reports the scan's effective budgets (spec merged with the
+	// policy pack) and whether any hard limit is exceeded. It is computed
+	// from platform-observed usage data before and during each run, so the
+	// dashboard can warn ahead of a launch.
+	// +optional
+	Budget *SecurityScanBudgetStatus `json:"budget,omitempty"`
+
 	// lastResolvedRefs records the reusable security resources
 	// (SecurityWorkflow, SecurityRanker, SecurityPostScript) that were
 	// resolved and snapshotted into the most recently created run, including
@@ -569,6 +655,68 @@ type SecurityScanStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// SecurityScanRetentionStatus reports the retention purge sweep. Counters
+// are cumulative for this SecurityScan resource.
+type SecurityScanRetentionStatus struct {
+	// lastSweepTime is when the most recent purge batch ran.
+	// +optional
+	LastSweepTime *metav1.Time `json:"lastSweepTime,omitempty"`
+
+	// scansPurged counts deleted scan run records (incl. observation rows).
+	// +optional
+	ScansPurged int64 `json:"scansPurged,omitempty"`
+
+	// findingsPurged counts deleted finding rows.
+	// +optional
+	FindingsPurged int64 `json:"findingsPurged,omitempty"`
+
+	// reportsPurged counts deleted report artifacts (markdown/SARIF).
+	// +optional
+	ReportsPurged int64 `json:"reportsPurged,omitempty"`
+
+	// evidenceRedacted counts findings whose evidence was redacted in place.
+	// +optional
+	EvidenceRedacted int64 `json:"evidenceRedacted,omitempty"`
+
+	// pocRedacted counts findings whose PoC content was redacted in place.
+	// +optional
+	PoCRedacted int64 `json:"pocRedacted,omitempty"`
+
+	// auditEventsPurged counts deleted finding audit events.
+	// +optional
+	AuditEventsPurged int64 `json:"auditEventsPurged,omitempty"`
+
+	// moreWork reports whether the last batch hit its bound; the controller
+	// requeues promptly while true.
+	// +optional
+	MoreWork bool `json:"moreWork,omitempty"`
+
+	// lastError is the most recent sweep failure, empty after a clean batch.
+	// +optional
+	LastError string `json:"lastError,omitempty"`
+}
+
+// SecurityScanBudgetStatus reports the effective budgets and their
+// evaluation against platform-observed usage.
+type SecurityScanBudgetStatus struct {
+	// effective is the budget set actually enforced: scan spec budgets
+	// merged with the policy pack's defaults.
+	// +optional
+	Effective *SecurityScanBudgets `json:"effective,omitempty"`
+
+	// exceeded reports whether any hard budget limit is exceeded.
+	// +optional
+	Exceeded bool `json:"exceeded,omitempty"`
+
+	// message explains which limit is exceeded and by how much.
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// lastCheckedTime is when the budgets were last evaluated.
+	// +optional
+	LastCheckedTime *metav1.Time `json:"lastCheckedTime,omitempty"`
 }
 
 // Condition types for SecurityScan.

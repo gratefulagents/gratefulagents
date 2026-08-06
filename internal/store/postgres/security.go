@@ -87,6 +87,13 @@ func securityFindingFilterSQL(f store.SecurityFindingFilter) (string, []any) {
 	if f.Assignee != "" {
 		add("assignee = $%d", f.Assignee)
 	}
+	switch f.Suppressed {
+	case store.SecuritySuppressedInclude:
+	case store.SecuritySuppressedOnly:
+		conds = append(conds, "suppressed_by IS NOT NULL")
+	default:
+		conds = append(conds, "suppressed_by IS NULL")
+	}
 	if !f.IncludeDuplicates {
 		conds = append(conds, "duplicate_of IS NULL")
 	}
@@ -218,11 +225,13 @@ const securityFindingColumns = `id, scan_id, namespace, scan_name, run_name, ses
 	symbol, cwe, description, impact, attack_vector, remediation, references_urls, source_agent,
 	scan_step, score, status, duplicate_of, occurrences, raw, first_seen_at, last_seen_at,
 	assignee, accepted_risk_expires_at, ticket_url, ticket_provider, COALESCE(baseline_state, ''),
-	resolved_at, triaged_at`
+	resolved_at, triaged_at, COALESCE(suppressed_by, ''), COALESCE(suppressed_reason, ''),
+	COALESCE(suppressed_owner, ''), suppression_expires_at, suppressed_at,
+	source_kind, tool, tool_version, rule_id, correlated_fingerprints`
 
 func scanSecurityFindingRow(row pgx.Row, extra ...any) (*store.SecurityFindingRecord, error) {
 	var rec store.SecurityFindingRecord
-	dest := make([]any, 0, 39+len(extra))
+	dest := make([]any, 0, 49+len(extra))
 	dest = append(dest, &rec.ID, &rec.ScanID, &rec.Namespace, &rec.ScanName, &rec.RunName, &rec.SessionID,
 		&rec.Fingerprint, &rec.Title, &rec.Category, &rec.Severity, &rec.Confidence, &rec.Repository,
 		&rec.Revision, &rec.FilePath, &rec.StartLine, &rec.EndLine, &rec.Symbol, &rec.CWE,
@@ -230,7 +239,10 @@ func scanSecurityFindingRow(row pgx.Row, extra ...any) (*store.SecurityFindingRe
 		&rec.SourceAgent, &rec.ScanStep, &rec.Score, &rec.Status, &rec.DuplicateOf,
 		&rec.Occurrences, &rec.Raw, &rec.FirstSeenAt, &rec.LastSeenAt,
 		&rec.Assignee, &rec.AcceptedRiskExpiresAt, &rec.TicketURL, &rec.TicketProvider,
-		&rec.BaselineState, &rec.ResolvedAt, &rec.TriagedAt)
+		&rec.BaselineState, &rec.ResolvedAt, &rec.TriagedAt,
+		&rec.SuppressedBy, &rec.SuppressedReason, &rec.SuppressedOwner,
+		&rec.SuppressionExpiresAt, &rec.SuppressedAt,
+		&rec.SourceKind, &rec.Tool, &rec.ToolVersion, &rec.RuleID, &rec.CorrelatedFingerprints)
 	dest = append(dest, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
@@ -277,6 +289,14 @@ func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFi
 	if len(raw) == 0 {
 		raw = json.RawMessage("{}")
 	}
+	sourceKind := rec.SourceKind
+	if sourceKind == "" {
+		sourceKind = "agent"
+	}
+	correlated := rec.CorrelatedFingerprints
+	if correlated == nil {
+		correlated = []string{}
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -284,7 +304,7 @@ func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFi
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	out, created, err := s.upsertSecurityFindingTx(ctx, tx, rec, status, occurrences, cwe, references, raw)
+	out, created, err := s.upsertSecurityFindingTx(ctx, tx, rec, status, occurrences, cwe, references, raw, sourceKind, correlated)
 	if err != nil {
 		return nil, false, err
 	}
@@ -317,7 +337,8 @@ const selectSecurityFindingForUpdateSQL = `
 // or merges the reobservation into it, classifying the baseline state and
 // appending the matching audit event.
 func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *store.SecurityFindingRecord,
-	status string, occurrences int32, cwe, references []string, raw json.RawMessage) (*store.SecurityFindingRecord, bool, error) {
+	status string, occurrences int32, cwe, references []string, raw json.RawMessage,
+	sourceKind string, correlated []string) (*store.SecurityFindingRecord, bool, error) {
 	existing, err := scanSecurityFindingRow(tx.QueryRow(ctx, selectSecurityFindingForUpdateSQL,
 		rec.Namespace, rec.ScanName, rec.Repository, rec.Fingerprint))
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -333,9 +354,9 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 				fingerprint, title, category, severity, confidence, repository, revision, file_path,
 				start_line, end_line, symbol, cwe, description, impact, attack_vector, remediation,
 				references_urls, source_agent, scan_step, score, status, duplicate_of, occurrences,
-				raw, baseline_state)
+				raw, baseline_state, source_kind, tool, tool_version, rule_id, correlated_fingerprints)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-				$19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
+				$19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
 			ON CONFLICT (namespace, scan_name, repository, fingerprint) DO NOTHING
 			RETURNING `+securityFindingColumns,
 			rec.ScanID, rec.Namespace, rec.ScanName, rec.RunName, rec.SessionID,
@@ -343,7 +364,8 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 			rec.Repository, rec.Revision, rec.FilePath, rec.StartLine, rec.EndLine,
 			rec.Symbol, cwe, rec.Description, rec.Impact, rec.AttackVector, rec.Remediation,
 			references, rec.SourceAgent, rec.ScanStep, rec.Score, status, rec.DuplicateOf,
-			occurrences, raw, store.SecurityFindingBaselineNew)
+			occurrences, raw, store.SecurityFindingBaselineNew,
+			sourceKind, rec.Tool, rec.ToolVersion, rec.RuleID, correlated)
 		out, err := scanSecurityFindingRow(row)
 		if err == nil {
 			return out, true, nil
@@ -360,6 +382,11 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 
 	merge := classifySecurityFindingReobservation(existing, rec.Severity)
 
+	// Provenance columns are refreshed from the reobservation (an identical
+	// fingerprint implies the same source identity), but
+	// correlated_fingerprints is deliberately NOT touched: recorded
+	// correlations survive reobservation and change only via
+	// CorrelateSecurityFindings.
 	row := tx.QueryRow(ctx, `
 		UPDATE security_findings SET
 			scan_id = $2,
@@ -389,6 +416,10 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 			baseline_state = $26,
 			resolved_at = CASE WHEN $27 THEN NULL ELSE resolved_at END,
 			accepted_risk_expires_at = CASE WHEN $28 THEN NULL ELSE accepted_risk_expires_at END,
+			source_kind = $29,
+			tool = $30,
+			tool_version = $31,
+			rule_id = $32,
 			occurrences = occurrences + 1,
 			last_seen_at = now()
 		WHERE id = $1
@@ -398,7 +429,8 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 		rec.FilePath, rec.StartLine, rec.EndLine, rec.Symbol, cwe,
 		rec.Description, rec.Impact, rec.AttackVector, rec.Remediation, references,
 		rec.SourceAgent, rec.ScanStep, rec.Score, raw,
-		merge.status, merge.baseline, merge.clearResolved, merge.clearExpiry)
+		merge.status, merge.baseline, merge.clearResolved, merge.clearExpiry,
+		sourceKind, rec.Tool, rec.ToolVersion, rec.RuleID)
 	out, err := scanSecurityFindingRow(row)
 	if err != nil {
 		return nil, false, fmt.Errorf("merging security finding: %w", err)
@@ -492,6 +524,97 @@ func (m securityFindingMerge) eventDetail(scanName, runName string) map[string]s
 		detail["reason"] = "severity_increased"
 	}
 	return detail
+}
+
+const selectSecurityFindingCorrelationSQL = `
+	SELECT id, fingerprint, correlated_fingerprints
+	FROM security_findings
+	WHERE namespace = $1 AND scan_name = $2 AND repository = $3 AND fingerprint = $4
+	FOR UPDATE`
+
+// CorrelateSecurityFindings records a two-way cross-reference between the
+// two findings: each side's correlated_fingerprints gains the other's
+// fingerprint and a "correlated" event is appended for any side that
+// changed. Neither row's content, provenance, or status is otherwise
+// touched, so a correlated pair keeps both sources intact. Idempotent.
+func (s *Store) CorrelateSecurityFindings(ctx context.Context, namespace, scanName, repository, fingerprintA, fingerprintB, reason, actor string) (bool, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return false, err
+	}
+	if fingerprintA == "" || fingerprintB == "" || fingerprintA == fingerprintB {
+		return false, errors.New("two distinct fingerprints are required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("beginning finding correlation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	type side struct {
+		id         uuid.UUID
+		fp         string
+		correlated []string
+	}
+	// Lock both rows in deterministic fingerprint order so concurrent
+	// correlations of the same pair cannot deadlock.
+	fps := []string{fingerprintA, fingerprintB}
+	if fps[1] < fps[0] {
+		fps[0], fps[1] = fps[1], fps[0]
+	}
+	sides := make([]side, 0, 2)
+	for _, fp := range fps {
+		var sd side
+		sd.fp = fp
+		err := tx.QueryRow(ctx, selectSecurityFindingCorrelationSQL,
+			namespace, scanName, repository, fp).Scan(&sd.id, &sd.fp, &sd.correlated)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, store.ErrSecurityFindingNotFound
+		}
+		if err != nil {
+			return false, fmt.Errorf("locking finding for correlation: %w", err)
+		}
+		sides = append(sides, sd)
+	}
+
+	changed := false
+	for i, sd := range sides {
+		other := sides[1-i]
+		already := false
+		for _, fp := range sd.correlated {
+			if fp == other.fp {
+				already = true
+				break
+			}
+		}
+		if already {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE security_findings
+			SET correlated_fingerprints = array_append(correlated_fingerprints, $2)
+			WHERE id = $1`, sd.id, other.fp); err != nil {
+			return false, fmt.Errorf("recording finding correlation: %w", err)
+		}
+		detail, err := json.Marshal(map[string]string{
+			"correlated_fingerprint": other.fp,
+			"reason":                 reason,
+			"scan_name":              scanName,
+		})
+		if err != nil {
+			return false, fmt.Errorf("encoding correlation detail: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO security_finding_events (finding_id, event_type, actor, note, detail)
+			VALUES ($1, 'correlated', $2, $3, $4)`, sd.id, actor, reason, detail); err != nil {
+			return false, fmt.Errorf("recording correlation event: %w", err)
+		}
+		changed = true
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("committing finding correlation: %w", err)
+	}
+	return changed, nil
 }
 
 func (s *Store) ListSecurityFindings(ctx context.Context, f store.SecurityFindingFilter) ([]store.SecurityFindingRecord, error) {
@@ -666,17 +789,26 @@ func (s *Store) AddSecurityFindingComment(ctx context.Context, namespace string,
 // keys so callers can gate on them even when no findings match.
 func newSecurityFindingSummary() map[string]int32 {
 	return map[string]int32{
-		"total": 0, "open": 0,
+		"total": 0, "open": 0, "suppressed": 0,
 		"open_critical": 0, "open_high": 0, "open_medium": 0, "open_low": 0, "open_info": 0,
 		"baseline_new": 0, "baseline_recurring": 0, "baseline_regressed": 0,
 		"baseline_resolved": 0, "baseline_reopened": 0, "baseline_tracked": 0,
+		"source_agent": 0, "source_scanner": 0, "correlated": 0,
 	}
 }
 
 // addSecurityFindingSummaryCount folds one (severity, status, baseline,
-// count) group into the summary, maintaining the per-severity, total, open,
-// open_<severity>, and baseline_<state> keys.
-func addSecurityFindingSummaryCount(summary map[string]int32, severity, status, baseline string, count int32) {
+// sourceKind, correlated, suppressed, count) group into the summary.
+// Suppressed findings only bump the "suppressed" key unless
+// includeSuppressed is true, in which case they are folded into every count
+// as well.
+func addSecurityFindingSummaryCount(summary map[string]int32, severity, status, baseline, sourceKind string, correlated, suppressed bool, includeSuppressed bool, count int32) {
+	if suppressed {
+		summary["suppressed"] += count
+		if !includeSuppressed {
+			return
+		}
+	}
 	summary[severity] += count
 	summary["total"] += count
 	if status == store.SecurityFindingStatusOpen {
@@ -687,9 +819,17 @@ func addSecurityFindingSummaryCount(summary map[string]int32, severity, status, 
 		summary["baseline_"+baseline] += count
 		summary["baseline_tracked"] += count
 	}
+	if sourceKind == "scanner" {
+		summary["source_scanner"] += count
+	} else {
+		summary["source_agent"] += count
+	}
+	if correlated {
+		summary["correlated"] += count
+	}
 }
 
-func (s *Store) SummarizeSecurityFindings(ctx context.Context, namespace, scanName, runName string) (map[string]int32, error) {
+func (s *Store) SummarizeSecurityFindings(ctx context.Context, namespace, scanName, runName string, includeSuppressed bool) (map[string]int32, error) {
 	where := "WHERE namespace = $1 AND duplicate_of IS NULL"
 	args := []any{namespace}
 	if scanName != "" {
@@ -701,22 +841,25 @@ func (s *Store) SummarizeSecurityFindings(ctx context.Context, namespace, scanNa
 		where += fmt.Sprintf(" AND run_name = $%d", len(args))
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT severity, status, COALESCE(baseline_state, ''), COUNT(*)
+		SELECT severity, status, COALESCE(baseline_state, ''), source_kind,
+			cardinality(correlated_fingerprints) > 0, suppressed_by IS NOT NULL, COUNT(*)
 		FROM security_findings
 		`+where+`
-		GROUP BY severity, status, baseline_state`, args...)
+		GROUP BY severity, status, baseline_state, source_kind,
+			cardinality(correlated_fingerprints) > 0, suppressed_by IS NOT NULL`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("summarizing security findings: %w", err)
 	}
 	defer rows.Close()
 	summary := newSecurityFindingSummary()
 	for rows.Next() {
-		var severity, status, baseline string
+		var severity, status, baseline, sourceKind string
+		var correlated, suppressed bool
 		var count int64
-		if err := rows.Scan(&severity, &status, &baseline, &count); err != nil {
+		if err := rows.Scan(&severity, &status, &baseline, &sourceKind, &correlated, &suppressed, &count); err != nil {
 			return nil, fmt.Errorf("scanning security summary: %w", err)
 		}
-		addSecurityFindingSummaryCount(summary, severity, status, baseline, int32(count))
+		addSecurityFindingSummaryCount(summary, severity, status, baseline, sourceKind, correlated, suppressed, includeSuppressed, int32(count))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("summarizing security findings: %w", err)

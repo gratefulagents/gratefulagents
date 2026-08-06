@@ -76,6 +76,63 @@ spec:
                 default: main
                 description: baseBranch is the branch of repoURL that is scanned.
                 type: string
+              budgets:
+                description: |-
+                  budgets caps what each scan run may consume. Unset fields inherit the
+                  referenced policy pack's budgets; when the pack lists "budgets" in
+                  enforced, this scan may not raise any limit the pack sets. Enforcement
+                  is entirely platform-side: what the run can self-limit (runtime, cost)
+                  is written into the created AgentRun's limits, everything else (model
+                  jobs, tokens, findings, validation jobs) is monitored by the
+                  controller from platform-observed usage and the run is cancelled when
+                  a hard limit is exceeded. Completed work is preserved.
+                properties:
+                  maxCostUSD:
+                    description: |-
+                      maxCostUSD is a decimal USD ceiling (e.g. "5" or "2.50") on the scan
+                      run's LLM spend. Written into the created AgentRun's
+                      limits.maxCostUsd and re-checked controller-side from the run's usage
+                      metrics.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
+                    type: string
+                  maxFindings:
+                    description: |-
+                      maxFindings caps how many findings the scan may persist. Enforced by
+                      controller-side monitoring of the persisted finding count (the cap is
+                      also stated in the run prompt as guidance, but model output is never
+                      trusted for enforcement).
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  maxModelJobs:
+                    description: |-
+                      maxModelJobs caps how many sub-agent runs (child AgentRuns) the scan
+                      run may spawn. Monitored controller-side from the run's child status.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  maxRuntime:
+                    description: |-
+                      maxRuntime caps the scan run's wall-clock runtime. Written into the
+                      created AgentRun's limits.maxRuntime; the smallest of this,
+                      spec.maxRuntime, and defaults.timeout wins.
+                    type: string
+                  maxTokens:
+                    description: |-
+                      maxTokens caps the scan run's total LLM tokens (input + output).
+                      Monitored controller-side from the run's usage metrics.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  maxValidationJobs:
+                    description: |-
+                      maxValidationJobs caps how many post-script (validation /
+                      proof-of-concept) sub-agent runs the scan run may spawn. Monitored
+                      controller-side from the run's child status.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
               checks:
                 description: |-
                   checks configures publishing a GitHub check on the scanned commit
@@ -630,6 +687,23 @@ spec:
                 maximum: 16
                 minimum: 1
                 type: integer
+              policyPackRef:
+                description: |-
+                  policyPackRef references a SecurityPolicyPack in the scan's namespace.
+                  The pack supplies defaults (precedence: platform defaults < policy
+                  pack < scan configuration), enforced floors the scan may not relax,
+                  and governed finding suppressions. It is resolved and snapshotted at
+                  run-creation time; a scan violating an enforced pack field is rejected
+                  with Ready=False reason PolicyViolation and no run is created.
+                properties:
+                  name:
+                    description: name of the referenced resource.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
               postScriptRefs:
                 description: |-
                   postScriptRefs reference reusable SecurityPostScript resources in the
@@ -916,6 +990,77 @@ spec:
           status:
             description: SecurityScanStatus defines the observed state of SecurityScan.
             properties:
+              budget:
+                description: |-
+                  budget reports the scan's effective budgets (spec merged with the
+                  policy pack) and whether any hard limit is exceeded. It is computed
+                  from platform-observed usage data before and during each run, so the
+                  dashboard can warn ahead of a launch.
+                properties:
+                  effective:
+                    description: |-
+                      effective is the budget set actually enforced: scan spec budgets
+                      merged with the policy pack's defaults.
+                    properties:
+                      maxCostUSD:
+                        description: |-
+                          maxCostUSD is a decimal USD ceiling (e.g. "5" or "2.50") on the scan
+                          run's LLM spend. Written into the created AgentRun's
+                          limits.maxCostUsd and re-checked controller-side from the run's usage
+                          metrics.
+                        pattern: ^([0-9]+(\.[0-9]+)?)?$
+                        type: string
+                      maxFindings:
+                        description: |-
+                          maxFindings caps how many findings the scan may persist. Enforced by
+                          controller-side monitoring of the persisted finding count (the cap is
+                          also stated in the run prompt as guidance, but model output is never
+                          trusted for enforcement).
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      maxModelJobs:
+                        description: |-
+                          maxModelJobs caps how many sub-agent runs (child AgentRuns) the scan
+                          run may spawn. Monitored controller-side from the run's child status.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      maxRuntime:
+                        description: |-
+                          maxRuntime caps the scan run's wall-clock runtime. Written into the
+                          created AgentRun's limits.maxRuntime; the smallest of this,
+                          spec.maxRuntime, and defaults.timeout wins.
+                        type: string
+                      maxTokens:
+                        description: |-
+                          maxTokens caps the scan run's total LLM tokens (input + output).
+                          Monitored controller-side from the run's usage metrics.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      maxValidationJobs:
+                        description: |-
+                          maxValidationJobs caps how many post-script (validation /
+                          proof-of-concept) sub-agent runs the scan run may spawn. Monitored
+                          controller-side from the run's child status.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                    type: object
+                  exceeded:
+                    description: exceeded reports whether any hard budget limit is
+                      exceeded.
+                    type: boolean
+                  lastCheckedTime:
+                    description: lastCheckedTime is when the budgets were last evaluated.
+                    format: date-time
+                    type: string
+                  message:
+                    description: message explains which limit is exceeded and by how
+                      much.
+                    type: string
+                type: object
               conditions:
                 description: conditions represent the current state of the SecurityScan
                   trigger.
@@ -1134,8 +1279,8 @@ spec:
                       type: string
                     kind:
                       description: |-
-                        kind of the referenced resource: SecurityWorkflow, SecurityRanker, or
-                        SecurityPostScript.
+                        kind of the referenced resource: SecurityWorkflow, SecurityRanker,
+                        SecurityPostScript, or SecurityPolicyPack.
                       type: string
                     name:
                       description: name of the referenced resource.
@@ -1185,6 +1330,53 @@ spec:
               phase:
                 description: phase is a coarse human-readable state of the scan trigger.
                 type: string
+              retention:
+                description: |-
+                  retention reports the most recent retention sweep run for this scan's
+                  policy pack retention configuration.
+                properties:
+                  auditEventsPurged:
+                    description: auditEventsPurged counts deleted finding audit events.
+                    format: int64
+                    type: integer
+                  evidenceRedacted:
+                    description: evidenceRedacted counts findings whose evidence was
+                      redacted in place.
+                    format: int64
+                    type: integer
+                  findingsPurged:
+                    description: findingsPurged counts deleted finding rows.
+                    format: int64
+                    type: integer
+                  lastError:
+                    description: lastError is the most recent sweep failure, empty
+                      after a clean batch.
+                    type: string
+                  lastSweepTime:
+                    description: lastSweepTime is when the most recent purge batch
+                      ran.
+                    format: date-time
+                    type: string
+                  moreWork:
+                    description: |-
+                      moreWork reports whether the last batch hit its bound; the controller
+                      requeues promptly while true.
+                    type: boolean
+                  pocRedacted:
+                    description: pocRedacted counts findings whose PoC content was
+                      redacted in place.
+                    format: int64
+                    type: integer
+                  reportsPurged:
+                    description: reportsPurged counts deleted report artifacts (markdown/SARIF).
+                    format: int64
+                    type: integer
+                  scansPurged:
+                    description: scansPurged counts deleted scan run records (incl.
+                      observation rows).
+                    format: int64
+                    type: integer
+                type: object
               runsCreated:
                 description: runsCreated is the cumulative number of AgentRuns created
                   by this scan.

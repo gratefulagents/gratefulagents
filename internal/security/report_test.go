@@ -98,3 +98,56 @@ func TestRenderMarkdownEmpty(t *testing.T) {
 		t.Error("zero timestamps should be omitted")
 	}
 }
+
+func testScannerReportInput(t *testing.T) ReportInput {
+	t.Helper()
+	agent := Finding{
+		Title: "Weak password hashing with MD5", Category: "crypto",
+		Severity: "high", Confidence: "confirmed",
+		Repository: "github.com/acme/app",
+		FilePath:   "internal/crypto/hash.go", StartLine: 40, EndLine: 46,
+		CWE:         []string{"CWE-327"},
+		Description: "Passwords are hashed with MD5 which is broken.",
+		SourceAgent: "scan-run-1",
+	}
+	agent.Normalize()
+	scanner, err := NormalizeScannerRecord(ScannerRecord{
+		Tool: "gosec", ToolVersion: "2.18.2", RuleID: "G401",
+		RuleName: "Use of weak cryptographic primitive",
+		Message:  "Use of weak cryptographic primitive md5",
+		Severity: "HIGH", FilePath: "internal/crypto/hash.go",
+		StartLine: 42, EndLine: 44, Symbol: "hashPassword", CWE: "CWE-327",
+	}, "github.com/acme/app", "abc1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := []Finding{agent, scanner}
+	ApplyCorrelations(findings, Correlate(findings))
+	in := testReportInput()
+	in.Ranked = []RankedFinding{
+		{Finding: findings[0], Score: 80},
+		{Finding: findings[1], Score: 70},
+	}
+	return in
+}
+
+func TestRenderMarkdownSourceAttribution(t *testing.T) {
+	md := RenderMarkdown(testScannerReportInput(t))
+	for _, want := range []string{
+		"- **Source:** agent scan-run-1",
+		"- **Source:** scanner gosec 2.18.2, rule G401",
+		"- **Correlated with:** scanner gosec 2.18.2, rule G401 (fingerprint ",
+		"- **Correlated with:** agent scan-run-1 (fingerprint ",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q:\n%s", want, md)
+		}
+	}
+}
+
+func TestRenderMarkdownDefaultAgentSource(t *testing.T) {
+	md := RenderMarkdown(testReportInput())
+	if !strings.Contains(md, "- **Source:** agent\n") {
+		t.Errorf("markdown missing default agent source attribution:\n%s", md)
+	}
+}

@@ -35,6 +35,25 @@ vi.mock("@/lib/client", () => ({
     listSecurityPostScripts: vi.fn().mockResolvedValue({
       postScripts: [{ name: "write-poc", prompt: "p", usageCount: 0, referencingScans: [] }],
     }),
+    listSecurityPolicyPacks: vi.fn().mockResolvedValue({
+      policyPacks: [
+        {
+          name: "prod-policy",
+          description: "prod floors",
+          minSeverity: "medium",
+          failOnSeverity: "high",
+          requiredCategories: ["injection"],
+          allowedRuntimeProfiles: [],
+          defaultRankerRefs: [],
+          defaultPostScriptRefs: [],
+          enforced: ["minSeverity", "budgets"],
+          suppressions: [{ name: "vendored", reason: "r", owner: "o", matcher: { pathGlob: "vendor/**" } }],
+          budgets: { maxCostUsd: "5", maxFindings: 100 },
+          usageCount: 0,
+          referencingScans: [],
+        },
+      ],
+    }),
   },
 }));
 
@@ -345,6 +364,87 @@ describe("SecurityScanFormDialog repository events and notifications", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toMatch(/both the API key secret and the team ID/i);
+    expect(client.createSecurityScan).not.toHaveBeenCalled();
+  });
+});
+
+describe("SecurityScanFormDialog policy pack & budgets", () => {
+  it("shows the pack's inherited values and enforced fields when selected", async () => {
+    renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: /Policy pack & budgets/ }));
+    const select = await screen.findByLabelText("Policy pack");
+    await waitFor(() => {
+      expect(select.querySelectorAll("option").length).toBeGreaterThan(1);
+    });
+    fireEvent.change(select, { target: { value: "prod-policy" } });
+
+    const summary = await screen.findByTestId("policy-pack-summary");
+    expect(summary.textContent).toContain("Inherited from prod-policy");
+    expect(summary.textContent).toContain("Minimum severity: medium");
+    expect(summary.textContent).toContain("Fail on severity: high");
+    expect(summary.textContent).toContain("Required categories: injection");
+    expect(summary.textContent).toContain("Governed suppressions: 1 rule");
+
+    const enforced = screen.getByTestId("policy-pack-enforced");
+    expect(enforced.textContent).toContain("this scan may not relax");
+    expect(enforced.textContent).toContain("minimum severity");
+    expect(enforced.textContent).toContain("budgets");
+
+    // The pack enforces budgets, so the budget inputs carry a warning.
+    const warning = screen.getByTestId("policy-pack-budget-warning");
+    expect(warning.textContent).toContain("enforces budgets");
+  });
+
+  it("hides the budget warning when no pack is selected", async () => {
+    renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: /Policy pack & budgets/ }));
+    await screen.findByLabelText("Policy pack");
+    expect(screen.queryByTestId("policy-pack-budget-warning")).toBeNull();
+    expect(screen.queryByTestId("policy-pack-summary")).toBeNull();
+  });
+
+  it("submits the policy pack ref and per-scan budgets", async () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Policy pack & budgets/ }));
+    const select = await screen.findByLabelText("Policy pack");
+    await waitFor(() => {
+      expect(select.querySelectorAll("option").length).toBeGreaterThan(1);
+    });
+    fireEvent.change(select, { target: { value: "prod-policy" } });
+    fireEvent.change(screen.getByLabelText("Max cost (USD)"), { target: { value: "2.50" } });
+    fireEvent.change(screen.getByLabelText("Max findings"), { target: { value: "50" } });
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(client.createSecurityScan).toHaveBeenCalledTimes(1);
+    });
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.policyPackRef).toBe("prod-policy");
+    expect(request.spec?.budgets?.maxCostUsd).toBe("2.50");
+    expect(request.spec?.budgets?.maxFindings).toBe(50);
+  });
+
+  it("rejects an invalid budget cost client-side", async () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Policy pack & budgets/ }));
+    await screen.findByLabelText("Policy pack");
+    fireEvent.change(screen.getByLabelText("Max cost (USD)"), { target: { value: "$5" } });
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/plain decimal/i);
     expect(client.createSecurityScan).not.toHaveBeenCalled();
   });
 });

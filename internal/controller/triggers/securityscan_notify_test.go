@@ -32,7 +32,7 @@ func (s *notifyTestFindingStore) ListSecurityFindings(context.Context, store.Sec
 	return s.findings, nil
 }
 
-func (s *notifyTestFindingStore) SummarizeSecurityFindings(context.Context, string, string, string) (map[string]int32, error) {
+func (s *notifyTestFindingStore) SummarizeSecurityFindings(context.Context, string, string, string, bool) (map[string]int32, error) {
 	return map[string]int32{}, nil
 }
 
@@ -292,4 +292,12 @@ func TestNotifyRunFindingsSkipsUnsuccessfulRuns(t *testing.T) {
 
 func securityScanRunKey(scan *triggersv1alpha1.SecurityScan) client.ObjectKey {
 	return client.ObjectKey{Namespace: scan.Namespace, Name: scan.Status.LastRunName}
+}
+
+func (s *notifyTestFindingStore) ApplySecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
+func (s *notifyTestFindingStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
+	return 0, nil
 }

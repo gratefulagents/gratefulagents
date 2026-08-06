@@ -20,7 +20,7 @@ type finalizingSecurityScanFindingStore struct {
 	expiredNamespaces []string
 }
 
-func (s *finalizingSecurityScanFindingStore) SummarizeSecurityFindings(context.Context, string, string, string) (map[string]int32, error) {
+func (s *finalizingSecurityScanFindingStore) SummarizeSecurityFindings(context.Context, string, string, string, bool) (map[string]int32, error) {
 	return map[string]int32{}, nil
 }
 
@@ -113,4 +113,12 @@ func TestSecurityScanScheduledFinalizesOnlyWhenLastRunSucceeded(t *testing.T) {
 	if len(findings.finalizedRuns) != 1 || findings.finalizedRuns[0] != run.Name {
 		t.Fatalf("finalized runs = %v, want [%s]", findings.finalizedRuns, run.Name)
 	}
+}
+
+func (s *finalizingSecurityScanFindingStore) ApplySecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
+func (s *finalizingSecurityScanFindingStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
+	return 0, nil
 }

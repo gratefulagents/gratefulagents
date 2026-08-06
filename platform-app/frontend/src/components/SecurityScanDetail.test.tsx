@@ -189,6 +189,7 @@ describe("SecurityScanDetail", () => {
         search: "",
         baselineState: "",
         assignee: "",
+        suppressed: "",
       });
     });
   });
@@ -422,5 +423,113 @@ describe("SecurityScanDetail repository integration state", () => {
 
     await screen.findByText("nightly-1");
     expect(screen.queryByText("Repository integration")).toBeNull();
+  });
+});
+
+describe("SecurityScanDetail budgets, retention, and suppression", () => {
+  it("warns when the budget is exceeded and shows effective budgets and the sweep state", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      effectiveBudgets: {
+        maxCostUsd: "5",
+        maxFindings: 100,
+        maxTokens: 0n,
+        maxModelJobs: 0,
+        maxValidationJobs: 0,
+        maxRuntime: "",
+      },
+      budgetExceeded: true,
+      budgetMessage: "persisted findings 120 exceed budgets.maxFindings 100",
+      retention: {
+        lastSweepTimeUnix: 1770000000n,
+        scansPurged: 2n,
+        findingsPurged: 7n,
+        reportsPurged: 1n,
+        evidenceRedacted: 3n,
+        pocRedacted: 4n,
+        auditEventsPurged: 9n,
+        moreWork: false,
+        lastError: "",
+      },
+    });
+
+    renderDetail();
+
+    const warning = await screen.findByTestId("budget-warning");
+    expect(warning.textContent).toContain("Budget exceeded");
+    expect(warning.textContent).toContain("persisted findings 120 exceed budgets.maxFindings 100");
+    const budgets = screen.getByTestId("effective-budgets");
+    expect(budgets.textContent).toContain("$5");
+    expect(budgets.textContent).toContain("100 findings");
+    const sweep = screen.getByTestId("retention-sweep");
+    expect(sweep.textContent).toContain("7 findings");
+    expect(sweep.textContent).toContain("4 PoC entries redacted");
+    expect(sweep.textContent).toContain("9 audit events purged");
+  });
+
+  it("omits the budget warning when no limit is exceeded", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      effectiveBudgets: { maxCostUsd: "5" },
+      budgetExceeded: false,
+      budgetMessage: "",
+    });
+
+    renderDetail();
+
+    await screen.findByTestId("effective-budgets");
+    expect(screen.queryByTestId("budget-warning")).toBeNull();
+  });
+
+  it("round-trips the suppressed filter and renders the suppressed chip", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    const suppressedFinding = findingFixture();
+    suppressedFinding.suppressedBy = "prod-policy/vendored";
+    suppressedFinding.suppressedReason = "third-party code";
+    suppressedFinding.suppressedOwner = "sec-team";
+    suppressedFinding.suppressionExpiresAt = timestampFromDate(new Date(Date.now() + 30 * 86400000));
+    listSecurityFindings.mockResolvedValue({ findings: [suppressedFinding] });
+
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+
+    fireEvent.change(screen.getByLabelText("Filter suppressed findings"), {
+      target: { value: "only" },
+    });
+
+    await waitFor(() => {
+      expect(listSecurityFindings).toHaveBeenLastCalledWith({
+        namespace: "user-alice",
+        runName: "nightly-1",
+        severity: "",
+        status: "",
+        category: "",
+        search: "",
+        baselineState: "",
+        assignee: "",
+        suppressed: "only",
+      });
+    });
+
+    const chip = await screen.findByText("suppressed");
+    expect(chip.getAttribute("title")).toContain("rule prod-policy/vendored");
+    expect(chip.getAttribute("title")).toContain("owner sec-team");
+    expect(chip.getAttribute("title")).toContain("until");
+
+    // Selecting the row explains the suppression in the side panel.
+    getSecurityFinding.mockResolvedValue({ finding: suppressedFinding, events: [] });
+    fireEvent.click(screen.getByRole("button", { name: "SQL injection in payment lookup" }));
+    const note = await screen.findByTestId("finding-suppression-note");
+    expect(note.textContent).toContain("rule prod-policy/vendored");
+    expect(note.textContent).toContain("Reason: third-party code");
   });
 });

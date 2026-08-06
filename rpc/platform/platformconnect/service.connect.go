@@ -620,6 +620,21 @@ const (
 	// PlatformServiceDeleteSecurityPostScriptProcedure is the fully-qualified name of the
 	// PlatformService's DeleteSecurityPostScript RPC.
 	PlatformServiceDeleteSecurityPostScriptProcedure = "/platform.v1.PlatformService/DeleteSecurityPostScript"
+	// PlatformServiceListSecurityPolicyPacksProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityPolicyPacks RPC.
+	PlatformServiceListSecurityPolicyPacksProcedure = "/platform.v1.PlatformService/ListSecurityPolicyPacks"
+	// PlatformServiceGetSecurityPolicyPackProcedure is the fully-qualified name of the
+	// PlatformService's GetSecurityPolicyPack RPC.
+	PlatformServiceGetSecurityPolicyPackProcedure = "/platform.v1.PlatformService/GetSecurityPolicyPack"
+	// PlatformServiceCreateSecurityPolicyPackProcedure is the fully-qualified name of the
+	// PlatformService's CreateSecurityPolicyPack RPC.
+	PlatformServiceCreateSecurityPolicyPackProcedure = "/platform.v1.PlatformService/CreateSecurityPolicyPack"
+	// PlatformServiceUpdateSecurityPolicyPackProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityPolicyPack RPC.
+	PlatformServiceUpdateSecurityPolicyPackProcedure = "/platform.v1.PlatformService/UpdateSecurityPolicyPack"
+	// PlatformServiceDeleteSecurityPolicyPackProcedure is the fully-qualified name of the
+	// PlatformService's DeleteSecurityPolicyPack RPC.
+	PlatformServiceDeleteSecurityPolicyPackProcedure = "/platform.v1.PlatformService/DeleteSecurityPolicyPack"
 	// PlatformServiceGenerateSecurityDraftProcedure is the fully-qualified name of the
 	// PlatformService's GenerateSecurityDraft RPC.
 	PlatformServiceGenerateSecurityDraftProcedure = "/platform.v1.PlatformService/GenerateSecurityDraft"
@@ -946,6 +961,15 @@ type PlatformServiceClient interface {
 	CreateSecurityPostScript(context.Context, *connect.Request[platform.CreateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
 	UpdateSecurityPostScript(context.Context, *connect.Request[platform.UpdateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
 	DeleteSecurityPostScript(context.Context, *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error)
+	// SecurityPolicyPack CRs referenced by SecurityScan configurations via
+	// policy_pack_ref. A pack supplies scan defaults, enforced floors a scan
+	// may not relax, and governed finding suppressions. Delete is blocked with
+	// FailedPrecondition while SecurityScans still reference the pack.
+	ListSecurityPolicyPacks(context.Context, *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error)
+	GetSecurityPolicyPack(context.Context, *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	CreateSecurityPolicyPack(context.Context, *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	UpdateSecurityPolicyPack(context.Context, *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	DeleteSecurityPolicyPack(context.Context, *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error)
 	// AI-assisted authoring. GenerateSecurityDraft launches a bounded,
 	// repo-less draft-generation AgentRun that uses only the caller's saved
 	// provider credentials (no repository, GitHub token, or other secrets);
@@ -2161,6 +2185,36 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPostScript")),
 			connect.WithClientOptions(opts...),
 		),
+		listSecurityPolicyPacks: connect.NewClient[platform.ListSecurityPolicyPacksRequest, platform.ListSecurityPolicyPacksResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityPolicyPacksProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityPolicyPacks")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityPolicyPack: connect.NewClient[platform.GetSecurityPolicyPackRequest, platform.SecurityPolicyPackResource](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityPolicyPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityPolicyPack")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityPolicyPack: connect.NewClient[platform.CreateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityPolicyPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityPolicyPack")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityPolicyPack: connect.NewClient[platform.UpdateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityPolicyPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityPolicyPack")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSecurityPolicyPack: connect.NewClient[platform.DeleteSecurityPolicyPackRequest, emptypb.Empty](
+			httpClient,
+			baseURL+PlatformServiceDeleteSecurityPolicyPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPolicyPack")),
+			connect.WithClientOptions(opts...),
+		),
 		generateSecurityDraft: connect.NewClient[platform.GenerateSecurityDraftRequest, platform.GenerateSecurityDraftResponse](
 			httpClient,
 			baseURL+PlatformServiceGenerateSecurityDraftProcedure,
@@ -2398,6 +2452,11 @@ type platformServiceClient struct {
 	createSecurityPostScript               *connect.Client[platform.CreateSecurityPostScriptRequest, platform.SecurityPostScriptResource]
 	updateSecurityPostScript               *connect.Client[platform.UpdateSecurityPostScriptRequest, platform.SecurityPostScriptResource]
 	deleteSecurityPostScript               *connect.Client[platform.DeleteSecurityPostScriptRequest, emptypb.Empty]
+	listSecurityPolicyPacks                *connect.Client[platform.ListSecurityPolicyPacksRequest, platform.ListSecurityPolicyPacksResponse]
+	getSecurityPolicyPack                  *connect.Client[platform.GetSecurityPolicyPackRequest, platform.SecurityPolicyPackResource]
+	createSecurityPolicyPack               *connect.Client[platform.CreateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource]
+	updateSecurityPolicyPack               *connect.Client[platform.UpdateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource]
+	deleteSecurityPolicyPack               *connect.Client[platform.DeleteSecurityPolicyPackRequest, emptypb.Empty]
 	generateSecurityDraft                  *connect.Client[platform.GenerateSecurityDraftRequest, platform.GenerateSecurityDraftResponse]
 	getSecurityDraft                       *connect.Client[platform.GetSecurityDraftRequest, platform.GetSecurityDraftResponse]
 	exportSecurityPack                     *connect.Client[platform.ExportSecurityPackRequest, platform.ExportSecurityPackResponse]
@@ -3391,6 +3450,31 @@ func (c *platformServiceClient) DeleteSecurityPostScript(ctx context.Context, re
 	return c.deleteSecurityPostScript.CallUnary(ctx, req)
 }
 
+// ListSecurityPolicyPacks calls platform.v1.PlatformService.ListSecurityPolicyPacks.
+func (c *platformServiceClient) ListSecurityPolicyPacks(ctx context.Context, req *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error) {
+	return c.listSecurityPolicyPacks.CallUnary(ctx, req)
+}
+
+// GetSecurityPolicyPack calls platform.v1.PlatformService.GetSecurityPolicyPack.
+func (c *platformServiceClient) GetSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return c.getSecurityPolicyPack.CallUnary(ctx, req)
+}
+
+// CreateSecurityPolicyPack calls platform.v1.PlatformService.CreateSecurityPolicyPack.
+func (c *platformServiceClient) CreateSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return c.createSecurityPolicyPack.CallUnary(ctx, req)
+}
+
+// UpdateSecurityPolicyPack calls platform.v1.PlatformService.UpdateSecurityPolicyPack.
+func (c *platformServiceClient) UpdateSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return c.updateSecurityPolicyPack.CallUnary(ctx, req)
+}
+
+// DeleteSecurityPolicyPack calls platform.v1.PlatformService.DeleteSecurityPolicyPack.
+func (c *platformServiceClient) DeleteSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteSecurityPolicyPack.CallUnary(ctx, req)
+}
+
 // GenerateSecurityDraft calls platform.v1.PlatformService.GenerateSecurityDraft.
 func (c *platformServiceClient) GenerateSecurityDraft(ctx context.Context, req *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {
 	return c.generateSecurityDraft.CallUnary(ctx, req)
@@ -3727,6 +3811,15 @@ type PlatformServiceHandler interface {
 	CreateSecurityPostScript(context.Context, *connect.Request[platform.CreateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
 	UpdateSecurityPostScript(context.Context, *connect.Request[platform.UpdateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
 	DeleteSecurityPostScript(context.Context, *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error)
+	// SecurityPolicyPack CRs referenced by SecurityScan configurations via
+	// policy_pack_ref. A pack supplies scan defaults, enforced floors a scan
+	// may not relax, and governed finding suppressions. Delete is blocked with
+	// FailedPrecondition while SecurityScans still reference the pack.
+	ListSecurityPolicyPacks(context.Context, *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error)
+	GetSecurityPolicyPack(context.Context, *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	CreateSecurityPolicyPack(context.Context, *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	UpdateSecurityPolicyPack(context.Context, *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	DeleteSecurityPolicyPack(context.Context, *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error)
 	// AI-assisted authoring. GenerateSecurityDraft launches a bounded,
 	// repo-less draft-generation AgentRun that uses only the caller's saved
 	// provider credentials (no repository, GitHub token, or other secrets);
@@ -4938,6 +5031,36 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPostScript")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListSecurityPolicyPacksHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityPolicyPacksProcedure,
+		svc.ListSecurityPolicyPacks,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityPolicyPacks")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityPolicyPackHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityPolicyPackProcedure,
+		svc.GetSecurityPolicyPack,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityPolicyPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityPolicyPackHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityPolicyPackProcedure,
+		svc.CreateSecurityPolicyPack,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityPolicyPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityPolicyPackHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityPolicyPackProcedure,
+		svc.UpdateSecurityPolicyPack,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityPolicyPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceDeleteSecurityPolicyPackHandler := connect.NewUnaryHandler(
+		PlatformServiceDeleteSecurityPolicyPackProcedure,
+		svc.DeleteSecurityPolicyPack,
+		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPolicyPack")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceGenerateSecurityDraftHandler := connect.NewUnaryHandler(
 		PlatformServiceGenerateSecurityDraftProcedure,
 		svc.GenerateSecurityDraft,
@@ -5368,6 +5491,16 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceUpdateSecurityPostScriptHandler.ServeHTTP(w, r)
 		case PlatformServiceDeleteSecurityPostScriptProcedure:
 			platformServiceDeleteSecurityPostScriptHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityPolicyPacksProcedure:
+			platformServiceListSecurityPolicyPacksHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityPolicyPackProcedure:
+			platformServiceGetSecurityPolicyPackHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityPolicyPackProcedure:
+			platformServiceCreateSecurityPolicyPackHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityPolicyPackProcedure:
+			platformServiceUpdateSecurityPolicyPackHandler.ServeHTTP(w, r)
+		case PlatformServiceDeleteSecurityPolicyPackProcedure:
+			platformServiceDeleteSecurityPolicyPackHandler.ServeHTTP(w, r)
 		case PlatformServiceGenerateSecurityDraftProcedure:
 			platformServiceGenerateSecurityDraftHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityDraftProcedure:
@@ -6171,6 +6304,26 @@ func (UnimplementedPlatformServiceHandler) UpdateSecurityPostScript(context.Cont
 
 func (UnimplementedPlatformServiceHandler) DeleteSecurityPostScript(context.Context, *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityPostScript is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityPolicyPacks(context.Context, *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityPolicyPacks is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityPolicyPack(context.Context, *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityPolicyPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityPolicyPack(context.Context, *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityPolicyPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityPolicyPack(context.Context, *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityPolicyPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) DeleteSecurityPolicyPack(context.Context, *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityPolicyPack is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GenerateSecurityDraft(context.Context, *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {

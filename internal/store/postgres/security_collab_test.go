@@ -147,7 +147,7 @@ func TestSecurityFindingFilterSQLCollabFields(t *testing.T) {
 	where, args := securityFindingFilterSQL(store.SecurityFindingFilter{
 		Namespace: "default", BaselineState: "regressed", Assignee: "alice",
 	})
-	want := "WHERE namespace = $1 AND baseline_state = $2 AND assignee = $3 AND duplicate_of IS NULL"
+	want := "WHERE namespace = $1 AND baseline_state = $2 AND assignee = $3 AND suppressed_by IS NULL AND duplicate_of IS NULL"
 	if where != want {
 		t.Errorf("where = %q, want %q", where, want)
 	}
@@ -262,7 +262,7 @@ func TestSecurityBaselineLifecycle(t *testing.T) {
 		t.Error("duplicate child was baseline-resolved; duplicates must be ignored")
 	}
 
-	summary, err := s.SummarizeSecurityFindings(ctx, "default", "nightly", "")
+	summary, err := s.SummarizeSecurityFindings(ctx, "default", "nightly", "", false)
 	if err != nil {
 		t.Fatalf("summary: %v", err)
 	}

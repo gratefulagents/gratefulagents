@@ -14,6 +14,7 @@ const {
   listSecurityWorkflows,
   listSecurityRankers,
   listSecurityPostScripts,
+  listSecurityPolicyPacks,
   listSecurityScanConfigs,
   generateSecurityDraft,
   getSecurityDraft,
@@ -26,6 +27,7 @@ const {
   listSecurityWorkflows: vi.fn(),
   listSecurityRankers: vi.fn(),
   listSecurityPostScripts: vi.fn(),
+  listSecurityPolicyPacks: vi.fn(),
   listSecurityScanConfigs: vi.fn(),
   generateSecurityDraft: vi.fn(),
   getSecurityDraft: vi.fn(),
@@ -41,6 +43,7 @@ vi.mock("@/lib/client", () => ({
     listSecurityWorkflows,
     listSecurityRankers,
     listSecurityPostScripts,
+    listSecurityPolicyPacks,
     listSecurityScanConfigs,
     generateSecurityDraft,
     getSecurityDraft,
@@ -71,6 +74,7 @@ function seed() {
   listSecurityWorkflows.mockResolvedValue({ workflows: [] });
   listSecurityRankers.mockResolvedValue({ rankers: [] });
   listSecurityPostScripts.mockResolvedValue({ postScripts: [] });
+  listSecurityPolicyPacks.mockResolvedValue({ policyPacks: [] });
   listSecurityScanConfigs.mockResolvedValue({ configs: [{ name: "nightly-scan" }] });
 }
 

@@ -61,7 +61,7 @@ func (s *Server) GetSecurityOverview(ctx context.Context, req *platform.GetSecur
 				}
 			}
 		}
-		counts, err := sec.SummarizeSecurityFindings(ctx, namespace, "", "")
+		counts, err := sec.SummarizeSecurityFindings(ctx, namespace, "", "", false)
 		if err != nil {
 			resp.Warnings = append(resp.Warnings, fmt.Sprintf("summarizing security findings: %v", err))
 		} else {

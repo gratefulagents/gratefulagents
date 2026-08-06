@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { useEffect, useState } from "react";
-import { Bell, CalendarClock, Crosshair, GitBranch, GitPullRequest, ListChecks, Loader2, ShieldAlert, SlidersHorizontal } from "lucide-react";
+import { Bell, CalendarClock, Crosshair, GitBranch, GitPullRequest, ListChecks, Loader2, ShieldAlert, ShieldCheck, SlidersHorizontal } from "lucide-react";
 
 import {
   Dialog,
@@ -27,6 +27,16 @@ import { RunDefaultsRows } from "@/components/run-defaults/RunDefaultsRows";
 import { TriggerPolicyRows } from "@/components/run-defaults/TriggerPolicyRows";
 import { buildCronRequest, emptyDefaults, hasExplicitCredentials } from "@/components/run-defaults/helpers";
 import { resolvedTriggerPolicies } from "@/components/TriggerDefaultsDialog";
+import {
+  BudgetFields,
+  budgetDraftIsZero,
+  budgetsFromDraft,
+  budgetsToDraft,
+  packBudgetSummary,
+  packRetentionSummary,
+  validateBudgetDraft,
+  type BudgetDraft,
+} from "@/components/SecurityPolicyPackDialog";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneText } from "@/lib/status";
@@ -44,6 +54,7 @@ import {
   UpdateSecurityScanRequestSchema,
   type AgentRunDefaults,
   type SecurityScanConfig,
+  type SecurityPolicyPackResource,
   type SecurityPostScriptResource,
   type SecurityRankerResource,
   type SecurityWorkflowResource,
@@ -112,6 +123,8 @@ type SpecState = {
   checksEnabled: boolean;
   includeFindingSummaries: boolean;
   uploadSarif: boolean;
+  policyPackRef: string;
+  budgets: BudgetDraft;
 };
 
 function splitList(value: string, separator: RegExp): string[] {
@@ -157,6 +170,8 @@ function initialSpec(config?: SecurityScanConfig): SpecState {
     checksEnabled: spec?.checks?.enabled ?? false,
     includeFindingSummaries: spec?.checks?.includeFindingSummaries ?? false,
     uploadSarif: spec?.checks?.uploadSarif ?? false,
+    policyPackRef: spec?.policyPackRef ?? "",
+    budgets: budgetsToDraft(spec?.budgets),
   };
 }
 
@@ -263,6 +278,23 @@ function notificationsSummary(rules: NotificationRuleState[]): string {
   return `${rules.length} rule${rules.length === 1 ? "" : "s"}`;
 }
 
+function policyPackSummary(spec: SpecState): string {
+  const parts: string[] = [];
+  if (spec.policyPackRef.trim()) parts.push(spec.policyPackRef.trim());
+  if (!budgetDraftIsZero(spec.budgets)) parts.push("scan budgets set");
+  return parts.length ? parts.join(" · ") : "None";
+}
+
+/** Human labels for the pack fields scans may not relax. */
+const ENFORCED_LABELS: Record<string, string> = {
+  minSeverity: "minimum severity",
+  failOnSeverity: "fail-on severity",
+  dedupe: "dedupe",
+  requiredCategories: "required categories",
+  allowedRuntimeProfiles: "allowed runtime profiles",
+  budgets: "budgets",
+};
+
 /**
  * Create/edit dialog for SecurityScan triggers. Pass `config` to edit an
  * existing scan; pass `duplicateFrom` to create a new scan pre-filled from an
@@ -308,6 +340,7 @@ export function SecurityScanFormDialog({
   const [libraryWorkflows, setLibraryWorkflows] = useState<SecurityWorkflowResource[]>([]);
   const [libraryRankers, setLibraryRankers] = useState<SecurityRankerResource[]>([]);
   const [libraryPostScripts, setLibraryPostScripts] = useState<SecurityPostScriptResource[]>([]);
+  const [policyPacks, setPolicyPacks] = useState<SecurityPolicyPackResource[]>([]);
 
   // The library is optional context: load it when the dialog opens and fall
   // back to empty pickers when it cannot be listed.
@@ -326,12 +359,22 @@ export function SecurityScanFormDialog({
       } catch {
         // Library pickers stay empty; inline editing keeps working.
       }
+      try {
+        const pp = await client.listSecurityPolicyPacks({ namespace: "" });
+        setPolicyPacks(pp.policyPacks);
+      } catch {
+        // The pack picker stays empty; an existing ref still shows as-is.
+      }
     })();
   }, [open]);
 
   function update<K extends keyof SpecState>(field: K, value: SpecState[K]) {
     setSpec((prev) => ({ ...prev, [field]: value }));
   }
+
+  const selectedPolicyPack =
+    policyPacks.find((pack) => pack.name === spec.policyPackRef.trim()) ?? null;
+  const packEnforcesBudgets = selectedPolicyPack?.enforced.includes("budgets") ?? false;
 
   function updateNotification(index: number, patch: Partial<NotificationRuleState>) {
     setNotifications((prev) => prev.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
@@ -392,6 +435,8 @@ export function SecurityScanFormDialog({
       workflowRef: spec.workflowRef,
       rankerRefs: spec.rankerRefs,
       postScriptRefs: spec.postScriptRefs,
+      policyPackRef: spec.policyPackRef,
+      budgets: budgetsFromDraft(spec.budgets),
       parallelism: spec.parallelism.trim() ? Number(spec.parallelism) : 0,
       severityRankers: rankers.map((r) =>
         create(SecurityRankerConfigSchema, { name: r.name.trim(), rules: r.rules }),
@@ -483,6 +528,11 @@ export function SecurityScanFormDialog({
     const eventError = validateEventConfig();
     if (eventError) {
       setError(eventError);
+      return;
+    }
+    const budgetErrors = validateBudgetDraft("budgets", spec.budgets);
+    if (budgetErrors.length > 0) {
+      setError(budgetErrors.map((e) => `${e.field}: ${e.message}`).join(" "));
       return;
     }
     setSubmitting(true);
@@ -859,6 +909,108 @@ export function SecurityScanFormDialog({
                       />
                     </FlowField>
                   </div>
+                )}
+              </OptionRow>
+
+              <OptionRow
+                icon={ShieldCheck}
+                title="Policy pack & budgets"
+                summary={policyPackSummary(spec)}
+                modified={Boolean(spec.policyPackRef.trim()) || !budgetDraftIsZero(spec.budgets)}
+              >
+                <FlowField
+                  id="scan-policy-pack-ref"
+                  label="Policy pack"
+                  hint="A SecurityPolicyPack supplies defaults, enforced floors this scan may not relax, governed suppressions, retention, and budgets. Manage packs in the security library."
+                >
+                  <select
+                    id="scan-policy-pack-ref"
+                    className={selectClass}
+                    value={spec.policyPackRef}
+                    onChange={(event) => update("policyPackRef", event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {policyPacks.map((pack) => (
+                      <option key={pack.name} value={pack.name}>{pack.name}</option>
+                    ))}
+                    {spec.policyPackRef !== "" &&
+                      !policyPacks.some((pack) => pack.name === spec.policyPackRef) && (
+                        <option value={spec.policyPackRef}>{spec.policyPackRef}</option>
+                      )}
+                  </select>
+                </FlowField>
+                {selectedPolicyPack && (
+                  <div
+                    className="space-y-1.5 rounded-md border border-border/70 bg-muted/20 p-3 text-xs"
+                    data-testid="policy-pack-summary"
+                  >
+                    <p className="font-medium text-foreground">
+                      Inherited from {selectedPolicyPack.name}
+                    </p>
+                    <ul className="space-y-0.5 text-muted-foreground">
+                      {selectedPolicyPack.minSeverity && (
+                        <li>Minimum severity: {selectedPolicyPack.minSeverity}</li>
+                      )}
+                      {selectedPolicyPack.failOnSeverity && (
+                        <li>Fail on severity: {selectedPolicyPack.failOnSeverity}</li>
+                      )}
+                      {selectedPolicyPack.dedupe && (
+                        <li>Dedupe: {selectedPolicyPack.dedupe.enabled ? "on" : "off"}</li>
+                      )}
+                      {selectedPolicyPack.requiredCategories.length > 0 && (
+                        <li>Required categories: {selectedPolicyPack.requiredCategories.join(", ")}</li>
+                      )}
+                      {selectedPolicyPack.allowedRuntimeProfiles.length > 0 && (
+                        <li>Allowed runtime profiles: {selectedPolicyPack.allowedRuntimeProfiles.join(", ")}</li>
+                      )}
+                      {selectedPolicyPack.defaultRankerRefs.length > 0 && (
+                        <li>Default rankers: {selectedPolicyPack.defaultRankerRefs.join(", ")}</li>
+                      )}
+                      {selectedPolicyPack.defaultPostScriptRefs.length > 0 && (
+                        <li>Default post-scripts: {selectedPolicyPack.defaultPostScriptRefs.join(", ")}</li>
+                      )}
+                      {packBudgetSummary(selectedPolicyPack.budgets) && (
+                        <li>Pack budgets: {packBudgetSummary(selectedPolicyPack.budgets)}</li>
+                      )}
+                      {packRetentionSummary(selectedPolicyPack.retention) && (
+                        <li>Retention: {packRetentionSummary(selectedPolicyPack.retention)}</li>
+                      )}
+                      {selectedPolicyPack.suppressions.length > 0 && (
+                        <li>
+                          Governed suppressions: {selectedPolicyPack.suppressions.length} rule
+                          {selectedPolicyPack.suppressions.length === 1 ? "" : "s"}
+                        </li>
+                      )}
+                    </ul>
+                    {selectedPolicyPack.enforced.length > 0 && (
+                      <p data-testid="policy-pack-enforced">
+                        <span className="font-medium text-foreground">Enforced — this scan may not relax:</span>{" "}
+                        {selectedPolicyPack.enforced
+                          .map((field) => ENFORCED_LABELS[field] ?? field)
+                          .join(", ")}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <FlowField
+                  id="scan-budgets"
+                  label="Per-scan budgets"
+                  hint="Caps for each run of this scan; empty or 0 = unlimited (or the pack default). Enforced entirely platform-side."
+                >
+                  <div id="scan-budgets" className="pt-1">
+                    <BudgetFields idPrefix="scan-budget" value={spec.budgets} onChange={(budgets) => update("budgets", budgets)} />
+                  </div>
+                </FlowField>
+                {packEnforcesBudgets && (
+                  <p
+                    role="note"
+                    data-testid="policy-pack-budget-warning"
+                    className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs"
+                  >
+                    The policy pack <span className="font-mono">{selectedPolicyPack?.name}</span>{" "}
+                    enforces budgets: this scan may tighten a pack limit but not raise or remove
+                    one. A budget above the pack's limit is rejected when the scan is saved or run.
+                  </p>
                 )}
               </OptionRow>
 

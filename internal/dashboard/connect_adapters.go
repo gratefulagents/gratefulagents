@@ -1407,6 +1407,45 @@ func (h *PlatformServiceConnectHandler) DeleteSecurityPostScript(ctx context.Con
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
+func (h *PlatformServiceConnectHandler) ListSecurityPolicyPacks(ctx context.Context, req *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error) {
+	resp, err := h.srv.ListSecurityPolicyPacks(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) GetSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	resp, err := h.srv.GetSecurityPolicyPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) CreateSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	resp, err := h.srv.CreateSecurityPolicyPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	resp, err := h.srv.UpdateSecurityPolicyPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) DeleteSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error) {
+	if _, err := h.srv.DeleteSecurityPolicyPack(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&emptypb.Empty{}), nil
+}
+
 func (h *PlatformServiceConnectHandler) GenerateSecurityDraft(ctx context.Context, req *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {
 	resp, err := h.srv.GenerateSecurityDraft(ctx, req.Msg)
 	if err != nil {

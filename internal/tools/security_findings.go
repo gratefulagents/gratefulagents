@@ -104,6 +104,7 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 	registry.Register(&reportSecurityFindingTool{state: state})
 	registry.Register(&listSecurityFindingsTool{state: state})
 	registry.Register(&updateSecurityFindingTool{state: state})
+	registry.Register(&ingestScannerResultsTool{state: state})
 	registry.Register(&submitSecurityScanReportTool{state: state})
 }
 
@@ -203,6 +204,12 @@ func (s *securityScanState) upsertFinding(ctx context.Context, rec *store.Securi
 		existing.AttackVector = rec.AttackVector
 		existing.Remediation = rec.Remediation
 		existing.References = rec.References
+		// CorrelatedFingerprints is deliberately preserved: correlations
+		// change only via recordCorrelation, mirroring the Postgres merge.
+		existing.SourceKind = rec.SourceKind
+		existing.Tool = rec.Tool
+		existing.ToolVersion = rec.ToolVersion
+		existing.RuleID = rec.RuleID
 		existing.Raw = rec.Raw
 		copied := *existing
 		return &copied, false, nil
@@ -354,11 +361,13 @@ func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, 
 
 // summarizeMemLocked mirrors the Postgres SummarizeSecurityFindings contract
 // over the in-memory buffer: non-duplicate rows counted per severity, plus
-// total, open, and open_<severity> keys. Caller must hold s.mu.
+// total, open, open_<severity>, source_<kind>, and correlated keys. Caller
+// must hold s.mu.
 func (s *securityScanState) summarizeMemLocked() map[string]int32 {
 	counts := map[string]int32{
 		"total": 0, "open": 0,
 		"open_critical": 0, "open_high": 0, "open_medium": 0, "open_low": 0, "open_info": 0,
+		"source_agent": 0, "source_scanner": 0, "correlated": 0,
 	}
 	for _, rec := range s.mem {
 		if rec.DuplicateOf != nil {
@@ -370,8 +379,93 @@ func (s *securityScanState) summarizeMemLocked() map[string]int32 {
 			counts["open"]++
 			counts["open_"+rec.Severity]++
 		}
+		if rec.SourceKind == security.SourceKindScanner {
+			counts["source_scanner"]++
+		} else {
+			counts["source_agent"]++
+		}
+		if len(rec.CorrelatedFingerprints) > 0 {
+			counts["correlated"]++
+		}
 	}
 	return counts
+}
+
+// recordCorrelation records a two-way correlation between two findings of
+// this scan identified by fingerprint, mirroring
+// store.CorrelateSecurityFindings when no Postgres store is available.
+func (s *securityScanState) recordCorrelation(ctx context.Context, repository, fpA, fpB, reason string) (bool, error) {
+	if s.findingStore != nil {
+		return s.findingStore.CorrelateSecurityFindings(ctx, s.scanCtx.Namespace, s.scanCtx.ScanName,
+			repository, fpA, fpB, reason, s.scanCtx.RunName)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	find := func(fp string) *store.SecurityFindingRecord {
+		for _, rec := range s.mem {
+			if rec.Repository == repository && rec.Fingerprint == fp {
+				return rec
+			}
+		}
+		return nil
+	}
+	a, b := find(fpA), find(fpB)
+	if a == nil || b == nil {
+		return false, store.ErrSecurityFindingNotFound
+	}
+	changed := false
+	link := func(rec *store.SecurityFindingRecord, other string) {
+		for _, fp := range rec.CorrelatedFingerprints {
+			if fp == other {
+				return
+			}
+		}
+		rec.CorrelatedFingerprints = append(rec.CorrelatedFingerprints, other)
+		detail, _ := json.Marshal(map[string]string{"correlated_fingerprint": other, "reason": reason})
+		s.memEvents = append(s.memEvents, store.SecurityFindingEvent{
+			FindingID: rec.ID,
+			EventType: "correlated",
+			Actor:     s.scanCtx.RunName,
+			Note:      reason,
+			Detail:    detail,
+			CreatedAt: time.Now().UTC(),
+		})
+		changed = true
+	}
+	link(a, fpB)
+	link(b, fpA)
+	return changed, nil
+}
+
+// correlateScanFindings loads this scan's findings, computes agent↔scanner
+// correlations, and records every new pair on both sides. It returns the
+// number of pairs newly recorded.
+func (s *securityScanState) correlateScanFindings(ctx context.Context) (int, error) {
+	records, err := s.listFindings(ctx, store.SecurityFindingFilter{
+		Namespace:         s.scanCtx.Namespace,
+		ScanName:          s.scanCtx.ScanName,
+		Repository:        s.scanCtx.Repository,
+		IncludeDuplicates: true,
+		Limit:             1000,
+	})
+	if err != nil {
+		return 0, err
+	}
+	findings := make([]security.Finding, 0, len(records))
+	for _, rec := range records {
+		findings = append(findings, securityFindingFromRecord(rec))
+	}
+	recorded := 0
+	for _, c := range security.Correlate(findings) {
+		changed, err := s.recordCorrelation(ctx, s.scanCtx.Repository, c.AgentFingerprint, c.ScannerFingerprint, c.Reason)
+		if err != nil {
+			return recorded, err
+		}
+		if changed {
+			recorded++
+		}
+	}
+	return recorded, nil
 }
 
 // resolveFinding resolves an update target from an explicit id or a
@@ -447,6 +541,10 @@ func securityFindingRecord(f security.Finding, scanCtx SecurityScanContext, sess
 		References:   f.References,
 		SourceAgent:  f.SourceAgent,
 		ScanStep:     f.ScanStep,
+		SourceKind:   f.SourceKind,
+		Tool:         f.Tool,
+		ToolVersion:  f.ToolVersion,
+		RuleID:       f.RuleID,
 		Status:       store.SecurityFindingStatusOpen,
 		Raw:          raw,
 	}
@@ -478,6 +576,11 @@ func securityFindingFromRecord(rec store.SecurityFindingRecord) security.Finding
 	f.References = rec.References
 	f.SourceAgent = rec.SourceAgent
 	f.ScanStep = rec.ScanStep
+	f.SourceKind = rec.SourceKind
+	f.Tool = rec.Tool
+	f.ToolVersion = rec.ToolVersion
+	f.RuleID = rec.RuleID
+	f.CorrelatedFingerprints = rec.CorrelatedFingerprints
 	f.Fingerprint = rec.Fingerprint
 	return f
 }
@@ -559,6 +662,14 @@ func (t *reportSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 	} else {
 		finding.SourceAgent = t.state.scanCtx.RunName + "/" + label
 	}
+	// Provenance is stamped, never model-supplied: scanner provenance (and
+	// correlations) can only come from ingest_scanner_results, so an agent
+	// finding cannot masquerade as a deterministic tool's output.
+	finding.SourceKind = security.SourceKindAgent
+	finding.Tool = ""
+	finding.ToolVersion = ""
+	finding.RuleID = ""
+	finding.CorrelatedFingerprints = nil
 	finding.Normalize()
 	if err := finding.Validate(); err != nil {
 		return Result{Content: fmt.Sprintf("%v — fix the listed fields and call report_security_finding again", err), IsError: true}, nil
@@ -735,6 +846,170 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 	return Result{Content: fmt.Sprintf("Finding %s status set to %s.", rec.ID, status)}, nil
 }
 
+// --- ingest_scanner_results ---
+
+type ingestScannerResultsTool struct {
+	state *securityScanState
+}
+
+// Batch bounds for one ingest_scanner_results call: a hard record cap and a
+// hard payload-size cap so a scanner dump cannot balloon a single tool call.
+const (
+	maxScannerBatchRecords = 500
+	maxScannerBatchBytes   = 4 << 20 // 4 MiB
+)
+
+type ingestScannerResultsInput struct {
+	Records []security.ScannerRecord `json:"records"`
+}
+
+// scannerFindingRaw builds the finding's raw JSON payload: the normalized
+// finding plus the original scanner record preserved verbatim except for
+// secret redaction. securityFindingFromRecord ignores the extra key.
+type scannerFindingRaw struct {
+	security.Finding
+	ScannerRecord security.ScannerRecord `json:"scanner_record"`
+}
+
+func (t *ingestScannerResultsTool) Name() string { return "ingest_scanner_results" }
+
+func (t *ingestScannerResultsTool) Description() string {
+	return fmt.Sprintf("Ingest a batch of results from a deterministic scanner tool (semgrep, gosec, "+
+		"trivy, ...) you ran in the workspace, normalized into the scanner record contract. "+
+		"At most %d records (and %d bytes of input) per call; split larger outputs into "+
+		"multiple calls. The whole batch is rejected with per-record errors when any record "+
+		"is invalid. Accepted records are normalized, secret-redacted, persisted with "+
+		"scanner provenance (tool, version, rule id), deduplicated by deterministic "+
+		"fingerprint so re-running the same tool converges, and automatically correlated "+
+		"with agent findings at the same location — correlation cross-references both "+
+		"findings without merging them, so use it to prioritize validation rather than "+
+		"trusting either source alone. The scanned repository and revision are stamped from "+
+		"the scan configuration. Only records platform scan state; safe on read-only scan runs.",
+		maxScannerBatchRecords, maxScannerBatchBytes)
+}
+
+func (t *ingestScannerResultsTool) InputSchema() json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(`{
+		"type": "object",
+		"properties": {
+			"records": {
+				"type": "array",
+				"minItems": 1,
+				"maxItems": %d,
+				"description": "Scanner results normalized into the canonical scanner record contract",
+				"items": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["tool", "rule_id", "message", "severity", "file_path"],
+					"properties": {
+						"tool": {"type": "string", "description": "Scanner name, e.g. gosec"},
+						"tool_version": {"type": "string", "description": "Scanner version, e.g. 2.18.2"},
+						"rule_id": {"type": "string", "description": "The tool's rule identifier, e.g. G401"},
+						"rule_name": {"type": "string", "description": "Human-readable rule name"},
+						"message": {"type": "string", "description": "The tool's finding message"},
+						"severity": {"type": "string", "description": "The tool's severity (ERROR, WARNING, HIGH, moderate, ...); mapped onto critical/high/medium/low/info"},
+						"category": {"type": "string", "description": "Optional platform category; derived from cwe when omitted"},
+						"file_path": {"type": "string", "description": "Repository-relative path, forward slashes"},
+						"start_line": {"type": "integer", "minimum": 0, "description": "First matched line (1-based, 0 = unknown)"},
+						"end_line": {"type": "integer", "minimum": 0, "description": "Last matched line (1-based, 0 = unknown)"},
+						"symbol": {"type": "string", "description": "Enclosing function/method/symbol when the tool reports one"},
+						"cwe": {"type": "string", "description": "CWE identifier, e.g. CWE-798"},
+						"references": {"type": "array", "items": {"type": "string"}, "description": "Rule documentation / advisory URLs"},
+						"raw_evidence": {"type": "string", "description": "Verbatim matched snippet (secret-redacted before storage)"},
+						"extra": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Tool-specific metadata preserved in the raw payload"}
+					}
+				}
+			}
+		},
+		"required": ["records"]
+	}`, maxScannerBatchRecords))
+}
+
+func (t *ingestScannerResultsTool) IsReadOnly() bool                      { return true }
+func (t *ingestScannerResultsTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
+func (t *ingestScannerResultsTool) NeedsApproval() bool                   { return false }
+func (t *ingestScannerResultsTool) TimeoutSeconds() int                   { return 0 }
+
+func (t *ingestScannerResultsTool) Execute(ctx context.Context, input json.RawMessage, _ string) (Result, error) {
+	if len(input) > maxScannerBatchBytes {
+		return Result{Content: fmt.Sprintf("input is %d bytes, exceeding the %d byte batch limit; split the scanner output into smaller batches", len(input), maxScannerBatchBytes), IsError: true}, nil
+	}
+	var in ingestScannerResultsInput
+	dec := json.NewDecoder(bytes.NewReader(input))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		return Result{Content: fmt.Sprintf("invalid input: %v (see the tool schema for the scanner record contract)", err), IsError: true}, nil
+	}
+	if len(in.Records) == 0 {
+		return Result{Content: "records is required: supply at least one scanner record", IsError: true}, nil
+	}
+	if len(in.Records) > maxScannerBatchRecords {
+		return Result{Content: fmt.Sprintf("%d records exceed the %d record batch limit; split the scanner output into smaller batches", len(in.Records), maxScannerBatchRecords), IsError: true}, nil
+	}
+
+	scanCtx := t.state.scanCtx
+	findings := make([]security.Finding, len(in.Records))
+	var problems []string
+	for i, rec := range in.Records {
+		// Repository and revision are stamped from the scan context (they
+		// are part of the finding identity), exactly like agent findings.
+		f, err := security.NormalizeScannerRecord(rec, scanCtx.Repository, scanCtx.Revision)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("records[%d]: %v", i, err))
+			continue
+		}
+		f.SourceAgent = scanCtx.RunName
+		findings[i] = f
+	}
+	if len(problems) > 0 {
+		return Result{Content: fmt.Sprintf("batch rejected, no records ingested; fix these records and resubmit:\n%s", strings.Join(problems, "\n")), IsError: true}, nil
+	}
+
+	scanID, err := t.state.ensureScan(ctx)
+	if err != nil {
+		return Result{Content: fmt.Sprintf("failed to open the scan record: %v", err), IsError: true}, nil
+	}
+	created, merged := 0, 0
+	tools := map[string]bool{}
+	for i, f := range findings {
+		rec := securityFindingRecord(f, scanCtx, t.state.sessionIDPtr())
+		rec.ScanID = scanID
+		// Preserve the original scanner record verbatim (minus secrets) in
+		// the raw payload alongside the normalized finding.
+		if raw, err := json.Marshal(scannerFindingRaw{Finding: f, ScannerRecord: in.Records[i].Redacted()}); err == nil {
+			rec.Raw = raw
+		}
+		_, isNew, err := t.state.upsertFinding(ctx, rec)
+		if err != nil {
+			return Result{Content: fmt.Sprintf("failed to persist scanner finding (records[%d]): %v", i, err), IsError: true}, nil
+		}
+		if isNew {
+			created++
+		} else {
+			merged++
+		}
+		tools[f.Tool] = true
+	}
+
+	correlated, err := t.state.correlateScanFindings(ctx)
+	if err != nil {
+		return Result{Content: fmt.Sprintf("scanner findings ingested (%d new, %d merged) but correlation failed: %v", created, merged, err), IsError: true}, nil
+	}
+
+	toolNames := make([]string, 0, len(tools))
+	for name := range tools {
+		toolNames = append(toolNames, name)
+	}
+	sort.Strings(toolNames)
+	var b strings.Builder
+	fmt.Fprintf(&b, "Ingested %d scanner record(s) from %s: %d new finding(s), %d merged into existing findings by fingerprint.",
+		len(in.Records), strings.Join(toolNames, ", "), created, merged)
+	if correlated > 0 {
+		fmt.Fprintf(&b, "\n%d new agent↔scanner correlation(s) recorded; use list_security_findings and validate correlated findings first.", correlated)
+	}
+	return Result{Content: b.String()}, nil
+}
+
 // --- submit_security_scan_report ---
 
 type submitSecurityScanReportTool struct {
@@ -866,7 +1141,7 @@ func (t *submitSecurityScanReportTool) loadPriorScanState(ctx context.Context, p
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to load scan record: %v", err)
 	}
-	counts, err = t.state.findingStore.SummarizeSecurityFindings(ctx, scanCtx.Namespace, scanCtx.ScanName, scanCtx.RunName)
+	counts, err = t.state.findingStore.SummarizeSecurityFindings(ctx, scanCtx.Namespace, scanCtx.ScanName, scanCtx.RunName, false)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to summarize findings: %v", err)
 	}
@@ -900,6 +1175,18 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 	findings := make([]security.Finding, 0, len(records))
 	for _, rec := range records {
 		findings = append(findings, securityFindingFromRecord(rec))
+	}
+
+	// Correlate agent and scanner findings one final time so anything
+	// reported after the last ingest batch is cross-referenced (on both
+	// stored rows and in the rendered report) before dedupe and ranking.
+	if correlations := security.Correlate(findings); len(correlations) > 0 {
+		for _, c := range correlations {
+			if _, err := t.state.recordCorrelation(ctx, scanCtx.Repository, c.AgentFingerprint, c.ScannerFingerprint, c.Reason); err != nil {
+				return Result{Content: fmt.Sprintf("failed to record finding correlation: %v", err), IsError: true}, nil
+			}
+		}
+		security.ApplyCorrelations(findings, correlations)
 	}
 
 	canonical, clusterCount, dedupeDesc := dedupeSubmittedFindings(findings, scanCtx)

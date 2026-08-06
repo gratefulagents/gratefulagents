@@ -20,7 +20,7 @@ type SecurityLibraryReconciler struct {
 	client.Client
 }
 
-// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows/status;securityrankers/status;securitypostscripts/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows/status;securityrankers/status;securitypostscripts/status;securitypolicypacks/status,verbs=get;update;patch
 
 // securityScanRefNames extracts the names a scan references for one library
 // kind.
@@ -42,6 +42,10 @@ func securityScanRefNames(scan *triggersv1alpha1.SecurityScan, kind string) []st
 			names = append(names, ref.Name)
 		}
 		return names
+	case "SecurityPolicyPack":
+		if scan.Spec.PolicyPackRef != nil {
+			return []string{scan.Spec.PolicyPackRef.Name}
+		}
 	}
 	return nil
 }
@@ -174,5 +178,26 @@ func (r *SecurityPostScriptReconciler) SetupWithManager(mgr ctrl.Manager) error 
 		For(&triggersv1alpha1.SecurityPostScript{}).
 		Watches(&triggersv1alpha1.SecurityScan{}, handler.EnqueueRequestsFromMapFunc(mapScanToSecurityLibrary("SecurityPostScript"))).
 		Named("securitypostscript").
+		Complete(r)
+}
+
+// SecurityPolicyPackReconciler validates SecurityPolicyPack resources.
+type SecurityPolicyPackReconciler struct{ SecurityLibraryReconciler }
+
+func (r *SecurityPolicyPackReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	pack := &triggersv1alpha1.SecurityPolicyPack{}
+	if err := r.Get(ctx, req.NamespacedName, pack); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	errs := triggersv1alpha1.ValidateSecurityPolicyPackSpec(pack.Spec)
+	return ctrl.Result{}, client.IgnoreNotFound(
+		r.reconcileStatus(ctx, pack, "SecurityPolicyPack", &pack.Status, errs))
+}
+
+func (r *SecurityPolicyPackReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&triggersv1alpha1.SecurityPolicyPack{}).
+		Watches(&triggersv1alpha1.SecurityScan{}, handler.EnqueueRequestsFromMapFunc(mapScanToSecurityLibrary("SecurityPolicyPack"))).
+		Named("securitypolicypack").
 		Complete(r)
 }

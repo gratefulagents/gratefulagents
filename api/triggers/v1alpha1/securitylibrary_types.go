@@ -28,8 +28,8 @@ type SecurityResourceRef struct {
 // SecurityScanResolvedRef records one reusable security resource resolved and
 // snapshotted into a scan run at run-creation time.
 type SecurityScanResolvedRef struct {
-	// kind of the referenced resource: SecurityWorkflow, SecurityRanker, or
-	// SecurityPostScript.
+	// kind of the referenced resource: SecurityWorkflow, SecurityRanker,
+	// SecurityPostScript, or SecurityPolicyPack.
 	Kind string `json:"kind"`
 
 	// name of the referenced resource.

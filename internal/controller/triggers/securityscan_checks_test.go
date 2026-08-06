@@ -47,7 +47,7 @@ type checksTestFindingStore struct {
 	scanRec  *store.SecurityScanRecord
 }
 
-func (s *checksTestFindingStore) SummarizeSecurityFindings(context.Context, string, string, string) (map[string]int32, error) {
+func (s *checksTestFindingStore) SummarizeSecurityFindings(context.Context, string, string, string, bool) (map[string]int32, error) {
 	return s.counts, nil
 }
 
@@ -290,4 +290,12 @@ func TestPublishRunCheckDisabledDoesNothing(t *testing.T) {
 	if len(publisher.checks) != 0 {
 		t.Fatalf("published checks = %d, want 0 when disabled", len(publisher.checks))
 	}
+}
+
+func (s *checksTestFindingStore) ApplySecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
+func (s *checksTestFindingStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
+	return 0, nil
 }

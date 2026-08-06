@@ -183,6 +183,9 @@ func BuildSecurityScanPromptWithEvent(spec triggersv1alpha1.SecurityScanSpec, ev
 		b.WriteString("- Deduplication is disabled: report every finding, including near-duplicates.\n")
 	}
 	fmt.Fprintf(&b, "- Exclude findings below severity %q from the report.\n", spec.EffectiveMinSeverity())
+	if spec.Budgets != nil && spec.Budgets.MaxFindings > 0 {
+		fmt.Fprintf(&b, "- Finding budget: report at most %d findings in total; prioritize the most severe, highest-confidence issues. The platform enforces this cap on the persisted findings regardless of what is reported.\n", spec.Budgets.MaxFindings)
+	}
 	b.WriteString("\n")
 
 	b.WriteString("## Final step\n\n")

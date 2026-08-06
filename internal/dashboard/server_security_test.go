@@ -37,12 +37,17 @@ type mockSecurityStore struct {
 	summaryRunName   string
 	summary          map[string]int32
 
+	summaryIncludeSuppressed bool
+
 	lastStatusExpiry *time.Time
 	expireSweeps     []string
 	bulkErr          error
 	lastBulkUpdate   *store.SecurityFindingBulkUpdate
 	savedFilters     []store.SecuritySavedFilter
 	trends           *store.SecurityFindingTrends
+
+	appliedSuppressions     []store.SecuritySuppressionRule
+	suppressionExpirySweeps []string
 }
 
 func newMockSecurityStore() *mockSecurityStore {
@@ -81,6 +86,10 @@ func (m *mockSecurityStore) ListSecurityScans(_ context.Context, namespace, scan
 
 func (m *mockSecurityStore) UpsertSecurityFinding(_ context.Context, rec *store.SecurityFindingRecord) (*store.SecurityFindingRecord, bool, error) {
 	return rec, true, nil
+}
+
+func (m *mockSecurityStore) CorrelateSecurityFindings(context.Context, string, string, string, string, string, string, string) (bool, error) {
+	return false, nil
 }
 
 func (m *mockSecurityStore) ListSecurityFindings(_ context.Context, f store.SecurityFindingFilter) ([]store.SecurityFindingRecord, error) {
@@ -156,16 +165,21 @@ func (m *mockSecurityStore) AddSecurityFindingComment(_ context.Context, namespa
 	return &event, nil
 }
 
-func (m *mockSecurityStore) SummarizeSecurityFindings(_ context.Context, namespace, scanName, runName string) (map[string]int32, error) {
+func (m *mockSecurityStore) SummarizeSecurityFindings(_ context.Context, namespace, scanName, runName string, includeSuppressed bool) (map[string]int32, error) {
 	if m.summaryErr != nil {
 		return nil, m.summaryErr
 	}
 	m.summaryNamespace, m.summaryScanName, m.summaryRunName = namespace, scanName, runName
+	m.summaryIncludeSuppressed = includeSuppressed
 	return m.summary, nil
 }
 
 func (m *mockSecurityStore) DeleteSecurityScanData(context.Context, string, string) error {
 	return nil
+}
+
+func (m *mockSecurityStore) PurgeExpiredSecurityData(context.Context, string, store.SecurityRetentionPolicy, int) (store.SecurityRetentionCounts, bool, error) {
+	return store.SecurityRetentionCounts{}, false, nil
 }
 
 func (m *mockSecurityStore) ClaimSecurityNotifications(_ context.Context, _, _, _ string, fingerprints []string) ([]string, error) {
@@ -223,6 +237,22 @@ func (m *mockSecurityStore) ExpireAcceptedRisks(_ context.Context, namespace str
 		return 0, errors.New("namespace is required")
 	}
 	m.expireSweeps = append(m.expireSweeps, namespace)
+	return 0, nil
+}
+
+func (m *mockSecurityStore) ApplySecuritySuppressions(_ context.Context, namespace, scanName string, rules []store.SecuritySuppressionRule) (int32, error) {
+	if namespace == "" {
+		return 0, errors.New("namespace is required")
+	}
+	m.appliedSuppressions = append(m.appliedSuppressions, rules...)
+	return int32(len(rules)), nil
+}
+
+func (m *mockSecurityStore) ExpireSecuritySuppressions(_ context.Context, namespace string) (int32, error) {
+	if namespace == "" {
+		return 0, errors.New("namespace is required")
+	}
+	m.suppressionExpirySweeps = append(m.suppressionExpirySweeps, namespace)
 	return 0, nil
 }
 
@@ -482,7 +512,9 @@ func newTestFinding(namespace string) *store.SecurityFindingRecord {
 		CWE: []string{"CWE-89"}, Description: "desc", Impact: "impact",
 		AttackVector: "vector", Remediation: "fix it", References: []string{"https://example.com"},
 		SourceAgent: "scanner", ScanStep: "step-1", Score: 9.5, Status: "open",
-		Occurrences: 2, Raw: []byte(`{"k":"v"}`),
+		SourceKind: "scanner", Tool: "semgrep", ToolVersion: "1.50.0", RuleID: "go.sqli",
+		CorrelatedFingerprints: []string{"fp-agent-1"},
+		Occurrences:            2, Raw: []byte(`{"k":"v"}`),
 		FirstSeenAt: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC),
 		LastSeenAt:  time.Date(2026, 2, 2, 0, 0, 0, 0, time.UTC),
 	}
@@ -514,6 +546,11 @@ func TestGetSecurityFinding(t *testing.T) {
 	}
 	if len(resp.GetEvents()) != 1 || resp.GetEvents()[0].GetEventType() != "created" {
 		t.Fatalf("events = %+v", resp.GetEvents())
+	}
+	if pb.GetSourceKind() != "scanner" || pb.GetTool() != "semgrep" || pb.GetToolVersion() != "1.50.0" ||
+		pb.GetRuleId() != "go.sqli" || len(pb.GetCorrelatedFingerprints()) != 1 ||
+		pb.GetCorrelatedFingerprints()[0] != "fp-agent-1" {
+		t.Fatalf("finding provenance = %+v", pb)
 	}
 	if sec.lastGetNamespace != callerNS || sec.lastEventsNamespace != callerNS {
 		t.Fatalf("store namespaces = %q/%q, want %q", sec.lastGetNamespace, sec.lastEventsNamespace, callerNS)

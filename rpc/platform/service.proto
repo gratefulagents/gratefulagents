@@ -321,6 +321,16 @@ service PlatformService {
   rpc UpdateSecurityPostScript(UpdateSecurityPostScriptRequest) returns (SecurityPostScriptResource);
   rpc DeleteSecurityPostScript(DeleteSecurityPostScriptRequest) returns (google.protobuf.Empty);
 
+  // SecurityPolicyPack CRs referenced by SecurityScan configurations via
+  // policy_pack_ref. A pack supplies scan defaults, enforced floors a scan
+  // may not relax, and governed finding suppressions. Delete is blocked with
+  // FailedPrecondition while SecurityScans still reference the pack.
+  rpc ListSecurityPolicyPacks(ListSecurityPolicyPacksRequest) returns (ListSecurityPolicyPacksResponse);
+  rpc GetSecurityPolicyPack(GetSecurityPolicyPackRequest) returns (SecurityPolicyPackResource);
+  rpc CreateSecurityPolicyPack(CreateSecurityPolicyPackRequest) returns (SecurityPolicyPackResource);
+  rpc UpdateSecurityPolicyPack(UpdateSecurityPolicyPackRequest) returns (SecurityPolicyPackResource);
+  rpc DeleteSecurityPolicyPack(DeleteSecurityPolicyPackRequest) returns (google.protobuf.Empty);
+
   // AI-assisted authoring. GenerateSecurityDraft launches a bounded,
   // repo-less draft-generation AgentRun that uses only the caller's saved
   // provider credentials (no repository, GitHub token, or other secrets);
@@ -4020,6 +4030,25 @@ message SecurityFinding {
   google.protobuf.Timestamp resolved_at = 38;
   // triaged_at is when the finding first left status "open".
   google.protobuf.Timestamp triaged_at = 39;
+  // Governed suppression (SecurityPolicyPack suppression rules). The finding
+  // is suppressed while suppressed_by is non-empty: excluded from
+  // failOnSeverity gating and default list/summary results, never deleted.
+  string suppressed_by = 40; // Suppressing rule id "<pack>/<rule>"; empty = not suppressed
+  string suppressed_reason = 41;
+  string suppressed_owner = 42;
+  google.protobuf.Timestamp suppression_expires_at = 43;
+  google.protobuf.Timestamp suppressed_at = 44;
+  // Scanner provenance. source_kind is "agent" (default; empty = agent) or
+  // "scanner" for findings ingested from deterministic tools; tool,
+  // tool_version, and rule_id identify the deterministic scanner rule and
+  // are empty for agent findings.
+  string source_kind = 45;
+  string tool = 46;
+  string tool_version = 47;
+  string rule_id = 48;
+  // correlated_fingerprints cross-reference findings from the other source
+  // kind that describe the same issue; correlation never merges either side.
+  repeated string correlated_fingerprints = 49;
 }
 
 message ListSecurityFindingsRequest {
@@ -4037,6 +4066,10 @@ message ListSecurityFindingsRequest {
   int32 offset = 12;
   string baseline_state = 13; // Optional: new, recurring, regressed, resolved, reopened
   string assignee = 14; // Optional: filter by assignee
+  // suppressed controls governed-suppressed findings: "" or "exclude" omits
+  // them (default), "include" returns suppressed and unsuppressed findings
+  // alike, "only" returns only suppressed findings.
+  string suppressed = 15;
 }
 
 message ListSecurityFindingsResponse {
@@ -4086,6 +4119,9 @@ message GetSecurityFindingSummaryRequest {
   string namespace = 1;
   string scan_name = 2; // Optional: restrict to one scan name
   string run_name = 3; // Optional: restrict to one scan run
+  // include_suppressed folds governed-suppressed findings into every count;
+  // by default they only appear under the "suppressed" key.
+  bool include_suppressed = 4;
 }
 
 message GetSecurityFindingSummaryResponse {
@@ -4387,6 +4423,13 @@ message SecurityScanConfigSpec {
   SecurityScanChecksConfig checks = 23;
   // notifications route new/regressed findings to Slack/GitHub/Linear.
   repeated SecurityScanNotificationRuleConfig notifications = 24;
+  // policy_pack_ref names a SecurityPolicyPack in the scan's namespace whose
+  // defaults, enforced floors, and governed suppressions apply to this scan
+  // (precedence: platform defaults < policy pack < scan configuration).
+  string policy_pack_ref = 25;
+  // budgets caps what each scan run may consume; unset fields inherit the
+  // policy pack's budgets. Enforced entirely platform-side.
+  SecurityScanBudgetsConfig budgets = 26;
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.
@@ -4418,6 +4461,35 @@ message SecurityScanConfig {
   string last_event_revision = 23;
   // event_runs_created counts AgentRuns created from repository events.
   int32 event_runs_created = 24;
+  // effective_budgets is the budget set actually enforced: scan budgets
+  // merged with the policy pack's defaults. Empty when no budget is set.
+  SecurityScanBudgetsConfig effective_budgets = 25;
+  // budget_exceeded reports whether a hard budget limit is exceeded per the
+  // controller's platform-side evaluation (also set pre-launch, e.g. when
+  // persisted findings already exceed max_findings), so the dashboard can
+  // warn before starting a run.
+  bool budget_exceeded = 26;
+  // budget_message explains which limit is exceeded, empty otherwise.
+  string budget_message = 27;
+  // retention reports the most recent retention sweep for this scan's
+  // policy pack retention configuration. Unset when no sweep has run.
+  SecurityScanRetentionState retention = 28;
+}
+
+// SecurityScanRetentionState is the most recent retention purge sweep for a
+// SecurityScan trigger. Counters are cumulative per SecurityScan resource.
+message SecurityScanRetentionState {
+  int64 last_sweep_time_unix = 1; // 0 = no sweep has run yet
+  int64 scans_purged = 2; // Deleted scan run records (incl. observations)
+  int64 findings_purged = 3; // Deleted finding rows
+  int64 reports_purged = 4; // Deleted report artifacts (markdown/SARIF)
+  int64 evidence_redacted = 5; // Findings whose evidence was redacted in place
+  int64 poc_redacted = 6; // Findings whose PoC content was redacted in place
+  int64 audit_events_purged = 7; // Deleted finding audit events
+  // more_work reports whether the last batch hit its bound; the controller
+  // requeues promptly while true.
+  bool more_work = 8;
+  string last_error = 9; // Most recent sweep failure, empty after a clean batch
 }
 
 message ListSecurityScanConfigsRequest {
@@ -4605,6 +4677,114 @@ message UpdateSecurityPostScriptRequest {
 }
 
 message DeleteSecurityPostScriptRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecuritySuppressionMatcherConfig selects the findings a governed
+// suppression rule applies to. All set fields must match (AND); at least one
+// is required.
+message SecuritySuppressionMatcherConfig {
+  string category = 1; // Exact finding category
+  string cwe = 2; // Matches findings whose CWE list contains this id
+  string path_glob = 3; // Glob over the finding file path ('*' and '?')
+  string fingerprint = 4; // Exact finding fingerprint
+}
+
+// SecurityPolicySuppressionConfig is one governed suppression rule of a
+// SecurityPolicyPack. Matching findings are marked suppressed (never
+// deleted), audited, excluded from gating and default listings, and
+// automatically unsuppressed past expires_at.
+message SecurityPolicySuppressionConfig {
+  string name = 1; // Rule name (DNS-1123 label); persisted id is "<pack>/<name>"
+  string reason = 2; // Required: why the findings are suppressed
+  string owner = 3; // Required: who is accountable
+  SecuritySuppressionMatcherConfig matcher = 4;
+  google.protobuf.Timestamp expires_at = 5; // Optional expiry
+}
+
+// SecurityScanBudgetsConfig caps what one scan run may consume. Zero/empty
+// fields are unlimited (or inherit the policy pack's value). Enforcement is
+// entirely platform-side: limits derive from the CRD spec merged with the
+// policy pack and are re-checked against platform-observed usage, so model
+// output can never relax them.
+message SecurityScanBudgetsConfig {
+  int32 max_model_jobs = 1; // Sub-agent runs the scan run may spawn
+  string max_cost_usd = 2; // Decimal USD ceiling, e.g. "5" or "2.50"
+  int64 max_tokens = 3; // Total LLM tokens (input + output)
+  string max_runtime = 4; // Go duration string, e.g. "2h"
+  int32 max_findings = 5; // Persisted findings cap
+  int32 max_validation_jobs = 6; // Post-script (validation/PoC) sub-agent runs
+}
+
+// SecurityPolicyPackRetentionConfig configures how long each class of
+// persisted security data is kept, in days; 0 keeps a class forever.
+// Evidence and PoC retention redact the expired content in place — the
+// finding row, its identity, and its audit history are preserved.
+message SecurityPolicyPackRetentionConfig {
+  int32 scan_days = 1; // Completed scan run records + observation rows
+  int32 finding_days = 2; // Finding rows (deleted with their audit events)
+  int32 report_days = 3; // Report artifacts (markdown and SARIF)
+  int32 evidence_days = 4; // Evidence snippets (redacted in place)
+  int32 poc_days = 5; // PoC / attack-vector narratives (redacted in place)
+  int32 audit_event_days = 6; // Finding audit-trail events
+}
+
+// SecurityPolicyPackResource is one SecurityPolicyPack CR: scan defaults,
+// enforced floors referencing scans may not relax, and governed suppressions.
+message SecurityPolicyPackResource {
+  string namespace = 1;
+  string name = 2;
+  string description = 3;
+  // required_categories the effective scan workflow must cover (checked when
+  // "requiredCategories" is enforced).
+  repeated string required_categories = 4;
+  string min_severity = 5; // critical|high|medium|low|info; empty = none
+  string fail_on_severity = 6; // critical|high|medium|low|info; empty = none
+  SecurityScanDedupeConfig dedupe = 7;
+  // allowed_runtime_profiles the scan's defaults.runtimeProfileRef must name
+  // one of (checked when "allowedRuntimeProfiles" is enforced).
+  repeated string allowed_runtime_profiles = 8;
+  repeated string default_ranker_refs = 9; // SecurityRanker names appended to scans
+  repeated string default_post_script_refs = 10; // SecurityPostScript names appended to scans
+  // enforced lists the pack fields scans may not relax: minSeverity,
+  // failOnSeverity, dedupe, requiredCategories, allowedRuntimeProfiles,
+  // budgets.
+  repeated string enforced = 11;
+  repeated SecurityPolicySuppressionConfig suppressions = 12;
+  // retention configures per-class data retention (days; 0 = keep forever).
+  SecurityPolicyPackRetentionConfig retention = 13;
+  // budgets are default scan budgets for referencing scans (precedence:
+  // pack default < scan; enforced "budgets" forbids raising a pack limit).
+  SecurityScanBudgetsConfig budgets = 14;
+  int32 usage_count = 20;
+  repeated string referencing_scans = 21;
+  int64 generation = 22;
+  int64 created_at_unix = 23;
+}
+
+message ListSecurityPolicyPacksRequest {
+  string namespace = 1;
+}
+
+message ListSecurityPolicyPacksResponse {
+  repeated SecurityPolicyPackResource policy_packs = 1;
+}
+
+message GetSecurityPolicyPackRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityPolicyPackRequest {
+  SecurityPolicyPackResource policy_pack = 1;
+}
+
+message UpdateSecurityPolicyPackRequest {
+  SecurityPolicyPackResource policy_pack = 1;
+}
+
+message DeleteSecurityPolicyPackRequest {
   string namespace = 1;
   string name = 2;
 }

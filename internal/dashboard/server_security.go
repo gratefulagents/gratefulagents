@@ -83,6 +83,10 @@ func (s *Server) ListSecurityFindings(ctx context.Context, req *platform.ListSec
 		return nil, err
 	}
 	s.sweepExpiredAcceptedRisks(ctx, sec, namespace)
+	if !store.ValidSecuritySuppressedFilter(req.GetSuppressed()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("invalid suppressed filter %q (want empty, exclude, include, or only)", req.GetSuppressed()))
+	}
 	findings, err := sec.ListSecurityFindings(ctx, store.SecurityFindingFilter{
 		Namespace:         namespace,
 		ScanName:          req.GetScanName(),
@@ -96,6 +100,7 @@ func (s *Server) ListSecurityFindings(ctx context.Context, req *platform.ListSec
 		IncludeDuplicates: req.GetIncludeDuplicates(),
 		BaselineState:     req.GetBaselineState(),
 		Assignee:          req.GetAssignee(),
+		Suppressed:        req.GetSuppressed(),
 		Limit:             req.GetLimit(),
 		Offset:            req.GetOffset(),
 	})
@@ -205,7 +210,7 @@ func (s *Server) GetSecurityFindingSummary(ctx context.Context, req *platform.Ge
 		return nil, err
 	}
 	s.sweepExpiredAcceptedRisks(ctx, sec, namespace)
-	counts, err := sec.SummarizeSecurityFindings(ctx, namespace, req.GetScanName(), req.GetRunName())
+	counts, err := sec.SummarizeSecurityFindings(ctx, namespace, req.GetScanName(), req.GetRunName(), req.GetIncludeSuppressed())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("summarizing security findings: %w", err))
 	}
@@ -377,6 +382,20 @@ func securityFindingProto(in *store.SecurityFindingRecord) *platform.SecurityFin
 	}
 	if in.TriagedAt != nil {
 		out.TriagedAt = timestamppb.New(*in.TriagedAt)
+	}
+	out.SourceKind = in.SourceKind
+	out.Tool = in.Tool
+	out.ToolVersion = in.ToolVersion
+	out.RuleId = in.RuleID
+	out.CorrelatedFingerprints = in.CorrelatedFingerprints
+	out.SuppressedBy = in.SuppressedBy
+	out.SuppressedReason = in.SuppressedReason
+	out.SuppressedOwner = in.SuppressedOwner
+	if in.SuppressionExpiresAt != nil {
+		out.SuppressionExpiresAt = timestamppb.New(*in.SuppressionExpiresAt)
+	}
+	if in.SuppressedAt != nil {
+		out.SuppressedAt = timestamppb.New(*in.SuppressedAt)
 	}
 	return out
 }
