@@ -256,6 +256,13 @@ func (m *mockSecurityStore) ExpireSecuritySuppressions(_ context.Context, namesp
 	return 0, nil
 }
 
+func (m *mockSecurityStore) RevokeSecuritySuppressions(_ context.Context, namespace, scanName string, activeRules []store.SecuritySuppressionRule) (int32, error) {
+	if namespace == "" {
+		return 0, errors.New("namespace is required")
+	}
+	return 0, nil
+}
+
 func (m *mockSecurityStore) BulkUpdateSecurityFindings(_ context.Context, namespace, scanName string, ids []uuid.UUID, upd store.SecurityFindingBulkUpdate) error {
 	if namespace == "" {
 		return errors.New("namespace is required")

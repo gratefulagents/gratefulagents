@@ -41,6 +41,10 @@ func (s *budgetSummaryFindingStore) ExpireSecuritySuppressions(context.Context, 
 	return 0, nil
 }
 
+func (s *budgetSummaryFindingStore) RevokeSecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
 func (s *budgetSummaryFindingStore) ExpireAcceptedRisks(context.Context, string) (int32, error) {
 	return 0, nil
 }

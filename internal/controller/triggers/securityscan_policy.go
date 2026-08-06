@@ -262,10 +262,13 @@ func securitySuppressionRulesFromPack(pack *triggersv1alpha1.SecurityPolicyPack)
 
 // sweepSecuritySuppressions runs the suppression governance sweep for a scan
 // from the status-refresh/finalize path: expired suppressions in the
-// namespace are cleared (audited, never erased), then the scan's current
-// policy pack suppression rules are applied to its persisted findings. Both
-// store calls are idempotent and cheap; errors are best-effort (logged,
-// never failing the reconcile).
+// namespace are cleared (audited, never erased), suppressions whose rule was
+// revoked — deleted from the pack, no longer matching the finding, or the
+// pack/policyPackRef removed entirely — are cleared with a
+// "suppression_revoked" audit event, then the scan's current policy pack
+// suppression rules are applied to its persisted findings. All store calls
+// are idempotent and cheap; errors are best-effort (logged, never failing
+// the reconcile).
 func (r *SecurityScanReconciler) sweepSecuritySuppressions(ctx context.Context, scan *triggersv1alpha1.SecurityScan) {
 	if r.Findings == nil {
 		return
@@ -274,32 +277,41 @@ func (r *SecurityScanReconciler) sweepSecuritySuppressions(ctx context.Context, 
 	if _, err := r.Findings.ExpireSecuritySuppressions(ctx, scan.Namespace); err != nil {
 		log.Error(err, "failed to expire security suppressions", "scan", scan.Name)
 	}
-	if scan.Spec.PolicyPackRef == nil {
-		return
-	}
-	pack := &triggersv1alpha1.SecurityPolicyPack{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: scan.Namespace, Name: scan.Spec.PolicyPackRef.Name}, pack); err != nil {
-		if !apierrors.IsNotFound(err) {
+	var active []store.SecuritySuppressionRule
+	if scan.Spec.PolicyPackRef != nil {
+		pack := &triggersv1alpha1.SecurityPolicyPack{}
+		err := r.Get(ctx, client.ObjectKey{Namespace: scan.Namespace, Name: scan.Spec.PolicyPackRef.Name}, pack)
+		switch {
+		case apierrors.IsNotFound(err):
+			// A deleted pack leaves no active rules: every suppression it
+			// granted is revoked below.
+		case err != nil:
+			// Unknown pack state must not revoke governed suppressions.
 			log.Error(err, "failed to get SecurityPolicyPack for suppression sweep", "pack", scan.Spec.PolicyPackRef.Name)
+			return
+		case len(triggersv1alpha1.ValidateSecurityPolicyPackSpec(pack.Spec)) != 0:
+			// An invalid pack's rule intent is unknowable: keep the current
+			// suppressions until it is fixed (runs fail closed elsewhere).
+			return
+		default:
+			now := r.now()
+			for _, rule := range securitySuppressionRulesFromPack(pack) {
+				if rule.ExpiresAt == nil || rule.ExpiresAt.After(now) {
+					active = append(active, rule)
+				}
+			}
 		}
-		return
 	}
-	if errs := triggersv1alpha1.ValidateSecurityPolicyPackSpec(pack.Spec); len(errs) != 0 {
-		return
-	}
-	now := r.now()
-	rules := securitySuppressionRulesFromPack(pack)
-	active := rules[:0]
-	for _, rule := range rules {
-		if rule.ExpiresAt == nil || rule.ExpiresAt.After(now) {
-			active = append(active, rule)
-		}
+	// Revoke before applying so a finding released by one rule can be
+	// re-suppressed by another rule in the same sweep, with both audited.
+	if _, err := r.Findings.RevokeSecuritySuppressions(ctx, scan.Namespace, scan.Name, active); err != nil {
+		log.Error(err, "failed to revoke security suppressions", "scan", scan.Name)
 	}
 	if len(active) == 0 {
 		return
 	}
 	if _, err := r.Findings.ApplySecuritySuppressions(ctx, scan.Namespace, scan.Name, active); err != nil {
-		log.Error(err, "failed to apply security suppressions", "scan", scan.Name, "pack", pack.Name)
+		log.Error(err, "failed to apply security suppressions", "scan", scan.Name, "pack", scan.Spec.PolicyPackRef.Name)
 	}
 }
 

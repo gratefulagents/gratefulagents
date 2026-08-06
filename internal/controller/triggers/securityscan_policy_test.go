@@ -413,10 +413,15 @@ func TestSecurityScanPolicyPackSnapshotRecorded(t *testing.T) {
 // suppressionSweepStore records suppression sweep calls.
 type suppressionSweepStore struct {
 	store.SecurityFindingStore
-	expiredNamespaces []string
-	appliedNamespace  string
-	appliedScan       string
-	appliedRules      []store.SecuritySuppressionRule
+	expiredNamespaces  []string
+	appliedNamespace   string
+	appliedScan        string
+	appliedRules       []store.SecuritySuppressionRule
+	revokeCalls        int
+	revokedNamespace   string
+	revokedScan        string
+	revokedRules       []store.SecuritySuppressionRule
+	revokedBeforeApply bool
 }
 
 func (s *suppressionSweepStore) ExpireSecuritySuppressions(_ context.Context, namespace string) (int32, error) {
@@ -428,6 +433,14 @@ func (s *suppressionSweepStore) ApplySecuritySuppressions(_ context.Context, nam
 	s.appliedNamespace, s.appliedScan = namespace, scanName
 	s.appliedRules = append([]store.SecuritySuppressionRule(nil), rules...)
 	return int32(len(rules)), nil
+}
+
+func (s *suppressionSweepStore) RevokeSecuritySuppressions(_ context.Context, namespace, scanName string, activeRules []store.SecuritySuppressionRule) (int32, error) {
+	s.revokeCalls++
+	s.revokedNamespace, s.revokedScan = namespace, scanName
+	s.revokedRules = append([]store.SecuritySuppressionRule(nil), activeRules...)
+	s.revokedBeforeApply = s.appliedRules == nil
+	return 0, nil
 }
 
 func TestSweepSecuritySuppressionsAppliesPackRules(t *testing.T) {
@@ -469,9 +482,22 @@ func TestSweepSecuritySuppressionsAppliesPackRules(t *testing.T) {
 		rule.Matcher.PathGlob != "vendor/*" || rule.ExpiresAt == nil || !rule.ExpiresAt.Equal(future.Time) {
 		t.Fatalf("applied rule = %+v", rule)
 	}
+	// Revoked suppressions (deleted rules, narrowed matchers) are cleared
+	// with the same active rule set, before re-applying, so a finding
+	// released by one rule can be re-suppressed by another in one sweep.
+	if findings.revokeCalls != 1 || findings.revokedNamespace != scan.Namespace || findings.revokedScan != scan.Name {
+		t.Fatalf("revoke calls = %d on %s/%s, want 1 on %s/%s",
+			findings.revokeCalls, findings.revokedNamespace, findings.revokedScan, scan.Namespace, scan.Name)
+	}
+	if len(findings.revokedRules) != 1 || findings.revokedRules[0].ID != "org-policy/noisy-vendor" {
+		t.Fatalf("revoked with rules = %+v, want the active rule set", findings.revokedRules)
+	}
+	if !findings.revokedBeforeApply {
+		t.Fatal("revocation must run before the apply pass")
+	}
 }
 
-func TestSweepSecuritySuppressionsWithoutPackOnlyExpires(t *testing.T) {
+func TestSweepSecuritySuppressionsWithoutPackRevokesAll(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanTestScan()
 	reconciler, _, _ := newSecurityScanReconciler(t, now, scan)
@@ -485,5 +511,54 @@ func TestSweepSecuritySuppressionsWithoutPackOnlyExpires(t *testing.T) {
 	}
 	if findings.appliedRules != nil {
 		t.Fatalf("applied rules = %+v, want none without a pack ref", findings.appliedRules)
+	}
+	// A scan without a policyPackRef has no active rules: every previously
+	// granted suppression must be revoked, not left in place forever.
+	if findings.revokeCalls != 1 || findings.revokedNamespace != scan.Namespace || findings.revokedScan != scan.Name {
+		t.Fatalf("revoke calls = %d on %s/%s, want 1 on %s/%s",
+			findings.revokeCalls, findings.revokedNamespace, findings.revokedScan, scan.Namespace, scan.Name)
+	}
+	if len(findings.revokedRules) != 0 {
+		t.Fatalf("revoked with rules = %+v, want an empty active set", findings.revokedRules)
+	}
+}
+
+func TestSweepSecuritySuppressionsDeletedPackRevokesAll(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.PolicyPackRef = &triggersv1alpha1.SecurityResourceRef{Name: "gone-policy"}
+	reconciler, _, _ := newSecurityScanReconciler(t, now, scan)
+	findings := &suppressionSweepStore{}
+	reconciler.Findings = findings
+
+	reconciler.sweepSecuritySuppressions(context.Background(), scan)
+
+	if findings.revokeCalls != 1 || len(findings.revokedRules) != 0 {
+		t.Fatalf("revoke calls = %d with rules %+v, want one call with an empty active set for a deleted pack",
+			findings.revokeCalls, findings.revokedRules)
+	}
+	if findings.appliedRules != nil {
+		t.Fatalf("applied rules = %+v, want none for a deleted pack", findings.appliedRules)
+	}
+}
+
+func TestSweepSecuritySuppressionsInvalidPackKeepsSuppressions(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.PolicyPackRef = &triggersv1alpha1.SecurityResourceRef{Name: "org-policy"}
+	pack := securityTestPolicyPack(scan.Namespace)
+	pack.Spec.Enforced = []string{"notAField"}
+	reconciler, _, _ := newSecurityScanReconciler(t, now, scan, pack)
+	findings := &suppressionSweepStore{}
+	reconciler.Findings = findings
+
+	reconciler.sweepSecuritySuppressions(context.Background(), scan)
+
+	// An invalid pack's rule intent is unknowable: neither revoke nor apply.
+	if findings.revokeCalls != 0 {
+		t.Fatalf("revoke calls = %d, want 0 for an invalid pack", findings.revokeCalls)
+	}
+	if findings.appliedRules != nil {
+		t.Fatalf("applied rules = %+v, want none for an invalid pack", findings.appliedRules)
 	}
 }

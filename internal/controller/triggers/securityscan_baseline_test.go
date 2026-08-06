@@ -122,3 +122,7 @@ func (s *finalizingSecurityScanFindingStore) ApplySecuritySuppressions(context.C
 func (s *finalizingSecurityScanFindingStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
 	return 0, nil
 }
+
+func (s *finalizingSecurityScanFindingStore) RevokeSecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}

@@ -1163,6 +1163,10 @@ func (s *fakeSecurityFindingStore) ExpireSecuritySuppressions(context.Context, s
 	return 0, nil
 }
 
+func (s *fakeSecurityFindingStore) RevokeSecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
 func (s *fakeSecurityFindingStore) BulkUpdateSecurityFindings(context.Context, string, string, []uuid.UUID, store.SecurityFindingBulkUpdate) error {
 	return nil
 }

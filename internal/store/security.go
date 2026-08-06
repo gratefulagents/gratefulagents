@@ -437,6 +437,17 @@ type SecurityFindingStore interface {
 	// and its audit history are preserved. Idempotent and namespace-scoped;
 	// returns the number of suppressions expired.
 	ExpireSecuritySuppressions(ctx context.Context, namespace string) (int32, error)
+	// RevokeSecuritySuppressions clears suppressions on the scan's findings
+	// whose governing rule was revoked: the finding's suppressed_by rule id
+	// is absent from activeRules (rule deleted, pack swapped for another
+	// pack, or the pack/policyPackRef removed entirely — pass no rules to
+	// revoke every suppression on the scan), or the finding no longer
+	// matches its rule's current matcher. Each revocation appends a
+	// "suppression_revoked" event recording the previous rule, owner, and
+	// reason; the finding row and its audit history are preserved.
+	// Idempotent and scan-scoped; returns the number of suppressions
+	// revoked.
+	RevokeSecuritySuppressions(ctx context.Context, namespace, scanName string, activeRules []SecuritySuppressionRule) (int32, error)
 	// BulkUpdateSecurityFindings applies upd to every finding in ids inside
 	// one transaction, scoped to (namespace, scanName). The batch is fully
 	// atomic: when any id is missing, a duplicate child, or otherwise

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -229,5 +230,152 @@ func TestSecuritySuppressionLifecycle(t *testing.T) {
 	listed, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ScanName: "nightly"})
 	if err != nil || len(listed) != 2 {
 		t.Fatalf("default list after expiry = %d findings, %v, want 2", len(listed), err)
+	}
+}
+
+// assertSecuritySuppressionRevoked verifies the vendored finding's
+// suppression was cleared with a preserved audit trail: the original
+// "suppressed" event stays, exactly one "suppression_revoked" event records
+// the previous rule/owner/reason, and the finding is back in default
+// listings and failOnSeverity gate counts.
+func assertSecuritySuppressionRevoked(t *testing.T, fixture securitySuppressionFixture) {
+	t.Helper()
+	s, ctx, vendored := fixture.s, fixture.ctx, fixture.vendored
+	restored, err := s.GetSecurityFinding(ctx, "default", vendored.ID)
+	if err != nil || restored == nil {
+		t.Fatalf("GetSecurityFinding(after revocation) = %v, %v, want the row preserved", restored, err)
+	}
+	if restored.SuppressedBy != "" || restored.SuppressedReason != "" || restored.SuppressedOwner != "" ||
+		restored.SuppressionExpiresAt != nil || restored.SuppressedAt != nil {
+		t.Fatalf("revoked finding still suppressed: %+v", restored)
+	}
+	if restored.Title != "vendored xss" || restored.Status != "open" {
+		t.Fatalf("revocation must not erase finding content: %+v", restored)
+	}
+	events, err := s.ListSecurityFindingEvents(ctx, "default", vendored.ID, 0)
+	if err != nil {
+		t.Fatalf("ListSecurityFindingEvents(after revocation): %v", err)
+	}
+	revokedEvents := 0
+	var detail map[string]string
+	for _, ev := range events {
+		if ev.EventType == "suppression_revoked" {
+			revokedEvents++
+			if err := json.Unmarshal(ev.Detail, &detail); err != nil {
+				t.Fatalf("suppression_revoked detail = %s: %v", ev.Detail, err)
+			}
+		}
+	}
+	if revokedEvents != 1 {
+		t.Fatalf("suppression_revoked events = %d, want exactly 1", revokedEvents)
+	}
+	if detail["rule"] != fixture.rule.ID || detail["owner"] != "appsec" || detail["reason"] != "vendored code" {
+		t.Fatalf("suppression_revoked detail = %v, want the previous rule/owner/reason", detail)
+	}
+	if securitySuppressedEventCount(events) != 1 {
+		t.Fatalf("suppressed events = %v, want the original suppression history preserved", events)
+	}
+
+	// Back in default lists and, critically, back in the open_<severity>
+	// gate counts failOnSeverity evaluates.
+	listed, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ScanName: "nightly"})
+	if err != nil || len(listed) != 2 {
+		t.Fatalf("default list after revocation = %d findings, %v, want 2", len(listed), err)
+	}
+	summary, err := s.SummarizeSecurityFindings(ctx, "default", "nightly", "", false)
+	if err != nil {
+		t.Fatalf("SummarizeSecurityFindings(after revocation): %v", err)
+	}
+	if summary["total"] != 2 || summary["open_high"] != 2 || summary["suppressed"] != 0 {
+		t.Fatalf("summary after revocation = %v, want the finding gated again", summary)
+	}
+}
+
+func TestSecuritySuppressionRevocationRuleDeleted(t *testing.T) {
+	fixture := newSecuritySuppressionFixture(t)
+	s, ctx := fixture.s, fixture.ctx
+
+	// The pack still has rules, just not the one that granted the
+	// suppression (the same shape as swapping the pack for another one).
+	remaining := store.SecuritySuppressionRule{
+		ID: "org-policy/unrelated", Reason: "unrelated", Owner: "appsec",
+		Matcher: store.SecuritySuppressionMatcher{Fingerprint: "fp-none"},
+	}
+	n, err := s.RevokeSecuritySuppressions(ctx, "default", "nightly", []store.SecuritySuppressionRule{remaining})
+	if err != nil || n != 1 {
+		t.Fatalf("RevokeSecuritySuppressions = %d, %v, want 1, nil", n, err)
+	}
+	assertSecuritySuppressionRevoked(t, fixture)
+
+	// Idempotent: a second sweep revokes nothing and adds no events.
+	if again, err := s.RevokeSecuritySuppressions(ctx, "default", "nightly", []store.SecuritySuppressionRule{remaining}); err != nil || again != 0 {
+		t.Fatalf("RevokeSecuritySuppressions(again) = %d, %v, want 0, nil", again, err)
+	}
+	assertSecuritySuppressionRevoked(t, fixture)
+}
+
+func TestSecuritySuppressionRevocationMatcherNarrowed(t *testing.T) {
+	fixture := newSecuritySuppressionFixture(t)
+	s, ctx := fixture.s, fixture.ctx
+
+	// The rule id survives, so a still-matching finding stays suppressed.
+	n, err := s.RevokeSecuritySuppressions(ctx, "default", "nightly", []store.SecuritySuppressionRule{fixture.rule})
+	if err != nil || n != 0 {
+		t.Fatalf("RevokeSecuritySuppressions(unchanged matcher) = %d, %v, want 0, nil", n, err)
+	}
+	still, err := s.GetSecurityFinding(ctx, "default", fixture.vendored.ID)
+	if err != nil || still == nil || still.SuppressedBy != fixture.rule.ID {
+		t.Fatalf("finding = %+v, %v, want it still suppressed while the matcher matches", still, err)
+	}
+
+	// Narrowing the matcher so the finding no longer matches revokes it.
+	narrowed := fixture.rule
+	narrowed.Matcher = store.SecuritySuppressionMatcher{PathGlob: "vendor/elsewhere/*"}
+	n, err = s.RevokeSecuritySuppressions(ctx, "default", "nightly", []store.SecuritySuppressionRule{narrowed})
+	if err != nil || n != 1 {
+		t.Fatalf("RevokeSecuritySuppressions(narrowed matcher) = %d, %v, want 1, nil", n, err)
+	}
+	assertSecuritySuppressionRevoked(t, fixture)
+	if again, err := s.RevokeSecuritySuppressions(ctx, "default", "nightly", []store.SecuritySuppressionRule{narrowed}); err != nil || again != 0 {
+		t.Fatalf("RevokeSecuritySuppressions(again) = %d, %v, want 0, nil", again, err)
+	}
+}
+
+func TestSecuritySuppressionRevocationNoRules(t *testing.T) {
+	fixture := newSecuritySuppressionFixture(t)
+	s, ctx := fixture.s, fixture.ctx
+
+	// A second scan's suppression must survive this scan's sweep.
+	otherScan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
+		Namespace: "default", ScanName: "weekly", RunName: "weekly-1", Repository: "org/repo",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSecurityScan(weekly): %v", err)
+	}
+	otherFinding, _, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
+		ScanID: otherScan.ID, Namespace: "default", ScanName: "weekly", RunName: "weekly-1",
+		Fingerprint: "fp-weekly", Title: "weekly vendored xss", Category: "xss",
+		Severity: "high", Repository: "org/repo", FilePath: "vendor/lib/y.js",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSecurityFinding(weekly): %v", err)
+	}
+	if n, err := s.ApplySecuritySuppressions(ctx, "default", "weekly", []store.SecuritySuppressionRule{fixture.rule}); err != nil || n != 1 {
+		t.Fatalf("ApplySecuritySuppressions(weekly) = %d, %v, want 1, nil", n, err)
+	}
+
+	// No active rules (pack deleted or policyPackRef removed): every
+	// suppression on THIS scan is revoked.
+	n, err := s.RevokeSecuritySuppressions(ctx, "default", "nightly", nil)
+	if err != nil || n != 1 {
+		t.Fatalf("RevokeSecuritySuppressions(no rules) = %d, %v, want 1, nil", n, err)
+	}
+	assertSecuritySuppressionRevoked(t, fixture)
+	if again, err := s.RevokeSecuritySuppressions(ctx, "default", "nightly", nil); err != nil || again != 0 {
+		t.Fatalf("RevokeSecuritySuppressions(again) = %d, %v, want 0, nil", again, err)
+	}
+	other, err := s.GetSecurityFinding(ctx, "default", otherFinding.ID)
+	if err != nil || other == nil || other.SuppressedBy != fixture.rule.ID {
+		t.Fatalf("other scan's finding = %+v, %v, want its suppression untouched", other, err)
 	}
 }
