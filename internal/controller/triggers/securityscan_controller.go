@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,11 +58,27 @@ type SecurityScanReconciler struct {
 	// findings after runs are created or observed.
 	Findings store.SecurityFindingStore
 	Now      func() time.Time
+	// Recorder, when non-nil, emits Kubernetes events for skipped fork
+	// contributions, check publish failures, and notification failures.
+	Recorder events.EventRecorder
+	// DiffLister computes diff-scope changed files; nil uses the GitHub
+	// compare API with the trigger repository's read-only credential.
+	DiffLister SecurityScanDiffLister
+	// CheckPublisher publishes GitHub checks for terminal scan runs; nil
+	// uses the trigger repository's credentials against the GitHub API.
+	CheckPublisher SecurityCheckPublisher
+	// Notifier delivers finding notifications; nil uses the built-in Slack
+	// webhook / GitHub issue / Linear issue senders.
+	Notifier SecurityScanNotifier
+	// DashboardBaseURL, when set, prefixes dashboard links embedded in
+	// published checks and notifications (e.g. "https://agents.example.com").
+	DashboardBaseURL string
 }
 
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityscans/finalizers,verbs=update
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows;securityrankers;securitypostscripts;securitypolicypacks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=agentruns,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
@@ -105,10 +123,137 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
+	if msg := securityScanInvalidSpecMessage(scan.Spec); msg != "" {
+		if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+			fresh.Status.LastError = msg
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonInvalidSpec, msg)
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Retention sweeps run only here — never in the deletion/finalizer path
+	// above — so a slow or failing purge can never delay scan deletion.
+	retentionRequeue := r.sweepSecurityRetention(ctx, scan)
+
+	res, err := r.reconcileActive(ctx, scan)
+	if err != nil {
+		return res, err
+	}
+	// Budget enforcement runs after the dispatch so its BudgetExceeded
+	// condition is not overwritten by the branch's own status refresh.
+	r.enforceSecurityBudgets(ctx, scan)
+	if retentionRequeue > 0 && (res.RequeueAfter == 0 || retentionRequeue < res.RequeueAfter) {
+		res.RequeueAfter = retentionRequeue
+	}
+	return res, nil
+}
+
+// reconcileActive dispatches a live (non-deleted, non-suspended, valid) scan
+// to the manual, event, one-shot, or scheduled path.
+func (r *SecurityScanReconciler) reconcileActive(ctx context.Context, scan *triggersv1alpha1.SecurityScan) (ctrl.Result, error) {
+	if token := pendingManualRunToken(scan); token != "" {
+		return r.reconcileRunNow(ctx, scan, token)
+	}
+
+	if ev := pendingTriggerEvent(scan); ev != nil {
+		return r.reconcileTriggerEvent(ctx, scan, ev)
+	}
+
 	if strings.TrimSpace(scan.Spec.Schedule) == "" {
 		return r.reconcileOneShot(ctx, scan)
 	}
 	return r.reconcileScheduled(ctx, scan)
+}
+
+// pendingManualRunToken returns the run-now annotation token when it has not
+// been consumed yet. Suspended scans never reach this point: the suspend
+// branch returns earlier, so a pending token is processed on resume.
+func pendingManualRunToken(scan *triggersv1alpha1.SecurityScan) string {
+	token := strings.TrimSpace(scan.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation])
+	if token == "" || token == scan.Status.LastManualRunToken {
+		return ""
+	}
+	return token
+}
+
+// reconcileRunNow processes a manual run-now request. The request is
+// idempotent and durable across controller restarts: the run name is derived
+// deterministically from the token, so a crash between run creation and the
+// status update re-enters here and CreateTriggerRun observes AlreadyExists
+// instead of creating a second run; the consumed token lives in status, never
+// in memory. Under concurrencyPolicy Forbid (or empty) an active run consumes
+// the token without creating a run and reports ConcurrencyBlocked.
+func (r *SecurityScanReconciler) reconcileRunNow(ctx context.Context, scan *triggersv1alpha1.SecurityScan, token string) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	externalID := "manual-" + securityScanManualRunSuffix(token)
+
+	if scan.Spec.ConcurrencyPolicy == "" || scan.Spec.ConcurrencyPolicy == triggersv1alpha1.SecurityScanConcurrencyForbid {
+		activeRun, err := r.activeScanRun(ctx, scan, externalID)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if activeRun != nil {
+			msg := fmt.Sprintf("manual run skipped: previous run %s still active", activeRun.Name)
+			log.Info("skipping manual scan AgentRun because previous run is still active", "activeRun", activeRun.Name)
+			if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
+				fresh.Status.LastManualRunToken = token
+				fresh.Status.LastError = msg
+				setSecurityScanCondition(fresh, metav1.ConditionFalse, "ConcurrencyBlocked", msg)
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+	}
+
+	runName := securityScanRunName(scan.Name, externalID)
+	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, externalID, externalID, nil)
+	if err != nil {
+		log.Error(err, "failed to create manual scan AgentRun", "run", runName)
+		reason := securityScanRunFailureReason(err)
+		if statusErr := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+			fresh.Status.LastError = err.Error()
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, reason, err.Error())
+		}); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	now := metav1.NewTime(r.now())
+	generation := scan.Generation
+	oneShot := strings.TrimSpace(scan.Spec.Schedule) == ""
+	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
+		fresh.Status.Phase = "Running"
+		fresh.Status.LastRunName = runName
+		fresh.Status.LastScanTime = &now
+		fresh.Status.LastManualRunToken = token
+		fresh.Status.LastError = ""
+		if oneShot {
+			// The manual run satisfies the current generation, so the
+			// run-once-per-generation path does not immediately start a
+			// second, overlapping run.
+			fresh.Status.ObservedGeneration = generation
+		}
+		if created {
+			fresh.Status.RunsCreated++
+			fresh.Status.ManualRunsCreated++
+			fresh.Status.LastResolvedRefs = resolvedRefs
+		}
+		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ManualRunStarted", "Manual scan AgentRun created")
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// securityScanManualRunSuffix derives a short deterministic run-name suffix
+// from a run-now token, which is opaque and not DNS-safe.
+func securityScanManualRunSuffix(token string) string {
+	hashBytes := sha1.Sum([]byte(token))
+	return hex.EncodeToString(hashBytes[:])[:10]
 }
 
 // reconcileDeletion purges persisted findings before releasing the cleanup
@@ -162,8 +307,11 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 			return ctrl.Result{}, err
 		}
 		phase := "Running"
+		retryPostRun := false
 		if terminal {
 			phase = "Completed"
+			r.finalizeCompletedRun(ctx, scan)
+			retryPostRun = r.finishTerminalRun(ctx, scan)
 		}
 		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.Phase = phase
@@ -173,6 +321,9 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 			return ctrl.Result{}, err
 		}
 		if terminal {
+			if retryPostRun {
+				return ctrl.Result{RequeueAfter: time.Minute}, nil
+			}
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -180,12 +331,13 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 
 	runName := securityScanRunName(scan.Name, fmt.Sprintf("g%d", scan.Generation))
 	externalID := fmt.Sprintf("generation-%d", scan.Generation)
-	created, err := r.createScanRun(ctx, scan, runName, externalID, externalID)
+	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, externalID, externalID, nil)
 	if err != nil {
 		log.Error(err, "failed to create scan AgentRun", "run", runName)
+		reason := securityScanRunFailureReason(err)
 		if statusErr := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.LastError = err.Error()
-			setSecurityScanCondition(fresh, metav1.ConditionFalse, "CreateRunFailed", err.Error())
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, reason, err.Error())
 		}); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
@@ -202,6 +354,7 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 		fresh.Status.LastError = ""
 		if created {
 			fresh.Status.RunsCreated++
+			fresh.Status.LastResolvedRefs = resolvedRefs
 		}
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ScanStarted", "Scan AgentRun created")
 	}); err != nil {
@@ -247,6 +400,11 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 			}
 			lastRunDone = terminal
 		}
+		retryPostRun := false
+		if lastRunDone {
+			r.finalizeCompletedRun(ctx, scan)
+			retryPostRun = r.finishTerminalRun(ctx, scan)
+		}
 		next := metav1.NewTime(scheduledTime)
 		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 			if lastRunDone && fresh.Status.Phase == "Running" {
@@ -264,11 +422,15 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{RequeueAfter: requeueAfter(scheduledTime.Sub(now))}, nil
+		delay := requeueAfter(scheduledTime.Sub(now))
+		if retryPostRun && delay > time.Minute {
+			delay = time.Minute
+		}
+		return ctrl.Result{RequeueAfter: delay}, nil
 	}
 
 	if scan.Spec.ConcurrencyPolicy == "" || scan.Spec.ConcurrencyPolicy == triggersv1alpha1.SecurityScanConcurrencyForbid {
-		activeRun, err := r.activeScanRun(ctx, scan, scheduledTime)
+		activeRun, err := r.activeScanRun(ctx, scan, scheduledTime.UTC().Format(time.RFC3339))
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -293,12 +455,13 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 
 	runName := securityScanRunName(scan.Name, scheduledTime.UTC().Format("20060102150405"))
 	scheduledID := scheduledTime.UTC().Format(time.RFC3339)
-	created, err := r.createScanRun(ctx, scan, runName, scheduledID, scheduledTime.Format(time.RFC3339))
+	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, scheduledID, scheduledTime.Format(time.RFC3339), nil)
 	if err != nil {
 		log.Error(err, "failed to create scheduled scan AgentRun", "scheduledTime", scheduledTime)
+		reason := securityScanRunFailureReason(err)
 		if statusErr := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.LastError = err.Error()
-			setSecurityScanCondition(fresh, metav1.ConditionFalse, "CreateRunFailed", err.Error())
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, reason, err.Error())
 		}); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
@@ -319,6 +482,7 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 		fresh.Status.LastError = ""
 		if created {
 			fresh.Status.RunsCreated++
+			fresh.Status.LastResolvedRefs = resolvedRefs
 		}
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "Scheduled", "SecurityScan schedule is valid")
 	}); err != nil {
@@ -327,15 +491,53 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 	return ctrl.Result{RequeueAfter: requeueAfter(nextScheduledTime.Sub(now))}, nil
 }
 
-func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName, externalID, externalIdentifier string) (bool, error) {
+// securityScanRunContext carries repository-event context into run creation.
+// A nil context means a normal (manual, one-shot, or scheduled) run.
+type securityScanRunContext struct {
+	Event *SecurityScanTriggerEvent
+	// ChangedFiles scopes a diff-scope run; empty with a non-empty
+	// DiffFallback means diff scope was requested but unavailable.
+	ChangedFiles []string
+	DiffFallback string
+}
+
+func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName, externalID, externalIdentifier string, runCtx *securityScanRunContext) (bool, []triggersv1alpha1.SecurityScanResolvedRef, error) {
+	// Resolve library references at run-creation time and build the prompt
+	// from the resolved snapshot: the seed message is persisted when the run
+	// is created, so later edits to the referenced resources never change
+	// this run.
+	resolved, err := resolveSecurityScanRefs(ctx, r.Client, scan)
+	if err != nil {
+		return false, nil, err
+	}
+
 	d := scan.Spec.Defaults
 	d.RepoURL = scan.Spec.RepoURL
 	d.BaseBranch = scan.Spec.EffectiveBaseBranch()
+	if runCtx != nil && runCtx.Event != nil && runCtx.Event.Fork {
+		// Untrusted fork contribution: never hand the run a GitHub
+		// credential, even when the scan's defaults configure one.
+		d.Secrets.GithubToken = ""
+	}
 	if len(scan.Spec.AdditionalRepos) > 0 {
 		d.AdditionalRepos = append([]string(nil), scan.Spec.AdditionalRepos...)
 	}
 	if scan.Spec.MaxRuntime.Duration > 0 {
 		d.Timeout = scan.Spec.MaxRuntime
+	}
+	// Budgets come from the RESOLVED spec (scan merged with the policy pack,
+	// enforced floors already checked), so every limit derives from CRD spec
+	// before prompt construction and model output can never relax it. What
+	// the run supports natively becomes an AgentRun limit; the rest is
+	// monitored controller-side each reconcile.
+	var runLimits *platformv1alpha1.AgentRunLimits
+	if budgets := resolved.spec.Budgets; budgets != nil {
+		if budgets.MaxRuntime.Duration > 0 && (d.Timeout.Duration == 0 || budgets.MaxRuntime.Duration < d.Timeout.Duration) {
+			d.Timeout = budgets.MaxRuntime
+		}
+		if strings.TrimSpace(budgets.MaxCostUSD) != "" {
+			runLimits = &platformv1alpha1.AgentRunLimits{MaxCostUsd: strings.TrimSpace(budgets.MaxCostUSD)}
+		}
 	}
 	var modeRef *platformv1alpha1.ModeRef
 	if d.ModeRef == nil {
@@ -348,37 +550,56 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		TriggerName: scan.Name,
 		Defaults:    d,
 	}); err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	provider := d.EffectiveProvider()
+	// Reporting-policy annotations come from the RESOLVED spec so policy
+	// pack defaults and enforced floors apply to what agents may report.
 	dedupePermille := int32(0)
-	if scan.Spec.DedupeEnabled() {
-		dedupePermille = scan.Spec.DedupeSimilarityThresholdPermille()
+	if resolved.spec.DedupeEnabled() {
+		dedupePermille = resolved.spec.DedupeSimilarityThresholdPermille()
 	}
 	annotations := map[string]string{
 		runModeAnnotation: "auto",
 		triggersv1alpha1.SecurityScanNameAnnotation:           scan.Name,
 		triggersv1alpha1.SecurityScanRepositoryAnnotation:     scan.Spec.RepoURL,
-		triggersv1alpha1.SecurityScanMinSeverityAnnotation:    scan.Spec.EffectiveMinSeverity(),
+		triggersv1alpha1.SecurityScanMinSeverityAnnotation:    resolved.spec.EffectiveMinSeverity(),
 		triggersv1alpha1.SecurityScanDedupePermilleAnnotation: strconv.Itoa(int(dedupePermille)),
+	}
+	if budgets := resolved.spec.Budgets; budgets != nil && budgets.MaxFindings > 0 {
+		annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation] = strconv.Itoa(int(budgets.MaxFindings))
 	}
 	if rev := strings.TrimSpace(scan.Spec.Revision); rev != "" {
 		annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] = rev
+	}
+	revision := strings.TrimSpace(scan.Spec.Revision)
+	if runCtx != nil && runCtx.Event != nil {
+		// Platform-stamped from the verified webhook payload; overrides any
+		// pinned spec revision so the run and any published check agree on
+		// the commit.
+		revision = strings.TrimSpace(runCtx.Event.Revision)
+		annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] = revision
+		if payload, err := json.Marshal(runCtx.Event); err == nil {
+			annotations[triggersv1alpha1.SecurityScanEventAnnotation] = string(payload)
+		}
 	}
 	if strings.TrimSpace(d.CustomInstructions) != "" {
 		instructionsName := runName + "-instructions"
 		instructions := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: instructionsName, Namespace: scan.Namespace}, Data: map[string]string{"instructions.md": d.CustomInstructions}}
 		if err := ctrl.SetControllerReference(scan, instructions, r.Scheme); err != nil {
-			return false, fmt.Errorf("setting owner reference on instructions ConfigMap: %w", err)
+			return false, nil, fmt.Errorf("setting owner reference on instructions ConfigMap: %w", err)
 		}
 		if err := r.Create(ctx, instructions); err != nil && !apierrors.IsAlreadyExists(err) {
-			return false, fmt.Errorf("creating instructions ConfigMap: %w", err)
+			return false, nil, fmt.Errorf("creating instructions ConfigMap: %w", err)
 		}
 		annotations["platform.gratefulagents.dev/instructions-configmap-ref"] = instructionsName
 	}
 	if triggersv1alpha1.IsOpenAICompatibleProvider(provider) {
 		annotations["platform.gratefulagents.dev/openai-api-mode"] = triggersv1alpha1.NormalizeOpenAIAPIForProvider(provider, d.OpenAIAPI)
+	}
+	if refsJSON := securityScanResolvedRefsJSON(resolved.refs); refsJSON != "" {
+		annotations[triggersv1alpha1.SecurityScanResolvedRefsAnnotation] = refsJSON
 	}
 
 	created, _, err := CreateTriggerRun(ctx, r.Client, r.StateStore, TriggerRunSpec{
@@ -388,8 +609,8 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		TriggerName:        scan.Name,
 		ExternalID:         externalID,
 		ExternalIdentifier: externalIdentifier,
-		SeedMessage:        BuildSecurityScanPrompt(scan.Spec),
-		Revision:           strings.TrimSpace(scan.Spec.Revision),
+		SeedMessage:        BuildSecurityScanPromptWithEvent(resolved.spec, securityScanPromptEvent(runCtx)),
+		Revision:           revision,
 		Defaults:           d,
 		OwnerRef:           scan,
 		Scheme:             r.Scheme,
@@ -399,23 +620,26 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 			ProjectRef: &platformv1alpha1.ProjectRef{Kind: securityScanKind, Name: scan.Name},
 		},
 		ModeRef:       modeRef,
+		Limits:        runLimits,
 		SeedLogPrefix: "securityscan",
 	})
-	return created, err
+	return created, resolved.refs, err
 }
 
-func (r *SecurityScanReconciler) activeScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, scheduledTime time.Time) (*platformv1alpha1.AgentRun, error) {
+// activeScanRun returns a non-terminal AgentRun owned by this scan, ignoring
+// the run identified by excludeExternalID (the run the caller is about to
+// create or may have already created for the current tick or manual request).
+func (r *SecurityScanReconciler) activeScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, excludeExternalID string) (*platformv1alpha1.AgentRun, error) {
 	runs := &platformv1alpha1.AgentRunList{}
 	if err := r.List(ctx, runs, client.InNamespace(scan.Namespace), client.MatchingLabels{securityScanLabel: securityScanLabelValue(scan.Name)}); err != nil {
 		return nil, fmt.Errorf("listing AgentRuns: %w", err)
 	}
-	scheduledID := scheduledTime.UTC().Format(time.RFC3339)
 	for i := range runs.Items {
 		run := &runs.Items[i]
 		if !TriggerRunMatches(run, securityScanKind, scan.Name) {
 			continue
 		}
-		if run.Spec.Trigger.ExternalRef != nil && strings.TrimSpace(run.Spec.Trigger.ExternalRef.ID) == scheduledID {
+		if run.Spec.Trigger.ExternalRef != nil && strings.TrimSpace(run.Spec.Trigger.ExternalRef.ID) == excludeExternalID {
 			continue
 		}
 		if !isCronRunTerminal(run.Status.Phase) {
@@ -437,6 +661,47 @@ func (r *SecurityScanReconciler) lastRunTerminal(ctx context.Context, scan *trig
 	return isCronRunTerminal(run.Status.Phase), nil
 }
 
+// finalizeCompletedRun sweeps expired accepted-risk findings and finalizes
+// the scan-to-scan baseline (marking findings absent from the just-completed
+// run resolved) once the scan's last run has terminated SUCCESSFULLY. A
+// failed or cancelled run never defines a baseline: findings it did not
+// re-observe must not be marked resolved. Both store calls are idempotent,
+// so re-running on every status refresh is safe; errors are best-effort
+// (logged, never failing the reconcile).
+func (r *SecurityScanReconciler) finalizeCompletedRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan) {
+	if r.Findings == nil || scan.Status.LastRunName == "" {
+		return
+	}
+	log := logf.FromContext(ctx)
+	r.sweepSecuritySuppressions(ctx, scan)
+	run := &platformv1alpha1.AgentRun{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: scan.Namespace, Name: scan.Status.LastRunName}, run); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Error(err, "failed to get scan AgentRun for baseline finalization", "run", scan.Status.LastRunName)
+		}
+		return
+	}
+	if run.Status.Phase != platformv1alpha1.AgentRunPhaseSucceeded {
+		return
+	}
+	if _, err := r.Findings.ExpireAcceptedRisks(ctx, scan.Namespace); err != nil {
+		log.Error(err, "failed to expire accepted-risk findings", "scan", scan.Name)
+	}
+	if _, err := r.Findings.FinalizeSecurityScanBaseline(ctx, scan.Namespace, scan.Status.LastRunName); err != nil {
+		log.Error(err, "failed to finalize scan baseline", "scan", scan.Name, "run", scan.Status.LastRunName)
+	}
+}
+
+// finishTerminalRun runs the post-terminal side effects that talk to
+// external systems: GitHub check publishing and finding notifications. Both
+// are best-effort, idempotent, and record their own status; the returned
+// flag asks the caller to requeue soon so failures retry.
+func (r *SecurityScanReconciler) finishTerminalRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan) bool {
+	retryCheck := r.publishRunCheck(ctx, scan)
+	retryNotify := r.notifyRunFindings(ctx, scan)
+	return retryCheck || retryNotify
+}
+
 // securityScanSeverities orders severities from most to least severe.
 var securityScanSeverities = []string{"critical", "high", "medium", "low", "info"}
 
@@ -455,7 +720,7 @@ func (r *SecurityScanReconciler) summarizeFindings(ctx context.Context, scan *tr
 	if r.Findings == nil {
 		return nil
 	}
-	counts, err := r.Findings.SummarizeSecurityFindings(ctx, scan.Namespace, scan.Name, "")
+	counts, err := r.Findings.SummarizeSecurityFindings(ctx, scan.Namespace, scan.Name, "", false)
 	if err != nil {
 		logf.FromContext(ctx).Error(err, "failed to summarize security findings", "scan", scan.Name)
 		return nil
@@ -487,9 +752,14 @@ func (r *SecurityScanReconciler) summarizeFindings(ctx context.Context, scan *tr
 // condition set by mutate. The threshold only counts open findings, so
 // findings triaged away no longer trip it.
 func (r *SecurityScanReconciler) updateStatus(ctx context.Context, scan *triggersv1alpha1.SecurityScan, findings *securityScanFindingSummary, mutate func(*triggersv1alpha1.SecurityScan)) error {
-	failOn := scan.Spec.FailOnSeverity
+	failOn := r.effectiveFailOnSeverity(ctx, scan)
 	err := retrySecurityScanStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(scan), func(fresh *triggersv1alpha1.SecurityScan) {
 		mutate(fresh)
+		// A recorded budget breach stays visible until the budget evaluation
+		// clears it, like the failOnSeverity threshold below.
+		if fresh.Status.Budget != nil && fresh.Status.Budget.Exceeded {
+			setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonBudgetExceeded, fresh.Status.Budget.Message)
+		}
 		if findings == nil {
 			return
 		}

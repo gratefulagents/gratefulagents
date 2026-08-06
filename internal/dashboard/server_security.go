@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
@@ -78,6 +82,11 @@ func (s *Server) ListSecurityFindings(ctx context.Context, req *platform.ListSec
 	if err != nil {
 		return nil, err
 	}
+	s.sweepExpiredAcceptedRisks(ctx, sec, namespace)
+	if !store.ValidSecuritySuppressedFilter(req.GetSuppressed()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("invalid suppressed filter %q (want empty, exclude, include, or only)", req.GetSuppressed()))
+	}
 	findings, err := sec.ListSecurityFindings(ctx, store.SecurityFindingFilter{
 		Namespace:         namespace,
 		ScanName:          req.GetScanName(),
@@ -89,6 +98,9 @@ func (s *Server) ListSecurityFindings(ctx context.Context, req *platform.ListSec
 		Search:            req.GetSearch(),
 		MinScore:          req.GetMinScore(),
 		IncludeDuplicates: req.GetIncludeDuplicates(),
+		BaselineState:     req.GetBaselineState(),
+		Assignee:          req.GetAssignee(),
+		Suppressed:        req.GetSuppressed(),
 		Limit:             req.GetLimit(),
 		Offset:            req.GetOffset(),
 	})
@@ -108,7 +120,7 @@ func (s *Server) GetSecurityFinding(ctx context.Context, req *platform.GetSecuri
 	if err != nil {
 		return nil, err
 	}
-	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace())
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace(), req.GetScanName())
 	if err != nil {
 		return nil, err
 	}
@@ -137,11 +149,22 @@ func (s *Server) UpdateSecurityFindingStatus(ctx context.Context, req *platform.
 	if !store.ValidSecurityFindingStatus(req.GetStatus()) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid finding status %q", req.GetStatus()))
 	}
-	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace())
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace(), "")
 	if err != nil {
 		return nil, err
 	}
-	if err := sec.SetSecurityFindingStatus(ctx, finding.Namespace, finding.ID, req.GetStatus(), actor.Subject, req.GetNote()); err != nil {
+	var expiry *time.Time
+	if req.GetAcceptedRiskExpiresAt() != nil {
+		if req.GetStatus() != store.SecurityFindingStatusAcceptedRisk {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("accepted_risk_expires_at is only valid with status %q", store.SecurityFindingStatusAcceptedRisk))
+		}
+		t := req.GetAcceptedRiskExpiresAt().AsTime()
+		if !t.After(time.Now()) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("accepted_risk_expires_at must be in the future"))
+		}
+		expiry = &t
+	}
+	if err := sec.SetSecurityFindingStatus(ctx, finding.Namespace, finding.ID, req.GetStatus(), actor.Subject, req.GetNote(), expiry); err != nil {
 		if errors.Is(err, store.ErrSecurityFindingNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", finding.ID))
 		}
@@ -151,7 +174,28 @@ func (s *Server) UpdateSecurityFindingStatus(ctx context.Context, req *platform.
 	if err != nil || updated == nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reloading security finding: %w", err))
 	}
+	s.nudgeSecurityScanStatusRefresh(ctx, finding.Namespace, finding.ScanName)
 	return securityFindingProto(updated), nil
+}
+
+// nudgeSecurityScanStatusRefresh stamps the status-refresh annotation on the
+// SecurityScan CR after finding triage so the controller re-reconciles,
+// refreshes finding counts, and re-publishes any GitHub check with the
+// post-triage conclusion. Best-effort: a missing CR or update error only
+// delays the refresh to the next reconcile.
+func (s *Server) nudgeSecurityScanStatusRefresh(ctx context.Context, namespace, scanName string) {
+	if s.k8sClient == nil || namespace == "" || scanName == "" {
+		return
+	}
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: scanName}, cr); err != nil {
+		return
+	}
+	if cr.Annotations == nil {
+		cr.Annotations = map[string]string{}
+	}
+	cr.Annotations[triggersv1alpha1.SecurityScanStatusRefreshAnnotation] = time.Now().UTC().Format(time.RFC3339Nano)
+	_ = s.k8sClient.Update(ctx, cr)
 }
 
 // GetSecurityFindingSummary returns severity -> count aggregates (plus
@@ -165,11 +209,79 @@ func (s *Server) GetSecurityFindingSummary(ctx context.Context, req *platform.Ge
 	if err != nil {
 		return nil, err
 	}
-	counts, err := sec.SummarizeSecurityFindings(ctx, namespace, req.GetScanName(), req.GetRunName())
+	s.sweepExpiredAcceptedRisks(ctx, sec, namespace)
+	counts, err := sec.SummarizeSecurityFindings(ctx, namespace, req.GetScanName(), req.GetRunName(), req.GetIncludeSuppressed())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("summarizing security findings: %w", err))
 	}
-	return &platform.GetSecurityFindingSummaryResponse{Counts: counts}, nil
+	resp := &platform.GetSecurityFindingSummaryResponse{Counts: counts}
+	// Trends are per scan (or namespace-wide); a run-scoped summary keeps
+	// the same scope as its scan.
+	if trends, err := sec.GetSecurityFindingTrends(ctx, namespace, req.GetScanName()); err == nil {
+		resp.Trends = securityFindingTrendsProto(trends)
+	}
+	return resp, nil
+}
+
+// ListSecurityFindingEvents returns a finding's audit trail, newest first.
+func (s *Server) ListSecurityFindingEvents(ctx context.Context, req *platform.ListSecurityFindingEventsRequest) (*platform.ListSecurityFindingEventsResponse, error) {
+	sec, err := s.securityStore()
+	if err != nil {
+		return nil, err
+	}
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace(), req.GetScanName())
+	if err != nil {
+		return nil, err
+	}
+	limit := req.GetLimit()
+	if limit <= 0 {
+		limit = securityFindingEventsLimit
+	}
+	events, err := sec.ListSecurityFindingEvents(ctx, finding.Namespace, finding.ID, limit)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("listing security finding events: %w", err))
+	}
+	resp := &platform.ListSecurityFindingEventsResponse{}
+	for i := range events {
+		resp.Events = append(resp.Events, securityFindingEventProto(&events[i]))
+	}
+	return resp, nil
+}
+
+// maxSecurityFindingCommentLen bounds comment bodies (in characters) so the
+// append-only audit table cannot be flooded with arbitrarily large rows.
+const maxSecurityFindingCommentLen = 10000
+
+// AddSecurityFindingComment appends a comment event to a finding's audit
+// trail, attributed to the authenticated caller.
+func (s *Server) AddSecurityFindingComment(ctx context.Context, req *platform.AddSecurityFindingCommentRequest) (*platform.SecurityFindingEvent, error) {
+	sec, err := s.securityStore()
+	if err != nil {
+		return nil, err
+	}
+	actor := requestActorFromContext(ctx)
+	if actor.Subject == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+	body := strings.TrimSpace(req.GetBody())
+	if body == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("comment body is required"))
+	}
+	if utf8.RuneCountInString(body) > maxSecurityFindingCommentLen {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("comment body exceeds %d characters", maxSecurityFindingCommentLen))
+	}
+	finding, err := s.authorizedSecurityFinding(ctx, sec, req.GetId(), req.GetNamespace(), req.GetScanName())
+	if err != nil {
+		return nil, err
+	}
+	event, err := sec.AddSecurityFindingComment(ctx, finding.Namespace, finding.ID, actor.Subject, body)
+	if err != nil {
+		if errors.Is(err, store.ErrSecurityFindingNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", finding.ID))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("adding security finding comment: %w", err))
+	}
+	return securityFindingEventProto(event), nil
 }
 
 // authorizedSecurityFinding loads a finding by request ID, scoped to the
@@ -177,8 +289,9 @@ func (s *Server) GetSecurityFindingSummary(ctx context.Context, req *platform.Ge
 // given, the caller's personal namespace otherwise). A finding that does not
 // exist and one that lives in a namespace the caller may not read are both
 // reported as NotFound so the endpoint cannot be used as a UUID-existence
-// oracle.
-func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.SecurityFindingStore, rawID, requestedNamespace string) (*store.SecurityFindingRecord, error) {
+// oracle. When scanName is non-empty the finding must also belong to that
+// scan; a mismatch is likewise reported as NotFound.
+func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.SecurityFindingStore, rawID, requestedNamespace, scanName string) (*store.SecurityFindingRecord, error) {
 	id, err := uuid.Parse(strings.TrimSpace(rawID))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid finding id %q", rawID))
@@ -191,7 +304,7 @@ func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.Securi
 	if err != nil && !errors.Is(err, store.ErrSecurityFindingNotFound) {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("getting security finding: %w", err))
 	}
-	if err != nil || finding == nil {
+	if err != nil || finding == nil || (scanName != "" && finding.ScanName != scanName) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", id))
 	}
 	return finding, nil
@@ -220,42 +333,69 @@ func securityScanProto(in *store.SecurityScanRecord) *platform.SecurityScan {
 
 func securityFindingProto(in *store.SecurityFindingRecord) *platform.SecurityFinding {
 	out := &platform.SecurityFinding{
-		Id:           in.ID.String(),
-		ScanId:       in.ScanID.String(),
-		Namespace:    in.Namespace,
-		ScanName:     in.ScanName,
-		RunName:      in.RunName,
-		Fingerprint:  in.Fingerprint,
-		Title:        in.Title,
-		Category:     in.Category,
-		Severity:     in.Severity,
-		Confidence:   in.Confidence,
-		Repository:   in.Repository,
-		Revision:     in.Revision,
-		FilePath:     in.FilePath,
-		StartLine:    in.StartLine,
-		EndLine:      in.EndLine,
-		Symbol:       in.Symbol,
-		Cwe:          in.CWE,
-		Description:  in.Description,
-		Impact:       in.Impact,
-		AttackVector: in.AttackVector,
-		Remediation:  in.Remediation,
-		References:   in.References,
-		SourceAgent:  in.SourceAgent,
-		ScanStep:     in.ScanStep,
-		Score:        in.Score,
-		Status:       in.Status,
-		Occurrences:  in.Occurrences,
-		Raw:          string(in.Raw),
-		FirstSeenAt:  timestamppb.New(in.FirstSeenAt),
-		LastSeenAt:   timestamppb.New(in.LastSeenAt),
+		Id:             in.ID.String(),
+		ScanId:         in.ScanID.String(),
+		Namespace:      in.Namespace,
+		ScanName:       in.ScanName,
+		RunName:        in.RunName,
+		Fingerprint:    in.Fingerprint,
+		Title:          in.Title,
+		Category:       in.Category,
+		Severity:       in.Severity,
+		Confidence:     in.Confidence,
+		Repository:     in.Repository,
+		Revision:       in.Revision,
+		FilePath:       in.FilePath,
+		StartLine:      in.StartLine,
+		EndLine:        in.EndLine,
+		Symbol:         in.Symbol,
+		Cwe:            in.CWE,
+		Description:    in.Description,
+		Impact:         in.Impact,
+		AttackVector:   in.AttackVector,
+		Remediation:    in.Remediation,
+		References:     in.References,
+		SourceAgent:    in.SourceAgent,
+		ScanStep:       in.ScanStep,
+		Score:          in.Score,
+		Status:         in.Status,
+		Occurrences:    in.Occurrences,
+		Raw:            string(in.Raw),
+		FirstSeenAt:    timestamppb.New(in.FirstSeenAt),
+		LastSeenAt:     timestamppb.New(in.LastSeenAt),
+		Assignee:       in.Assignee,
+		TicketUrl:      in.TicketURL,
+		TicketProvider: in.TicketProvider,
+		BaselineState:  in.BaselineState,
 	}
 	if in.SessionID != nil {
 		out.SessionId = in.SessionID.String()
 	}
 	if in.DuplicateOf != nil {
 		out.DuplicateOf = in.DuplicateOf.String()
+	}
+	if in.AcceptedRiskExpiresAt != nil {
+		out.AcceptedRiskExpiresAt = timestamppb.New(*in.AcceptedRiskExpiresAt)
+	}
+	if in.ResolvedAt != nil {
+		out.ResolvedAt = timestamppb.New(*in.ResolvedAt)
+	}
+	if in.TriagedAt != nil {
+		out.TriagedAt = timestamppb.New(*in.TriagedAt)
+	}
+	out.SourceKind = in.SourceKind
+	out.Tool = in.Tool
+	out.ToolVersion = in.ToolVersion
+	out.RuleId = in.RuleID
+	out.CorrelatedFingerprints = in.CorrelatedFingerprints
+	out.SuppressedBy = in.SuppressedBy
+	out.SuppressedReason = in.SuppressedReason
+	out.SuppressedOwner = in.SuppressedOwner
+	if in.SuppressionExpiresAt != nil {
+		out.SuppressionExpiresAt = timestamppb.New(*in.SuppressionExpiresAt)
+	}
+	if in.SuppressedAt != nil {
+		out.SuppressedAt = timestamppb.New(*in.SuppressedAt)
 	}
 	return out
 }
@@ -315,6 +455,22 @@ func (h *PlatformServiceConnectHandler) UpdateSecurityFindingStatus(ctx context.
 
 func (h *PlatformServiceConnectHandler) GetSecurityFindingSummary(ctx context.Context, req *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error) {
 	resp, err := h.srv.GetSecurityFindingSummary(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) ListSecurityFindingEvents(ctx context.Context, req *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error) {
+	resp, err := h.srv.ListSecurityFindingEvents(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) AddSecurityFindingComment(ctx context.Context, req *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error) {
+	resp, err := h.srv.AddSecurityFindingComment(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

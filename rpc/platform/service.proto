@@ -248,6 +248,35 @@ service PlatformService {
   rpc GetSecurityFinding(GetSecurityFindingRequest) returns (GetSecurityFindingResponse);
   rpc UpdateSecurityFindingStatus(UpdateSecurityFindingStatusRequest) returns (SecurityFinding);
   rpc GetSecurityFindingSummary(GetSecurityFindingSummaryRequest) returns (GetSecurityFindingSummaryResponse);
+  // ListSecurityFindingEvents returns a finding's audit trail (status
+  // changes, re-observations, comments), newest first.
+  rpc ListSecurityFindingEvents(ListSecurityFindingEventsRequest) returns (ListSecurityFindingEventsResponse);
+  // AddSecurityFindingComment appends a comment event to a finding's audit
+  // trail, attributed to the authenticated caller.
+  rpc AddSecurityFindingComment(AddSecurityFindingCommentRequest) returns (SecurityFindingEvent);
+  // UpdateSecurityFindingAssignee sets or clears (empty assignee) the
+  // finding's assignee, recording an audited assignee_changed event.
+  rpc UpdateSecurityFindingAssignee(UpdateSecurityFindingAssigneeRequest) returns (SecurityFinding);
+  // UpdateSecurityFindingTicket links (non-empty http(s) URL) or unlinks
+  // (empty URL) an external ticket on a finding.
+  rpc UpdateSecurityFindingTicket(UpdateSecurityFindingTicketRequest) returns (SecurityFinding);
+  // CreateSecurityFindingTicket creates a ticket in an external tracker for
+  // a finding and links it. Provider "github" creates an issue through a
+  // GitHubRepository configured in the same namespace; the issue body never
+  // contains raw finding evidence. Linear tickets are link-only: create the
+  // issue in Linear and use UpdateSecurityFindingTicket.
+  rpc CreateSecurityFindingTicket(CreateSecurityFindingTicketRequest) returns (SecurityFinding);
+  // BulkUpdateSecurityFindingStatus applies a status and/or assignee change
+  // to many findings atomically: either every item is applied or none is,
+  // and the response reports the per-item outcome.
+  rpc BulkUpdateSecurityFindingStatus(BulkUpdateSecurityFindingStatusRequest) returns (BulkUpdateSecurityFindingStatusResponse);
+  // Saved finding filters, private to the calling user per namespace.
+  rpc ListSecuritySavedFilters(ListSecuritySavedFiltersRequest) returns (ListSecuritySavedFiltersResponse);
+  rpc SaveSecuritySavedFilter(SaveSecuritySavedFilterRequest) returns (SecuritySavedFilter);
+  rpc DeleteSecuritySavedFilter(DeleteSecuritySavedFilterRequest) returns (google.protobuf.Empty);
+  // ExportSecurityFindingAuditLog returns every audit event for a scan's
+  // findings as a downloadable CSV or JSON document.
+  rpc ExportSecurityFindingAuditLog(ExportSecurityFindingAuditLogRequest) returns (ExportSecurityFindingAuditLogResponse);
 
   // Security scanning: SecurityScan trigger configuration (the CRs that
   // create scan runs). ListSecurityScanConfigs returns configured SecurityScan
@@ -258,6 +287,78 @@ service PlatformService {
   rpc CreateSecurityScan(CreateSecurityScanRequest) returns (SecurityScanConfig);
   rpc UpdateSecurityScan(UpdateSecurityScanRequest) returns (SecurityScanConfig);
   rpc DeleteSecurityScan(DeleteSecurityScanRequest) returns (google.protobuf.Empty);
+  // RunSecurityScanNow requests an immediate run of a configured SecurityScan
+  // without editing its spec. The dashboard stamps a run-now annotation token
+  // on the CR; the controller creates at most one run per token (recorded in
+  // status), so retried or concurrent duplicate requests never double-run.
+  // Suspended scans are rejected with FailedPrecondition.
+  rpc RunSecurityScanNow(RunSecurityScanNowRequest) returns (SecurityScanConfig);
+
+  // Reusable security library resources: SecurityWorkflow, SecurityRanker,
+  // and SecurityPostScript CRs referenced by SecurityScan configurations via
+  // workflow_ref / ranker_refs / post_script_refs. Referenced content is
+  // resolved and snapshotted at run-creation time, so edits never change
+  // historical runs. Delete is blocked with FailedPrecondition while
+  // SecurityScans in the namespace still reference the resource.
+  rpc ListSecurityWorkflows(ListSecurityWorkflowsRequest) returns (ListSecurityWorkflowsResponse);
+  rpc GetSecurityWorkflow(GetSecurityWorkflowRequest) returns (SecurityWorkflowResource);
+  rpc CreateSecurityWorkflow(CreateSecurityWorkflowRequest) returns (SecurityWorkflowResource);
+  rpc UpdateSecurityWorkflow(UpdateSecurityWorkflowRequest) returns (SecurityWorkflowResource);
+  rpc DeleteSecurityWorkflow(DeleteSecurityWorkflowRequest) returns (google.protobuf.Empty);
+  // ValidateSecurityWorkflow runs the full server-side workflow validation
+  // (unique task names, acyclic dependencies, resolvable dependsOn entries,
+  // valid roles/models, maxFindings bounds) without persisting anything and
+  // returns structured field errors. Create/Update run the same validation.
+  rpc ValidateSecurityWorkflow(ValidateSecurityWorkflowRequest) returns (ValidateSecurityWorkflowResponse);
+  rpc ListSecurityRankers(ListSecurityRankersRequest) returns (ListSecurityRankersResponse);
+  rpc GetSecurityRanker(GetSecurityRankerRequest) returns (SecurityRankerResource);
+  rpc CreateSecurityRanker(CreateSecurityRankerRequest) returns (SecurityRankerResource);
+  rpc UpdateSecurityRanker(UpdateSecurityRankerRequest) returns (SecurityRankerResource);
+  rpc DeleteSecurityRanker(DeleteSecurityRankerRequest) returns (google.protobuf.Empty);
+  rpc ListSecurityPostScripts(ListSecurityPostScriptsRequest) returns (ListSecurityPostScriptsResponse);
+  rpc GetSecurityPostScript(GetSecurityPostScriptRequest) returns (SecurityPostScriptResource);
+  rpc CreateSecurityPostScript(CreateSecurityPostScriptRequest) returns (SecurityPostScriptResource);
+  rpc UpdateSecurityPostScript(UpdateSecurityPostScriptRequest) returns (SecurityPostScriptResource);
+  rpc DeleteSecurityPostScript(DeleteSecurityPostScriptRequest) returns (google.protobuf.Empty);
+
+  // SecurityPolicyPack CRs referenced by SecurityScan configurations via
+  // policy_pack_ref. A pack supplies scan defaults, enforced floors a scan
+  // may not relax, and governed finding suppressions. Delete is blocked with
+  // FailedPrecondition while SecurityScans still reference the pack.
+  rpc ListSecurityPolicyPacks(ListSecurityPolicyPacksRequest) returns (ListSecurityPolicyPacksResponse);
+  rpc GetSecurityPolicyPack(GetSecurityPolicyPackRequest) returns (SecurityPolicyPackResource);
+  rpc CreateSecurityPolicyPack(CreateSecurityPolicyPackRequest) returns (SecurityPolicyPackResource);
+  rpc UpdateSecurityPolicyPack(UpdateSecurityPolicyPackRequest) returns (SecurityPolicyPackResource);
+  rpc DeleteSecurityPolicyPack(DeleteSecurityPolicyPackRequest) returns (google.protobuf.Empty);
+
+  // AI-assisted authoring. GenerateSecurityDraft launches a bounded,
+  // repo-less draft-generation AgentRun that uses only the caller's saved
+  // provider credentials (no repository, GitHub token, or other secrets);
+  // GetSecurityDraft polls that run and, once it finishes, returns the
+  // parsed draft plus the same structured validation errors manual authoring
+  // produces. Drafts are never persisted server-side: the client loads them
+  // into the normal editor and saving goes through the regular
+  // Create/Update RPCs and their validation.
+  rpc GenerateSecurityDraft(GenerateSecurityDraftRequest) returns (GenerateSecurityDraftResponse);
+  rpc GetSecurityDraft(GetSecurityDraftRequest) returns (GetSecurityDraftResponse);
+
+  // Security pack portability. ExportSecurityPack serializes selected
+  // reusable security resources and scan configurations into a versioned,
+  // provenance-stamped JSON document with every credential/secret reference
+  // stripped. ImportSecurityPack validates such a document (size, schema
+  // version, per-item validation identical to manual authoring) and reports
+  // per-item outcomes; items are only created when apply is true, using the
+  // caller's namespace authorization and the configured collision policy.
+  rpc ExportSecurityPack(ExportSecurityPackRequest) returns (ExportSecurityPackResponse);
+  rpc ImportSecurityPack(ImportSecurityPackRequest) returns (ImportSecurityPackResponse);
+
+  // GetSecurityOverview aggregates a namespace's security posture for the
+  // dashboard overview page: active and recent scan runs, open finding
+  // counts, and scan configurations that are failing or blocked.
+  rpc GetSecurityOverview(GetSecurityOverviewRequest) returns (GetSecurityOverviewResponse);
+  // GetSecurityScanReport returns a report artifact (Markdown or SARIF)
+  // written by a finished security scan run.
+  rpc GetSecurityScanReport(GetSecurityScanReportRequest) returns (GetSecurityScanReportResponse);
 }
 
 message ListAgentRunsRequest {
@@ -3916,6 +4017,38 @@ message SecurityFinding {
   string raw = 30; // Raw agent-reported finding as JSON
   google.protobuf.Timestamp first_seen_at = 31;
   google.protobuf.Timestamp last_seen_at = 32;
+  string assignee = 33; // Empty = unassigned
+  // accepted_risk_expires_at is set only while status is accepted_risk with
+  // an expiry; past it the finding automatically reopens.
+  google.protobuf.Timestamp accepted_risk_expires_at = 34;
+  string ticket_url = 35; // Linked external ticket (empty = none)
+  string ticket_provider = 36; // e.g. github, linear
+  // baseline_state classifies the finding against the previous scan run:
+  // new, recurring, regressed, resolved, reopened. Empty for findings
+  // recorded before baseline tracking existed.
+  string baseline_state = 37;
+  google.protobuf.Timestamp resolved_at = 38;
+  // triaged_at is when the finding first left status "open".
+  google.protobuf.Timestamp triaged_at = 39;
+  // Governed suppression (SecurityPolicyPack suppression rules). The finding
+  // is suppressed while suppressed_by is non-empty: excluded from
+  // failOnSeverity gating and default list/summary results, never deleted.
+  string suppressed_by = 40; // Suppressing rule id "<pack>/<rule>"; empty = not suppressed
+  string suppressed_reason = 41;
+  string suppressed_owner = 42;
+  google.protobuf.Timestamp suppression_expires_at = 43;
+  google.protobuf.Timestamp suppressed_at = 44;
+  // Scanner provenance. source_kind is "agent" (default; empty = agent) or
+  // "scanner" for findings ingested from deterministic tools; tool,
+  // tool_version, and rule_id identify the deterministic scanner rule and
+  // are empty for agent findings.
+  string source_kind = 45;
+  string tool = 46;
+  string tool_version = 47;
+  string rule_id = 48;
+  // correlated_fingerprints cross-reference findings from the other source
+  // kind that describe the same issue; correlation never merges either side.
+  repeated string correlated_fingerprints = 49;
 }
 
 message ListSecurityFindingsRequest {
@@ -3931,6 +4064,12 @@ message ListSecurityFindingsRequest {
   bool include_duplicates = 10;
   int32 limit = 11;
   int32 offset = 12;
+  string baseline_state = 13; // Optional: new, recurring, regressed, resolved, reopened
+  string assignee = 14; // Optional: filter by assignee
+  // suppressed controls governed-suppressed findings: "" or "exclude" omits
+  // them (default), "include" returns suppressed and unsuppressed findings
+  // alike, "only" returns only suppressed findings.
+  string suppressed = 15;
 }
 
 message ListSecurityFindingsResponse {
@@ -3942,6 +4081,11 @@ message GetSecurityFindingRequest {
   // namespace the finding lives in. Empty resolves to the caller's personal
   // namespace; send it when browsing findings in a shared namespace.
   string namespace = 2;
+  // Optional: when set, the finding must belong to this scan (its scan_name
+  // must match) or the request is answered with NotFound. Send it when
+  // resolving a finding from a scan-scoped URL so a finding can never be
+  // read through another scan's route.
+  string scan_name = 3;
 }
 
 // SecurityFindingEvent is one audit-trail entry for a finding.
@@ -3966,17 +4110,163 @@ message UpdateSecurityFindingStatusRequest {
   // namespace the finding lives in. Empty resolves to the caller's personal
   // namespace; send it when triaging findings in a shared namespace.
   string namespace = 4;
+  // Optional expiry, allowed only with status accepted_risk: past it the
+  // finding automatically reopens.
+  google.protobuf.Timestamp accepted_risk_expires_at = 5;
 }
 
 message GetSecurityFindingSummaryRequest {
   string namespace = 1;
   string scan_name = 2; // Optional: restrict to one scan name
   string run_name = 3; // Optional: restrict to one scan run
+  // include_suppressed folds governed-suppressed findings into every count;
+  // by default they only appear under the "suppressed" key.
+  bool include_suppressed = 4;
 }
 
 message GetSecurityFindingSummaryResponse {
-  // counts maps severity (plus "total" / "open") to the number of findings.
+  // counts maps severity (plus "total" / "open" / "open_<severity>" /
+  // "baseline_<state>" / "baseline_tracked") to the number of findings.
   map<string, int32> counts = 1;
+  // trends aggregates triage/remediation velocity for the summarized scope.
+  SecurityFindingTrends trends = 2;
+}
+
+// SecurityFindingTrends aggregates triage and remediation velocity.
+message SecurityFindingTrends {
+  int32 triaged_count = 1; // Findings that left status "open" at least once
+  int32 resolved_count = 2; // Findings resolved by a later scan run
+  double avg_time_to_triage_seconds = 3;
+  double median_time_to_triage_seconds = 4;
+  double avg_time_to_resolution_seconds = 5;
+  double median_time_to_resolution_seconds = 6;
+}
+
+message UpdateSecurityFindingAssigneeRequest {
+  string id = 1; // Finding ID
+  // namespace the finding lives in. Empty resolves to the caller's personal
+  // namespace.
+  string namespace = 2;
+  string assignee = 3; // Empty clears the assignee
+}
+
+message UpdateSecurityFindingTicketRequest {
+  string id = 1; // Finding ID
+  string namespace = 2;
+  // ticket_url links the ticket when a non-empty absolute http(s) URL, and
+  // unlinks the current ticket when empty.
+  string ticket_url = 3;
+  string ticket_provider = 4; // e.g. github, linear; optional label
+}
+
+message CreateSecurityFindingTicketRequest {
+  string id = 1; // Finding ID
+  string namespace = 2;
+  string provider = 3; // Only "github" creates tickets today
+  // repository_ref names the GitHubRepository resource (same namespace as
+  // the finding) whose credentials create the issue.
+  string repository_ref = 4;
+  string title = 5; // Optional override; default derives from the finding
+  string body = 6; // Optional extra context appended to the safe body
+}
+
+message BulkUpdateSecurityFindingStatusRequest {
+  string namespace = 1;
+  string scan_name = 2; // Optional: all ids must belong to this scan
+  repeated string ids = 3;
+  string status = 4; // Optional: empty = leave status unchanged
+  // set_assignee distinguishes "leave assignee unchanged" (false) from
+  // "assign to `assignee`, clearing when empty" (true).
+  bool set_assignee = 5;
+  string assignee = 6;
+  string note = 7; // Optional audit note recorded on every event
+  // Optional expiry, allowed only with status accepted_risk.
+  google.protobuf.Timestamp accepted_risk_expires_at = 8;
+}
+
+message BulkUpdateSecurityFindingOutcome {
+  string id = 1;
+  bool ok = 2;
+  // error explains why this item failed ("not found") or was rolled back
+  // ("aborted: ..."). Empty when ok.
+  string error = 3;
+}
+
+message BulkUpdateSecurityFindingStatusResponse {
+  // results reports the outcome per requested id, in request order. The
+  // batch is atomic: when any item fails every other item reports aborted.
+  repeated BulkUpdateSecurityFindingOutcome results = 1;
+  int32 updated = 2; // Number of findings updated (0 when the batch aborted)
+}
+
+// SecuritySavedFilter is one saved findings-filter query, private to the
+// user who saved it within a namespace.
+message SecuritySavedFilter {
+  string id = 1;
+  string namespace = 2;
+  string owner = 3;
+  string name = 4;
+  string query = 5; // Filter parameters as a JSON object
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message ListSecuritySavedFiltersRequest {
+  string namespace = 1;
+}
+
+message ListSecuritySavedFiltersResponse {
+  repeated SecuritySavedFilter filters = 1; // Ordered by name
+}
+
+message SaveSecuritySavedFilterRequest {
+  string namespace = 1;
+  string name = 2; // Unique per (namespace, user); saving again replaces
+  string query = 3; // Filter parameters as a JSON object
+}
+
+message DeleteSecuritySavedFilterRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message ExportSecurityFindingAuditLogRequest {
+  string namespace = 1;
+  string scan_name = 2;
+  string format = 3; // "csv" (default) or "json"
+}
+
+message ExportSecurityFindingAuditLogResponse {
+  bytes content = 1;
+  string filename = 2; // Suggested download filename
+  string content_type = 3;
+  int32 event_count = 4;
+}
+
+message ListSecurityFindingEventsRequest {
+  string id = 1; // Finding ID
+  // namespace the finding lives in. Empty resolves to the caller's personal
+  // namespace; send it when browsing findings in a shared namespace.
+  string namespace = 2;
+  // Optional: when set, the finding must belong to this scan or the request
+  // is answered with NotFound.
+  string scan_name = 3;
+  int32 limit = 4; // Optional: maximum events to return (default 200)
+}
+
+message ListSecurityFindingEventsResponse {
+  repeated SecurityFindingEvent events = 1; // Newest first
+}
+
+message AddSecurityFindingCommentRequest {
+  string id = 1; // Finding ID
+  // namespace the finding lives in. Empty resolves to the caller's personal
+  // namespace; send it when commenting on findings in a shared namespace.
+  string namespace = 2;
+  // Optional: when set, the finding must belong to this scan or the request
+  // is answered with NotFound.
+  string scan_name = 3;
+  string body = 4; // Comment text; at most 10000 characters
 }
 
 // ---- SecurityScan configuration messages ----
@@ -4024,6 +4314,77 @@ message SecurityScanDedupeConfig {
   int32 similarity_threshold_permille = 2; // 0-1000; 0 = server default (820)
 }
 
+// SecurityScanTriggersConfig configures repository-event driven scan runs.
+message SecurityScanTriggersConfig {
+  // repository_ref names the GitHubRepository (same namespace) whose webhook
+  // deliveries trigger the scan and whose credentials publish checks and
+  // read diffs. Required when on_pull_request or on_push is set.
+  string repository_ref = 1;
+  bool on_pull_request = 2;
+  bool on_push = 3;
+  // branches restricts push triggers (glob patterns; empty = every branch).
+  repeated string branches = 4;
+  // diff_scope scopes event runs to changed files, falling back to a full
+  // scan (stated in prompt and status) when the diff is unavailable.
+  bool diff_scope = 5;
+  // allow_forks permits scan runs for fork PRs. Fork runs never receive the
+  // repository's GitHub credentials.
+  bool allow_forks = 6;
+}
+
+// SecurityScanChecksConfig configures GitHub check publishing.
+message SecurityScanChecksConfig {
+  bool enabled = 1;
+  // include_finding_summaries opts in to finding titles+locations in the
+  // check summary. Default: counts and a dashboard link only. Evidence is
+  // never published in either mode.
+  bool include_finding_summaries = 2;
+  // upload_sarif opts in to uploading the stored SARIF report artifact to
+  // GitHub code scanning.
+  bool upload_sarif = 3;
+}
+
+// SecurityScanNotificationRuleConfig routes new/regressed findings to Slack,
+// GitHub issues, and/or Linear issues, deduplicated per finding fingerprint.
+message SecurityScanNotificationRuleConfig {
+  string name = 1; // required, unique per scan
+  string min_severity = 2; // critical|high|medium|low|info; empty = high
+  string notify_on = 3; // new | regressed | new-and-regressed (default)
+  // slack_webhook_secret_ref names a Secret with the incoming-webhook URL
+  // under key "url". Empty disables the Slack channel.
+  string slack_webhook_secret_ref = 4;
+  // github_issues enables GitHub issue creation.
+  bool github_issues = 5;
+  // github_repository_ref optionally overrides the trigger repository used
+  // for issue creation.
+  string github_repository_ref = 6;
+  // linear_api_key_secret_ref names a Secret with a Linear API key under key
+  // "api-key". Both linear fields set enable the Linear channel.
+  string linear_api_key_secret_ref = 7;
+  string linear_team_id = 8;
+}
+
+// SecurityScanCheckState is the last GitHub check publish attempt.
+message SecurityScanCheckState {
+  string run_name = 1;
+  string revision = 2;
+  string conclusion = 3; // success | failure | neutral
+  string url = 4;
+  int64 published_at_unix = 5;
+  string error = 6; // last publish failure; retried automatically
+  bool sarif_uploaded = 7;
+  string sarif_error = 8;
+}
+
+// SecurityScanNotificationState is the last notification delivery attempt.
+message SecurityScanNotificationState {
+  string last_run_name = 1;
+  int32 sent = 2;
+  int32 suppressed = 3;
+  string last_error = 4; // retried automatically without double-sending
+  int64 last_notified_at_unix = 5;
+}
+
 // SecurityScanConfigSpec mirrors the operator-configurable SecurityScan CRD
 // spec (api/triggers/v1alpha1 SecurityScanSpec).
 message SecurityScanConfigSpec {
@@ -4046,6 +4407,29 @@ message SecurityScanConfigSpec {
   string concurrency_policy = 16; // Allow | Forbid; empty = Forbid
   AgentRunDefaults defaults = 17;
   string max_runtime = 18; // Go duration string, e.g. "2h"; empty = defaults.timeout
+  // workflow_ref names a reusable SecurityWorkflow in the scan's namespace.
+  // Mutually exclusive with an inline workflow; resolved and snapshotted at
+  // run-creation time.
+  string workflow_ref = 19;
+  // ranker_refs name reusable SecurityRanker resources appended after the
+  // inline severity_rankers.
+  repeated string ranker_refs = 20;
+  // post_script_refs name reusable SecurityPostScript resources appended
+  // after the inline post_scripts.
+  repeated string post_script_refs = 21;
+  // triggers configures repository-event driven scan runs.
+  SecurityScanTriggersConfig triggers = 22;
+  // checks configures GitHub check publishing on the scanned commit.
+  SecurityScanChecksConfig checks = 23;
+  // notifications route new/regressed findings to Slack/GitHub/Linear.
+  repeated SecurityScanNotificationRuleConfig notifications = 24;
+  // policy_pack_ref names a SecurityPolicyPack in the scan's namespace whose
+  // defaults, enforced floors, and governed suppressions apply to this scan
+  // (precedence: platform defaults < policy pack < scan configuration).
+  string policy_pack_ref = 25;
+  // budgets caps what each scan run may consume; unset fields inherit the
+  // policy pack's budgets. Enforced entirely platform-side.
+  SecurityScanBudgetsConfig budgets = 26;
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.
@@ -4068,6 +4452,44 @@ message SecurityScanConfig {
   // ownership / sharing
   ResourceOwner owner = 19;
   string my_permission = 20;
+  // last_check reports the most recent GitHub check publish attempt.
+  SecurityScanCheckState last_check = 21;
+  // last_notifications reports the most recent notification delivery attempt.
+  SecurityScanNotificationState last_notifications = 22;
+  // last_event_revision is the platform-stamped head SHA of the most recent
+  // repository event processed for this scan.
+  string last_event_revision = 23;
+  // event_runs_created counts AgentRuns created from repository events.
+  int32 event_runs_created = 24;
+  // effective_budgets is the budget set actually enforced: scan budgets
+  // merged with the policy pack's defaults. Empty when no budget is set.
+  SecurityScanBudgetsConfig effective_budgets = 25;
+  // budget_exceeded reports whether a hard budget limit is exceeded per the
+  // controller's platform-side evaluation (also set pre-launch, e.g. when
+  // persisted findings already exceed max_findings), so the dashboard can
+  // warn before starting a run.
+  bool budget_exceeded = 26;
+  // budget_message explains which limit is exceeded, empty otherwise.
+  string budget_message = 27;
+  // retention reports the most recent retention sweep for this scan's
+  // policy pack retention configuration. Unset when no sweep has run.
+  SecurityScanRetentionState retention = 28;
+}
+
+// SecurityScanRetentionState is the most recent retention purge sweep for a
+// SecurityScan trigger. Counters are cumulative per SecurityScan resource.
+message SecurityScanRetentionState {
+  int64 last_sweep_time_unix = 1; // 0 = no sweep has run yet
+  int64 scans_purged = 2; // Deleted scan run records (incl. observations)
+  int64 findings_purged = 3; // Deleted finding rows
+  int64 reports_purged = 4; // Deleted report artifacts (markdown/SARIF)
+  int64 evidence_redacted = 5; // Findings whose evidence was redacted in place
+  int64 poc_redacted = 6; // Findings whose PoC content was redacted in place
+  int64 audit_events_purged = 7; // Deleted finding audit events
+  // more_work reports whether the last batch hit its bound; the controller
+  // requeues promptly while true.
+  bool more_work = 8;
+  string last_error = 9; // Most recent sweep failure, empty after a clean batch
 }
 
 message ListSecurityScanConfigsRequest {
@@ -4110,4 +4532,443 @@ message UpdateSecurityScanRequest {
 message DeleteSecurityScanRequest {
   string namespace = 1;
   string name = 2;
+}
+
+message RunSecurityScanNowRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecurityWorkflowResource is one reusable SecurityWorkflow CR. The proto
+// mirrors the CRD spec with plain, secret-free fields so resources stay
+// import/export-ready.
+message SecurityWorkflowResource {
+  string namespace = 1;
+  string name = 2;
+  string description = 3;
+  repeated SecurityScanTaskConfig tasks = 4;
+  // parallelism, when non-zero, overrides the referencing scan's parallelism
+  // (1-16).
+  int32 parallelism = 5;
+  // usage_count is the number of SecurityScans in the namespace referencing
+  // this workflow.
+  int32 usage_count = 10;
+  // referencing_scans are the names of the SecurityScans counted above.
+  repeated string referencing_scans = 11;
+  int64 generation = 12;
+  int64 created_at_unix = 13;
+}
+
+message ListSecurityWorkflowsRequest {
+  string namespace = 1;
+}
+
+message ListSecurityWorkflowsResponse {
+  repeated SecurityWorkflowResource workflows = 1;
+}
+
+message GetSecurityWorkflowRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityWorkflowRequest {
+  SecurityWorkflowResource workflow = 1;
+}
+
+message UpdateSecurityWorkflowRequest {
+  SecurityWorkflowResource workflow = 1;
+}
+
+message DeleteSecurityWorkflowRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecurityWorkflowValidationError is one structured validation failure
+// addressed to the offending field.
+message SecurityWorkflowValidationError {
+  // field is a JSON-ish path such as "tasks[2].dependsOn".
+  string field = 1;
+  string message = 2;
+}
+
+message ValidateSecurityWorkflowRequest {
+  repeated SecurityScanTaskConfig tasks = 1;
+  int32 parallelism = 2;
+}
+
+message ValidateSecurityWorkflowResponse {
+  bool valid = 1;
+  repeated SecurityWorkflowValidationError errors = 2;
+}
+
+// SecurityRankerResource is one reusable SecurityRanker CR (same rules
+// language as SecurityScanConfigSpec.severity_rankers[].rules).
+message SecurityRankerResource {
+  string namespace = 1;
+  string name = 2;
+  string description = 3;
+  repeated string rules = 4;
+  int32 usage_count = 10;
+  repeated string referencing_scans = 11;
+  int64 generation = 12;
+  int64 created_at_unix = 13;
+}
+
+message ListSecurityRankersRequest {
+  string namespace = 1;
+}
+
+message ListSecurityRankersResponse {
+  repeated SecurityRankerResource rankers = 1;
+}
+
+message GetSecurityRankerRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityRankerRequest {
+  SecurityRankerResource ranker = 1;
+}
+
+message UpdateSecurityRankerRequest {
+  SecurityRankerResource ranker = 1;
+}
+
+message DeleteSecurityRankerRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecurityPostScriptResource is one reusable SecurityPostScript CR.
+message SecurityPostScriptResource {
+  string namespace = 1;
+  string name = 2;
+  string description = 3;
+  string prompt = 4;
+  string run_on = 5; // all | confirmed | high-and-above; empty = all
+  int32 usage_count = 10;
+  repeated string referencing_scans = 11;
+  int64 generation = 12;
+  int64 created_at_unix = 13;
+}
+
+message ListSecurityPostScriptsRequest {
+  string namespace = 1;
+}
+
+message ListSecurityPostScriptsResponse {
+  repeated SecurityPostScriptResource post_scripts = 1;
+}
+
+message GetSecurityPostScriptRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityPostScriptRequest {
+  SecurityPostScriptResource post_script = 1;
+}
+
+message UpdateSecurityPostScriptRequest {
+  SecurityPostScriptResource post_script = 1;
+}
+
+message DeleteSecurityPostScriptRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecuritySuppressionMatcherConfig selects the findings a governed
+// suppression rule applies to. All set fields must match (AND); at least one
+// is required.
+message SecuritySuppressionMatcherConfig {
+  string category = 1; // Exact finding category
+  string cwe = 2; // Matches findings whose CWE list contains this id
+  string path_glob = 3; // Glob over the finding file path ('*' and '?')
+  string fingerprint = 4; // Exact finding fingerprint
+}
+
+// SecurityPolicySuppressionConfig is one governed suppression rule of a
+// SecurityPolicyPack. Matching findings are marked suppressed (never
+// deleted), audited, excluded from gating and default listings, and
+// automatically unsuppressed past expires_at.
+message SecurityPolicySuppressionConfig {
+  string name = 1; // Rule name (DNS-1123 label); persisted id is "<pack>/<name>"
+  string reason = 2; // Required: why the findings are suppressed
+  string owner = 3; // Required: who is accountable
+  SecuritySuppressionMatcherConfig matcher = 4;
+  google.protobuf.Timestamp expires_at = 5; // Optional expiry
+}
+
+// SecurityScanBudgetsConfig caps what one scan run may consume. Zero/empty
+// fields are unlimited (or inherit the policy pack's value). Enforcement is
+// entirely platform-side: limits derive from the CRD spec merged with the
+// policy pack and are re-checked against platform-observed usage, so model
+// output can never relax them.
+message SecurityScanBudgetsConfig {
+  int32 max_model_jobs = 1; // Sub-agent runs the scan run may spawn
+  string max_cost_usd = 2; // Decimal USD ceiling, e.g. "5" or "2.50"
+  int64 max_tokens = 3; // Total LLM tokens (input + output)
+  string max_runtime = 4; // Go duration string, e.g. "2h"
+  int32 max_findings = 5; // Persisted findings cap
+  int32 max_validation_jobs = 6; // Post-script (validation/PoC) sub-agent runs
+}
+
+// SecurityPolicyPackRetentionConfig configures how long each class of
+// persisted security data is kept, in days; 0 keeps a class forever.
+// Evidence and PoC retention redact the expired content in place — the
+// finding row, its identity, and its audit history are preserved.
+message SecurityPolicyPackRetentionConfig {
+  int32 scan_days = 1; // Completed scan run records + observation rows
+  int32 finding_days = 2; // Finding rows (deleted with their audit events)
+  int32 report_days = 3; // Report artifacts (markdown and SARIF)
+  int32 evidence_days = 4; // Evidence snippets (redacted in place)
+  int32 poc_days = 5; // PoC / attack-vector narratives (redacted in place)
+  int32 audit_event_days = 6; // Finding audit-trail events
+}
+
+// SecurityPolicyPackResource is one SecurityPolicyPack CR: scan defaults,
+// enforced floors referencing scans may not relax, and governed suppressions.
+message SecurityPolicyPackResource {
+  string namespace = 1;
+  string name = 2;
+  string description = 3;
+  // required_categories the effective scan workflow must cover (checked when
+  // "requiredCategories" is enforced).
+  repeated string required_categories = 4;
+  string min_severity = 5; // critical|high|medium|low|info; empty = none
+  string fail_on_severity = 6; // critical|high|medium|low|info; empty = none
+  SecurityScanDedupeConfig dedupe = 7;
+  // allowed_runtime_profiles the scan's defaults.runtimeProfileRef must name
+  // one of (checked when "allowedRuntimeProfiles" is enforced).
+  repeated string allowed_runtime_profiles = 8;
+  repeated string default_ranker_refs = 9; // SecurityRanker names appended to scans
+  repeated string default_post_script_refs = 10; // SecurityPostScript names appended to scans
+  // enforced lists the pack fields scans may not relax: minSeverity,
+  // failOnSeverity, dedupe, requiredCategories, allowedRuntimeProfiles,
+  // budgets.
+  repeated string enforced = 11;
+  repeated SecurityPolicySuppressionConfig suppressions = 12;
+  // retention configures per-class data retention (days; 0 = keep forever).
+  SecurityPolicyPackRetentionConfig retention = 13;
+  // budgets are default scan budgets for referencing scans (precedence:
+  // pack default < scan; enforced "budgets" forbids raising a pack limit).
+  SecurityScanBudgetsConfig budgets = 14;
+  int32 usage_count = 20;
+  repeated string referencing_scans = 21;
+  int64 generation = 22;
+  int64 created_at_unix = 23;
+}
+
+message ListSecurityPolicyPacksRequest {
+  string namespace = 1;
+}
+
+message ListSecurityPolicyPacksResponse {
+  repeated SecurityPolicyPackResource policy_packs = 1;
+}
+
+message GetSecurityPolicyPackRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityPolicyPackRequest {
+  SecurityPolicyPackResource policy_pack = 1;
+}
+
+message UpdateSecurityPolicyPackRequest {
+  SecurityPolicyPackResource policy_pack = 1;
+}
+
+message DeleteSecurityPolicyPackRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecurityDraftKind selects which reusable security resource an AI-assisted
+// draft describes.
+enum SecurityDraftKind {
+  SECURITY_DRAFT_KIND_UNSPECIFIED = 0;
+  SECURITY_DRAFT_KIND_WORKFLOW = 1;
+  SECURITY_DRAFT_KIND_POST_SCRIPT = 2;
+}
+
+message GenerateSecurityDraftRequest {
+  string namespace = 1;
+  SecurityDraftKind kind = 2;
+  // request_text is the operator's natural-language description of the
+  // workflow or post-script to draft (at most 4000 characters). It is
+  // treated as untrusted data by the generation run.
+  string request_text = 3;
+  // model optionally overrides the generation model (may carry a provider
+  // prefix such as "anthropic/claude-sonnet-4-6"). Empty uses the caller's
+  // provider default.
+  string model = 4;
+}
+
+message GenerateSecurityDraftResponse {
+  string namespace = 1;
+  // run_name is the repo-less draft-generation AgentRun to poll with
+  // GetSecurityDraft.
+  string run_name = 2;
+}
+
+// SecurityDraftStatus is the lifecycle of one draft-generation run.
+enum SecurityDraftStatus {
+  SECURITY_DRAFT_STATUS_UNSPECIFIED = 0;
+  SECURITY_DRAFT_STATUS_RUNNING = 1;
+  SECURITY_DRAFT_STATUS_COMPLETED = 2;
+  SECURITY_DRAFT_STATUS_FAILED = 3;
+}
+
+message GetSecurityDraftRequest {
+  string namespace = 1;
+  string run_name = 2;
+}
+
+message GetSecurityDraftResponse {
+  SecurityDraftStatus status = 1;
+  // error explains a FAILED draft (run failure or unparseable output).
+  string error = 2;
+  // phase is the underlying AgentRun phase, for progress display.
+  string phase = 3;
+  // workflow is set for COMPLETED workflow drafts (namespace/usage fields
+  // are empty; the draft exists only in this response).
+  SecurityWorkflowResource workflow = 4;
+  // post_script is set for COMPLETED post-script drafts.
+  SecurityPostScriptResource post_script = 5;
+  // validation_errors are the same structured errors manual authoring
+  // produces; a draft with errors must be fixed in the editor before it can
+  // be saved.
+  repeated SecurityWorkflowValidationError validation_errors = 6;
+}
+
+message ExportSecurityPackRequest {
+  string namespace = 1;
+  // Names of resources to include; unknown names fail the export so packs
+  // are never silently incomplete.
+  repeated string workflows = 2;
+  repeated string rankers = 3;
+  repeated string post_scripts = 4;
+  repeated string scan_configs = 5;
+}
+
+message ExportSecurityPackResponse {
+  // data is the UTF-8 JSON pack document (schema security-pack/v1) with all
+  // credential and secret references stripped.
+  bytes data = 1;
+  string filename = 2;
+  int32 item_count = 3;
+}
+
+// SecurityPackCollisionPolicy controls what an import does when an item's
+// name already exists in the target namespace.
+enum SecurityPackCollisionPolicy {
+  SECURITY_PACK_COLLISION_POLICY_UNSPECIFIED = 0;
+  SECURITY_PACK_COLLISION_POLICY_FAIL = 1;
+  SECURITY_PACK_COLLISION_POLICY_SKIP = 2;
+  SECURITY_PACK_COLLISION_POLICY_RENAME = 3;
+}
+
+message ImportSecurityPackRequest {
+  string namespace = 1;
+  // data is a security-pack/v1 JSON document (max 1 MiB).
+  bytes data = 2;
+  // apply=false (the default) is a dry run: the pack is fully validated and
+  // per-item outcomes are reported, but nothing is created.
+  bool apply = 3;
+  SecurityPackCollisionPolicy collision_policy = 4;
+}
+
+// SecurityPackItemResult is the outcome of one pack item during import.
+message SecurityPackItemResult {
+  string kind = 1;
+  string name = 2;
+  // action: created, would-create, renamed, skipped, failed.
+  string action = 3;
+  // final_name differs from name when the collision policy renamed the item.
+  string final_name = 4;
+  string error = 5;
+  repeated SecurityWorkflowValidationError validation_errors = 6;
+}
+
+message ImportSecurityPackResponse {
+  bool applied = 1;
+  // source provenance echoed from the pack document.
+  string schema_version = 2;
+  string source_namespace = 3;
+  string exported_at = 4;
+  string exported_by = 5;
+  repeated SecurityPackItemResult items = 6;
+}
+
+message GetSecurityOverviewRequest {
+  string namespace = 1;
+  // recent_limit caps the recent scans returned (server default when 0).
+  int32 recent_limit = 2;
+}
+
+// SecurityScanConfigIssue is one SecurityScan configuration that needs
+// operator attention: not Ready, blocked, or suspended.
+message SecurityScanConfigIssue {
+  string namespace = 1;
+  string name = 2;
+  string phase = 3;
+  // ready_reason is the Ready condition's reason when the condition is not
+  // True (e.g. Suspended, InsecureDefaults, ConcurrencyBlocked,
+  // FindingsExceedThreshold).
+  string ready_reason = 4;
+  string message = 5;
+  bool suspended = 6;
+}
+
+message GetSecurityOverviewResponse {
+  // store_supported is false when the configured state store cannot persist
+  // security scan data (no Postgres); scan and finding fields are then empty
+  // while configuration fields stay populated from the cluster.
+  bool store_supported = 1;
+  // active_scans are persisted scan runs that have not completed yet.
+  repeated SecurityScan active_scans = 2;
+  // recent_scans are the newest persisted scan runs, newest first.
+  repeated SecurityScan recent_scans = 3;
+  // finding_counts maps severity (plus "total" / "open" / "open_<severity>")
+  // to the number of findings across the namespace.
+  map<string, int32> finding_counts = 4;
+  // config_count is the number of SecurityScan configurations visible to the
+  // caller in the namespace.
+  int32 config_count = 5;
+  // config_issues are configurations that are failing, blocked, or suspended.
+  repeated SecurityScanConfigIssue config_issues = 6;
+  // baseline_available reports whether baseline comparison data exists; the
+  // new/recurring/resolved counters below are meaningless until it is true.
+  bool baseline_available = 7;
+  int32 new_findings = 8;
+  int32 recurring_findings = 9;
+  int32 resolved_findings = 10;
+  // warnings lists aggregation steps that failed; the remaining fields are
+  // still valid (partial result).
+  repeated string warnings = 11;
+  // trends aggregates namespace-wide triage/remediation velocity.
+  SecurityFindingTrends trends = 12;
+  int32 regressed_findings = 13;
+  int32 reopened_findings = 14;
+}
+
+message GetSecurityScanReportRequest {
+  string namespace = 1;
+  string run_name = 2;
+  // format selects the artifact: "markdown" (default) or "sarif".
+  string format = 3;
+}
+
+message GetSecurityScanReportResponse {
+  string content = 1;
+  string format = 2;
+  // filename is a suggested download filename for the artifact.
+  string filename = 3;
+  google.protobuf.Timestamp updated_at = 4;
 }

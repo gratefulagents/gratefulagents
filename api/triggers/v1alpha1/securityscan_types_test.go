@@ -162,7 +162,7 @@ func TestSecurityScanTaskEffectiveRole(t *testing.T) {
 }
 
 func TestSecurityPostScriptEffectiveRunOn(t *testing.T) {
-	var script SecurityPostScript
+	var script SecurityScanPostScript
 	if got := script.EffectiveRunOn(); got != "all" {
 		t.Fatalf("EffectiveRunOn() = %q, want all", got)
 	}
@@ -180,8 +180,8 @@ func TestSecurityScanDeepCopyCoversNewTypes(t *testing.T) {
 			AdditionalRepos: []string{"https://github.com/example/dep.git"},
 			Scope:           &SecurityScanScope{IncludePaths: []string{"internal/"}},
 			Workflow:        []SecurityScanTask{{Name: "a", Objective: "x", DependsOn: []string{"b"}}},
-			SeverityRankers: []SecurityRanker{{Name: "r", Rules: "min-severity: high"}},
-			PostScripts:     []SecurityPostScript{{Name: "p", Prompt: "validate"}},
+			SeverityRankers: []SecurityScanRanker{{Name: "r", Rules: "min-severity: high"}},
+			PostScripts:     []SecurityScanPostScript{{Name: "p", Prompt: "validate"}},
 			Dedupe:          &SecurityScanDedupe{Enabled: &enabled},
 			MaxRuntime:      metav1.Duration{Duration: time.Hour},
 		},

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -194,6 +195,58 @@ func (s *Server) UpdateSecurityScan(
 	return securityScanConfigProto(existing), nil
 }
 
+// RunSecurityScanNow stamps a run-now annotation token on a SecurityScan so
+// the controller creates an immediate AgentRun without a spec edit. The token
+// is opaque and unique per request; the controller records consumed tokens in
+// status.lastManualRunToken, so retried or concurrent duplicate requests never
+// create two runs, and concurrencyPolicy Forbid surfaces ConcurrencyBlocked
+// on the scan status instead of double-running.
+func (s *Server) RunSecurityScanNow(
+	ctx context.Context, req *platform.RunSecurityScanNowRequest,
+) (*platform.SecurityScanConfig, error) {
+	namespace := strings.TrimSpace(req.GetNamespace())
+	name := strings.TrimSpace(req.GetName())
+	if namespace == "" || name == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("namespace and name are required"))
+	}
+	err := s.requireResourceAccess(
+		ctx, securityScanResourceType, name, namespace, AccessCollaborator, "run this security scan")
+	if err != nil {
+		return nil, err
+	}
+
+	token := time.Now().UTC().Format(time.RFC3339Nano)
+	var updated *triggersv1alpha1.SecurityScan
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cr := &triggersv1alpha1.SecurityScan{}
+		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cr); err != nil {
+			return err
+		}
+		if cr.Spec.Suspend {
+			return connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("security scan %s/%s is suspended; resume it before requesting a run", namespace, name))
+		}
+		if cr.Annotations == nil {
+			cr.Annotations = map[string]string{}
+		}
+		cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] = token
+		if err := s.k8sClient.Update(ctx, cr); err != nil {
+			return err
+		}
+		updated = cr
+		return nil
+	})
+	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
+		return nil, mapK8sError(fmt.Sprintf("run SecurityScan %s/%s now", namespace, name), err)
+	}
+	pb := securityScanConfigProto(updated)
+	pb.Owner, pb.MyPermission = s.resourceACL(ctx, securityScanResourceType, updated.Name, updated.Namespace)
+	return pb, nil
+}
+
 // DeleteSecurityScan deletes a SecurityScan trigger.
 func (s *Server) DeleteSecurityScan(ctx context.Context, req *platform.DeleteSecurityScanRequest) (*emptypb.Empty, error) {
 	namespace := strings.TrimSpace(req.GetNamespace())
@@ -246,6 +299,56 @@ func generateSecurityScanName() string {
 	return "securityscan-" + suffix
 }
 
+// securityScanBudgetsFromProto converts and validates a budgets block shared
+// by the SecurityScan and SecurityPolicyPack conversions. A nil/empty proto
+// yields nil (no budgets).
+func securityScanBudgetsFromProto(pb *platform.SecurityScanBudgetsConfig) (*triggersv1alpha1.SecurityScanBudgets, error) {
+	if pb == nil {
+		return nil, nil
+	}
+	budgets := &triggersv1alpha1.SecurityScanBudgets{
+		MaxModelJobs:      pb.GetMaxModelJobs(),
+		MaxCostUSD:        strings.TrimSpace(pb.GetMaxCostUsd()),
+		MaxTokens:         pb.GetMaxTokens(),
+		MaxFindings:       pb.GetMaxFindings(),
+		MaxValidationJobs: pb.GetMaxValidationJobs(),
+	}
+	if value := strings.TrimSpace(pb.GetMaxRuntime()); value != "" {
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("invalid budgets.max_runtime %q: %w", value, err))
+		}
+		budgets.MaxRuntime = metav1.Duration{Duration: d}
+	}
+	if errs := triggersv1alpha1.ValidateSecurityScanBudgets("budgets", budgets); len(errs) != 0 {
+		return nil, securityLibraryInvalidArgument(errs)
+	}
+	if budgets.IsZero() {
+		return nil, nil
+	}
+	return budgets, nil
+}
+
+// securityScanBudgetsToProto converts a budgets block for the SecurityScan
+// and SecurityPolicyPack protos. Nil/empty budgets yield nil.
+func securityScanBudgetsToProto(b *triggersv1alpha1.SecurityScanBudgets) *platform.SecurityScanBudgetsConfig {
+	if b == nil || b.IsZero() {
+		return nil
+	}
+	pb := &platform.SecurityScanBudgetsConfig{
+		MaxModelJobs:      b.MaxModelJobs,
+		MaxCostUsd:        b.MaxCostUSD,
+		MaxTokens:         b.MaxTokens,
+		MaxFindings:       b.MaxFindings,
+		MaxValidationJobs: b.MaxValidationJobs,
+	}
+	if b.MaxRuntime.Duration != 0 {
+		pb.MaxRuntime = b.MaxRuntime.Duration.String()
+	}
+	return pb
+}
+
 // securityScanSpecFromRequest validates the shared create/update spec and
 // builds the SecurityScanSpec, also returning the resolved provider and auth
 // mode so callers can wire saved credentials.
@@ -280,6 +383,26 @@ func securityScanSpecFromRequest(
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	workflowRef, err := securityResourceRefFromProto("workflow_ref", pb.GetWorkflowRef())
+	if err != nil {
+		return nil, "", "", err
+	}
+	if workflowRef != nil && len(workflow) > 0 {
+		return nil, "", "", connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("workflow_ref and an inline workflow are mutually exclusive: reference a SecurityWorkflow or define the workflow inline, not both"))
+	}
+	rankerRefs, err := securityResourceRefsFromProto("ranker_refs", pb.GetRankerRefs())
+	if err != nil {
+		return nil, "", "", err
+	}
+	postScriptRefs, err := securityResourceRefsFromProto("post_script_refs", pb.GetPostScriptRefs())
+	if err != nil {
+		return nil, "", "", err
+	}
+	policyPackRef, err := securityResourceRefFromProto("policy_pack_ref", pb.GetPolicyPackRef())
+	if err != nil {
+		return nil, "", "", err
+	}
 	rankers, err := securityScanRankersFromProto(pb.GetSeverityRankers())
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
@@ -291,6 +414,10 @@ func securityScanSpecFromRequest(
 	dedupe, err := securityScanDedupeFromProto(pb.GetDedupe())
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	budgets, err := securityScanBudgetsFromProto(pb.GetBudgets())
+	if err != nil {
+		return nil, "", "", err
 	}
 	var maxRuntime metav1.Duration
 	if value := strings.TrimSpace(pb.GetMaxRuntime()); value != "" {
@@ -305,6 +432,18 @@ func securityScanSpecFromRequest(
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	triggers, err := securityScanTriggersFromProto(pb.GetTriggers())
+	if err != nil {
+		return nil, "", "", err
+	}
+	checks, err := securityScanChecksFromProto(pb.GetChecks(), triggers)
+	if err != nil {
+		return nil, "", "", err
+	}
+	notifications, err := securityScanNotificationsFromProto(pb.GetNotifications())
+	if err != nil {
+		return nil, "", "", err
+	}
 
 	spec := &triggersv1alpha1.SecurityScanSpec{
 		RepoURL:           repoURL,
@@ -313,9 +452,13 @@ func securityScanSpecFromRequest(
 		AdditionalRepos:   trimmedNonEmpty(pb.GetAdditionalRepos()),
 		Scope:             securityScanScopeFromProto(pb.GetScope()),
 		Workflow:          workflow,
+		WorkflowRef:       workflowRef,
 		Parallelism:       pb.GetParallelism(),
 		SeverityRankers:   rankers,
+		RankerRefs:        rankerRefs,
 		PostScripts:       postScripts,
+		PostScriptRefs:    postScriptRefs,
+		PolicyPackRef:     policyPackRef,
 		Dedupe:            dedupe,
 		MinSeverity:       strings.TrimSpace(pb.GetMinSeverity()),
 		FailOnSeverity:    strings.TrimSpace(pb.GetFailOnSeverity()),
@@ -325,6 +468,10 @@ func securityScanSpecFromRequest(
 		ConcurrencyPolicy: policy,
 		Defaults:          defaults,
 		MaxRuntime:        maxRuntime,
+		Budgets:           budgets,
+		Triggers:          triggers,
+		Checks:            checks,
+		Notifications:     notifications,
 	}
 	return spec, provider, authMode, nil
 }
@@ -411,13 +558,48 @@ func securityScanWorkflowFromProto(pbTasks []*platform.SecurityScanTaskConfig) (
 	return tasks, nil
 }
 
-func securityScanRankersFromProto(pbRankers []*platform.SecurityRankerConfig) ([]triggersv1alpha1.SecurityRanker, error) {
-	var out []triggersv1alpha1.SecurityRanker
+// securityResourceRefFromProto validates an optional single library resource
+// reference name.
+func securityResourceRefFromProto(field, name string) (*triggersv1alpha1.SecurityResourceRef, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, nil
+	}
+	if err := validateResourceName(name); err != nil {
+		return nil, invalidArgument("invalid %s %q", field, name)
+	}
+	return &triggersv1alpha1.SecurityResourceRef{Name: name}, nil
+}
+
+// securityResourceRefsFromProto validates a list of library resource
+// reference names, rejecting duplicates.
+func securityResourceRefsFromProto(field string, names []string) ([]triggersv1alpha1.SecurityResourceRef, error) {
+	out := make([]triggersv1alpha1.SecurityResourceRef, 0, len(names))
+	seen := make(map[string]bool, len(names))
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if err := validateResourceName(name); err != nil {
+			return nil, invalidArgument("invalid %s entry %q", field, name)
+		}
+		if seen[name] {
+			return nil, invalidArgument("duplicate %s entry %q", field, name)
+		}
+		seen[name] = true
+		out = append(out, triggersv1alpha1.SecurityResourceRef{Name: name})
+	}
+	return out, nil
+}
+
+func securityScanRankersFromProto(pbRankers []*platform.SecurityRankerConfig) ([]triggersv1alpha1.SecurityScanRanker, error) {
+	out := make([]triggersv1alpha1.SecurityScanRanker, 0, len(pbRankers))
 	for _, r := range pbRankers {
 		if strings.TrimSpace(r.GetName()) == "" || strings.TrimSpace(r.GetRules()) == "" {
 			return nil, fmt.Errorf("severity rankers need both a name and rules")
 		}
-		out = append(out, triggersv1alpha1.SecurityRanker{
+		out = append(out, triggersv1alpha1.SecurityScanRanker{
 			Name:  strings.TrimSpace(r.GetName()),
 			Rules: r.GetRules(),
 		})
@@ -425,8 +607,8 @@ func securityScanRankersFromProto(pbRankers []*platform.SecurityRankerConfig) ([
 	return out, nil
 }
 
-func securityScanPostScriptsFromProto(pbScripts []*platform.SecurityPostScriptConfig) ([]triggersv1alpha1.SecurityPostScript, error) {
-	var out []triggersv1alpha1.SecurityPostScript
+func securityScanPostScriptsFromProto(pbScripts []*platform.SecurityPostScriptConfig) ([]triggersv1alpha1.SecurityScanPostScript, error) {
+	out := make([]triggersv1alpha1.SecurityScanPostScript, 0, len(pbScripts))
 	for _, p := range pbScripts {
 		if strings.TrimSpace(p.GetName()) == "" || strings.TrimSpace(p.GetPrompt()) == "" {
 			return nil, fmt.Errorf("post-scripts need both a name and a prompt")
@@ -436,7 +618,7 @@ func securityScanPostScriptsFromProto(pbScripts []*platform.SecurityPostScriptCo
 		default:
 			return nil, fmt.Errorf("invalid post-script run_on %q (want all, confirmed, or high-and-above)", p.GetRunOn())
 		}
-		out = append(out, triggersv1alpha1.SecurityPostScript{
+		out = append(out, triggersv1alpha1.SecurityScanPostScript{
 			Name:   strings.TrimSpace(p.GetName()),
 			Prompt: p.GetPrompt(),
 			RunOn:  strings.TrimSpace(p.GetRunOn()),
@@ -518,6 +700,53 @@ func securityScanConfigProto(cr *triggersv1alpha1.SecurityScan) *platform.Securi
 	if pb.ConditionReady == "" {
 		pb.ConditionReady = string(metav1.ConditionUnknown)
 	}
+	pb.LastEventRevision = cr.Status.LastEventRevision
+	pb.EventRunsCreated = cr.Status.EventRunsCreated
+	if budget := cr.Status.Budget; budget != nil {
+		pb.EffectiveBudgets = securityScanBudgetsToProto(budget.Effective)
+		pb.BudgetExceeded = budget.Exceeded
+		pb.BudgetMessage = budget.Message
+	}
+	if retention := cr.Status.Retention; retention != nil {
+		pb.Retention = &platform.SecurityScanRetentionState{
+			ScansPurged:       retention.ScansPurged,
+			FindingsPurged:    retention.FindingsPurged,
+			ReportsPurged:     retention.ReportsPurged,
+			EvidenceRedacted:  retention.EvidenceRedacted,
+			PocRedacted:       retention.PoCRedacted,
+			AuditEventsPurged: retention.AuditEventsPurged,
+			MoreWork:          retention.MoreWork,
+			LastError:         retention.LastError,
+		}
+		if retention.LastSweepTime != nil {
+			pb.Retention.LastSweepTimeUnix = retention.LastSweepTime.Unix()
+		}
+	}
+	if check := cr.Status.LastCheck; check != nil {
+		pb.LastCheck = &platform.SecurityScanCheckState{
+			RunName:       check.RunName,
+			Revision:      check.Revision,
+			Conclusion:    check.Conclusion,
+			Url:           check.URL,
+			Error:         check.Error,
+			SarifUploaded: check.SARIFUploaded,
+			SarifError:    check.SARIFError,
+		}
+		if check.PublishedAt != nil {
+			pb.LastCheck.PublishedAtUnix = check.PublishedAt.Unix()
+		}
+	}
+	if notif := cr.Status.LastNotifications; notif != nil {
+		pb.LastNotifications = &platform.SecurityScanNotificationState{
+			LastRunName: notif.LastRunName,
+			Sent:        notif.Sent,
+			Suppressed:  notif.Suppressed,
+			LastError:   notif.LastError,
+		}
+		if notif.LastNotifiedAt != nil {
+			pb.LastNotifications.LastNotifiedAtUnix = notif.LastNotifiedAt.Unix()
+		}
+	}
 	return pb
 }
 
@@ -538,6 +767,19 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 	}
 	if spec.MaxRuntime.Duration != 0 {
 		pb.MaxRuntime = spec.MaxRuntime.Duration.String()
+	}
+	pb.Budgets = securityScanBudgetsToProto(spec.Budgets)
+	if spec.WorkflowRef != nil {
+		pb.WorkflowRef = spec.WorkflowRef.Name
+	}
+	for _, ref := range spec.RankerRefs {
+		pb.RankerRefs = append(pb.RankerRefs, ref.Name)
+	}
+	for _, ref := range spec.PostScriptRefs {
+		pb.PostScriptRefs = append(pb.PostScriptRefs, ref.Name)
+	}
+	if spec.PolicyPackRef != nil {
+		pb.PolicyPackRef = spec.PolicyPackRef.Name
 	}
 	if scope := spec.Scope; scope != nil {
 		pb.Scope = &platform.SecurityScanScopeConfig{
@@ -572,5 +814,151 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 			SimilarityThresholdPermille: d.SimilarityThresholdPermille,
 		}
 	}
+	if t := spec.Triggers; t != nil {
+		pb.Triggers = &platform.SecurityScanTriggersConfig{
+			OnPullRequest: t.OnPullRequest,
+			OnPush:        t.OnPush,
+			Branches:      append([]string(nil), t.Branches...),
+			DiffScope:     t.DiffScope,
+			AllowForks:    t.AllowForks,
+		}
+		if t.RepositoryRef != nil {
+			pb.Triggers.RepositoryRef = t.RepositoryRef.Name
+		}
+	}
+	if c := spec.Checks; c != nil {
+		pb.Checks = &platform.SecurityScanChecksConfig{
+			Enabled:                 c.Enabled,
+			IncludeFindingSummaries: c.IncludeFindingSummaries,
+			UploadSarif:             c.UploadSARIF,
+		}
+	}
+	for _, rule := range spec.Notifications {
+		pbRule := &platform.SecurityScanNotificationRuleConfig{
+			Name:        rule.Name,
+			MinSeverity: rule.MinSeverity,
+			NotifyOn:    rule.NotifyOn,
+		}
+		if rule.Slack != nil {
+			pbRule.SlackWebhookSecretRef = rule.Slack.WebhookSecretRef
+		}
+		if rule.GitHubIssues != nil {
+			pbRule.GithubIssues = true
+			if rule.GitHubIssues.RepositoryRef != nil {
+				pbRule.GithubRepositoryRef = rule.GitHubIssues.RepositoryRef.Name
+			}
+		}
+		if rule.Linear != nil {
+			pbRule.LinearApiKeySecretRef = rule.Linear.APIKeySecretRef
+			pbRule.LinearTeamId = rule.Linear.TeamID
+		}
+		pb.Notifications = append(pb.Notifications, pbRule)
+	}
 	return pb
+}
+
+// securityScanTriggersFromProto validates and converts the triggers config.
+func securityScanTriggersFromProto(pb *platform.SecurityScanTriggersConfig) (*triggersv1alpha1.SecurityScanTriggers, error) {
+	if pb == nil {
+		return nil, nil
+	}
+	repoRef := strings.TrimSpace(pb.GetRepositoryRef())
+	if (pb.GetOnPullRequest() || pb.GetOnPush()) && repoRef == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("triggers.repository_ref is required when on_pull_request or on_push is set"))
+	}
+	t := &triggersv1alpha1.SecurityScanTriggers{
+		OnPullRequest: pb.GetOnPullRequest(),
+		OnPush:        pb.GetOnPush(),
+		Branches:      trimmedNonEmpty(pb.GetBranches()),
+		DiffScope:     pb.GetDiffScope(),
+		AllowForks:    pb.GetAllowForks(),
+	}
+	if repoRef != "" {
+		t.RepositoryRef = &triggersv1alpha1.SecurityResourceRef{Name: repoRef}
+	}
+	if !t.OnPullRequest && !t.OnPush && !t.DiffScope && !t.AllowForks && t.RepositoryRef == nil && len(t.Branches) == 0 {
+		return nil, nil
+	}
+	return t, nil
+}
+
+// securityScanChecksFromProto converts the checks config.
+func securityScanChecksFromProto(pb *platform.SecurityScanChecksConfig, triggers *triggersv1alpha1.SecurityScanTriggers) (*triggersv1alpha1.SecurityScanChecks, error) {
+	if pb == nil {
+		return nil, nil
+	}
+	if pb.GetEnabled() && (triggers == nil || triggers.RepositoryRef == nil) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("checks.enabled requires triggers.repository_ref: the referenced GitHubRepository supplies the credentials that publish checks"))
+	}
+	if !pb.GetEnabled() && !pb.GetIncludeFindingSummaries() && !pb.GetUploadSarif() {
+		return nil, nil
+	}
+	return &triggersv1alpha1.SecurityScanChecks{
+		Enabled:                 pb.GetEnabled(),
+		IncludeFindingSummaries: pb.GetIncludeFindingSummaries(),
+		UploadSARIF:             pb.GetUploadSarif(),
+	}, nil
+}
+
+// securityScanNotificationsFromProto validates and converts notification
+// rules.
+func securityScanNotificationsFromProto(pbRules []*platform.SecurityScanNotificationRuleConfig) ([]triggersv1alpha1.SecurityScanNotificationRule, error) {
+	if len(pbRules) == 0 {
+		return nil, nil
+	}
+	invalid := func(format string, args ...any) error {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(format, args...))
+	}
+	seen := map[string]bool{}
+	rules := make([]triggersv1alpha1.SecurityScanNotificationRule, 0, len(pbRules))
+	for i, pb := range pbRules {
+		name := strings.TrimSpace(pb.GetName())
+		if name == "" {
+			return nil, invalid("notifications[%d].name is required", i)
+		}
+		if len(name) > 63 {
+			return nil, invalid("notifications[%d].name exceeds 63 characters", i)
+		}
+		if seen[name] {
+			return nil, invalid("notifications[%d].name %q is duplicated: rule names must be unique", i, name)
+		}
+		seen[name] = true
+		if err := validateSecuritySeverity(fmt.Sprintf("notifications[%d].min_severity", i), pb.GetMinSeverity()); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		switch strings.TrimSpace(pb.GetNotifyOn()) {
+		case "", "new", "regressed", "new-and-regressed":
+		default:
+			return nil, invalid("notifications[%d].notify_on %q invalid (want new, regressed, or new-and-regressed)", i, pb.GetNotifyOn())
+		}
+		rule := triggersv1alpha1.SecurityScanNotificationRule{
+			Name:        name,
+			MinSeverity: strings.TrimSpace(pb.GetMinSeverity()),
+			NotifyOn:    strings.TrimSpace(pb.GetNotifyOn()),
+		}
+		if ref := strings.TrimSpace(pb.GetSlackWebhookSecretRef()); ref != "" {
+			rule.Slack = &triggersv1alpha1.SecurityScanSlackNotification{WebhookSecretRef: ref}
+		}
+		if pb.GetGithubIssues() {
+			rule.GitHubIssues = &triggersv1alpha1.SecurityScanGitHubIssueNotification{}
+			if ref := strings.TrimSpace(pb.GetGithubRepositoryRef()); ref != "" {
+				rule.GitHubIssues.RepositoryRef = &triggersv1alpha1.SecurityResourceRef{Name: ref}
+			}
+		}
+		linearKey := strings.TrimSpace(pb.GetLinearApiKeySecretRef())
+		linearTeam := strings.TrimSpace(pb.GetLinearTeamId())
+		if (linearKey == "") != (linearTeam == "") {
+			return nil, invalid("notifications[%d]: linear_api_key_secret_ref and linear_team_id must be set together", i)
+		}
+		if linearKey != "" {
+			rule.Linear = &triggersv1alpha1.SecurityScanLinearNotification{APIKeySecretRef: linearKey, TeamID: linearTeam}
+		}
+		if rule.Slack == nil && rule.GitHubIssues == nil && rule.Linear == nil {
+			return nil, invalid("notifications[%d] (%q) configures no channel: set slack, github_issues, and/or linear", i, name)
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
 }

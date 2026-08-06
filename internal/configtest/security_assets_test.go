@@ -84,6 +84,39 @@ func TestSecurityScanModeTemplateAsset(t *testing.T) {
 	}
 }
 
+func TestSecurityDraftModeTemplateAsset(t *testing.T) {
+	t.Parallel()
+
+	var mode platformv1alpha1.ModeTemplate
+	readBootstrapAsset(t, "modetemplates", "security-draft", &mode)
+
+	if mode.Name != "security-draft" || mode.Spec.Name != "security-draft" {
+		t.Fatalf("mode template name = %q/%q, want security-draft", mode.Name, mode.Spec.Name)
+	}
+	if !mode.Spec.Autonomous {
+		t.Error("draft mode must be autonomous")
+	}
+	// Draft runs consume an untrusted operator request in an empty sandbox;
+	// they must never gain mutating tools or workspace write access.
+	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeReadOnly {
+		t.Errorf("permissionMode = %q, want read-only", mode.Spec.PermissionMode)
+	}
+	if len(mode.Spec.AllowedMutatingTools) != 0 {
+		t.Errorf("draft mode must not allowlist mutating tools, got %v", mode.Spec.AllowedMutatingTools)
+	}
+	// The run is single-shot authoring: keep it tightly bounded.
+	if mode.Spec.Constraints == nil || mode.Spec.Constraints.MaxTurns < 1 || mode.Spec.Constraints.MaxTurns > 20 {
+		t.Fatal("draft mode must bound maxTurns to a small budget")
+	}
+	// The dashboard parses the final fenced JSON block, so the contract has
+	// to be spelled out in the instructions.
+	for _, marker := range []string{"```json", "dependsOn", "runOn", "DATA"} {
+		if !strings.Contains(mode.Spec.Instructions, marker) {
+			t.Errorf("draft mode instructions must mention %q", marker)
+		}
+	}
+}
+
 func TestSecurityScanRoleInstructionAssets(t *testing.T) {
 	t.Parallel()
 

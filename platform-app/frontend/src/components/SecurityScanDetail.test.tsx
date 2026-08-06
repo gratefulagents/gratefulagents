@@ -11,13 +11,16 @@ import {
   SecurityScanSchema,
 } from "@/rpc/platform/service_pb";
 
-const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, listSecurityFindings, updateSecurityFindingStatus } =
+const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, getSecurityScanConfig, listSecurityFindings, updateSecurityFindingStatus, getSecurityScanReport, downloadBlob } =
   vi.hoisted(() => ({
     getSecurityScan: vi.fn(),
     getSecurityFinding: vi.fn(),
     getSecurityFindingSummary: vi.fn(),
+    getSecurityScanConfig: vi.fn().mockRejectedValue(new Error("not configured")),
     listSecurityFindings: vi.fn(),
     updateSecurityFindingStatus: vi.fn(),
+    getSecurityScanReport: vi.fn(),
+    downloadBlob: vi.fn(),
   }));
 
 vi.mock("@/lib/client", () => ({
@@ -25,9 +28,21 @@ vi.mock("@/lib/client", () => ({
     getSecurityScan,
     getSecurityFinding,
     getSecurityFindingSummary,
+    getSecurityScanConfig,
     listSecurityFindings,
     updateSecurityFindingStatus,
+    getSecurityScanReport,
   },
+}));
+
+vi.mock("@/lib/download", () => ({
+  downloadBlob,
+}));
+
+// The run panel has its own test suite (SecurityScanRunPanel.test.tsx) and
+// opens watch streams; stub it out here.
+vi.mock("@/components/SecurityScanRunPanel", () => ({
+  SecurityScanRunPanel: () => <div data-testid="scan-run-panel" />,
 }));
 
 afterEach(() => {
@@ -172,7 +187,27 @@ describe("SecurityScanDetail", () => {
         status: "",
         category: "",
         search: "",
+        baselineState: "",
+        assignee: "",
+        suppressed: "",
       });
+    });
+  });
+
+  it("links each finding to its full page carrying the active filters", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+
+    fireEvent.change(screen.getByLabelText("Filter by severity"), { target: { value: "critical" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: "Open full page" }).getAttribute("href")).toBe(
+        `/security/user-alice/nightly-1/findings/${FINDING_ID}?severity=critical`,
+      );
     });
   });
 
@@ -244,5 +279,257 @@ describe("SecurityScanDetail", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByText("events unavailable")).toBeTruthy();
+  });
+
+  it("links to the underlying agent run", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    expect(
+      (await screen.findByRole("button", { name: /Agent run/ })).getAttribute("href"),
+    ).toBe("/runs/user-alice/nightly-1");
+  });
+
+  it("downloads the Markdown report and SARIF artifact", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanReport.mockResolvedValue({
+      content: "# Security Scan Report",
+      format: "markdown",
+      filename: "nightly-nightly-1.md",
+    });
+
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Report/ }));
+
+    await waitFor(() => {
+      expect(getSecurityScanReport).toHaveBeenCalledWith({
+        namespace: "user-alice",
+        runName: "nightly-1",
+        format: "markdown",
+      });
+    });
+    await waitFor(() => {
+      expect(downloadBlob).toHaveBeenCalledWith(
+        "nightly-nightly-1.md",
+        expect.anything(),
+        "text/markdown",
+      );
+    });
+
+    getSecurityScanReport.mockResolvedValue({
+      content: "{}",
+      format: "sarif",
+      filename: "nightly-nightly-1.sarif",
+    });
+    fireEvent.click(screen.getByRole("button", { name: /SARIF/ }));
+
+    await waitFor(() => {
+      expect(getSecurityScanReport).toHaveBeenLastCalledWith({
+        namespace: "user-alice",
+        runName: "nightly-1",
+        format: "sarif",
+      });
+    });
+    await waitFor(() => {
+      expect(downloadBlob).toHaveBeenLastCalledWith(
+        "nightly-nightly-1.sarif",
+        expect.anything(),
+        "application/json",
+      );
+    });
+  });
+
+  it("shows helpful copy when the report is not available", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanReport.mockRejectedValue(
+      new Error("security scan user-alice/nightly-1 has no markdown report yet"),
+    );
+
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Report/ }));
+
+    expect(
+      await screen.findByText(/has no markdown report yet/),
+    ).toBeTruthy();
+    expect(downloadBlob).not.toHaveBeenCalled();
+  });
+
+  it("explains that reports arrive after the run finishes for running scans", async () => {
+    const running = scanFixture();
+    running.status = "running";
+    getSecurityScan.mockResolvedValue(running);
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    expect(
+      await screen.findByText(/This scan run has not finished/),
+    ).toBeTruthy();
+  });
+});
+
+describe("SecurityScanDetail repository integration state", () => {
+  it("surfaces the last check publish state and notification state with errors", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: { critical: 1, total: 1, open: 1 } });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      lastCheck: {
+        runName: "nightly-1",
+        revision: "abc123def456789",
+        conclusion: "failure",
+        url: "",
+        error: "publishing check: 502 from api.github.com",
+        sarifUploaded: false,
+        sarifError: "",
+      },
+      lastNotifications: {
+        lastRunName: "nightly-1",
+        sent: 3,
+        suppressed: 2,
+        lastError: "rule \"alerts\" slack: webhook returned 500",
+      },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByText("Repository integration")).toBeTruthy();
+    expect(screen.getByText(/publish failed — publishing check: 502/)).toBeTruthy();
+    expect(screen.getAllByText(/retried automatically/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/3 sent/)).toBeTruthy();
+    expect(screen.getByText(/2 suppressed as duplicates/)).toBeTruthy();
+    expect(screen.getByText(/webhook returned 500/)).toBeTruthy();
+  });
+
+  it("hides the integration card when the scan config has no check or notification state", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({ namespace: "user-alice", name: "nightly" });
+
+    renderDetail();
+
+    await screen.findByText("nightly-1");
+    expect(screen.queryByText("Repository integration")).toBeNull();
+  });
+});
+
+describe("SecurityScanDetail budgets, retention, and suppression", () => {
+  it("warns when the budget is exceeded and shows effective budgets and the sweep state", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      effectiveBudgets: {
+        maxCostUsd: "5",
+        maxFindings: 100,
+        maxTokens: 0n,
+        maxModelJobs: 0,
+        maxValidationJobs: 0,
+        maxRuntime: "",
+      },
+      budgetExceeded: true,
+      budgetMessage: "persisted findings 120 exceed budgets.maxFindings 100",
+      retention: {
+        lastSweepTimeUnix: 1770000000n,
+        scansPurged: 2n,
+        findingsPurged: 7n,
+        reportsPurged: 1n,
+        evidenceRedacted: 3n,
+        pocRedacted: 4n,
+        auditEventsPurged: 9n,
+        moreWork: false,
+        lastError: "",
+      },
+    });
+
+    renderDetail();
+
+    const warning = await screen.findByTestId("budget-warning");
+    expect(warning.textContent).toContain("Budget exceeded");
+    expect(warning.textContent).toContain("persisted findings 120 exceed budgets.maxFindings 100");
+    const budgets = screen.getByTestId("effective-budgets");
+    expect(budgets.textContent).toContain("$5");
+    expect(budgets.textContent).toContain("100 findings");
+    const sweep = screen.getByTestId("retention-sweep");
+    expect(sweep.textContent).toContain("7 findings");
+    expect(sweep.textContent).toContain("4 PoC entries redacted");
+    expect(sweep.textContent).toContain("9 audit events purged");
+  });
+
+  it("omits the budget warning when no limit is exceeded", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      effectiveBudgets: { maxCostUsd: "5" },
+      budgetExceeded: false,
+      budgetMessage: "",
+    });
+
+    renderDetail();
+
+    await screen.findByTestId("effective-budgets");
+    expect(screen.queryByTestId("budget-warning")).toBeNull();
+  });
+
+  it("round-trips the suppressed filter and renders the suppressed chip", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    const suppressedFinding = findingFixture();
+    suppressedFinding.suppressedBy = "prod-policy/vendored";
+    suppressedFinding.suppressedReason = "third-party code";
+    suppressedFinding.suppressedOwner = "sec-team";
+    suppressedFinding.suppressionExpiresAt = timestampFromDate(new Date(Date.now() + 30 * 86400000));
+    listSecurityFindings.mockResolvedValue({ findings: [suppressedFinding] });
+
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+
+    fireEvent.change(screen.getByLabelText("Filter suppressed findings"), {
+      target: { value: "only" },
+    });
+
+    await waitFor(() => {
+      expect(listSecurityFindings).toHaveBeenLastCalledWith({
+        namespace: "user-alice",
+        runName: "nightly-1",
+        severity: "",
+        status: "",
+        category: "",
+        search: "",
+        baselineState: "",
+        assignee: "",
+        suppressed: "only",
+      });
+    });
+
+    const chip = await screen.findByText("suppressed");
+    expect(chip.getAttribute("title")).toContain("rule prod-policy/vendored");
+    expect(chip.getAttribute("title")).toContain("owner sec-team");
+    expect(chip.getAttribute("title")).toContain("until");
+
+    // Selecting the row explains the suppression in the side panel.
+    getSecurityFinding.mockResolvedValue({ finding: suppressedFinding, events: [] });
+    fireEvent.click(screen.getByRole("button", { name: "SQL injection in payment lookup" }));
+    const note = await screen.findByTestId("finding-suppression-note");
+    expect(note.textContent).toContain("rule prod-policy/vendored");
+    expect(note.textContent).toContain("Reason: third-party code");
   });
 });

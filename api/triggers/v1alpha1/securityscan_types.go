@@ -25,7 +25,38 @@ const (
 	// in permille (DedupeSimilarityThresholdPermille), or "0" when dedupe is
 	// disabled.
 	SecurityScanDedupePermilleAnnotation = "security.gratefulagents.dev/dedupe-permille"
+	// SecurityScanMaxFindingsAnnotation is the scan's effective
+	// budgets.maxFindings (spec merged with the policy pack). Absent or "0"
+	// means unlimited. The agent-side finding tools refuse to persist
+	// findings once this cap is reached, so the platform-authored value is
+	// the hard cap regardless of model output.
+	SecurityScanMaxFindingsAnnotation = "security.gratefulagents.dev/max-findings"
 )
+
+// SecurityScanRunNowAnnotation is set on a SecurityScan (not its runs) by the
+// dashboard to request an immediate manual run without editing the spec. Its
+// value is an opaque request token; the controller creates at most one run per
+// token and records the consumed token in status.lastManualRunToken, so the
+// request is idempotent and durable across controller restarts.
+const SecurityScanRunNowAnnotation = "security.gratefulagents.dev/run-now"
+
+// SecurityScanEventAnnotation is set on a SecurityScan (not its runs) by the
+// GitHub webhook ingress when an authorized pull_request or push delivery
+// matches the scan's spec.triggers. Its value is a JSON-encoded
+// SecurityScanTriggerEvent whose token is derived deterministically from
+// (repository, event kind, head SHA), so redeliveries carry the same token.
+// The controller creates at most one run per token and records the consumed
+// token in status.lastEventToken, making event processing idempotent and
+// durable across controller restarts. The revision inside the payload is
+// stamped by the platform from the webhook payload and is never
+// model-controlled.
+const SecurityScanEventAnnotation = "security.gratefulagents.dev/scan-event"
+
+// SecurityScanStatusRefreshAnnotation is stamped on a SecurityScan by the
+// dashboard after finding triage so the controller re-reconciles, refreshes
+// finding counts, and re-publishes the GitHub check with the post-triage
+// conclusion. Its value is an opaque timestamp; only inequality matters.
+const SecurityScanStatusRefreshAnnotation = "security.gratefulagents.dev/status-refresh"
 
 // SecurityScanSpec defines the desired state of SecurityScan.
 type SecurityScanSpec struct {
@@ -55,10 +86,19 @@ type SecurityScanSpec struct {
 
 	// workflow is the ordered/parallel research plan executed as focused
 	// vulnerability-hunting sub-agents. When empty, the controller uses
-	// DefaultSecurityWorkflow().
+	// DefaultSecurityWorkflow(). Mutually exclusive with workflowRef: setting
+	// both makes the controller report Ready=False with reason InvalidSpec.
 	// +listType=atomic
 	// +optional
 	Workflow []SecurityScanTask `json:"workflow,omitempty"`
+
+	// workflowRef references a reusable SecurityWorkflow in the scan's
+	// namespace whose tasks replace an inline workflow. The referenced
+	// content is resolved and snapshotted when each run is created, so later
+	// edits to the SecurityWorkflow never change historical runs. Mutually
+	// exclusive with workflow.
+	// +optional
+	WorkflowRef *SecurityResourceRef `json:"workflowRef,omitempty"`
 
 	// parallelism caps how many workflow tasks may run concurrently.
 	// +kubebuilder:default=4
@@ -71,13 +111,38 @@ type SecurityScanSpec struct {
 	// into the scan prompt and passed to submit_security_scan_report.
 	// +listType=atomic
 	// +optional
-	SeverityRankers []SecurityRanker `json:"severityRankers,omitempty"`
+	SeverityRankers []SecurityScanRanker `json:"severityRankers,omitempty"`
+
+	// rankerRefs reference reusable SecurityRanker resources in the scan's
+	// namespace. Their rules are APPENDED after the inline severityRankers.
+	// The referenced content is resolved and snapshotted when each run is
+	// created.
+	// +listType=atomic
+	// +optional
+	RankerRefs []SecurityResourceRef `json:"rankerRefs,omitempty"`
 
 	// postScripts are per-finding validation, proof-of-concept, or report
 	// prompts executed after the workflow produces findings.
 	// +listType=atomic
 	// +optional
-	PostScripts []SecurityPostScript `json:"postScripts,omitempty"`
+	PostScripts []SecurityScanPostScript `json:"postScripts,omitempty"`
+
+	// postScriptRefs reference reusable SecurityPostScript resources in the
+	// scan's namespace. They are APPENDED after the inline postScripts. The
+	// referenced content is resolved and snapshotted when each run is
+	// created.
+	// +listType=atomic
+	// +optional
+	PostScriptRefs []SecurityResourceRef `json:"postScriptRefs,omitempty"`
+
+	// policyPackRef references a SecurityPolicyPack in the scan's namespace.
+	// The pack supplies defaults (precedence: platform defaults < policy
+	// pack < scan configuration), enforced floors the scan may not relax,
+	// and governed finding suppressions. It is resolved and snapshotted at
+	// run-creation time; a scan violating an enforced pack field is rejected
+	// with Ready=False reason PolicyViolation and no run is created.
+	// +optional
+	PolicyPackRef *SecurityResourceRef `json:"policyPackRef,omitempty"`
 
 	// dedupe configures duplicate-finding suppression.
 	// +optional
@@ -131,6 +196,181 @@ type SecurityScanSpec struct {
 	// overriding defaults.timeout.
 	// +optional
 	MaxRuntime metav1.Duration `json:"maxRuntime,omitempty"`
+
+	// budgets caps what each scan run may consume. Unset fields inherit the
+	// referenced policy pack's budgets; when the pack lists "budgets" in
+	// enforced, this scan may not raise any limit the pack sets. Enforcement
+	// is entirely platform-side: what the run can self-limit (runtime, cost)
+	// is written into the created AgentRun's limits, everything else (model
+	// jobs, tokens, findings, validation jobs) is monitored by the
+	// controller from platform-observed usage and the run is cancelled when
+	// a hard limit is exceeded. Completed work is preserved.
+	// +optional
+	Budgets *SecurityScanBudgets `json:"budgets,omitempty"`
+
+	// triggers configures repository-event driven scan runs: authorized
+	// GitHub pull_request and push webhook deliveries for the referenced
+	// GitHubRepository create scan runs pinned to the event's head commit.
+	// +optional
+	Triggers *SecurityScanTriggers `json:"triggers,omitempty"`
+
+	// checks configures publishing a GitHub check on the scanned commit
+	// after each scan run with a recorded revision reaches a terminal phase.
+	// +optional
+	Checks *SecurityScanChecks `json:"checks,omitempty"`
+
+	// notifications are rules that send Slack messages and/or create
+	// GitHub/Linear issues for new or regressed findings at or above a
+	// severity threshold. Each (finding fingerprint, rule, channel) notifies
+	// at most once; the sent marker is persisted in the findings store.
+	// +listType=atomic
+	// +optional
+	Notifications []SecurityScanNotificationRule `json:"notifications,omitempty"`
+}
+
+// SecurityScanTriggers configures repository-event driven scan runs.
+type SecurityScanTriggers struct {
+	// repositoryRef names the GitHubRepository in the scan's namespace whose
+	// webhook deliveries trigger this scan and whose credentials publish
+	// checks and read diffs. Required when onPullRequest or onPush is set.
+	// +optional
+	RepositoryRef *SecurityResourceRef `json:"repositoryRef,omitempty"`
+
+	// onPullRequest creates a scan run for pull_request opened, reopened,
+	// ready_for_review, and synchronize deliveries, pinned to the PR head SHA.
+	// +optional
+	OnPullRequest bool `json:"onPullRequest,omitempty"`
+
+	// onPush creates a scan run for push deliveries, pinned to the pushed
+	// head SHA.
+	// +optional
+	OnPush bool `json:"onPush,omitempty"`
+
+	// branches restricts push triggers to branches matching any of these
+	// glob patterns (path.Match syntax; a trailing "*" acts as a prefix
+	// match). Empty matches every branch.
+	// +listType=atomic
+	// +optional
+	Branches []string `json:"branches,omitempty"`
+
+	// diffScope scopes event-triggered scans to the files changed between
+	// the merge base and the head (pull requests) or the push's
+	// before..after range. When the diff cannot be computed the scan falls
+	// back to the full repository and the fallback is stated in the run
+	// prompt and the scan condition.
+	// +optional
+	DiffScope bool `json:"diffScope,omitempty"`
+
+	// allowForks permits scan runs for pull requests whose head repository
+	// differs from the base repository. Fork runs never receive the
+	// repository's GitHub credentials: the configured GitHub token secret is
+	// stripped from the run so untrusted contributions cannot exfiltrate
+	// write tokens. Default false: fork PRs are skipped with an observable
+	// condition and event.
+	// +optional
+	AllowForks bool `json:"allowForks,omitempty"`
+}
+
+// SecurityScanChecks configures GitHub check publishing for scan runs.
+type SecurityScanChecks struct {
+	// enabled turns on check publishing. Requires spec.triggers.repositoryRef
+	// for credentials.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// includeFindingSummaries opts in to listing finding titles and file
+	// locations in the check summary. The default summary contains only
+	// severity counts and a dashboard link; evidence and proof-of-concept
+	// content is never published in either mode.
+	// +optional
+	IncludeFindingSummaries bool `json:"includeFindingSummaries,omitempty"`
+
+	// uploadSARIF opts in to uploading the scan's stored SARIF report
+	// artifact to GitHub code scanning for the scanned commit.
+	// +optional
+	UploadSARIF bool `json:"uploadSARIF,omitempty"`
+}
+
+// SecurityScanNotificationRule routes new/regressed findings at or above a
+// severity threshold to Slack, GitHub issues, and/or Linear issues.
+type SecurityScanNotificationRule struct {
+	// name identifies the rule; it keys the persisted per-finding dedupe
+	// marker, so renaming a rule re-notifies.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+
+	// minSeverity is the lowest severity that notifies. Defaults to "high".
+	// +kubebuilder:validation:Enum=critical;high;medium;low;info
+	// +optional
+	MinSeverity string `json:"minSeverity,omitempty"`
+
+	// notifyOn selects which baseline states notify. Defaults to
+	// "new-and-regressed".
+	// +kubebuilder:validation:Enum=new;regressed;new-and-regressed
+	// +optional
+	NotifyOn string `json:"notifyOn,omitempty"`
+
+	// slack, when set, posts one message per run summarizing the newly
+	// notified findings to a Slack incoming webhook.
+	// +optional
+	Slack *SecurityScanSlackNotification `json:"slack,omitempty"`
+
+	// githubIssues, when set, creates one GitHub issue per newly notified
+	// finding using the referenced repository's credentials. Issue bodies
+	// contain identifying metadata and a dashboard link, never evidence.
+	// +optional
+	GitHubIssues *SecurityScanGitHubIssueNotification `json:"githubIssues,omitempty"`
+
+	// linear, when set, creates one Linear issue per newly notified finding.
+	// +optional
+	Linear *SecurityScanLinearNotification `json:"linear,omitempty"`
+}
+
+// SecurityScanSlackNotification posts to a Slack incoming webhook.
+type SecurityScanSlackNotification struct {
+	// webhookSecretRef names a Secret in the scan's namespace holding the
+	// Slack incoming-webhook URL under the key "url".
+	// +kubebuilder:validation:MinLength=1
+	WebhookSecretRef string `json:"webhookSecretRef"`
+}
+
+// SecurityScanGitHubIssueNotification creates GitHub issues for findings.
+type SecurityScanGitHubIssueNotification struct {
+	// repositoryRef names the GitHubRepository (same namespace) whose
+	// credentials create the issues. When empty, spec.triggers.repositoryRef
+	// is used.
+	// +optional
+	RepositoryRef *SecurityResourceRef `json:"repositoryRef,omitempty"`
+}
+
+// SecurityScanLinearNotification creates Linear issues for findings.
+type SecurityScanLinearNotification struct {
+	// apiKeySecretRef names a Secret in the scan's namespace holding a
+	// Linear API key under the key "api-key".
+	// +kubebuilder:validation:MinLength=1
+	APIKeySecretRef string `json:"apiKeySecretRef"`
+
+	// teamID is the Linear team the issues are created in.
+	// +kubebuilder:validation:MinLength=1
+	TeamID string `json:"teamID"`
+}
+
+// EffectiveMinSeverity returns the rule's minSeverity, defaulting to "high".
+func (r SecurityScanNotificationRule) EffectiveMinSeverity() string {
+	if r.MinSeverity == "" {
+		return "high"
+	}
+	return r.MinSeverity
+}
+
+// EffectiveNotifyOn returns the rule's notifyOn, defaulting to
+// "new-and-regressed".
+func (r SecurityScanNotificationRule) EffectiveNotifyOn() string {
+	if r.NotifyOn == "" {
+		return "new-and-regressed"
+	}
+	return r.NotifyOn
 }
 
 // SecurityScanScope narrows what a scan looks at.
@@ -192,8 +432,8 @@ type SecurityScanTask struct {
 	MaxFindings int32 `json:"maxFindings,omitempty"`
 }
 
-// SecurityRanker is operator-authored severity-ranking rule text.
-type SecurityRanker struct {
+// SecurityScanRanker is operator-authored severity-ranking rule text.
+type SecurityScanRanker struct {
 	// name identifies the ranker.
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
@@ -204,9 +444,9 @@ type SecurityRanker struct {
 	Rules string `json:"rules"`
 }
 
-// SecurityPostScript is a per-finding validation, proof-of-concept, or report
+// SecurityScanPostScript is a per-finding validation, proof-of-concept, or report
 // prompt executed after findings are collected.
-type SecurityPostScript struct {
+type SecurityScanPostScript struct {
 	// name identifies the post-script.
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
@@ -237,6 +477,60 @@ type SecurityScanDedupe struct {
 	// +kubebuilder:validation:Maximum=1000
 	// +optional
 	SimilarityThresholdPermille int32 `json:"similarityThresholdPermille,omitempty"`
+}
+
+// SecurityScanBudgets caps what one scan run may consume. Zero/empty fields
+// are unlimited (or inherit the referenced policy pack's value). All limits
+// derive from the CRD spec and are enforced platform-side: what the AgentRun
+// supports natively (maxRuntime, maxCostUSD) is written into the created
+// run's limits; everything else is monitored by the controller from
+// platform-observed usage data, never from model output.
+type SecurityScanBudgets struct {
+	// maxModelJobs caps how many sub-agent runs (child AgentRuns) the scan
+	// run may spawn. Monitored controller-side from the run's child status.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxModelJobs int32 `json:"maxModelJobs,omitempty"`
+
+	// maxCostUSD is a decimal USD ceiling (e.g. "5" or "2.50") on the scan
+	// run's LLM spend. Written into the created AgentRun's
+	// limits.maxCostUsd and re-checked controller-side from the run's usage
+	// metrics.
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?)?$`
+	// +optional
+	MaxCostUSD string `json:"maxCostUSD,omitempty"`
+
+	// maxTokens caps the scan run's total LLM tokens (input + output).
+	// Monitored controller-side from the run's usage metrics.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxTokens int64 `json:"maxTokens,omitempty"`
+
+	// maxRuntime caps the scan run's wall-clock runtime. Written into the
+	// created AgentRun's limits.maxRuntime; the smallest of this,
+	// spec.maxRuntime, and defaults.timeout wins.
+	// +optional
+	MaxRuntime metav1.Duration `json:"maxRuntime,omitempty"`
+
+	// maxFindings caps how many findings the scan may persist. Enforced by
+	// controller-side monitoring of the persisted finding count (the cap is
+	// also stated in the run prompt as guidance, but model output is never
+	// trusted for enforcement).
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxFindings int32 `json:"maxFindings,omitempty"`
+
+	// maxValidationJobs caps how many post-script (validation /
+	// proof-of-concept) sub-agent runs the scan run may spawn. Monitored
+	// controller-side from the run's child status.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxValidationJobs int32 `json:"maxValidationJobs,omitempty"`
+}
+
+// IsZero reports whether no budget field is set.
+func (b SecurityScanBudgets) IsZero() bool {
+	return b == SecurityScanBudgets{}
 }
 
 // SecurityScanFindingCounts summarizes findings by severity.
@@ -294,9 +588,69 @@ type SecurityScanStatus struct {
 	// +optional
 	RunsCreated int32 `json:"runsCreated,omitempty"`
 
+	// lastManualRunToken is the most recent run-now annotation token the
+	// controller has processed. A token equal to this value never creates
+	// another run, making manual run requests idempotent across controller
+	// restarts.
+	// +optional
+	LastManualRunToken string `json:"lastManualRunToken,omitempty"`
+
+	// manualRunsCreated is the cumulative number of AgentRuns created from
+	// run-now requests (a subset of runsCreated).
+	// +optional
+	ManualRunsCreated int32 `json:"manualRunsCreated,omitempty"`
+
+	// lastEventToken is the most recent scan-event annotation token the
+	// controller has processed. A token equal to this value never creates
+	// another run, making repository-event triggers idempotent across
+	// webhook redeliveries and controller restarts.
+	// +optional
+	LastEventToken string `json:"lastEventToken,omitempty"`
+
+	// lastEventRevision is the platform-stamped head SHA of the most recent
+	// repository event that created (or attempted) a scan run. It matches
+	// the commit any published check is reported on.
+	// +optional
+	LastEventRevision string `json:"lastEventRevision,omitempty"`
+
+	// eventRunsCreated is the cumulative number of AgentRuns created from
+	// repository events (a subset of runsCreated).
+	// +optional
+	EventRunsCreated int32 `json:"eventRunsCreated,omitempty"`
+
+	// lastCheck records the most recent GitHub check publish attempt.
+	// +optional
+	LastCheck *SecurityScanCheckStatus `json:"lastCheck,omitempty"`
+
+	// lastNotifications records the most recent notification delivery
+	// attempt.
+	// +optional
+	LastNotifications *SecurityScanNotificationStatus `json:"lastNotifications,omitempty"`
+
 	// findings summarizes persisted findings for the most recent scan run.
 	// +optional
 	Findings *SecurityScanFindingCounts `json:"findings,omitempty"`
+
+	// retention reports the most recent retention sweep run for this scan's
+	// policy pack retention configuration.
+	// +optional
+	Retention *SecurityScanRetentionStatus `json:"retention,omitempty"`
+
+	// budget reports the scan's effective budgets (spec merged with the
+	// policy pack) and whether any hard limit is exceeded. It is computed
+	// from platform-observed usage data before and during each run, so the
+	// dashboard can warn ahead of a launch.
+	// +optional
+	Budget *SecurityScanBudgetStatus `json:"budget,omitempty"`
+
+	// lastResolvedRefs records the reusable security resources
+	// (SecurityWorkflow, SecurityRanker, SecurityPostScript) that were
+	// resolved and snapshotted into the most recently created run, including
+	// the resource generation and a content hash of the resolved spec. Later
+	// edits to the referenced resources never change historical runs.
+	// +listType=atomic
+	// +optional
+	LastResolvedRefs []SecurityScanResolvedRef `json:"lastResolvedRefs,omitempty"`
 
 	// lastError contains the error message from the most recent failed operation.
 	// +optional
@@ -309,10 +663,144 @@ type SecurityScanStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+// SecurityScanRetentionStatus reports the retention purge sweep. Counters
+// are cumulative for this SecurityScan resource.
+type SecurityScanRetentionStatus struct {
+	// lastSweepTime is when the most recent purge batch ran.
+	// +optional
+	LastSweepTime *metav1.Time `json:"lastSweepTime,omitempty"`
+
+	// scansPurged counts deleted scan run records (incl. observation rows).
+	// +optional
+	ScansPurged int64 `json:"scansPurged,omitempty"`
+
+	// findingsPurged counts deleted finding rows.
+	// +optional
+	FindingsPurged int64 `json:"findingsPurged,omitempty"`
+
+	// reportsPurged counts deleted report artifacts (markdown/SARIF).
+	// +optional
+	ReportsPurged int64 `json:"reportsPurged,omitempty"`
+
+	// evidenceRedacted counts findings whose evidence was redacted in place.
+	// +optional
+	EvidenceRedacted int64 `json:"evidenceRedacted,omitempty"`
+
+	// pocRedacted counts findings whose PoC content was redacted in place.
+	// +optional
+	PoCRedacted int64 `json:"pocRedacted,omitempty"`
+
+	// auditEventsPurged counts deleted finding audit events.
+	// +optional
+	AuditEventsPurged int64 `json:"auditEventsPurged,omitempty"`
+
+	// moreWork reports whether the last batch hit its bound; the controller
+	// requeues promptly while true.
+	// +optional
+	MoreWork bool `json:"moreWork,omitempty"`
+
+	// lastError is the most recent sweep failure, empty after a clean batch.
+	// +optional
+	LastError string `json:"lastError,omitempty"`
+}
+
+// SecurityScanBudgetStatus reports the effective budgets and their
+// evaluation against platform-observed usage.
+type SecurityScanBudgetStatus struct {
+	// effective is the budget set actually enforced: scan spec budgets
+	// merged with the policy pack's defaults.
+	// +optional
+	Effective *SecurityScanBudgets `json:"effective,omitempty"`
+
+	// exceeded reports whether any hard budget limit is exceeded.
+	// +optional
+	Exceeded bool `json:"exceeded,omitempty"`
+
+	// message explains which limit is exceeded and by how much.
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// lastCheckedTime is when the budgets were last evaluated.
+	// +optional
+	LastCheckedTime *metav1.Time `json:"lastCheckedTime,omitempty"`
+}
+
 // Condition types for SecurityScan.
 const (
 	ConditionSecurityScanReady = "Ready"
 )
+
+// SecurityScanCheckStatus records the most recent GitHub check publish
+// attempt for a scan run.
+type SecurityScanCheckStatus struct {
+	// runName is the AgentRun the check reports on.
+	// +optional
+	RunName string `json:"runName,omitempty"`
+
+	// revision is the commit SHA the check was published on.
+	// +optional
+	Revision string `json:"revision,omitempty"`
+
+	// conclusion is the published check conclusion: success, failure, or
+	// neutral.
+	// +optional
+	Conclusion string `json:"conclusion,omitempty"`
+
+	// url links to the published check run or commit status target.
+	// +optional
+	URL string `json:"url,omitempty"`
+
+	// publishedAt is when the check was last successfully published.
+	// +optional
+	PublishedAt *metav1.Time `json:"publishedAt,omitempty"`
+
+	// stateHash fingerprints the published (run, revision, conclusion,
+	// counts) tuple; a differing desired state triggers a re-publish, e.g.
+	// after findings are triaged.
+	// +optional
+	StateHash string `json:"stateHash,omitempty"`
+
+	// error is the most recent publish failure; empty after a successful
+	// publish. Failures are retried on subsequent reconciles.
+	// +optional
+	Error string `json:"error,omitempty"`
+
+	// sarifUploaded reports whether the run's SARIF artifact was uploaded to
+	// GitHub code scanning.
+	// +optional
+	SARIFUploaded bool `json:"sarifUploaded,omitempty"`
+
+	// sarifError is the most recent SARIF upload failure, if any.
+	// +optional
+	SARIFError string `json:"sarifError,omitempty"`
+}
+
+// SecurityScanNotificationStatus records the most recent notification
+// delivery attempt.
+type SecurityScanNotificationStatus struct {
+	// lastRunName is the AgentRun whose findings were last evaluated.
+	// +optional
+	LastRunName string `json:"lastRunName,omitempty"`
+
+	// sent is the cumulative number of notifications delivered.
+	// +optional
+	Sent int32 `json:"sent,omitempty"`
+
+	// suppressed is the cumulative number of findings skipped because their
+	// (rule, channel, fingerprint) marker was already persisted.
+	// +optional
+	Suppressed int32 `json:"suppressed,omitempty"`
+
+	// lastError is the most recent delivery failure; empty after a fully
+	// successful evaluation. Failed deliveries release their dedupe claim
+	// and are retried on subsequent reconciles.
+	// +optional
+	LastError string `json:"lastError,omitempty"`
+
+	// lastNotifiedAt is when a notification was last delivered.
+	// +optional
+	LastNotifiedAt *metav1.Time `json:"lastNotifiedAt,omitempty"`
+}
 
 // SecurityScanConcurrencyPolicy controls overlapping scheduled scan AgentRuns.
 type SecurityScanConcurrencyPolicy string
@@ -423,7 +911,7 @@ func (t SecurityScanTask) EffectiveRole() string {
 }
 
 // EffectiveRunOn returns the post-script's runOn, defaulting to "all".
-func (p SecurityPostScript) EffectiveRunOn() string {
+func (p SecurityScanPostScript) EffectiveRunOn() string {
 	if p.RunOn == "" {
 		return "all"
 	}

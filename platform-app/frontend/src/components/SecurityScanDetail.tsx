@@ -1,8 +1,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { X } from "lucide-react";
+import { Download, FileText, SquareArrowOutUpRight, X } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -17,12 +17,25 @@ import {
 import {
   SEVERITIES, SeverityBadge, severityTone,
 } from "@/components/SecurityScanList";
+import { SecurityScanRunPanel } from "@/components/SecurityScanRunPanel";
+import {
+  BASELINE_STATES, BaselineBadge, ExpiryBadge, SuppressedBadge, suppressionSummary,
+} from "@/components/security-baseline";
+import { packBudgetSummary } from "@/components/SecurityPolicyPackDialog";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
+import { downloadBlob } from "@/lib/download";
 import { toneSoft } from "@/lib/status";
-import type { SecurityFinding, SecurityFindingEvent, SecurityScan } from "@/rpc/platform/service_pb";
+import type {
+  BulkUpdateSecurityFindingOutcome,
+  SecurityFinding,
+  SecurityFindingEvent,
+  SecurityScan,
+  SecurityScanConfig,
+  SecuritySavedFilter,
+} from "@/rpc/platform/service_pb";
 
-const FINDING_STATUSES = [
+export const FINDING_STATUSES = [
   "open",
   "triaged",
   "confirmed",
@@ -31,11 +44,11 @@ const FINDING_STATUSES = [
   "accepted_risk",
 ] as const;
 
-function statusLabel(status: string): string {
+export function statusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
 
-function formatSeen(ts: Timestamp | undefined): string {
+export function formatSeen(ts: Timestamp | undefined): string {
   if (!ts) return "—";
   return timestampDate(ts).toLocaleString();
 }
@@ -50,8 +63,10 @@ const filterSelectClass =
 
 export function SecurityScanDetail() {
   const { namespace, runName } = useParams<{ namespace: string; runName: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [scan, setScan] = useState<SecurityScan | null>(null);
+  const [scanConfig, setScanConfig] = useState<SecurityScanConfig | null>(null);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [findings, setFindings] = useState<SecurityFinding[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,13 +74,60 @@ export function SecurityScanDetail() {
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const [severity, setSeverity] = useState("");
-  const [status, setStatus] = useState("");
-  const [category, setCategory] = useState("");
-  const [search, setSearch] = useState("");
+  // Filters live in the URL so a shared link reproduces the same view and
+  // the finding detail page can hand the same context back on return.
+  const severity = searchParams.get("severity") ?? "";
+  const status = searchParams.get("status") ?? "";
+  const category = searchParams.get("category") ?? "";
+  const search = searchParams.get("q") ?? "";
+  const baseline = searchParams.get("baseline") ?? "";
+  const assigneeFilter = searchParams.get("assignee") ?? "";
+  const suppressed = searchParams.get("suppressed") ?? "";
+
+  const setFilter = useCallback(
+    (key: "severity" | "status" | "category" | "q" | "baseline" | "assignee" | "suppressed", value: string) => {
+      setSearchParams(
+        (params) => {
+          const next = new URLSearchParams(params);
+          if (value) next.set(key, value);
+          else next.delete(key);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const findingLinkSearch = searchParams.toString();
+
+  const findingHref = useCallback(
+    (id: string) =>
+      `/security/${namespace}/${runName}/findings/${id}${findingLinkSearch ? `?${findingLinkSearch}` : ""}`,
+    [namespace, runName, findingLinkSearch],
+  );
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
+
+  const [reportBusy, setReportBusy] = useState<"markdown" | "sarif" | null>(null);
+  const [reportNotice, setReportNotice] = useState<string | null>(null);
+
+  // Multi-select bulk triage.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkNote, setBulkNote] = useState("");
+  const [bulkAssignee, setBulkAssignee] = useState("");
+  const [bulkFailures, setBulkFailures] = useState<BulkUpdateSecurityFindingOutcome[]>([]);
+
+  // Saved filter views, private to the current user.
+  const [savedFilters, setSavedFilters] = useState<SecuritySavedFilter[]>([]);
+  const [savedFilterName, setSavedFilterName] = useState("");
+  const [savedFilterBusy, setSavedFilterBusy] = useState(false);
+  const [appliedSavedFilter, setAppliedSavedFilter] = useState("");
+
+  const [exportBusy, setExportBusy] = useState(false);
 
   const [events, setEvents] = useState<SecurityFindingEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -82,6 +144,15 @@ export function SecurityScanDetail() {
       ]);
       setScan(scanResp);
       setSummary(summaryResp.counts);
+      // Repository integration state (check publishing / notifications)
+      // lives on the SecurityScan trigger config; best-effort.
+      if (scanResp.scanName) {
+        try {
+          setScanConfig(await client.getSecurityScanConfig({ namespace, name: scanResp.scanName }));
+        } catch {
+          setScanConfig(null);
+        }
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load security scan");
     } finally {
@@ -100,6 +171,9 @@ export function SecurityScanDetail() {
         status,
         category,
         search,
+        baselineState: baseline,
+        assignee: assigneeFilter,
+        suppressed,
       });
       setFindings(resp.findings);
     } catch (e: unknown) {
@@ -107,7 +181,7 @@ export function SecurityScanDetail() {
     } finally {
       setFindingsLoading(false);
     }
-  }, [namespace, runName, severity, status, category, search]);
+  }, [namespace, runName, severity, status, category, search, baseline, assigneeFilter, suppressed]);
 
   const fetchEvents = useCallback(async () => {
     if (!selectedId) {
@@ -150,6 +224,31 @@ export function SecurityScanDetail() {
 
   const selected = findings.find((f) => f.id === selectedId) ?? null;
 
+  // When the linked AgentRun reaches a terminal phase, re-fetch the persisted
+  // scan row, summary, and findings so no stale state lingers on screen.
+  const handleRunSettled = useCallback(() => {
+    void fetchScan();
+    void fetchFindings();
+  }, [fetchScan, fetchFindings]);
+
+  async function downloadReport(format: "markdown" | "sarif") {
+    if (!namespace || !runName) return;
+    setReportNotice(null);
+    setReportBusy(format);
+    try {
+      const resp = await client.getSecurityScanReport({ namespace, runName, format });
+      downloadBlob(
+        resp.filename || `${runName}.${format === "sarif" ? "sarif" : "md"}`,
+        new TextEncoder().encode(resp.content),
+        format === "sarif" ? "application/json" : "text/markdown",
+      );
+    } catch (e: unknown) {
+      setReportNotice(e instanceof Error ? e.message : "Failed to fetch the scan report");
+    } finally {
+      setReportBusy(null);
+    }
+  }
+
   async function changeStatus(finding: SecurityFinding, nextStatus: string) {
     setActionError(null);
     setStatusSaving(true);
@@ -174,6 +273,151 @@ export function SecurityScanDetail() {
     }
   }
 
+  const fetchSavedFilters = useCallback(async () => {
+    if (!namespace) return;
+    try {
+      const resp = await client.listSecuritySavedFilters({ namespace });
+      setSavedFilters(resp.filters);
+    } catch {
+      // Saved views are a convenience; the page works without them.
+    }
+  }, [namespace]);
+
+  useEffect(() => {
+    void fetchSavedFilters();
+  }, [fetchSavedFilters]);
+
+  const FILTER_KEYS = ["severity", "status", "category", "q", "baseline", "assignee", "suppressed"] as const;
+
+  function currentFilterQuery(): string {
+    const query: Record<string, string> = {};
+    for (const key of FILTER_KEYS) {
+      const value = searchParams.get(key);
+      if (value) query[key] = value;
+    }
+    return JSON.stringify(query);
+  }
+
+  async function saveCurrentFilter() {
+    if (!namespace || !savedFilterName.trim()) return;
+    setSavedFilterBusy(true);
+    setActionError(null);
+    try {
+      await client.saveSecuritySavedFilter({
+        namespace,
+        name: savedFilterName.trim(),
+        query: currentFilterQuery(),
+      });
+      setSavedFilterName("");
+      await fetchSavedFilters();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Failed to save the view");
+    } finally {
+      setSavedFilterBusy(false);
+    }
+  }
+
+  function applySavedFilter(name: string) {
+    setAppliedSavedFilter(name);
+    const filter = savedFilters.find((f) => f.name === name);
+    const next = new URLSearchParams();
+    if (filter) {
+      try {
+        const query = JSON.parse(filter.query || "{}") as Record<string, unknown>;
+        for (const key of FILTER_KEYS) {
+          const value = query[key];
+          if (typeof value === "string" && value) next.set(key, value);
+        }
+      } catch {
+        // A corrupt saved query simply clears the filters.
+      }
+    }
+    setSearchParams(next, { replace: true });
+  }
+
+  async function deleteSavedFilter() {
+    if (!namespace || !appliedSavedFilter) return;
+    setSavedFilterBusy(true);
+    setActionError(null);
+    try {
+      await client.deleteSecuritySavedFilter({ namespace, name: appliedSavedFilter });
+      setAppliedSavedFilter("");
+      await fetchSavedFilters();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Failed to delete the view");
+    } finally {
+      setSavedFilterBusy(false);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((current) =>
+      current.size === findings.length ? new Set() : new Set(findings.map((f) => f.id)),
+    );
+  }
+
+  async function applyBulk(update: { status?: string; setAssignee?: boolean; assignee?: string }) {
+    if (!namespace || !scan || selectedIds.size === 0) return;
+    setBulkBusy(true);
+    setActionError(null);
+    setBulkFailures([]);
+    try {
+      const resp = await client.bulkUpdateSecurityFindingStatus({
+        namespace,
+        scanName: scan.scanName,
+        ids: [...selectedIds],
+        status: update.status ?? "",
+        setAssignee: update.setAssignee ?? false,
+        assignee: update.assignee ?? "",
+        note: bulkNote.trim(),
+      });
+      const failures = resp.results.filter((r) => !r.ok);
+      setBulkFailures(failures);
+      if (failures.length === 0) {
+        setSelectedIds(new Set());
+        setBulkStatus("");
+        setBulkNote("");
+        setBulkAssignee("");
+      }
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Bulk update failed");
+    } finally {
+      setBulkBusy(false);
+      await Promise.all([fetchFindings(), fetchScan()]);
+    }
+  }
+
+  async function exportAuditLog() {
+    if (!namespace || !scan) return;
+    setExportBusy(true);
+    setActionError(null);
+    try {
+      const resp = await client.exportSecurityFindingAuditLog({
+        namespace,
+        scanName: scan.scanName,
+        format: "csv",
+      });
+      downloadBlob(
+        resp.filename || `security-audit-${scan.scanName}.csv`,
+        resp.content,
+        resp.contentType || "text/csv",
+      );
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Failed to export the audit log");
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   return (
     <ListState
       loading={loading}
@@ -186,7 +430,7 @@ export function SecurityScanDetail() {
       {scan && (
         <div className="space-y-7">
           <DetailHeader
-            parentLabel="Security Scans"
+            parentLabel="Security"
             parentTo="/security"
             title={scan.runName}
             meta={
@@ -200,7 +444,160 @@ export function SecurityScanDetail() {
                 {scan.revision && ` @ ${scan.revision.slice(0, 12)}`}
               </span>
             }
+            actions={
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={<Link to={`/runs/${scan.namespace}/${scan.runName}`} />}
+                >
+                  <SquareArrowOutUpRight />
+                  Agent run
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={reportBusy !== null}
+                  onClick={() => void downloadReport("markdown")}
+                >
+                  <FileText />
+                  {reportBusy === "markdown" ? "Fetching…" : "Report"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={reportBusy !== null}
+                  onClick={() => void downloadReport("sarif")}
+                >
+                  <Download />
+                  {reportBusy === "sarif" ? "Fetching…" : "SARIF"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={exportBusy}
+                  onClick={() => void exportAuditLog()}
+                >
+                  <Download />
+                  {exportBusy ? "Exporting…" : "Audit CSV"}
+                </Button>
+              </>
+            }
           />
+
+          {scan.status.toLowerCase() === "running" && (
+            <p className="text-[12.5px] text-muted-foreground">
+              This scan run has not finished. The Markdown report and SARIF artifact become
+              available once the run submits its results.
+            </p>
+          )}
+
+          {scanConfig && (scanConfig.lastCheck || scanConfig.lastNotifications) && (
+            <section
+              aria-label="Repository integration"
+              className="space-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[12.5px]"
+            >
+              <p className="font-medium text-foreground">Repository integration</p>
+              {scanConfig.lastCheck && (
+                <p className="text-muted-foreground">
+                  GitHub check on{" "}
+                  <span className="font-mono">{scanConfig.lastCheck.revision.slice(0, 12)}</span>:{" "}
+                  {scanConfig.lastCheck.error ? (
+                    <span className="text-destructive">
+                      publish failed — {scanConfig.lastCheck.error} (retried automatically)
+                    </span>
+                  ) : (
+                    <>
+                      <Badge variant="outline" className="capitalize">{scanConfig.lastCheck.conclusion}</Badge>
+                      {scanConfig.lastCheck.url && (
+                        <>
+                          {" "}
+                          <a
+                            className="underline underline-offset-2"
+                            href={scanConfig.lastCheck.url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            view check
+                          </a>
+                        </>
+                      )}
+                    </>
+                  )}
+                  {scanConfig.lastCheck.sarifError && (
+                    <span className="text-destructive"> · SARIF upload failed — {scanConfig.lastCheck.sarifError}</span>
+                  )}
+                  {scanConfig.lastCheck.sarifUploaded && " · SARIF uploaded to code scanning"}
+                </p>
+              )}
+              {scanConfig.lastNotifications && (
+                <p className="text-muted-foreground">
+                  Notifications: {scanConfig.lastNotifications.sent} sent,{" "}
+                  {scanConfig.lastNotifications.suppressed} suppressed as duplicates
+                  {scanConfig.lastNotifications.lastError ? (
+                    <span className="text-destructive">
+                      {" "}
+                      — last error: {scanConfig.lastNotifications.lastError} (retried automatically)
+                    </span>
+                  ) : null}
+                </p>
+              )}
+            </section>
+          )}
+          {reportNotice && (
+            <p role="status" className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-[12.5px] text-muted-foreground">
+              {reportNotice}
+            </p>
+          )}
+
+          {scanConfig?.budgetExceeded && (
+            <div
+              role="alert"
+              data-testid="budget-warning"
+              className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2.5 text-[12.5px]"
+            >
+              <p className="font-medium">Budget exceeded — new runs of this scan will not start.</p>
+              <p className="text-muted-foreground">{scanConfig.budgetMessage}</p>
+            </div>
+          )}
+
+          {scanConfig && (scanConfig.effectiveBudgets || scanConfig.retention) && (
+            <section
+              aria-label="Budgets and retention"
+              className="space-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[12.5px]"
+            >
+              <p className="font-medium text-foreground">Budgets &amp; retention</p>
+              {scanConfig.effectiveBudgets && (
+                <p className="text-muted-foreground" data-testid="effective-budgets">
+                  Effective budgets (scan merged with its policy pack):{" "}
+                  {packBudgetSummary(scanConfig.effectiveBudgets)}. Platform-observed usage is
+                  checked against these limits before and during each run
+                  {scanConfig.budgetExceeded ? "" : "; no limit is currently exceeded"}.
+                </p>
+              )}
+              {scanConfig.retention && (
+                <p className="text-muted-foreground" data-testid="retention-sweep">
+                  Retention sweep
+                  {scanConfig.retention.lastSweepTimeUnix > 0n &&
+                    ` (last ran ${new Date(Number(scanConfig.retention.lastSweepTimeUnix) * 1000).toLocaleString()})`}
+                  : {String(scanConfig.retention.scansPurged)} scan runs,{" "}
+                  {String(scanConfig.retention.findingsPurged)} findings, and{" "}
+                  {String(scanConfig.retention.reportsPurged)} reports purged;{" "}
+                  {String(scanConfig.retention.evidenceRedacted)} evidence and{" "}
+                  {String(scanConfig.retention.pocRedacted)} PoC entries redacted;{" "}
+                  {String(scanConfig.retention.auditEventsPurged)} audit events purged
+                  {scanConfig.retention.moreWork ? " · sweep still in progress" : ""}
+                  {scanConfig.retention.lastError ? (
+                    <span className="text-destructive">
+                      {" "}
+                      · last sweep error: {scanConfig.retention.lastError} (retried automatically)
+                    </span>
+                  ) : null}
+                </p>
+              )}
+            </section>
+          )}
 
           <StatBar>
             <Stat label="Total" value={summary["total"] ?? 0} />
@@ -218,6 +615,14 @@ export function SecurityScanDetail() {
               />
             ))}
           </StatBar>
+
+          {namespace && runName && (
+            <SecurityScanRunPanel
+              namespace={namespace}
+              runName={runName}
+              onRunSettled={handleRunSettled}
+            />
+          )}
 
           {scan.summary && (
             <DetailSection title="Scan Summary">
@@ -239,14 +644,14 @@ export function SecurityScanDetail() {
               <div className="flex flex-wrap items-center gap-2">
                 <ListSearchInput
                   value={search}
-                  onChange={setSearch}
+                  onChange={(value) => setFilter("q", value)}
                   placeholder="Search findings…"
                 />
                 <select
                   aria-label="Filter by severity"
                   className={filterSelectClass}
                   value={severity}
-                  onChange={(e) => setSeverity(e.target.value)}
+                  onChange={(e) => setFilter("severity", e.target.value)}
                 >
                   <option value="">All severities</option>
                   {SEVERITIES.map((s) => (
@@ -257,7 +662,7 @@ export function SecurityScanDetail() {
                   aria-label="Filter by status"
                   className={filterSelectClass}
                   value={status}
-                  onChange={(e) => setStatus(e.target.value)}
+                  onChange={(e) => setFilter("status", e.target.value)}
                 >
                   <option value="">All statuses</option>
                   {FINDING_STATUSES.map((s) => (
@@ -268,13 +673,81 @@ export function SecurityScanDetail() {
                   aria-label="Filter by category"
                   className={filterSelectClass}
                   value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  onChange={(e) => setFilter("category", e.target.value)}
                 >
                   <option value="">All categories</option>
                   {categories.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
+                <select
+                  aria-label="Filter by baseline state"
+                  className={filterSelectClass}
+                  value={baseline}
+                  onChange={(e) => setFilter("baseline", e.target.value)}
+                >
+                  <option value="">All baselines</option>
+                  {BASELINE_STATES.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Filter suppressed findings"
+                  className={filterSelectClass}
+                  value={suppressed}
+                  onChange={(e) => setFilter("suppressed", e.target.value)}
+                >
+                  <option value="">Hide suppressed</option>
+                  <option value="include">Include suppressed</option>
+                  <option value="only">Only suppressed</option>
+                </select>
+                <input
+                  aria-label="Filter by assignee"
+                  type="text"
+                  value={assigneeFilter}
+                  onChange={(e) => setFilter("assignee", e.target.value)}
+                  placeholder="Assignee…"
+                  className="h-8 w-28 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                />
+                <select
+                  aria-label="Saved views"
+                  className={filterSelectClass}
+                  value={appliedSavedFilter}
+                  onChange={(e) => applySavedFilter(e.target.value)}
+                >
+                  <option value="">Saved views…</option>
+                  {savedFilters.map((f) => (
+                    <option key={f.name} value={f.name}>{f.name}</option>
+                  ))}
+                </select>
+                {appliedSavedFilter && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Delete saved view ${appliedSavedFilter}`}
+                    disabled={savedFilterBusy}
+                    onClick={() => void deleteSavedFilter()}
+                  >
+                    <X />
+                    Delete view
+                  </Button>
+                )}
+                <input
+                  aria-label="New saved view name"
+                  type="text"
+                  value={savedFilterName}
+                  onChange={(e) => setSavedFilterName(e.target.value)}
+                  placeholder="Save view as…"
+                  className="h-8 w-28 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={savedFilterBusy || !savedFilterName.trim()}
+                  onClick={() => void saveCurrentFilter()}
+                >
+                  Save view
+                </Button>
               </div>
             }
           >
@@ -290,14 +763,115 @@ export function SecurityScanDetail() {
                     : "This scan reported no findings."
                 }
               >
+                <>
+                {selectedIds.size > 0 && (
+                  <div
+                    role="toolbar"
+                    aria-label="Bulk actions"
+                    className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2"
+                  >
+                    <span className="text-[12.5px] font-medium">
+                      {selectedIds.size} selected
+                    </span>
+                    <select
+                      aria-label="Bulk status"
+                      className={filterSelectClass}
+                      value={bulkStatus}
+                      disabled={bulkBusy}
+                      onChange={(e) => setBulkStatus(e.target.value)}
+                    >
+                      <option value="">Set status…</option>
+                      {FINDING_STATUSES.map((s) => (
+                        <option key={s} value={s}>{statusLabel(s)}</option>
+                      ))}
+                    </select>
+                    <input
+                      aria-label="Bulk note"
+                      type="text"
+                      value={bulkNote}
+                      disabled={bulkBusy}
+                      onChange={(e) => setBulkNote(e.target.value)}
+                      placeholder="Audit note (optional)"
+                      className="h-8 w-40 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                    />
+                    <Button
+                      size="sm"
+                      disabled={bulkBusy || !bulkStatus}
+                      onClick={() => void applyBulk({ status: bulkStatus })}
+                    >
+                      {bulkBusy ? "Applying…" : "Apply status"}
+                    </Button>
+                    <input
+                      aria-label="Bulk assignee"
+                      type="text"
+                      value={bulkAssignee}
+                      disabled={bulkBusy}
+                      onChange={(e) => setBulkAssignee(e.target.value)}
+                      placeholder="Assignee"
+                      className="h-8 w-32 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={bulkBusy || !bulkAssignee.trim()}
+                      onClick={() => void applyBulk({ setAssignee: true, assignee: bulkAssignee.trim() })}
+                    >
+                      Assign
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={bulkBusy}
+                      onClick={() => void applyBulk({ setAssignee: true, assignee: "" })}
+                    >
+                      Clear assignee
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={bulkBusy}
+                      onClick={() => {
+                        setSelectedIds(new Set());
+                        setBulkFailures([]);
+                      }}
+                    >
+                      <X />
+                      Clear selection
+                    </Button>
+                  </div>
+                )}
+                {bulkFailures.length > 0 && (
+                  <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12.5px]">
+                    <span className="font-medium">
+                      Bulk update failed — no findings were changed.
+                    </span>
+                    <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                      {bulkFailures.map((f) => (
+                        <li key={f.id} className="font-mono text-[11.5px]">
+                          {f.id}: {f.error}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <Table>
                   <TableCaption className="sr-only">Security findings</TableCaption>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-8">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all findings"
+                          checked={findings.length > 0 && selectedIds.size === findings.length}
+                          onChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>Title</TableHead>
                       <TableHead>Severity</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Baseline</TableHead>
+                      <TableHead>Assignee</TableHead>
                       <TableHead className="text-right">Score</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -309,6 +883,14 @@ export function SecurityScanDetail() {
                         className="cursor-pointer"
                         onClick={() => setSelectedId(finding.id)}
                       >
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${finding.title}`}
+                            checked={selectedIds.has(finding.id)}
+                            onChange={() => toggleSelected(finding.id)}
+                          />
+                        </TableCell>
                         <TableCell>
                           <button
                             type="button"
@@ -317,9 +899,18 @@ export function SecurityScanDetail() {
                           >
                             {finding.title}
                           </button>
-                          <div className="mt-0.5 truncate font-mono text-[11.5px] text-muted-foreground">
-                            {finding.filePath}
-                            {finding.startLine > 0 && `:${finding.startLine}`}
+                          <div className="mt-0.5 flex items-center gap-2">
+                            <span className="truncate font-mono text-[11.5px] text-muted-foreground">
+                              {finding.filePath}
+                              {finding.startLine > 0 && `:${finding.startLine}`}
+                            </span>
+                            <Link
+                              to={findingHref(finding.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="shrink-0 text-[11.5px] text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+                            >
+                              Open full page
+                            </Link>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -329,7 +920,19 @@ export function SecurityScanDetail() {
                           {finding.category || "—"}
                         </TableCell>
                         <TableCell className="text-sm capitalize text-muted-foreground">
-                          {statusLabel(finding.status)}
+                          <span className="flex items-center gap-1.5">
+                            {statusLabel(finding.status)}
+                            {finding.status === "accepted_risk" && (
+                              <ExpiryBadge ts={finding.acceptedRiskExpiresAt} />
+                            )}
+                            <SuppressedBadge finding={finding} />
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <BaselineBadge state={finding.baselineState} />
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {finding.assignee || "—"}
                         </TableCell>
                         <TableCell className="text-right font-mono tabular-nums">
                           {finding.score.toFixed(1)}
@@ -338,6 +941,7 @@ export function SecurityScanDetail() {
                     ))}
                   </TableBody>
                 </Table>
+                </>
               </ListState>
 
               {selected && (
@@ -353,16 +957,28 @@ export function SecurityScanDetail() {
                         {selected.category && (
                           <Badge variant="outline" className="text-[11px]">{selected.category}</Badge>
                         )}
+                        <SuppressedBadge finding={selected} />
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Close finding details"
-                      onClick={() => setSelectedId(null)}
-                    >
-                      <X className="size-4" />
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Open finding full page"
+                        nativeButton={false}
+                        render={<Link to={findingHref(selected.id)} />}
+                      >
+                        <SquareArrowOutUpRight className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Close finding details"
+                        onClick={() => setSelectedId(null)}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -384,6 +1000,18 @@ export function SecurityScanDetail() {
                       ))}
                     </select>
                   </div>
+
+                  {selected.suppressedBy && (
+                    <p
+                      role="note"
+                      data-testid="finding-suppression-note"
+                      className="rounded-md border border-violet-500/40 bg-violet-500/10 px-2.5 py-2 text-[12px]"
+                    >
+                      <span className="font-medium">Suppressed by policy</span> —{" "}
+                      {suppressionSummary(selected)}
+                      {selected.suppressedReason ? `. Reason: ${selected.suppressedReason}` : ""}
+                    </p>
+                  )}
 
                   {selected.description && (
                     <FindingText label="Description" text={selected.description} />

@@ -24,11 +24,11 @@ func securityScanPromptSpec() triggersv1alpha1.SecurityScanSpec {
 			Objective: "Trace session creation and invalidation.",
 			Role:      "security-reviewer",
 		}},
-		SeverityRankers: []triggersv1alpha1.SecurityRanker{{
+		SeverityRankers: []triggersv1alpha1.SecurityScanRanker{{
 			Name:  "exploitability",
 			Rules: "Unauthenticated remote execution is critical.",
 		}},
-		PostScripts: []triggersv1alpha1.SecurityPostScript{{
+		PostScripts: []triggersv1alpha1.SecurityScanPostScript{{
 			Name:   "proof",
 			RunOn:  "high-and-above",
 			Prompt: "Validate exploitability with a minimal proof of concept.",

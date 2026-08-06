@@ -49,6 +49,14 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 		ConcurrencyPolicy: "Allow",
 		Defaults:          fullCronDefaults(),
 		MaxRuntime:        "2h",
+		Budgets: &platform.SecurityScanBudgetsConfig{
+			MaxModelJobs:      12,
+			MaxCostUsd:        "3.75",
+			MaxTokens:         250000,
+			MaxRuntime:        "90m",
+			MaxFindings:       40,
+			MaxValidationJobs: 4,
+		},
 	}
 }
 
@@ -88,6 +96,10 @@ func TestCreateSecurityScanHappyPathFullSpec(t *testing.T) {
 		ps.Defaults == nil || ps.Defaults.Model != "claude-sonnet-4-6" {
 		t.Fatalf("proto spec = %+v", ps)
 	}
+	if ps.Budgets == nil || ps.Budgets.MaxCostUsd != "3.75" || ps.Budgets.MaxRuntime != "1h30m0s" ||
+		ps.Budgets.MaxFindings != 40 {
+		t.Fatalf("proto budgets = %+v", ps.Budgets)
+	}
 }
 
 func assertFullScanSpec(t *testing.T, spec triggersv1alpha1.SecurityScanSpec) {
@@ -107,6 +119,11 @@ func assertFullScanSpec(t *testing.T, spec triggersv1alpha1.SecurityScanSpec) {
 	}
 	if spec.MaxRuntime.Duration != 2*time.Hour {
 		t.Fatalf("MaxRuntime = %s, want 2h", spec.MaxRuntime.Duration)
+	}
+	if spec.Budgets == nil || spec.Budgets.MaxModelJobs != 12 || spec.Budgets.MaxCostUSD != "3.75" ||
+		spec.Budgets.MaxTokens != 250000 || spec.Budgets.MaxRuntime.Duration != 90*time.Minute ||
+		spec.Budgets.MaxFindings != 40 || spec.Budgets.MaxValidationJobs != 4 {
+		t.Fatalf("Budgets = %+v", spec.Budgets)
 	}
 	if spec.Defaults.RepoURL != "https://github.com/example/payments.git" || spec.Defaults.Model != "claude-sonnet-4-6" {
 		t.Fatalf("Defaults = %+v", spec.Defaults)
@@ -228,6 +245,21 @@ func TestCreateSecurityScanValidationFailures(t *testing.T) {
 			return s
 		}()},
 		{"bad max_runtime", func() *platform.SecurityScanConfigSpec { s := base(); s.MaxRuntime = "banana"; return s }()},
+		{"bad budgets max_runtime", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Budgets = &platform.SecurityScanBudgetsConfig{MaxRuntime: "banana"}
+			return s
+		}()},
+		{"bad budgets max_cost_usd", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Budgets = &platform.SecurityScanBudgetsConfig{MaxCostUsd: "$5"}
+			return s
+		}()},
+		{"negative budgets max_findings", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Budgets = &platform.SecurityScanBudgetsConfig{MaxFindings: -1}
+			return s
+		}()},
 		{"bad defaults timeout", func() *platform.SecurityScanConfigSpec {
 			s := base()
 			s.Defaults = &platform.AgentRunDefaults{Timeout: "banana"}
@@ -435,6 +467,18 @@ func TestListAndGetSecurityScanConfigsExposeSpecAndStatus(t *testing.T) {
 			RunsCreated:      3,
 			LastError:        "boom",
 			Findings:         &triggersv1alpha1.SecurityScanFindingCounts{Total: 4, Open: 2, Critical: 1, High: 1},
+			Budget: &triggersv1alpha1.SecurityScanBudgetStatus{
+				Effective: &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 3, MaxCostUSD: "5"},
+				Exceeded:  true,
+				Message:   "persisted findings 4 exceed budgets.maxFindings 3",
+			},
+			Retention: &triggersv1alpha1.SecurityScanRetentionStatus{
+				LastSweepTime:  &lastScan,
+				FindingsPurged: 7,
+				PoCRedacted:    2,
+				MoreWork:       true,
+				LastError:      "sweep hiccup",
+			},
 			Conditions: []metav1.Condition{
 				{Type: triggersv1alpha1.ConditionSecurityScanReady, Status: metav1.ConditionTrue, Reason: "Ready"},
 			},
@@ -460,6 +504,15 @@ func TestListAndGetSecurityScanConfigsExposeSpecAndStatus(t *testing.T) {
 	if got.FindingCounts["total"] != 4 || got.FindingCounts["open"] != 2 || got.FindingCounts["critical"] != 1 {
 		t.Fatalf("FindingCounts = %+v", got.FindingCounts)
 	}
+	if !got.BudgetExceeded || got.BudgetMessage == "" ||
+		got.GetEffectiveBudgets().GetMaxFindings() != 3 || got.GetEffectiveBudgets().GetMaxCostUsd() != "5" {
+		t.Fatalf("budget status = exceeded=%v message=%q effective=%+v", got.BudgetExceeded, got.BudgetMessage, got.GetEffectiveBudgets())
+	}
+	if got.GetRetention().GetLastSweepTimeUnix() != lastScan.Unix() ||
+		got.GetRetention().GetFindingsPurged() != 7 || got.GetRetention().GetPocRedacted() != 2 ||
+		!got.GetRetention().GetMoreWork() || got.GetRetention().GetLastError() != "sweep hiccup" {
+		t.Fatalf("retention status = %+v", got.GetRetention())
+	}
 
 	list, err := srv.ListSecurityScanConfigs(context.Background(), &platform.ListSecurityScanConfigsRequest{Namespace: "default"})
 	if err != nil {
@@ -467,5 +520,229 @@ func TestListAndGetSecurityScanConfigsExposeSpecAndStatus(t *testing.T) {
 	}
 	if len(list.Configs) != 1 || list.Configs[0].Name != "reader" || list.Configs[0].GetSpec() == nil {
 		t.Fatalf("ListSecurityScanConfigs = %+v", list.Configs)
+	}
+}
+
+func TestRunSecurityScanNowStampsAnnotationToken(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: ns},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+	}
+	srv, c := newCronTestServer(t, existing)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "nightly", ns, testProjectSubject); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	resp, err := srv.RunSecurityScanNow(projectActorCtx(),
+		&platform.RunSecurityScanNowRequest{Namespace: ns, Name: "nightly"})
+	if err != nil {
+		t.Fatalf("RunSecurityScanNow() error = %v", err)
+	}
+	if resp.Namespace != ns || resp.Name != "nightly" {
+		t.Fatalf("resp = %s/%s, want %s/nightly", resp.Namespace, resp.Name, ns)
+	}
+
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "nightly"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	first := cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation]
+	if first == "" {
+		t.Fatalf("run-now annotation not set: %#v", cr.Annotations)
+	}
+
+	// A later request stamps a fresh token; the spec is untouched.
+	time.Sleep(time.Millisecond)
+	if _, err := srv.RunSecurityScanNow(projectActorCtx(),
+		&platform.RunSecurityScanNowRequest{Namespace: ns, Name: "nightly"}); err != nil {
+		t.Fatalf("second RunSecurityScanNow() error = %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "nightly"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if second := cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation]; second == "" || second == first {
+		t.Fatalf("second token = %q, want a fresh token different from %q", second, first)
+	}
+	if cr.Spec.RepoURL != "https://github.com/example/app.git" || cr.Spec.Suspend {
+		t.Fatalf("spec was modified: %+v", cr.Spec)
+	}
+}
+
+func TestRunSecurityScanNowDeniedForStranger(t *testing.T) {
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "owned", Namespace: "default"},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+	}
+	srv, c := newCronTestServer(t, existing)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "owned", "default", "alice"); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	_, err := srv.RunSecurityScanNow(actorContext("mallory", "member", "", ""),
+		&platform.RunSecurityScanNowRequest{Namespace: "default", Name: "owned"})
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("RunSecurityScanNow by stranger: want PermissionDenied, got %v", err)
+	}
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "owned"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] != "" {
+		t.Fatalf("annotation stamped despite denial: %#v", cr.Annotations)
+	}
+}
+
+func TestRunSecurityScanNowNotFound(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	_, err := srv.RunSecurityScanNow(projectActorCtx(),
+		&platform.RunSecurityScanNowRequest{Namespace: "default", Name: "missing"})
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("RunSecurityScanNow() error = %v, want NotFound", err)
+	}
+}
+
+func TestRunSecurityScanNowRejectsSuspendedScan(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "paused", Namespace: ns},
+		Spec: triggersv1alpha1.SecurityScanSpec{
+			RepoURL: "https://github.com/example/app.git",
+			Suspend: true,
+		},
+	}
+	srv, c := newCronTestServer(t, existing)
+
+	_, err := srv.RunSecurityScanNow(projectActorCtx(),
+		&platform.RunSecurityScanNowRequest{Namespace: ns, Name: "paused"})
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("RunSecurityScanNow(suspended) error = %v, want FailedPrecondition", err)
+	}
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "paused"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] != "" {
+		t.Fatalf("annotation stamped on suspended scan: %#v", cr.Annotations)
+	}
+}
+
+func TestRunSecurityScanNowValidatesRequest(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	_, err := srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{Namespace: "", Name: ""})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("RunSecurityScanNow() error = %v, want InvalidArgument", err)
+	}
+}
+
+func TestCreateSecurityScanEventTriggersChecksAndNotificationsRoundTrip(t *testing.T) {
+	srv, c := newCronTestServer(t)
+	srv.stateStore = newMockStateStore()
+	ns := testUserNS()
+
+	spec := fullSecurityScanSpec()
+	spec.Triggers = &platform.SecurityScanTriggersConfig{
+		RepositoryRef: "widget-repo",
+		OnPullRequest: true,
+		OnPush:        true,
+		Branches:      []string{"main", "release/*"},
+		DiffScope:     true,
+		AllowForks:    true,
+	}
+	spec.Checks = &platform.SecurityScanChecksConfig{
+		Enabled:                 true,
+		IncludeFindingSummaries: true,
+		UploadSarif:             true,
+	}
+	spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{{
+		Name:                  "critical-alerts",
+		MinSeverity:           "critical",
+		NotifyOn:              "new",
+		SlackWebhookSecretRef: "slack-webhook",
+		GithubIssues:          true,
+		LinearApiKeySecretRef: "linear-key",
+		LinearTeamId:          "team-1",
+	}}
+
+	resp, err := srv.CreateSecurityScan(projectActorCtx(), &platform.CreateSecurityScanRequest{Name: "event-scan", Spec: spec})
+	if err != nil {
+		t.Fatalf("CreateSecurityScan() error = %v", err)
+	}
+
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "event-scan"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	tr := cr.Spec.Triggers
+	if tr == nil || tr.RepositoryRef == nil || tr.RepositoryRef.Name != "widget-repo" ||
+		!tr.OnPullRequest || !tr.OnPush || !tr.DiffScope || !tr.AllowForks || len(tr.Branches) != 2 {
+		t.Fatalf("Triggers = %+v", tr)
+	}
+	if cr.Spec.Checks == nil || !cr.Spec.Checks.Enabled || !cr.Spec.Checks.IncludeFindingSummaries || !cr.Spec.Checks.UploadSARIF {
+		t.Fatalf("Checks = %+v", cr.Spec.Checks)
+	}
+	if len(cr.Spec.Notifications) != 1 {
+		t.Fatalf("Notifications = %+v", cr.Spec.Notifications)
+	}
+	rule := cr.Spec.Notifications[0]
+	if rule.Name != "critical-alerts" || rule.MinSeverity != "critical" || rule.NotifyOn != "new" ||
+		rule.Slack == nil || rule.Slack.WebhookSecretRef != "slack-webhook" ||
+		rule.GitHubIssues == nil || rule.Linear == nil || rule.Linear.TeamID != "team-1" {
+		t.Fatalf("rule = %+v", rule)
+	}
+
+	ps := resp.GetSpec()
+	if ps.GetTriggers() == nil || ps.GetTriggers().GetRepositoryRef() != "widget-repo" ||
+		ps.GetChecks() == nil || !ps.GetChecks().GetUploadSarif() ||
+		len(ps.GetNotifications()) != 1 || ps.GetNotifications()[0].GetSlackWebhookSecretRef() != "slack-webhook" {
+		t.Fatalf("proto spec round-trip = %+v", ps)
+	}
+}
+
+func TestCreateSecurityScanRejectsInvalidEventConfig(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	srv.stateStore = newMockStateStore()
+
+	cases := []struct {
+		name   string
+		mutate func(spec *platform.SecurityScanConfigSpec)
+	}{
+		{"triggers without repository ref", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Triggers = &platform.SecurityScanTriggersConfig{OnPullRequest: true}
+		}},
+		{"checks without triggers", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Checks = &platform.SecurityScanChecksConfig{Enabled: true}
+		}},
+		{"notification without channel", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{{Name: "r1"}}
+		}},
+		{"duplicate notification names", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{
+				{Name: "r1", SlackWebhookSecretRef: "s"},
+				{Name: "r1", SlackWebhookSecretRef: "s"},
+			}
+		}},
+		{"linear key without team", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{{Name: "r1", LinearApiKeySecretRef: "k"}}
+		}},
+		{"invalid notify_on", func(spec *platform.SecurityScanConfigSpec) {
+			spec.Notifications = []*platform.SecurityScanNotificationRuleConfig{{Name: "r1", SlackWebhookSecretRef: "s", NotifyOn: "always"}}
+		}},
+	}
+	for _, tc := range cases {
+		spec := fullSecurityScanSpec()
+		tc.mutate(spec)
+		_, err := srv.CreateSecurityScan(projectActorCtx(), &platform.CreateSecurityScanRequest{Name: "bad", Spec: spec})
+		if err == nil {
+			t.Errorf("%s: CreateSecurityScan() = nil error, want InvalidArgument", tc.name)
+			continue
+		}
+		if connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Errorf("%s: code = %v, want InvalidArgument (%v)", tc.name, connect.CodeOf(err), err)
+		}
 	}
 }

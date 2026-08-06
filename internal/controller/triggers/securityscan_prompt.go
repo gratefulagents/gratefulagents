@@ -8,12 +8,60 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/security"
 )
 
+// SecurityScanPromptEvent is the repository-event context rendered into an
+// event-triggered scan prompt: the trigger source, the platform-stamped
+// revision, and the diff scope (changed files or an explicit full-scan
+// fallback statement).
+type SecurityScanPromptEvent struct {
+	Source       string
+	Repository   string
+	Revision     string
+	BaseRevision string
+	Branch       string
+	PRNumber     int
+	PRURL        string
+	Fork         bool
+	HeadRepo     string
+	DiffScope    bool
+	ChangedFiles []string
+	DiffFallback string
+}
+
+// securityScanPromptEvent converts a run context into the prompt event.
+func securityScanPromptEvent(runCtx *securityScanRunContext) *SecurityScanPromptEvent {
+	if runCtx == nil || runCtx.Event == nil {
+		return nil
+	}
+	ev := runCtx.Event
+	return &SecurityScanPromptEvent{
+		Source:       ev.Source,
+		Repository:   ev.Repository,
+		Revision:     ev.Revision,
+		BaseRevision: ev.BaseRevision,
+		Branch:       ev.Branch,
+		PRNumber:     ev.PRNumber,
+		PRURL:        ev.PRURL,
+		Fork:         ev.Fork,
+		HeadRepo:     ev.HeadRepo,
+		DiffScope:    len(runCtx.ChangedFiles) > 0 || runCtx.DiffFallback != "",
+		ChangedFiles: runCtx.ChangedFiles,
+		DiffFallback: runCtx.DiffFallback,
+	}
+}
+
 // BuildSecurityScanPrompt renders the complete autonomous task packet seeded
 // as the first user message of a scan AgentRun: the scan target and scope, the
 // workflow as an explicit sub-agent DAG plan, the machine-readable finding
 // contract, post-script and ranking instructions, and the final reporting
 // step. Output is deterministic for a given spec.
 func BuildSecurityScanPrompt(spec triggersv1alpha1.SecurityScanSpec) string {
+	return BuildSecurityScanPromptWithEvent(spec, nil)
+}
+
+// BuildSecurityScanPromptWithEvent renders the scan prompt, optionally with a
+// repository-event section describing the trigger, the pinned revision, and
+// the diff scope.
+func BuildSecurityScanPromptWithEvent(spec triggersv1alpha1.SecurityScanSpec, event *SecurityScanPromptEvent) string {
 	var b strings.Builder
 
 	b.WriteString("# Security scan\n\n")
@@ -31,6 +79,40 @@ func BuildSecurityScanPrompt(spec triggersv1alpha1.SecurityScanSpec) string {
 		fmt.Fprintf(&b, "- Additional repository (scanned alongside the target): %s\n", repo)
 	}
 	b.WriteString("\n")
+
+	if event != nil {
+		b.WriteString("## Trigger event\n\n")
+		fmt.Fprintf(&b, "This scan was triggered by a repository %s event.\n\n", event.Source)
+		fmt.Fprintf(&b, "- Scan revision (checked out for you; do not change it): %s\n", event.Revision)
+		if event.Branch != "" {
+			fmt.Fprintf(&b, "- Branch: %s\n", event.Branch)
+		}
+		if event.PRNumber > 0 {
+			fmt.Fprintf(&b, "- Pull request: #%d", event.PRNumber)
+			if event.PRURL != "" {
+				fmt.Fprintf(&b, " (%s)", event.PRURL)
+			}
+			b.WriteString("\n")
+		}
+		if event.Fork {
+			fmt.Fprintf(&b, "- The change comes from fork %s: treat it as fully untrusted third-party code. This run intentionally has no repository write credentials.\n", event.HeadRepo)
+		}
+		if event.DiffScope {
+			if event.DiffFallback != "" {
+				fmt.Fprintf(&b, "- Diff scope was requested but is unavailable (%s). FALLBACK: scan the FULL repository at the revision above.\n", event.DiffFallback)
+			} else {
+				if event.BaseRevision != "" {
+					fmt.Fprintf(&b, "- Diff scope: prioritize the files changed between %s and %s, listed below. Still follow data flows into unchanged code when a changed file feeds it.\n", event.BaseRevision, event.Revision)
+				} else {
+					b.WriteString("- Diff scope: prioritize the changed files listed below. Still follow data flows into unchanged code when a changed file feeds it.\n")
+				}
+				for _, f := range event.ChangedFiles {
+					fmt.Fprintf(&b, "  - %s\n", f)
+				}
+			}
+		}
+		b.WriteString("\n")
+	}
 
 	if scope := spec.Scope; scope != nil {
 		b.WriteString("## Scope\n\n")
@@ -101,6 +183,9 @@ func BuildSecurityScanPrompt(spec triggersv1alpha1.SecurityScanSpec) string {
 		b.WriteString("- Deduplication is disabled: report every finding, including near-duplicates.\n")
 	}
 	fmt.Fprintf(&b, "- Exclude findings below severity %q from the report.\n", spec.EffectiveMinSeverity())
+	if spec.Budgets != nil && spec.Budgets.MaxFindings > 0 {
+		fmt.Fprintf(&b, "- Finding budget: report at most %d findings in total; prioritize the most severe, highest-confidence issues. The platform enforces this cap on the persisted findings regardless of what is reported.\n", spec.Budgets.MaxFindings)
+	}
 	b.WriteString("\n")
 
 	b.WriteString("## Final step\n\n")

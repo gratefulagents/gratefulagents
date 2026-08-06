@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+// Session artifact kinds under which scan reports are stored. Written by the
+// agent's submit_security_scan_report tool and read back by the dashboard's
+// GetSecurityScanReport RPC.
+const (
+	ReportArtifactKind = "security_report"
+	SARIFArtifactKind  = "security_sarif"
+)
+
 // ReportInput carries everything needed to render a scan report.
 type ReportInput struct {
 	ScanName    string
@@ -77,6 +85,10 @@ func RenderMarkdown(in ReportInput) string {
 	}
 
 	b.WriteString("## Findings\n\n")
+	byFingerprint := make(map[string]Finding, len(in.Ranked))
+	for _, r := range in.Ranked {
+		byFingerprint[r.Finding.Fingerprint] = r.Finding
+	}
 	for i, r := range in.Ranked {
 		f := r.Finding
 		fmt.Fprintf(&b, "### %d. [%s] %s\n\n", i+1, strings.ToUpper(orUnknown(f.Severity)), f.Title)
@@ -84,6 +96,7 @@ func RenderMarkdown(in ReportInput) string {
 		fmt.Fprintf(&b, "- **Severity:** %s\n", orUnknown(f.Severity))
 		fmt.Fprintf(&b, "- **Confidence:** %s\n", orUnknown(f.Confidence))
 		fmt.Fprintf(&b, "- **Category:** %s\n", orUnknown(f.Category))
+		fmt.Fprintf(&b, "- **Source:** %s\n", findingSourceLabel(f))
 		fmt.Fprintf(&b, "- **Score:** %.1f\n", r.Score)
 		if loc := formatLocation(f.FilePath, f.StartLine, f.EndLine); loc != "" {
 			fmt.Fprintf(&b, "- **Location:** `%s`\n", loc)
@@ -96,6 +109,17 @@ func RenderMarkdown(in ReportInput) string {
 		}
 		if len(r.Reasons) > 0 {
 			fmt.Fprintf(&b, "- **Ranking reasons:** %s\n", strings.Join(r.Reasons, "; "))
+		}
+		if len(f.CorrelatedFingerprints) > 0 {
+			labels := make([]string, 0, len(f.CorrelatedFingerprints))
+			for _, fp := range f.CorrelatedFingerprints {
+				if other, ok := byFingerprint[fp]; ok {
+					labels = append(labels, fmt.Sprintf("%s (fingerprint %s)", findingSourceLabel(other), fp))
+				} else {
+					labels = append(labels, fmt.Sprintf("fingerprint %s", fp))
+				}
+			}
+			fmt.Fprintf(&b, "- **Correlated with:** %s\n", strings.Join(labels, "; "))
 		}
 		b.WriteString("\n")
 
@@ -135,6 +159,26 @@ func RenderMarkdown(in ReportInput) string {
 		}
 	}
 	return b.String()
+}
+
+// findingSourceLabel renders the finding's source attribution: the tool
+// name, version, and rule id for scanner findings, the reporting agent for
+// agent findings.
+func findingSourceLabel(f Finding) string {
+	if f.IsScannerFinding() {
+		label := "scanner " + orUnknown(f.Tool)
+		if f.ToolVersion != "" {
+			label += " " + f.ToolVersion
+		}
+		if f.RuleID != "" {
+			label += ", rule " + f.RuleID
+		}
+		return label
+	}
+	if f.SourceAgent != "" {
+		return "agent " + f.SourceAgent
+	}
+	return "agent"
 }
 
 func formatLocation(filePath string, startLine, endLine int) string {

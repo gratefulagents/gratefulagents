@@ -36,19 +36,19 @@ func TestSecurityFindingFilterSQL(t *testing.T) {
 		{
 			name:      "empty filter still excludes duplicates",
 			filter:    store.SecurityFindingFilter{},
-			wantWhere: "WHERE duplicate_of IS NULL",
+			wantWhere: "WHERE suppressed_by IS NULL AND duplicate_of IS NULL",
 			wantArgs:  nil,
 		},
 		{
 			name:      "include duplicates with no other filters",
 			filter:    store.SecurityFindingFilter{IncludeDuplicates: true},
-			wantWhere: "",
+			wantWhere: "WHERE suppressed_by IS NULL",
 			wantArgs:  nil,
 		},
 		{
 			name:      "namespace only",
 			filter:    store.SecurityFindingFilter{Namespace: "default", IncludeDuplicates: true},
-			wantWhere: "WHERE namespace = $1",
+			wantWhere: "WHERE namespace = $1 AND suppressed_by IS NULL",
 			wantArgs:  []any{"default"},
 		},
 		{
@@ -67,25 +67,43 @@ func TestSecurityFindingFilterSQL(t *testing.T) {
 			wantWhere: "WHERE namespace = $1 AND scan_name = $2 AND run_name = $3 AND repository = $4" +
 				" AND category = $5 AND severity = $6 AND status = $7" +
 				" AND (title ILIKE $8 OR description ILIKE $8 OR file_path ILIKE $8)" +
-				" AND score >= $9 AND duplicate_of IS NULL",
+				" AND score >= $9 AND suppressed_by IS NULL AND duplicate_of IS NULL",
 			wantArgs: []any{"default", "nightly", "nightly-1", "org/repo", "injection", "high", "open", "%sql%", 42.5},
 		},
 		{
 			name:      "search binds one wildcard-wrapped arg",
 			filter:    store.SecurityFindingFilter{Search: "token", IncludeDuplicates: true},
-			wantWhere: "WHERE (title ILIKE $1 OR description ILIKE $1 OR file_path ILIKE $1)",
+			wantWhere: "WHERE (title ILIKE $1 OR description ILIKE $1 OR file_path ILIKE $1) AND suppressed_by IS NULL",
 			wantArgs:  []any{"%token%"},
 		},
 		{
 			name:      "search escapes ILIKE metacharacters",
 			filter:    store.SecurityFindingFilter{Search: `50%_off\now`, IncludeDuplicates: true},
-			wantWhere: "WHERE (title ILIKE $1 OR description ILIKE $1 OR file_path ILIKE $1)",
+			wantWhere: "WHERE (title ILIKE $1 OR description ILIKE $1 OR file_path ILIKE $1) AND suppressed_by IS NULL",
 			wantArgs:  []any{`%50\%\_off\\now%`},
+		},
+		{
+			name:      "suppressed include drops the suppression condition",
+			filter:    store.SecurityFindingFilter{Namespace: "ns", Suppressed: store.SecuritySuppressedInclude, IncludeDuplicates: true},
+			wantWhere: "WHERE namespace = $1",
+			wantArgs:  []any{"ns"},
+		},
+		{
+			name:      "suppressed only selects only suppressed findings",
+			filter:    store.SecurityFindingFilter{Namespace: "ns", Suppressed: store.SecuritySuppressedOnly, IncludeDuplicates: true},
+			wantWhere: "WHERE namespace = $1 AND suppressed_by IS NOT NULL",
+			wantArgs:  []any{"ns"},
+		},
+		{
+			name:      "suppressed exclude matches the default",
+			filter:    store.SecurityFindingFilter{Namespace: "ns", Suppressed: store.SecuritySuppressedExclude, IncludeDuplicates: true},
+			wantWhere: "WHERE namespace = $1 AND suppressed_by IS NULL",
+			wantArgs:  []any{"ns"},
 		},
 		{
 			name:      "zero min score is not filtered",
 			filter:    store.SecurityFindingFilter{Namespace: "ns", MinScore: 0, IncludeDuplicates: true},
-			wantWhere: "WHERE namespace = $1",
+			wantWhere: "WHERE namespace = $1 AND suppressed_by IS NULL",
 			wantArgs:  []any{"ns"},
 		},
 	}
@@ -157,6 +175,7 @@ func TestSecurityStatementsScopeByNamespace(t *testing.T) {
 		"getSecurityFindingSQL":           getSecurityFindingSQL,
 		"setSecurityFindingStatusSQL":     setSecurityFindingStatusSQL,
 		"listSecurityFindingEventsSQL":    listSecurityFindingEventsSQL,
+		"addSecurityFindingCommentSQL":    addSecurityFindingCommentSQL,
 		"deleteSecurityFindingsByScanSQL": deleteSecurityFindingsByScanSQL,
 		"deleteSecurityScansByScanSQL":    deleteSecurityScansByScanSQL,
 	}
@@ -174,11 +193,14 @@ func TestSecurityEmptyNamespaceRejected(t *testing.T) {
 	if _, err := s.GetSecurityFinding(ctx, "", id); err == nil {
 		t.Error("GetSecurityFinding(empty namespace) = nil error, want error")
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "", id, store.SecurityFindingStatusOpen, "a", ""); err == nil {
+	if err := s.SetSecurityFindingStatus(ctx, "", id, store.SecurityFindingStatusOpen, "a", "", nil); err == nil {
 		t.Error("SetSecurityFindingStatus(empty namespace) = nil error, want error")
 	}
 	if _, err := s.ListSecurityFindingEvents(ctx, "", id, 10); err == nil {
 		t.Error("ListSecurityFindingEvents(empty namespace) = nil error, want error")
+	}
+	if _, err := s.AddSecurityFindingComment(ctx, "", id, "a", "body"); err == nil {
+		t.Error("AddSecurityFindingComment(empty namespace) = nil error, want error")
 	}
 	if err := s.DeleteSecurityScanData(ctx, "", "scan"); err == nil {
 		t.Error("DeleteSecurityScanData(empty namespace) = nil error, want error")
@@ -188,7 +210,7 @@ func TestSecurityEmptyNamespaceRejected(t *testing.T) {
 func TestSetSecurityFindingStatusRejectsInvalidStatus(t *testing.T) {
 	s := &Store{}
 	for _, status := range []string{"", "bogus", "OPEN"} {
-		if err := s.SetSecurityFindingStatus(context.Background(), "default", uuid.New(), status, "a", ""); err == nil {
+		if err := s.SetSecurityFindingStatus(context.Background(), "default", uuid.New(), status, "a", "", nil); err == nil {
 			t.Errorf("SetSecurityFindingStatus(%q) = nil error, want validation error", status)
 		}
 	}
@@ -196,15 +218,17 @@ func TestSetSecurityFindingStatusRejectsInvalidStatus(t *testing.T) {
 
 func TestSecurityFindingSummaryKeys(t *testing.T) {
 	summary := newSecurityFindingSummary()
-	for _, key := range []string{"total", "open", "open_critical", "open_high", "open_medium", "open_low", "open_info"} {
+	for _, key := range []string{"total", "open", "suppressed", "open_critical", "open_high", "open_medium", "open_low", "open_info", "source_agent", "source_scanner", "correlated"} {
 		if _, ok := summary[key]; !ok {
 			t.Errorf("newSecurityFindingSummary missing key %q", key)
 		}
 	}
-	addSecurityFindingSummaryCount(summary, "high", store.SecurityFindingStatusOpen, 2)
-	addSecurityFindingSummaryCount(summary, "high", store.SecurityFindingStatusConfirmed, 1)
-	addSecurityFindingSummaryCount(summary, "low", store.SecurityFindingStatusOpen, 1)
-	want := map[string]int32{"total": 4, "open": 3, "high": 3, "low": 1, "open_high": 2, "open_low": 1, "open_critical": 0, "open_medium": 0, "open_info": 0}
+	addSecurityFindingSummaryCount(summary, "high", store.SecurityFindingStatusOpen, store.SecurityFindingBaselineNew, "agent", false, false, false, 2)
+	addSecurityFindingSummaryCount(summary, "high", store.SecurityFindingStatusConfirmed, store.SecurityFindingBaselineRecurring, "scanner", true, false, false, 1)
+	addSecurityFindingSummaryCount(summary, "low", store.SecurityFindingStatusOpen, "", "", true, false, false, 1)
+	// Suppressed groups only bump "suppressed" when not included.
+	addSecurityFindingSummaryCount(summary, "critical", store.SecurityFindingStatusOpen, store.SecurityFindingBaselineNew, "scanner", false, true, false, 3)
+	want := map[string]int32{"total": 4, "open": 3, "high": 3, "low": 1, "open_high": 2, "open_low": 1, "open_critical": 0, "open_medium": 0, "open_info": 0, "baseline_new": 2, "baseline_recurring": 1, "baseline_tracked": 3, "suppressed": 3, "critical": 0, "source_agent": 3, "source_scanner": 1, "correlated": 2}
 	for key, val := range want {
 		if summary[key] != val {
 			t.Errorf("summary[%q] = %d, want %d", key, summary[key], val)
@@ -227,7 +251,7 @@ func setupSecurityTestStore(t *testing.T) *Store {
 	if err := Migrate(ctx, pool); err != nil {
 		t.Fatalf("running migrations: %v", err)
 	}
-	for _, table := range []string{"security_finding_events", "security_findings", "security_scans"} {
+	for _, table := range []string{"security_finding_events", "security_finding_observations", "security_notification_markers", "security_findings", "security_saved_filters", "security_scans"} {
 		if _, err := pool.Exec(ctx, "DELETE FROM "+table); err != nil {
 			t.Fatalf("cleaning table %s: %v", table, err)
 		}
@@ -243,7 +267,36 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	finding, other := lifecycleTestFindingUpserts(ctx, t, s, scan)
 	lifecycleTestStatusTransitions(ctx, t, s, scan, finding)
 	lifecycleTestQueriesAndSummaries(ctx, t, s, finding)
+	lifecycleTestComments(ctx, t, s, finding)
 	lifecycleTestScanDeletion(ctx, t, s, finding, other)
+}
+
+func lifecycleTestComments(ctx context.Context, t *testing.T, s *Store, finding *store.SecurityFindingRecord) {
+	t.Helper()
+
+	if _, err := s.AddSecurityFindingComment(ctx, "default", uuid.New(), "alice", "hi"); !errors.Is(err, store.ErrSecurityFindingNotFound) {
+		t.Errorf("AddSecurityFindingComment(missing) = %v, want ErrSecurityFindingNotFound", err)
+	}
+	if _, err := s.AddSecurityFindingComment(ctx, "other-ns", finding.ID, "alice", "hi"); !errors.Is(err, store.ErrSecurityFindingNotFound) {
+		t.Errorf("AddSecurityFindingComment(wrong namespace) = %v, want ErrSecurityFindingNotFound", err)
+	}
+
+	event, err := s.AddSecurityFindingComment(ctx, "default", finding.ID, "alice", "needs an exploit review")
+	if err != nil {
+		t.Fatalf("AddSecurityFindingComment: %v", err)
+	}
+	if event.EventType != "comment" || event.Actor != "alice" || event.Note != "needs an exploit review" ||
+		event.FindingID != finding.ID || event.ID == 0 || event.CreatedAt.IsZero() {
+		t.Errorf("comment event = %+v", event)
+	}
+
+	events, err := s.ListSecurityFindingEvents(ctx, "default", finding.ID, 0)
+	if err != nil || len(events) != 4 {
+		t.Fatalf("events after comment = %d, %v, want 4", len(events), err)
+	}
+	if events[0].EventType != "comment" || events[0].Note != "needs an exploit review" {
+		t.Errorf("newest event = %+v, want the comment", events[0])
+	}
 }
 
 func lifecycleTestScanUpserts(ctx context.Context, t *testing.T, s *Store) *store.SecurityScanRecord {
@@ -358,16 +411,16 @@ func lifecycleTestFindingUpserts(ctx context.Context, t *testing.T, s *Store, sc
 func lifecycleTestStatusTransitions(ctx context.Context, t *testing.T, s *Store, scan *store.SecurityScanRecord, finding *store.SecurityFindingRecord) {
 	t.Helper()
 
-	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, "bogus", "alice", ""); err == nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, "bogus", "alice", "", nil); err == nil {
 		t.Error("SetSecurityFindingStatus(bogus) = nil error, want validation error")
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "default", uuid.New(), store.SecurityFindingStatusTriaged, "alice", ""); !errors.Is(err, store.ErrSecurityFindingNotFound) {
+	if err := s.SetSecurityFindingStatus(ctx, "default", uuid.New(), store.SecurityFindingStatusTriaged, "alice", "", nil); !errors.Is(err, store.ErrSecurityFindingNotFound) {
 		t.Errorf("SetSecurityFindingStatus(missing) = %v, want ErrSecurityFindingNotFound", err)
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "other-ns", finding.ID, store.SecurityFindingStatusTriaged, "alice", ""); !errors.Is(err, store.ErrSecurityFindingNotFound) {
+	if err := s.SetSecurityFindingStatus(ctx, "other-ns", finding.ID, store.SecurityFindingStatusTriaged, "alice", "", nil); !errors.Is(err, store.ErrSecurityFindingNotFound) {
 		t.Errorf("SetSecurityFindingStatus(wrong namespace) = %v, want ErrSecurityFindingNotFound", err)
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, store.SecurityFindingStatusConfirmed, "alice", "verified"); err != nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, store.SecurityFindingStatusConfirmed, "alice", "verified", nil); err != nil {
 		t.Fatalf("SetSecurityFindingStatus: %v", err)
 	}
 
@@ -412,14 +465,14 @@ func lifecycleTestQueriesAndSummaries(ctx context.Context, t *testing.T, s *Stor
 		t.Fatalf("ListSecurityFindings(min score 90) = %d findings, %v, want 0, nil", len(listed), err)
 	}
 
-	summary, err := s.SummarizeSecurityFindings(ctx, "default", "nightly", "")
+	summary, err := s.SummarizeSecurityFindings(ctx, "default", "nightly", "", false)
 	if err != nil {
 		t.Fatalf("SummarizeSecurityFindings: %v", err)
 	}
 	if summary["high"] != 1 || summary["total"] != 1 || summary["open"] != 0 || summary["open_high"] != 0 {
 		t.Errorf("summary = %v, want high=1 total=1 open=0 open_high=0", summary)
 	}
-	summary, err = s.SummarizeSecurityFindings(ctx, "default", "weekly", "")
+	summary, err = s.SummarizeSecurityFindings(ctx, "default", "weekly", "", false)
 	if err != nil {
 		t.Fatalf("SummarizeSecurityFindings(weekly): %v", err)
 	}
@@ -451,5 +504,179 @@ func lifecycleTestScanDeletion(ctx context.Context, t *testing.T, s *Store, find
 
 	if _, err := s.GetSecurityFinding(ctx, "default", uuid.New()); err != nil {
 		t.Fatalf("GetSecurityFinding(random) = %v, want nil error", err)
+	}
+}
+
+func TestSecurityNotificationMarkers(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+
+	if _, err := s.ClaimSecurityNotifications(ctx, "", "scan", "rule/slack", []string{"fp"}); err == nil {
+		t.Error("ClaimSecurityNotifications(empty namespace) = nil error, want error")
+	}
+
+	claimed, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-1", "fp-2"})
+	if err != nil {
+		t.Fatalf("ClaimSecurityNotifications: %v", err)
+	}
+	if len(claimed) != 2 {
+		t.Fatalf("claimed = %v, want both fingerprints", claimed)
+	}
+
+	again, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-1", "fp-2", "fp-3"})
+	if err != nil {
+		t.Fatalf("ClaimSecurityNotifications(repeat): %v", err)
+	}
+	if len(again) != 1 || again[0] != "fp-3" {
+		t.Fatalf("repeat claimed = %v, want only fp-3", again)
+	}
+
+	// A different rule key claims independently.
+	other, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/github", []string{"fp-1"})
+	if err != nil || len(other) != 1 {
+		t.Fatalf("other-rule claim = %v, %v; want fp-1 claimed", other, err)
+	}
+
+	if err := s.ReleaseSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-1"}); err != nil {
+		t.Fatalf("ReleaseSecurityNotifications: %v", err)
+	}
+	reclaimed, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-1"})
+	if err != nil || len(reclaimed) != 1 {
+		t.Fatalf("reclaim after release = %v, %v; want fp-1 claimable again", reclaimed, err)
+	}
+
+	if err := s.DeleteSecurityScanData(ctx, "default", "scan"); err != nil {
+		t.Fatalf("DeleteSecurityScanData: %v", err)
+	}
+	afterDelete, err := s.ClaimSecurityNotifications(ctx, "default", "scan", "rule/slack", []string{"fp-2"})
+	if err != nil || len(afterDelete) != 1 {
+		t.Fatalf("claim after scan delete = %v, %v; want markers purged", afterDelete, err)
+	}
+}
+
+func assertSecurityFindingCorrelation(t *testing.T, s *Store, ctx context.Context, agent, scanner *store.SecurityFindingRecord) {
+	// Correlate both ways; neither row is deleted or rewritten.
+	changed, err := s.CorrelateSecurityFindings(ctx, "default", "nightly", "org/repo", "agent-fp", "scanner-fp", "same location and shared CWE", "nightly-1")
+	if err != nil || !changed {
+		t.Fatalf("CorrelateSecurityFindings: changed=%v err=%v", changed, err)
+	}
+	agentRow, err := s.GetSecurityFinding(ctx, "default", agent.ID)
+	if err != nil {
+		t.Fatalf("GetSecurityFinding(agent): %v", err)
+	}
+	scannerRow, err := s.GetSecurityFinding(ctx, "default", scanner.ID)
+	if err != nil {
+		t.Fatalf("GetSecurityFinding(scanner): %v", err)
+	}
+	if len(agentRow.CorrelatedFingerprints) != 1 || agentRow.CorrelatedFingerprints[0] != "scanner-fp" {
+		t.Errorf("agent correlations = %v", agentRow.CorrelatedFingerprints)
+	}
+	if len(scannerRow.CorrelatedFingerprints) != 1 || scannerRow.CorrelatedFingerprints[0] != "agent-fp" {
+		t.Errorf("scanner correlations = %v", scannerRow.CorrelatedFingerprints)
+	}
+	if agentRow.SourceKind != "agent" || scannerRow.Tool != "gosec" {
+		t.Error("correlation must not rewrite provenance")
+	}
+	for _, side := range []struct {
+		name string
+		id   uuid.UUID
+	}{{"agent", agent.ID}, {"scanner", scanner.ID}} {
+		events, err := s.ListSecurityFindingEvents(ctx, "default", side.id, 0)
+		if err != nil {
+			t.Fatalf("ListSecurityFindingEvents(%s): %v", side.name, err)
+		}
+		found := false
+		for _, ev := range events {
+			if ev.EventType == "correlated" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s finding missing correlated audit event", side.name)
+		}
+	}
+
+}
+
+func TestSecurityScannerProvenanceAndCorrelation(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+
+	scan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
+		Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
+		Repository: "org/repo",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSecurityScan: %v", err)
+	}
+
+	agent, _, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
+		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
+		Fingerprint: "agent-fp", Title: "Weak crypto", Category: "crypto",
+		Severity: "high", Repository: "org/repo", FilePath: "crypto/hash.go",
+	})
+	if err != nil {
+		t.Fatalf("agent upsert: %v", err)
+	}
+	if agent.SourceKind != "agent" {
+		t.Errorf("empty SourceKind must default to agent, got %q", agent.SourceKind)
+	}
+
+	scanner, created, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
+		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
+		Fingerprint: "scanner-fp", Title: "Weak crypto (G401)", Category: "crypto",
+		Severity: "high", Confidence: "firm", Repository: "org/repo", FilePath: "crypto/hash.go",
+		SourceKind: "scanner", Tool: "gosec", ToolVersion: "2.18.2", RuleID: "G401",
+	})
+	if err != nil || !created {
+		t.Fatalf("scanner upsert: created=%v err=%v", created, err)
+	}
+	if scanner.SourceKind != "scanner" || scanner.Tool != "gosec" || scanner.ToolVersion != "2.18.2" || scanner.RuleID != "G401" {
+		t.Errorf("scanner provenance = %q/%q/%q/%q", scanner.SourceKind, scanner.Tool, scanner.ToolVersion, scanner.RuleID)
+	}
+
+	assertSecurityFindingCorrelation(t, s, ctx, agent, scanner)
+	// Idempotent: re-correlating changes nothing and appends no event.
+	changed, err := s.CorrelateSecurityFindings(ctx, "default", "nightly", "org/repo", "scanner-fp", "agent-fp", "again", "nightly-1")
+	if err != nil || changed {
+		t.Errorf("re-correlate: changed=%v err=%v, want false/nil", changed, err)
+	}
+	agentRow, _ := s.GetSecurityFinding(ctx, "default", agent.ID)
+	if len(agentRow.CorrelatedFingerprints) != 1 {
+		t.Errorf("re-correlate duplicated fingerprints: %v", agentRow.CorrelatedFingerprints)
+	}
+
+	// Reobservation of the scanner finding keeps provenance AND the
+	// recorded correlation.
+	reobserved, created, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
+		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-2",
+		Fingerprint: "scanner-fp", Title: "Weak crypto (G401)", Category: "crypto",
+		Severity: "high", Confidence: "firm", Repository: "org/repo", FilePath: "crypto/hash.go",
+		SourceKind: "scanner", Tool: "gosec", ToolVersion: "2.19.0", RuleID: "G401",
+	})
+	if err != nil || created {
+		t.Fatalf("scanner reobservation: created=%v err=%v", created, err)
+	}
+	if reobserved.ToolVersion != "2.19.0" || reobserved.Tool != "gosec" || reobserved.SourceKind != "scanner" {
+		t.Errorf("reobservation provenance = %q/%q/%q", reobserved.SourceKind, reobserved.Tool, reobserved.ToolVersion)
+	}
+	if len(reobserved.CorrelatedFingerprints) != 1 || reobserved.CorrelatedFingerprints[0] != "agent-fp" {
+		t.Errorf("reobservation dropped correlation: %v", reobserved.CorrelatedFingerprints)
+	}
+
+	// Unknown fingerprints and empty namespaces fail closed.
+	if _, err := s.CorrelateSecurityFindings(ctx, "default", "nightly", "org/repo", "agent-fp", "missing-fp", "r", "a"); !errors.Is(err, store.ErrSecurityFindingNotFound) {
+		t.Errorf("missing fingerprint: err = %v, want ErrSecurityFindingNotFound", err)
+	}
+	if _, err := s.CorrelateSecurityFindings(ctx, "", "nightly", "org/repo", "agent-fp", "scanner-fp", "r", "a"); err == nil {
+		t.Error("empty namespace must be rejected")
+	}
+
+	summary, err := s.SummarizeSecurityFindings(ctx, "default", "nightly", "", false)
+	if err != nil {
+		t.Fatalf("SummarizeSecurityFindings: %v", err)
+	}
+	if summary["source_agent"] != 1 || summary["source_scanner"] != 1 || summary["correlated"] != 2 {
+		t.Errorf("summary = %v, want source_agent 1, source_scanner 1, correlated 2", summary)
 	}
 }

@@ -23,9 +23,12 @@ const LinearProjectDetail = React.lazy(() => import("@/components/LinearProjectD
 const GitHubRepositoryDetail = React.lazy(() => import("@/components/GitHubRepositoryDetail").then((m) => ({ default: m.GitHubRepositoryDetail })));
 const CronDetail = React.lazy(() => import("@/components/CronDetail").then((m) => ({ default: m.CronDetail })));
 const SlackAgentDetail = React.lazy(() => import("@/components/SlackAgentDetail").then((m) => ({ default: m.SlackAgentDetail })));
+const SecurityOverview = React.lazy(() => import("@/components/SecurityOverview").then((m) => ({ default: m.SecurityOverview })));
 const SecurityScanList = React.lazy(() => import("@/components/SecurityScanList").then((m) => ({ default: m.SecurityScanList })));
 const SecurityScanConfigList = React.lazy(() => import("@/components/SecurityScanConfigList").then((m) => ({ default: m.SecurityScanConfigList })));
+const SecurityLibraryPage = React.lazy(() => import("@/components/SecurityLibraryPage").then((m) => ({ default: m.SecurityLibraryPage })));
 const SecurityScanDetail = React.lazy(() => import("@/components/SecurityScanDetail").then((m) => ({ default: m.SecurityScanDetail })));
+const SecurityFindingDetail = React.lazy(() => import("@/components/SecurityFindingDetail").then((m) => ({ default: m.SecurityFindingDetail })));
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { OnboardingRedirect } from "@/components/onboarding/OnboardingRedirect";
@@ -82,6 +85,7 @@ import {
   PanelLeft,
   Plus,
   Settings as SettingsIcon,
+  Shield,
   ShieldCheck,
 } from "lucide-react";
 import { isTauri, platform } from "@/lib/platform";
@@ -218,6 +222,12 @@ function AppSidebar({
                 <SidebarMenuButton render={<Link to="/shared" />} isActive={location.pathname === "/shared"} tooltip="Shared" className="h-[30px] rounded-[6px] px-2 text-[12.5px] gap-2 hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent">
                   <Users className="size-[15px] text-muted-foreground" />
                   <span className="tracking-tight">Shared</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton render={<Link to="/security" />} isActive={location.pathname.startsWith("/security")} tooltip="Security" className="h-[30px] rounded-[6px] px-2 text-[12.5px] gap-2 hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent">
+                  <Shield className="size-[15px] text-muted-foreground" />
+                  <span className="tracking-tight">Security</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
@@ -515,9 +525,12 @@ function AuthenticatedShell() {
               <Route path="/cron/:namespace/:name" element={<Scroll><CronDetail /></Scroll>} />
               <Route path="/slack" element={<Navigate to="/projects" replace />} />
               <Route path="/slack/:namespace/:name" element={<Scroll><SlackAgentDetail /></Scroll>} />
-              <Route path="/security" element={<Scroll><SecurityScanList /></Scroll>} />
+              <Route path="/security" element={<Scroll><SecurityOverview /></Scroll>} />
+              <Route path="/security/runs" element={<Scroll><SecurityScanList /></Scroll>} />
               <Route path="/security/configs" element={<Scroll><SecurityScanConfigList /></Scroll>} />
+              <Route path="/security/library" element={<Scroll><SecurityLibraryPage /></Scroll>} />
               <Route path="/security/:namespace/:runName" element={<Scroll><SecurityScanDetail /></Scroll>} />
+              <Route path="/security/:namespace/:runName/findings/:findingId" element={<Scroll><SecurityFindingDetail /></Scroll>} />
               <Route path="/settings" element={<Scroll><SettingsLayout /></Scroll>}>
                 <Route index element={<SettingsScreen />} />
                 <Route path="connection" element={<SettingsConnectionPage />} />

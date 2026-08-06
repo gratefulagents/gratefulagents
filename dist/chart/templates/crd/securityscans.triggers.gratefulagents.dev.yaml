@@ -76,6 +76,86 @@ spec:
                 default: main
                 description: baseBranch is the branch of repoURL that is scanned.
                 type: string
+              budgets:
+                description: |-
+                  budgets caps what each scan run may consume. Unset fields inherit the
+                  referenced policy pack's budgets; when the pack lists "budgets" in
+                  enforced, this scan may not raise any limit the pack sets. Enforcement
+                  is entirely platform-side: what the run can self-limit (runtime, cost)
+                  is written into the created AgentRun's limits, everything else (model
+                  jobs, tokens, findings, validation jobs) is monitored by the
+                  controller from platform-observed usage and the run is cancelled when
+                  a hard limit is exceeded. Completed work is preserved.
+                properties:
+                  maxCostUSD:
+                    description: |-
+                      maxCostUSD is a decimal USD ceiling (e.g. "5" or "2.50") on the scan
+                      run's LLM spend. Written into the created AgentRun's
+                      limits.maxCostUsd and re-checked controller-side from the run's usage
+                      metrics.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
+                    type: string
+                  maxFindings:
+                    description: |-
+                      maxFindings caps how many findings the scan may persist. Enforced by
+                      controller-side monitoring of the persisted finding count (the cap is
+                      also stated in the run prompt as guidance, but model output is never
+                      trusted for enforcement).
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  maxModelJobs:
+                    description: |-
+                      maxModelJobs caps how many sub-agent runs (child AgentRuns) the scan
+                      run may spawn. Monitored controller-side from the run's child status.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  maxRuntime:
+                    description: |-
+                      maxRuntime caps the scan run's wall-clock runtime. Written into the
+                      created AgentRun's limits.maxRuntime; the smallest of this,
+                      spec.maxRuntime, and defaults.timeout wins.
+                    type: string
+                  maxTokens:
+                    description: |-
+                      maxTokens caps the scan run's total LLM tokens (input + output).
+                      Monitored controller-side from the run's usage metrics.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  maxValidationJobs:
+                    description: |-
+                      maxValidationJobs caps how many post-script (validation /
+                      proof-of-concept) sub-agent runs the scan run may spawn. Monitored
+                      controller-side from the run's child status.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
+              checks:
+                description: |-
+                  checks configures publishing a GitHub check on the scanned commit
+                  after each scan run with a recorded revision reaches a terminal phase.
+                properties:
+                  enabled:
+                    description: |-
+                      enabled turns on check publishing. Requires spec.triggers.repositoryRef
+                      for credentials.
+                    type: boolean
+                  includeFindingSummaries:
+                    description: |-
+                      includeFindingSummaries opts in to listing finding titles and file
+                      locations in the check summary. The default summary contains only
+                      severity counts and a dashboard link; evidence and proof-of-concept
+                      content is never published in either mode.
+                    type: boolean
+                  uploadSARIF:
+                    description: |-
+                      uploadSARIF opts in to uploading the scan's stored SARIF report
+                      artifact to GitHub code scanning for the scanned commit.
+                    type: boolean
+                type: object
               concurrencyPolicy:
                 description: |-
                   concurrencyPolicy controls whether a scheduled tick may create a new
@@ -504,6 +584,102 @@ spec:
                 - low
                 - info
                 type: string
+              notifications:
+                description: |-
+                  notifications are rules that send Slack messages and/or create
+                  GitHub/Linear issues for new or regressed findings at or above a
+                  severity threshold. Each (finding fingerprint, rule, channel) notifies
+                  at most once; the sent marker is persisted in the findings store.
+                items:
+                  description: |-
+                    SecurityScanNotificationRule routes new/regressed findings at or above a
+                    severity threshold to Slack, GitHub issues, and/or Linear issues.
+                  properties:
+                    githubIssues:
+                      description: |-
+                        githubIssues, when set, creates one GitHub issue per newly notified
+                        finding using the referenced repository's credentials. Issue bodies
+                        contain identifying metadata and a dashboard link, never evidence.
+                      properties:
+                        repositoryRef:
+                          description: |-
+                            repositoryRef names the GitHubRepository (same namespace) whose
+                            credentials create the issues. When empty, spec.triggers.repositoryRef
+                            is used.
+                          properties:
+                            name:
+                              description: name of the referenced resource.
+                              maxLength: 253
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      type: object
+                    linear:
+                      description: linear, when set, creates one Linear issue per
+                        newly notified finding.
+                      properties:
+                        apiKeySecretRef:
+                          description: |-
+                            apiKeySecretRef names a Secret in the scan's namespace holding a
+                            Linear API key under the key "api-key".
+                          minLength: 1
+                          type: string
+                        teamID:
+                          description: teamID is the Linear team the issues are created
+                            in.
+                          minLength: 1
+                          type: string
+                      required:
+                      - apiKeySecretRef
+                      - teamID
+                      type: object
+                    minSeverity:
+                      description: minSeverity is the lowest severity that notifies.
+                        Defaults to "high".
+                      enum:
+                      - critical
+                      - high
+                      - medium
+                      - low
+                      - info
+                      type: string
+                    name:
+                      description: |-
+                        name identifies the rule; it keys the persisted per-finding dedupe
+                        marker, so renaming a rule re-notifies.
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    notifyOn:
+                      description: |-
+                        notifyOn selects which baseline states notify. Defaults to
+                        "new-and-regressed".
+                      enum:
+                      - new
+                      - regressed
+                      - new-and-regressed
+                      type: string
+                    slack:
+                      description: |-
+                        slack, when set, posts one message per run summarizing the newly
+                        notified findings to a Slack incoming webhook.
+                      properties:
+                        webhookSecretRef:
+                          description: |-
+                            webhookSecretRef names a Secret in the scan's namespace holding the
+                            Slack incoming-webhook URL under the key "url".
+                          minLength: 1
+                          type: string
+                      required:
+                      - webhookSecretRef
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               parallelism:
                 default: 4
                 description: parallelism caps how many workflow tasks may run concurrently.
@@ -511,13 +687,51 @@ spec:
                 maximum: 16
                 minimum: 1
                 type: integer
+              policyPackRef:
+                description: |-
+                  policyPackRef references a SecurityPolicyPack in the scan's namespace.
+                  The pack supplies defaults (precedence: platform defaults < policy
+                  pack < scan configuration), enforced floors the scan may not relax,
+                  and governed finding suppressions. It is resolved and snapshotted at
+                  run-creation time; a scan violating an enforced pack field is rejected
+                  with Ready=False reason PolicyViolation and no run is created.
+                properties:
+                  name:
+                    description: name of the referenced resource.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              postScriptRefs:
+                description: |-
+                  postScriptRefs reference reusable SecurityPostScript resources in the
+                  scan's namespace. They are APPENDED after the inline postScripts. The
+                  referenced content is resolved and snapshotted when each run is
+                  created.
+                items:
+                  description: |-
+                    SecurityResourceRef names a reusable security resource in the same
+                    namespace as the referencing SecurityScan.
+                  properties:
+                    name:
+                      description: name of the referenced resource.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               postScripts:
                 description: |-
                   postScripts are per-finding validation, proof-of-concept, or report
                   prompts executed after the workflow produces findings.
                 items:
                   description: |-
-                    SecurityPostScript is a per-finding validation, proof-of-concept, or report
+                    SecurityScanPostScript is a per-finding validation, proof-of-concept, or report
                     prompt executed after findings are collected.
                   properties:
                     name:
@@ -540,6 +754,27 @@ spec:
                   required:
                   - name
                   - prompt
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              rankerRefs:
+                description: |-
+                  rankerRefs reference reusable SecurityRanker resources in the scan's
+                  namespace. Their rules are APPENDED after the inline severityRankers.
+                  The referenced content is resolved and snapshotted when each run is
+                  created.
+                items:
+                  description: |-
+                    SecurityResourceRef names a reusable security resource in the same
+                    namespace as the referencing SecurityScan.
+                  properties:
+                    name:
+                      description: name of the referenced resource.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
@@ -592,7 +827,7 @@ spec:
                   severityRankers hold operator-authored ranking rule text concatenated
                   into the scan prompt and passed to submit_security_scan_report.
                 items:
-                  description: SecurityRanker is operator-authored severity-ranking
+                  description: SecurityScanRanker is operator-authored severity-ranking
                     rule text.
                   properties:
                     name:
@@ -621,11 +856,69 @@ spec:
                   timeZone is the IANA time zone used to evaluate schedule.
                   When omitted, UTC is used.
                 type: string
+              triggers:
+                description: |-
+                  triggers configures repository-event driven scan runs: authorized
+                  GitHub pull_request and push webhook deliveries for the referenced
+                  GitHubRepository create scan runs pinned to the event's head commit.
+                properties:
+                  allowForks:
+                    description: |-
+                      allowForks permits scan runs for pull requests whose head repository
+                      differs from the base repository. Fork runs never receive the
+                      repository's GitHub credentials: the configured GitHub token secret is
+                      stripped from the run so untrusted contributions cannot exfiltrate
+                      write tokens. Default false: fork PRs are skipped with an observable
+                      condition and event.
+                    type: boolean
+                  branches:
+                    description: |-
+                      branches restricts push triggers to branches matching any of these
+                      glob patterns (path.Match syntax; a trailing "*" acts as a prefix
+                      match). Empty matches every branch.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  diffScope:
+                    description: |-
+                      diffScope scopes event-triggered scans to the files changed between
+                      the merge base and the head (pull requests) or the push's
+                      before..after range. When the diff cannot be computed the scan falls
+                      back to the full repository and the fallback is stated in the run
+                      prompt and the scan condition.
+                    type: boolean
+                  onPullRequest:
+                    description: |-
+                      onPullRequest creates a scan run for pull_request opened, reopened,
+                      ready_for_review, and synchronize deliveries, pinned to the PR head SHA.
+                    type: boolean
+                  onPush:
+                    description: |-
+                      onPush creates a scan run for push deliveries, pinned to the pushed
+                      head SHA.
+                    type: boolean
+                  repositoryRef:
+                    description: |-
+                      repositoryRef names the GitHubRepository in the scan's namespace whose
+                      webhook deliveries trigger this scan and whose credentials publish
+                      checks and read diffs. Required when onPullRequest or onPush is set.
+                    properties:
+                      name:
+                        description: name of the referenced resource.
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
               workflow:
                 description: |-
                   workflow is the ordered/parallel research plan executed as focused
                   vulnerability-hunting sub-agents. When empty, the controller uses
-                  DefaultSecurityWorkflow().
+                  DefaultSecurityWorkflow(). Mutually exclusive with workflowRef: setting
+                  both makes the controller report Ready=False with reason InvalidSpec.
                 items:
                   description: |-
                     SecurityScanTask is one focused research task in the scan workflow, executed
@@ -674,6 +967,22 @@ spec:
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
+              workflowRef:
+                description: |-
+                  workflowRef references a reusable SecurityWorkflow in the scan's
+                  namespace whose tasks replace an inline workflow. The referenced
+                  content is resolved and snapshotted when each run is created, so later
+                  edits to the SecurityWorkflow never change historical runs. Mutually
+                  exclusive with workflow.
+                properties:
+                  name:
+                    description: name of the referenced resource.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
             required:
             - defaults
             - repoURL
@@ -681,6 +990,77 @@ spec:
           status:
             description: SecurityScanStatus defines the observed state of SecurityScan.
             properties:
+              budget:
+                description: |-
+                  budget reports the scan's effective budgets (spec merged with the
+                  policy pack) and whether any hard limit is exceeded. It is computed
+                  from platform-observed usage data before and during each run, so the
+                  dashboard can warn ahead of a launch.
+                properties:
+                  effective:
+                    description: |-
+                      effective is the budget set actually enforced: scan spec budgets
+                      merged with the policy pack's defaults.
+                    properties:
+                      maxCostUSD:
+                        description: |-
+                          maxCostUSD is a decimal USD ceiling (e.g. "5" or "2.50") on the scan
+                          run's LLM spend. Written into the created AgentRun's
+                          limits.maxCostUsd and re-checked controller-side from the run's usage
+                          metrics.
+                        pattern: ^([0-9]+(\.[0-9]+)?)?$
+                        type: string
+                      maxFindings:
+                        description: |-
+                          maxFindings caps how many findings the scan may persist. Enforced by
+                          controller-side monitoring of the persisted finding count (the cap is
+                          also stated in the run prompt as guidance, but model output is never
+                          trusted for enforcement).
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      maxModelJobs:
+                        description: |-
+                          maxModelJobs caps how many sub-agent runs (child AgentRuns) the scan
+                          run may spawn. Monitored controller-side from the run's child status.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      maxRuntime:
+                        description: |-
+                          maxRuntime caps the scan run's wall-clock runtime. Written into the
+                          created AgentRun's limits.maxRuntime; the smallest of this,
+                          spec.maxRuntime, and defaults.timeout wins.
+                        type: string
+                      maxTokens:
+                        description: |-
+                          maxTokens caps the scan run's total LLM tokens (input + output).
+                          Monitored controller-side from the run's usage metrics.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      maxValidationJobs:
+                        description: |-
+                          maxValidationJobs caps how many post-script (validation /
+                          proof-of-concept) sub-agent runs the scan run may spawn. Monitored
+                          controller-side from the run's child status.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                    type: object
+                  exceeded:
+                    description: exceeded reports whether any hard budget limit is
+                      exceeded.
+                    type: boolean
+                  lastCheckedTime:
+                    description: lastCheckedTime is when the budgets were last evaluated.
+                    format: date-time
+                    type: string
+                  message:
+                    description: message explains which limit is exceeded and by how
+                      much.
+                    type: string
+                type: object
               conditions:
                 description: conditions represent the current state of the SecurityScan
                   trigger.
@@ -742,6 +1122,12 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              eventRunsCreated:
+                description: |-
+                  eventRunsCreated is the cumulative number of AgentRuns created from
+                  repository events (a subset of runsCreated).
+                format: int32
+                type: integer
               findings:
                 description: findings summarizes persisted findings for the most recent
                   scan run.
@@ -768,10 +1154,143 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              lastCheck:
+                description: lastCheck records the most recent GitHub check publish
+                  attempt.
+                properties:
+                  conclusion:
+                    description: |-
+                      conclusion is the published check conclusion: success, failure, or
+                      neutral.
+                    type: string
+                  error:
+                    description: |-
+                      error is the most recent publish failure; empty after a successful
+                      publish. Failures are retried on subsequent reconciles.
+                    type: string
+                  publishedAt:
+                    description: publishedAt is when the check was last successfully
+                      published.
+                    format: date-time
+                    type: string
+                  revision:
+                    description: revision is the commit SHA the check was published
+                      on.
+                    type: string
+                  runName:
+                    description: runName is the AgentRun the check reports on.
+                    type: string
+                  sarifError:
+                    description: sarifError is the most recent SARIF upload failure,
+                      if any.
+                    type: string
+                  sarifUploaded:
+                    description: |-
+                      sarifUploaded reports whether the run's SARIF artifact was uploaded to
+                      GitHub code scanning.
+                    type: boolean
+                  stateHash:
+                    description: |-
+                      stateHash fingerprints the published (run, revision, conclusion,
+                      counts) tuple; a differing desired state triggers a re-publish, e.g.
+                      after findings are triaged.
+                    type: string
+                  url:
+                    description: url links to the published check run or commit status
+                      target.
+                    type: string
+                type: object
               lastError:
                 description: lastError contains the error message from the most recent
                   failed operation.
                 type: string
+              lastEventRevision:
+                description: |-
+                  lastEventRevision is the platform-stamped head SHA of the most recent
+                  repository event that created (or attempted) a scan run. It matches
+                  the commit any published check is reported on.
+                type: string
+              lastEventToken:
+                description: |-
+                  lastEventToken is the most recent scan-event annotation token the
+                  controller has processed. A token equal to this value never creates
+                  another run, making repository-event triggers idempotent across
+                  webhook redeliveries and controller restarts.
+                type: string
+              lastManualRunToken:
+                description: |-
+                  lastManualRunToken is the most recent run-now annotation token the
+                  controller has processed. A token equal to this value never creates
+                  another run, making manual run requests idempotent across controller
+                  restarts.
+                type: string
+              lastNotifications:
+                description: |-
+                  lastNotifications records the most recent notification delivery
+                  attempt.
+                properties:
+                  lastError:
+                    description: |-
+                      lastError is the most recent delivery failure; empty after a fully
+                      successful evaluation. Failed deliveries release their dedupe claim
+                      and are retried on subsequent reconciles.
+                    type: string
+                  lastNotifiedAt:
+                    description: lastNotifiedAt is when a notification was last delivered.
+                    format: date-time
+                    type: string
+                  lastRunName:
+                    description: lastRunName is the AgentRun whose findings were last
+                      evaluated.
+                    type: string
+                  sent:
+                    description: sent is the cumulative number of notifications delivered.
+                    format: int32
+                    type: integer
+                  suppressed:
+                    description: |-
+                      suppressed is the cumulative number of findings skipped because their
+                      (rule, channel, fingerprint) marker was already persisted.
+                    format: int32
+                    type: integer
+                type: object
+              lastResolvedRefs:
+                description: |-
+                  lastResolvedRefs records the reusable security resources
+                  (SecurityWorkflow, SecurityRanker, SecurityPostScript) that were
+                  resolved and snapshotted into the most recently created run, including
+                  the resource generation and a content hash of the resolved spec. Later
+                  edits to the referenced resources never change historical runs.
+                items:
+                  description: |-
+                    SecurityScanResolvedRef records one reusable security resource resolved and
+                    snapshotted into a scan run at run-creation time.
+                  properties:
+                    generation:
+                      description: |-
+                        generation is metadata.generation of the referenced resource when it
+                        was resolved.
+                      format: int64
+                      type: integer
+                    hash:
+                      description: |-
+                        hash is a sha256 hex digest of the referenced resource's resolved spec
+                        content.
+                      type: string
+                    kind:
+                      description: |-
+                        kind of the referenced resource: SecurityWorkflow, SecurityRanker,
+                        SecurityPostScript, or SecurityPolicyPack.
+                      type: string
+                    name:
+                      description: name of the referenced resource.
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               lastRunName:
                 description: lastRunName is the AgentRun name most recently created
                   by this scan.
@@ -781,6 +1300,12 @@ spec:
                   created.
                 format: date-time
                 type: string
+              manualRunsCreated:
+                description: |-
+                  manualRunsCreated is the cumulative number of AgentRuns created from
+                  run-now requests (a subset of runsCreated).
+                format: int32
+                type: integer
               nextScheduleTime:
                 description: |-
                   nextScheduleTime is the next schedule instant the controller expects to
@@ -805,6 +1330,53 @@ spec:
               phase:
                 description: phase is a coarse human-readable state of the scan trigger.
                 type: string
+              retention:
+                description: |-
+                  retention reports the most recent retention sweep run for this scan's
+                  policy pack retention configuration.
+                properties:
+                  auditEventsPurged:
+                    description: auditEventsPurged counts deleted finding audit events.
+                    format: int64
+                    type: integer
+                  evidenceRedacted:
+                    description: evidenceRedacted counts findings whose evidence was
+                      redacted in place.
+                    format: int64
+                    type: integer
+                  findingsPurged:
+                    description: findingsPurged counts deleted finding rows.
+                    format: int64
+                    type: integer
+                  lastError:
+                    description: lastError is the most recent sweep failure, empty
+                      after a clean batch.
+                    type: string
+                  lastSweepTime:
+                    description: lastSweepTime is when the most recent purge batch
+                      ran.
+                    format: date-time
+                    type: string
+                  moreWork:
+                    description: |-
+                      moreWork reports whether the last batch hit its bound; the controller
+                      requeues promptly while true.
+                    type: boolean
+                  pocRedacted:
+                    description: pocRedacted counts findings whose PoC content was
+                      redacted in place.
+                    format: int64
+                    type: integer
+                  reportsPurged:
+                    description: reportsPurged counts deleted report artifacts (markdown/SARIF).
+                    format: int64
+                    type: integer
+                  scansPurged:
+                    description: scansPurged counts deleted scan run records (incl.
+                      observation rows).
+                    format: int64
+                    type: integer
+                type: object
               runsCreated:
                 description: runsCreated is the cumulative number of AgentRuns created
                   by this scan.

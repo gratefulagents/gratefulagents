@@ -1,0 +1,443 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: securitypolicypacks.triggers.gratefulagents.dev
+spec:
+  group: triggers.gratefulagents.dev
+  names:
+    kind: SecurityPolicyPack
+    listKind: SecurityPolicyPackList
+    plural: securitypolicypacks
+    singular: securitypolicypack
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.referencedBy
+      name: ReferencedBy
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SecurityPolicyPack is a namespace-scoped organization security policy
+          referenced by SecurityScan spec.policyPackRef. The pack supplies defaults,
+          enforced floors a scan cannot relax, and governed finding suppressions.
+          The referenced pack is resolved and snapshotted at run-creation time, and
+          enforcement happens before prompt construction so model output can never
+          affect it.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              SecurityPolicyPackSpec defines an organization security policy applied to
+              referencing SecurityScans. Precedence is: platform defaults < policy pack
+              < scan configuration, EXCEPT for the fields listed in enforced, which a
+              scan may not relax.
+            properties:
+              allowedRuntimeProfiles:
+                description: |-
+                  allowedRuntimeProfiles are the RuntimeProfile names referencing scans
+                  may run under. Checked only when "allowedRuntimeProfiles" is listed
+                  in enforced: the scan's defaults.runtimeProfileRef must then name one
+                  of these profiles.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
+              budgets:
+                description: |-
+                  budgets are the default scan budgets for referencing scans
+                  (precedence: pack default < scan configuration). When "budgets" is
+                  listed in enforced, a scan may not RAISE any limit the pack sets (nor
+                  remove it); it may always set a lower one. All budget enforcement is
+                  platform-side: limits are computed from the CRD spec before prompt
+                  construction and re-checked against platform-observed usage, so model
+                  output can never relax them.
+                properties:
+                  maxCostUSD:
+                    description: |-
+                      maxCostUSD is a decimal USD ceiling (e.g. "5" or "2.50") on the scan
+                      run's LLM spend. Written into the created AgentRun's
+                      limits.maxCostUsd and re-checked controller-side from the run's usage
+                      metrics.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
+                    type: string
+                  maxFindings:
+                    description: |-
+                      maxFindings caps how many findings the scan may persist. Enforced by
+                      controller-side monitoring of the persisted finding count (the cap is
+                      also stated in the run prompt as guidance, but model output is never
+                      trusted for enforcement).
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  maxModelJobs:
+                    description: |-
+                      maxModelJobs caps how many sub-agent runs (child AgentRuns) the scan
+                      run may spawn. Monitored controller-side from the run's child status.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  maxRuntime:
+                    description: |-
+                      maxRuntime caps the scan run's wall-clock runtime. Written into the
+                      created AgentRun's limits.maxRuntime; the smallest of this,
+                      spec.maxRuntime, and defaults.timeout wins.
+                    type: string
+                  maxTokens:
+                    description: |-
+                      maxTokens caps the scan run's total LLM tokens (input + output).
+                      Monitored controller-side from the run's usage metrics.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  maxValidationJobs:
+                    description: |-
+                      maxValidationJobs caps how many post-script (validation /
+                      proof-of-concept) sub-agent runs the scan run may spawn. Monitored
+                      controller-side from the run's child status.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
+              dedupe:
+                description: |-
+                  dedupe is the default duplicate-finding suppression configuration for
+                  referencing scans. A scan may override it; when "dedupe" is enforced,
+                  the scan may not disable dedupe or lower the similarity threshold
+                  below the pack's.
+                properties:
+                  enabled:
+                    default: true
+                    description: enabled toggles dedupe. Defaults to true.
+                    type: boolean
+                  similarityThresholdPermille:
+                    default: 820
+                    description: |-
+                      similarityThresholdPermille is the similarity score, in thousandths
+                      (permille), at or above which two findings are treated as duplicates.
+                      820 means a similarity of 0.82.
+                    format: int32
+                    maximum: 1000
+                    minimum: 0
+                    type: integer
+                type: object
+              defaultPostScriptRefs:
+                description: |-
+                  defaultPostScriptRefs reference SecurityPostScript resources appended
+                  to every referencing scan's postScriptRefs (refs the scan already
+                  lists are not appended twice).
+                items:
+                  description: |-
+                    SecurityResourceRef names a reusable security resource in the same
+                    namespace as the referencing SecurityScan.
+                  properties:
+                    name:
+                      description: name of the referenced resource.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              defaultRankerRefs:
+                description: |-
+                  defaultRankerRefs reference SecurityRanker resources appended to every
+                  referencing scan's rankerRefs (refs the scan already lists are not
+                  appended twice).
+                items:
+                  description: |-
+                    SecurityResourceRef names a reusable security resource in the same
+                    namespace as the referencing SecurityScan.
+                  properties:
+                    name:
+                      description: name of the referenced resource.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              description:
+                description: description explains what this policy pack governs.
+                type: string
+              enforced:
+                description: |-
+                  enforced lists the pack fields above that referencing scans may NOT
+                  relax: minSeverity, failOnSeverity, dedupe, requiredCategories,
+                  allowedRuntimeProfiles, and/or budgets. A violating scan is rejected
+                  with Ready=False reason PolicyViolation and no run is created.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
+              failOnSeverity:
+                description: |-
+                  failOnSeverity is the default failure threshold for referencing
+                  scans. A scan may override it; when "failOnSeverity" is enforced, the
+                  scan's effective failOnSeverity may not be weakened (raised above the
+                  pack's threshold) or removed.
+                enum:
+                - critical
+                - high
+                - medium
+                - low
+                - info
+                type: string
+              minSeverity:
+                description: |-
+                  minSeverity is the default minimum reported severity for referencing
+                  scans. A scan may override it; when "minSeverity" is enforced, the
+                  scan's effective minSeverity may not be raised above the pack's
+                  (i.e. the scan cannot report less than the pack requires).
+                enum:
+                - critical
+                - high
+                - medium
+                - low
+                - info
+                type: string
+              requiredCategories:
+                description: |-
+                  requiredCategories are workflow task categories every referencing
+                  scan's effective workflow must cover. Checked only when
+                  "requiredCategories" is listed in enforced.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
+              retention:
+                description: |-
+                  retention configures how long each class of persisted security data
+                  (scan runs, findings, reports, evidence, PoC content, audit events) is
+                  kept, in days per class; 0 keeps a class forever. Enforced by a
+                  bounded, namespace-scoped purge sweep in the platform.
+                properties:
+                  auditEventDays:
+                    description: auditEventDays is how long finding audit-trail events
+                      are kept.
+                    format: int32
+                    maximum: 3650
+                    minimum: 0
+                    type: integer
+                  evidenceDays:
+                    description: |-
+                      evidenceDays is how long finding evidence (code snippets and citations)
+                      is kept after the finding was last observed. Expired evidence is
+                      redacted in place: the finding row and its audit history remain.
+                    format: int32
+                    maximum: 3650
+                    minimum: 0
+                    type: integer
+                  findingDays:
+                    description: |-
+                      findingDays is how long findings are kept after they were last
+                      observed. Expired finding rows are deleted together with their audit
+                      events.
+                    format: int32
+                    maximum: 3650
+                    minimum: 0
+                    type: integer
+                  pocDays:
+                    description: |-
+                      pocDays is how long finding proof-of-concept / attack-vector narratives
+                      are kept after the finding was last observed. Expired PoC content is
+                      redacted in place: the finding row and its audit history remain.
+                    format: int32
+                    maximum: 3650
+                    minimum: 0
+                    type: integer
+                  reportDays:
+                    description: |-
+                      reportDays is how long scan report artifacts (markdown and SARIF) are
+                      kept after the scan run completed.
+                    format: int32
+                    maximum: 3650
+                    minimum: 0
+                    type: integer
+                  scanDays:
+                    description: |-
+                      scanDays is how long completed scan run records (and their per-run
+                      observation rows) are kept. A scan run record is only removed once no
+                      finding is attributed to it anymore.
+                    format: int32
+                    maximum: 3650
+                    minimum: 0
+                    type: integer
+                type: object
+              suppressions:
+                description: |-
+                  suppressions are governed suppression rules applied to the findings of
+                  referencing scans. Suppressed findings are never deleted: they are
+                  marked, audited, excluded from gating and default listings, and
+                  automatically unsuppressed when the rule's expiresAt passes.
+                items:
+                  description: |-
+                    SecurityPolicySuppression is one governed suppression rule. Matching
+                    findings are marked suppressed in the findings store (never deleted): they
+                    drop out of failOnSeverity gating and default list/summary results but
+                    stay retrievable, and every application is audited.
+                  properties:
+                    expiresAt:
+                      description: |-
+                        expiresAt optionally bounds the suppression: past it, the suppression
+                        is cleared by the expiry sweep and the finding counts again.
+                      format: date-time
+                      type: string
+                    matcher:
+                      description: |-
+                        matcher selects the findings to suppress. At least one matcher field
+                        is required.
+                      properties:
+                        category:
+                          description: category matches the finding's category exactly.
+                          type: string
+                        cwe:
+                          description: |-
+                            cwe matches findings whose CWE list contains this identifier
+                            (e.g. "CWE-79").
+                          type: string
+                        fingerprint:
+                          description: fingerprint matches the finding's fingerprint
+                            exactly.
+                          type: string
+                        pathGlob:
+                          description: |-
+                            pathGlob matches the finding's file path with a glob pattern where
+                            '*' matches any run of characters and '?' matches one character.
+                          type: string
+                      type: object
+                    name:
+                      description: |-
+                        name identifies the rule within the pack. The persisted suppression id
+                        is "<pack name>/<rule name>".
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    owner:
+                      description: owner is who is accountable for this suppression.
+                      minLength: 1
+                      type: string
+                    reason:
+                      description: reason documents why the matched findings are suppressed.
+                      minLength: 1
+                      type: string
+                  required:
+                  - matcher
+                  - name
+                  - owner
+                  - reason
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+            type: object
+          status:
+            description: |-
+              SecurityLibraryResourceStatus is the shared observed state of the reusable
+              security library resources.
+            properties:
+              conditions:
+                description: conditions represent the current state of the resource.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the spec generation most recently
+                  validated.
+                format: int64
+                type: integer
+              referencedBy:
+                description: |-
+                  referencedBy is the number of SecurityScans in the namespace that
+                  reference this resource.
+                format: int32
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

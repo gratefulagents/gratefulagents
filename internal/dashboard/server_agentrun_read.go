@@ -803,7 +803,7 @@ var agentRunTriggerResourceTypes = map[string]string{
 	"Cron":             cronResourceType,
 	"GitHubRepository": githubRepositoryResourceType,
 	"LinearProject":    linearProjectResourceType,
-	"SecurityScan":     "security_scan",
+	"SecurityScan":     securityScanResourceType,
 }
 
 // triggerResourceOwnership resolves the owner of the trigger resource that

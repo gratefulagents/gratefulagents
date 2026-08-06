@@ -50,6 +50,10 @@ type TriggerRunSpec struct {
 	Context           *platformv1alpha1.AgentRunContext
 	ModeRef           *platformv1alpha1.ModeRef
 	GitHubTokenSecret string
+	// Limits, when set, seeds the created run's spec.limits. Fields it
+	// leaves unset are still defaulted from trigger policy (e.g.
+	// defaults.timeout fills limits.maxRuntime only when unset).
+	Limits *platformv1alpha1.AgentRunLimits
 	// OwnerID, when set, is recorded in the collaboration store as the run's
 	// owner so that user can manage the run (stop, delete, share) from the
 	// dashboard. Trigger-created runs without an owner are only manageable by
@@ -148,6 +152,9 @@ func BuildTriggerRun(spec TriggerRunSpec) *platformv1alpha1.AgentRun {
 	}
 	if d.Team != nil {
 		run.Spec.Team = d.Team.DeepCopy()
+	}
+	if spec.Limits != nil {
+		run.Spec.Limits = spec.Limits.DeepCopy()
 	}
 	applyPolicyRefs(&run.Spec, d)
 	if spec.ModeRef != nil {
@@ -299,7 +306,9 @@ func snapshotTriggerOwnerRoleModels(ctx context.Context, stateStore store.StateS
 	}
 	ownerID := strings.TrimSpace(spec.OwnerID)
 	if ownerID == "" {
-		resourceTypes := map[string]string{"LinearProject": "linear_project", "GitHubRepository": "github_repository", "Cron": "cron", securityScanKind: "security_scan"}
+		// Resource types must match the dashboard's ownership records (e.g.
+		// SecurityScan owners are recorded under "securityscan").
+		resourceTypes := map[string]string{"LinearProject": "linear_project", "GitHubRepository": "github_repository", "Cron": "cron", securityScanKind: "securityscan"}
 		resourceType := resourceTypes[spec.TriggerKind]
 		if resourceType == "" {
 			return nil

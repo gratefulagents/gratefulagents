@@ -1271,3 +1271,209 @@ func (h *PlatformServiceConnectHandler) DeleteSecurityScan(ctx context.Context, 
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
+
+func (h *PlatformServiceConnectHandler) RunSecurityScanNow(ctx context.Context, req *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	resp, err := h.srv.RunSecurityScanNow(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// --- Reusable security library resources ---
+
+func (h *PlatformServiceConnectHandler) ListSecurityWorkflows(ctx context.Context, req *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error) {
+	resp, err := h.srv.ListSecurityWorkflows(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) GetSecurityWorkflow(ctx context.Context, req *connect.Request[platform.GetSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error) {
+	resp, err := h.srv.GetSecurityWorkflow(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) CreateSecurityWorkflow(ctx context.Context, req *connect.Request[platform.CreateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error) {
+	resp, err := h.srv.CreateSecurityWorkflow(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateSecurityWorkflow(ctx context.Context, req *connect.Request[platform.UpdateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error) {
+	resp, err := h.srv.UpdateSecurityWorkflow(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) DeleteSecurityWorkflow(ctx context.Context, req *connect.Request[platform.DeleteSecurityWorkflowRequest]) (*connect.Response[emptypb.Empty], error) {
+	if _, err := h.srv.DeleteSecurityWorkflow(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&emptypb.Empty{}), nil
+}
+
+func (h *PlatformServiceConnectHandler) ValidateSecurityWorkflow(ctx context.Context, req *connect.Request[platform.ValidateSecurityWorkflowRequest]) (*connect.Response[platform.ValidateSecurityWorkflowResponse], error) {
+	resp, err := h.srv.ValidateSecurityWorkflow(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) ListSecurityRankers(ctx context.Context, req *connect.Request[platform.ListSecurityRankersRequest]) (*connect.Response[platform.ListSecurityRankersResponse], error) {
+	resp, err := h.srv.ListSecurityRankers(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) GetSecurityRanker(ctx context.Context, req *connect.Request[platform.GetSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error) {
+	resp, err := h.srv.GetSecurityRanker(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) CreateSecurityRanker(ctx context.Context, req *connect.Request[platform.CreateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error) {
+	resp, err := h.srv.CreateSecurityRanker(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateSecurityRanker(ctx context.Context, req *connect.Request[platform.UpdateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error) {
+	resp, err := h.srv.UpdateSecurityRanker(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) DeleteSecurityRanker(ctx context.Context, req *connect.Request[platform.DeleteSecurityRankerRequest]) (*connect.Response[emptypb.Empty], error) {
+	if _, err := h.srv.DeleteSecurityRanker(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&emptypb.Empty{}), nil
+}
+
+func (h *PlatformServiceConnectHandler) ListSecurityPostScripts(ctx context.Context, req *connect.Request[platform.ListSecurityPostScriptsRequest]) (*connect.Response[platform.ListSecurityPostScriptsResponse], error) {
+	resp, err := h.srv.ListSecurityPostScripts(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) GetSecurityPostScript(ctx context.Context, req *connect.Request[platform.GetSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error) {
+	resp, err := h.srv.GetSecurityPostScript(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) CreateSecurityPostScript(ctx context.Context, req *connect.Request[platform.CreateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error) {
+	resp, err := h.srv.CreateSecurityPostScript(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateSecurityPostScript(ctx context.Context, req *connect.Request[platform.UpdateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error) {
+	resp, err := h.srv.UpdateSecurityPostScript(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) DeleteSecurityPostScript(ctx context.Context, req *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error) {
+	if _, err := h.srv.DeleteSecurityPostScript(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&emptypb.Empty{}), nil
+}
+
+func (h *PlatformServiceConnectHandler) ListSecurityPolicyPacks(ctx context.Context, req *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error) {
+	resp, err := h.srv.ListSecurityPolicyPacks(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) GetSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	resp, err := h.srv.GetSecurityPolicyPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) CreateSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	resp, err := h.srv.CreateSecurityPolicyPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	resp, err := h.srv.UpdateSecurityPolicyPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) DeleteSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error) {
+	if _, err := h.srv.DeleteSecurityPolicyPack(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&emptypb.Empty{}), nil
+}
+
+func (h *PlatformServiceConnectHandler) GenerateSecurityDraft(ctx context.Context, req *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {
+	resp, err := h.srv.GenerateSecurityDraft(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) GetSecurityDraft(ctx context.Context, req *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error) {
+	resp, err := h.srv.GetSecurityDraft(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) ExportSecurityPack(ctx context.Context, req *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error) {
+	resp, err := h.srv.ExportSecurityPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) ImportSecurityPack(ctx context.Context, req *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error) {
+	resp, err := h.srv.ImportSecurityPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}

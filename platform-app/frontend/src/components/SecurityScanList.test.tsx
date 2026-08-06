@@ -54,6 +54,9 @@ describe("SecurityScanList", () => {
     expect(
       screen.getByRole("link", { name: "nightly-1" }).getAttribute("href"),
     ).toBe("/security/user-alice/nightly-1");
+    expect(
+      screen.getByRole("link", { name: "View agent run nightly-1" }).getAttribute("href"),
+    ).toBe("/runs/user-alice/nightly-1");
     expect(listSecurityScans).toHaveBeenCalledWith({ namespace: "" });
   });
 

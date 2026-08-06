@@ -524,6 +524,36 @@ const (
 	// PlatformServiceGetSecurityFindingSummaryProcedure is the fully-qualified name of the
 	// PlatformService's GetSecurityFindingSummary RPC.
 	PlatformServiceGetSecurityFindingSummaryProcedure = "/platform.v1.PlatformService/GetSecurityFindingSummary"
+	// PlatformServiceListSecurityFindingEventsProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityFindingEvents RPC.
+	PlatformServiceListSecurityFindingEventsProcedure = "/platform.v1.PlatformService/ListSecurityFindingEvents"
+	// PlatformServiceAddSecurityFindingCommentProcedure is the fully-qualified name of the
+	// PlatformService's AddSecurityFindingComment RPC.
+	PlatformServiceAddSecurityFindingCommentProcedure = "/platform.v1.PlatformService/AddSecurityFindingComment"
+	// PlatformServiceUpdateSecurityFindingAssigneeProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityFindingAssignee RPC.
+	PlatformServiceUpdateSecurityFindingAssigneeProcedure = "/platform.v1.PlatformService/UpdateSecurityFindingAssignee"
+	// PlatformServiceUpdateSecurityFindingTicketProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityFindingTicket RPC.
+	PlatformServiceUpdateSecurityFindingTicketProcedure = "/platform.v1.PlatformService/UpdateSecurityFindingTicket"
+	// PlatformServiceCreateSecurityFindingTicketProcedure is the fully-qualified name of the
+	// PlatformService's CreateSecurityFindingTicket RPC.
+	PlatformServiceCreateSecurityFindingTicketProcedure = "/platform.v1.PlatformService/CreateSecurityFindingTicket"
+	// PlatformServiceBulkUpdateSecurityFindingStatusProcedure is the fully-qualified name of the
+	// PlatformService's BulkUpdateSecurityFindingStatus RPC.
+	PlatformServiceBulkUpdateSecurityFindingStatusProcedure = "/platform.v1.PlatformService/BulkUpdateSecurityFindingStatus"
+	// PlatformServiceListSecuritySavedFiltersProcedure is the fully-qualified name of the
+	// PlatformService's ListSecuritySavedFilters RPC.
+	PlatformServiceListSecuritySavedFiltersProcedure = "/platform.v1.PlatformService/ListSecuritySavedFilters"
+	// PlatformServiceSaveSecuritySavedFilterProcedure is the fully-qualified name of the
+	// PlatformService's SaveSecuritySavedFilter RPC.
+	PlatformServiceSaveSecuritySavedFilterProcedure = "/platform.v1.PlatformService/SaveSecuritySavedFilter"
+	// PlatformServiceDeleteSecuritySavedFilterProcedure is the fully-qualified name of the
+	// PlatformService's DeleteSecuritySavedFilter RPC.
+	PlatformServiceDeleteSecuritySavedFilterProcedure = "/platform.v1.PlatformService/DeleteSecuritySavedFilter"
+	// PlatformServiceExportSecurityFindingAuditLogProcedure is the fully-qualified name of the
+	// PlatformService's ExportSecurityFindingAuditLog RPC.
+	PlatformServiceExportSecurityFindingAuditLogProcedure = "/platform.v1.PlatformService/ExportSecurityFindingAuditLog"
 	// PlatformServiceListSecurityScanConfigsProcedure is the fully-qualified name of the
 	// PlatformService's ListSecurityScanConfigs RPC.
 	PlatformServiceListSecurityScanConfigsProcedure = "/platform.v1.PlatformService/ListSecurityScanConfigs"
@@ -539,6 +569,90 @@ const (
 	// PlatformServiceDeleteSecurityScanProcedure is the fully-qualified name of the PlatformService's
 	// DeleteSecurityScan RPC.
 	PlatformServiceDeleteSecurityScanProcedure = "/platform.v1.PlatformService/DeleteSecurityScan"
+	// PlatformServiceRunSecurityScanNowProcedure is the fully-qualified name of the PlatformService's
+	// RunSecurityScanNow RPC.
+	PlatformServiceRunSecurityScanNowProcedure = "/platform.v1.PlatformService/RunSecurityScanNow"
+	// PlatformServiceListSecurityWorkflowsProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityWorkflows RPC.
+	PlatformServiceListSecurityWorkflowsProcedure = "/platform.v1.PlatformService/ListSecurityWorkflows"
+	// PlatformServiceGetSecurityWorkflowProcedure is the fully-qualified name of the PlatformService's
+	// GetSecurityWorkflow RPC.
+	PlatformServiceGetSecurityWorkflowProcedure = "/platform.v1.PlatformService/GetSecurityWorkflow"
+	// PlatformServiceCreateSecurityWorkflowProcedure is the fully-qualified name of the
+	// PlatformService's CreateSecurityWorkflow RPC.
+	PlatformServiceCreateSecurityWorkflowProcedure = "/platform.v1.PlatformService/CreateSecurityWorkflow"
+	// PlatformServiceUpdateSecurityWorkflowProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityWorkflow RPC.
+	PlatformServiceUpdateSecurityWorkflowProcedure = "/platform.v1.PlatformService/UpdateSecurityWorkflow"
+	// PlatformServiceDeleteSecurityWorkflowProcedure is the fully-qualified name of the
+	// PlatformService's DeleteSecurityWorkflow RPC.
+	PlatformServiceDeleteSecurityWorkflowProcedure = "/platform.v1.PlatformService/DeleteSecurityWorkflow"
+	// PlatformServiceValidateSecurityWorkflowProcedure is the fully-qualified name of the
+	// PlatformService's ValidateSecurityWorkflow RPC.
+	PlatformServiceValidateSecurityWorkflowProcedure = "/platform.v1.PlatformService/ValidateSecurityWorkflow"
+	// PlatformServiceListSecurityRankersProcedure is the fully-qualified name of the PlatformService's
+	// ListSecurityRankers RPC.
+	PlatformServiceListSecurityRankersProcedure = "/platform.v1.PlatformService/ListSecurityRankers"
+	// PlatformServiceGetSecurityRankerProcedure is the fully-qualified name of the PlatformService's
+	// GetSecurityRanker RPC.
+	PlatformServiceGetSecurityRankerProcedure = "/platform.v1.PlatformService/GetSecurityRanker"
+	// PlatformServiceCreateSecurityRankerProcedure is the fully-qualified name of the PlatformService's
+	// CreateSecurityRanker RPC.
+	PlatformServiceCreateSecurityRankerProcedure = "/platform.v1.PlatformService/CreateSecurityRanker"
+	// PlatformServiceUpdateSecurityRankerProcedure is the fully-qualified name of the PlatformService's
+	// UpdateSecurityRanker RPC.
+	PlatformServiceUpdateSecurityRankerProcedure = "/platform.v1.PlatformService/UpdateSecurityRanker"
+	// PlatformServiceDeleteSecurityRankerProcedure is the fully-qualified name of the PlatformService's
+	// DeleteSecurityRanker RPC.
+	PlatformServiceDeleteSecurityRankerProcedure = "/platform.v1.PlatformService/DeleteSecurityRanker"
+	// PlatformServiceListSecurityPostScriptsProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityPostScripts RPC.
+	PlatformServiceListSecurityPostScriptsProcedure = "/platform.v1.PlatformService/ListSecurityPostScripts"
+	// PlatformServiceGetSecurityPostScriptProcedure is the fully-qualified name of the
+	// PlatformService's GetSecurityPostScript RPC.
+	PlatformServiceGetSecurityPostScriptProcedure = "/platform.v1.PlatformService/GetSecurityPostScript"
+	// PlatformServiceCreateSecurityPostScriptProcedure is the fully-qualified name of the
+	// PlatformService's CreateSecurityPostScript RPC.
+	PlatformServiceCreateSecurityPostScriptProcedure = "/platform.v1.PlatformService/CreateSecurityPostScript"
+	// PlatformServiceUpdateSecurityPostScriptProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityPostScript RPC.
+	PlatformServiceUpdateSecurityPostScriptProcedure = "/platform.v1.PlatformService/UpdateSecurityPostScript"
+	// PlatformServiceDeleteSecurityPostScriptProcedure is the fully-qualified name of the
+	// PlatformService's DeleteSecurityPostScript RPC.
+	PlatformServiceDeleteSecurityPostScriptProcedure = "/platform.v1.PlatformService/DeleteSecurityPostScript"
+	// PlatformServiceListSecurityPolicyPacksProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityPolicyPacks RPC.
+	PlatformServiceListSecurityPolicyPacksProcedure = "/platform.v1.PlatformService/ListSecurityPolicyPacks"
+	// PlatformServiceGetSecurityPolicyPackProcedure is the fully-qualified name of the
+	// PlatformService's GetSecurityPolicyPack RPC.
+	PlatformServiceGetSecurityPolicyPackProcedure = "/platform.v1.PlatformService/GetSecurityPolicyPack"
+	// PlatformServiceCreateSecurityPolicyPackProcedure is the fully-qualified name of the
+	// PlatformService's CreateSecurityPolicyPack RPC.
+	PlatformServiceCreateSecurityPolicyPackProcedure = "/platform.v1.PlatformService/CreateSecurityPolicyPack"
+	// PlatformServiceUpdateSecurityPolicyPackProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityPolicyPack RPC.
+	PlatformServiceUpdateSecurityPolicyPackProcedure = "/platform.v1.PlatformService/UpdateSecurityPolicyPack"
+	// PlatformServiceDeleteSecurityPolicyPackProcedure is the fully-qualified name of the
+	// PlatformService's DeleteSecurityPolicyPack RPC.
+	PlatformServiceDeleteSecurityPolicyPackProcedure = "/platform.v1.PlatformService/DeleteSecurityPolicyPack"
+	// PlatformServiceGenerateSecurityDraftProcedure is the fully-qualified name of the
+	// PlatformService's GenerateSecurityDraft RPC.
+	PlatformServiceGenerateSecurityDraftProcedure = "/platform.v1.PlatformService/GenerateSecurityDraft"
+	// PlatformServiceGetSecurityDraftProcedure is the fully-qualified name of the PlatformService's
+	// GetSecurityDraft RPC.
+	PlatformServiceGetSecurityDraftProcedure = "/platform.v1.PlatformService/GetSecurityDraft"
+	// PlatformServiceExportSecurityPackProcedure is the fully-qualified name of the PlatformService's
+	// ExportSecurityPack RPC.
+	PlatformServiceExportSecurityPackProcedure = "/platform.v1.PlatformService/ExportSecurityPack"
+	// PlatformServiceImportSecurityPackProcedure is the fully-qualified name of the PlatformService's
+	// ImportSecurityPack RPC.
+	PlatformServiceImportSecurityPackProcedure = "/platform.v1.PlatformService/ImportSecurityPack"
+	// PlatformServiceGetSecurityOverviewProcedure is the fully-qualified name of the PlatformService's
+	// GetSecurityOverview RPC.
+	PlatformServiceGetSecurityOverviewProcedure = "/platform.v1.PlatformService/GetSecurityOverview"
+	// PlatformServiceGetSecurityScanReportProcedure is the fully-qualified name of the
+	// PlatformService's GetSecurityScanReport RPC.
+	PlatformServiceGetSecurityScanReportProcedure = "/platform.v1.PlatformService/GetSecurityScanReport"
 )
 
 // PlatformServiceClient is a client for the platform.v1.PlatformService service.
@@ -777,6 +891,35 @@ type PlatformServiceClient interface {
 	GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error)
 	UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error)
 	GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error)
+	// ListSecurityFindingEvents returns a finding's audit trail (status
+	// changes, re-observations, comments), newest first.
+	ListSecurityFindingEvents(context.Context, *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error)
+	// AddSecurityFindingComment appends a comment event to a finding's audit
+	// trail, attributed to the authenticated caller.
+	AddSecurityFindingComment(context.Context, *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error)
+	// UpdateSecurityFindingAssignee sets or clears (empty assignee) the
+	// finding's assignee, recording an audited assignee_changed event.
+	UpdateSecurityFindingAssignee(context.Context, *connect.Request[platform.UpdateSecurityFindingAssigneeRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// UpdateSecurityFindingTicket links (non-empty http(s) URL) or unlinks
+	// (empty URL) an external ticket on a finding.
+	UpdateSecurityFindingTicket(context.Context, *connect.Request[platform.UpdateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// CreateSecurityFindingTicket creates a ticket in an external tracker for
+	// a finding and links it. Provider "github" creates an issue through a
+	// GitHubRepository configured in the same namespace; the issue body never
+	// contains raw finding evidence. Linear tickets are link-only: create the
+	// issue in Linear and use UpdateSecurityFindingTicket.
+	CreateSecurityFindingTicket(context.Context, *connect.Request[platform.CreateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// BulkUpdateSecurityFindingStatus applies a status and/or assignee change
+	// to many findings atomically: either every item is applied or none is,
+	// and the response reports the per-item outcome.
+	BulkUpdateSecurityFindingStatus(context.Context, *connect.Request[platform.BulkUpdateSecurityFindingStatusRequest]) (*connect.Response[platform.BulkUpdateSecurityFindingStatusResponse], error)
+	// Saved finding filters, private to the calling user per namespace.
+	ListSecuritySavedFilters(context.Context, *connect.Request[platform.ListSecuritySavedFiltersRequest]) (*connect.Response[platform.ListSecuritySavedFiltersResponse], error)
+	SaveSecuritySavedFilter(context.Context, *connect.Request[platform.SaveSecuritySavedFilterRequest]) (*connect.Response[platform.SecuritySavedFilter], error)
+	DeleteSecuritySavedFilter(context.Context, *connect.Request[platform.DeleteSecuritySavedFilterRequest]) (*connect.Response[emptypb.Empty], error)
+	// ExportSecurityFindingAuditLog returns every audit event for a scan's
+	// findings as a downloadable CSV or JSON document.
+	ExportSecurityFindingAuditLog(context.Context, *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -786,6 +929,73 @@ type PlatformServiceClient interface {
 	CreateSecurityScan(context.Context, *connect.Request[platform.CreateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	UpdateSecurityScan(context.Context, *connect.Request[platform.UpdateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	DeleteSecurityScan(context.Context, *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error)
+	// RunSecurityScanNow requests an immediate run of a configured SecurityScan
+	// without editing its spec. The dashboard stamps a run-now annotation token
+	// on the CR; the controller creates at most one run per token (recorded in
+	// status), so retried or concurrent duplicate requests never double-run.
+	// Suspended scans are rejected with FailedPrecondition.
+	RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error)
+	// Reusable security library resources: SecurityWorkflow, SecurityRanker,
+	// and SecurityPostScript CRs referenced by SecurityScan configurations via
+	// workflow_ref / ranker_refs / post_script_refs. Referenced content is
+	// resolved and snapshotted at run-creation time, so edits never change
+	// historical runs. Delete is blocked with FailedPrecondition while
+	// SecurityScans in the namespace still reference the resource.
+	ListSecurityWorkflows(context.Context, *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error)
+	GetSecurityWorkflow(context.Context, *connect.Request[platform.GetSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error)
+	CreateSecurityWorkflow(context.Context, *connect.Request[platform.CreateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error)
+	UpdateSecurityWorkflow(context.Context, *connect.Request[platform.UpdateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error)
+	DeleteSecurityWorkflow(context.Context, *connect.Request[platform.DeleteSecurityWorkflowRequest]) (*connect.Response[emptypb.Empty], error)
+	// ValidateSecurityWorkflow runs the full server-side workflow validation
+	// (unique task names, acyclic dependencies, resolvable dependsOn entries,
+	// valid roles/models, maxFindings bounds) without persisting anything and
+	// returns structured field errors. Create/Update run the same validation.
+	ValidateSecurityWorkflow(context.Context, *connect.Request[platform.ValidateSecurityWorkflowRequest]) (*connect.Response[platform.ValidateSecurityWorkflowResponse], error)
+	ListSecurityRankers(context.Context, *connect.Request[platform.ListSecurityRankersRequest]) (*connect.Response[platform.ListSecurityRankersResponse], error)
+	GetSecurityRanker(context.Context, *connect.Request[platform.GetSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error)
+	CreateSecurityRanker(context.Context, *connect.Request[platform.CreateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error)
+	UpdateSecurityRanker(context.Context, *connect.Request[platform.UpdateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error)
+	DeleteSecurityRanker(context.Context, *connect.Request[platform.DeleteSecurityRankerRequest]) (*connect.Response[emptypb.Empty], error)
+	ListSecurityPostScripts(context.Context, *connect.Request[platform.ListSecurityPostScriptsRequest]) (*connect.Response[platform.ListSecurityPostScriptsResponse], error)
+	GetSecurityPostScript(context.Context, *connect.Request[platform.GetSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
+	CreateSecurityPostScript(context.Context, *connect.Request[platform.CreateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
+	UpdateSecurityPostScript(context.Context, *connect.Request[platform.UpdateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
+	DeleteSecurityPostScript(context.Context, *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error)
+	// SecurityPolicyPack CRs referenced by SecurityScan configurations via
+	// policy_pack_ref. A pack supplies scan defaults, enforced floors a scan
+	// may not relax, and governed finding suppressions. Delete is blocked with
+	// FailedPrecondition while SecurityScans still reference the pack.
+	ListSecurityPolicyPacks(context.Context, *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error)
+	GetSecurityPolicyPack(context.Context, *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	CreateSecurityPolicyPack(context.Context, *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	UpdateSecurityPolicyPack(context.Context, *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	DeleteSecurityPolicyPack(context.Context, *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error)
+	// AI-assisted authoring. GenerateSecurityDraft launches a bounded,
+	// repo-less draft-generation AgentRun that uses only the caller's saved
+	// provider credentials (no repository, GitHub token, or other secrets);
+	// GetSecurityDraft polls that run and, once it finishes, returns the
+	// parsed draft plus the same structured validation errors manual authoring
+	// produces. Drafts are never persisted server-side: the client loads them
+	// into the normal editor and saving goes through the regular
+	// Create/Update RPCs and their validation.
+	GenerateSecurityDraft(context.Context, *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error)
+	GetSecurityDraft(context.Context, *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error)
+	// Security pack portability. ExportSecurityPack serializes selected
+	// reusable security resources and scan configurations into a versioned,
+	// provenance-stamped JSON document with every credential/secret reference
+	// stripped. ImportSecurityPack validates such a document (size, schema
+	// version, per-item validation identical to manual authoring) and reports
+	// per-item outcomes; items are only created when apply is true, using the
+	// caller's namespace authorization and the configured collision policy.
+	ExportSecurityPack(context.Context, *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error)
+	ImportSecurityPack(context.Context, *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error)
+	// GetSecurityOverview aggregates a namespace's security posture for the
+	// dashboard overview page: active and recent scan runs, open finding
+	// counts, and scan configurations that are failing or blocked.
+	GetSecurityOverview(context.Context, *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error)
+	// GetSecurityScanReport returns a report artifact (Markdown or SARIF)
+	// written by a finished security scan run.
+	GetSecurityScanReport(context.Context, *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error)
 }
 
 // NewPlatformServiceClient constructs a client for the platform.v1.PlatformService service. By
@@ -1783,6 +1993,66 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetSecurityFindingSummary")),
 			connect.WithClientOptions(opts...),
 		),
+		listSecurityFindingEvents: connect.NewClient[platform.ListSecurityFindingEventsRequest, platform.ListSecurityFindingEventsResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityFindingEventsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityFindingEvents")),
+			connect.WithClientOptions(opts...),
+		),
+		addSecurityFindingComment: connect.NewClient[platform.AddSecurityFindingCommentRequest, platform.SecurityFindingEvent](
+			httpClient,
+			baseURL+PlatformServiceAddSecurityFindingCommentProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("AddSecurityFindingComment")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityFindingAssignee: connect.NewClient[platform.UpdateSecurityFindingAssigneeRequest, platform.SecurityFinding](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityFindingAssigneeProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingAssignee")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityFindingTicket: connect.NewClient[platform.UpdateSecurityFindingTicketRequest, platform.SecurityFinding](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityFindingTicketProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingTicket")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityFindingTicket: connect.NewClient[platform.CreateSecurityFindingTicketRequest, platform.SecurityFinding](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityFindingTicketProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityFindingTicket")),
+			connect.WithClientOptions(opts...),
+		),
+		bulkUpdateSecurityFindingStatus: connect.NewClient[platform.BulkUpdateSecurityFindingStatusRequest, platform.BulkUpdateSecurityFindingStatusResponse](
+			httpClient,
+			baseURL+PlatformServiceBulkUpdateSecurityFindingStatusProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("BulkUpdateSecurityFindingStatus")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecuritySavedFilters: connect.NewClient[platform.ListSecuritySavedFiltersRequest, platform.ListSecuritySavedFiltersResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecuritySavedFiltersProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecuritySavedFilters")),
+			connect.WithClientOptions(opts...),
+		),
+		saveSecuritySavedFilter: connect.NewClient[platform.SaveSecuritySavedFilterRequest, platform.SecuritySavedFilter](
+			httpClient,
+			baseURL+PlatformServiceSaveSecuritySavedFilterProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("SaveSecuritySavedFilter")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSecuritySavedFilter: connect.NewClient[platform.DeleteSecuritySavedFilterRequest, emptypb.Empty](
+			httpClient,
+			baseURL+PlatformServiceDeleteSecuritySavedFilterProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("DeleteSecuritySavedFilter")),
+			connect.WithClientOptions(opts...),
+		),
+		exportSecurityFindingAuditLog: connect.NewClient[platform.ExportSecurityFindingAuditLogRequest, platform.ExportSecurityFindingAuditLogResponse](
+			httpClient,
+			baseURL+PlatformServiceExportSecurityFindingAuditLogProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ExportSecurityFindingAuditLog")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecurityScanConfigs: connect.NewClient[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse](
 			httpClient,
 			baseURL+PlatformServiceListSecurityScanConfigsProcedure,
@@ -1811,6 +2081,174 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+PlatformServiceDeleteSecurityScanProcedure,
 			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityScan")),
+			connect.WithClientOptions(opts...),
+		),
+		runSecurityScanNow: connect.NewClient[platform.RunSecurityScanNowRequest, platform.SecurityScanConfig](
+			httpClient,
+			baseURL+PlatformServiceRunSecurityScanNowProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("RunSecurityScanNow")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecurityWorkflows: connect.NewClient[platform.ListSecurityWorkflowsRequest, platform.ListSecurityWorkflowsResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityWorkflowsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityWorkflows")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityWorkflow: connect.NewClient[platform.GetSecurityWorkflowRequest, platform.SecurityWorkflowResource](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityWorkflowProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityWorkflow")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityWorkflow: connect.NewClient[platform.CreateSecurityWorkflowRequest, platform.SecurityWorkflowResource](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityWorkflowProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityWorkflow")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityWorkflow: connect.NewClient[platform.UpdateSecurityWorkflowRequest, platform.SecurityWorkflowResource](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityWorkflowProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityWorkflow")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSecurityWorkflow: connect.NewClient[platform.DeleteSecurityWorkflowRequest, emptypb.Empty](
+			httpClient,
+			baseURL+PlatformServiceDeleteSecurityWorkflowProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityWorkflow")),
+			connect.WithClientOptions(opts...),
+		),
+		validateSecurityWorkflow: connect.NewClient[platform.ValidateSecurityWorkflowRequest, platform.ValidateSecurityWorkflowResponse](
+			httpClient,
+			baseURL+PlatformServiceValidateSecurityWorkflowProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ValidateSecurityWorkflow")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecurityRankers: connect.NewClient[platform.ListSecurityRankersRequest, platform.ListSecurityRankersResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityRankersProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityRankers")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityRanker: connect.NewClient[platform.GetSecurityRankerRequest, platform.SecurityRankerResource](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityRankerProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityRanker")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityRanker: connect.NewClient[platform.CreateSecurityRankerRequest, platform.SecurityRankerResource](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityRankerProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityRanker")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityRanker: connect.NewClient[platform.UpdateSecurityRankerRequest, platform.SecurityRankerResource](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityRankerProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityRanker")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSecurityRanker: connect.NewClient[platform.DeleteSecurityRankerRequest, emptypb.Empty](
+			httpClient,
+			baseURL+PlatformServiceDeleteSecurityRankerProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityRanker")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecurityPostScripts: connect.NewClient[platform.ListSecurityPostScriptsRequest, platform.ListSecurityPostScriptsResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityPostScriptsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityPostScripts")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityPostScript: connect.NewClient[platform.GetSecurityPostScriptRequest, platform.SecurityPostScriptResource](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityPostScriptProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityPostScript")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityPostScript: connect.NewClient[platform.CreateSecurityPostScriptRequest, platform.SecurityPostScriptResource](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityPostScriptProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityPostScript")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityPostScript: connect.NewClient[platform.UpdateSecurityPostScriptRequest, platform.SecurityPostScriptResource](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityPostScriptProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityPostScript")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSecurityPostScript: connect.NewClient[platform.DeleteSecurityPostScriptRequest, emptypb.Empty](
+			httpClient,
+			baseURL+PlatformServiceDeleteSecurityPostScriptProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPostScript")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecurityPolicyPacks: connect.NewClient[platform.ListSecurityPolicyPacksRequest, platform.ListSecurityPolicyPacksResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityPolicyPacksProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityPolicyPacks")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityPolicyPack: connect.NewClient[platform.GetSecurityPolicyPackRequest, platform.SecurityPolicyPackResource](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityPolicyPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityPolicyPack")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityPolicyPack: connect.NewClient[platform.CreateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityPolicyPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityPolicyPack")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityPolicyPack: connect.NewClient[platform.UpdateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityPolicyPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityPolicyPack")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSecurityPolicyPack: connect.NewClient[platform.DeleteSecurityPolicyPackRequest, emptypb.Empty](
+			httpClient,
+			baseURL+PlatformServiceDeleteSecurityPolicyPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPolicyPack")),
+			connect.WithClientOptions(opts...),
+		),
+		generateSecurityDraft: connect.NewClient[platform.GenerateSecurityDraftRequest, platform.GenerateSecurityDraftResponse](
+			httpClient,
+			baseURL+PlatformServiceGenerateSecurityDraftProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GenerateSecurityDraft")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityDraft: connect.NewClient[platform.GetSecurityDraftRequest, platform.GetSecurityDraftResponse](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityDraftProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityDraft")),
+			connect.WithClientOptions(opts...),
+		),
+		exportSecurityPack: connect.NewClient[platform.ExportSecurityPackRequest, platform.ExportSecurityPackResponse](
+			httpClient,
+			baseURL+PlatformServiceExportSecurityPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ExportSecurityPack")),
+			connect.WithClientOptions(opts...),
+		),
+		importSecurityPack: connect.NewClient[platform.ImportSecurityPackRequest, platform.ImportSecurityPackResponse](
+			httpClient,
+			baseURL+PlatformServiceImportSecurityPackProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ImportSecurityPack")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityOverview: connect.NewClient[platform.GetSecurityOverviewRequest, platform.GetSecurityOverviewResponse](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityOverviewProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityOverview")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityScanReport: connect.NewClient[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityScanReportProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityScanReport")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -1982,11 +2420,49 @@ type platformServiceClient struct {
 	getSecurityFinding                     *connect.Client[platform.GetSecurityFindingRequest, platform.GetSecurityFindingResponse]
 	updateSecurityFindingStatus            *connect.Client[platform.UpdateSecurityFindingStatusRequest, platform.SecurityFinding]
 	getSecurityFindingSummary              *connect.Client[platform.GetSecurityFindingSummaryRequest, platform.GetSecurityFindingSummaryResponse]
+	listSecurityFindingEvents              *connect.Client[platform.ListSecurityFindingEventsRequest, platform.ListSecurityFindingEventsResponse]
+	addSecurityFindingComment              *connect.Client[platform.AddSecurityFindingCommentRequest, platform.SecurityFindingEvent]
+	updateSecurityFindingAssignee          *connect.Client[platform.UpdateSecurityFindingAssigneeRequest, platform.SecurityFinding]
+	updateSecurityFindingTicket            *connect.Client[platform.UpdateSecurityFindingTicketRequest, platform.SecurityFinding]
+	createSecurityFindingTicket            *connect.Client[platform.CreateSecurityFindingTicketRequest, platform.SecurityFinding]
+	bulkUpdateSecurityFindingStatus        *connect.Client[platform.BulkUpdateSecurityFindingStatusRequest, platform.BulkUpdateSecurityFindingStatusResponse]
+	listSecuritySavedFilters               *connect.Client[platform.ListSecuritySavedFiltersRequest, platform.ListSecuritySavedFiltersResponse]
+	saveSecuritySavedFilter                *connect.Client[platform.SaveSecuritySavedFilterRequest, platform.SecuritySavedFilter]
+	deleteSecuritySavedFilter              *connect.Client[platform.DeleteSecuritySavedFilterRequest, emptypb.Empty]
+	exportSecurityFindingAuditLog          *connect.Client[platform.ExportSecurityFindingAuditLogRequest, platform.ExportSecurityFindingAuditLogResponse]
 	listSecurityScanConfigs                *connect.Client[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse]
 	getSecurityScanConfig                  *connect.Client[platform.GetSecurityScanConfigRequest, platform.SecurityScanConfig]
 	createSecurityScan                     *connect.Client[platform.CreateSecurityScanRequest, platform.SecurityScanConfig]
 	updateSecurityScan                     *connect.Client[platform.UpdateSecurityScanRequest, platform.SecurityScanConfig]
 	deleteSecurityScan                     *connect.Client[platform.DeleteSecurityScanRequest, emptypb.Empty]
+	runSecurityScanNow                     *connect.Client[platform.RunSecurityScanNowRequest, platform.SecurityScanConfig]
+	listSecurityWorkflows                  *connect.Client[platform.ListSecurityWorkflowsRequest, platform.ListSecurityWorkflowsResponse]
+	getSecurityWorkflow                    *connect.Client[platform.GetSecurityWorkflowRequest, platform.SecurityWorkflowResource]
+	createSecurityWorkflow                 *connect.Client[platform.CreateSecurityWorkflowRequest, platform.SecurityWorkflowResource]
+	updateSecurityWorkflow                 *connect.Client[platform.UpdateSecurityWorkflowRequest, platform.SecurityWorkflowResource]
+	deleteSecurityWorkflow                 *connect.Client[platform.DeleteSecurityWorkflowRequest, emptypb.Empty]
+	validateSecurityWorkflow               *connect.Client[platform.ValidateSecurityWorkflowRequest, platform.ValidateSecurityWorkflowResponse]
+	listSecurityRankers                    *connect.Client[platform.ListSecurityRankersRequest, platform.ListSecurityRankersResponse]
+	getSecurityRanker                      *connect.Client[platform.GetSecurityRankerRequest, platform.SecurityRankerResource]
+	createSecurityRanker                   *connect.Client[platform.CreateSecurityRankerRequest, platform.SecurityRankerResource]
+	updateSecurityRanker                   *connect.Client[platform.UpdateSecurityRankerRequest, platform.SecurityRankerResource]
+	deleteSecurityRanker                   *connect.Client[platform.DeleteSecurityRankerRequest, emptypb.Empty]
+	listSecurityPostScripts                *connect.Client[platform.ListSecurityPostScriptsRequest, platform.ListSecurityPostScriptsResponse]
+	getSecurityPostScript                  *connect.Client[platform.GetSecurityPostScriptRequest, platform.SecurityPostScriptResource]
+	createSecurityPostScript               *connect.Client[platform.CreateSecurityPostScriptRequest, platform.SecurityPostScriptResource]
+	updateSecurityPostScript               *connect.Client[platform.UpdateSecurityPostScriptRequest, platform.SecurityPostScriptResource]
+	deleteSecurityPostScript               *connect.Client[platform.DeleteSecurityPostScriptRequest, emptypb.Empty]
+	listSecurityPolicyPacks                *connect.Client[platform.ListSecurityPolicyPacksRequest, platform.ListSecurityPolicyPacksResponse]
+	getSecurityPolicyPack                  *connect.Client[platform.GetSecurityPolicyPackRequest, platform.SecurityPolicyPackResource]
+	createSecurityPolicyPack               *connect.Client[platform.CreateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource]
+	updateSecurityPolicyPack               *connect.Client[platform.UpdateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource]
+	deleteSecurityPolicyPack               *connect.Client[platform.DeleteSecurityPolicyPackRequest, emptypb.Empty]
+	generateSecurityDraft                  *connect.Client[platform.GenerateSecurityDraftRequest, platform.GenerateSecurityDraftResponse]
+	getSecurityDraft                       *connect.Client[platform.GetSecurityDraftRequest, platform.GetSecurityDraftResponse]
+	exportSecurityPack                     *connect.Client[platform.ExportSecurityPackRequest, platform.ExportSecurityPackResponse]
+	importSecurityPack                     *connect.Client[platform.ImportSecurityPackRequest, platform.ImportSecurityPackResponse]
+	getSecurityOverview                    *connect.Client[platform.GetSecurityOverviewRequest, platform.GetSecurityOverviewResponse]
+	getSecurityScanReport                  *connect.Client[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse]
 }
 
 // ListAgentRuns calls platform.v1.PlatformService.ListAgentRuns.
@@ -2813,6 +3289,57 @@ func (c *platformServiceClient) GetSecurityFindingSummary(ctx context.Context, r
 	return c.getSecurityFindingSummary.CallUnary(ctx, req)
 }
 
+// ListSecurityFindingEvents calls platform.v1.PlatformService.ListSecurityFindingEvents.
+func (c *platformServiceClient) ListSecurityFindingEvents(ctx context.Context, req *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error) {
+	return c.listSecurityFindingEvents.CallUnary(ctx, req)
+}
+
+// AddSecurityFindingComment calls platform.v1.PlatformService.AddSecurityFindingComment.
+func (c *platformServiceClient) AddSecurityFindingComment(ctx context.Context, req *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error) {
+	return c.addSecurityFindingComment.CallUnary(ctx, req)
+}
+
+// UpdateSecurityFindingAssignee calls platform.v1.PlatformService.UpdateSecurityFindingAssignee.
+func (c *platformServiceClient) UpdateSecurityFindingAssignee(ctx context.Context, req *connect.Request[platform.UpdateSecurityFindingAssigneeRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return c.updateSecurityFindingAssignee.CallUnary(ctx, req)
+}
+
+// UpdateSecurityFindingTicket calls platform.v1.PlatformService.UpdateSecurityFindingTicket.
+func (c *platformServiceClient) UpdateSecurityFindingTicket(ctx context.Context, req *connect.Request[platform.UpdateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return c.updateSecurityFindingTicket.CallUnary(ctx, req)
+}
+
+// CreateSecurityFindingTicket calls platform.v1.PlatformService.CreateSecurityFindingTicket.
+func (c *platformServiceClient) CreateSecurityFindingTicket(ctx context.Context, req *connect.Request[platform.CreateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return c.createSecurityFindingTicket.CallUnary(ctx, req)
+}
+
+// BulkUpdateSecurityFindingStatus calls
+// platform.v1.PlatformService.BulkUpdateSecurityFindingStatus.
+func (c *platformServiceClient) BulkUpdateSecurityFindingStatus(ctx context.Context, req *connect.Request[platform.BulkUpdateSecurityFindingStatusRequest]) (*connect.Response[platform.BulkUpdateSecurityFindingStatusResponse], error) {
+	return c.bulkUpdateSecurityFindingStatus.CallUnary(ctx, req)
+}
+
+// ListSecuritySavedFilters calls platform.v1.PlatformService.ListSecuritySavedFilters.
+func (c *platformServiceClient) ListSecuritySavedFilters(ctx context.Context, req *connect.Request[platform.ListSecuritySavedFiltersRequest]) (*connect.Response[platform.ListSecuritySavedFiltersResponse], error) {
+	return c.listSecuritySavedFilters.CallUnary(ctx, req)
+}
+
+// SaveSecuritySavedFilter calls platform.v1.PlatformService.SaveSecuritySavedFilter.
+func (c *platformServiceClient) SaveSecuritySavedFilter(ctx context.Context, req *connect.Request[platform.SaveSecuritySavedFilterRequest]) (*connect.Response[platform.SecuritySavedFilter], error) {
+	return c.saveSecuritySavedFilter.CallUnary(ctx, req)
+}
+
+// DeleteSecuritySavedFilter calls platform.v1.PlatformService.DeleteSecuritySavedFilter.
+func (c *platformServiceClient) DeleteSecuritySavedFilter(ctx context.Context, req *connect.Request[platform.DeleteSecuritySavedFilterRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteSecuritySavedFilter.CallUnary(ctx, req)
+}
+
+// ExportSecurityFindingAuditLog calls platform.v1.PlatformService.ExportSecurityFindingAuditLog.
+func (c *platformServiceClient) ExportSecurityFindingAuditLog(ctx context.Context, req *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error) {
+	return c.exportSecurityFindingAuditLog.CallUnary(ctx, req)
+}
+
 // ListSecurityScanConfigs calls platform.v1.PlatformService.ListSecurityScanConfigs.
 func (c *platformServiceClient) ListSecurityScanConfigs(ctx context.Context, req *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {
 	return c.listSecurityScanConfigs.CallUnary(ctx, req)
@@ -2836,6 +3363,146 @@ func (c *platformServiceClient) UpdateSecurityScan(ctx context.Context, req *con
 // DeleteSecurityScan calls platform.v1.PlatformService.DeleteSecurityScan.
 func (c *platformServiceClient) DeleteSecurityScan(ctx context.Context, req *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deleteSecurityScan.CallUnary(ctx, req)
+}
+
+// RunSecurityScanNow calls platform.v1.PlatformService.RunSecurityScanNow.
+func (c *platformServiceClient) RunSecurityScanNow(ctx context.Context, req *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	return c.runSecurityScanNow.CallUnary(ctx, req)
+}
+
+// ListSecurityWorkflows calls platform.v1.PlatformService.ListSecurityWorkflows.
+func (c *platformServiceClient) ListSecurityWorkflows(ctx context.Context, req *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error) {
+	return c.listSecurityWorkflows.CallUnary(ctx, req)
+}
+
+// GetSecurityWorkflow calls platform.v1.PlatformService.GetSecurityWorkflow.
+func (c *platformServiceClient) GetSecurityWorkflow(ctx context.Context, req *connect.Request[platform.GetSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error) {
+	return c.getSecurityWorkflow.CallUnary(ctx, req)
+}
+
+// CreateSecurityWorkflow calls platform.v1.PlatformService.CreateSecurityWorkflow.
+func (c *platformServiceClient) CreateSecurityWorkflow(ctx context.Context, req *connect.Request[platform.CreateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error) {
+	return c.createSecurityWorkflow.CallUnary(ctx, req)
+}
+
+// UpdateSecurityWorkflow calls platform.v1.PlatformService.UpdateSecurityWorkflow.
+func (c *platformServiceClient) UpdateSecurityWorkflow(ctx context.Context, req *connect.Request[platform.UpdateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error) {
+	return c.updateSecurityWorkflow.CallUnary(ctx, req)
+}
+
+// DeleteSecurityWorkflow calls platform.v1.PlatformService.DeleteSecurityWorkflow.
+func (c *platformServiceClient) DeleteSecurityWorkflow(ctx context.Context, req *connect.Request[platform.DeleteSecurityWorkflowRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteSecurityWorkflow.CallUnary(ctx, req)
+}
+
+// ValidateSecurityWorkflow calls platform.v1.PlatformService.ValidateSecurityWorkflow.
+func (c *platformServiceClient) ValidateSecurityWorkflow(ctx context.Context, req *connect.Request[platform.ValidateSecurityWorkflowRequest]) (*connect.Response[platform.ValidateSecurityWorkflowResponse], error) {
+	return c.validateSecurityWorkflow.CallUnary(ctx, req)
+}
+
+// ListSecurityRankers calls platform.v1.PlatformService.ListSecurityRankers.
+func (c *platformServiceClient) ListSecurityRankers(ctx context.Context, req *connect.Request[platform.ListSecurityRankersRequest]) (*connect.Response[platform.ListSecurityRankersResponse], error) {
+	return c.listSecurityRankers.CallUnary(ctx, req)
+}
+
+// GetSecurityRanker calls platform.v1.PlatformService.GetSecurityRanker.
+func (c *platformServiceClient) GetSecurityRanker(ctx context.Context, req *connect.Request[platform.GetSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error) {
+	return c.getSecurityRanker.CallUnary(ctx, req)
+}
+
+// CreateSecurityRanker calls platform.v1.PlatformService.CreateSecurityRanker.
+func (c *platformServiceClient) CreateSecurityRanker(ctx context.Context, req *connect.Request[platform.CreateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error) {
+	return c.createSecurityRanker.CallUnary(ctx, req)
+}
+
+// UpdateSecurityRanker calls platform.v1.PlatformService.UpdateSecurityRanker.
+func (c *platformServiceClient) UpdateSecurityRanker(ctx context.Context, req *connect.Request[platform.UpdateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error) {
+	return c.updateSecurityRanker.CallUnary(ctx, req)
+}
+
+// DeleteSecurityRanker calls platform.v1.PlatformService.DeleteSecurityRanker.
+func (c *platformServiceClient) DeleteSecurityRanker(ctx context.Context, req *connect.Request[platform.DeleteSecurityRankerRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteSecurityRanker.CallUnary(ctx, req)
+}
+
+// ListSecurityPostScripts calls platform.v1.PlatformService.ListSecurityPostScripts.
+func (c *platformServiceClient) ListSecurityPostScripts(ctx context.Context, req *connect.Request[platform.ListSecurityPostScriptsRequest]) (*connect.Response[platform.ListSecurityPostScriptsResponse], error) {
+	return c.listSecurityPostScripts.CallUnary(ctx, req)
+}
+
+// GetSecurityPostScript calls platform.v1.PlatformService.GetSecurityPostScript.
+func (c *platformServiceClient) GetSecurityPostScript(ctx context.Context, req *connect.Request[platform.GetSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error) {
+	return c.getSecurityPostScript.CallUnary(ctx, req)
+}
+
+// CreateSecurityPostScript calls platform.v1.PlatformService.CreateSecurityPostScript.
+func (c *platformServiceClient) CreateSecurityPostScript(ctx context.Context, req *connect.Request[platform.CreateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error) {
+	return c.createSecurityPostScript.CallUnary(ctx, req)
+}
+
+// UpdateSecurityPostScript calls platform.v1.PlatformService.UpdateSecurityPostScript.
+func (c *platformServiceClient) UpdateSecurityPostScript(ctx context.Context, req *connect.Request[platform.UpdateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error) {
+	return c.updateSecurityPostScript.CallUnary(ctx, req)
+}
+
+// DeleteSecurityPostScript calls platform.v1.PlatformService.DeleteSecurityPostScript.
+func (c *platformServiceClient) DeleteSecurityPostScript(ctx context.Context, req *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteSecurityPostScript.CallUnary(ctx, req)
+}
+
+// ListSecurityPolicyPacks calls platform.v1.PlatformService.ListSecurityPolicyPacks.
+func (c *platformServiceClient) ListSecurityPolicyPacks(ctx context.Context, req *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error) {
+	return c.listSecurityPolicyPacks.CallUnary(ctx, req)
+}
+
+// GetSecurityPolicyPack calls platform.v1.PlatformService.GetSecurityPolicyPack.
+func (c *platformServiceClient) GetSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return c.getSecurityPolicyPack.CallUnary(ctx, req)
+}
+
+// CreateSecurityPolicyPack calls platform.v1.PlatformService.CreateSecurityPolicyPack.
+func (c *platformServiceClient) CreateSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return c.createSecurityPolicyPack.CallUnary(ctx, req)
+}
+
+// UpdateSecurityPolicyPack calls platform.v1.PlatformService.UpdateSecurityPolicyPack.
+func (c *platformServiceClient) UpdateSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return c.updateSecurityPolicyPack.CallUnary(ctx, req)
+}
+
+// DeleteSecurityPolicyPack calls platform.v1.PlatformService.DeleteSecurityPolicyPack.
+func (c *platformServiceClient) DeleteSecurityPolicyPack(ctx context.Context, req *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteSecurityPolicyPack.CallUnary(ctx, req)
+}
+
+// GenerateSecurityDraft calls platform.v1.PlatformService.GenerateSecurityDraft.
+func (c *platformServiceClient) GenerateSecurityDraft(ctx context.Context, req *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {
+	return c.generateSecurityDraft.CallUnary(ctx, req)
+}
+
+// GetSecurityDraft calls platform.v1.PlatformService.GetSecurityDraft.
+func (c *platformServiceClient) GetSecurityDraft(ctx context.Context, req *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error) {
+	return c.getSecurityDraft.CallUnary(ctx, req)
+}
+
+// ExportSecurityPack calls platform.v1.PlatformService.ExportSecurityPack.
+func (c *platformServiceClient) ExportSecurityPack(ctx context.Context, req *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error) {
+	return c.exportSecurityPack.CallUnary(ctx, req)
+}
+
+// ImportSecurityPack calls platform.v1.PlatformService.ImportSecurityPack.
+func (c *platformServiceClient) ImportSecurityPack(ctx context.Context, req *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error) {
+	return c.importSecurityPack.CallUnary(ctx, req)
+}
+
+// GetSecurityOverview calls platform.v1.PlatformService.GetSecurityOverview.
+func (c *platformServiceClient) GetSecurityOverview(ctx context.Context, req *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error) {
+	return c.getSecurityOverview.CallUnary(ctx, req)
+}
+
+// GetSecurityScanReport calls platform.v1.PlatformService.GetSecurityScanReport.
+func (c *platformServiceClient) GetSecurityScanReport(ctx context.Context, req *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error) {
+	return c.getSecurityScanReport.CallUnary(ctx, req)
 }
 
 // PlatformServiceHandler is an implementation of the platform.v1.PlatformService service.
@@ -3074,6 +3741,35 @@ type PlatformServiceHandler interface {
 	GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error)
 	UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error)
 	GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error)
+	// ListSecurityFindingEvents returns a finding's audit trail (status
+	// changes, re-observations, comments), newest first.
+	ListSecurityFindingEvents(context.Context, *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error)
+	// AddSecurityFindingComment appends a comment event to a finding's audit
+	// trail, attributed to the authenticated caller.
+	AddSecurityFindingComment(context.Context, *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error)
+	// UpdateSecurityFindingAssignee sets or clears (empty assignee) the
+	// finding's assignee, recording an audited assignee_changed event.
+	UpdateSecurityFindingAssignee(context.Context, *connect.Request[platform.UpdateSecurityFindingAssigneeRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// UpdateSecurityFindingTicket links (non-empty http(s) URL) or unlinks
+	// (empty URL) an external ticket on a finding.
+	UpdateSecurityFindingTicket(context.Context, *connect.Request[platform.UpdateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// CreateSecurityFindingTicket creates a ticket in an external tracker for
+	// a finding and links it. Provider "github" creates an issue through a
+	// GitHubRepository configured in the same namespace; the issue body never
+	// contains raw finding evidence. Linear tickets are link-only: create the
+	// issue in Linear and use UpdateSecurityFindingTicket.
+	CreateSecurityFindingTicket(context.Context, *connect.Request[platform.CreateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error)
+	// BulkUpdateSecurityFindingStatus applies a status and/or assignee change
+	// to many findings atomically: either every item is applied or none is,
+	// and the response reports the per-item outcome.
+	BulkUpdateSecurityFindingStatus(context.Context, *connect.Request[platform.BulkUpdateSecurityFindingStatusRequest]) (*connect.Response[platform.BulkUpdateSecurityFindingStatusResponse], error)
+	// Saved finding filters, private to the calling user per namespace.
+	ListSecuritySavedFilters(context.Context, *connect.Request[platform.ListSecuritySavedFiltersRequest]) (*connect.Response[platform.ListSecuritySavedFiltersResponse], error)
+	SaveSecuritySavedFilter(context.Context, *connect.Request[platform.SaveSecuritySavedFilterRequest]) (*connect.Response[platform.SecuritySavedFilter], error)
+	DeleteSecuritySavedFilter(context.Context, *connect.Request[platform.DeleteSecuritySavedFilterRequest]) (*connect.Response[emptypb.Empty], error)
+	// ExportSecurityFindingAuditLog returns every audit event for a scan's
+	// findings as a downloadable CSV or JSON document.
+	ExportSecurityFindingAuditLog(context.Context, *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -3083,6 +3779,73 @@ type PlatformServiceHandler interface {
 	CreateSecurityScan(context.Context, *connect.Request[platform.CreateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	UpdateSecurityScan(context.Context, *connect.Request[platform.UpdateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	DeleteSecurityScan(context.Context, *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error)
+	// RunSecurityScanNow requests an immediate run of a configured SecurityScan
+	// without editing its spec. The dashboard stamps a run-now annotation token
+	// on the CR; the controller creates at most one run per token (recorded in
+	// status), so retried or concurrent duplicate requests never double-run.
+	// Suspended scans are rejected with FailedPrecondition.
+	RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error)
+	// Reusable security library resources: SecurityWorkflow, SecurityRanker,
+	// and SecurityPostScript CRs referenced by SecurityScan configurations via
+	// workflow_ref / ranker_refs / post_script_refs. Referenced content is
+	// resolved and snapshotted at run-creation time, so edits never change
+	// historical runs. Delete is blocked with FailedPrecondition while
+	// SecurityScans in the namespace still reference the resource.
+	ListSecurityWorkflows(context.Context, *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error)
+	GetSecurityWorkflow(context.Context, *connect.Request[platform.GetSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error)
+	CreateSecurityWorkflow(context.Context, *connect.Request[platform.CreateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error)
+	UpdateSecurityWorkflow(context.Context, *connect.Request[platform.UpdateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error)
+	DeleteSecurityWorkflow(context.Context, *connect.Request[platform.DeleteSecurityWorkflowRequest]) (*connect.Response[emptypb.Empty], error)
+	// ValidateSecurityWorkflow runs the full server-side workflow validation
+	// (unique task names, acyclic dependencies, resolvable dependsOn entries,
+	// valid roles/models, maxFindings bounds) without persisting anything and
+	// returns structured field errors. Create/Update run the same validation.
+	ValidateSecurityWorkflow(context.Context, *connect.Request[platform.ValidateSecurityWorkflowRequest]) (*connect.Response[platform.ValidateSecurityWorkflowResponse], error)
+	ListSecurityRankers(context.Context, *connect.Request[platform.ListSecurityRankersRequest]) (*connect.Response[platform.ListSecurityRankersResponse], error)
+	GetSecurityRanker(context.Context, *connect.Request[platform.GetSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error)
+	CreateSecurityRanker(context.Context, *connect.Request[platform.CreateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error)
+	UpdateSecurityRanker(context.Context, *connect.Request[platform.UpdateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error)
+	DeleteSecurityRanker(context.Context, *connect.Request[platform.DeleteSecurityRankerRequest]) (*connect.Response[emptypb.Empty], error)
+	ListSecurityPostScripts(context.Context, *connect.Request[platform.ListSecurityPostScriptsRequest]) (*connect.Response[platform.ListSecurityPostScriptsResponse], error)
+	GetSecurityPostScript(context.Context, *connect.Request[platform.GetSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
+	CreateSecurityPostScript(context.Context, *connect.Request[platform.CreateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
+	UpdateSecurityPostScript(context.Context, *connect.Request[platform.UpdateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error)
+	DeleteSecurityPostScript(context.Context, *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error)
+	// SecurityPolicyPack CRs referenced by SecurityScan configurations via
+	// policy_pack_ref. A pack supplies scan defaults, enforced floors a scan
+	// may not relax, and governed finding suppressions. Delete is blocked with
+	// FailedPrecondition while SecurityScans still reference the pack.
+	ListSecurityPolicyPacks(context.Context, *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error)
+	GetSecurityPolicyPack(context.Context, *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	CreateSecurityPolicyPack(context.Context, *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	UpdateSecurityPolicyPack(context.Context, *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
+	DeleteSecurityPolicyPack(context.Context, *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error)
+	// AI-assisted authoring. GenerateSecurityDraft launches a bounded,
+	// repo-less draft-generation AgentRun that uses only the caller's saved
+	// provider credentials (no repository, GitHub token, or other secrets);
+	// GetSecurityDraft polls that run and, once it finishes, returns the
+	// parsed draft plus the same structured validation errors manual authoring
+	// produces. Drafts are never persisted server-side: the client loads them
+	// into the normal editor and saving goes through the regular
+	// Create/Update RPCs and their validation.
+	GenerateSecurityDraft(context.Context, *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error)
+	GetSecurityDraft(context.Context, *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error)
+	// Security pack portability. ExportSecurityPack serializes selected
+	// reusable security resources and scan configurations into a versioned,
+	// provenance-stamped JSON document with every credential/secret reference
+	// stripped. ImportSecurityPack validates such a document (size, schema
+	// version, per-item validation identical to manual authoring) and reports
+	// per-item outcomes; items are only created when apply is true, using the
+	// caller's namespace authorization and the configured collision policy.
+	ExportSecurityPack(context.Context, *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error)
+	ImportSecurityPack(context.Context, *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error)
+	// GetSecurityOverview aggregates a namespace's security posture for the
+	// dashboard overview page: active and recent scan runs, open finding
+	// counts, and scan configurations that are failing or blocked.
+	GetSecurityOverview(context.Context, *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error)
+	// GetSecurityScanReport returns a report artifact (Markdown or SARIF)
+	// written by a finished security scan run.
+	GetSecurityScanReport(context.Context, *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error)
 }
 
 // NewPlatformServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -4076,6 +4839,66 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetSecurityFindingSummary")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListSecurityFindingEventsHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityFindingEventsProcedure,
+		svc.ListSecurityFindingEvents,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityFindingEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceAddSecurityFindingCommentHandler := connect.NewUnaryHandler(
+		PlatformServiceAddSecurityFindingCommentProcedure,
+		svc.AddSecurityFindingComment,
+		connect.WithSchema(platformServiceMethods.ByName("AddSecurityFindingComment")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityFindingAssigneeHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityFindingAssigneeProcedure,
+		svc.UpdateSecurityFindingAssignee,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingAssignee")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityFindingTicketHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityFindingTicketProcedure,
+		svc.UpdateSecurityFindingTicket,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityFindingTicket")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityFindingTicketHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityFindingTicketProcedure,
+		svc.CreateSecurityFindingTicket,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityFindingTicket")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceBulkUpdateSecurityFindingStatusHandler := connect.NewUnaryHandler(
+		PlatformServiceBulkUpdateSecurityFindingStatusProcedure,
+		svc.BulkUpdateSecurityFindingStatus,
+		connect.WithSchema(platformServiceMethods.ByName("BulkUpdateSecurityFindingStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecuritySavedFiltersHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecuritySavedFiltersProcedure,
+		svc.ListSecuritySavedFilters,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecuritySavedFilters")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceSaveSecuritySavedFilterHandler := connect.NewUnaryHandler(
+		PlatformServiceSaveSecuritySavedFilterProcedure,
+		svc.SaveSecuritySavedFilter,
+		connect.WithSchema(platformServiceMethods.ByName("SaveSecuritySavedFilter")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceDeleteSecuritySavedFilterHandler := connect.NewUnaryHandler(
+		PlatformServiceDeleteSecuritySavedFilterProcedure,
+		svc.DeleteSecuritySavedFilter,
+		connect.WithSchema(platformServiceMethods.ByName("DeleteSecuritySavedFilter")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceExportSecurityFindingAuditLogHandler := connect.NewUnaryHandler(
+		PlatformServiceExportSecurityFindingAuditLogProcedure,
+		svc.ExportSecurityFindingAuditLog,
+		connect.WithSchema(platformServiceMethods.ByName("ExportSecurityFindingAuditLog")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListSecurityScanConfigsHandler := connect.NewUnaryHandler(
 		PlatformServiceListSecurityScanConfigsProcedure,
 		svc.ListSecurityScanConfigs,
@@ -4104,6 +4927,174 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		PlatformServiceDeleteSecurityScanProcedure,
 		svc.DeleteSecurityScan,
 		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityScan")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceRunSecurityScanNowHandler := connect.NewUnaryHandler(
+		PlatformServiceRunSecurityScanNowProcedure,
+		svc.RunSecurityScanNow,
+		connect.WithSchema(platformServiceMethods.ByName("RunSecurityScanNow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecurityWorkflowsHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityWorkflowsProcedure,
+		svc.ListSecurityWorkflows,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityWorkflows")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityWorkflowHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityWorkflowProcedure,
+		svc.GetSecurityWorkflow,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityWorkflow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityWorkflowHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityWorkflowProcedure,
+		svc.CreateSecurityWorkflow,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityWorkflow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityWorkflowHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityWorkflowProcedure,
+		svc.UpdateSecurityWorkflow,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityWorkflow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceDeleteSecurityWorkflowHandler := connect.NewUnaryHandler(
+		PlatformServiceDeleteSecurityWorkflowProcedure,
+		svc.DeleteSecurityWorkflow,
+		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityWorkflow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceValidateSecurityWorkflowHandler := connect.NewUnaryHandler(
+		PlatformServiceValidateSecurityWorkflowProcedure,
+		svc.ValidateSecurityWorkflow,
+		connect.WithSchema(platformServiceMethods.ByName("ValidateSecurityWorkflow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecurityRankersHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityRankersProcedure,
+		svc.ListSecurityRankers,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityRankers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityRankerHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityRankerProcedure,
+		svc.GetSecurityRanker,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityRanker")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityRankerHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityRankerProcedure,
+		svc.CreateSecurityRanker,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityRanker")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityRankerHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityRankerProcedure,
+		svc.UpdateSecurityRanker,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityRanker")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceDeleteSecurityRankerHandler := connect.NewUnaryHandler(
+		PlatformServiceDeleteSecurityRankerProcedure,
+		svc.DeleteSecurityRanker,
+		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityRanker")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecurityPostScriptsHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityPostScriptsProcedure,
+		svc.ListSecurityPostScripts,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityPostScripts")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityPostScriptHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityPostScriptProcedure,
+		svc.GetSecurityPostScript,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityPostScript")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityPostScriptHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityPostScriptProcedure,
+		svc.CreateSecurityPostScript,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityPostScript")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityPostScriptHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityPostScriptProcedure,
+		svc.UpdateSecurityPostScript,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityPostScript")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceDeleteSecurityPostScriptHandler := connect.NewUnaryHandler(
+		PlatformServiceDeleteSecurityPostScriptProcedure,
+		svc.DeleteSecurityPostScript,
+		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPostScript")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecurityPolicyPacksHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityPolicyPacksProcedure,
+		svc.ListSecurityPolicyPacks,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityPolicyPacks")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityPolicyPackHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityPolicyPackProcedure,
+		svc.GetSecurityPolicyPack,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityPolicyPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityPolicyPackHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityPolicyPackProcedure,
+		svc.CreateSecurityPolicyPack,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityPolicyPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityPolicyPackHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityPolicyPackProcedure,
+		svc.UpdateSecurityPolicyPack,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityPolicyPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceDeleteSecurityPolicyPackHandler := connect.NewUnaryHandler(
+		PlatformServiceDeleteSecurityPolicyPackProcedure,
+		svc.DeleteSecurityPolicyPack,
+		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPolicyPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGenerateSecurityDraftHandler := connect.NewUnaryHandler(
+		PlatformServiceGenerateSecurityDraftProcedure,
+		svc.GenerateSecurityDraft,
+		connect.WithSchema(platformServiceMethods.ByName("GenerateSecurityDraft")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityDraftHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityDraftProcedure,
+		svc.GetSecurityDraft,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityDraft")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceExportSecurityPackHandler := connect.NewUnaryHandler(
+		PlatformServiceExportSecurityPackProcedure,
+		svc.ExportSecurityPack,
+		connect.WithSchema(platformServiceMethods.ByName("ExportSecurityPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceImportSecurityPackHandler := connect.NewUnaryHandler(
+		PlatformServiceImportSecurityPackProcedure,
+		svc.ImportSecurityPack,
+		connect.WithSchema(platformServiceMethods.ByName("ImportSecurityPack")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityOverviewHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityOverviewProcedure,
+		svc.GetSecurityOverview,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityOverview")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityScanReportHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityScanReportProcedure,
+		svc.GetSecurityScanReport,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityScanReport")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/platform.v1.PlatformService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -4436,6 +5427,26 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceUpdateSecurityFindingStatusHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityFindingSummaryProcedure:
 			platformServiceGetSecurityFindingSummaryHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityFindingEventsProcedure:
+			platformServiceListSecurityFindingEventsHandler.ServeHTTP(w, r)
+		case PlatformServiceAddSecurityFindingCommentProcedure:
+			platformServiceAddSecurityFindingCommentHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityFindingAssigneeProcedure:
+			platformServiceUpdateSecurityFindingAssigneeHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityFindingTicketProcedure:
+			platformServiceUpdateSecurityFindingTicketHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityFindingTicketProcedure:
+			platformServiceCreateSecurityFindingTicketHandler.ServeHTTP(w, r)
+		case PlatformServiceBulkUpdateSecurityFindingStatusProcedure:
+			platformServiceBulkUpdateSecurityFindingStatusHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecuritySavedFiltersProcedure:
+			platformServiceListSecuritySavedFiltersHandler.ServeHTTP(w, r)
+		case PlatformServiceSaveSecuritySavedFilterProcedure:
+			platformServiceSaveSecuritySavedFilterHandler.ServeHTTP(w, r)
+		case PlatformServiceDeleteSecuritySavedFilterProcedure:
+			platformServiceDeleteSecuritySavedFilterHandler.ServeHTTP(w, r)
+		case PlatformServiceExportSecurityFindingAuditLogProcedure:
+			platformServiceExportSecurityFindingAuditLogHandler.ServeHTTP(w, r)
 		case PlatformServiceListSecurityScanConfigsProcedure:
 			platformServiceListSecurityScanConfigsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanConfigProcedure:
@@ -4446,6 +5457,62 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceUpdateSecurityScanHandler.ServeHTTP(w, r)
 		case PlatformServiceDeleteSecurityScanProcedure:
 			platformServiceDeleteSecurityScanHandler.ServeHTTP(w, r)
+		case PlatformServiceRunSecurityScanNowProcedure:
+			platformServiceRunSecurityScanNowHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityWorkflowsProcedure:
+			platformServiceListSecurityWorkflowsHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityWorkflowProcedure:
+			platformServiceGetSecurityWorkflowHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityWorkflowProcedure:
+			platformServiceCreateSecurityWorkflowHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityWorkflowProcedure:
+			platformServiceUpdateSecurityWorkflowHandler.ServeHTTP(w, r)
+		case PlatformServiceDeleteSecurityWorkflowProcedure:
+			platformServiceDeleteSecurityWorkflowHandler.ServeHTTP(w, r)
+		case PlatformServiceValidateSecurityWorkflowProcedure:
+			platformServiceValidateSecurityWorkflowHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityRankersProcedure:
+			platformServiceListSecurityRankersHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityRankerProcedure:
+			platformServiceGetSecurityRankerHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityRankerProcedure:
+			platformServiceCreateSecurityRankerHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityRankerProcedure:
+			platformServiceUpdateSecurityRankerHandler.ServeHTTP(w, r)
+		case PlatformServiceDeleteSecurityRankerProcedure:
+			platformServiceDeleteSecurityRankerHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityPostScriptsProcedure:
+			platformServiceListSecurityPostScriptsHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityPostScriptProcedure:
+			platformServiceGetSecurityPostScriptHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityPostScriptProcedure:
+			platformServiceCreateSecurityPostScriptHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityPostScriptProcedure:
+			platformServiceUpdateSecurityPostScriptHandler.ServeHTTP(w, r)
+		case PlatformServiceDeleteSecurityPostScriptProcedure:
+			platformServiceDeleteSecurityPostScriptHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityPolicyPacksProcedure:
+			platformServiceListSecurityPolicyPacksHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityPolicyPackProcedure:
+			platformServiceGetSecurityPolicyPackHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityPolicyPackProcedure:
+			platformServiceCreateSecurityPolicyPackHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityPolicyPackProcedure:
+			platformServiceUpdateSecurityPolicyPackHandler.ServeHTTP(w, r)
+		case PlatformServiceDeleteSecurityPolicyPackProcedure:
+			platformServiceDeleteSecurityPolicyPackHandler.ServeHTTP(w, r)
+		case PlatformServiceGenerateSecurityDraftProcedure:
+			platformServiceGenerateSecurityDraftHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityDraftProcedure:
+			platformServiceGetSecurityDraftHandler.ServeHTTP(w, r)
+		case PlatformServiceExportSecurityPackProcedure:
+			platformServiceExportSecurityPackHandler.ServeHTTP(w, r)
+		case PlatformServiceImportSecurityPackProcedure:
+			platformServiceImportSecurityPackHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityOverviewProcedure:
+			platformServiceGetSecurityOverviewHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityScanReportProcedure:
+			platformServiceGetSecurityScanReportHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -5111,6 +6178,46 @@ func (UnimplementedPlatformServiceHandler) GetSecurityFindingSummary(context.Con
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityFindingSummary is not implemented"))
 }
 
+func (UnimplementedPlatformServiceHandler) ListSecurityFindingEvents(context.Context, *connect.Request[platform.ListSecurityFindingEventsRequest]) (*connect.Response[platform.ListSecurityFindingEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityFindingEvents is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) AddSecurityFindingComment(context.Context, *connect.Request[platform.AddSecurityFindingCommentRequest]) (*connect.Response[platform.SecurityFindingEvent], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.AddSecurityFindingComment is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityFindingAssignee(context.Context, *connect.Request[platform.UpdateSecurityFindingAssigneeRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityFindingAssignee is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityFindingTicket(context.Context, *connect.Request[platform.UpdateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityFindingTicket is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityFindingTicket(context.Context, *connect.Request[platform.CreateSecurityFindingTicketRequest]) (*connect.Response[platform.SecurityFinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityFindingTicket is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) BulkUpdateSecurityFindingStatus(context.Context, *connect.Request[platform.BulkUpdateSecurityFindingStatusRequest]) (*connect.Response[platform.BulkUpdateSecurityFindingStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.BulkUpdateSecurityFindingStatus is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecuritySavedFilters(context.Context, *connect.Request[platform.ListSecuritySavedFiltersRequest]) (*connect.Response[platform.ListSecuritySavedFiltersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecuritySavedFilters is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) SaveSecuritySavedFilter(context.Context, *connect.Request[platform.SaveSecuritySavedFilterRequest]) (*connect.Response[platform.SecuritySavedFilter], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.SaveSecuritySavedFilter is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) DeleteSecuritySavedFilter(context.Context, *connect.Request[platform.DeleteSecuritySavedFilterRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecuritySavedFilter is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ExportSecurityFindingAuditLog(context.Context, *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ExportSecurityFindingAuditLog is not implemented"))
+}
+
 func (UnimplementedPlatformServiceHandler) ListSecurityScanConfigs(context.Context, *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityScanConfigs is not implemented"))
 }
@@ -5129,4 +6236,116 @@ func (UnimplementedPlatformServiceHandler) UpdateSecurityScan(context.Context, *
 
 func (UnimplementedPlatformServiceHandler) DeleteSecurityScan(context.Context, *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityScan is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.RunSecurityScanNow is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityWorkflows(context.Context, *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityWorkflows is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityWorkflow(context.Context, *connect.Request[platform.GetSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityWorkflow is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityWorkflow(context.Context, *connect.Request[platform.CreateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityWorkflow is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityWorkflow(context.Context, *connect.Request[platform.UpdateSecurityWorkflowRequest]) (*connect.Response[platform.SecurityWorkflowResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityWorkflow is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) DeleteSecurityWorkflow(context.Context, *connect.Request[platform.DeleteSecurityWorkflowRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityWorkflow is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ValidateSecurityWorkflow(context.Context, *connect.Request[platform.ValidateSecurityWorkflowRequest]) (*connect.Response[platform.ValidateSecurityWorkflowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ValidateSecurityWorkflow is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityRankers(context.Context, *connect.Request[platform.ListSecurityRankersRequest]) (*connect.Response[platform.ListSecurityRankersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityRankers is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityRanker(context.Context, *connect.Request[platform.GetSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityRanker is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityRanker(context.Context, *connect.Request[platform.CreateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityRanker is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityRanker(context.Context, *connect.Request[platform.UpdateSecurityRankerRequest]) (*connect.Response[platform.SecurityRankerResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityRanker is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) DeleteSecurityRanker(context.Context, *connect.Request[platform.DeleteSecurityRankerRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityRanker is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityPostScripts(context.Context, *connect.Request[platform.ListSecurityPostScriptsRequest]) (*connect.Response[platform.ListSecurityPostScriptsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityPostScripts is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityPostScript(context.Context, *connect.Request[platform.GetSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityPostScript is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityPostScript(context.Context, *connect.Request[platform.CreateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityPostScript is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityPostScript(context.Context, *connect.Request[platform.UpdateSecurityPostScriptRequest]) (*connect.Response[platform.SecurityPostScriptResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityPostScript is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) DeleteSecurityPostScript(context.Context, *connect.Request[platform.DeleteSecurityPostScriptRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityPostScript is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityPolicyPacks(context.Context, *connect.Request[platform.ListSecurityPolicyPacksRequest]) (*connect.Response[platform.ListSecurityPolicyPacksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityPolicyPacks is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityPolicyPack(context.Context, *connect.Request[platform.GetSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityPolicyPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityPolicyPack(context.Context, *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityPolicyPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityPolicyPack(context.Context, *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityPolicyPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) DeleteSecurityPolicyPack(context.Context, *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityPolicyPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GenerateSecurityDraft(context.Context, *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GenerateSecurityDraft is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityDraft(context.Context, *connect.Request[platform.GetSecurityDraftRequest]) (*connect.Response[platform.GetSecurityDraftResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityDraft is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ExportSecurityPack(context.Context, *connect.Request[platform.ExportSecurityPackRequest]) (*connect.Response[platform.ExportSecurityPackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ExportSecurityPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ImportSecurityPack(context.Context, *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ImportSecurityPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityOverview(context.Context, *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityOverview is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityScanReport(context.Context, *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityScanReport is not implemented"))
 }

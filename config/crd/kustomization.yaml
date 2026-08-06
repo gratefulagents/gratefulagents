@@ -23,6 +23,10 @@ resources:
 - bases/triggers.gratefulagents.dev_pullrequestmonitors.yaml
 - bases/triggers.gratefulagents.dev_projects.yaml
 - bases/triggers.gratefulagents.dev_securityscans.yaml
+- bases/triggers.gratefulagents.dev_securityworkflows.yaml
+- bases/triggers.gratefulagents.dev_securityrankers.yaml
+- bases/triggers.gratefulagents.dev_securitypostscripts.yaml
+- bases/triggers.gratefulagents.dev_securitypolicypacks.yaml
 - bases/triggers.gratefulagents.dev_slackagents.yaml
 - bases/triggers.gratefulagents.dev_slackworkspaces.yaml
 

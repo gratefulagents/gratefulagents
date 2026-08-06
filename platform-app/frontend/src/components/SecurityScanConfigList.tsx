@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { clone, create } from "@bufbuild/protobuf";
-import { Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { Copy, Pencil, Play, Plus, ShieldCheck, Trash2 } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -35,6 +35,7 @@ export function SecurityScanConfigList() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [pendingDelete, setPendingDelete] = useState<SecurityScanConfig | null>(null);
+  const [runNowPending, setRunNowPending] = useState<string | null>(null);
   const now = useNow();
 
   const fetchConfigs = useCallback(async () => {
@@ -72,6 +73,19 @@ export function SecurityScanConfigList() {
       await fetchConfigs();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : "Failed to update security scan");
+    }
+  }
+
+  async function handleRunNow(config: SecurityScanConfig) {
+    setActionError(null);
+    setRunNowPending(`${config.namespace}/${config.name}`);
+    try {
+      await client.runSecurityScanNow({ namespace: config.namespace, name: config.name });
+      await fetchConfigs();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Failed to start the security scan");
+    } finally {
+      setRunNowPending(null);
     }
   }
 
@@ -114,8 +128,11 @@ export function SecurityScanConfigList() {
       }
       actions={
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security" />}>
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/runs" />}>
             Scan results
+          </Button>
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/library" />}>
+            Library
           </Button>
           <SecurityScanFormDialog
             trigger={
@@ -172,6 +189,19 @@ export function SecurityScanConfigList() {
               </TableCell>
               <TableCell className="text-right">
                 <div className="inline-flex items-center gap-1">
+                  {!config.spec?.suspend && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={runNowPending !== null}
+                      onClick={() => void handleRunNow(config)}
+                    >
+                      <Play />
+                      {runNowPending === `${config.namespace}/${config.name}`
+                        ? "Starting…"
+                        : "Run now"}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -184,6 +214,15 @@ export function SecurityScanConfigList() {
                     trigger={
                       <Button variant="ghost" size="sm" aria-label={`Edit ${config.name}`}>
                         <Pencil />
+                      </Button>
+                    }
+                    onSaved={() => void fetchConfigs()}
+                  />
+                  <SecurityScanFormDialog
+                    duplicateFrom={config}
+                    trigger={
+                      <Button variant="ghost" size="sm" aria-label={`Duplicate ${config.name}`}>
+                        <Copy />
                       </Button>
                     }
                     onSaved={() => void fetchConfigs()}

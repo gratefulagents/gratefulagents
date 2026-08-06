@@ -1,7 +1,7 @@
 ---
 title: Security scanning
 seoTitle: Autonomous AI Security Scans with SecurityScan | GratefulAgents
-description: Run one-shot or scheduled AI security scans against a repository with the SecurityScan resource, triage deduplicated findings, and export Markdown and SARIF reports.
+description: Run one-shot or scheduled AI security scans with the SecurityScan resource, triage deduplicated findings, and export Markdown and SARIF reports.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/projects/security-scanning/ and help me configure a SecurityScan for my repository, including scope, workflow tasks, ranking rules, and how to triage the findings.
 ---
@@ -176,6 +176,69 @@ Set `role` on a workflow task to pick a different specialist, or define your own
 
 Sub-agents report vulnerabilities by calling the `report_security_finding` tool with one structured finding at a time; findings described only in prose are not recorded. During triage the agent can use `list_security_findings` to review what was reported and `update_security_finding` to change a finding's status with a note. The run finishes by calling `submit_security_scan_report` exactly once, which enforces the scan's dedupe and minimum-severity policies, ranks findings, renders the report artifacts, and marks the scan completed.
 
+## Reusable security resources
+
+Workflows, severity rankers, and post-scripts can be shared across scans as namespace-scoped resources instead of being repeated inline in every `SecurityScan`:
+
+- **`SecurityWorkflow`** — `spec.description`, `spec.tasks` (the same task schema as `spec.workflow`), and an optional `spec.parallelism` that overrides the referencing scan's parallelism when set.
+- **`SecurityRanker`** — `spec.description` and `spec.rules`, a list of ranking rule lines in the same language as `spec.severityRankers[].rules`.
+- **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, or `high-and-above`).
+
+A `SecurityScan` references them with:
+
+```yaml
+spec:
+  workflowRef:
+    name: payments-deep-dive       # replaces an inline workflow
+  rankerRefs:
+    - name: payments-priorities    # appended after spec.severityRankers
+  postScriptRefs:
+    - name: write-poc              # appended after spec.postScripts
+```
+
+### Precedence and override rules
+
+- Inline fields keep working unchanged; existing specs need no migration.
+- `workflowRef` and an inline `workflow` are **mutually exclusive**. Setting both makes the controller report `Ready=False` with reason `InvalidSpec` and never create a run; the dashboard rejects the combination at save time.
+- `rankerRefs` and `postScriptRefs` **append** to the inline `severityRankers` and `postScripts` — inline entries come first, referenced entries follow in spec order.
+- A referenced `SecurityWorkflow` with `spec.parallelism` set overrides the scan's own `parallelism` for runs built from it.
+
+### Snapshot semantics (reproducible runs)
+
+References are resolved when each run is **created**, not when it executes or when you read it later. The controller inlines the referenced content into the run's seed prompt (which is persisted at creation), stamps the run with the `security.gratefulagents.dev/resolved-refs` annotation — a JSON array of `{kind, name, generation, hash}` records with a sha256 content hash of each resolved spec — and records the same snapshot in the scan's `status.lastResolvedRefs`. Editing a library resource afterwards changes only future runs; historical runs keep the exact content they were created with.
+
+### Deleting referenced resources
+
+Deleting a workflow, ranker, or post-script through the dashboard is **blocked** while any `SecurityScan` in the namespace still references it; the error lists the referencing scans so you can detach them first. `kubectl delete` cannot be blocked (there is no admission webhook), so a kubectl-deleted resource leaves referencing scans reporting `Ready=False` with reason `UnresolvedReference` at their next run — no run is created until the reference is fixed. Runs that already happened are unaffected either way, because they carry their own snapshot.
+
+### The library and the visual workflow builder
+
+The dashboard's **Security → Library** page (`/security/library`) lists workflows, rankers, and post-scripts with usage counts, and supports create, edit, duplicate, and guarded delete. Workflows are edited in a visual builder: structured task cards (name, objective, category, specialist role picker, model override, max findings), dependency selection limited to the other task names, and a live read-only graph of the dependency DAG. The builder refuses to save cycles, dangling or self dependencies, duplicate names, invalid roles/models, or an empty workflow — the same validation the server enforces on create/update and exposes through the `ValidateSecurityWorkflow` RPC. The scan form's *Workflow tasks* section lets you pick a library workflow (or keep editing inline), and its *Rankers & post-scripts* section attaches library rankers and post-scripts.
+
+### AI-assisted authoring
+
+Both the workflow and the post-script tabs of the library offer **Generate with AI**. Describe what you want in plain language and the platform launches a *bounded, repo-less* generation run: it clones nothing, receives no GitHub token, uses only your own saved provider credentials, and runs under the dedicated `security-draft` mode template with a short runtime cap. Your request text is passed as untrusted data — it cannot change the run's rules, tools, or output contract.
+
+When the run finishes, the platform extracts the single JSON draft it produced, parses it defensively, and validates it with exactly the same rules manual authoring uses. The draft then opens in the normal editor with a review banner and any validation errors listed. Nothing is persisted server-side: the draft exists only in your browser until you save it through the regular create flow, which validates it again.
+
+### Import and export (security packs)
+
+**Export pack** serializes selected workflows, rankers, post-scripts, and scan configurations into a single JSON document:
+
+```json
+{
+  "schemaVersion": "security-pack/v1",
+  "exportedAt": "2026-01-01T00:00:00Z",
+  "exportedBy": "alice",
+  "sourceNamespace": "user-alice",
+  "items": [{ "kind": "SecurityWorkflow", "name": "payments-deep-dive", "spec": { } }]
+}
+```
+
+Packs never carry credentials. Secret references (`defaults.secrets`, provider keys, OAuth secret names) and the admin-only escape hatches (`kubernetesAdmin`, `disableCommandSandbox`) are stripped on export — and stripped again on import as defense in depth — so an imported scan configuration must be given its own credentials before it can run.
+
+**Import pack** accepts a document of at most 1 MiB and up to 200 items. Import always starts as a **dry run**: every item is validated exactly like manual authoring and the per-item outcome (`would-create`, `skipped`, `renamed`, `failed` with field errors) is shown before anything is created. Choose what happens when a name already exists — fail the item, skip it, or import it under a new name — then apply. Imported scan configurations are owned by the importer, exactly like scans created through the dashboard.
+
 ## Findings
 
 A finding is a structured record. Required fields are `title`, `category`, `severity`, and `description`; the rest add location and evidence:
@@ -204,6 +267,33 @@ Findings start as **open** and move through a triage lifecycle; every status cha
 
 Change a finding's status from the dashboard, or from inside an agent run with the `update_security_finding` tool.
 
+### Triage & collaboration
+
+Findings carry collaboration state beyond the status itself, and every change is an audited event in the finding's history:
+
+- **Assignee** — assign a finding to a teammate (or clear it) from the finding page or in bulk from the scan detail table; the findings table can be filtered by assignee.
+- **Bulk triage** — select multiple findings in the scan detail table and apply a status change (with an audit note) or an assignee in one operation. The batch is atomic: either every selected finding is updated or none is, and the result reports per-finding outcomes, so a stale selection can never half-apply.
+- **Accepted-risk expiry** — when accepting a risk you can set an optional expiry. Past the deadline the finding automatically reopens (`accepted_risk_expired` event); the table shows an "expires in Xd" / "expired" badge while the acceptance is in effect.
+- **Tickets** — link a finding to an external tracker issue (any `http(s)` URL, labeled with a provider such as GitHub or Linear), or create a GitHub issue directly through a `GitHubRepository` configured in the same namespace. Created issues carry only the finding's title, severity, category, location, and a link back to the dashboard — never raw evidence, impact analysis, or attack-vector text. Linear is link-only: create the issue in Linear and paste its URL. Linking and unlinking are audited (`ticket_linked` / `ticket_unlinked`).
+- **Saved views** — save the current filter combination (severity, status, category, search, baseline state, assignee) under a name and re-apply it later. Saved views are private to the user who created them within a namespace.
+- **Audit export** — download every audit event for a scan's findings (status changes, comments, assignments, ticket links, baseline transitions) as CSV or JSON from the scan detail page.
+
+### Baselines
+
+Every finding observation is recorded per scan run, which lets consecutive runs of the same scan be compared deterministically. Each finding carries a **baseline state**:
+
+| State | Meaning |
+| --- | --- |
+| `new` | First observed by the latest run. |
+| `recurring` | Observed by the previous run and again by the latest one. |
+| `regressed` | Was suppressed (`fixed`, or `false_positive`/`accepted_risk` with a severity increase) and the evidence reappeared; the finding reopens automatically. |
+| `resolved` | Present in an earlier run but absent from the latest successfully completed run. Nothing is deleted; `resolved_at` is stamped and a `resolved` event recorded. |
+| `reopened` | A resolved finding whose evidence reappeared in a later run. |
+
+Baseline resolution happens only when a scan run terminates **successfully** and has submitted its report — a failed or cancelled run never marks findings resolved. Suppression is sticky for `false_positive` and `accepted_risk` findings as long as the evidence is unchanged (the fingerprint pins evidence and location identity); a severity increase under the same fingerprint regresses the suppression to `open`, preserving the prior decision in the audit history. `fixed` findings always regress when they reappear.
+
+The security overview shows namespace-wide baseline deltas (new / recurring / regressed / reopened / resolved) once observation data exists, plus **trend metrics**: average and median time-to-triage (first status change out of `open`) and time-to-resolution (from first sighting to baseline resolution).
+
 ### Dedupe
 
 Findings persist across runs of the same scan. Their storage key is `(namespace, scan name, repository, fingerprint)`, so re-observing a fingerprint in a later run increments its occurrence count and preserves its triage status. Finding and status counts are scoped to the scan across all of its runs.
@@ -230,6 +320,43 @@ weight: <severity|confidence|exploitability|exposure>=<float>[,<name>=<float>...
 
 Lines that are not valid directives are kept as prose and given to the triage agent verbatim, so you can mix directives with plain-language ranking guidance.
 
+### Deterministic scanner ingestion
+
+Agent findings can be complemented with results from deterministic tools (semgrep, gosec, trivy, gitleaks, ...) that the scan agent runs in the workspace. The agent adapts each tool result into the canonical **scanner record** contract and submits batches with the `ingest_scanner_results` tool — at most 500 records and 4 MiB of input per call. Every record in a batch is validated against the contract; if any record is invalid the whole batch is rejected with per-record errors (`records[3]: rule_id is required; ...`) and nothing is ingested.
+
+```json
+{
+  "records": [
+    {
+      "tool": "gosec",
+      "tool_version": "2.18.2",
+      "rule_id": "G401",
+      "rule_name": "Use of weak cryptographic primitive",
+      "message": "Use of weak cryptographic primitive md5",
+      "severity": "HIGH",
+      "file_path": "internal/crypto/hash.go",
+      "start_line": 42,
+      "end_line": 44,
+      "symbol": "hashPassword",
+      "cwe": "CWE-327",
+      "references": ["https://cwe.mitre.org/data/definitions/327.html"],
+      "raw_evidence": "sum := md5.Sum(password)",
+      "extra": {"confidence": "HIGH"}
+    }
+  ]
+}
+```
+
+`tool`, `rule_id`, `message`, `severity`, and `file_path` are required. Tool severities are mapped onto the platform scale (`ERROR` → high, `WARNING`/`moderate` → medium, `note`/`UNKNOWN` → info, `CRITICAL`/`HIGH`/`MEDIUM`/`LOW` as-is); a severity that cannot be mapped rejects the record. The category is taken from an explicit `category` when given, otherwise derived from the CWE, falling back to `other`. Accepted records go through the same normalization and secret-redaction pipeline as agent findings, and the original scanner record is preserved verbatim (minus redacted secrets) in the finding's raw payload.
+
+**Fingerprints.** A scanner finding's fingerprint is derived from `(tool, rule id, repository, normalized path, symbol-or-line anchor)` — never from the message text — so re-running the same tool converges onto the same finding row (occurrences increment, triage status persists) even across tool upgrades that reword messages. This derivation is deliberately distinct from agent fingerprints (which hash category, location, and title tokens): an agent finding and a scanner finding can never collide on identity, so combining the two sources is always an explicit, audited correlation rather than an accidental merge.
+
+**Correlation, not merging.** When an agent finding and a scanner finding describe the same issue — same file, line ranges overlapping or starting within 5 lines, and either a shared CWE or a matching category — the platform records a correlation on **both** rows (`correlated` audit events, cross-referenced fingerprints). Neither side is deleted or rewritten to look like the other: the agent finding keeps its confidence semantics and narrative, the scanner finding keeps its tool/version/rule identity. Report-time dedupe likewise never merges across the two source kinds. Correlations appear in finding lists, in the summary (`source_agent` / `source_scanner` / `correlated` counts), in the Markdown report ("Correlated with: ..."), and in SARIF.
+
+**Provenance guarantees.** Every finding carries a `source_kind` (`agent` or `scanner`); scanner findings additionally carry the tool name, tool version, and rule id, stamped at ingestion and impossible for the model to forge through `report_security_finding`. Reports attribute each finding to its source: the Markdown report labels findings `agent <run>` or `scanner <tool> <version>, rule <id>`, and the SARIF output emits one run per source — agent findings under the `gratefulagents-security-scan` driver and each scanner's findings under that tool's own driver name, version, and real rule ids, so gratefulagents never claims another tool's rules as its own.
+
+**Neither source is authoritative.** Deterministic tools attest that a rule matched (scanner findings are stored with `firm` confidence), not that the issue is exploitable; agents hypothesize, validate, and explain but can miss or over-report. Use the agent for what each source cannot do alone: prioritize correlated findings first (two independent signals), spend bounded validation effort confirming or disproving scanner matches with `update_security_finding`, and treat agent-only and scanner-only findings as complementary leads rather than letting either side suppress the other.
+
 ## Reports, status, and the dashboard
 
 When the scan submits its report, two artifacts are saved on the scan's agent run:
@@ -237,7 +364,9 @@ When the scan submits its report, two artifacts are saved on the scan's agent ru
 - **`security_report`** — a Markdown report with the executive summary and ranked findings.
 - **`security_sarif`** — a SARIF 2.1.0 file suitable for importing into code-scanning tools; each result carries the finding fingerprint for cross-referencing.
 
-In the dashboard, the **Security** section lists scans with their status and per-severity finding counts. Each scan links to a detail page where you can filter findings by severity, status, category, and text search, and change a finding's status inline — for example, marking a validated non-issue as `false_positive` or a real one as `confirmed`.
+In the dashboard, **Security** in the sidebar opens an overview of active and recent scans, open critical/high finding counts, and any scan configurations that are failing, blocked, or suspended, with shortcuts to the full run history and to scan configurations. Each scan run links to a detail page where you can filter findings by severity, status, category, and text search, change a finding's status inline — for example, marking a validated non-issue as `false_positive` or a real one as `confirmed` — download the Markdown report and SARIF artifact, and jump to the underlying agent run.
+
+While a scan is running, the detail page also shows the live state of the run behind it: the workflow's sub-agent graph (pending, running, completed, failed), run phase, retries, model, runtime, token/cost usage, and the most recent error. Owners can stop an active scan run or retry a failed one from the same panel — retrying resumes from the run's persisted session, and findings already recorded are preserved (re-observed findings update in place without losing triage decisions). On the **Scan configurations** page, **Run now** starts an immediate run of a configuration without editing its spec (`concurrencyPolicy: Forbid` still applies: the request is skipped with a `ConcurrencyBlocked` status while a previous run is active), and **Duplicate** opens the scan form pre-filled from an existing configuration so you can review the copied settings and create it under a new name.
 
 On the cluster side, `kubectl get securityscans` shows the repository, schedule, last scan time, and critical/high/total finding counts. The resource status also records the last run name, next scheduled time, cumulative runs created, scan-scoped finding counts, and a `Ready` condition. With `failOnSeverity` set, `Ready` turns `False` with reason `FindingsExceedThreshold` while open scan findings at or above that severity exist — useful for alerting on scan results.
 
@@ -252,6 +381,63 @@ A malformed schedule sets `Ready=False` with reason `InvalidSchedule`. A schedul
 Skipped ticks are not backfilled, matching [Cron schedule](./cron.md) semantics.
 
 **Deletion.** Deleting a SecurityScan removes its stored scans, findings, and triage history: the controller holds a cleanup finalizer and purges the persisted data before the resource disappears. If the findings store is unreachable, deletion is retried with backoff and released after a bounded grace period so a failing store cannot wedge the resource; the run artifacts (Markdown report and SARIF) live with their agent runs and follow the run's own lifecycle.
+
+## Retention and budgets
+
+A `SecurityPolicyPack` referenced by `spec.policyPackRef` can govern how long scan data is kept and how much a scan run may consume.
+
+### Retention
+
+`spec.retention` on the policy pack sets per-class day counts. `0` (or omitting a class) keeps that class forever — retention is entirely opt-in, and nothing is purged by default.
+
+```yaml
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPolicyPack
+metadata:
+  name: org-policy
+spec:
+  retention:
+    scanDays: 180        # completed scan-run records and per-run observations
+    findingDays: 365     # finding rows (deleted with their audit events)
+    reportDays: 90       # Markdown/SARIF report artifacts
+    evidenceDays: 30     # evidence snippets — redacted in place
+    pocDays: 14          # PoC / attack-vector narratives — redacted in place
+    auditEventDays: 730  # finding audit-trail events
+```
+
+Every count must be between 0 and 3650 days (10 years).
+
+**How the sweep works.** The SecurityScan controller runs the purge as a bounded, resumable background sweep: at most one small batch per reconcile (each class purged by its own namespace-scoped, deterministically ordered, LIMIT-bounded statement), requeuing promptly while a batch reports more work and hourly otherwise. The outcome is observable on the scan: `status.retention` records the last sweep time, cumulative per-class counters, the more-work flag, and the last error, and a `RetentionSweep` event carries each batch's counts. The sweep never runs in the deletion path, so retention work can never slow or wedge the scan-deletion finalizer and its bounded (15-minute) cleanup guarantee.
+
+**What deletion vs. redaction means.** Scan-run records, finding rows, report artifacts, and audit events past their windows are **deleted**. Evidence and PoC content are **redacted in place** instead: the finding row keeps its identity, severity, triage status, and full audit history, only the code snippets (`evidence`) and the exploit narrative (`attack_vector`) are removed, and an `evidence_purged` / `poc_purged` audit event records the redaction. A scan-run record is only deleted once no finding is attributed to it anymore, so finding identity is never cascade-deleted by scan retention.
+
+**Privacy implications of evidence retention.** Evidence snippets are verbatim copies of your source code — including any secrets a finding cites — and PoC narratives describe how to exploit the issue. They are the most sensitive data the scanner stores. If your compliance posture limits how long source excerpts or exploit instructions may live outside the repository, set `evidenceDays`/`pocDays` shorter than `findingDays`: the finding remains actionable (title, location, severity, remediation, audit trail) while the sensitive payload ages out.
+
+**Migration and rollback.** Retention ships with store migration `047_security_retention`: it only adds purge-supporting indexes and extends the artifact-kind constraint to cover the `security_report`/`security_sarif` artifact kinds. It is applied automatically on startup, additive, and safe on populated databases. Rolling back (`047_security_retention.down.sql`) drops the indexes and restores the previous artifact-kind constraint; no data is modified in either direction. Purged data itself is not recoverable by rollback — take database backups before enabling aggressive retention, and note that redactions are recorded in the audit trail, so you can always tell what was removed by policy.
+
+### Budgets
+
+`spec.budgets` caps what one scan run may consume. It exists on both the policy pack (defaults for every referencing scan) and the scan (`SecurityScan.spec.budgets`); precedence matches every other pack field — pack default < scan — unless the pack lists `budgets` in `enforced`, in which case a scan may tighten but never raise a limit the pack sets.
+
+```yaml
+spec:
+  budgets:
+    maxModelJobs: 16       # sub-agent runs the scan run may spawn
+    maxCostUSD: "5"        # decimal USD ceiling on LLM spend
+    maxTokens: 500000      # total tokens (input + output)
+    maxRuntime: 2h         # wall-clock cap on the scan run
+    maxFindings: 200       # persisted findings cap
+    maxValidationJobs: 8   # post-script (validation/PoC) sub-agent runs
+  enforced: ["budgets"]
+```
+
+Enforcement is entirely platform-side and model output can never relax it:
+
+- Every limit is computed from the CRD spec merged with the policy pack **before** the run prompt is built; a scan that raises an enforced limit is rejected with `Ready=False` reason `PolicyViolation` and no run is created.
+- What the run can self-limit is written into the created AgentRun's limits: `maxRuntime` (the smallest of `budgets.maxRuntime`, `spec.maxRuntime`, and `defaults.timeout` wins) and `maxCostUSD`.
+- Everything else is monitored by the controller on each reconcile from platform-observed data: cost and tokens from the run's usage metrics, model/validation jobs from the run's child status, and the finding cap from the **persisted** finding count — never from what the model reports. The cap is stated in the prompt as guidance only.
+- When a hard limit is exceeded, the controller cancels the run gracefully (the same cancel-requested mechanism the dashboard stop button uses) and sets `Ready=False` with reason `BudgetExceeded`, a message naming the exceeded limit, and a warning event. **Completed work is preserved**: findings already persisted, reports, and the scan's status survive; nothing is deleted.
+- The effective budgets and any already-exceeded state are published on `status.budget` (and through the dashboard API), so an operator can see — before starting the next run — that, for example, the persisted findings already exceed `maxFindings`.
 
 ## Operational guidance
 

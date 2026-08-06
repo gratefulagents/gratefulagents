@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -79,6 +81,19 @@ func securityFindingFilterSQL(f store.SecurityFindingFilter) (string, []any) {
 	}
 	if f.MinScore > 0 {
 		add("score >= $%d", f.MinScore)
+	}
+	if f.BaselineState != "" {
+		add("baseline_state = $%d", f.BaselineState)
+	}
+	if f.Assignee != "" {
+		add("assignee = $%d", f.Assignee)
+	}
+	switch f.Suppressed {
+	case store.SecuritySuppressedInclude:
+	case store.SecuritySuppressedOnly:
+		conds = append(conds, "suppressed_by IS NOT NULL")
+	default:
+		conds = append(conds, "suppressed_by IS NULL")
 	}
 	if !f.IncludeDuplicates {
 		conds = append(conds, "duplicate_of IS NULL")
@@ -209,22 +224,48 @@ func (s *Store) ListSecurityScans(ctx context.Context, namespace, scanName strin
 const securityFindingColumns = `id, scan_id, namespace, scan_name, run_name, session_id, fingerprint,
 	title, category, severity, confidence, repository, revision, file_path, start_line, end_line,
 	symbol, cwe, description, impact, attack_vector, remediation, references_urls, source_agent,
-	scan_step, score, status, duplicate_of, occurrences, raw, first_seen_at, last_seen_at`
+	scan_step, score, status, duplicate_of, occurrences, raw, first_seen_at, last_seen_at,
+	assignee, accepted_risk_expires_at, ticket_url, ticket_provider, COALESCE(baseline_state, ''),
+	resolved_at, triaged_at, COALESCE(suppressed_by, ''), COALESCE(suppressed_reason, ''),
+	COALESCE(suppressed_owner, ''), suppression_expires_at, suppressed_at,
+	source_kind, tool, tool_version, rule_id, correlated_fingerprints`
 
-func scanSecurityFindingRow(row pgx.Row, extra ...any) (*store.SecurityFindingRecord, error) {
+func scanSecurityFindingRow(row pgx.Row) (*store.SecurityFindingRecord, error) {
 	var rec store.SecurityFindingRecord
-	dest := make([]any, 0, 32+len(extra))
+	dest := make([]any, 0, 49)
 	dest = append(dest, &rec.ID, &rec.ScanID, &rec.Namespace, &rec.ScanName, &rec.RunName, &rec.SessionID,
 		&rec.Fingerprint, &rec.Title, &rec.Category, &rec.Severity, &rec.Confidence, &rec.Repository,
 		&rec.Revision, &rec.FilePath, &rec.StartLine, &rec.EndLine, &rec.Symbol, &rec.CWE,
 		&rec.Description, &rec.Impact, &rec.AttackVector, &rec.Remediation, &rec.References,
 		&rec.SourceAgent, &rec.ScanStep, &rec.Score, &rec.Status, &rec.DuplicateOf,
-		&rec.Occurrences, &rec.Raw, &rec.FirstSeenAt, &rec.LastSeenAt)
-	dest = append(dest, extra...)
+		&rec.Occurrences, &rec.Raw, &rec.FirstSeenAt, &rec.LastSeenAt,
+		&rec.Assignee, &rec.AcceptedRiskExpiresAt, &rec.TicketURL, &rec.TicketProvider,
+		&rec.BaselineState, &rec.ResolvedAt, &rec.TriagedAt,
+		&rec.SuppressedBy, &rec.SuppressedReason, &rec.SuppressedOwner,
+		&rec.SuppressionExpiresAt, &rec.SuppressedAt,
+		&rec.SourceKind, &rec.Tool, &rec.ToolVersion, &rec.RuleID, &rec.CorrelatedFingerprints)
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
 	return &rec, nil
+}
+
+// securitySeverityRank mirrors securitySeverityRankSQL in Go for merge
+// decisions made outside SQL.
+func securitySeverityRank(s string) int {
+	switch s {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	case "info":
+		return 0
+	}
+	return -1
 }
 
 func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFindingRecord) (*store.SecurityFindingRecord, bool, error) {
@@ -248,7 +289,14 @@ func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFi
 	if len(raw) == 0 {
 		raw = json.RawMessage("{}")
 	}
-	rank := securitySeverityRankSQL
+	sourceKind := rec.SourceKind
+	if sourceKind == "" {
+		sourceKind = "agent"
+	}
+	correlated := rec.CorrelatedFingerprints
+	if correlated == nil {
+		correlated = []string{}
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -256,74 +304,310 @@ func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFi
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// xmax = 0 distinguishes a fresh insert from a conflict-update: updated
-	// rows carry the deleting/locking transaction id in xmax. This is a
-	// heuristic: a concurrent row lock (e.g. SELECT ... FOR UPDATE or a
-	// speculative insert race) can set xmax on a freshly inserted row and
-	// report it as a merge. The only consequence is a spurious "reobserved"
-	// event; the stored finding itself is unaffected.
-	var created bool
-	row := tx.QueryRow(ctx, `
-		INSERT INTO security_findings (scan_id, namespace, scan_name, run_name, session_id,
-			fingerprint, title, category, severity, confidence, repository, revision, file_path,
-			start_line, end_line, symbol, cwe, description, impact, attack_vector, remediation,
-			references_urls, source_agent, scan_step, score, status, duplicate_of, occurrences, raw)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-			$19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
-		ON CONFLICT (namespace, scan_name, repository, fingerprint) DO UPDATE SET
-			scan_id = EXCLUDED.scan_id,
-			scan_name = EXCLUDED.scan_name,
-			run_name = EXCLUDED.run_name,
-			session_id = EXCLUDED.session_id,
-			title = EXCLUDED.title,
-			category = EXCLUDED.category,
-			severity = CASE WHEN `+rank("EXCLUDED.severity")+` > `+rank("security_findings.severity")+`
-				THEN EXCLUDED.severity ELSE security_findings.severity END,
-			confidence = EXCLUDED.confidence,
-			revision = EXCLUDED.revision,
-			file_path = EXCLUDED.file_path,
-			start_line = EXCLUDED.start_line,
-			end_line = EXCLUDED.end_line,
-			symbol = EXCLUDED.symbol,
-			cwe = EXCLUDED.cwe,
-			description = EXCLUDED.description,
-			impact = EXCLUDED.impact,
-			attack_vector = EXCLUDED.attack_vector,
-			remediation = EXCLUDED.remediation,
-			references_urls = EXCLUDED.references_urls,
-			source_agent = EXCLUDED.source_agent,
-			scan_step = EXCLUDED.scan_step,
-			score = GREATEST(security_findings.score, EXCLUDED.score),
-			raw = EXCLUDED.raw,
-			occurrences = security_findings.occurrences + 1,
-			last_seen_at = now()
-		RETURNING `+securityFindingColumns+`, (xmax = 0)`,
-		rec.ScanID, rec.Namespace, rec.ScanName, rec.RunName, rec.SessionID,
-		rec.Fingerprint, rec.Title, rec.Category, rec.Severity, rec.Confidence,
-		rec.Repository, rec.Revision, rec.FilePath, rec.StartLine, rec.EndLine,
-		rec.Symbol, cwe, rec.Description, rec.Impact, rec.AttackVector, rec.Remediation,
-		references, rec.SourceAgent, rec.ScanStep, rec.Score, status, rec.DuplicateOf,
-		occurrences, raw)
-	out, err := scanSecurityFindingRow(row, &created)
+	out, created, err := s.upsertSecurityFindingTx(ctx, tx, rec, status, occurrences, cwe, references, raw, sourceKind, correlated)
 	if err != nil {
-		return nil, false, fmt.Errorf("upserting security finding: %w", err)
+		return nil, false, err
 	}
 
-	if !created {
-		detail, err := json.Marshal(map[string]string{"scan_name": rec.ScanName, "run_name": rec.RunName})
-		if err != nil {
-			return nil, false, fmt.Errorf("encoding reobserved detail: %w", err)
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO security_finding_events (finding_id, event_type, actor, detail)
-			VALUES ($1, 'reobserved', $2, $3)`, out.ID, rec.SourceAgent, detail); err != nil {
-			return nil, false, fmt.Errorf("recording reobserved event: %w", err)
-		}
+	// One observation row per report per run: the deterministic input for
+	// scan-to-scan baseline comparison.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO security_finding_observations (namespace, scan_name, repository, fingerprint,
+			run_name, revision, severity)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		rec.Namespace, rec.ScanName, rec.Repository, rec.Fingerprint,
+		rec.RunName, rec.Revision, out.Severity); err != nil {
+		return nil, false, fmt.Errorf("recording finding observation: %w", err)
 	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, false, fmt.Errorf("committing finding upsert: %w", err)
 	}
 	return out, created, nil
+}
+
+const selectSecurityFindingForUpdateSQL = `
+	SELECT ` + securityFindingColumns + `
+	FROM security_findings
+	WHERE namespace = $1 AND scan_name = $2 AND repository = $3 AND fingerprint = $4
+	FOR UPDATE`
+
+// upsertSecurityFindingTx locks the finding keyed by (namespace, scan_name,
+// repository, fingerprint) and either inserts a fresh row (baseline "new")
+// or merges the reobservation into it, classifying the baseline state and
+// appending the matching audit event.
+func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *store.SecurityFindingRecord,
+	status string, occurrences int32, cwe, references []string, raw json.RawMessage,
+	sourceKind string, correlated []string) (*store.SecurityFindingRecord, bool, error) {
+	existing, err := scanSecurityFindingRow(tx.QueryRow(ctx, selectSecurityFindingForUpdateSQL,
+		rec.Namespace, rec.ScanName, rec.Repository, rec.Fingerprint))
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, fmt.Errorf("locking security finding: %w", err)
+	}
+
+	if existing == nil {
+		// ON CONFLICT DO NOTHING guards the race where a concurrent
+		// transaction inserts the same key between our lock probe and this
+		// insert: we then re-probe (blocking on their lock) and merge.
+		row := tx.QueryRow(ctx, `
+			INSERT INTO security_findings (scan_id, namespace, scan_name, run_name, session_id,
+				fingerprint, title, category, severity, confidence, repository, revision, file_path,
+				start_line, end_line, symbol, cwe, description, impact, attack_vector, remediation,
+				references_urls, source_agent, scan_step, score, status, duplicate_of, occurrences,
+				raw, baseline_state, source_kind, tool, tool_version, rule_id, correlated_fingerprints)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+				$19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
+			ON CONFLICT (namespace, scan_name, repository, fingerprint) DO NOTHING
+			RETURNING `+securityFindingColumns,
+			rec.ScanID, rec.Namespace, rec.ScanName, rec.RunName, rec.SessionID,
+			rec.Fingerprint, rec.Title, rec.Category, rec.Severity, rec.Confidence,
+			rec.Repository, rec.Revision, rec.FilePath, rec.StartLine, rec.EndLine,
+			rec.Symbol, cwe, rec.Description, rec.Impact, rec.AttackVector, rec.Remediation,
+			references, rec.SourceAgent, rec.ScanStep, rec.Score, status, rec.DuplicateOf,
+			occurrences, raw, store.SecurityFindingBaselineNew,
+			sourceKind, rec.Tool, rec.ToolVersion, rec.RuleID, correlated)
+		out, err := scanSecurityFindingRow(row)
+		if err == nil {
+			return out, true, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, fmt.Errorf("inserting security finding: %w", err)
+		}
+		existing, err = scanSecurityFindingRow(tx.QueryRow(ctx, selectSecurityFindingForUpdateSQL,
+			rec.Namespace, rec.ScanName, rec.Repository, rec.Fingerprint))
+		if err != nil {
+			return nil, false, fmt.Errorf("re-locking security finding after insert race: %w", err)
+		}
+	}
+
+	merge := classifySecurityFindingReobservation(existing, rec.Severity)
+
+	// Provenance columns are refreshed from the reobservation (an identical
+	// fingerprint implies the same source identity), but
+	// correlated_fingerprints is deliberately NOT touched: recorded
+	// correlations survive reobservation and change only via
+	// CorrelateSecurityFindings.
+	row := tx.QueryRow(ctx, `
+		UPDATE security_findings SET
+			scan_id = $2,
+			scan_name = $3,
+			run_name = $4,
+			session_id = $5,
+			title = $6,
+			category = $7,
+			severity = $8,
+			confidence = $9,
+			revision = $10,
+			file_path = $11,
+			start_line = $12,
+			end_line = $13,
+			symbol = $14,
+			cwe = $15,
+			description = $16,
+			impact = $17,
+			attack_vector = $18,
+			remediation = $19,
+			references_urls = $20,
+			source_agent = $21,
+			scan_step = $22,
+			score = GREATEST(score, $23),
+			raw = $24,
+			status = $25,
+			baseline_state = $26,
+			resolved_at = CASE WHEN $27 THEN NULL ELSE resolved_at END,
+			accepted_risk_expires_at = CASE WHEN $28 THEN NULL ELSE accepted_risk_expires_at END,
+			source_kind = $29,
+			tool = $30,
+			tool_version = $31,
+			rule_id = $32,
+			occurrences = occurrences + 1,
+			last_seen_at = now()
+		WHERE id = $1
+		RETURNING `+securityFindingColumns,
+		existing.ID, rec.ScanID, rec.ScanName, rec.RunName, rec.SessionID,
+		rec.Title, rec.Category, merge.severity, rec.Confidence, rec.Revision,
+		rec.FilePath, rec.StartLine, rec.EndLine, rec.Symbol, cwe,
+		rec.Description, rec.Impact, rec.AttackVector, rec.Remediation, references,
+		rec.SourceAgent, rec.ScanStep, rec.Score, raw,
+		merge.status, merge.baseline, merge.clearResolved, merge.clearExpiry,
+		sourceKind, rec.Tool, rec.ToolVersion, rec.RuleID)
+	out, err := scanSecurityFindingRow(row)
+	if err != nil {
+		return nil, false, fmt.Errorf("merging security finding: %w", err)
+	}
+
+	detail, err := json.Marshal(merge.eventDetail(rec.ScanName, rec.RunName))
+	if err != nil {
+		return nil, false, fmt.Errorf("encoding %s detail: %w", merge.eventType, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO security_finding_events (finding_id, event_type, actor, detail)
+		VALUES ($1, $2, $3, $4)`, out.ID, merge.eventType, rec.SourceAgent, detail); err != nil {
+		return nil, false, fmt.Errorf("recording %s event: %w", merge.eventType, err)
+	}
+	return out, false, nil
+}
+
+// securityFindingMerge is the outcome of classifying one reobservation of an
+// existing finding.
+type securityFindingMerge struct {
+	severity      string
+	status        string
+	fromStatus    string
+	fromSeverity  string
+	baseline      string
+	eventType     string
+	clearResolved bool
+	clearExpiry   bool
+}
+
+// classifySecurityFindingReobservation decides how a reobservation merges
+// into the stored finding.
+//
+// "Materially changed" evidence is defined as a severity increase: the
+// fingerprint pins the finding's evidence and location identity (a change in
+// either produces a new fingerprint and therefore a new row), so under an
+// identical fingerprint the only merge-visible material signal is severity.
+//
+// Rules:
+//   - stored baseline resolved  -> reopened (resolved_at cleared)
+//   - stored status fixed       -> regresses to open (evidence reappeared)
+//   - false_positive / accepted_risk -> sticky, UNLESS the severity
+//     increased, in which case the suppression regresses to open (the prior
+//     decision stays in the audit history)
+//   - anything else             -> recurring, status preserved
+func classifySecurityFindingReobservation(existing *store.SecurityFindingRecord, incomingSeverity string) securityFindingMerge {
+	m := securityFindingMerge{
+		severity:     existing.Severity,
+		status:       existing.Status,
+		fromStatus:   existing.Status,
+		fromSeverity: existing.Severity,
+		baseline:     store.SecurityFindingBaselineRecurring,
+		eventType:    "reobserved",
+	}
+	material := securitySeverityRank(incomingSeverity) > securitySeverityRank(existing.Severity)
+	if material {
+		m.severity = incomingSeverity
+	}
+
+	regressed := existing.Status == store.SecurityFindingStatusFixed ||
+		((existing.Status == store.SecurityFindingStatusFalsePositive ||
+			existing.Status == store.SecurityFindingStatusAcceptedRisk) && material)
+
+	wasResolved := existing.BaselineState == store.SecurityFindingBaselineResolved || existing.ResolvedAt != nil
+	if wasResolved {
+		m.baseline = store.SecurityFindingBaselineReopened
+		m.eventType = "reopened"
+		m.clearResolved = true
+	} else if regressed {
+		m.baseline = store.SecurityFindingBaselineRegressed
+		m.eventType = "regressed"
+	}
+	if regressed {
+		m.status = store.SecurityFindingStatusOpen
+		m.clearExpiry = existing.Status == store.SecurityFindingStatusAcceptedRisk
+	}
+	return m
+}
+
+// eventDetail builds the audit detail payload for the merge's event.
+func (m securityFindingMerge) eventDetail(scanName, runName string) map[string]string {
+	detail := map[string]string{"scan_name": scanName, "run_name": runName}
+	if m.eventType == "reobserved" {
+		return detail
+	}
+	detail["from_status"] = m.fromStatus
+	detail["to_status"] = m.status
+	if m.severity != m.fromSeverity {
+		detail["severity_from"] = m.fromSeverity
+		detail["severity_to"] = m.severity
+		detail["reason"] = "severity_increased"
+	}
+	return detail
+}
+
+const selectSecurityFindingCorrelationSQL = `
+	SELECT id, fingerprint, correlated_fingerprints
+	FROM security_findings
+	WHERE namespace = $1 AND scan_name = $2 AND repository = $3 AND fingerprint = $4
+	FOR UPDATE`
+
+// CorrelateSecurityFindings records a two-way cross-reference between the
+// two findings: each side's correlated_fingerprints gains the other's
+// fingerprint and a "correlated" event is appended for any side that
+// changed. Neither row's content, provenance, or status is otherwise
+// touched, so a correlated pair keeps both sources intact. Idempotent.
+func (s *Store) CorrelateSecurityFindings(ctx context.Context, namespace, scanName, repository, fingerprintA, fingerprintB, reason, actor string) (bool, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return false, err
+	}
+	if fingerprintA == "" || fingerprintB == "" || fingerprintA == fingerprintB {
+		return false, errors.New("two distinct fingerprints are required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("beginning finding correlation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	type side struct {
+		id         uuid.UUID
+		fp         string
+		correlated []string
+	}
+	// Lock both rows in deterministic fingerprint order so concurrent
+	// correlations of the same pair cannot deadlock.
+	fps := []string{fingerprintA, fingerprintB}
+	if fps[1] < fps[0] {
+		fps[0], fps[1] = fps[1], fps[0]
+	}
+	sides := make([]side, 0, 2)
+	for _, fp := range fps {
+		var sd side
+		sd.fp = fp
+		err := tx.QueryRow(ctx, selectSecurityFindingCorrelationSQL,
+			namespace, scanName, repository, fp).Scan(&sd.id, &sd.fp, &sd.correlated)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, store.ErrSecurityFindingNotFound
+		}
+		if err != nil {
+			return false, fmt.Errorf("locking finding for correlation: %w", err)
+		}
+		sides = append(sides, sd)
+	}
+
+	changed := false
+	for i, sd := range sides {
+		other := sides[1-i]
+		if slices.Contains(sd.correlated, other.fp) {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE security_findings
+			SET correlated_fingerprints = array_append(correlated_fingerprints, $2)
+			WHERE id = $1`, sd.id, other.fp); err != nil {
+			return false, fmt.Errorf("recording finding correlation: %w", err)
+		}
+		detail, err := json.Marshal(map[string]string{
+			"correlated_fingerprint": other.fp,
+			"reason":                 reason,
+			"scan_name":              scanName,
+		})
+		if err != nil {
+			return false, fmt.Errorf("encoding correlation detail: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO security_finding_events (finding_id, event_type, actor, note, detail)
+			VALUES ($1, 'correlated', $2, $3, $4)`, sd.id, actor, reason, detail); err != nil {
+			return false, fmt.Errorf("recording correlation event: %w", err)
+		}
+		changed = true
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("committing finding correlation: %w", err)
+	}
+	return changed, nil
 }
 
 func (s *Store) ListSecurityFindings(ctx context.Context, f store.SecurityFindingFilter) ([]store.SecurityFindingRecord, error) {
@@ -379,17 +663,23 @@ func (s *Store) GetSecurityFinding(ctx context.Context, namespace string, id uui
 }
 
 const setSecurityFindingStatusSQL = `
-	UPDATE security_findings f SET status = $3
+	UPDATE security_findings f SET
+		status = $3,
+		accepted_risk_expires_at = $4,
+		triaged_at = CASE WHEN $3 <> 'open' THEN COALESCE(f.triaged_at, now()) ELSE f.triaged_at END
 	FROM security_findings prev
 	WHERE f.namespace = $1 AND f.id = $2 AND prev.id = f.id
 	RETURNING prev.status`
 
-func (s *Store) SetSecurityFindingStatus(ctx context.Context, namespace string, id uuid.UUID, status, actor, note string) error {
+func (s *Store) SetSecurityFindingStatus(ctx context.Context, namespace string, id uuid.UUID, status, actor, note string, acceptedRiskExpiresAt *time.Time) error {
 	if err := requireSecurityNamespace(namespace); err != nil {
 		return err
 	}
 	if !store.ValidSecurityFindingStatus(status) {
 		return fmt.Errorf("invalid security finding status %q", status)
+	}
+	if acceptedRiskExpiresAt != nil && status != store.SecurityFindingStatusAcceptedRisk {
+		return fmt.Errorf("accepted-risk expiry requires status %q, got %q", store.SecurityFindingStatusAcceptedRisk, status)
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -397,8 +687,14 @@ func (s *Store) SetSecurityFindingStatus(ctx context.Context, namespace string, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// A non-accepted_risk status always clears a stored expiry so a stale
+	// deadline can never re-open a finding that was re-triaged.
+	var expiry *time.Time
+	if status == store.SecurityFindingStatusAcceptedRisk {
+		expiry = acceptedRiskExpiresAt
+	}
 	var previous string
-	err = tx.QueryRow(ctx, setSecurityFindingStatusSQL, namespace, id, status).Scan(&previous)
+	err = tx.QueryRow(ctx, setSecurityFindingStatusSQL, namespace, id, status, expiry).Scan(&previous)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.ErrSecurityFindingNotFound
 	}
@@ -406,7 +702,11 @@ func (s *Store) SetSecurityFindingStatus(ctx context.Context, namespace string, 
 		return fmt.Errorf("updating security finding status: %w", err)
 	}
 
-	detail, err := json.Marshal(map[string]string{"from": previous, "to": status})
+	detailMap := map[string]string{"from": previous, "to": status}
+	if expiry != nil {
+		detailMap["accepted_risk_expires_at"] = expiry.UTC().Format(time.RFC3339)
+	}
+	detail, err := json.Marshal(detailMap)
 	if err != nil {
 		return fmt.Errorf("encoding status detail: %w", err)
 	}
@@ -452,28 +752,77 @@ func (s *Store) ListSecurityFindingEvents(ctx context.Context, namespace string,
 	return out, nil
 }
 
+// addSecurityFindingCommentSQL inserts the comment only when the finding
+// exists in the caller's namespace, so a comment can never be attached to a
+// foreign finding by guessing its UUID.
+const addSecurityFindingCommentSQL = `
+	INSERT INTO security_finding_events (finding_id, event_type, actor, note)
+	SELECT f.id, 'comment', $3, $4
+	FROM security_findings f
+	WHERE f.namespace = $1 AND f.id = $2
+	RETURNING id, finding_id, event_type, actor, note, detail, created_at`
+
+func (s *Store) AddSecurityFindingComment(ctx context.Context, namespace string, id uuid.UUID, actor, body string) (*store.SecurityFindingEvent, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	var ev store.SecurityFindingEvent
+	err := s.pool.QueryRow(ctx, addSecurityFindingCommentSQL, namespace, id, actor, body).
+		Scan(&ev.ID, &ev.FindingID, &ev.EventType, &ev.Actor, &ev.Note, &ev.Detail, &ev.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, store.ErrSecurityFindingNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("adding security finding comment: %w", err)
+	}
+	return &ev, nil
+}
+
 // newSecurityFindingSummary returns a summary map pre-seeded with the fixed
 // keys so callers can gate on them even when no findings match.
 func newSecurityFindingSummary() map[string]int32 {
 	return map[string]int32{
-		"total": 0, "open": 0,
+		"total": 0, "open": 0, "suppressed": 0,
 		"open_critical": 0, "open_high": 0, "open_medium": 0, "open_low": 0, "open_info": 0,
+		"baseline_new": 0, "baseline_recurring": 0, "baseline_regressed": 0,
+		"baseline_resolved": 0, "baseline_reopened": 0, "baseline_tracked": 0,
+		"source_agent": 0, "source_scanner": 0, "correlated": 0,
 	}
 }
 
-// addSecurityFindingSummaryCount folds one (severity, status, count) group
-// into the summary, maintaining the per-severity, total, open, and
-// open_<severity> keys.
-func addSecurityFindingSummaryCount(summary map[string]int32, severity, status string, count int32) {
+// addSecurityFindingSummaryCount folds one (severity, status, baseline,
+// sourceKind, correlated, suppressed, count) group into the summary.
+// Suppressed findings only bump the "suppressed" key unless
+// includeSuppressed is true, in which case they are folded into every count
+// as well.
+func addSecurityFindingSummaryCount(summary map[string]int32, severity, status, baseline, sourceKind string, correlated, suppressed bool, includeSuppressed bool, count int32) {
+	if suppressed {
+		summary["suppressed"] += count
+		if !includeSuppressed {
+			return
+		}
+	}
 	summary[severity] += count
 	summary["total"] += count
 	if status == store.SecurityFindingStatusOpen {
 		summary["open"] += count
 		summary["open_"+severity] += count
 	}
+	if baseline != "" {
+		summary["baseline_"+baseline] += count
+		summary["baseline_tracked"] += count
+	}
+	if sourceKind == "scanner" {
+		summary["source_scanner"] += count
+	} else {
+		summary["source_agent"] += count
+	}
+	if correlated {
+		summary["correlated"] += count
+	}
 }
 
-func (s *Store) SummarizeSecurityFindings(ctx context.Context, namespace, scanName, runName string) (map[string]int32, error) {
+func (s *Store) SummarizeSecurityFindings(ctx context.Context, namespace, scanName, runName string, includeSuppressed bool) (map[string]int32, error) {
 	where := "WHERE namespace = $1 AND duplicate_of IS NULL"
 	args := []any{namespace}
 	if scanName != "" {
@@ -485,22 +834,25 @@ func (s *Store) SummarizeSecurityFindings(ctx context.Context, namespace, scanNa
 		where += fmt.Sprintf(" AND run_name = $%d", len(args))
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT severity, status, COUNT(*)
+		SELECT severity, status, COALESCE(baseline_state, ''), source_kind,
+			cardinality(correlated_fingerprints) > 0, suppressed_by IS NOT NULL, COUNT(*)
 		FROM security_findings
 		`+where+`
-		GROUP BY severity, status`, args...)
+		GROUP BY severity, status, baseline_state, source_kind,
+			cardinality(correlated_fingerprints) > 0, suppressed_by IS NOT NULL`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("summarizing security findings: %w", err)
 	}
 	defer rows.Close()
 	summary := newSecurityFindingSummary()
 	for rows.Next() {
-		var severity, status string
+		var severity, status, baseline, sourceKind string
+		var correlated, suppressed bool
 		var count int64
-		if err := rows.Scan(&severity, &status, &count); err != nil {
+		if err := rows.Scan(&severity, &status, &baseline, &sourceKind, &correlated, &suppressed, &count); err != nil {
 			return nil, fmt.Errorf("scanning security summary: %w", err)
 		}
-		addSecurityFindingSummaryCount(summary, severity, status, int32(count))
+		addSecurityFindingSummaryCount(summary, severity, status, baseline, sourceKind, correlated, suppressed, includeSuppressed, int32(count))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("summarizing security findings: %w", err)
@@ -531,6 +883,14 @@ func (s *Store) DeleteSecurityScanData(ctx context.Context, namespace, scanName 
 	if _, err := tx.Exec(ctx, deleteSecurityFindingsByScanSQL, namespace, scanName); err != nil {
 		return fmt.Errorf("deleting security findings: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM security_finding_observations WHERE namespace = $1 AND scan_name = $2`, namespace, scanName); err != nil {
+		return fmt.Errorf("deleting security finding observations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM security_notification_markers WHERE namespace = $1 AND scan_name = $2`, namespace, scanName); err != nil {
+		return fmt.Errorf("deleting security notification markers: %w", err)
+	}
 	if _, err := tx.Exec(ctx, deleteSecurityScansByScanSQL, namespace, scanName); err != nil {
 		return fmt.Errorf("deleting security scans: %w", err)
 	}
@@ -541,3 +901,54 @@ func (s *Store) DeleteSecurityScanData(ctx context.Context, namespace, scanName 
 }
 
 var _ store.SecurityFindingStore = (*Store)(nil)
+
+// ClaimSecurityNotifications inserts markers for the fingerprints and
+// returns the ones newly claimed. Already-marked fingerprints are skipped, so
+// a finding never notifies twice for the same rule/channel.
+func (s *Store) ClaimSecurityNotifications(ctx context.Context, namespace, scanName, ruleKey string, fingerprints []string) ([]string, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	if len(fingerprints) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		INSERT INTO security_notification_markers (namespace, scan_name, rule_key, fingerprint)
+		SELECT $1, $2, $3, fp FROM unnest($4::text[]) AS fp
+		ON CONFLICT DO NOTHING
+		RETURNING fingerprint`, namespace, scanName, ruleKey, fingerprints)
+	if err != nil {
+		return nil, fmt.Errorf("claiming security notification markers: %w", err)
+	}
+	defer rows.Close()
+	var claimed []string
+	for rows.Next() {
+		var fp string
+		if err := rows.Scan(&fp); err != nil {
+			return nil, fmt.Errorf("scanning claimed notification marker: %w", err)
+		}
+		claimed = append(claimed, fp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading claimed notification markers: %w", err)
+	}
+	return claimed, nil
+}
+
+// ReleaseSecurityNotifications removes markers so a failed delivery can be
+// retried. Idempotent.
+func (s *Store) ReleaseSecurityNotifications(ctx context.Context, namespace, scanName, ruleKey string, fingerprints []string) error {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return err
+	}
+	if len(fingerprints) == 0 {
+		return nil
+	}
+	if _, err := s.pool.Exec(ctx, `
+		DELETE FROM security_notification_markers
+		WHERE namespace = $1 AND scan_name = $2 AND rule_key = $3 AND fingerprint = ANY($4::text[])`,
+		namespace, scanName, ruleKey, fingerprints); err != nil {
+		return fmt.Errorf("releasing security notification markers: %w", err)
+	}
+	return nil
+}

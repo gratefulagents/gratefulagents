@@ -181,6 +181,8 @@ func (h *GitHubWebhookHandler) dispatchEvent(ctx context.Context, gh *triggersv1
 		return h.handleIssuesEvent(ctx, gh, h.Reconciler, body)
 	case "pull_request":
 		return h.handlePullRequestEvent(ctx, gh, body)
+	case "push":
+		return h.handlePushEvent(ctx, gh, body)
 	case "pull_request_review":
 		return h.handlePullRequestReviewEvent(ctx, gh, body)
 	case "pull_request_review_comment":

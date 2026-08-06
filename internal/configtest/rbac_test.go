@@ -20,7 +20,11 @@ var dashboardManagedResources = []string{
 	"crons",
 	"githubrepositories",
 	"projects",
+	"securitypolicypacks",
+	"securitypostscripts",
+	"securityrankers",
 	"securityscans",
+	"securityworkflows",
 }
 
 type clusterRoleDocument struct {
