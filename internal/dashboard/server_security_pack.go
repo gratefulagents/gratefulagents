@@ -33,6 +33,7 @@ const (
 	securityPackKindRanker     = "SecurityRanker"
 	securityPackKindPostScript = "SecurityPostScript"
 	securityPackKindScan       = "SecurityScan"
+	securityPackKindPolicyPack = "SecurityPolicyPack"
 )
 
 // securityPackDocument is the on-the-wire JSON pack format. Specs are the
@@ -71,7 +72,7 @@ func (s *Server) ExportSecurityPack(ctx context.Context, req *platform.ExportSec
 	if err != nil {
 		return nil, err
 	}
-	total := len(req.GetWorkflows()) + len(req.GetRankers()) + len(req.GetPostScripts()) + len(req.GetScanConfigs())
+	total := len(req.GetWorkflows()) + len(req.GetRankers()) + len(req.GetPostScripts()) + len(req.GetScanConfigs()) + len(req.GetPolicyPacks())
 	if total == 0 {
 		return nil, invalidArgument("select at least one resource to export")
 	}
@@ -121,6 +122,15 @@ func (s *Server) ExportSecurityPack(ctx context.Context, req *platform.ExportSec
 			return nil, mapK8sError(fmt.Sprintf("get SecurityPostScript %s/%s", namespace, name), err)
 		}
 		if err := appendItem(securityPackKindPostScript, name, cr.Spec); err != nil {
+			return nil, err
+		}
+	}
+	for _, name := range dedupeSortedNames(req.GetPolicyPacks()) {
+		cr := &triggersv1alpha1.SecurityPolicyPack{}
+		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cr); err != nil {
+			return nil, mapK8sError(fmt.Sprintf("get SecurityPolicyPack %s/%s", namespace, name), err)
+		}
+		if err := appendItem(securityPackKindPolicyPack, name, cr.Spec); err != nil {
 			return nil, err
 		}
 	}
@@ -215,6 +225,7 @@ func decodeSecurityPackItem(item securityPackItem, namespace string) (decodedSec
 			return decoded, fmt.Errorf("invalid SecurityWorkflow spec: %w", err)
 		}
 		decoded.errs = triggersv1alpha1.ValidateSecurityWorkflowTasks(spec.Tasks)
+		decoded.errs = append(decoded.errs, securityWorkflowParameterErrors(spec.Parameters)...)
 		if parallelism := spec.Parallelism; parallelism != 0 && (parallelism < 1 || parallelism > 16) {
 			decoded.errs = append(decoded.errs, triggersv1alpha1.SecurityWorkflowFieldError{
 				Field: "parallelism", Message: fmt.Sprintf("parallelism %d out of range (want 0 for none, or 1-16)", parallelism),
@@ -243,6 +254,16 @@ func decodeSecurityPackItem(item securityPackItem, namespace string) (decodedSec
 		decoded.probe = func(string) client.Object { return &triggersv1alpha1.SecurityPostScript{} }
 		decoded.buildCR = func(name string) client.Object {
 			return &triggersv1alpha1.SecurityPostScript{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec}
+		}
+	case securityPackKindPolicyPack:
+		var spec triggersv1alpha1.SecurityPolicyPackSpec
+		if err := json.Unmarshal(item.Spec, &spec); err != nil {
+			return decoded, fmt.Errorf("invalid SecurityPolicyPack spec: %w", err)
+		}
+		decoded.errs = triggersv1alpha1.ValidateSecurityPolicyPackSpec(spec)
+		decoded.probe = func(string) client.Object { return &triggersv1alpha1.SecurityPolicyPack{} }
+		decoded.buildCR = func(name string) client.Object {
+			return &triggersv1alpha1.SecurityPolicyPack{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: spec}
 		}
 	case securityPackKindScan:
 		var spec triggersv1alpha1.SecurityScanSpec
@@ -412,7 +433,37 @@ func validateImportedSecurityScanSpec(spec *triggersv1alpha1.SecurityScanSpec) [
 	if _, err := securityScanConcurrencyPolicy(string(spec.ConcurrencyPolicy)); err != nil {
 		add("concurrencyPolicy", "%v", err)
 	}
+	if e := spec.Execution; e != nil {
+		switch e.Mode {
+		case "", triggersv1alpha1.SecurityScanExecutionModeCoordinator, triggersv1alpha1.SecurityScanExecutionModeDeterministic:
+		default:
+			add("execution.mode", "invalid mode %q (want coordinator or deterministic)", e.Mode)
+		}
+		if e.TaskMaxRetries != nil && (*e.TaskMaxRetries < 0 || *e.TaskMaxRetries > 10) {
+			add("execution.taskMaxRetries", "taskMaxRetries %d out of range (want 0-10)", *e.TaskMaxRetries)
+		}
+		if e.RetryBackoff.Duration < 0 {
+			add("execution.retryBackoff", "retryBackoff must not be negative")
+		}
+	}
+	if len(spec.ParameterValues) > 32 {
+		add("parameterValues", "at most 32 entries are allowed, got %d", len(spec.ParameterValues))
+	}
+	for _, name := range sortedKeys(spec.ParameterValues) {
+		if len(name) > 63 || !securityScanParameterNamePattern.MatchString(name) {
+			add("parameterValues", "invalid parameter name %q (want an identifier like snake_case, at most 63 characters)", name)
+		}
+	}
 	return errs
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func dedupeSortedNames(names []string) []string {

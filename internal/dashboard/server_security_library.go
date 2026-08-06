@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -110,20 +111,150 @@ func securityLibraryInvalidArgument(errs []triggersv1alpha1.SecurityWorkflowFiel
 
 // --- SecurityWorkflow ---
 
-func securityWorkflowTasksFromProto(pbTasks []*platform.SecurityScanTaskConfig) []triggersv1alpha1.SecurityScanTask {
+// securityScanTaskToolsFromProto converts a task tool policy; an absent or
+// empty policy yields nil (no narrowing).
+func securityScanTaskToolsFromProto(pb *platform.SecurityScanTaskTools) *triggersv1alpha1.SecurityScanTaskTools {
+	if pb == nil {
+		return nil
+	}
+	tools := &triggersv1alpha1.SecurityScanTaskTools{
+		Allowed: append([]string(nil), pb.GetAllowed()...),
+		Denied:  append([]string(nil), pb.GetDenied()...),
+	}
+	if len(tools.Allowed) == 0 && len(tools.Denied) == 0 {
+		return nil
+	}
+	return tools
+}
+
+// securityWorkflowTasksFromProto converts workflow tasks for validation with
+// ValidateSecurityWorkflowTasks. Problems the conversion itself detects
+// (unparseable timeout, negative max_turns) come back as structured field
+// errors alongside the tasks.
+func securityWorkflowTasksFromProto(
+	pbTasks []*platform.SecurityScanTaskConfig,
+) ([]triggersv1alpha1.SecurityScanTask, []triggersv1alpha1.SecurityWorkflowFieldError) {
 	tasks := make([]triggersv1alpha1.SecurityScanTask, 0, len(pbTasks))
-	for _, t := range pbTasks {
-		tasks = append(tasks, triggersv1alpha1.SecurityScanTask{
-			Name:        strings.TrimSpace(t.GetName()),
-			Objective:   t.GetObjective(),
-			Category:    strings.TrimSpace(t.GetCategory()),
-			DependsOn:   trimmedNonEmpty(t.GetDependsOn()),
-			Role:        strings.TrimSpace(t.GetRole()),
-			Model:       strings.TrimSpace(t.GetModel()),
-			MaxFindings: t.GetMaxFindings(),
+	var errs []triggersv1alpha1.SecurityWorkflowFieldError
+	for i, t := range pbTasks {
+		task := triggersv1alpha1.SecurityScanTask{
+			Name:         strings.TrimSpace(t.GetName()),
+			Objective:    t.GetObjective(),
+			Category:     strings.TrimSpace(t.GetCategory()),
+			DependsOn:    trimmedNonEmpty(t.GetDependsOn()),
+			Role:         strings.TrimSpace(t.GetRole()),
+			Model:        strings.TrimSpace(t.GetModel()),
+			MaxFindings:  t.GetMaxFindings(),
+			MaxTurns:     t.GetMaxTurns(),
+			MaxCostUSD:   strings.TrimSpace(t.GetMaxCostUsd()),
+			Tools:        securityScanTaskToolsFromProto(t.GetTools()),
+			OutputSchema: strings.TrimSpace(t.GetOutputSchema()),
+			ForEach:      strings.TrimSpace(t.GetForEach()),
+			MaxInstances: t.GetMaxInstances(),
+			Repeats:      t.GetRepeats(),
+		}
+		if t.MaxRetries != nil {
+			retries := t.GetMaxRetries()
+			task.MaxRetries = &retries
+		}
+		if task.MaxTurns < 0 {
+			errs = append(errs, triggersv1alpha1.SecurityWorkflowFieldError{
+				Field:   fmt.Sprintf("tasks[%d].maxTurns", i),
+				Message: fmt.Sprintf("task %q maxTurns must not be negative", task.Name),
+			})
+		}
+		if value := strings.TrimSpace(t.GetTimeout()); value != "" {
+			d, err := time.ParseDuration(value)
+			if err != nil {
+				errs = append(errs, triggersv1alpha1.SecurityWorkflowFieldError{
+					Field:   fmt.Sprintf("tasks[%d].timeout", i),
+					Message: fmt.Sprintf("invalid timeout %q (want a Go duration like \"30m\")", value),
+				})
+			} else {
+				task.Timeout = metav1.Duration{Duration: d}
+			}
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, errs
+}
+
+// securityScanTaskToProto converts one workflow task for the scan-config and
+// workflow-library protos.
+func securityScanTaskToProto(t triggersv1alpha1.SecurityScanTask) *platform.SecurityScanTaskConfig {
+	pb := &platform.SecurityScanTaskConfig{
+		Name:         t.Name,
+		Objective:    t.Objective,
+		Category:     t.Category,
+		DependsOn:    append([]string(nil), t.DependsOn...),
+		Role:         t.Role,
+		Model:        t.Model,
+		MaxFindings:  t.MaxFindings,
+		MaxTurns:     t.MaxTurns,
+		MaxCostUsd:   t.MaxCostUSD,
+		OutputSchema: t.OutputSchema,
+		ForEach:      t.ForEach,
+		MaxInstances: t.MaxInstances,
+		Repeats:      t.Repeats,
+	}
+	if t.MaxRetries != nil {
+		retries := *t.MaxRetries
+		pb.MaxRetries = &retries
+	}
+	if t.Timeout.Duration != 0 {
+		pb.Timeout = t.Timeout.Duration.String()
+	}
+	if t.Tools != nil {
+		pb.Tools = &platform.SecurityScanTaskTools{
+			Allowed: append([]string(nil), t.Tools.Allowed...),
+			Denied:  append([]string(nil), t.Tools.Denied...),
+		}
+	}
+	return pb
+}
+
+func securityWorkflowParametersFromProto(pbParams []*platform.SecurityWorkflowParameter) []triggersv1alpha1.SecurityWorkflowParameter {
+	if len(pbParams) == 0 {
+		return nil
+	}
+	params := make([]triggersv1alpha1.SecurityWorkflowParameter, 0, len(pbParams))
+	for _, p := range pbParams {
+		params = append(params, triggersv1alpha1.SecurityWorkflowParameter{
+			Name:        strings.TrimSpace(p.GetName()),
+			Description: strings.TrimSpace(p.GetDescription()),
+			Default:     p.GetDefault(),
+			Required:    p.GetRequired(),
 		})
 	}
-	return tasks
+	return params
+}
+
+func securityWorkflowParametersToProto(params []triggersv1alpha1.SecurityWorkflowParameter) []*platform.SecurityWorkflowParameter {
+	if len(params) == 0 {
+		return nil
+	}
+	pbParams := make([]*platform.SecurityWorkflowParameter, 0, len(params))
+	for _, p := range params {
+		pbParams = append(pbParams, &platform.SecurityWorkflowParameter{
+			Name:        p.Name,
+			Description: p.Description,
+			Default:     p.Default,
+			Required:    p.Required,
+		})
+	}
+	return pbParams
+}
+
+// securityWorkflowParameterErrors validates declared workflow parameters,
+// including the CRD's 32-parameter cap.
+func securityWorkflowParameterErrors(params []triggersv1alpha1.SecurityWorkflowParameter) []triggersv1alpha1.SecurityWorkflowFieldError {
+	var errs []triggersv1alpha1.SecurityWorkflowFieldError
+	if len(params) > 32 {
+		errs = append(errs, triggersv1alpha1.SecurityWorkflowFieldError{
+			Field: "parameters", Message: fmt.Sprintf("a workflow may declare at most 32 parameters, got %d", len(params)),
+		})
+	}
+	return append(errs, triggersv1alpha1.ValidateSecurityWorkflowParameters(params)...)
 }
 
 func securityWorkflowSpecFromProto(pb *platform.SecurityWorkflowResource) (triggersv1alpha1.SecurityWorkflowSpec, error) {
@@ -137,13 +268,17 @@ func securityWorkflowSpecFromProto(pb *platform.SecurityWorkflowResource) (trigg
 		return triggersv1alpha1.SecurityWorkflowSpec{}, invalidArgument(
 			"parallelism %d out of range (want 0 for none, or 1-16)", p)
 	}
-	tasks := securityWorkflowTasksFromProto(pb.GetTasks())
-	if errs := triggersv1alpha1.ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
+	tasks, errs := securityWorkflowTasksFromProto(pb.GetTasks())
+	params := securityWorkflowParametersFromProto(pb.GetParameters())
+	errs = append(errs, triggersv1alpha1.ValidateSecurityWorkflowTasks(tasks)...)
+	errs = append(errs, securityWorkflowParameterErrors(params)...)
+	if len(errs) != 0 {
 		return triggersv1alpha1.SecurityWorkflowSpec{}, securityLibraryInvalidArgument(errs)
 	}
 	return triggersv1alpha1.SecurityWorkflowSpec{
 		Description: strings.TrimSpace(pb.GetDescription()),
 		Tasks:       tasks,
+		Parameters:  params,
 		Parallelism: pb.GetParallelism(),
 	}, nil
 }
@@ -154,21 +289,14 @@ func securityWorkflowToProto(cr *triggersv1alpha1.SecurityWorkflow, referencing 
 		Name:             cr.Name,
 		Description:      cr.Spec.Description,
 		Parallelism:      cr.Spec.Parallelism,
+		Parameters:       securityWorkflowParametersToProto(cr.Spec.Parameters),
 		UsageCount:       int32(len(referencing)), //nolint:gosec // scan counts stay far below int32 bounds
 		ReferencingScans: referencing,
 		Generation:       cr.Generation,
 		CreatedAtUnix:    cr.CreationTimestamp.Unix(),
 	}
 	for _, t := range cr.Spec.Tasks {
-		pb.Tasks = append(pb.Tasks, &platform.SecurityScanTaskConfig{
-			Name:        t.Name,
-			Objective:   t.Objective,
-			Category:    t.Category,
-			DependsOn:   append([]string(nil), t.DependsOn...),
-			Role:        t.Role,
-			Model:       t.Model,
-			MaxFindings: t.MaxFindings,
-		})
+		pb.Tasks = append(pb.Tasks, securityScanTaskToProto(t))
 	}
 	return pb
 }
@@ -306,8 +434,10 @@ func (s *Server) ValidateSecurityWorkflow(ctx context.Context, req *platform.Val
 	if _, err := s.authorizeSecurityLibraryNamespace(ctx, ""); err != nil {
 		return nil, err
 	}
-	tasks := securityWorkflowTasksFromProto(req.GetTasks())
-	errs := triggersv1alpha1.ValidateSecurityWorkflowTasks(tasks)
+	tasks, errs := securityWorkflowTasksFromProto(req.GetTasks())
+	params := securityWorkflowParametersFromProto(req.GetParameters())
+	errs = append(errs, triggersv1alpha1.ValidateSecurityWorkflowTasks(tasks)...)
+	errs = append(errs, securityWorkflowParameterErrors(params)...)
 	if p := req.GetParallelism(); p != 0 && (p < 1 || p > 16) {
 		errs = append(errs, triggersv1alpha1.SecurityWorkflowFieldError{
 			Field:   "parallelism",

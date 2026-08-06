@@ -4292,6 +4292,29 @@ message SecurityScanTaskConfig {
   string role = 5;  // empty = security-reviewer
   string model = 6; // empty = trigger default model
   int32 max_findings = 7; // 0 = unlimited
+  // max_retries is the task's retry budget in deterministic execution
+  // (0-10); absent inherits execution.task_max_retries.
+  optional int32 max_retries = 8;
+  string timeout = 9; // Go duration string, e.g. "30m"; empty = no task limit
+  int32 max_turns = 10; // Per-task model-turn budget; 0 = no task limit
+  string max_cost_usd = 11; // Decimal USD ceiling, e.g. "5" or "2.50"; empty = none
+  // tools narrows (never widens) the task run's tool access.
+  SecurityScanTaskTools tools = 12;
+  // output_schema is a JSON Schema (object form) contract for the task's
+  // structured output; dependents consume it via {{tasks.<name>...}}.
+  string output_schema = 13;
+  // for_each names a dependency task; this task fans out per record of that
+  // task's JSON-array structured output.
+  string for_each = 14;
+  int32 max_instances = 15; // forEach fan-out cap (0 = default 10, max 50)
+  int32 repeats = 16; // Ensemble instances (0/1 = single, max 5)
+}
+
+// SecurityScanTaskTools narrows which tools a task's run may use in
+// deterministic execution; deny wins over allow.
+message SecurityScanTaskTools {
+  repeated string allowed = 1; // non-empty = restrict to these tool names
+  repeated string denied = 2;
 }
 
 // SecurityRankerConfig is operator-authored severity-ranking rule text.
@@ -4385,6 +4408,65 @@ message SecurityScanNotificationState {
   int64 last_notified_at_unix = 5;
 }
 
+// SecurityScanExecutionConfig controls how the scan's workflow DAG is
+// executed (SecurityScanSpec.execution).
+message SecurityScanExecutionConfig {
+  // mode selects the execution engine: "coordinator" (default) seeds a
+  // single orchestrating run that delegates to in-process sub-agents;
+  // "deterministic" compiles the workflow into controller-scheduled
+  // per-task AgentRuns.
+  string mode = 1;
+  // task_max_retries is the default per-task retry budget (0-10) for tasks
+  // without max_retries; absent = 1.
+  optional int32 task_max_retries = 2;
+  // retry_backoff is the base delay before a failed task attempt is
+  // rescheduled, as a Go duration string, e.g. "30s"; empty = default 30s.
+  string retry_backoff = 3;
+}
+
+// SecurityScanTaskAttemptState is one finished failed attempt of a task
+// instance in deterministic execution.
+message SecurityScanTaskAttemptState {
+  string run_name = 1; // AgentRun that served this attempt
+  int64 started_at_unix = 2;
+  int64 finished_at_unix = 3;
+  string reason = 4; // why the attempt failed
+  string class = 5; // retryable | non-retryable
+}
+
+// SecurityScanTaskExecutionState is the observed state of one task instance
+// in deterministic execution.
+message SecurityScanTaskExecutionState {
+  string name = 1; // workflow task name
+  // instance distinguishes forEach fan-out / ensemble-repeat instances of
+  // the same task (0-based).
+  int32 instance = 2;
+  string state = 3; // Pending | Blocked | Running | Succeeded | Failed | Skipped
+  string run_name = 4; // AgentRun currently or most recently serving the task
+  int32 attempts = 5; // Attempts started for this task instance
+  repeated SecurityScanTaskAttemptState retries = 6; // Finished failed attempts
+  int64 next_retry_time_unix = 7; // When the next attempt may be scheduled
+  string last_error = 8; // Most recent failure summary
+  int64 started_at_unix = 9;
+  int64 finished_at_unix = 10;
+}
+
+// SecurityScanExecutionState is the observed state of the most recent
+// deterministic workflow execution (SecurityScanStatus.lastExecution).
+message SecurityScanExecutionState {
+  string id = 1; // External id / run-suffix of the scan invocation
+  string mode = 2; // coordinator | deterministic
+  string phase = 3; // Running | Succeeded | Failed | Resuming
+  int32 effective_parallelism = 4; // Concurrency bound actually applied
+  string effective_parallelism_note = 5; // How the bound was derived
+  repeated SecurityScanTaskExecutionState tasks = 6;
+  int64 started_at_unix = 7;
+  int64 completed_at_unix = 8;
+  // last_resume_token is the most recent resume-scan annotation token the
+  // controller has processed, making resume requests idempotent.
+  string last_resume_token = 9;
+}
+
 // SecurityScanConfigSpec mirrors the operator-configurable SecurityScan CRD
 // spec (api/triggers/v1alpha1 SecurityScanSpec).
 message SecurityScanConfigSpec {
@@ -4430,6 +4512,12 @@ message SecurityScanConfigSpec {
   // budgets caps what each scan run may consume; unset fields inherit the
   // policy pack's budgets. Enforced entirely platform-side.
   SecurityScanBudgetsConfig budgets = 26;
+  // execution controls how the workflow DAG is executed.
+  SecurityScanExecutionConfig execution = 27;
+  // parameter_values are substituted for {{params.<name>}} references in
+  // task objectives; accepted names are declared by the referenced
+  // SecurityWorkflow's parameters (free-form for inline workflows).
+  map<string, string> parameter_values = 28;
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.
@@ -4474,6 +4562,9 @@ message SecurityScanConfig {
   // retention reports the most recent retention sweep for this scan's
   // policy pack retention configuration. Unset when no sweep has run.
   SecurityScanRetentionState retention = 28;
+  // last_execution is the observed state of the most recent deterministic
+  // workflow execution.
+  SecurityScanExecutionState last_execution = 29;
 }
 
 // SecurityScanRetentionState is the most recent retention purge sweep for a
@@ -4537,6 +4628,10 @@ message DeleteSecurityScanRequest {
 message RunSecurityScanNowRequest {
   string namespace = 1;
   string name = 2;
+  // parameter_values, when non-empty, are merged into the scan's
+  // spec.parameterValues (provided keys replace existing values) before the
+  // run is requested.
+  map<string, string> parameter_values = 3;
 }
 
 // SecurityWorkflowResource is one reusable SecurityWorkflow CR. The proto
@@ -4550,6 +4645,10 @@ message SecurityWorkflowResource {
   // parallelism, when non-zero, overrides the referencing scan's parallelism
   // (1-16).
   int32 parallelism = 5;
+  // parameters declares the scan-time inputs substituted for
+  // {{params.<name>}} references in task objectives; scans supply values
+  // via parameter_values.
+  repeated SecurityWorkflowParameter parameters = 6;
   // usage_count is the number of SecurityScans in the namespace referencing
   // this workflow.
   int32 usage_count = 10;
@@ -4557,6 +4656,15 @@ message SecurityWorkflowResource {
   repeated string referencing_scans = 11;
   int64 generation = 12;
   int64 created_at_unix = 13;
+}
+
+// SecurityWorkflowParameter declares one scan-time input substituted for
+// {{params.<name>}} references in task objectives.
+message SecurityWorkflowParameter {
+  string name = 1; // Identifier referenced as {{params.<name>}}
+  string description = 2;
+  string default = 3; // Value used when a scan omits the parameter
+  bool required = 4; // A scan must supply a value (excludes default)
 }
 
 message ListSecurityWorkflowsRequest {
@@ -4596,6 +4704,9 @@ message SecurityWorkflowValidationError {
 message ValidateSecurityWorkflowRequest {
   repeated SecurityScanTaskConfig tasks = 1;
   int32 parallelism = 2;
+  // parameters are the draft's declared scan-time parameters, validated
+  // together with the tasks.
+  repeated SecurityWorkflowParameter parameters = 3;
 }
 
 message ValidateSecurityWorkflowResponse {
@@ -4855,6 +4966,7 @@ message ExportSecurityPackRequest {
   repeated string rankers = 3;
   repeated string post_scripts = 4;
   repeated string scan_configs = 5;
+  repeated string policy_packs = 6;
 }
 
 message ExportSecurityPackResponse {

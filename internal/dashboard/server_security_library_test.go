@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,14 +15,23 @@ import (
 )
 
 func testSecurityWorkflowResource(namespace string) *platform.SecurityWorkflowResource {
+	retries := int32(2)
 	return &platform.SecurityWorkflowResource{
 		Namespace:   namespace,
 		Name:        "payments-workflow",
 		Description: "payments-focused plan",
 		Parallelism: 2,
 		Tasks: []*platform.SecurityScanTaskConfig{
-			{Name: "injection", Objective: "hunt injections", Category: "injection", MaxFindings: 5},
-			{Name: "triage", Objective: "triage findings", Role: "finding-triager", Model: "gpt-5.2", DependsOn: []string{"injection"}},
+			{Name: "injection", Objective: "hunt injections in {{params.target_env}}", Category: "injection", MaxFindings: 5,
+				OutputSchema: `{"type":"array","items":{"type":"object"}}`},
+			{Name: "triage", Objective: "triage findings", Role: "finding-triager", Model: "gpt-5.2",
+				DependsOn: []string{"injection"}, MaxRetries: &retries, Timeout: "30m", MaxTurns: 40,
+				MaxCostUsd: "1.25", ForEach: "injection", MaxInstances: 8,
+				Tools: &platform.SecurityScanTaskTools{Allowed: []string{"grep"}, Denied: []string{"web_fetch"}}},
+		},
+		Parameters: []*platform.SecurityWorkflowParameter{
+			{Name: "target_env", Description: "environment to scan", Default: "prod"},
+			{Name: "focus", Required: true},
 		},
 	}
 }
@@ -46,6 +56,16 @@ func TestSecurityWorkflowCRUDLifecycle(t *testing.T) {
 	if cr.Spec.Parallelism != 2 || cr.Spec.Tasks[1].Role != "finding-triager" || cr.Spec.Tasks[1].DependsOn[0] != "injection" {
 		t.Fatalf("spec = %+v", cr.Spec)
 	}
+	task := cr.Spec.Tasks[1]
+	if task.MaxRetries == nil || *task.MaxRetries != 2 || task.Timeout.Duration != 30*time.Minute ||
+		task.MaxTurns != 40 || task.MaxCostUSD != "1.25" || task.ForEach != "injection" || task.MaxInstances != 8 ||
+		task.Tools == nil || task.Tools.Allowed[0] != "grep" || task.Tools.Denied[0] != "web_fetch" {
+		t.Fatalf("task execution fields = %+v", task)
+	}
+	if len(cr.Spec.Parameters) != 2 || cr.Spec.Parameters[0].Name != "target_env" ||
+		cr.Spec.Parameters[0].Default != "prod" || !cr.Spec.Parameters[1].Required {
+		t.Fatalf("parameters = %+v", cr.Spec.Parameters)
+	}
 
 	got, err := srv.GetSecurityWorkflow(ctx, &platform.GetSecurityWorkflowRequest{Name: "payments-workflow"})
 	if err != nil {
@@ -53,6 +73,16 @@ func TestSecurityWorkflowCRUDLifecycle(t *testing.T) {
 	}
 	if got.UsageCount != 0 || got.Description != "payments-focused plan" {
 		t.Fatalf("got = %+v", got)
+	}
+	pt := got.Tasks[1]
+	if pt.MaxRetries == nil || *pt.MaxRetries != 2 || pt.Timeout != "30m0s" || pt.MaxTurns != 40 ||
+		pt.MaxCostUsd != "1.25" || pt.ForEach != "injection" || pt.MaxInstances != 8 ||
+		pt.Tools == nil || len(pt.Tools.Allowed) != 1 || len(pt.Tools.Denied) != 1 {
+		t.Fatalf("proto task = %+v", pt)
+	}
+	if len(got.Parameters) != 2 || got.Parameters[0].Name != "target_env" || got.Parameters[0].Default != "prod" ||
+		got.Parameters[0].Description != "environment to scan" || !got.Parameters[1].Required {
+		t.Fatalf("proto parameters = %+v", got.Parameters)
 	}
 
 	update := testSecurityWorkflowResource("")
@@ -100,6 +130,24 @@ func TestCreateSecurityWorkflowValidationErrors(t *testing.T) {
 		"negative maxFindings": func(w *platform.SecurityWorkflowResource) { w.Tasks[0].MaxFindings = -1 },
 		"invalid role":         func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Role = "Not A Role" },
 		"invalid parallelism":  func(w *platform.SecurityWorkflowResource) { w.Parallelism = 42 },
+		"bad timeout":          func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Timeout = "banana" },
+		"negative max_turns":   func(w *platform.SecurityWorkflowResource) { w.Tasks[0].MaxTurns = -1 },
+		"bad max_cost_usd":     func(w *platform.SecurityWorkflowResource) { w.Tasks[0].MaxCostUsd = "$5" },
+		"max_retries too high": func(w *platform.SecurityWorkflowResource) { retries := int32(11); w.Tasks[0].MaxRetries = &retries },
+		"tool with whitespace": func(w *platform.SecurityWorkflowResource) {
+			w.Tasks[0].Tools = &platform.SecurityScanTaskTools{Allowed: []string{"bad tool"}}
+		},
+		"forEach with repeats": func(w *platform.SecurityWorkflowResource) { w.Tasks[1].Repeats = 3 },
+		"bad output schema":    func(w *platform.SecurityWorkflowResource) { w.Tasks[0].OutputSchema = "[1,2]" },
+		"bad parameter name": func(w *platform.SecurityWorkflowResource) {
+			w.Parameters = []*platform.SecurityWorkflowParameter{{Name: "not a name"}}
+		},
+		"duplicate parameter names": func(w *platform.SecurityWorkflowResource) {
+			w.Parameters = []*platform.SecurityWorkflowParameter{{Name: "p"}, {Name: "p"}}
+		},
+		"required parameter with default": func(w *platform.SecurityWorkflowResource) {
+			w.Parameters = []*platform.SecurityWorkflowParameter{{Name: "p", Required: true, Default: "x"}}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			workflow := testSecurityWorkflowResource("")
@@ -120,9 +168,13 @@ func TestValidateSecurityWorkflowReturnsStructuredErrors(t *testing.T) {
 		Tasks: []*platform.SecurityScanTaskConfig{
 			{Name: "a", Objective: "task a", DependsOn: []string{"b"}},
 			{Name: "b", Objective: "task b", DependsOn: []string{"a"}},
-			{Name: "b", Objective: ""},
+			{Name: "b", Objective: "", Timeout: "banana"},
 		},
 		Parallelism: 99,
+		Parameters: []*platform.SecurityWorkflowParameter{
+			{Name: "ok_param"},
+			{Name: "bad param"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("ValidateSecurityWorkflow() error = %v", err)
@@ -134,14 +186,15 @@ func TestValidateSecurityWorkflowReturnsStructuredErrors(t *testing.T) {
 	for _, e := range resp.Errors {
 		fields[e.Field] = true
 	}
-	for _, want := range []string{"tasks[2].name", "tasks[2].objective", "parallelism"} {
+	for _, want := range []string{"tasks[2].name", "tasks[2].objective", "tasks[2].timeout", "parallelism", "parameters[1].name"} {
 		if !fields[want] {
 			t.Fatalf("errors missing field %q: %+v", want, resp.Errors)
 		}
 	}
 
 	ok, err := srv.ValidateSecurityWorkflow(ctx, &platform.ValidateSecurityWorkflowRequest{
-		Tasks: []*platform.SecurityScanTaskConfig{{Name: "a", Objective: "task a"}},
+		Tasks:      []*platform.SecurityScanTaskConfig{{Name: "a", Objective: "task a"}},
+		Parameters: []*platform.SecurityWorkflowParameter{{Name: "target_env", Default: "prod"}},
 	})
 	if err != nil {
 		t.Fatalf("ValidateSecurityWorkflow(valid) error = %v", err)
