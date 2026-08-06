@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -185,4 +186,103 @@ func TestDefaultSecurityWorkflowRolesHaveAssets(t *testing.T) {
 			t.Errorf("workflow task %q role %q: %v", task.Name, role, err)
 		}
 	}
+}
+
+// TestDefaultSecurityWorkflowAsset keeps the shipped default-deep-scan
+// workflow asset valid and byte-for-byte in sync with the built-in
+// DefaultSecurityWorkflow() fallback, so the asset and the code path a scan
+// takes without it can never drift apart.
+func TestDefaultSecurityWorkflowAsset(t *testing.T) {
+	t.Parallel()
+
+	var workflow triggersv1alpha1.SecurityWorkflow
+	readBootstrapAsset(t, "securityworkflows", "default-deep-scan", &workflow)
+
+	if workflow.Name != "default-deep-scan" {
+		t.Fatalf("metadata.name = %q, want default-deep-scan", workflow.Name)
+	}
+	if strings.TrimSpace(workflow.Spec.Description) == "" {
+		t.Error("workflow must carry a description")
+	}
+	if errs := triggersv1alpha1.ValidateSecurityWorkflowTasks(workflow.Spec.Tasks); len(errs) != 0 {
+		t.Errorf("tasks fail validation: %v", errs)
+	}
+	if p := workflow.Spec.Parallelism; p != 0 && (p < 1 || p > 16) {
+		t.Errorf("parallelism = %d, want unset or 1-16", p)
+	}
+	if want := triggersv1alpha1.DefaultSecurityWorkflow(); !reflect.DeepEqual(workflow.Spec.Tasks, want) {
+		t.Errorf("asset tasks differ from DefaultSecurityWorkflow():\ngot  %+v\nwant %+v", workflow.Spec.Tasks, want)
+	}
+}
+
+func TestDefaultSecurityRankerAsset(t *testing.T) {
+	t.Parallel()
+
+	var ranker triggersv1alpha1.SecurityRanker
+	readBootstrapAsset(t, "securityrankers", "default-severity", &ranker)
+
+	if ranker.Name != "default-severity" {
+		t.Fatalf("metadata.name = %q, want default-severity", ranker.Name)
+	}
+	if strings.TrimSpace(ranker.Spec.Description) == "" {
+		t.Error("ranker must carry a description")
+	}
+	if errs := triggersv1alpha1.ValidateSecurityRankerRules(ranker.Spec.Rules); len(errs) != 0 {
+		t.Errorf("rules fail validation: %v", errs)
+	}
+}
+
+func TestDefaultSecurityPostScriptAsset(t *testing.T) {
+	t.Parallel()
+
+	var script triggersv1alpha1.SecurityPostScript
+	readBootstrapAsset(t, "securitypostscripts", "validate-finding", &script)
+
+	if script.Name != "validate-finding" {
+		t.Fatalf("metadata.name = %q, want validate-finding", script.Name)
+	}
+	if strings.TrimSpace(script.Spec.Description) == "" {
+		t.Error("post-script must carry a description")
+	}
+	if errs := triggersv1alpha1.ValidateSecurityPostScriptSpec(script.Spec); len(errs) != 0 {
+		t.Errorf("spec fails validation: %v", errs)
+	}
+}
+
+// TestBaselineSecurityPolicyPackAsset validates the shipped baseline policy
+// pack and pins its default refs to the ranker and post-script assets that
+// ship alongside it, so the pack can never reference a resource the
+// bootstrap does not install.
+func TestBaselineSecurityPolicyPackAsset(t *testing.T) {
+	t.Parallel()
+
+	var pack triggersv1alpha1.SecurityPolicyPack
+	readBootstrapAsset(t, "securitypolicypacks", "baseline", &pack)
+
+	if pack.Name != "baseline" {
+		t.Fatalf("metadata.name = %q, want baseline", pack.Name)
+	}
+	if strings.TrimSpace(pack.Spec.Description) == "" {
+		t.Error("pack must carry a description")
+	}
+	if errs := triggersv1alpha1.ValidateSecurityPolicyPackSpec(pack.Spec); len(errs) != 0 {
+		t.Errorf("spec fails validation: %v", errs)
+	}
+
+	assertShippedRefs := func(field, kindDir string, refs []triggersv1alpha1.SecurityResourceRef, want string) {
+		found := false
+		for _, ref := range refs {
+			if ref.Name == want {
+				found = true
+			}
+			if _, err := os.Stat(repoPath("configs", kindDir, ref.Name+".yaml")); err != nil {
+				t.Errorf("%s references %q with no shipped asset: %v", field, ref.Name, err)
+			}
+		}
+		if !found {
+			t.Errorf("%s = %v, must include the shipped %q asset", field, refs, want)
+		}
+	}
+	assertShippedRefs("defaultRankerRefs", "securityrankers", pack.Spec.DefaultRankerRefs, "default-severity")
+	assertShippedRefs("defaultPostScriptRefs", "securitypostscripts", pack.Spec.DefaultPostScriptRefs, "validate-finding")
 }
