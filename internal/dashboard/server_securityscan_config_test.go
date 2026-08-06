@@ -991,7 +991,7 @@ func TestRunSecurityScanNowRejectsOversizedParameterValues(t *testing.T) {
 	}
 
 	values := map[string]string{}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		values[fmt.Sprintf("p%02d", i)] = strings.Repeat("v", 4096)
 	}
 	_, err = srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{

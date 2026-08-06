@@ -307,7 +307,9 @@ func TestSecurityScanDeterministicExecutionExpandsFanOutAndRendersOutputs(t *tes
 		securityScanSeedMessage(t, stateStore, scan.Namespace, fanRuns[0].Name),
 		securityScanSeedMessage(t, stateStore, scan.Namespace, fanRuns[1].Name),
 	}
-	if !(strings.Contains(seeds[0], "inspect first") && strings.Contains(seeds[1], "inspect second")) && !(strings.Contains(seeds[0], "inspect second") && strings.Contains(seeds[1], "inspect first")) {
+	orderedMatch := strings.Contains(seeds[0], "inspect first") && strings.Contains(seeds[1], "inspect second")
+	reversedMatch := strings.Contains(seeds[0], "inspect second") && strings.Contains(seeds[1], "inspect first")
+	if !orderedMatch && !reversedMatch {
 		t.Fatalf("fan-out seed messages = %#v, want each rendered item field", seeds)
 	}
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, fanRuns[0].Name, platformv1alpha1.AgentRunPhaseSucceeded, `{"result":"first"}`, "")
@@ -514,7 +516,7 @@ func TestSecurityScanDeterministicExecutionPublishesCheckAndNotificationOnce(t *
 }
 
 func TestRenderSecurityScanTaskObjectiveResolvesSupportedReferences(t *testing.T) {
-	context := &securityScanTaskTemplateContext{
+	tctx := &securityScanTaskTemplateContext{
 		params: map[string]string{"scope": "payments"},
 		item:   []byte(`{"name":"checkout","nested":{"ok":true}}`),
 		output: func(name string) (string, error) {
@@ -524,7 +526,7 @@ func TestRenderSecurityScanTaskObjectiveResolvesSupportedReferences(t *testing.T
 			return `{"name":"upstream","count":2}`, nil
 		},
 	}
-	got, err := renderSecurityScanTaskObjective("{{params.scope}} {{tasks.source.output}} {{tasks.source.output.name}} {{item}} {{item.name}} {{item.nested}}", context)
+	got, err := renderSecurityScanTaskObjective("{{params.scope}} {{tasks.source.output}} {{tasks.source.output.name}} {{item}} {{item.name}} {{item.nested}}", tctx)
 	if err != nil {
 		t.Fatalf("renderSecurityScanTaskObjective() error = %v", err)
 	}
@@ -535,22 +537,22 @@ func TestRenderSecurityScanTaskObjectiveResolvesSupportedReferences(t *testing.T
 }
 
 func TestResolveSecurityScanTemplateRefRejectsUnknownParameterAndUnavailableItem(t *testing.T) {
-	context := &securityScanTaskTemplateContext{params: map[string]string{}, output: func(name string) (string, error) {
+	tctx := &securityScanTaskTemplateContext{params: map[string]string{}, output: func(name string) (string, error) {
 		if name == "unknown" {
 			return "", fmt.Errorf("unknown task %q", name)
 		}
 		return "{}", nil
 	}}
-	if _, _, err := resolveSecurityScanTemplateRef("params.missing", context); err == nil || !strings.Contains(err.Error(), "has no value") {
+	if _, _, err := resolveSecurityScanTemplateRef("params.missing", tctx); err == nil || !strings.Contains(err.Error(), "has no value") {
 		t.Fatalf("missing parameter error = %v, want value error", err)
 	}
-	if _, _, err := resolveSecurityScanTemplateRef("item.name", context); err == nil || !strings.Contains(err.Error(), "only available") {
+	if _, _, err := resolveSecurityScanTemplateRef("item.name", tctx); err == nil || !strings.Contains(err.Error(), "only available") {
 		t.Fatalf("unavailable item error = %v, want context error", err)
 	}
-	if _, _, err := resolveSecurityScanTemplateRef("tasks.unknown.output", context); err == nil || !strings.Contains(err.Error(), "unknown task") {
+	if _, _, err := resolveSecurityScanTemplateRef("tasks.unknown.output", tctx); err == nil || !strings.Contains(err.Error(), "unknown task") {
 		t.Fatalf("unknown task reference error = %v, want unknown task error", err)
 	}
-	if got, ok, err := resolveSecurityScanTemplateRef("unknown.ref", context); err != nil || ok || got != "" {
+	if got, ok, err := resolveSecurityScanTemplateRef("unknown.ref", tctx); err != nil || ok || got != "" {
 		t.Fatalf("unknown ref = (%q, %t, %v), want unresolved passthrough", got, ok, err)
 	}
 }
@@ -862,7 +864,7 @@ func TestSecurityScanExpandFanOutsTruncatesToExecutionEntryCeiling(t *testing.T)
 	exec.Tasks = append(exec.Tasks, triggersv1alpha1.SecurityScanTaskExecutionStatus{
 		Name: "source", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "src-run",
 	})
-	for i := 0; i < securityScanExecutionMaxTaskEntries-4; i++ {
+	for i := range securityScanExecutionMaxTaskEntries - 4 {
 		exec.Tasks = append(exec.Tasks, triggersv1alpha1.SecurityScanTaskExecutionStatus{
 			Name: "pad", Instance: int32(i), State: triggersv1alpha1.SecurityScanTaskStateSucceeded,
 		})

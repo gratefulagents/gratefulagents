@@ -15,7 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func int32Ptr(v int32) *int32 { return &v }
+func int32Ptr(v int32) *int32 { return new(v) }
 
 func requireFieldError(t *testing.T, errs []SecurityWorkflowFieldError, field, fragment string) {
 	t.Helper()
@@ -234,8 +234,8 @@ func TestValidateSecurityWorkflowTasksDoesNotValidateParams(t *testing.T) {
 }
 
 func TestValidateSecurityWorkflowTasksEnforcesTaskCap(t *testing.T) {
-	var tasks []SecurityScanTask
-	for i := 0; i <= MaxSecurityWorkflowTasks; i++ {
+	tasks := make([]SecurityScanTask, 0, MaxSecurityWorkflowTasks+1)
+	for i := range MaxSecurityWorkflowTasks + 1 {
 		tasks = append(tasks, SecurityScanTask{Name: fmt.Sprintf("t%d", i), Objective: "inspect"})
 	}
 	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks", "at most 64 tasks")
@@ -246,8 +246,8 @@ func TestValidateSecurityWorkflowTasksEnforcesTaskCap(t *testing.T) {
 
 func TestValidateSecurityWorkflowTasksEnforcesPlannedInstanceBudget(t *testing.T) {
 	repeated := func(n int) []SecurityScanTask {
-		var tasks []SecurityScanTask
-		for i := 0; i < n; i++ {
+		tasks := make([]SecurityScanTask, 0, n)
+		for i := range n {
 			tasks = append(tasks, SecurityScanTask{Name: fmt.Sprintf("r%d", i), Objective: "inspect", Repeats: 5})
 		}
 		return tasks
@@ -260,8 +260,9 @@ func TestValidateSecurityWorkflowTasksEnforcesPlannedInstanceBudget(t *testing.T
 	}
 
 	// forEach tasks count their maxInstances fan-out ceiling.
-	fanned := []SecurityScanTask{{Name: "src", Objective: "list", OutputSchema: `{"type":"array"}`}}
-	for i := 0; i < 4; i++ {
+	fanned := make([]SecurityScanTask, 0, 5)
+	fanned = append(fanned, SecurityScanTask{Name: "src", Objective: "list", OutputSchema: `{"type":"array"}`})
+	for i := range 4 {
 		fanned = append(fanned, SecurityScanTask{
 			Name: fmt.Sprintf("fan%d", i), Objective: "inspect {{item}}",
 			DependsOn: []string{"src"}, ForEach: "src", MaxInstances: 50,

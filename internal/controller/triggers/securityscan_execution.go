@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -216,7 +217,7 @@ func (r *SecurityScanReconciler) deterministicRunNow(ctx context.Context, scan *
 	}
 	oneShot := strings.TrimSpace(scan.Spec.Schedule) == ""
 	generation := scan.Generation
-	return r.startDeterministicExecution(ctx, scan, externalID, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+	return r.startDeterministicExecution(ctx, scan, externalID, func(fresh *triggersv1alpha1.SecurityScan) {
 		fresh.Status.LastManualRunToken = token
 		fresh.Status.ManualRunsCreated++
 		if oneShot {
@@ -268,7 +269,7 @@ func (r *SecurityScanReconciler) deterministicTriggerEvent(ctx context.Context, 
 	if runCtx.DiffFallback != "" {
 		msg += "; diff scope fell back to a full-repository scan: " + runCtx.DiffFallback
 	}
-	res, err := r.startDeterministicExecution(ctx, scan, externalID, runCtx, func(fresh *triggersv1alpha1.SecurityScan) {
+	res, err := r.startDeterministicExecution(ctx, scan, externalID, func(fresh *triggersv1alpha1.SecurityScan) {
 		fresh.Status.LastEventToken = ev.Token
 		fresh.Status.LastEventRevision = ev.Revision
 		fresh.Status.EventRunsCreated++
@@ -298,7 +299,7 @@ func (r *SecurityScanReconciler) deterministicOneShot(ctx context.Context, scan 
 		return ctrl.Result{}, nil
 	}
 	generation := scan.Generation
-	return r.startDeterministicExecution(ctx, scan, fmt.Sprintf("generation-%d", generation), nil, func(fresh *triggersv1alpha1.SecurityScan) {
+	return r.startDeterministicExecution(ctx, scan, fmt.Sprintf("generation-%d", generation), func(fresh *triggersv1alpha1.SecurityScan) {
 		fresh.Status.ObservedGeneration = generation
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ScanStarted", "Deterministic execution started")
 	})
@@ -368,7 +369,7 @@ func (r *SecurityScanReconciler) deterministicScheduled(ctx context.Context, sca
 	nextScheduledTime := schedule.Next(now)
 	next := metav1.NewTime(nextScheduledTime)
 	generation := scan.Generation
-	res, err := r.startDeterministicExecution(ctx, scan, scheduledID, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+	res, err := r.startDeterministicExecution(ctx, scan, scheduledID, func(fresh *triggersv1alpha1.SecurityScan) {
 		fresh.Status.NextScheduleTime = &next
 		fresh.Status.ObservedSchedule = observedSchedule
 		fresh.Status.ObservedTimeZone = observedTimeZone
@@ -419,7 +420,7 @@ func (r *SecurityScanReconciler) deterministicConcurrencyBlocked(ctx context.Con
 // the per-task runs are tracked in lastExecution, and the run-centric
 // coordinator plumbing (lastRunTerminal, publishRunCheck, notifyRunFindings)
 // must not observe a single task run as "the" scan run.
-func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context, scan *triggersv1alpha1.SecurityScan, externalID string, runCtx *securityScanRunContext, mutate func(fresh *triggersv1alpha1.SecurityScan)) (ctrl.Result, error) {
+func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context, scan *triggersv1alpha1.SecurityScan, externalID string, mutate func(fresh *triggersv1alpha1.SecurityScan)) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	recordFailure := func(err error) (ctrl.Result, error) {
 		log.Error(err, "failed to start deterministic execution", "execution", externalID)
@@ -1327,7 +1328,7 @@ func (e *securityScanExecutionEngine) nextRequeue() time.Duration {
 		if entry.State != triggersv1alpha1.SecurityScanTaskStatePending || entry.NextRetryTime == nil {
 			continue
 		}
-		delay := entry.NextRetryTime.Time.Sub(e.now.Time)
+		delay := entry.NextRetryTime.Sub(e.now.Time)
 		if delay <= 0 {
 			delay = time.Second
 		}
@@ -1661,9 +1662,7 @@ func resolveSecurityScanParameters(resolved *resolvedSecurityScanSpec) (map[stri
 			values[param.Name] = param.Default
 		}
 	}
-	for name, value := range resolved.spec.ParameterValues {
-		values[name] = value
-	}
+	maps.Copy(values, resolved.spec.ParameterValues)
 	var missing []string
 	seen := map[string]bool{}
 	for _, param := range resolved.workflowParams {

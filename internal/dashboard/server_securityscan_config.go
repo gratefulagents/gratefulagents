@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -237,12 +238,8 @@ func (s *Server) RunSecurityScanNow(
 		}
 		if len(paramValues) != 0 {
 			merged := make(map[string]string, len(cr.Spec.ParameterValues)+len(paramValues))
-			for k, v := range cr.Spec.ParameterValues {
-				merged[k] = v
-			}
-			for k, v := range paramValues {
-				merged[k] = v
-			}
+			maps.Copy(merged, cr.Spec.ParameterValues)
+			maps.Copy(merged, paramValues)
 			if len(merged) > 32 {
 				return connect.NewError(connect.CodeInvalidArgument,
 					fmt.Errorf("merged parameterValues would hold %d entries; the scan spec allows at most 32", len(merged)))
@@ -940,9 +937,7 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 	}
 	if len(spec.ParameterValues) != 0 {
 		pb.ParameterValues = make(map[string]string, len(spec.ParameterValues))
-		for name, value := range spec.ParameterValues {
-			pb.ParameterValues[name] = value
-		}
+		maps.Copy(pb.ParameterValues, spec.ParameterValues)
 	}
 	for _, r := range spec.SeverityRankers {
 		pb.SeverityRankers = append(pb.SeverityRankers, &platform.SecurityRankerConfig{Name: r.Name, Rules: r.Rules})

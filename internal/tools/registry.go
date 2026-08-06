@@ -152,7 +152,7 @@ func WithToolNameFilter(allowed, denied []string) RegistryOption {
 func SplitToolNameList(raw string) []string {
 	seen := make(map[string]struct{})
 	var names []string
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		name := strings.TrimSpace(part)
 		if name == "" {
 			continue
