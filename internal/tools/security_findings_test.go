@@ -101,7 +101,7 @@ func (s *fakeSecurityFindingStore) CorrelateSecurityFindings(_ context.Context, 
 }
 
 func (s *fakeSecurityFindingStore) ListSecurityFindings(_ context.Context, f store.SecurityFindingFilter) ([]store.SecurityFindingRecord, error) {
-	var out []store.SecurityFindingRecord
+	out := make([]store.SecurityFindingRecord, 0, len(s.findings))
 	for _, rec := range s.findings {
 		if f.Namespace != "" && rec.Namespace != f.Namespace {
 			continue

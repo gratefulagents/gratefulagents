@@ -230,9 +230,9 @@ const securityFindingColumns = `id, scan_id, namespace, scan_name, run_name, ses
 	COALESCE(suppressed_owner, ''), suppression_expires_at, suppressed_at,
 	source_kind, tool, tool_version, rule_id, correlated_fingerprints`
 
-func scanSecurityFindingRow(row pgx.Row, extra ...any) (*store.SecurityFindingRecord, error) {
+func scanSecurityFindingRow(row pgx.Row) (*store.SecurityFindingRecord, error) {
 	var rec store.SecurityFindingRecord
-	dest := make([]any, 0, 49+len(extra))
+	dest := make([]any, 0, 49)
 	dest = append(dest, &rec.ID, &rec.ScanID, &rec.Namespace, &rec.ScanName, &rec.RunName, &rec.SessionID,
 		&rec.Fingerprint, &rec.Title, &rec.Category, &rec.Severity, &rec.Confidence, &rec.Repository,
 		&rec.Revision, &rec.FilePath, &rec.StartLine, &rec.EndLine, &rec.Symbol, &rec.CWE,
@@ -244,7 +244,6 @@ func scanSecurityFindingRow(row pgx.Row, extra ...any) (*store.SecurityFindingRe
 		&rec.SuppressedBy, &rec.SuppressedReason, &rec.SuppressedOwner,
 		&rec.SuppressionExpiresAt, &rec.SuppressedAt,
 		&rec.SourceKind, &rec.Tool, &rec.ToolVersion, &rec.RuleID, &rec.CorrelatedFingerprints)
-	dest = append(dest, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
