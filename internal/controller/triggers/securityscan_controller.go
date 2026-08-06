@@ -567,6 +567,9 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		triggersv1alpha1.SecurityScanMinSeverityAnnotation:    resolved.spec.EffectiveMinSeverity(),
 		triggersv1alpha1.SecurityScanDedupePermilleAnnotation: strconv.Itoa(int(dedupePermille)),
 	}
+	if budgets := resolved.spec.Budgets; budgets != nil && budgets.MaxFindings > 0 {
+		annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation] = strconv.Itoa(int(budgets.MaxFindings))
+	}
 	if rev := strings.TrimSpace(scan.Spec.Revision); rev != "" {
 		annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] = rev
 	}

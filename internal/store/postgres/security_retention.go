@@ -23,9 +23,17 @@ const defaultSecurityRetentionBatchLimit = 200
 // it already processed, which makes the whole sweep idempotent.
 //
 // Order within one batch: finding deletion first (rows past findingDays never
-// need redaction), then evidence/PoC redaction, then scan-run rows (only
-// those no finding references anymore, so finding identity is never
-// cascade-deleted), then report artifacts, then audit events.
+// need redaction), then evidence/PoC redaction, then report artifacts, then
+// scan-run rows, then audit events. Report artifacts are purged BEFORE scan
+// rows, and while a report purge is configured (reportDays > 0) a scan row is
+// never deleted as long as its session still has report artifacts — exactly
+// like findings pin their scan row. Together these guarantee a batch-limited,
+// resumable sweep can never delete a scan row while its reports are still
+// pending purge, so reports never become unreachable. As a second line of
+// defense the report purge does not depend on the scan row at all: artifacts
+// are namespace-scoped through their agent session and fall back to the
+// artifact's own created_at when the scan row is already gone, so
+// pre-existing orphans remain purgeable.
 func (s *Store) PurgeExpiredSecurityData(
 	ctx context.Context, namespace string, policy store.SecurityRetentionPolicy, batchLimit int,
 ) (store.SecurityRetentionCounts, bool, error) {
@@ -42,11 +50,12 @@ func (s *Store) PurgeExpiredSecurityData(
 	now := time.Now().UTC()
 	cutoff := func(days int32) time.Time { return now.Add(-time.Duration(days) * 24 * time.Hour) }
 	moreWork := false
-	run := func(days int32, what, sql string, out *int32) error {
+	run := func(days int32, what, sql string, out *int32, extra ...any) error {
 		if days <= 0 {
 			return nil
 		}
-		tag, err := s.pool.Exec(ctx, sql, namespace, cutoff(days), batchLimit)
+		args := append([]any{namespace, cutoff(days), batchLimit}, extra...)
+		tag, err := s.pool.Exec(ctx, sql, args...)
 		if err != nil {
 			return fmt.Errorf("purging expired security %s: %w", what, err)
 		}
@@ -109,16 +118,36 @@ func (s *Store) PurgeExpiredSecurityData(
 		return counts, true, err
 	}
 
+	if err := run(policy.ReportDays, "report artifacts", `
+		WITH victims AS (
+			SELECT DISTINCT a.id FROM agent_artifacts a
+			JOIN agent_sessions sess ON sess.id = a.session_id
+			LEFT JOIN security_scans s ON s.session_id = a.session_id
+			WHERE sess.agentrun_ns = $1
+				AND a.kind IN ('security_report', 'security_sarif')
+				AND COALESCE(s.completed_at, s.created_at, a.created_at) < $2
+			ORDER BY a.id
+			LIMIT $3
+		)
+		DELETE FROM agent_artifacts a USING victims v WHERE a.id = v.id`,
+		&counts.ReportsDeleted); err != nil {
+		return counts, true, err
+	}
+
 	if err := run(policy.ScanDays, "scan runs", `
 		WITH victims AS (
 			SELECT s.id FROM security_scans s
 			WHERE s.namespace = $1 AND COALESCE(s.completed_at, s.created_at) < $2
 				AND NOT EXISTS (SELECT 1 FROM security_findings f WHERE f.scan_id = s.id)
+				AND NOT ($4 AND EXISTS (
+					SELECT 1 FROM agent_artifacts a
+					WHERE a.session_id = s.session_id
+						AND a.kind IN ('security_report', 'security_sarif')))
 			ORDER BY s.id
 			LIMIT $3
 		)
 		DELETE FROM security_scans s USING victims v WHERE s.id = v.id`,
-		&counts.ScansDeleted); err != nil {
+		&counts.ScansDeleted, policy.ReportDays > 0); err != nil {
 		return counts, true, err
 	}
 
@@ -131,21 +160,6 @@ func (s *Store) PurgeExpiredSecurityData(
 		)
 		DELETE FROM security_finding_observations o USING victims v WHERE o.id = v.id`,
 		&counts.ScansDeleted); err != nil {
-		return counts, true, err
-	}
-
-	if err := run(policy.ReportDays, "report artifacts", `
-		WITH victims AS (
-			SELECT a.id FROM agent_artifacts a
-			JOIN security_scans s ON s.session_id = a.session_id
-			WHERE s.namespace = $1
-				AND a.kind IN ('security_report', 'security_sarif')
-				AND COALESCE(s.completed_at, s.created_at) < $2
-			ORDER BY a.id
-			LIMIT $3
-		)
-		DELETE FROM agent_artifacts a USING victims v WHERE a.id = v.id`,
-		&counts.ReportsDeleted); err != nil {
 		return counts, true, err
 	}
 

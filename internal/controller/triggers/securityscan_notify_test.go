@@ -68,8 +68,10 @@ type fakeSecurityScanNotifier struct {
 	slackErr     error
 	githubIssues []string
 	githubErr    error
-	linearIssues []string
-	linearErr    error
+	// githubFailAfter delays githubErr until this many issues were created.
+	githubFailAfter int
+	linearIssues    []string
+	linearErr       error
 }
 
 func (n *fakeSecurityScanNotifier) SendSlack(_ context.Context, _, text string) error {
@@ -81,7 +83,7 @@ func (n *fakeSecurityScanNotifier) SendSlack(_ context.Context, _, text string) 
 }
 
 func (n *fakeSecurityScanNotifier) CreateGitHubIssue(_ context.Context, _ *triggersv1alpha1.GitHubRepository, title, body string) (string, error) {
-	if n.githubErr != nil {
+	if n.githubErr != nil && len(n.githubIssues) >= n.githubFailAfter {
 		return "", n.githubErr
 	}
 	n.githubIssues = append(n.githubIssues, title+"\n"+body)
@@ -207,6 +209,48 @@ func TestNotifyRunFindingsReleasesClaimsOnFailureAndRetries(t *testing.T) {
 	updated = getSecurityScan(t, reconciler.Client, scan)
 	if updated.Status.LastNotifications.LastError != "" || updated.Status.LastNotifications.Sent != 1 {
 		t.Fatalf("LastNotifications = %+v, want clean retry", updated.Status.LastNotifications)
+	}
+}
+
+func TestNotifyRunFindingsPartialDeliveryReleasesOnlyUndelivered(t *testing.T) {
+	findings := newNotifyTestFindingStore(
+		notifyTestFinding("fp-1", "critical", store.SecurityFindingBaselineNew),
+		notifyTestFinding("fp-2", "critical", store.SecurityFindingBaselineNew),
+	)
+	rule := triggersv1alpha1.SecurityScanNotificationRule{
+		Name:         "tickets",
+		GitHubIssues: &triggersv1alpha1.SecurityScanGitHubIssueNotification{},
+	}
+	reconciler, scan, notifier := securityScanNotifyTestFixture(t, findings, rule)
+	notifier.githubErr = fmt.Errorf("github returned 502")
+	notifier.githubFailAfter = 1
+
+	if !reconciler.notifyRunFindings(context.Background(), scan) {
+		t.Fatal("notifyRunFindings retry = false, want true on partial delivery failure")
+	}
+	if len(notifier.githubIssues) != 1 || !strings.Contains(notifier.githubIssues[0], "finding fp-1") {
+		t.Fatalf("github issues = %v, want exactly the fp-1 issue", notifier.githubIssues)
+	}
+	if len(findings.released) != 1 || findings.released[0] != "fp-2" {
+		t.Fatalf("released claims = %v, want only the undelivered fp-2", findings.released)
+	}
+
+	// The retry after recovery notifies only the undelivered finding: the
+	// already-created fp-1 issue is never duplicated.
+	notifier.githubErr = nil
+	updated := getSecurityScan(t, reconciler.Client, scan)
+	if reconciler.notifyRunFindings(context.Background(), updated) {
+		t.Fatal("retry after recovery should succeed")
+	}
+	if len(notifier.githubIssues) != 2 {
+		t.Fatalf("github issues = %d after retry, want 2", len(notifier.githubIssues))
+	}
+	if !strings.Contains(notifier.githubIssues[1], "finding fp-2") || strings.Contains(notifier.githubIssues[1], "finding fp-1") {
+		t.Fatalf("retry created the wrong issue:\n%s", notifier.githubIssues[1])
+	}
+	updated = getSecurityScan(t, reconciler.Client, scan)
+	if updated.Status.LastNotifications.Sent != 2 || updated.Status.LastNotifications.LastError != "" {
+		t.Fatalf("LastNotifications = %+v, want 2 sent and no error", updated.Status.LastNotifications)
 	}
 }
 

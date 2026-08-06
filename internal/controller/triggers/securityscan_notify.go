@@ -168,7 +168,11 @@ func buildSecurityNotificationIssueBody(f store.SecurityFindingRecord, dashboard
 
 type securityNotificationChannel struct {
 	name string
-	send func(ctx context.Context, findings []store.SecurityFindingRecord) error
+	// send delivers the batch and returns the fingerprints of findings that
+	// were actually delivered. On error, delivered may be a non-empty prefix
+	// of the batch (per-finding channels can fail partway through); only the
+	// undelivered remainder is safe to retry.
+	send func(ctx context.Context, findings []store.SecurityFindingRecord) (delivered []string, err error)
 }
 
 func matchingSecurityNotificationFindings(rule triggersv1alpha1.SecurityScanNotificationRule, findings []store.SecurityFindingRecord) []store.SecurityFindingRecord {
@@ -185,44 +189,55 @@ func (r *SecurityScanReconciler) securityNotificationChannels(scan *triggersv1al
 	var channels []securityNotificationChannel
 	if rule.Slack != nil {
 		slackRule := rule
-		channels = append(channels, securityNotificationChannel{name: "slack", send: func(ctx context.Context, batch []store.SecurityFindingRecord) error {
+		channels = append(channels, securityNotificationChannel{name: "slack", send: func(ctx context.Context, batch []store.SecurityFindingRecord) ([]string, error) {
 			webhookURL, err := ReadSecretValue(ctx, r.Client, scan.Namespace, slackRule.Slack.WebhookSecretRef, "url")
 			if err != nil {
-				return fmt.Errorf("reading slack webhook secret: %w", err)
+				return nil, fmt.Errorf("reading slack webhook secret: %w", err)
 			}
-			return r.notifier().SendSlack(ctx, strings.TrimSpace(webhookURL), buildSecurityNotificationSlackText(scan, slackRule, batch, r.DashboardBaseURL))
+			if err := r.notifier().SendSlack(ctx, strings.TrimSpace(webhookURL), buildSecurityNotificationSlackText(scan, slackRule, batch, r.DashboardBaseURL)); err != nil {
+				return nil, err
+			}
+			delivered := make([]string, 0, len(batch))
+			for _, finding := range batch {
+				delivered = append(delivered, finding.Fingerprint)
+			}
+			return delivered, nil
 		}})
 	}
 	if rule.GitHubIssues != nil {
 		ghRule := rule
-		channels = append(channels, securityNotificationChannel{name: "github", send: func(ctx context.Context, batch []store.SecurityFindingRecord) error {
+		channels = append(channels, securityNotificationChannel{name: "github", send: func(ctx context.Context, batch []store.SecurityFindingRecord) ([]string, error) {
 			gh, err := r.notificationRepository(ctx, scan, ghRule.GitHubIssues.RepositoryRef)
 			if err != nil {
-				return err
+				return nil, err
 			}
+			var delivered []string
 			for _, finding := range batch {
 				title := fmt.Sprintf("[security][%s] %s", finding.Severity, finding.Title)
 				if _, err := r.notifier().CreateGitHubIssue(ctx, gh, title, buildSecurityNotificationIssueBody(finding, r.DashboardBaseURL)); err != nil {
-					return err
+					return delivered, err
 				}
+				delivered = append(delivered, finding.Fingerprint)
 			}
-			return nil
+			return delivered, nil
 		}})
 	}
 	if rule.Linear != nil {
 		linRule := rule
-		channels = append(channels, securityNotificationChannel{name: "linear", send: func(ctx context.Context, batch []store.SecurityFindingRecord) error {
+		channels = append(channels, securityNotificationChannel{name: "linear", send: func(ctx context.Context, batch []store.SecurityFindingRecord) ([]string, error) {
 			apiKey, err := ReadSecretValue(ctx, r.Client, scan.Namespace, linRule.Linear.APIKeySecretRef, "api-key")
 			if err != nil {
-				return fmt.Errorf("reading Linear API key secret: %w", err)
+				return nil, fmt.Errorf("reading Linear API key secret: %w", err)
 			}
+			var delivered []string
 			for _, finding := range batch {
 				title := fmt.Sprintf("[security][%s] %s", finding.Severity, finding.Title)
 				if _, err := r.notifier().CreateLinearIssue(ctx, strings.TrimSpace(apiKey), linRule.Linear.TeamID, title, buildSecurityNotificationIssueBody(finding, r.DashboardBaseURL)); err != nil {
-					return err
+					return delivered, err
 				}
+				delivered = append(delivered, finding.Fingerprint)
 			}
-			return nil
+			return delivered, nil
 		}})
 	}
 	return channels
@@ -231,9 +246,10 @@ func (r *SecurityScanReconciler) securityNotificationChannels(scan *triggersv1al
 // notifyRunFindings evaluates the scan's notification rules against the last
 // run's findings once the run has terminated successfully. Duplicate noise is
 // suppressed with persisted (scan, rule/channel, fingerprint) markers claimed
-// through the findings store before sending; a failed delivery releases its
-// claim so the next reconcile retries without ever double-notifying a
-// delivered finding. Failures are recorded in status.lastNotifications plus a
+// through the findings store before sending; a failed delivery releases only
+// the claims the channel did not deliver, so the next reconcile retries
+// exactly the undelivered findings without ever double-notifying a delivered
+// one. Failures are recorded in status.lastNotifications plus a
 // Warning event and never corrupt other scan state. The returned flag asks
 // the caller to requeue for a retry.
 func (r *SecurityScanReconciler) notifyRunFindings(ctx context.Context, scan *triggersv1alpha1.SecurityScan) bool {
@@ -303,16 +319,29 @@ func (r *SecurityScanReconciler) notifyRunFindings(ctx context.Context, scan *tr
 			for _, fp := range claimed {
 				batch = append(batch, byFingerprint[fp])
 			}
-			if err := ch.send(ctx, batch); err != nil {
-				failures = append(failures, fmt.Sprintf("rule %q %s: %v", rule.Name, ch.name, err))
-				if releaseErr := r.Findings.ReleaseSecurityNotifications(ctx, scan.Namespace, scan.Name, ruleKey, claimed); releaseErr != nil {
-					// The claim stays: the finding will never notify twice,
-					// but this delivery is lost. Surface it.
-					failures = append(failures, fmt.Sprintf("rule %q %s: releasing dedupe markers after failed delivery: %v", rule.Name, ch.name, releaseErr))
+			delivered, sendErr := ch.send(ctx, batch)
+			sent += int32(len(delivered))
+			if sendErr != nil {
+				failures = append(failures, fmt.Sprintf("rule %q %s: %v", rule.Name, ch.name, sendErr))
+				deliveredSet := make(map[string]bool, len(delivered))
+				for _, fp := range delivered {
+					deliveredSet[fp] = true
+				}
+				undelivered := make([]string, 0, len(claimed))
+				for _, fp := range claimed {
+					if !deliveredSet[fp] {
+						undelivered = append(undelivered, fp)
+					}
+				}
+				if len(undelivered) > 0 {
+					if releaseErr := r.Findings.ReleaseSecurityNotifications(ctx, scan.Namespace, scan.Name, ruleKey, undelivered); releaseErr != nil {
+						// The claim stays: the finding will never notify twice,
+						// but this delivery is lost. Surface it.
+						failures = append(failures, fmt.Sprintf("rule %q %s: releasing dedupe markers after failed delivery: %v", rule.Name, ch.name, releaseErr))
+					}
 				}
 				continue
 			}
-			sent += int32(len(claimed))
 		}
 	}
 

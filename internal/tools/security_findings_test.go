@@ -359,12 +359,14 @@ func TestSecurityScanContextPolicyAnnotations(t *testing.T) {
 		annotations  map[string]string
 		wantMinSev   string
 		wantPermille int32
+		wantMax      int32
 	}{
 		{
 			name:         "absent means unset",
 			annotations:  map[string]string{SecurityScanNameAnnotation: "scan-a"},
 			wantMinSev:   "",
 			wantPermille: -1,
+			wantMax:      0,
 		},
 		{
 			name: "policy annotations parsed",
@@ -372,9 +374,11 @@ func TestSecurityScanContextPolicyAnnotations(t *testing.T) {
 				SecurityScanNameAnnotation:           "scan-a",
 				SecurityScanMinSeverityAnnotation:    "High",
 				SecurityScanDedupePermilleAnnotation: "820",
+				SecurityScanMaxFindingsAnnotation:    "25",
 			},
 			wantMinSev:   "high",
 			wantPermille: 820,
+			wantMax:      25,
 		},
 		{
 			name: "zero permille means dedupe disabled",
@@ -391,18 +395,22 @@ func TestSecurityScanContextPolicyAnnotations(t *testing.T) {
 				SecurityScanNameAnnotation:           "scan-a",
 				SecurityScanMinSeverityAnnotation:    "apocalyptic",
 				SecurityScanDedupePermilleAnnotation: "not-a-number",
+				SecurityScanMaxFindingsAnnotation:    "not-a-number",
 			},
 			wantMinSev:   "",
 			wantPermille: -1,
+			wantMax:      0,
 		},
 		{
-			name: "negative permille treated as unset",
+			name: "negative permille and max-findings treated as unset",
 			annotations: map[string]string{
 				SecurityScanNameAnnotation:           "scan-a",
 				SecurityScanDedupePermilleAnnotation: "-5",
+				SecurityScanMaxFindingsAnnotation:    "-5",
 			},
 			wantMinSev:   "",
 			wantPermille: -1,
+			wantMax:      0,
 		},
 	}
 	for _, tt := range tests {
@@ -417,6 +425,9 @@ func TestSecurityScanContextPolicyAnnotations(t *testing.T) {
 			}
 			if scanCtx.DedupePermille != tt.wantPermille {
 				t.Errorf("DedupePermille = %d, want %d", scanCtx.DedupePermille, tt.wantPermille)
+			}
+			if scanCtx.MaxFindings != tt.wantMax {
+				t.Errorf("MaxFindings = %d, want %d", scanCtx.MaxFindings, tt.wantMax)
 			}
 		})
 	}
@@ -1445,5 +1456,126 @@ func TestReportSecurityFindingCannotForgeScannerProvenance(t *testing.T) {
 	rec := findingStore.findings[0]
 	if rec.SourceKind != "agent" || rec.Tool != "" || rec.ToolVersion != "" || rec.RuleID != "" || len(rec.CorrelatedFingerprints) != 0 {
 		t.Errorf("forged scanner provenance must be stamped away: %+v", rec)
+	}
+}
+
+// maxFindingsScanContext is testScanContext with a platform-stamped findings
+// budget.
+func maxFindingsScanContext(maxFindings int32) SecurityScanContext {
+	scanCtx := testScanContext()
+	scanCtx.MaxFindings = maxFindings
+	return scanCtx
+}
+
+func securityBudgetTestFinding(n int) string {
+	return fmt.Sprintf(`{"title":"Issue %d","category":"injection","severity":"high","description":"finding %d","file_path":"a/b%d.go","start_line":%d}`, n, n, n, n+1)
+}
+
+func TestReportSecurityFindingEnforcesFindingsBudget(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	registry := newSecurityTestRegistryWithCtx(t, findingStore, nil, maxFindingsScanContext(2))
+
+	for n := 1; n <= 2; n++ {
+		if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(n)); result.IsError {
+			t.Fatalf("finding %d under the cap must persist: %s", n, result.Content)
+		}
+	}
+	result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(3))
+	if !result.IsError {
+		t.Fatalf("reporting past the cap must be refused, got: %s", result.Content)
+	}
+	for _, want := range []string{"findings budget", "budgets.maxFindings = 2", "preserved"} {
+		if !strings.Contains(result.Content, want) {
+			t.Errorf("refusal %q missing %q", result.Content, want)
+		}
+	}
+	if len(findingStore.findings) != 2 {
+		t.Fatalf("stored findings = %d, want exactly the 2 under the cap (never more, never deleted)", len(findingStore.findings))
+	}
+}
+
+func TestReportSecurityFindingBudgetCannotBeRaisedByToolInput(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	registry := newSecurityTestRegistryWithCtx(t, findingStore, nil, maxFindingsScanContext(1))
+
+	if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
+		t.Fatalf("finding under the cap must persist: %s", result.Content)
+	}
+	// The finding schema has no budget field: any attempt to smuggle one in
+	// is rejected as unknown input, and the cap still holds afterwards.
+	result := execTool(t, registry, "report_security_finding",
+		`{"title":"x","category":"injection","severity":"high","description":"d","max_findings":100}`)
+	if !result.IsError || !strings.Contains(result.Content, "max_findings") {
+		t.Fatalf("unknown budget field must be rejected, got: %s", result.Content)
+	}
+	result = execTool(t, registry, "report_security_finding", securityBudgetTestFinding(2))
+	if !result.IsError || !strings.Contains(result.Content, "budgets.maxFindings = 1") {
+		t.Fatalf("cap must still be the platform-stamped 1, got: %s", result.Content)
+	}
+	if len(findingStore.findings) != 1 {
+		t.Fatalf("stored findings = %d, want 1", len(findingStore.findings))
+	}
+}
+
+func TestReportSecurityFindingEnforcesFindingsBudgetInMemory(t *testing.T) {
+	registry := newSecurityTestRegistryWithCtx(t, nil, nil, maxFindingsScanContext(1))
+
+	if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
+		t.Fatalf("finding under the cap must persist: %s", result.Content)
+	}
+	result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(2))
+	if !result.IsError || !strings.Contains(result.Content, "budgets.maxFindings = 1") {
+		t.Fatalf("in-memory mode must enforce the cap too, got: %s", result.Content)
+	}
+	state := securityTestState(t, registry)
+	if len(state.mem) != 1 {
+		t.Fatalf("in-memory findings = %d, want 1", len(state.mem))
+	}
+}
+
+func TestIngestScannerResultsEnforcesFindingsBudget(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	registry := newSecurityTestRegistryWithCtx(t, findingStore, nil, maxFindingsScanContext(2))
+
+	record := func(n int) string {
+		return fmt.Sprintf(`{"tool":"gosec","rule_id":"G%d","message":"issue %d","severity":"HIGH","file_path":"a/b%d.go","start_line":%d}`, n, n, n, n+1)
+	}
+	// One batch of 3 against a cap of 2: the batch must stop at the cap.
+	result := execTool(t, registry, "ingest_scanner_results",
+		fmt.Sprintf(`{"records":[%s,%s,%s]}`, record(1), record(2), record(3)))
+	if !result.IsError {
+		t.Fatalf("a batch crossing the cap must return a tool error, got: %s", result.Content)
+	}
+	for _, want := range []string{"findings budget", "budgets.maxFindings = 2", "refused"} {
+		if !strings.Contains(result.Content, want) {
+			t.Errorf("refusal %q missing %q", result.Content, want)
+		}
+	}
+	if len(findingStore.findings) != 2 {
+		t.Fatalf("stored findings = %d, want exactly the 2 under the cap", len(findingStore.findings))
+	}
+
+	// A follow-up batch at the cap is refused outright and persists nothing.
+	result = execTool(t, registry, "ingest_scanner_results",
+		fmt.Sprintf(`{"records":[%s]}`, record(4)))
+	if !result.IsError || !strings.Contains(result.Content, "budgets.maxFindings = 2") {
+		t.Fatalf("ingesting at the cap must be refused, got: %s", result.Content)
+	}
+	if len(findingStore.findings) != 2 {
+		t.Fatalf("stored findings = %d, want still 2 (already-persisted findings are never deleted)", len(findingStore.findings))
+	}
+}
+
+func TestSecurityFindingsBudgetUnsetMeansUnlimited(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	registry := newSecurityTestRegistry(t, findingStore, nil)
+
+	for n := 1; n <= 5; n++ {
+		if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(n)); result.IsError {
+			t.Fatalf("without a stamped budget nothing is capped: %s", result.Content)
+		}
+	}
+	if len(findingStore.findings) != 5 {
+		t.Fatalf("stored findings = %d, want 5", len(findingStore.findings))
 	}
 }

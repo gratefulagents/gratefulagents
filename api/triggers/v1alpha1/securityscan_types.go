@@ -25,6 +25,12 @@ const (
 	// in permille (DedupeSimilarityThresholdPermille), or "0" when dedupe is
 	// disabled.
 	SecurityScanDedupePermilleAnnotation = "security.gratefulagents.dev/dedupe-permille"
+	// SecurityScanMaxFindingsAnnotation is the scan's effective
+	// budgets.maxFindings (spec merged with the policy pack). Absent or "0"
+	// means unlimited. The agent-side finding tools refuse to persist
+	// findings once this cap is reached, so the platform-authored value is
+	// the hard cap regardless of model output.
+	SecurityScanMaxFindingsAnnotation = "security.gratefulagents.dev/max-findings"
 )
 
 // SecurityScanRunNowAnnotation is set on a SecurityScan (not its runs) by the

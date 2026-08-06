@@ -281,6 +281,77 @@ func TestPublishRunCheckUploadsSARIFWhenOptedIn(t *testing.T) {
 	}
 }
 
+func TestPublishRunCheckUsesPolicyPackFailOnSeverity(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanEventTestScan()
+	scan.Spec.Checks = &triggersv1alpha1.SecurityScanChecks{Enabled: true}
+	scan.Spec.FailOnSeverity = ""
+	scan.Spec.PolicyPackRef = &triggersv1alpha1.SecurityResourceRef{Name: "org-policy"}
+	scan.Status.LastRunName = "secscan-nightly-security-ev-abc"
+	pack := &triggersv1alpha1.SecurityPolicyPack{
+		ObjectMeta: metav1.ObjectMeta{Name: "org-policy", Namespace: scan.Namespace},
+		Spec:       triggersv1alpha1.SecurityPolicyPackSpec{FailOnSeverity: "high"},
+	}
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scan.Status.LastRunName,
+			Namespace: scan.Namespace,
+			Annotations: map[string]string{
+				triggersv1alpha1.SecurityScanRevisionAnnotation: "abc1234def",
+			},
+		},
+		Status: platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseSucceeded},
+	}
+	gh := securityScanEventTestRepo(scan.Namespace)
+	reconciler, _, _ := newSecurityScanReconciler(t, now, scan, run, gh, pack)
+	publisher := &fakeSecurityCheckPublisher{}
+	reconciler.CheckPublisher = publisher
+	reconciler.Findings = &checksTestFindingStore{
+		counts: map[string]int32{"total": 1, "open": 1, "high": 1, "open_high": 1},
+	}
+
+	if reconciler.publishRunCheck(context.Background(), scan) {
+		t.Fatal("publishRunCheck retry = true, want false")
+	}
+	if len(publisher.checks) != 1 {
+		t.Fatalf("published checks = %d, want 1", len(publisher.checks))
+	}
+	check := publisher.checks[0]
+	if check.Conclusion != "failure" {
+		t.Fatalf("check conclusion = %q, want failure (open high with pack failOnSeverity=high)", check.Conclusion)
+	}
+	if !strings.Contains(check.Title, `"high"`) {
+		t.Fatalf("check title = %q, want the pack threshold mentioned", check.Title)
+	}
+}
+
+func TestPublishRunCheckLinksToRegisteredScanDetailRoute(t *testing.T) {
+	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t)
+	reconciler.DashboardBaseURL = "https://dash.example.com/"
+
+	if reconciler.publishRunCheck(context.Background(), scan) {
+		t.Fatal("publishRunCheck retry = true, want false")
+	}
+	check := publisher.checks[0]
+	// The frontend registers scan detail at /security/:namespace/:runName.
+	wantURL := "https://dash.example.com/security/" + scan.Namespace + "/" + scan.Status.LastRunName
+	if check.DetailsURL != wantURL {
+		t.Fatalf("DetailsURL = %q, want %q", check.DetailsURL, wantURL)
+	}
+	if !strings.Contains(check.Summary, wantURL) {
+		t.Fatalf("summary missing run detail link %q:\n%s", wantURL, check.Summary)
+	}
+	if strings.Contains(check.Summary, "?scan=") {
+		t.Fatalf("summary uses a stale query-param path:\n%s", check.Summary)
+	}
+
+	bare := securityScanCheckSummary(scan, scan.Status.LastRunName, nil, nil, "")
+	wantPath := "`/security/" + scan.Namespace + "/" + scan.Status.LastRunName + "`"
+	if !strings.Contains(bare, wantPath) {
+		t.Fatalf("summary without base URL missing %s:\n%s", wantPath, bare)
+	}
+}
+
 func TestPublishRunCheckDisabledDoesNothing(t *testing.T) {
 	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t)
 	scan.Spec.Checks = nil

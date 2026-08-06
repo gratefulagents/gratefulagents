@@ -181,7 +181,7 @@ func securityScanCheckSummary(scan *triggersv1alpha1.SecurityScan, runName strin
 			b.WriteString("\n")
 		}
 	}
-	path := fmt.Sprintf("/security/%s?scan=%s&run=%s", scan.Namespace, scan.Name, runName)
+	path := fmt.Sprintf("/security/%s/%s", scan.Namespace, runName)
 	if dashboardBaseURL != "" {
 		fmt.Fprintf(&b, "\nFull details: %s%s\n", strings.TrimRight(dashboardBaseURL, "/"), path)
 	} else {
@@ -325,7 +325,7 @@ func (r *SecurityScanReconciler) publishRunCheck(ctx context.Context, scan *trig
 	if summary != nil {
 		openBySeverity = summary.openBySeverity
 	}
-	conclusion, title := securityScanCheckConclusion(run.Status.Phase, scan.Spec.FailOnSeverity, openBySeverity)
+	conclusion, title := securityScanCheckConclusion(run.Status.Phase, r.effectiveFailOnSeverity(ctx, scan), openBySeverity)
 
 	var findingLines []string
 	if checks.IncludeFindingSummaries && r.Findings != nil {
@@ -347,7 +347,7 @@ func (r *SecurityScanReconciler) publishRunCheck(ctx context.Context, scan *trig
 		Summary:    securityScanCheckSummary(scan, run.Name, openBySeverity, findingLines, r.DashboardBaseURL),
 	}
 	if r.DashboardBaseURL != "" {
-		check.DetailsURL = fmt.Sprintf("%s/security/%s?scan=%s&run=%s", strings.TrimRight(r.DashboardBaseURL, "/"), scan.Namespace, scan.Name, run.Name)
+		check.DetailsURL = fmt.Sprintf("%s/security/%s/%s", strings.TrimRight(r.DashboardBaseURL, "/"), scan.Namespace, run.Name)
 	}
 	sarifWanted := checks.UploadSARIF && run.Status.Phase == platformv1alpha1.AgentRunPhaseSucceeded
 	hash := securityScanCheckStateHash(check, sarifWanted)

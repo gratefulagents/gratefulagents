@@ -338,3 +338,63 @@ func TestSecurityScanPromptStatesFindingBudget(t *testing.T) {
 		t.Fatalf("prompt does not state that the platform enforces the cap")
 	}
 }
+
+// TestSecurityScanCreatedRunCarriesMaxFindingsAnnotation pins the
+// persistence-boundary channel for the findings cap: the controller stamps
+// the effective budgets.maxFindings on the created run so the agent-side
+// finding tools refuse to persist findings past it, even when the run
+// reaches a terminal phase before the next reconcile.
+func TestSecurityScanCreatedRunCarriesMaxFindingsAnnotation(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 25}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(runs))
+	}
+	if got := runs[0].Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "25" {
+		t.Fatalf("max-findings annotation = %q, want the spec budget 25", got)
+	}
+}
+
+func TestSecurityScanCreatedRunMaxFindingsAnnotationFromPolicyPack(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.PolicyPackRef = &triggersv1alpha1.SecurityResourceRef{Name: "org-policy"}
+	pack := securityTestPolicyPack(scan.Namespace)
+	pack.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 40}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, pack)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(runs))
+	}
+	if got := runs[0].Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "40" {
+		t.Fatalf("max-findings annotation = %q, want the pack-resolved budget 40", got)
+	}
+}
+
+func TestSecurityScanCreatedRunOmitsMaxFindingsAnnotationWhenUnlimited(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(runs))
+	}
+	if got, ok := runs[0].Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; ok {
+		t.Fatalf("max-findings annotation = %q, want absent when no budget is set", got)
+	}
+}
