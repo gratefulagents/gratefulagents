@@ -18,6 +18,7 @@ import {
   SEVERITIES, SeverityBadge, severityTone,
 } from "@/components/SecurityScanList";
 import { SecurityScanRunPanel } from "@/components/SecurityScanRunPanel";
+import { ExecutionProgressPanel } from "@/components/ExecutionProgressPanel";
 import {
   BASELINE_STATES, BaselineBadge, ExpiryBadge, SuppressedBadge, suppressionSummary,
 } from "@/components/security-baseline";
@@ -623,6 +624,15 @@ export function SecurityScanDetail() {
               onRunSettled={handleRunSettled}
             />
           )}
+
+          {namespace &&
+            scanConfig?.lastExecution &&
+            scanConfig.lastExecution.mode === "deterministic" && (
+              <ExecutionProgressPanel
+                namespace={namespace}
+                execution={scanConfig.lastExecution}
+              />
+            )}
 
           {scan.summary && (
             <DetailSection title="Scan Summary">

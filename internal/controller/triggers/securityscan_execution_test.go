@@ -100,8 +100,12 @@ func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) 
 	if run.Spec.Limits == nil || run.Spec.Limits.MaxRuntime.Duration != 15*time.Minute || run.Spec.Limits.MaxTurns != 7 || run.Spec.Limits.MaxCostUsd != "1.25" {
 		t.Fatalf("Limits = %#v, want timeout, turns, and cost task limits", run.Spec.Limits)
 	}
-	if run.Spec.ToolPolicy == nil || strings.Join(run.Spec.ToolPolicy.AllowedTools, ",") != "read_file" || strings.Join(run.Spec.ToolPolicy.DeniedTools, ",") != "Bash" {
-		t.Fatalf("ToolPolicy = %#v, want task tool policy", run.Spec.ToolPolicy)
+	// The allow-list keeps the user's tools and auto-appends the platform
+	// contract tools (the task declares an outputSchema and is the DAG's
+	// sink, so submit_task_output and submit_security_scan_report are due).
+	wantAllowed := "read_file,report_security_finding,update_security_finding,submit_task_output,submit_security_scan_report"
+	if run.Spec.ToolPolicy == nil || strings.Join(run.Spec.ToolPolicy.AllowedTools, ",") != wantAllowed || strings.Join(run.Spec.ToolPolicy.DeniedTools, ",") != "Bash" {
+		t.Fatalf("ToolPolicy = %#v, want allowed %q and denied Bash", run.Spec.ToolPolicy, wantAllowed)
 	}
 	if run.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation] != "3" {
 		t.Fatalf("max-findings annotation = %q, want 3", run.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation])
@@ -320,7 +324,9 @@ func TestSecurityScanDeterministicExecutionExpandsFanOutAndRendersOutputs(t *tes
 func TestSecurityScanDeterministicExecutionFailsFanOutForNonArrayOutput(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
-		{Name: "source", Objective: "produce target", OutputSchema: `{"type":"object"}`},
+		// A schema without "type" passes validation (it may be loose), so
+		// the non-array output is only caught at expansion time.
+		{Name: "source", Objective: "produce target", OutputSchema: `{"properties":{"field":{"type":"string"}}}`},
 		{Name: "fan", Objective: "inspect {{item.field}}", DependsOn: []string{"source"}, ForEach: "source"},
 	}, 1)
 	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
@@ -695,4 +701,228 @@ func (s *executionSideEffectFindingStore) ExpireSecuritySuppressions(context.Con
 
 func (s *executionSideEffectFindingStore) RevokeSecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
 	return 0, nil
+}
+
+func TestSecurityScanDeterministicExecutionFailsWhenWorkflowGainsTaskMidExecution(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "a", Objective: "inspect a"},
+		{Name: "c", Objective: "join", DependsOn: []string{"a"}},
+	}, 1)
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	assertExecutionTaskState(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Spec.Workflow = append(updated.Spec.Workflow, triggersv1alpha1.SecurityScanTask{
+		Name: "b", Objective: "inspect b", DependsOn: []string{"a"},
+	})
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan) error = %v", err)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	final := getSecurityScan(t, k8sClient, scan)
+	exec := final.Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase = %q, want Failed after mid-execution workflow drift", exec.Phase)
+	}
+	const wantMsg = "workflow changed while the execution was in progress; re-run the scan"
+	if c := executionTask(t, exec, "c", 0); c.State != triggersv1alpha1.SecurityScanTaskStateSkipped || !strings.Contains(c.LastError, wantMsg) {
+		t.Fatalf("blocked task c = %#v, want Skipped with drift error %q", c, wantMsg)
+	}
+	if !strings.Contains(final.Status.LastError, wantMsg) {
+		t.Fatalf("scan LastError = %q, want drift message %q", final.Status.LastError, wantMsg)
+	}
+}
+
+// failingWorkflowGetClient simulates a transient API failure when resolving
+// the referenced SecurityWorkflow.
+type failingWorkflowGetClient struct {
+	client.Client
+	fail bool
+}
+
+func (c *failingWorkflowGetClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*triggersv1alpha1.SecurityWorkflow); ok && c.fail {
+		return fmt.Errorf("transient: connection refused")
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+func TestSecurityScanDeterministicExecutionRequeuesOnTransientRefErrorAndFailsOnMissingRef(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan(nil, 1)
+	scan.Spec.Workflow = nil
+	scan.Spec.WorkflowRef = &triggersv1alpha1.SecurityResourceRef{Name: "wf"}
+	workflow := &triggersv1alpha1.SecurityWorkflow{
+		ObjectMeta: metav1.ObjectMeta{Name: "wf", Namespace: scan.Namespace},
+		Spec: triggersv1alpha1.SecurityWorkflowSpec{Tasks: []triggersv1alpha1.SecurityScanTask{
+			{Name: "a", Objective: "inspect a"},
+		}},
+	}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, workflow)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	assertExecutionTaskState(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+
+	// A transient API error while resolving refs must requeue (Reconcile
+	// returns the error) without failing the execution.
+	flaky := &failingWorkflowGetClient{Client: k8sClient, fail: true}
+	reconciler.Client = flaky
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err == nil || !strings.Contains(err.Error(), "transient") {
+		t.Fatalf("Reconcile() error = %v, want the transient resolution error returned for requeue", err)
+	}
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
+		t.Fatalf("execution phase = %q, want still Running after transient ref error", exec.Phase)
+	}
+
+	// A deterministic not-found reference fails the execution.
+	flaky.fail = false
+	if err := k8sClient.Delete(context.Background(), workflow); err != nil {
+		t.Fatalf("Delete(SecurityWorkflow) error = %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase = %q, want Failed after the referenced workflow disappeared", exec.Phase)
+	}
+}
+
+// staleLastExecutionClient simulates an informer cache that has not observed
+// the status.lastExecution write yet: the first Get returning a scan with a
+// recorded execution strips it once.
+type staleLastExecutionClient struct {
+	client.Client
+	armed bool
+}
+
+func (c *staleLastExecutionClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := c.Client.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+	if scan, ok := obj.(*triggersv1alpha1.SecurityScan); ok && c.armed && scan.Status.LastExecution != nil {
+		scan.Status.LastExecution = nil
+		c.armed = false
+	}
+	return nil
+}
+
+func TestSecurityScanStartDeterministicExecutionToleratesStaleCacheAfterStatusWrite(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect a"}}, 1)
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	stale := &staleLastExecutionClient{Client: reconciler.Client, armed: true}
+	reconciler.Client = stale
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if stale.armed {
+		t.Fatal("stale Get was never exercised; the test no longer covers the stale-cache path")
+	}
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec == nil || exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
+		t.Fatalf("LastExecution = %#v, want a running execution despite the stale re-read", exec)
+	}
+	assertExecutionTaskState(t, exec, "a", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+	if runs := securityScanRuns(t, k8sClient, scan.Namespace); len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want the first task launched off the freshly written execution", len(runs))
+	}
+}
+
+func TestSecurityScanDeterministicTaskRunAllowListAppendsOnlyDueContractTools(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		// "a" is not a sink (b depends on it) and declares no outputSchema,
+		// so only the finding tools are due; report_security_finding is
+		// already allowed and must not be duplicated.
+		{Name: "a", Objective: "inspect", Tools: &triggersv1alpha1.SecurityScanTaskTools{Allowed: []string{"read_file", "report_security_finding"}}},
+		{Name: "b", Objective: "aggregate", DependsOn: []string{"a"}},
+	}, 2)
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
+	want := "read_file,report_security_finding,update_security_finding"
+	if run.Spec.ToolPolicy == nil || strings.Join(run.Spec.ToolPolicy.AllowedTools, ",") != want {
+		t.Fatalf("AllowedTools = %#v, want %q", run.Spec.ToolPolicy, want)
+	}
+}
+
+func TestSecurityScanExpandFanOutsTruncatesToExecutionEntryCeiling(t *testing.T) {
+	now := metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	source := triggersv1alpha1.SecurityScanTask{Name: "source", Objective: "list", OutputSchema: `{"type":"array"}`}
+	fan := triggersv1alpha1.SecurityScanTask{Name: "fan", Objective: "inspect {{item}}", DependsOn: []string{"source"}, ForEach: "source", MaxInstances: 50}
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{source, fan}, 1)
+	reconciler, _, _ := newSecurityScanReconciler(t, now.Time, scan)
+
+	exec := &triggersv1alpha1.SecurityScanExecutionStatus{
+		ID:   "cap",
+		Mode: triggersv1alpha1.SecurityScanExecutionModeDeterministic,
+	}
+	exec.Tasks = append(exec.Tasks, triggersv1alpha1.SecurityScanTaskExecutionStatus{
+		Name: "source", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "src-run",
+	})
+	for i := 0; i < securityScanExecutionMaxTaskEntries-4; i++ {
+		exec.Tasks = append(exec.Tasks, triggersv1alpha1.SecurityScanTaskExecutionStatus{
+			Name: "pad", Instance: int32(i), State: triggersv1alpha1.SecurityScanTaskStateSucceeded,
+		})
+	}
+	exec.Tasks = append(exec.Tasks, triggersv1alpha1.SecurityScanTaskExecutionStatus{
+		Name: "fan", State: triggersv1alpha1.SecurityScanTaskStatePending,
+	})
+
+	records := make([]string, 10)
+	for i := range records {
+		records[i] = fmt.Sprintf(`{"n":%d}`, i)
+	}
+	engine := &securityScanExecutionEngine{
+		r:     reconciler,
+		scan:  scan,
+		exec:  exec,
+		now:   now,
+		order: []triggersv1alpha1.SecurityScanTask{source, fan},
+		tasks: map[string]triggersv1alpha1.SecurityScanTask{"source": source, "fan": fan},
+		runs: map[string]*platformv1alpha1.AgentRun{"src-run": {
+			Status: platformv1alpha1.AgentRunStatus{
+				Phase:            platformv1alpha1.AgentRunPhaseSucceeded,
+				StructuredOutput: "[" + strings.Join(records, ",") + "]",
+			},
+		}},
+	}
+	engine.expandFanOuts(context.Background())
+
+	// 198 entries before expansion leave a budget of 3 fan instances.
+	if got := len(engine.taskEntries("fan")); got != 3 {
+		t.Fatalf("fan entries after capped expansion = %d, want 3", got)
+	}
+	if len(exec.Tasks) != securityScanExecutionMaxTaskEntries {
+		t.Fatalf("total execution entries = %d, want the ceiling %d", len(exec.Tasks), securityScanExecutionMaxTaskEntries)
+	}
+}
+
+func TestRenderSecurityScanTaskObjectiveRejectsOversizedRendering(t *testing.T) {
+	big := strings.Repeat("x", securityScanMaxRenderedObjectiveBytes)
+	_, err := renderSecurityScanTaskObjective("use {{tasks.big.output}}", &securityScanTaskTemplateContext{
+		params: map[string]string{},
+		output: func(string) (string, error) { return big, nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "rendered objective exceeds 256KiB") {
+		t.Fatalf("error = %v, want oversized-rendering rejection", err)
+	}
+	if out, err := renderSecurityScanTaskObjective("use {{tasks.big.output}}", &securityScanTaskTemplateContext{
+		params: map[string]string{},
+		output: func(string) (string, error) { return big[:securityScanMaxRenderedObjectiveBytes-4], nil },
+	}); err != nil || len(out) != securityScanMaxRenderedObjectiveBytes {
+		t.Fatalf("at-limit rendering = (%d bytes, %v), want success at exactly the cap", len(out), err)
+	}
+}
+
+func TestTruncateSecurityScanErrorCapsAt160Characters(t *testing.T) {
+	long := strings.Repeat("e", 500)
+	if got := truncateSecurityScanError(long); len(got) != 160 || !strings.HasSuffix(got, "...") {
+		t.Fatalf("truncated length = %d (suffix %q), want 160 with ellipsis", len(got), got[len(got)-3:])
+	}
+	if got := truncateSecurityScanError("short"); got != "short" {
+		t.Fatalf("short string = %q, want unchanged", got)
+	}
 }

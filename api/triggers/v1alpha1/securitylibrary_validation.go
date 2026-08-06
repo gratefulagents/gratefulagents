@@ -19,6 +19,10 @@ import (
 // task objective template.
 var securityWorkflowTaskRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9-]+)`)
 
+// securityWorkflowTaskFieldRefPattern matches {{tasks.<name>.output.<field>}}
+// single-field references in a task objective template.
+var securityWorkflowTaskFieldRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9-]+)\.output\.`)
+
 // securityWorkflowItemRefPattern matches {{item...}} references in a task
 // objective template.
 var securityWorkflowItemRefPattern = regexp.MustCompile(`\{\{\s*item`)
@@ -26,6 +30,20 @@ var securityWorkflowItemRefPattern = regexp.MustCompile(`\{\{\s*item`)
 // securityWorkflowParameterNamePattern matches valid workflow parameter
 // names, referenced as {{params.<name>}}.
 var securityWorkflowParameterNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+const (
+	// MaxSecurityWorkflowTasks caps the task list (mirrors the MaxItems=64
+	// CRD marker on SecurityScan spec.workflow and SecurityWorkflow
+	// spec.tasks).
+	MaxSecurityWorkflowTasks = 64
+
+	// MaxSecurityWorkflowPlannedInstances caps the total number of task
+	// instances a workflow may plan (ensemble repeats plus forEach fan-out
+	// ceilings). It bounds status.lastExecution so the SecurityScan object
+	// stays well below the etcd object-size limit; the deterministic engine
+	// enforces the same ceiling at fan-out expansion time.
+	MaxSecurityWorkflowPlannedInstances = 200
+)
 
 // SecurityWorkflowFieldError is one structured validation failure for a
 // security workflow, ranker, or post-script, addressed to the offending
@@ -46,12 +64,14 @@ func (e SecurityWorkflowFieldError) Error() string {
 
 // ValidateSecurityWorkflowTasks validates a security workflow task list the
 // same way for the dashboard, the SecurityScan controller, and the library
-// reconcilers: at least one task; unique DNS-1123 label names; non-empty
-// objectives; non-negative maxFindings; DNS-1123 role names; models without
-// whitespace; per-task execution settings (retries, timeout, cost, tools,
-// outputSchema, forEach fan-out, repeats) within bounds; objective template
-// references that resolve to declared dependencies; dependsOn entries that
-// resolve to other tasks; and an acyclic dependency graph.
+// reconcilers: at least one task and at most MaxSecurityWorkflowTasks; unique
+// DNS-1123 label names; non-empty objectives; non-negative maxFindings;
+// DNS-1123 role names; models without whitespace; per-task execution settings
+// (retries, timeout, cost, tools, outputSchema, forEach fan-out, repeats)
+// within bounds; objective template references that resolve to declared
+// dependencies; dependsOn entries that resolve to other tasks; a total
+// planned-instance budget of MaxSecurityWorkflowPlannedInstances; and an
+// acyclic dependency graph.
 func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowFieldError {
 	var errs []SecurityWorkflowFieldError
 	add := func(field, format string, args ...any) {
@@ -60,6 +80,10 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 
 	if len(tasks) == 0 {
 		add("tasks", "a workflow needs at least one task")
+		return errs
+	}
+	if len(tasks) > MaxSecurityWorkflowTasks {
+		add("tasks", "a workflow may hold at most %d tasks, got %d", MaxSecurityWorkflowTasks, len(tasks))
 		return errs
 	}
 
@@ -138,8 +162,12 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 				add(field+".forEach", "task %q forEach references unknown task %q", task.Name, task.ForEach)
 			case !depSet[task.ForEach] || task.ForEach == task.Name:
 				add(field+".forEach", "task %q forEach task %q must also be listed in dependsOn; add it there", task.Name, task.ForEach)
+			case ref.ForEach != "" || ref.Repeats > 1:
+				add(field+".forEach", "task %q forEach task %q is itself multi-instance (forEach or repeats); fan-out sources must be single-instance tasks", task.Name, task.ForEach)
 			case strings.TrimSpace(ref.OutputSchema) == "":
 				add(field+".forEach", "task %q forEach task %q must declare outputSchema", task.Name, task.ForEach)
+			case !securityWorkflowSchemaAllowsArray(ref.OutputSchema):
+				add(field+".forEach", "task %q forEach task %q outputSchema must declare \"type\":\"array\" (the fan-out source must publish a JSON array of records)", task.Name, task.ForEach)
 			}
 			if task.Repeats > 1 {
 				add(field+".repeats", "task %q cannot combine forEach with repeats", task.Name)
@@ -159,8 +187,38 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 				add(field+".objective", "task %q references {{tasks.%s}} but does not list %q in dependsOn", task.Name, ref, ref)
 			}
 		}
+		// A multi-instance task's aggregated output is a JSON array of the
+		// per-instance outputs, so a single-field access can never resolve.
+		fieldReferenced := make(map[string]bool)
+		for _, match := range securityWorkflowTaskFieldRefPattern.FindAllStringSubmatch(task.Objective, -1) {
+			ref := match[1]
+			if fieldReferenced[ref] {
+				continue
+			}
+			fieldReferenced[ref] = true
+			src, known := byName[ref]
+			if known && (src.ForEach != "" || src.Repeats > 1) {
+				add(field+".objective", "task %q references {{tasks.%s.output.<field>}} but task %q is multi-instance (forEach or repeats) and its output is a JSON array of instance outputs; use {{tasks.%s.output}}", task.Name, ref, ref, ref)
+			}
+		}
 	}
 	if len(errs) != 0 {
+		return errs
+	}
+
+	// Planned-instance budget: what planSecurityScanExecution would expand
+	// (ensemble repeats now, forEach fan-outs up to their maxInstances cap
+	// later) must fit the execution-entry ceiling.
+	planned := 0
+	for _, task := range tasks {
+		instances := task.EffectiveRepeats()
+		if task.ForEach != "" && task.EffectiveMaxInstances() > instances {
+			instances = task.EffectiveMaxInstances()
+		}
+		planned += int(instances)
+	}
+	if planned > MaxSecurityWorkflowPlannedInstances {
+		add("tasks", "the workflow plans up to %d task instances (repeats plus forEach maxInstances); at most %d are allowed, lower repeats or maxInstances", planned, MaxSecurityWorkflowPlannedInstances)
 		return errs
 	}
 
@@ -168,6 +226,26 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 		add("tasks", "dependency cycle: %s", strings.Join(cycle, " -> "))
 	}
 	return errs
+}
+
+// securityWorkflowSchemaAllowsArray reports whether an outputSchema (already
+// checked to be a JSON object) can describe a JSON array: a string "type"
+// other than "array" cannot, an absent or non-string "type" is allowed (the
+// schema may be intentionally loose).
+func securityWorkflowSchemaAllowsArray(schema string) bool {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(schema), &object); err != nil || object == nil {
+		return true // malformed schemas are rejected by the per-task check
+	}
+	raw, ok := object["type"]
+	if !ok {
+		return true
+	}
+	var typeName string
+	if err := json.Unmarshal(raw, &typeName); err != nil {
+		return true
+	}
+	return typeName == "array"
 }
 
 // validateSecurityWorkflowToolList validates one tools.allowed/denied list:

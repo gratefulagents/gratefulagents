@@ -91,12 +91,13 @@ func (t *submitTaskOutputTool) Execute(ctx context.Context, input json.RawMessag
 	if err := json.Unmarshal(in.Output, &value); err != nil {
 		return Result{Content: fmt.Sprintf("output is not valid JSON: %v", err), IsError: true}, nil
 	}
-	// Models often double-encode structured values; a string that itself
-	// parses as JSON is unwrapped before validation. A string that does not
-	// parse stays a plain string (the schema may legitimately want one).
-	if s, ok := value.(string); ok {
+	// Models often double-encode structured values; a string that fails
+	// validation but itself parses as JSON that passes validation is
+	// unwrapped. A string the schema accepts as-is stays a plain string, so
+	// a "type":"string" schema is never surprised by outputs like "123".
+	if s, ok := value.(string); ok && t.schema.Validate(value) != nil {
 		var unwrapped any
-		if err := json.Unmarshal([]byte(s), &unwrapped); err == nil {
+		if err := json.Unmarshal([]byte(s), &unwrapped); err == nil && t.schema.Validate(unwrapped) == nil {
 			value = unwrapped
 		}
 	}

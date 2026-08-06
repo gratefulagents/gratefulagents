@@ -1088,6 +1088,7 @@ spec:
                   - name
                   - objective
                   type: object
+                maxItems: 64
                 type: array
                 x-kubernetes-list-type: atomic
               workflowRef:
@@ -1376,8 +1377,8 @@ spec:
                     type: string
                   phase:
                     description: |-
-                      phase is the execution's coarse state: Running, Succeeded, Failed, or
-                      Resuming.
+                      phase is the execution's coarse state: Running, Succeeded, or Failed
+                      (resuming a failed execution sets it back to Running).
                     type: string
                   startedAt:
                     description: startedAt is when the execution started.

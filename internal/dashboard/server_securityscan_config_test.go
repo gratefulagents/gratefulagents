@@ -3,6 +3,8 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
 
@@ -963,5 +966,81 @@ func TestSecurityScanConfigSurfacesLastExecution(t *testing.T) {
 	}
 	if len(list.Configs) != 1 || list.Configs[0].GetLastExecution().GetId() != "run-7" {
 		t.Fatalf("list last execution = %+v", list.Configs)
+	}
+}
+
+func TestRunSecurityScanNowRejectsOversizedParameterValues(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "bounded", Namespace: ns},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+	}
+	srv, _ := newCronTestServer(t, existing)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "bounded", ns, testProjectSubject); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	_, err := srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "bounded",
+		ParameterValues: map[string]string{"big": strings.Repeat("v", 4097)},
+	})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("RunSecurityScanNow(oversized value) error = %v, want InvalidArgument", err)
+	}
+
+	values := map[string]string{}
+	for i := 0; i < 16; i++ {
+		values[fmt.Sprintf("p%02d", i)] = strings.Repeat("v", 4096)
+	}
+	_, err = srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "bounded", ParameterValues: values,
+	})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("RunSecurityScanNow(oversized total) error = %v, want InvalidArgument", err)
+	}
+
+	// A value at exactly the per-value cap stays accepted.
+	if _, err := srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "bounded",
+		ParameterValues: map[string]string{"big": strings.Repeat("v", 4096)},
+	}); err != nil {
+		t.Fatalf("RunSecurityScanNow(at-cap value) error = %v", err)
+	}
+}
+
+func TestRunSecurityScanNowWithParameterValuesRequiresCollaboratorAccess(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: ns},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+	}
+	srv, _ := newCronTestServer(t, existing)
+	ms := newCollaborationStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "shared", ns, testProjectSubject); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+	for subject, permission := range map[string]string{"victor": "viewer", "carl": "collaborator"} {
+		if _, err := ms.ShareResource(context.Background(), &store.ResourceShare{
+			ResourceType: securityScanResourceType, ResourceID: "shared", ResourceNamespace: ns,
+			SharedWithUserID: subject, SharedByUserID: testProjectSubject, Permission: permission,
+		}); err != nil {
+			t.Fatalf("ShareResource(%s): %v", permission, err)
+		}
+	}
+
+	req := &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "shared",
+		ParameterValues: map[string]string{"focus": "auth"},
+	}
+	// The merge persists into spec.parameterValues, so a viewer share (read
+	// access) must not be enough.
+	if _, err := srv.RunSecurityScanNow(actorContext("victor", "member", "", ""), req); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("RunSecurityScanNow(viewer + params) error = %v, want PermissionDenied", err)
+	}
+	if _, err := srv.RunSecurityScanNow(actorContext("carl", "member", "", ""), req); err != nil {
+		t.Fatalf("RunSecurityScanNow(collaborator + params) error = %v", err)
 	}
 }

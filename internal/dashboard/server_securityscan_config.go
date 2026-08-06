@@ -198,11 +198,14 @@ func (s *Server) UpdateSecurityScan(
 }
 
 // RunSecurityScanNow stamps a run-now annotation token on a SecurityScan so
-// the controller creates an immediate AgentRun without a spec edit. The token
-// is opaque and unique per request; the controller records consumed tokens in
+// the controller creates an immediate AgentRun. The token is opaque and
+// unique per request; the controller records consumed tokens in
 // status.lastManualRunToken, so retried or concurrent duplicate requests never
 // create two runs, and concurrencyPolicy Forbid surfaces ConcurrencyBlocked
-// on the scan status instead of double-running.
+// on the scan status instead of double-running. Provided parameter_values are
+// merged into and persisted on spec.parameterValues — a lasting spec edit —
+// which is why this handler requires the same collaborator access as
+// UpdateSecurityScan.
 func (s *Server) RunSecurityScanNow(
 	ctx context.Context, req *platform.RunSecurityScanNowRequest,
 ) (*platform.SecurityScanConfig, error) {
@@ -359,8 +362,15 @@ func securityScanExecutionFromProto(pb *platform.SecurityScanExecutionConfig) (*
 }
 
 // securityScanParameterValuesFromProto validates parameter names against the
-// {{params.<name>}} identifier syntax and the CRD's 32-entry cap.
+// {{params.<name>}} identifier syntax and the CRD's 32-entry cap, and bounds
+// the payload: parameter values are interpolated into prompts and persisted
+// on the CR spec, so each value is capped at 4096 bytes and the whole map at
+// 64KiB.
 func securityScanParameterValuesFromProto(values map[string]string) (map[string]string, error) {
+	const (
+		maxParameterValueBytes = 4096
+		maxParameterTotalBytes = 64 * 1024
+	)
 	if len(values) == 0 {
 		return nil, nil
 	}
@@ -368,13 +378,23 @@ func securityScanParameterValuesFromProto(values map[string]string) (map[string]
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("parameter_values may hold at most 32 entries, got %d", len(values)))
 	}
+	total := 0
 	out := make(map[string]string, len(values))
 	for name, value := range values {
 		if len(name) > 63 || !securityScanParameterNamePattern.MatchString(name) {
 			return nil, connect.NewError(connect.CodeInvalidArgument,
 				fmt.Errorf("invalid parameter name %q (want an identifier like snake_case, at most 63 characters)", name))
 		}
+		if len(value) > maxParameterValueBytes {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("parameter %q value is %d bytes; each value may hold at most %d bytes", name, len(value), maxParameterValueBytes))
+		}
+		total += len(name) + len(value)
 		out[name] = value
+	}
+	if total > maxParameterTotalBytes {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("parameter_values total %d bytes; the map may hold at most %d bytes", total, maxParameterTotalBytes))
 	}
 	return out, nil
 }

@@ -66,11 +66,13 @@ export function ExportSecurityPackDialog({
   rankers,
   postScripts,
   scanConfigs,
+  policyPacks,
 }: {
   workflows: string[];
   rankers: string[];
   postScripts: string[];
   scanConfigs: string[];
+  policyPacks: string[];
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Record<string, Set<string>>>({
@@ -78,6 +80,7 @@ export function ExportSecurityPackDialog({
     rankers: new Set(),
     postScripts: new Set(),
     scanConfigs: new Set(),
+    policyPacks: new Set(),
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +94,11 @@ export function ExportSecurityPackDialog({
     });
   };
   const total =
-    selected.workflows.size + selected.rankers.size + selected.postScripts.size + selected.scanConfigs.size;
+    selected.workflows.size +
+    selected.rankers.size +
+    selected.postScripts.size +
+    selected.scanConfigs.size +
+    selected.policyPacks.size;
 
   async function handleExport() {
     setBusy(true);
@@ -103,6 +110,7 @@ export function ExportSecurityPackDialog({
         rankers: [...selected.rankers],
         postScripts: [...selected.postScripts],
         scanConfigs: [...selected.scanConfigs],
+        policyPacks: [...selected.policyPacks],
       });
       downloadBlob(resp.filename || "security-pack.json", resp.data, "application/json");
       setOpen(false);
@@ -126,7 +134,7 @@ export function ExportSecurityPackDialog({
         <DialogHeader>
           <DialogTitle className="text-base">Export a security pack</DialogTitle>
           <DialogDescription>
-            Packs carry workflow, ranker, post-script, and scan configuration definitions. Credentials and
+            Packs carry workflow, ranker, post-script, scan configuration, and policy pack definitions. Credentials and
             secret references are always stripped, so a pack is safe to share or check into version control.
           </DialogDescription>
         </DialogHeader>
@@ -135,7 +143,8 @@ export function ExportSecurityPackDialog({
           <CheckboxList label="Rankers" names={rankers} selected={selected.rankers} onToggle={toggle("rankers")} testid="export-rankers" />
           <CheckboxList label="Post-scripts" names={postScripts} selected={selected.postScripts} onToggle={toggle("postScripts")} testid="export-post-scripts" />
           <CheckboxList label="Scan configurations" names={scanConfigs} selected={selected.scanConfigs} onToggle={toggle("scanConfigs")} testid="export-scans" />
-          {workflows.length + rankers.length + postScripts.length + scanConfigs.length === 0 && (
+          <CheckboxList label="Policy packs" names={policyPacks} selected={selected.policyPacks} onToggle={toggle("policyPacks")} testid="export-policy-packs" />
+          {workflows.length + rankers.length + postScripts.length + scanConfigs.length + policyPacks.length === 0 && (
             <p className="text-sm text-muted-foreground">There is nothing to export yet.</p>
           )}
           {error && <p className="text-sm text-destructive">{error}</p>}

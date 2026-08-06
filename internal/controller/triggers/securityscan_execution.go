@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -53,6 +54,18 @@ const (
 	// execution has active task runs (run phase changes also trigger
 	// reconciles through the AgentRun watch).
 	securityScanExecutionPollInterval = 30 * time.Second
+
+	// securityScanExecutionMaxTaskEntries caps status.lastExecution.tasks so
+	// the SecurityScan object stays well below the etcd object-size limit.
+	// Validation enforces the same planned-instance budget up front
+	// (MaxSecurityWorkflowPlannedInstances); the engine re-enforces it at
+	// fan-out expansion time and truncates over-budget expansions.
+	securityScanExecutionMaxTaskEntries = triggersv1alpha1.MaxSecurityWorkflowPlannedInstances
+
+	// securityScanMaxRenderedObjectiveBytes caps a fully rendered task
+	// objective: a fan-in objective can interpolate many 64KiB upstream
+	// outputs, so the assembled prompt must be bounded explicitly.
+	securityScanMaxRenderedObjectiveBytes = 256 * 1024
 
 	// securityScanReasonOutputContractUnmet marks a task run that succeeded
 	// without publishing the structured output its schema requires.
@@ -451,6 +464,14 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 	if err := r.Get(ctx, client.ObjectKeyFromObject(scan), fresh); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	if fresh.Status.LastExecution == nil || fresh.Status.LastExecution.ID != exec.ID ||
+		!securityScanExecutionActive(fresh.Status.LastExecution) {
+		// The cached read has not observed the status write above yet.
+		// Advance off the execution value just written instead of
+		// dereferencing the stale (possibly nil) cached one; the exec value
+		// is authoritative because the write succeeded.
+		fresh.Status.LastExecution = exec.DeepCopy()
+	}
 	return r.advanceDeterministicExecution(ctx, fresh)
 }
 
@@ -552,6 +573,14 @@ func (r *SecurityScanReconciler) advanceDeterministicExecution(ctx context.Conte
 	var requeue time.Duration
 	resolved, err := resolveSecurityScanRefs(ctx, r.Client, scan)
 	if err != nil {
+		// Only a deterministic spec/reference failure (missing referenced
+		// resource, invalid spec, policy violation) fails the execution; a
+		// transient API error must requeue and retry instead of permanently
+		// failing a healthy execution.
+		var refErr *securityScanRefError
+		if !errors.As(err, &refErr) {
+			return ctrl.Result{}, err
+		}
 		failSecurityScanExecution(exec, now, "resolving references during execution: "+err.Error())
 	} else {
 		engine := &securityScanExecutionEngine{
@@ -624,10 +653,17 @@ func applySecurityScanExecutionOutcomeCondition(fresh *triggersv1alpha1.Security
 }
 
 // failedSecurityScanExecutionDetail summarizes the first failed task of a
-// terminal execution.
+// terminal execution, falling back to the first skipped task carrying an
+// error so execution-level failures (drift, budget) that never fail an
+// individual task still surface their reason.
 func failedSecurityScanExecutionDetail(exec *triggersv1alpha1.SecurityScanExecutionStatus) string {
 	for _, task := range exec.Tasks {
 		if task.State == triggersv1alpha1.SecurityScanTaskStateFailed && task.LastError != "" {
+			return fmt.Sprintf("task %q: %s", task.Name, task.LastError)
+		}
+	}
+	for _, task := range exec.Tasks {
+		if task.State == triggersv1alpha1.SecurityScanTaskStateSkipped && task.LastError != "" {
 			return fmt.Sprintf("task %q: %s", task.Name, task.LastError)
 		}
 	}
@@ -706,11 +742,9 @@ func (e *securityScanExecutionEngine) advance(ctx context.Context) time.Duration
 	for _, task := range e.order {
 		e.tasks[task.Name] = task
 	}
-	for i := range exec.Tasks {
-		if _, ok := e.tasks[exec.Tasks[i].Name]; !ok {
-			failSecurityScanExecution(exec, e.now, fmt.Sprintf("workflow changed during execution: task %q no longer exists", exec.Tasks[i].Name))
-			return 0
-		}
+	if drift := e.workflowDrift(); drift != "" {
+		failSecurityScanExecution(exec, e.now, drift)
+		return 0
 	}
 	params, err := resolveSecurityScanParameters(e.resolved)
 	if err != nil {
@@ -739,6 +773,37 @@ func (e *securityScanExecutionEngine) advance(ctx context.Context) time.Duration
 
 	e.finalizePhase(e.anyFailed())
 	return e.nextRequeue()
+}
+
+// workflowDrift detects mid-execution edits to the effective workflow that
+// the execution state cannot follow, in both directions: an execution entry
+// whose task no longer exists, a workflow task that has no execution entries
+// (added after planning, so a dependsOn edge pointing at it would block
+// forever), and a dependsOn edge referencing a task outside the effective
+// workflow. Any drift fails the execution non-retryably instead of letting
+// Blocked entries poll forever.
+func (e *securityScanExecutionEngine) workflowDrift() string {
+	const remedy = "workflow changed while the execution was in progress; re-run the scan"
+	for i := range e.exec.Tasks {
+		if _, ok := e.tasks[e.exec.Tasks[i].Name]; !ok {
+			return fmt.Sprintf("%s (task %q no longer exists)", remedy, e.exec.Tasks[i].Name)
+		}
+	}
+	planned := make(map[string]bool, len(e.exec.Tasks))
+	for i := range e.exec.Tasks {
+		planned[e.exec.Tasks[i].Name] = true
+	}
+	for _, task := range e.order {
+		if !planned[task.Name] {
+			return fmt.Sprintf("%s (task %q was added after the execution was planned)", remedy, task.Name)
+		}
+		for _, dep := range task.DependsOn {
+			if !planned[dep] {
+				return fmt.Sprintf("%s (task %q depends on %q, which has no planned instances)", remedy, task.Name, dep)
+			}
+		}
+	}
+	return ""
 }
 
 // observe folds terminal task-run phases into the task entries.
@@ -868,6 +933,18 @@ func (e *securityScanExecutionEngine) expandFanOuts(ctx context.Context) {
 			logf.FromContext(ctx).Info(msg, "execution", e.exec.ID)
 			e.r.recordScanEvent(e.scan, corev1.EventTypeWarning, "FanOutTruncated", msg)
 			records = records[:limit]
+		}
+		// Never let the execution outgrow the entry ceiling: replacing the
+		// placeholder adds len(records)-1 entries, so the expansion may only
+		// use whatever budget the other entries leave.
+		if budget := securityScanExecutionMaxTaskEntries - (len(e.exec.Tasks) - 1); len(records) > budget {
+			if budget < 0 {
+				budget = 0
+			}
+			msg := fmt.Sprintf("task %q fan-out truncated from %d to %d instances: the execution is capped at %d total task instances", task.Name, len(records), budget, securityScanExecutionMaxTaskEntries)
+			logf.FromContext(ctx).Info(msg, "execution", e.exec.ID)
+			e.r.recordScanEvent(e.scan, corev1.EventTypeWarning, "FanOutTruncated", msg)
+			records = records[:budget]
 		}
 		if len(records) == 0 {
 			placeholder.State = triggersv1alpha1.SecurityScanTaskStateSucceeded
@@ -1427,8 +1504,33 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	}
 	var toolPolicy *platformv1alpha1.AgentRunToolPolicy
 	if task.Tools != nil {
+		allowed := append([]string(nil), task.Tools.Allowed...)
+		if len(allowed) > 0 {
+			// An allow-list is exclusive, so it would silently strip the
+			// platform contract tools the engine depends on: findings
+			// persistence, the typed output the schema contract requires,
+			// and the sink task's report submission. Auto-append them so a
+			// user-provided allow-list can narrow workspace tools without
+			// breaking the execution contract.
+			contract := []string{"report_security_finding", "update_security_finding"}
+			if strings.TrimSpace(task.OutputSchema) != "" {
+				contract = append(contract, "submit_task_output")
+			}
+			if inst.Sink {
+				contract = append(contract, "submit_security_scan_report")
+			}
+			present := make(map[string]bool, len(allowed))
+			for _, tool := range allowed {
+				present[tool] = true
+			}
+			for _, tool := range contract {
+				if !present[tool] {
+					allowed = append(allowed, tool)
+				}
+			}
+		}
 		toolPolicy = &platformv1alpha1.AgentRunToolPolicy{
-			AllowedTools: append([]string(nil), task.Tools.Allowed...),
+			AllowedTools: allowed,
 			DeniedTools:  append([]string(nil), task.Tools.Denied...),
 		}
 	}
@@ -1529,9 +1631,13 @@ func classifySecurityScanTaskFailure(reason string) string {
 	return triggersv1alpha1.SecurityScanTaskFailureRetryable
 }
 
-// truncateSecurityScanError bounds error strings persisted into status.
+// truncateSecurityScanError bounds error strings persisted into status. The
+// 160-character limit applies to both task lastError and retry-attempt
+// reasons: attempt history is the dominant per-entry cost in
+// status.lastExecution, so one shared tight bound keeps the object small
+// even at the execution-entry ceiling.
 func truncateSecurityScanError(s string) string {
-	const limit = 400
+	const limit = 160
 	if len(s) <= limit {
 		return s
 	}
@@ -1619,7 +1725,10 @@ type securityScanTaskTemplateContext struct {
 // whitespace-tolerant inside the braces. Unsupported constructs are left
 // verbatim; a resolvable-but-broken reference (missing parameter, non-object
 // field access, unavailable upstream output) returns an error, which the
-// engine treats as a non-retryable task failure.
+// engine treats as a non-retryable task failure. The rendered result is
+// capped at securityScanMaxRenderedObjectiveBytes: upstream outputs are
+// bounded individually (64KiB each) but an objective can interpolate several
+// of them, and an unbounded prompt would be rejected downstream anyway.
 func renderSecurityScanTaskObjective(text string, tctx *securityScanTaskTemplateContext) (string, error) {
 	var firstErr error
 	rendered := securityScanTemplateRefPattern.ReplaceAllStringFunc(text, func(m string) string {
@@ -1638,6 +1747,9 @@ func renderSecurityScanTaskObjective(text string, tctx *securityScanTaskTemplate
 	})
 	if firstErr != nil {
 		return "", firstErr
+	}
+	if len(rendered) > securityScanMaxRenderedObjectiveBytes {
+		return "", fmt.Errorf("rendered objective exceeds 256KiB (%d bytes); reduce the interpolated upstream outputs", len(rendered))
 	}
 	return rendered, nil
 }

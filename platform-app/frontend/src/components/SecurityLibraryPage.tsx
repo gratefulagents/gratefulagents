@@ -21,9 +21,14 @@ import { ResourceListPage } from "@/components/list-page";
 import { FlowField } from "@/components/create-flow/create-flow";
 import {
   SecurityWorkflowBuilder,
+  WorkflowParametersEditor,
+  validateWorkflowParameters,
   validateWorkflowTasks,
+  workflowParametersFromProto,
+  workflowParametersToProto,
   workflowTasksFromProto,
   workflowTasksToProto,
+  type WorkflowParameterDraft,
   type WorkflowTaskDraft,
 } from "@/components/SecurityWorkflowBuilder";
 import {
@@ -102,19 +107,28 @@ function WorkflowEditorDialog({
   const [tasks, setTasks] = useState<WorkflowTaskDraft[]>(() =>
     workflowTasksFromProto(source?.tasks ?? []),
   );
+  const [parameters, setParameters] = useState<WorkflowParameterDraft[]>(() =>
+    workflowParametersFromProto(source?.parameters ?? []),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const validationErrors = validateWorkflowTasks(tasks);
+  const parameterErrors = validateWorkflowParameters(parameters);
   const parallelismInvalid =
     parallelism.trim() !== "" && (Number(parallelism) < 1 || Number(parallelism) > 16);
-  const blocked = validationErrors.length > 0 || parallelismInvalid || name.trim() === "";
+  const blocked =
+    validationErrors.length > 0 ||
+    parameterErrors.length > 0 ||
+    parallelismInvalid ||
+    name.trim() === "";
 
   function reset() {
     setName(mode === "duplicate" ? "" : (source?.name ?? ""));
     setDescription(source?.description ?? "");
     setParallelism(source?.parallelism ? String(source.parallelism) : "");
     setTasks(workflowTasksFromProto(source?.tasks ?? []));
+    setParameters(workflowParametersFromProto(source?.parameters ?? []));
     setError(null);
   }
 
@@ -129,11 +143,13 @@ function WorkflowEditorDialog({
         description: description.trim(),
         parallelism: parallelism.trim() ? Number(parallelism) : 0,
         tasks: workflowTasksToProto(tasks),
+        parameters: workflowParametersToProto(parameters),
       });
       // Server-side validation runs the same rules plus anything newer.
       const check = await client.validateSecurityWorkflow({
         tasks: resource.tasks,
         parallelism: resource.parallelism,
+        parameters: resource.parameters,
       });
       if (!check.valid) {
         setError(check.errors.map((e) => e.message).join(" "));
@@ -216,6 +232,24 @@ function WorkflowEditorDialog({
               />
             </FlowField>
             <SecurityWorkflowBuilder tasks={tasks} onChange={setTasks} />
+            <FlowField
+              id="wf-parameters"
+              label="Parameters"
+              hint="Scan-time inputs referenced as {{params.name}} in task objectives; scans supply values when they run."
+            >
+              <div id="wf-parameters" className="pt-1">
+                <WorkflowParametersEditor parameters={parameters} onChange={setParameters} />
+              </div>
+            </FlowField>
+            {parameterErrors.length > 0 && (
+              <ul className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2.5" data-testid="parameter-errors">
+                {parameterErrors.map((err, index) => (
+                  <li key={`${err.field}-${index}`} className="text-xs text-destructive">
+                    {err.message}
+                  </li>
+                ))}
+              </ul>
+            )}
             {parallelismInvalid && (
               <p className="text-xs text-destructive">Parallelism must be between 1 and 16.</p>
             )}
@@ -647,6 +681,7 @@ export function SecurityLibraryPage() {
           rankers={rankers.map((r) => r.name)}
           postScripts={postScripts.map((p) => p.name)}
           scanConfigs={scanConfigNames}
+          policyPacks={policyPacks.map((p) => p.name)}
         />
         <ImportSecurityPackDialog onImported={onSaved} />
       </div>

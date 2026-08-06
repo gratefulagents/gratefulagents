@@ -77,6 +77,7 @@ type SecurityWorkflowSpec struct {
 	// vulnerability-hunting sub-agents (same schema as SecurityScan
 	// spec.workflow).
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
 	// +listType=atomic
 	Tasks []SecurityScanTask `json:"tasks"`
 

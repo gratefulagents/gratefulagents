@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { useEffect, useState } from "react";
-import { Bell, CalendarClock, Crosshair, GitBranch, GitPullRequest, ListChecks, Loader2, ShieldAlert, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Bell, CalendarClock, Crosshair, GitBranch, GitPullRequest, ListChecks, Loader2, Route, ShieldAlert, ShieldCheck, SlidersHorizontal } from "lucide-react";
 
 import {
   Dialog,
@@ -45,6 +45,7 @@ import {
   SecurityScanConfigSpecSchema,
   SecurityScanChecksConfigSchema,
   SecurityScanDedupeConfigSchema,
+  SecurityScanExecutionConfigSchema,
   SecurityScanNotificationRuleConfigSchema,
   SecurityScanScopeConfigSchema,
   SecurityScanTaskConfigSchema,
@@ -54,6 +55,7 @@ import {
   UpdateSecurityScanRequestSchema,
   type AgentRunDefaults,
   type SecurityScanConfig,
+  type SecurityScanTaskConfig,
   type SecurityPolicyPackResource,
   type SecurityPostScriptResource,
   type SecurityRankerResource,
@@ -68,6 +70,8 @@ const selectClass =
   "h-8 rounded-md border border-input bg-background px-2 text-sm w-full";
 
 type TaskState = {
+  /** Original proto task in edit/duplicate mode; carries advanced fields this inline editor doesn't expose. */
+  base?: SecurityScanTaskConfig;
   name: string;
   objective: string;
   category: string;
@@ -125,6 +129,11 @@ type SpecState = {
   uploadSarif: boolean;
   policyPackRef: string;
   budgets: BudgetDraft;
+  /** "" = coordinator (default single seeded run); "deterministic" = controller-scheduled per-task runs. */
+  executionMode: string;
+  taskMaxRetries: string;
+  retryBackoff: string;
+  parameterValues: { key: string; value: string }[];
 };
 
 function splitList(value: string, separator: RegExp): string[] {
@@ -172,6 +181,13 @@ function initialSpec(config?: SecurityScanConfig): SpecState {
     uploadSarif: spec?.checks?.uploadSarif ?? false,
     policyPackRef: spec?.policyPackRef ?? "",
     budgets: budgetsToDraft(spec?.budgets),
+    executionMode: spec?.execution?.mode ?? "",
+    taskMaxRetries:
+      spec?.execution?.taskMaxRetries !== undefined ? String(spec.execution.taskMaxRetries) : "",
+    retryBackoff: spec?.execution?.retryBackoff ?? "",
+    parameterValues: Object.entries(spec?.parameterValues ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => ({ key, value })),
   };
 }
 
@@ -200,6 +216,7 @@ function initialDialogSpec(source: SecurityScanConfig | undefined, isDuplicate: 
 
 function initialTasks(config?: SecurityScanConfig): TaskState[] {
   return (config?.spec?.workflow ?? []).map((t) => ({
+    base: t,
     name: t.name,
     objective: t.objective,
     category: t.category,
@@ -283,6 +300,15 @@ function policyPackSummary(spec: SpecState): string {
   if (spec.policyPackRef.trim()) parts.push(spec.policyPackRef.trim());
   if (!budgetDraftIsZero(spec.budgets)) parts.push("scan budgets set");
   return parts.length ? parts.join(" · ") : "None";
+}
+
+const GO_DURATION_PATTERN = /^(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$/;
+
+function executionSummary(spec: SpecState): string {
+  const parts = [spec.executionMode.trim() === "deterministic" ? "deterministic" : "coordinator"];
+  const params = spec.parameterValues.filter((entry) => entry.key.trim() !== "").length;
+  if (params > 0) parts.push(`${params} parameter${params === 1 ? "" : "s"}`);
+  return parts.join(" · ");
 }
 
 /** Human labels for the pack fields scans may not relax. */
@@ -423,6 +449,22 @@ export function SecurityScanFormDialog({
         ? []
         : tasks.map((t) =>
             create(SecurityScanTaskConfigSchema, {
+              // Advanced task fields (retries, timeout, budgets, tools,
+              // output schema, fan-out) are not editable here; keep them
+              // from the source spec so editing a scan never drops them.
+              ...(t.base
+                ? {
+                    maxRetries: t.base.maxRetries,
+                    timeout: t.base.timeout,
+                    maxTurns: t.base.maxTurns,
+                    maxCostUsd: t.base.maxCostUsd,
+                    tools: t.base.tools,
+                    outputSchema: t.base.outputSchema,
+                    forEach: t.base.forEach,
+                    maxInstances: t.base.maxInstances,
+                    repeats: t.base.repeats,
+                  }
+                : {}),
               name: t.name.trim(),
               objective: t.objective.trim(),
               category: t.category.trim(),
@@ -460,6 +502,21 @@ export function SecurityScanFormDialog({
       concurrencyPolicy: spec.concurrencyPolicy,
       defaults: normalizedDefaults,
       maxRuntime: spec.maxRuntime.trim(),
+      execution:
+        spec.executionMode.trim() || spec.taskMaxRetries.trim() || spec.retryBackoff.trim()
+          ? create(SecurityScanExecutionConfigSchema, {
+              mode: spec.executionMode.trim(),
+              taskMaxRetries: spec.taskMaxRetries.trim()
+                ? Number(spec.taskMaxRetries)
+                : undefined,
+              retryBackoff: spec.retryBackoff.trim(),
+            })
+          : undefined,
+      parameterValues: Object.fromEntries(
+        spec.parameterValues
+          .filter((entry) => entry.key.trim() !== "")
+          .map((entry) => [entry.key.trim(), entry.value]),
+      ),
       triggers:
         spec.onPullRequest || spec.onPush || spec.triggersRepositoryRef.trim()
           ? create(SecurityScanTriggersConfigSchema, {
@@ -533,6 +590,15 @@ export function SecurityScanFormDialog({
     const budgetErrors = validateBudgetDraft("budgets", spec.budgets);
     if (budgetErrors.length > 0) {
       setError(budgetErrors.map((e) => `${e.field}: ${e.message}`).join(" "));
+      return;
+    }
+    const taskMaxRetries = spec.taskMaxRetries.trim();
+    if (taskMaxRetries !== "" && (!/^\d+$/.test(taskMaxRetries) || Number(taskMaxRetries) > 10)) {
+      setError("Task max retries must be a whole number between 0 and 10.");
+      return;
+    }
+    if (spec.retryBackoff.trim() !== "" && !GO_DURATION_PATTERN.test(spec.retryBackoff.trim())) {
+      setError('Retry backoff must be a Go duration like "30s".');
       return;
     }
     setSubmitting(true);
@@ -1455,6 +1521,125 @@ export function SecurityScanFormDialog({
                 </Button>
                 </>
                 )}
+              </OptionRow>
+
+              <OptionRow
+                icon={Route}
+                title="Execution"
+                summary={executionSummary(spec)}
+                modified={
+                  Boolean(spec.executionMode.trim() || spec.taskMaxRetries.trim() || spec.retryBackoff.trim()) ||
+                  spec.parameterValues.length > 0
+                }
+              >
+                <FlowField
+                  id="scan-execution-mode"
+                  label="Execution mode"
+                  hint="Coordinator seeds one orchestrating run that delegates to in-process sub-agents. Deterministic compiles the workflow into controller-scheduled per-task runs with enforced dependencies, retries, and budgets."
+                >
+                  <select
+                    id="scan-execution-mode"
+                    className={selectClass}
+                    value={spec.executionMode}
+                    onChange={(event) => update("executionMode", event.target.value)}
+                  >
+                    <option value="">coordinator (default)</option>
+                    <option value="deterministic">deterministic</option>
+                  </select>
+                </FlowField>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FlowField
+                    id="scan-task-max-retries"
+                    label="Task max retries"
+                    hint="Default per-task retry budget (0-10) in deterministic mode; empty = 1."
+                  >
+                    <Input
+                      id="scan-task-max-retries"
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={spec.taskMaxRetries}
+                      onChange={(event) => update("taskMaxRetries", event.target.value)}
+                      placeholder="1"
+                    />
+                  </FlowField>
+                  <FlowField
+                    id="scan-retry-backoff"
+                    label="Retry backoff"
+                    hint='Base delay before a failed task attempt is rescheduled, e.g. "30s"; empty = 30s.'
+                  >
+                    <Input
+                      id="scan-retry-backoff"
+                      value={spec.retryBackoff}
+                      onChange={(event) => update("retryBackoff", event.target.value)}
+                      placeholder="30s"
+                      className="font-mono"
+                    />
+                  </FlowField>
+                </div>
+                <FlowField
+                  id="scan-parameter-values"
+                  label="Parameter values"
+                  hint="Substituted for {{params.name}} references in task objectives; accepted names come from the referenced workflow's parameters."
+                >
+                  <div id="scan-parameter-values" className="space-y-2 pt-1">
+                    {spec.parameterValues.map((entry, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <Input
+                          aria-label={`Parameter ${index + 1} name`}
+                          value={entry.key}
+                          onChange={(event) =>
+                            update(
+                              "parameterValues",
+                              spec.parameterValues.map((e, i) =>
+                                i === index ? { ...e, key: event.target.value } : e,
+                              ),
+                            )
+                          }
+                          placeholder="target_service"
+                          className="font-mono"
+                        />
+                        <Input
+                          aria-label={`Parameter ${index + 1} value`}
+                          value={entry.value}
+                          onChange={(event) =>
+                            update(
+                              "parameterValues",
+                              spec.parameterValues.map((e, i) =>
+                                i === index ? { ...e, value: event.target.value } : e,
+                              ),
+                            )
+                          }
+                          placeholder="payments-api"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remove parameter ${index + 1}`}
+                          onClick={() =>
+                            update(
+                              "parameterValues",
+                              spec.parameterValues.filter((_, i) => i !== index),
+                            )
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        update("parameterValues", [...spec.parameterValues, { key: "", value: "" }])
+                      }
+                    >
+                      Add parameter value
+                    </Button>
+                  </div>
+                </FlowField>
               </OptionRow>
 
               <OptionRow

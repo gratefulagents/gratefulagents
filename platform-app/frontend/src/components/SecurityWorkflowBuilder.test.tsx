@@ -4,16 +4,22 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import {
   SecurityWorkflowBuilder,
+  WorkflowParametersEditor,
   emptyWorkflowTask,
+  validateWorkflowParameters,
   validateWorkflowTasks,
   workflowCycle,
   workflowLayers,
+  workflowParametersFromProto,
+  workflowParametersToProto,
   workflowTasksFromProto,
   workflowTasksToProto,
+  type WorkflowParameterDraft,
   type WorkflowTaskDraft,
 } from "@/components/SecurityWorkflowBuilder";
 import {
   SecurityScanTaskConfigSchema,
+  SecurityWorkflowParameterSchema,
   type SecurityScanTaskConfig,
 } from "@/rpc/platform/service_pb";
 
@@ -42,6 +48,8 @@ function advancedProtoTasks(): SecurityScanTaskConfig[] {
       name: "authz-hunt",
       objective: "Hunt authz flaws.",
       dependsOn: ["recon"],
+      maxRetries: 0,
+      timeout: "20m",
     }),
     create(SecurityScanTaskConfigSchema, {
       name: "triage",
@@ -50,6 +58,15 @@ function advancedProtoTasks(): SecurityScanTaskConfig[] {
       role: "finding-triager",
       model: "claude-opus-4-6",
       dependsOn: ["injection-hunt", "authz-hunt"],
+      maxRetries: 2,
+      timeout: "45m",
+      maxTurns: 80,
+      maxCostUsd: "2.50",
+      tools: { allowed: ["read_file", "grep"], denied: ["Bash"] },
+      outputSchema: '{"type":"object","properties":{"items":{"type":"array"}}}',
+      forEach: "injection-hunt",
+      maxInstances: 12,
+      repeats: 3,
     }),
   ];
 }
@@ -206,5 +223,250 @@ describe("SecurityWorkflowBuilder component", () => {
     });
     expect(latest[0].name).toBe("alpha");
     expect(latest[1].dependsOn).toEqual(["alpha"]);
+  });
+});
+
+describe("validateWorkflowTasks advanced fields", () => {
+  it("rejects out-of-range or malformed execution fields", () => {
+    const errors = validateWorkflowTasks([
+      draft({
+        name: "a",
+        maxRetries: "11",
+        timeout: "30 minutes",
+        maxTurns: "-1",
+        maxCostUsd: "$5",
+        maxInstances: "51",
+        repeats: "6",
+      }),
+    ]);
+    const fields = errors.map((e) => e.field);
+    expect(fields).toContain("tasks[0].maxRetries");
+    expect(fields).toContain("tasks[0].timeout");
+    expect(fields).toContain("tasks[0].maxTurns");
+    expect(fields).toContain("tasks[0].maxCostUsd");
+    expect(fields).toContain("tasks[0].maxInstances");
+    expect(fields).toContain("tasks[0].repeats");
+  });
+
+  it("rejects an output schema that is not a JSON object", () => {
+    const arrays = validateWorkflowTasks([draft({ name: "a", outputSchema: "[1,2]" })]);
+    expect(arrays.some((e) => e.field === "tasks[0].outputSchema")).toBe(true);
+    const invalid = validateWorkflowTasks([draft({ name: "a", outputSchema: "{nope" })]);
+    expect(invalid.some((e) => e.field === "tasks[0].outputSchema")).toBe(true);
+    const valid = validateWorkflowTasks([draft({ name: "a", outputSchema: '{"type":"object"}' })]);
+    expect(valid).toEqual([]);
+  });
+
+  it("rejects forEach naming a task that is not a dependency", () => {
+    const errors = validateWorkflowTasks([
+      draft({ name: "a" }),
+      draft({ name: "b", forEach: "a" }),
+    ]);
+    expect(errors.some((e) => e.field === "tasks[1].forEach")).toBe(true);
+    expect(
+      validateWorkflowTasks([draft({ name: "a" }), draft({ name: "b", dependsOn: ["a"], forEach: "a" })]),
+    ).toEqual([]);
+  });
+
+  it("rejects forEach chained onto a multi-instance source", () => {
+    const chained = validateWorkflowTasks([
+      draft({ name: "src" }),
+      draft({ name: "fan1", dependsOn: ["src"], forEach: "src" }),
+      draft({ name: "fan2", dependsOn: ["fan1"], forEach: "fan1" }),
+    ]);
+    expect(chained.some((e) => e.field === "tasks[2].forEach" && e.message.includes("single-instance"))).toBe(true);
+
+    const repeated = validateWorkflowTasks([
+      draft({ name: "rep", repeats: "2" }),
+      draft({ name: "fan", dependsOn: ["rep"], forEach: "rep" }),
+    ]);
+    expect(repeated.some((e) => e.field === "tasks[1].forEach" && e.message.includes("single-instance"))).toBe(true);
+  });
+
+  it("rejects single-field output references to multi-instance tasks", () => {
+    const errors = validateWorkflowTasks([
+      draft({ name: "a", repeats: "3" }),
+      draft({ name: "b", dependsOn: ["a"], objective: "use {{tasks.a.output.summary}}" }),
+    ]);
+    expect(errors.some((e) => e.field === "tasks[1].objective" && e.message.includes("multi-instance"))).toBe(true);
+    expect(
+      validateWorkflowTasks([
+        draft({ name: "a", repeats: "3" }),
+        draft({ name: "b", dependsOn: ["a"], objective: "use {{tasks.a.output}}" }),
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe("workflow parameters", () => {
+  function protoParameters() {
+    return [
+      create(SecurityWorkflowParameterSchema, {
+        name: "target_service",
+        description: "Service under test",
+        default: "payments-api",
+      }),
+      create(SecurityWorkflowParameterSchema, { name: "depth", required: true }),
+    ];
+  }
+
+  it("round-trips untouched parameters identically", () => {
+    const original = protoParameters();
+    const roundTripped = workflowParametersToProto(workflowParametersFromProto(original));
+    original.forEach((param, i) => {
+      expect(equals(SecurityWorkflowParameterSchema, roundTripped[i], param)).toBe(true);
+    });
+  });
+
+  it("validates parameter names and duplicates", () => {
+    const bad: WorkflowParameterDraft[] = [
+      { name: "9lives", description: "", default: "", required: false },
+      { name: "depth", description: "", default: "", required: false },
+      { name: "depth", description: "", default: "", required: true },
+    ];
+    const errors = validateWorkflowParameters(bad);
+    expect(errors.some((e) => e.message.includes("Invalid parameter name"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("Duplicate parameter name"))).toBe(true);
+    expect(validateWorkflowParameters(workflowParametersFromProto(protoParameters()))).toEqual([]);
+  });
+
+  it("adds, edits, and removes rows in the editor", () => {
+    let latest: WorkflowParameterDraft[] = [];
+    const { rerender } = render(
+      <WorkflowParametersEditor parameters={[]} onChange={(next) => (latest = next)} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add parameter" }));
+    expect(latest).toHaveLength(1);
+    rerender(<WorkflowParametersEditor parameters={latest} onChange={(next) => (latest = next)} />);
+    fireEvent.change(document.getElementById("wf-param-name-0")!, {
+      target: { value: "target_service" },
+    });
+    expect(latest[0].name).toBe("target_service");
+    rerender(<WorkflowParametersEditor parameters={latest} onChange={(next) => (latest = next)} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /required/i }));
+    expect(latest[0].required).toBe(true);
+    rerender(<WorkflowParametersEditor parameters={latest} onChange={(next) => (latest = next)} />);
+    fireEvent.click(screen.getByRole("button", { name: /Remove parameter/ }));
+    expect(latest).toHaveLength(0);
+  });
+});
+
+describe("WorkflowDagEditor interactions", () => {
+  it("adds a dependency edge via the connect handle", () => {
+    let latest: WorkflowTaskDraft[] | null = null;
+    render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "a" }), draft({ name: "b" })]}
+        onChange={(next) => (latest = next)}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("dag-connect-a"));
+    expect(screen.getByTestId("dag-connect-hint").textContent).toContain("Linking from");
+    fireEvent.click(screen.getByTestId("dag-node-b"));
+    expect(latest).not.toBeNull();
+    expect(latest![1].dependsOn).toEqual(["a"]);
+    expect(latest![0].dependsOn).toEqual([]);
+  });
+
+  it("rejects a duplicate edge with a message", () => {
+    let called = 0;
+    render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "a" }), draft({ name: "b", dependsOn: ["a"] })]}
+        onChange={() => called++}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("dag-connect-a"));
+    fireEvent.click(screen.getByTestId("dag-node-b"));
+    expect(screen.getByTestId("dag-message").textContent).toContain("already depends on");
+    expect(called).toBe(0);
+  });
+
+  it("rejects an edge that would create a cycle and explains why", () => {
+    let called = 0;
+    render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "a" }), draft({ name: "b", dependsOn: ["a"] })]}
+        onChange={() => called++}
+      />,
+    );
+    // b already runs after a; making a run after b closes the loop.
+    fireEvent.click(screen.getByTestId("dag-connect-b"));
+    fireEvent.click(screen.getByTestId("dag-node-a"));
+    expect(screen.getByTestId("dag-message").textContent).toContain("dependency cycle");
+    expect(called).toBe(0);
+  });
+
+  it("removes an edge via the × affordance", () => {
+    let latest: WorkflowTaskDraft[] | null = null;
+    render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "a" }), draft({ name: "b", dependsOn: ["a"], forEach: "a" })]}
+        onChange={(next) => (latest = next)}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove dependency a → b" }));
+    expect(latest![1].dependsOn).toEqual([]);
+    // A fan-out over the removed dependency is cleared too.
+    expect(latest![1].forEach).toBe("");
+  });
+
+  it("deletes a node from the inspector and detaches dependents", () => {
+    let latest: WorkflowTaskDraft[] | null = null;
+    render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "a" }), draft({ name: "b", dependsOn: ["a"] })]}
+        onChange={(next) => (latest = next)}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("dag-node-a"));
+    expect(screen.getByTestId("dag-inspector")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete task a" }));
+    expect(latest).toHaveLength(1);
+    expect(latest![0].name).toBe("b");
+    expect(latest![0].dependsOn).toEqual([]);
+  });
+
+  it("deletes a node with the Delete key", () => {
+    let latest: WorkflowTaskDraft[] | null = null;
+    render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "a" }), draft({ name: "b", dependsOn: ["a"] })]}
+        onChange={(next) => (latest = next)}
+      />,
+    );
+    fireEvent.keyDown(screen.getByTestId("dag-node-a"), { key: "Delete" });
+    expect(latest).toHaveLength(1);
+    expect(latest![0].dependsOn).toEqual([]);
+  });
+
+  it("renames a task via the inspector and rewrites dependents", () => {
+    let latest: WorkflowTaskDraft[] | null = null;
+    render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "a" }), draft({ name: "b", dependsOn: ["a"], forEach: "a" })]}
+        onChange={(next) => (latest = next)}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("dag-node-a"));
+    fireEvent.change(document.getElementById("wf-inspector-name")!, {
+      target: { value: "alpha" },
+    });
+    expect(latest![0].name).toBe("alpha");
+    expect(latest![1].dependsOn).toEqual(["alpha"]);
+    expect(latest![1].forEach).toBe("alpha");
+  });
+
+  it("adds an auto-named task from the canvas button", () => {
+    let latest: WorkflowTaskDraft[] | null = null;
+    render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "task-1" })]}
+        onChange={(next) => (latest = next)}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    expect(latest).toHaveLength(2);
+    expect(latest![1].name).toBe("task-2");
   });
 });

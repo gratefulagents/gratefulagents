@@ -100,6 +100,7 @@ type SecurityScanSpec struct {
 	// vulnerability-hunting sub-agents. When empty, the controller uses
 	// DefaultSecurityWorkflow(). Mutually exclusive with workflowRef: setting
 	// both makes the controller report Ready=False with reason InvalidSpec.
+	// +kubebuilder:validation:MaxItems=64
 	// +listType=atomic
 	// +optional
 	Workflow []SecurityScanTask `json:"workflow,omitempty"`
@@ -725,8 +726,10 @@ const (
 	// SecurityScanExecutionPhaseFailed means at least one task failed
 	// terminally.
 	SecurityScanExecutionPhaseFailed = "Failed"
-	// SecurityScanExecutionPhaseResuming means a resume request is resetting
-	// failed tasks for a fresh attempt.
+	// SecurityScanExecutionPhaseResuming is reserved for a resume request
+	// that is resetting failed tasks. The controller does not set it today:
+	// consuming a resume token flips a Failed execution straight back to
+	// Running.
 	SecurityScanExecutionPhaseResuming = "Resuming"
 )
 
@@ -816,8 +819,8 @@ type SecurityScanExecutionStatus struct {
 	// +optional
 	Mode string `json:"mode,omitempty"`
 
-	// phase is the execution's coarse state: Running, Succeeded, Failed, or
-	// Resuming.
+	// phase is the execution's coarse state: Running, Succeeded, or Failed
+	// (resuming a failed execution sets it back to Running).
 	// +optional
 	Phase string `json:"phase,omitempty"`
 

@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 package v1alpha1
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -230,6 +231,103 @@ func TestValidateSecurityWorkflowTasksDoesNotValidateParams(t *testing.T) {
 	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
 		t.Fatalf("expected no errors for params references, got %v", errs)
 	}
+}
+
+func TestValidateSecurityWorkflowTasksEnforcesTaskCap(t *testing.T) {
+	var tasks []SecurityScanTask
+	for i := 0; i <= MaxSecurityWorkflowTasks; i++ {
+		tasks = append(tasks, SecurityScanTask{Name: fmt.Sprintf("t%d", i), Objective: "inspect"})
+	}
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks", "at most 64 tasks")
+	if errs := ValidateSecurityWorkflowTasks(tasks[:MaxSecurityWorkflowTasks]); len(errs) != 0 {
+		t.Fatalf("expected %d tasks to validate, got %v", MaxSecurityWorkflowTasks, errs)
+	}
+}
+
+func TestValidateSecurityWorkflowTasksEnforcesPlannedInstanceBudget(t *testing.T) {
+	repeated := func(n int) []SecurityScanTask {
+		var tasks []SecurityScanTask
+		for i := 0; i < n; i++ {
+			tasks = append(tasks, SecurityScanTask{Name: fmt.Sprintf("r%d", i), Objective: "inspect", Repeats: 5})
+		}
+		return tasks
+	}
+	// 41 tasks x 5 repeats = 205 planned instances > 200.
+	requireFieldError(t, ValidateSecurityWorkflowTasks(repeated(41)), "tasks", "task instances")
+	// 40 tasks x 5 repeats = exactly 200 planned instances.
+	if errs := ValidateSecurityWorkflowTasks(repeated(40)); len(errs) != 0 {
+		t.Fatalf("expected exactly-at-budget workflow to validate, got %v", errs)
+	}
+
+	// forEach tasks count their maxInstances fan-out ceiling.
+	fanned := []SecurityScanTask{{Name: "src", Objective: "list", OutputSchema: `{"type":"array"}`}}
+	for i := 0; i < 4; i++ {
+		fanned = append(fanned, SecurityScanTask{
+			Name: fmt.Sprintf("fan%d", i), Objective: "inspect {{item}}",
+			DependsOn: []string{"src"}, ForEach: "src", MaxInstances: 50,
+		})
+	}
+	// 1 + 4x50 = 201 planned instances > 200.
+	requireFieldError(t, ValidateSecurityWorkflowTasks(fanned), "tasks", "task instances")
+	fanned[4].MaxInstances = 49
+	if errs := ValidateSecurityWorkflowTasks(fanned); len(errs) != 0 {
+		t.Fatalf("expected exactly-at-budget fan-out workflow to validate, got %v", errs)
+	}
+}
+
+func TestValidateSecurityWorkflowTasksRejectsFieldAccessOnMultiInstanceOutputs(t *testing.T) {
+	tasks := []SecurityScanTask{
+		{Name: "a", Objective: "objective a", Repeats: 3},
+		{Name: "b", Objective: "use {{tasks.a.output.summary}}", DependsOn: []string{"a"}},
+	}
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].objective", "multi-instance")
+	tasks[1].Objective = "use {{tasks.a.output}}"
+	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
+		t.Fatalf("expected whole-output reference to validate, got %v", errs)
+	}
+
+	tasks = []SecurityScanTask{
+		{Name: "src", Objective: "list", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{item}}", DependsOn: []string{"src"}, ForEach: "src"},
+		{Name: "join", Objective: "use {{tasks.fan.output.result}}", DependsOn: []string{"fan"}},
+	}
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[2].objective", "multi-instance")
+	tasks[2].Objective = "use {{tasks.fan.output}}"
+	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
+		t.Fatalf("expected whole-output fan reference to validate, got %v", errs)
+	}
+}
+
+func TestValidateSecurityWorkflowTasksRequiresArrayCapableForEachSourceSchema(t *testing.T) {
+	tasks := []SecurityScanTask{
+		{Name: "src", Objective: "list", OutputSchema: `{"type":"object"}`},
+		{Name: "fan", Objective: "inspect {{item}}", DependsOn: []string{"src"}, ForEach: "src"},
+	}
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].forEach", `"type":"array"`)
+	// A schema without "type" may still describe an array and stays allowed.
+	tasks[0].OutputSchema = `{"items":{"type":"object"}}`
+	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
+		t.Fatalf("expected type-less source schema to validate, got %v", errs)
+	}
+	tasks[0].OutputSchema = `{"type":"array"}`
+	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
+		t.Fatalf("expected array source schema to validate, got %v", errs)
+	}
+}
+
+func TestValidateSecurityWorkflowTasksForbidsMultiInstanceForEachSources(t *testing.T) {
+	tasks := []SecurityScanTask{
+		{Name: "src", Objective: "list", OutputSchema: `{"type":"array"}`},
+		{Name: "fan1", Objective: "inspect {{item}}", DependsOn: []string{"src"}, ForEach: "src", OutputSchema: `{"type":"array"}`},
+		{Name: "fan2", Objective: "inspect {{item}}", DependsOn: []string{"fan1"}, ForEach: "fan1"},
+	}
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[2].forEach", "single-instance")
+
+	tasks = []SecurityScanTask{
+		{Name: "rep", Objective: "list", Repeats: 2, OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{item}}", DependsOn: []string{"rep"}, ForEach: "rep"},
+	}
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].forEach", "single-instance")
 }
 
 func TestValidateSecurityWorkflowParameters(t *testing.T) {

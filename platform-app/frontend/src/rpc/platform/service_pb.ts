@@ -17051,7 +17051,7 @@ export type SecurityScanExecutionState = Message<"platform.v1.SecurityScanExecut
   mode: string;
 
   /**
-   * Running | Succeeded | Failed | Resuming
+   * Running | Succeeded | Failed (resume sets Running)
    *
    * @generated from field: string phase = 3;
    */
@@ -17731,7 +17731,9 @@ export type RunSecurityScanNowRequest = Message<"platform.v1.RunSecurityScanNowR
   /**
    * parameter_values, when non-empty, are merged into the scan's
    * spec.parameterValues (provided keys replace existing values) before the
-   * run is requested.
+   * run is requested. The merged result is persisted on the SecurityScan
+   * spec and applies to every later run, not only the requested one. Each
+   * value is capped at 4096 bytes.
    *
    * @generated from field: map<string, string> parameter_values = 3;
    */
@@ -21131,11 +21133,14 @@ export const PlatformService: GenService<{
     output: typeof EmptySchema;
   },
   /**
-   * RunSecurityScanNow requests an immediate run of a configured SecurityScan
-   * without editing its spec. The dashboard stamps a run-now annotation token
-   * on the CR; the controller creates at most one run per token (recorded in
-   * status), so retried or concurrent duplicate requests never double-run.
-   * Suspended scans are rejected with FailedPrecondition.
+   * RunSecurityScanNow requests an immediate run of a configured SecurityScan.
+   * The dashboard stamps a run-now annotation token on the CR; the controller
+   * creates at most one run per token (recorded in status), so retried or
+   * concurrent duplicate requests never double-run. When parameter_values are
+   * provided they are merged into and PERSISTED in the scan's
+   * spec.parameterValues (this is a lasting spec edit, not a one-off
+   * override), so the call requires the same collaborator access as
+   * UpdateSecurityScan. Suspended scans are rejected with FailedPrecondition.
    *
    * @generated from rpc platform.v1.PlatformService.RunSecurityScanNow
    */

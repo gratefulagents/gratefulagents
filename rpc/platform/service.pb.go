@@ -31993,7 +31993,7 @@ type SecurityScanExecutionState struct {
 	state                    protoimpl.MessageState            `protogen:"open.v1"`
 	Id                       string                            `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                                                               // External id / run-suffix of the scan invocation
 	Mode                     string                            `protobuf:"bytes,2,opt,name=mode,proto3" json:"mode,omitempty"`                                                                           // coordinator | deterministic
-	Phase                    string                            `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`                                                                         // Running | Succeeded | Failed | Resuming
+	Phase                    string                            `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`                                                                         // Running | Succeeded | Failed (resume sets Running)
 	EffectiveParallelism     int32                             `protobuf:"varint,4,opt,name=effective_parallelism,json=effectiveParallelism,proto3" json:"effective_parallelism,omitempty"`              // Concurrency bound actually applied
 	EffectiveParallelismNote string                            `protobuf:"bytes,5,opt,name=effective_parallelism_note,json=effectiveParallelismNote,proto3" json:"effective_parallelism_note,omitempty"` // How the bound was derived
 	Tasks                    []*SecurityScanTaskExecutionState `protobuf:"bytes,6,rep,name=tasks,proto3" json:"tasks,omitempty"`
@@ -33092,7 +33092,9 @@ type RunSecurityScanNowRequest struct {
 	Name      string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// parameter_values, when non-empty, are merged into the scan's
 	// spec.parameterValues (provided keys replace existing values) before the
-	// run is requested.
+	// run is requested. The merged result is persisted on the SecurityScan
+	// spec and applies to every later run, not only the requested one. Each
+	// value is capped at 4096 bytes.
 	ParameterValues map[string]string `protobuf:"bytes,3,rep,name=parameter_values,json=parameterValues,proto3" json:"parameter_values,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache

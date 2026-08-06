@@ -287,11 +287,14 @@ service PlatformService {
   rpc CreateSecurityScan(CreateSecurityScanRequest) returns (SecurityScanConfig);
   rpc UpdateSecurityScan(UpdateSecurityScanRequest) returns (SecurityScanConfig);
   rpc DeleteSecurityScan(DeleteSecurityScanRequest) returns (google.protobuf.Empty);
-  // RunSecurityScanNow requests an immediate run of a configured SecurityScan
-  // without editing its spec. The dashboard stamps a run-now annotation token
-  // on the CR; the controller creates at most one run per token (recorded in
-  // status), so retried or concurrent duplicate requests never double-run.
-  // Suspended scans are rejected with FailedPrecondition.
+  // RunSecurityScanNow requests an immediate run of a configured SecurityScan.
+  // The dashboard stamps a run-now annotation token on the CR; the controller
+  // creates at most one run per token (recorded in status), so retried or
+  // concurrent duplicate requests never double-run. When parameter_values are
+  // provided they are merged into and PERSISTED in the scan's
+  // spec.parameterValues (this is a lasting spec edit, not a one-off
+  // override), so the call requires the same collaborator access as
+  // UpdateSecurityScan. Suspended scans are rejected with FailedPrecondition.
   rpc RunSecurityScanNow(RunSecurityScanNowRequest) returns (SecurityScanConfig);
 
   // Reusable security library resources: SecurityWorkflow, SecurityRanker,
@@ -4456,7 +4459,7 @@ message SecurityScanTaskExecutionState {
 message SecurityScanExecutionState {
   string id = 1; // External id / run-suffix of the scan invocation
   string mode = 2; // coordinator | deterministic
-  string phase = 3; // Running | Succeeded | Failed | Resuming
+  string phase = 3; // Running | Succeeded | Failed (resume sets Running)
   int32 effective_parallelism = 4; // Concurrency bound actually applied
   string effective_parallelism_note = 5; // How the bound was derived
   repeated SecurityScanTaskExecutionState tasks = 6;
@@ -4630,7 +4633,9 @@ message RunSecurityScanNowRequest {
   string name = 2;
   // parameter_values, when non-empty, are merged into the scan's
   // spec.parameterValues (provided keys replace existing values) before the
-  // run is requested.
+  // run is requested. The merged result is persisted on the SecurityScan
+  // spec and applies to every later run, not only the requested one. Each
+  // value is capped at 4096 bytes.
   map<string, string> parameter_values = 3;
 }
 

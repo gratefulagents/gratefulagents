@@ -197,6 +197,31 @@ describe("SecurityLibraryPage", () => {
     expect(createSecurityWorkflow).not.toHaveBeenCalled();
   });
 
+  it("saves workflow parameters through validate and update", async () => {
+    seedLists();
+    validateSecurityWorkflow.mockResolvedValue({ valid: true, errors: [] });
+    updateSecurityWorkflow.mockResolvedValue({});
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("button", { name: "Edit payments-workflow" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add parameter" }));
+    fireEvent.change(document.getElementById("wf-param-name-0")!, {
+      target: { value: "target_service" },
+    });
+    fireEvent.change(document.getElementById("wf-param-default-0")!, {
+      target: { value: "payments-api" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save workflow" }));
+
+    await waitFor(() => expect(updateSecurityWorkflow).toHaveBeenCalledTimes(1));
+    expect(validateSecurityWorkflow.mock.calls[0][0].parameters).toMatchObject([
+      { name: "target_service", default: "payments-api", required: false },
+    ]);
+    expect(updateSecurityWorkflow.mock.calls[0][0].workflow.parameters).toMatchObject([
+      { name: "target_service", default: "payments-api", required: false },
+    ]);
+  });
+
   it("duplicating a workflow prefills tasks but clears the name", async () => {
     seedLists();
     renderPage();

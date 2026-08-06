@@ -165,3 +165,26 @@ func TestTaskOutputToolDescriptionMentionsDownstreamConsumption(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskOutputToolKeepsSchemaValidStringWithoutUnwrapping(t *testing.T) {
+	r, persisted := newTaskOutputTestRegistry(t, `{"type":"string"}`)
+	// "123" parses as a JSON number, but the raw string already satisfies the
+	// schema, so it must not be unwrapped and coerced.
+	result := executeTaskOutput(t, r, `{"output":"123"}`)
+	if result.IsError {
+		t.Fatalf("schema-valid string rejected: %s", result.Content)
+	}
+	if len(*persisted) != 1 || (*persisted)[0] != `"123"` {
+		t.Fatalf("persisted = %#v, want the raw string \"123\"", *persisted)
+	}
+
+	// A JSON-encoded object string still passes as a plain string when the
+	// schema wants a string.
+	result = executeTaskOutput(t, r, `{"output":"{\"a\":1}"}`)
+	if result.IsError {
+		t.Fatalf("schema-valid encoded-object string rejected: %s", result.Content)
+	}
+	if len(*persisted) != 2 || (*persisted)[1] != `"{\"a\":1}"` {
+		t.Fatalf("persisted = %#v, want the raw encoded-object string", *persisted)
+	}
+}
