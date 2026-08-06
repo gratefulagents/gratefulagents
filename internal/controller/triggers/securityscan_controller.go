@@ -124,13 +124,7 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if msg := securityScanInvalidSpecMessage(scan.Spec); msg != "" {
-		if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
-			fresh.Status.LastError = msg
-			setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonInvalidSpec, msg)
-		}); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		return r.reconcileInvalidSpec(ctx, scan, msg)
 	}
 
 	// Retention sweeps run only here — never in the deletion/finalizer path
@@ -148,6 +142,49 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		res.RequeueAfter = retentionRequeue
 	}
 	return res, nil
+}
+
+// reconcileInvalidSpec reports a statically invalid spec on the Ready
+// condition. A live deterministic execution cannot advance under an invalid
+// spec (its task runs would never be observed again), so instead of leaving
+// it Running forever it is failed with a message explaining that the spec
+// became invalid mid-execution; the terminal side effects then run through
+// the usual self-gated publishers.
+func (r *SecurityScanReconciler) reconcileInvalidSpec(ctx context.Context, scan *triggersv1alpha1.SecurityScan, msg string) (ctrl.Result, error) {
+	var failedExec *triggersv1alpha1.SecurityScanExecutionStatus
+	if exec := scan.Status.LastExecution; securityScanExecutionActive(exec) {
+		failedExec = exec.DeepCopy()
+		failSecurityScanExecution(failedExec, metav1.NewTime(r.now()),
+			truncateSecurityScanError(securityScanReasonInvalidSpec+": the spec became invalid while the execution was running: "+msg))
+	}
+	if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+		if failedExec != nil && securityScanExecutionActive(fresh.Status.LastExecution) && fresh.Status.LastExecution.ID == failedExec.ID {
+			fresh.Status.LastExecution = failedExec
+			fresh.Status.Phase = "Completed"
+		}
+		fresh.Status.LastError = msg
+		setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonInvalidSpec, msg)
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+	if failedExec != nil {
+		r.recordScanEvent(scan, corev1.EventTypeWarning, "ExecutionFailed",
+			fmt.Sprintf("execution %s failed: the spec became invalid while it was running: %s", failedExec.ID, msg))
+	}
+	// Terminal side effects (aggregate check, notifications) still run for a
+	// terminal deterministic execution — including the one failed just above
+	// — exactly like the dispatch path does; every part is idempotent and
+	// self-gated, so repeats while the spec stays invalid are no-ops.
+	exec := scan.Status.LastExecution
+	if failedExec != nil {
+		exec = failedExec
+	}
+	if exec != nil && exec.Mode == triggersv1alpha1.SecurityScanExecutionModeDeterministic && securityScanExecutionTerminal(exec.Phase) {
+		if r.finishTerminalExecution(ctx, scan, exec) {
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+	}
+	return ctrl.Result{}, nil
 }
 
 // reconcileActive dispatches a live (non-deleted, non-suspended, valid) scan

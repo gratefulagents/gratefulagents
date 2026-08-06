@@ -452,9 +452,10 @@ func (r *SecurityScanReconciler) publishExecutionCheck(ctx context.Context, scan
 	if revision == "" {
 		return false
 	}
-	reportRun := securityScanExecutionReportRun(exec)
-	if reportRun == "" {
-		reportRun = scan.Name
+	reportRuns := securityScanExecutionReportRuns(exec)
+	reportRun := scan.Name
+	if len(reportRuns) > 0 {
+		reportRun = reportRuns[len(reportRuns)-1]
 	}
 
 	runPhase := platformv1alpha1.AgentRunPhaseFailed
@@ -537,7 +538,7 @@ func (r *SecurityScanReconciler) publishExecutionCheck(ctx context.Context, scan
 	}
 	retry := false
 	if sarifWanted && !sarifDone {
-		retry = r.uploadRunCheckSARIF(ctx, scan, reportRun, ev, gh, revision, newStatus)
+		retry = r.uploadExecutionCheckSARIF(ctx, scan, reportRuns, ev, gh, revision, newStatus)
 	}
 
 	if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
@@ -547,4 +548,82 @@ func (r *SecurityScanReconciler) publishExecutionCheck(ctx context.Context, scan
 		return true
 	}
 	return retry
+}
+
+// uploadExecutionCheckSARIF aggregates the SARIF artifacts stored by a
+// terminal deterministic execution's succeeded task runs — every sink task
+// stores its own report, so all of them contribute — into one document and
+// uploads it once. Runs that stored no SARIF artifact contribute nothing.
+func (r *SecurityScanReconciler) uploadExecutionCheckSARIF(
+	ctx context.Context, scan *triggersv1alpha1.SecurityScan, runNames []string, ev *SecurityScanTriggerEvent,
+	gh *triggersv1alpha1.GitHubRepository, revision string, status *triggersv1alpha1.SecurityScanCheckStatus,
+) bool {
+	retry := false
+	var docs []string
+	for _, runName := range runNames {
+		sarif, err := r.scanRunSARIF(ctx, scan, runName)
+		if err != nil {
+			status.SARIFError = fmt.Sprintf("reading SARIF artifact of run %s: %s", runName, err.Error())
+			retry = true
+			break
+		}
+		if sarif != "" {
+			docs = append(docs, sarif)
+		}
+	}
+	if status.SARIFError == "" {
+		switch merged, err := mergeSecuritySARIFDocuments(docs); {
+		case err != nil:
+			status.SARIFError = "merging SARIF artifacts: " + err.Error()
+		case merged == "":
+			status.SARIFError = "no task run stored a SARIF report artifact"
+		default:
+			if _, err := r.checkPublisher().UploadSARIF(ctx, gh, revision, securityScanSARIFRef(scan, ev), merged); err != nil {
+				status.SARIFError = err.Error()
+				retry = true
+			} else {
+				status.SARIFUploaded = true
+			}
+		}
+	}
+	if status.SARIFError != "" {
+		r.recordScanEvent(scan, corev1.EventTypeWarning, "SARIFUploadFailed", status.SARIFError)
+	}
+	return retry
+}
+
+// mergeSecuritySARIFDocuments folds several SARIF documents into one by
+// concatenating their runs arrays onto the first document; a single document
+// is returned verbatim.
+func mergeSecuritySARIFDocuments(docs []string) (string, error) {
+	if len(docs) == 0 {
+		return "", nil
+	}
+	if len(docs) == 1 {
+		return docs[0], nil
+	}
+	var base map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(docs[0]), &base); err != nil {
+		return "", err
+	}
+	runs := []json.RawMessage{}
+	for _, doc := range docs {
+		var parsed struct {
+			Runs []json.RawMessage `json:"runs"`
+		}
+		if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+			return "", err
+		}
+		runs = append(runs, parsed.Runs...)
+	}
+	mergedRuns, err := json.Marshal(runs)
+	if err != nil {
+		return "", err
+	}
+	base["runs"] = mergedRuns
+	merged, err := json.Marshal(base)
+	if err != nil {
+		return "", err
+	}
+	return string(merged), nil
 }

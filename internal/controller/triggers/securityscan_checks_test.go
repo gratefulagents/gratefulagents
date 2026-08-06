@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -369,4 +370,107 @@ func (s *checksTestFindingStore) ApplySecuritySuppressions(context.Context, stri
 
 func (s *checksTestFindingStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
 	return 0, nil
+}
+
+// multiRunFindingStore maps run names to sessions so multi-sink executions
+// can resolve each run's own SARIF artifact.
+type multiRunFindingStore struct {
+	store.SecurityFindingStore
+	sessions map[string]uuid.UUID
+}
+
+func (s *multiRunFindingStore) GetSecurityScan(_ context.Context, _, runName string) (*store.SecurityScanRecord, error) {
+	id, ok := s.sessions[runName]
+	if !ok {
+		return nil, nil
+	}
+	return &store.SecurityScanRecord{SessionID: &id}, nil
+}
+
+func (s *multiRunFindingStore) SummarizeSecurityFindings(context.Context, string, string, string, bool) (map[string]int32, error) {
+	return map[string]int32{}, nil
+}
+
+type multiSarifArtifactStore struct {
+	store.StateStore
+	bySession map[uuid.UUID]string
+}
+
+func (s *multiSarifArtifactStore) GetArtifact(_ context.Context, session uuid.UUID, _ string) (*store.Artifact, error) {
+	content, ok := s.bySession[session]
+	if !ok {
+		return nil, nil
+	}
+	return &store.Artifact{Content: content}, nil
+}
+
+func TestPublishExecutionCheckUploadsSARIFFromEverySinkTask(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanEventTestScan()
+	scan.Spec.Checks = &triggersv1alpha1.SecurityScanChecks{Enabled: true, UploadSARIF: true}
+	scan.Spec.Revision = "abc1234def"
+	scan.Status.LastExecution = &triggersv1alpha1.SecurityScanExecutionStatus{
+		ID:    "manual-1",
+		Mode:  triggersv1alpha1.SecurityScanExecutionModeDeterministic,
+		Phase: triggersv1alpha1.SecurityScanExecutionPhaseSucceeded,
+		Tasks: []triggersv1alpha1.SecurityScanTaskExecutionStatus{
+			{Name: "sink-a", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "run-a"},
+			{Name: "sink-b", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "run-b"},
+		},
+	}
+	gh := securityScanEventTestRepo(scan.Namespace)
+	reconciler, _, _ := newSecurityScanReconciler(t, now, scan, gh)
+	publisher := &fakeSecurityCheckPublisher{}
+	sessionA, sessionB := uuid.New(), uuid.New()
+	reconciler.CheckPublisher = publisher
+	reconciler.Findings = &multiRunFindingStore{sessions: map[string]uuid.UUID{"run-a": sessionA, "run-b": sessionB}}
+	reconciler.StateStore = &multiSarifArtifactStore{bySession: map[uuid.UUID]string{
+		sessionA: `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"sink-a"}}}]}`,
+		sessionB: `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"sink-b"}}}]}`,
+	}}
+
+	if retry := reconciler.publishExecutionCheck(context.Background(), scan, scan.Status.LastExecution); retry {
+		t.Fatal("publishExecutionCheck retry = true, want false on success")
+	}
+	if len(publisher.sarifs) != 1 {
+		t.Fatalf("SARIF uploads = %d, want one merged document", len(publisher.sarifs))
+	}
+	var merged struct {
+		Version string `json:"version"`
+		Runs    []struct {
+			Tool struct {
+				Driver struct {
+					Name string `json:"name"`
+				} `json:"driver"`
+			} `json:"tool"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal([]byte(publisher.sarifs[0]), &merged); err != nil {
+		t.Fatalf("merged SARIF is not valid JSON: %v", err)
+	}
+	if merged.Version != "2.1.0" || len(merged.Runs) != 2 ||
+		merged.Runs[0].Tool.Driver.Name != "sink-a" || merged.Runs[1].Tool.Driver.Name != "sink-b" {
+		t.Fatalf("merged SARIF = %s, want both sink runs' entries", publisher.sarifs[0])
+	}
+	updated := getSecurityScan(t, reconciler.Client, scan)
+	if updated.Status.LastCheck == nil || !updated.Status.LastCheck.SARIFUploaded || updated.Status.LastCheck.RunName != "run-b" {
+		t.Fatalf("LastCheck = %+v, want SARIFUploaded with the last succeeded run as primary", updated.Status.LastCheck)
+	}
+}
+
+func TestSecurityScanExecutionReportRunsListsEverySucceededRun(t *testing.T) {
+	exec := &triggersv1alpha1.SecurityScanExecutionStatus{Tasks: []triggersv1alpha1.SecurityScanTaskExecutionStatus{
+		{Name: "a", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "run-a"},
+		{Name: "vacuous", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: ""},
+		{Name: "b", State: triggersv1alpha1.SecurityScanTaskStateFailed, RunName: "run-b"},
+		{Name: "c", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "run-c"},
+	}}
+	if got := securityScanExecutionReportRuns(exec); len(got) != 2 || got[0] != "run-a" || got[1] != "run-c" {
+		t.Fatalf("report runs = %v, want [run-a run-c]", got)
+	}
+	exec.Tasks[0].State = triggersv1alpha1.SecurityScanTaskStateFailed
+	exec.Tasks[3].State = triggersv1alpha1.SecurityScanTaskStateSkipped
+	if got := securityScanExecutionReportRuns(exec); len(got) != 1 || got[0] != "run-c" {
+		t.Fatalf("fallback report runs = %v, want the last recorded run [run-c]", got)
+	}
 }

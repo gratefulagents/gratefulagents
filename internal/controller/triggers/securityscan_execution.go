@@ -147,11 +147,13 @@ func pendingSecurityScanResumeToken(scan *triggersv1alpha1.SecurityScan) string 
 
 // reconcileExecutionResume consumes one resume token. Only a Failed
 // execution is actually resumed: every Failed and Skipped task instance is
-// reset to Pending with a refreshed retry budget (the attempts counter
-// restarts for the resumed cycle while the full failure history stays in
-// retries; run names of the resumed cycle carry a resume-token discriminator
-// so they never collide with earlier attempts). A token arriving in any other
-// phase is recorded without action so it cannot fire later by surprise.
+// reset to Pending with a refreshed retry budget. The attempts counter stays
+// cumulative — budgets.maxModelJobs accounting must never forget prior runs
+// — so the refreshed allowance is granted by recording the pre-resume count
+// in resumeBaselineAttempts; the full failure history stays in retries and
+// run names of the resumed cycle carry a resume-token discriminator so they
+// never collide with earlier attempts. A token arriving in any other phase
+// is recorded without action so it cannot fire later by surprise.
 func (r *SecurityScanReconciler) reconcileExecutionResume(ctx context.Context, scan *triggersv1alpha1.SecurityScan, token string) (ctrl.Result, error) {
 	execID := scan.Status.LastExecution.ID
 	resumed := scan.Status.LastExecution.Phase == triggersv1alpha1.SecurityScanExecutionPhaseFailed
@@ -171,7 +173,7 @@ func (r *SecurityScanReconciler) reconcileExecutionResume(ctx context.Context, s
 			switch task.State {
 			case triggersv1alpha1.SecurityScanTaskStateFailed, triggersv1alpha1.SecurityScanTaskStateSkipped:
 				task.State = triggersv1alpha1.SecurityScanTaskStatePending
-				task.Attempts = 0
+				task.ResumeBaselineAttempts = task.Attempts
 				task.NextRetryTime = nil
 				task.LastError = ""
 				task.FinishedAt = nil
@@ -873,8 +875,12 @@ func (e *securityScanExecutionEngine) recordAttemptFailure(entry *triggersv1alph
 	entry.LastError = reason
 
 	maxRetries := e.resolved.spec.EffectiveTaskMaxRetries(e.tasks[entry.Name])
-	if class == triggersv1alpha1.SecurityScanTaskFailureRetryable && entry.Attempts < 1+maxRetries {
-		backoff := securityScanRetryBackoff(e.resolved.spec.EffectiveRetryBackoff(), entry.Attempts)
+	// The retry budget is per resume cycle: attempts stay cumulative for the
+	// durable budgets.maxModelJobs accounting, so the cycle's attempt count
+	// is measured against the baseline recorded at resume.
+	cycleAttempts := entry.Attempts - entry.ResumeBaselineAttempts
+	if class == triggersv1alpha1.SecurityScanTaskFailureRetryable && cycleAttempts < 1+maxRetries {
+		backoff := securityScanRetryBackoff(e.resolved.spec.EffectiveRetryBackoff(), cycleAttempts)
 		next := metav1.NewTime(e.now.Add(backoff))
 		entry.NextRetryTime = &next
 		entry.State = triggersv1alpha1.SecurityScanTaskStatePending
@@ -1499,8 +1505,13 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		if task.MaxTurns > 0 {
 			limits.MaxTurns = task.MaxTurns
 		}
+		// The per-task cost cap folds with the scan-wide budgets.maxCostUSD
+		// already in the base limits: smaller wins, so a task can narrow
+		// but never loosen the scan budget.
 		if cost := strings.TrimSpace(task.MaxCostUSD); cost != "" {
-			limits.MaxCostUsd = cost
+			if scanCost := securityBudgetCostUSD(limits.MaxCostUsd); scanCost < 0 || securityBudgetCostUSD(cost) < scanCost {
+				limits.MaxCostUsd = cost
+			}
 		}
 	}
 	var toolPolicy *platformv1alpha1.AgentRunToolPolicy
@@ -1539,9 +1550,15 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	annotations := base.annotations
 	annotations[securityScanTaskLabel] = task.Name
 	if task.MaxFindings > 0 {
-		// The per-task cap overrides the scan-wide budget on this run; the
-		// persistence boundary keeps enforcing whatever is stamped here.
-		annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation] = strconv.Itoa(int(task.MaxFindings))
+		// The per-task cap folds with the scan-wide resolved
+		// budgets.maxFindings already stamped by buildScanRunBase: smaller
+		// wins, so a task can narrow but never loosen what the persistence
+		// boundary enforces.
+		maxFindings := task.MaxFindings
+		if budgets := resolved.spec.Budgets; budgets != nil && budgets.MaxFindings > 0 && budgets.MaxFindings < maxFindings {
+			maxFindings = budgets.MaxFindings
+		}
+		annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation] = strconv.Itoa(int(maxFindings))
 	}
 	if schema := strings.TrimSpace(task.OutputSchema); schema != "" {
 		annotations[securityScanTaskOutputSchemaAnnotation] = schema
@@ -1587,7 +1604,8 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 // limit (mirroring securityScanRunName's convention). Attempt 1 of the
 // initial cycle carries no -r suffix; resumed cycles always carry the
 // resume-token discriminator so their names never collide with earlier
-// cycles even though the attempts counter restarts.
+// cycles (the cumulative attempts counter already makes the -r suffix
+// differ as well).
 func securityScanTaskRunName(scanName, executionID, taskName string, attempt, instance int32, resumeToken string) string {
 	sanitize := func(s string) string {
 		s = cronNonAlphaNum.ReplaceAllString(strings.ToLower(s), "-")
@@ -1863,23 +1881,30 @@ func securityScanExecutionRunNames(exec *triggersv1alpha1.SecurityScanExecutionS
 	return names
 }
 
-// securityScanExecutionReportRun picks the run representing the execution in
-// the published check: the last succeeded task run (typically the terminal
-// report task), falling back to the last recorded run.
-func securityScanExecutionReportRun(exec *triggersv1alpha1.SecurityScanExecutionStatus) string {
+// securityScanExecutionReportRuns lists the runs whose stored reports
+// represent the execution in the published check: every succeeded task run
+// in task order (each sink task stores its own report/SARIF artifact),
+// falling back to the last recorded run when none succeeded. The last name
+// is the primary run the check summary and details link point at.
+func securityScanExecutionReportRuns(exec *triggersv1alpha1.SecurityScanExecutionStatus) []string {
+	seen := map[string]bool{}
+	var succeeded []string
 	lastAny := ""
-	lastSucceeded := ""
 	for _, entry := range exec.Tasks {
-		if entry.RunName == "" {
+		if entry.RunName == "" || seen[entry.RunName] {
 			continue
 		}
+		seen[entry.RunName] = true
 		lastAny = entry.RunName
 		if entry.State == triggersv1alpha1.SecurityScanTaskStateSucceeded {
-			lastSucceeded = entry.RunName
+			succeeded = append(succeeded, entry.RunName)
 		}
 	}
-	if lastSucceeded != "" {
-		return lastSucceeded
+	if len(succeeded) > 0 {
+		return succeeded
 	}
-	return lastAny
+	if lastAny == "" {
+		return nil
+	}
+	return []string{lastAny}
 }

@@ -928,3 +928,144 @@ func TestTruncateSecurityScanErrorCapsAt160Characters(t *testing.T) {
 		t.Fatalf("short string = %q, want unchanged", got)
 	}
 }
+
+func TestSecurityScanDeterministicTaskCostAndFindingsCapsNeverLoosenScanBudgets(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "looser", Objective: "inspect widely", MaxCostUSD: "5.00", MaxFindings: 40},
+		{Name: "tighter", Objective: "inspect narrowly", MaxCostUSD: "0.50", MaxFindings: 5},
+	}, 2)
+	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxCostUSD: "2.00", MaxFindings: 10}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	looser := taskRunByTask(t, runs, "looser")
+	if looser.Spec.Limits == nil || looser.Spec.Limits.MaxCostUsd != "2.00" {
+		t.Fatalf("looser task limits = %#v, want scan-wide maxCostUSD 2.00 (task cap must not loosen it)", looser.Spec.Limits)
+	}
+	if got := looser.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "10" {
+		t.Fatalf("looser max-findings annotation = %q, want scan-wide 10 (task cap must not loosen it)", got)
+	}
+	tighter := taskRunByTask(t, runs, "tighter")
+	if tighter.Spec.Limits == nil || tighter.Spec.Limits.MaxCostUsd != "0.50" {
+		t.Fatalf("tighter task limits = %#v, want narrowed maxCostUSD 0.50", tighter.Spec.Limits)
+	}
+	if got := tighter.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "5" {
+		t.Fatalf("tighter max-findings annotation = %q, want narrowed 5", got)
+	}
+}
+
+func TestSecurityScanDeterministicResumeKeepsAttemptsForModelJobBudget(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	zero := int32(0)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect", MaxRetries: &zero}}, 1)
+	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxModelJobs: 1}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	first := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, first.Name, platformv1alpha1.AgentRunPhaseFailed, "", "unauthorized")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if phase := getSecurityScan(t, k8sClient, scan).Status.LastExecution.Phase; phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase = %q, want Failed before resume", phase)
+	}
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Annotations = map[string]string{triggersv1alpha1.SecurityScanResumeAnnotation: "resume-budget"}
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan resume annotation): %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	entry := executionTask(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0)
+	if entry.Attempts != 1 || entry.ResumeBaselineAttempts != 1 {
+		t.Fatalf("resumed task = %#v, want cumulative attempts 1 with resume baseline 1", entry)
+	}
+
+	// The resumed cycle would need a second task run, but the durable
+	// attempts counter already consumed budgets.maxModelJobs.
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase after resumed budget check = %q, want Failed", exec.Phase)
+	}
+	entry = executionTask(t, exec, "a", 0)
+	if !strings.Contains(entry.LastError, securityScanReasonBudgetExceeded) {
+		t.Fatalf("task error = %q, want %s", entry.LastError, securityScanReasonBudgetExceeded)
+	}
+	if got := len(securityScanRuns(t, k8sClient, scan.Namespace)); got != 1 {
+		t.Fatalf("AgentRuns = %d, want no second run past the model-job budget after resume", got)
+	}
+}
+
+func TestSecurityScanDeterministicResumeRefreshesRetryBudgetPerCycle(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	zero := int32(0)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect", MaxRetries: &zero}}, 1)
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	first := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, first.Name, platformv1alpha1.AgentRunPhaseFailed, "", "temporary connection timeout")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if state := executionTask(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0).State; state != triggersv1alpha1.SecurityScanTaskStateFailed {
+		t.Fatalf("task state = %q, want Failed with maxRetries 0", state)
+	}
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Annotations = map[string]string{triggersv1alpha1.SecurityScanResumeAnnotation: "resume-retry"}
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan resume annotation): %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	entry := executionTask(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0)
+	if entry.State != triggersv1alpha1.SecurityScanTaskStateRunning || entry.Attempts != 2 || entry.ResumeBaselineAttempts != 1 {
+		t.Fatalf("resumed task = %#v, want a second (cumulative) attempt running", entry)
+	}
+	second := taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), entry.RunName)
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, second.Name, platformv1alpha1.AgentRunPhaseFailed, "", "temporary connection timeout")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	entry = executionTask(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0)
+	if entry.State != triggersv1alpha1.SecurityScanTaskStateFailed {
+		t.Fatalf("task after resumed cycle exhausted its retry budget = %#v, want Failed (maxRetries 0 per cycle)", entry)
+	}
+}
+
+func TestSecurityScanDeterministicExecutionFailsWhenSpecBecomesInvalidMidExecution(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "a", Objective: "inspect a"},
+		{Name: "b", Objective: "join", DependsOn: []string{"a"}},
+	}, 1)
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	assertExecutionTaskState(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Spec.Workflow[1].DependsOn = []string{"missing"}
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan) error = %v", err)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	final := getSecurityScan(t, k8sClient, scan)
+	exec := final.Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed || exec.CompletedAt == nil {
+		t.Fatalf("execution = %#v, want Failed with completion time instead of a wedged Running execution", exec)
+	}
+	const wantMsg = "spec became invalid while the execution was running"
+	if b := executionTask(t, exec, "b", 0); b.State != triggersv1alpha1.SecurityScanTaskStateSkipped || !strings.Contains(b.LastError, wantMsg) {
+		t.Fatalf("blocked task b = %#v, want Skipped with %q", b, wantMsg)
+	}
+	if !strings.Contains(final.Status.LastError, "spec.workflow is invalid") {
+		t.Fatalf("scan LastError = %q, want the invalid-spec message", final.Status.LastError)
+	}
+	assertSecurityScanCondition(t, final, metav1.ConditionFalse, securityScanReasonInvalidSpec)
+
+	// Repeated reconciles under the still-invalid spec stay terminal.
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if phase := getSecurityScan(t, k8sClient, scan).Status.LastExecution.Phase; phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase after re-reconcile = %q, want Failed", phase)
+	}
+}

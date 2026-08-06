@@ -781,8 +781,17 @@ type SecurityScanTaskExecutionStatus struct {
 	RunName string `json:"runName,omitempty"`
 
 	// attempts is how many attempts have started for this task instance.
+	// It is cumulative across resume cycles so budgets.maxModelJobs
+	// accounting never forgets prior runs.
 	// +optional
 	Attempts int32 `json:"attempts,omitempty"`
+
+	// resumeBaselineAttempts is the value of attempts when the execution
+	// was last resumed. The per-cycle retry budget is attempts minus this
+	// baseline, so resuming refreshes retries without resetting the
+	// durable attempts counter.
+	// +optional
+	ResumeBaselineAttempts int32 `json:"resumeBaselineAttempts,omitempty"`
 
 	// retries records the finished failed attempts.
 	// +listType=atomic
