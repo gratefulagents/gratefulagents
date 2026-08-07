@@ -1,0 +1,14 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPostScript
+metadata:
+  name: validate-finding
+spec:
+  description: Verifies exploitability of high and critical findings with a minimal local proof-of-concept and records the evidence on the finding.
+  runOn: high-and-above
+  prompt: |
+    You are validating one security finding. Do not hunt for new issues.
+
+    1. Re-read the cited code and confirm the vulnerable flow exists as
+       described: trace the untrusted input from its entry point to the
+       sensitive sink and note every check it passes through.
+    2. Attempt a minimal local proof-of-concept that demonstrates

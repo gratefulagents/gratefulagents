@@ -49,6 +49,11 @@ func securityScanInvalidSpecMessage(spec triggersv1alpha1.SecurityScanSpec) stri
 	if spec.WorkflowRef != nil && len(spec.Workflow) > 0 {
 		return "spec.workflowRef and spec.workflow are mutually exclusive: reference a SecurityWorkflow or define the workflow inline, not both"
 	}
+	if len(spec.Workflow) > 0 {
+		if errs := triggersv1alpha1.ValidateSecurityWorkflowTasks(spec.Workflow); len(errs) != 0 {
+			return "spec.workflow is invalid: " + errs[0].Error()
+		}
+	}
 	if errs := triggersv1alpha1.ValidateSecurityScanBudgets("spec.budgets", spec.Budgets); len(errs) != 0 {
 		return errs[0].Error()
 	}
@@ -91,6 +96,10 @@ type resolvedSecurityScanSpec struct {
 	// refs records generation and content hash per resolved resource, in
 	// spec order (policyPackRef, workflowRef, rankerRefs, postScriptRefs).
 	refs []triggersv1alpha1.SecurityScanResolvedRef
+	// workflowParams are the referenced SecurityWorkflow's declared
+	// scan-time parameters; empty for inline workflows, whose {{params.*}}
+	// references are free-form.
+	workflowParams []triggersv1alpha1.SecurityWorkflowParameter
 }
 
 // resolveSecurityScanRefs resolves spec.policyPackRef, spec.workflowRef,
@@ -143,6 +152,7 @@ func resolveSecurityScanRefs(
 		if workflow.Spec.Parallelism > 0 {
 			resolved.spec.Parallelism = workflow.Spec.Parallelism
 		}
+		resolved.workflowParams = append([]triggersv1alpha1.SecurityWorkflowParameter(nil), workflow.Spec.Parameters...)
 		resolved.refs = append(resolved.refs, resolvedSecurityRef("SecurityWorkflow", workflow.Name, workflow.Generation, workflow.Spec))
 	}
 

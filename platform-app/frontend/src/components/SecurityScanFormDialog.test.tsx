@@ -448,3 +448,104 @@ describe("SecurityScanFormDialog policy pack & budgets", () => {
     expect(client.createSecurityScan).not.toHaveBeenCalled();
   });
 });
+
+describe("SecurityScanFormDialog execution & parameter values", () => {
+  it("submits execution settings and parameter values", async () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Execution/ }));
+    fireEvent.change(screen.getByLabelText("Execution mode"), {
+      target: { value: "deterministic" },
+    });
+    fireEvent.change(screen.getByLabelText("Task max retries"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Retry backoff"), { target: { value: "45s" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add parameter value" }));
+    fireEvent.change(screen.getByLabelText("Parameter 1 name"), {
+      target: { value: "target_service" },
+    });
+    fireEvent.change(screen.getByLabelText("Parameter 1 value"), {
+      target: { value: "payments-api" },
+    });
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => {
+      expect(client.createSecurityScan).toHaveBeenCalledTimes(1);
+    });
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.execution?.mode).toBe("deterministic");
+    expect(request.spec?.execution?.taskMaxRetries).toBe(3);
+    expect(request.spec?.execution?.retryBackoff).toBe("45s");
+    expect(request.spec?.parameterValues).toEqual({ target_service: "payments-api" });
+  });
+
+  it("rejects a malformed retry backoff before submitting", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Execution/ }));
+    fireEvent.change(screen.getByLabelText("Retry backoff"), {
+      target: { value: "30 seconds" },
+    });
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Go duration/);
+    expect(client.createSecurityScan).not.toHaveBeenCalled();
+  });
+
+  it("round-trips execution, parameter values, and advanced task fields when editing", async () => {
+    vi.mocked(client.updateSecurityScan).mockResolvedValue(
+      create(SecurityScanConfigSchema, { namespace: "user-alice", name: "nightly" }),
+    );
+    const config = create(SecurityScanConfigSchema, {
+      namespace: "user-alice",
+      name: "nightly",
+      spec: create(SecurityScanConfigSpecSchema, {
+        repoUrl: "https://github.com/acme/payments.git",
+        workflow: [
+          {
+            name: "recon",
+            objective: "Map the surface.",
+            maxRetries: 2,
+            timeout: "30m",
+            maxTurns: 40,
+            maxCostUsd: "2.50",
+            tools: { allowed: ["read_file"], denied: ["Bash"] },
+            outputSchema: '{"type":"object"}',
+            forEach: "",
+            maxInstances: 5,
+            repeats: 2,
+          },
+        ],
+        execution: { mode: "deterministic", taskMaxRetries: 2, retryBackoff: "1m" },
+        parameterValues: { depth: "full" },
+      }),
+    });
+    render(<SecurityScanFormDialog config={config} trigger={<button>Edit</button>} defaultOpen />);
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => {
+      expect(client.updateSecurityScan).toHaveBeenCalledTimes(1);
+    });
+    const request = vi.mocked(client.updateSecurityScan).mock.calls[0][0];
+    expect(request.spec?.execution?.mode).toBe("deterministic");
+    expect(request.spec?.execution?.taskMaxRetries).toBe(2);
+    expect(request.spec?.execution?.retryBackoff).toBe("1m");
+    expect(request.spec?.parameterValues).toEqual({ depth: "full" });
+    // Advanced task fields the inline editor does not expose survive the edit.
+    const task = request.spec?.workflow?.[0];
+    expect(task?.maxRetries).toBe(2);
+    expect(task?.timeout).toBe("30m");
+    expect(task?.maxTurns).toBe(40);
+    expect(task?.maxCostUsd).toBe("2.50");
+    expect(task?.tools?.allowed).toEqual(["read_file"]);
+    expect(task?.tools?.denied).toEqual(["Bash"]);
+    expect(task?.outputSchema).toBe('{"type":"object"}');
+    expect(task?.maxInstances).toBe(5);
+    expect(task?.repeats).toBe(2);
+  });
+});

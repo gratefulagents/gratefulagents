@@ -3,6 +3,8 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,10 +15,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
 
 func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
+	taskRetries := int32(2)
+	execRetries := int32(3)
 	return &platform.SecurityScanConfigSpec{
 		RepoUrl:         "https://github.com/example/payments.git",
 		BaseBranch:      "release",
@@ -29,11 +34,20 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 			Languages:    []string{"go"},
 		},
 		Workflow: []*platform.SecurityScanTaskConfig{
-			{Name: "injection", Objective: "hunt injections", Category: "injection", MaxFindings: 5},
+			{Name: "injection", Objective: "hunt injections", Category: "injection", MaxFindings: 5,
+				OutputSchema: `{"type":"array","items":{"type":"object"}}`},
 			{Name: "triage", Objective: "triage findings", Role: "finding-triager", Model: "gpt-5.2",
-				DependsOn: []string{"injection"}},
+				DependsOn: []string{"injection"}, MaxRetries: &taskRetries, Timeout: "45m", MaxTurns: 30,
+				MaxCostUsd: "2.50", ForEach: "injection", MaxInstances: 5,
+				Tools: &platform.SecurityScanTaskTools{Allowed: []string{"grep", "read_file"}, Denied: []string{"web_fetch"}}},
 		},
 		Parallelism: 8,
+		Execution: &platform.SecurityScanExecutionConfig{
+			Mode:           "deterministic",
+			TaskMaxRetries: &execRetries,
+			RetryBackoff:   "45s",
+		},
+		ParameterValues: map[string]string{"target_env": "staging"},
 		SeverityRankers: []*platform.SecurityRankerConfig{
 			{Name: "payments", Rules: "auth bypass is always critical"},
 		},
@@ -100,6 +114,19 @@ func TestCreateSecurityScanHappyPathFullSpec(t *testing.T) {
 		ps.Budgets.MaxFindings != 40 {
 		t.Fatalf("proto budgets = %+v", ps.Budgets)
 	}
+	if ps.Execution == nil || ps.Execution.Mode != "deterministic" ||
+		ps.Execution.TaskMaxRetries == nil || *ps.Execution.TaskMaxRetries != 3 || ps.Execution.RetryBackoff != "45s" {
+		t.Fatalf("proto execution = %+v", ps.Execution)
+	}
+	if ps.ParameterValues["target_env"] != "staging" {
+		t.Fatalf("proto parameter values = %+v", ps.ParameterValues)
+	}
+	pt := ps.Workflow[1]
+	if pt.MaxRetries == nil || *pt.MaxRetries != 2 || pt.Timeout != "45m0s" || pt.MaxTurns != 30 ||
+		pt.MaxCostUsd != "2.50" || pt.ForEach != "injection" || pt.MaxInstances != 5 ||
+		pt.Tools == nil || len(pt.Tools.Allowed) != 2 || len(pt.Tools.Denied) != 1 {
+		t.Fatalf("proto workflow[1] = %+v", pt)
+	}
 }
 
 func assertFullScanSpec(t *testing.T, spec triggersv1alpha1.SecurityScanSpec) {
@@ -140,6 +167,26 @@ func assertFullScanAdvancedSpec(t *testing.T, spec triggersv1alpha1.SecurityScan
 	if len(spec.Workflow) != 2 || spec.Workflow[0].Name != "injection" || spec.Workflow[0].MaxFindings != 5 ||
 		spec.Workflow[1].Role != "finding-triager" || spec.Workflow[1].DependsOn[0] != "injection" {
 		t.Fatalf("Workflow = %+v", spec.Workflow)
+	}
+	if spec.Workflow[0].OutputSchema == "" {
+		t.Fatalf("Workflow[0].OutputSchema empty")
+	}
+	task := spec.Workflow[1]
+	if task.MaxRetries == nil || *task.MaxRetries != 2 || task.Timeout.Duration != 45*time.Minute ||
+		task.MaxTurns != 30 || task.MaxCostUSD != "2.50" || task.ForEach != "injection" || task.MaxInstances != 5 {
+		t.Fatalf("Workflow[1] execution fields = %+v", task)
+	}
+	if task.Tools == nil || len(task.Tools.Allowed) != 2 || task.Tools.Allowed[0] != "grep" ||
+		len(task.Tools.Denied) != 1 || task.Tools.Denied[0] != "web_fetch" {
+		t.Fatalf("Workflow[1].Tools = %+v", task.Tools)
+	}
+	if spec.Execution == nil || spec.Execution.Mode != "deterministic" ||
+		spec.Execution.TaskMaxRetries == nil || *spec.Execution.TaskMaxRetries != 3 ||
+		spec.Execution.RetryBackoff.Duration != 45*time.Second {
+		t.Fatalf("Execution = %+v", spec.Execution)
+	}
+	if len(spec.ParameterValues) != 1 || spec.ParameterValues["target_env"] != "staging" {
+		t.Fatalf("ParameterValues = %+v", spec.ParameterValues)
 	}
 	if len(spec.SeverityRankers) != 1 || spec.SeverityRankers[0].Name != "payments" {
 		t.Fatalf("SeverityRankers = %+v", spec.SeverityRankers)
@@ -227,6 +274,51 @@ func TestCreateSecurityScanValidationFailures(t *testing.T) {
 			s.Workflow = []*platform.SecurityScanTaskConfig{
 				{Name: "task", Objective: "a", DependsOn: []string{"task"}},
 			}
+			return s
+		}()},
+		{"bad task timeout", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Workflow = []*platform.SecurityScanTaskConfig{{Name: "task", Objective: "a", Timeout: "banana"}}
+			return s
+		}()},
+		{"task max_retries too high", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			retries := int32(11)
+			s.Workflow = []*platform.SecurityScanTaskConfig{{Name: "task", Objective: "a", MaxRetries: &retries}}
+			return s
+		}()},
+		{"bad task max_cost_usd", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Workflow = []*platform.SecurityScanTaskConfig{{Name: "task", Objective: "a", MaxCostUsd: "$5"}}
+			return s
+		}()},
+		{"for_each without depends_on", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Workflow = []*platform.SecurityScanTaskConfig{
+				{Name: "seed", Objective: "a", OutputSchema: `{"type":"array"}`},
+				{Name: "task", Objective: "b", ForEach: "seed"},
+			}
+			return s
+		}()},
+		{"bad execution mode", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Execution = &platform.SecurityScanExecutionConfig{Mode: "chaotic"}
+			return s
+		}()},
+		{"bad execution retry_backoff", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.Execution = &platform.SecurityScanExecutionConfig{RetryBackoff: "banana"}
+			return s
+		}()},
+		{"execution task_max_retries too high", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			retries := int32(11)
+			s.Execution = &platform.SecurityScanExecutionConfig{TaskMaxRetries: &retries}
+			return s
+		}()},
+		{"bad parameter name", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			s.ParameterValues = map[string]string{"not a name": "x"}
 			return s
 		}()},
 		{"bad dedupe permille", func() *platform.SecurityScanConfigSpec {
@@ -744,5 +836,211 @@ func TestCreateSecurityScanRejectsInvalidEventConfig(t *testing.T) {
 		if connect.CodeOf(err) != connect.CodeInvalidArgument {
 			t.Errorf("%s: code = %v, want InvalidArgument (%v)", tc.name, connect.CodeOf(err), err)
 		}
+	}
+}
+
+func TestRunSecurityScanNowMergesParameterValues(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "parameterized", Namespace: ns},
+		Spec: triggersv1alpha1.SecurityScanSpec{
+			RepoURL:         "https://github.com/example/app.git",
+			ParameterValues: map[string]string{"target_env": "prod", "depth": "quick"},
+		},
+	}
+	srv, c := newCronTestServer(t, existing)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "parameterized", ns, testProjectSubject); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	resp, err := srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "parameterized",
+		ParameterValues: map[string]string{"target_env": "staging", "focus": "auth"},
+	})
+	if err != nil {
+		t.Fatalf("RunSecurityScanNow() error = %v", err)
+	}
+	if resp.GetSpec().GetParameterValues()["target_env"] != "staging" {
+		t.Fatalf("resp parameter values = %+v", resp.GetSpec().GetParameterValues())
+	}
+
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "parameterized"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	want := map[string]string{"target_env": "staging", "depth": "quick", "focus": "auth"}
+	if len(cr.Spec.ParameterValues) != len(want) {
+		t.Fatalf("ParameterValues = %+v, want %+v", cr.Spec.ParameterValues, want)
+	}
+	for k, v := range want {
+		if cr.Spec.ParameterValues[k] != v {
+			t.Fatalf("ParameterValues[%q] = %q, want %q", k, cr.Spec.ParameterValues[k], v)
+		}
+	}
+	if cr.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] == "" {
+		t.Fatalf("run-now annotation missing: %#v", cr.Annotations)
+	}
+
+	// Invalid parameter names are rejected before anything is stamped.
+	_, err = srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "parameterized",
+		ParameterValues: map[string]string{"not a name": "x"},
+	})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("RunSecurityScanNow(bad key) error = %v, want InvalidArgument", err)
+	}
+}
+
+func TestSecurityScanConfigSurfacesLastExecution(t *testing.T) {
+	started := metav1.NewTime(time.Unix(1700000000, 0))
+	finished := metav1.NewTime(time.Unix(1700000600, 0))
+	nextRetry := metav1.NewTime(time.Unix(1700000900, 0))
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "deterministic", Namespace: "default"},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+		Status: triggersv1alpha1.SecurityScanStatus{
+			LastExecution: &triggersv1alpha1.SecurityScanExecutionStatus{
+				ID:                       "run-7",
+				Mode:                     "deterministic",
+				Phase:                    "Running",
+				EffectiveParallelism:     4,
+				EffectiveParallelismNote: "clamped by mode template",
+				StartedAt:                &started,
+				LastResumeToken:          "token-1",
+				Tasks: []triggersv1alpha1.SecurityScanTaskExecutionStatus{
+					{
+						Name:          "triage",
+						Instance:      1,
+						State:         "Running",
+						RunName:       "deterministic-triage-1",
+						Attempts:      2,
+						LastError:     "attempt 1 timed out",
+						NextRetryTime: &nextRetry,
+						StartedAt:     &started,
+						Retries: []triggersv1alpha1.SecurityScanTaskAttempt{{
+							RunName:    "deterministic-triage-0",
+							Reason:     "timeout",
+							Class:      "retryable",
+							StartedAt:  &started,
+							FinishedAt: &finished,
+						}},
+					},
+				},
+			},
+		},
+	}
+	srv, _ := newCronTestServer(t, existing)
+
+	got, err := srv.GetSecurityScanConfig(context.Background(),
+		&platform.GetSecurityScanConfigRequest{Namespace: "default", Name: "deterministic"})
+	if err != nil {
+		t.Fatalf("GetSecurityScanConfig() error = %v", err)
+	}
+	le := got.GetLastExecution()
+	if le == nil || le.Id != "run-7" || le.Mode != "deterministic" || le.Phase != "Running" ||
+		le.EffectiveParallelism != 4 || le.EffectiveParallelismNote != "clamped by mode template" ||
+		le.StartedAtUnix != started.Unix() || le.CompletedAtUnix != 0 || le.LastResumeToken != "token-1" {
+		t.Fatalf("last execution = %+v", le)
+	}
+	if len(le.Tasks) != 1 {
+		t.Fatalf("tasks = %+v", le.Tasks)
+	}
+	task := le.Tasks[0]
+	if task.Name != "triage" || task.Instance != 1 || task.State != "Running" ||
+		task.RunName != "deterministic-triage-1" || task.Attempts != 2 ||
+		task.LastError != "attempt 1 timed out" || task.NextRetryTimeUnix != nextRetry.Unix() ||
+		task.StartedAtUnix != started.Unix() || task.FinishedAtUnix != 0 {
+		t.Fatalf("task = %+v", task)
+	}
+	if len(task.Retries) != 1 || task.Retries[0].RunName != "deterministic-triage-0" ||
+		task.Retries[0].Reason != "timeout" || task.Retries[0].Class != "retryable" ||
+		task.Retries[0].StartedAtUnix != started.Unix() || task.Retries[0].FinishedAtUnix != finished.Unix() {
+		t.Fatalf("retries = %+v", task.Retries)
+	}
+
+	list, err := srv.ListSecurityScanConfigs(context.Background(), &platform.ListSecurityScanConfigsRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatalf("ListSecurityScanConfigs() error = %v", err)
+	}
+	if len(list.Configs) != 1 || list.Configs[0].GetLastExecution().GetId() != "run-7" {
+		t.Fatalf("list last execution = %+v", list.Configs)
+	}
+}
+
+func TestRunSecurityScanNowRejectsOversizedParameterValues(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "bounded", Namespace: ns},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+	}
+	srv, _ := newCronTestServer(t, existing)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "bounded", ns, testProjectSubject); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	_, err := srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "bounded",
+		ParameterValues: map[string]string{"big": strings.Repeat("v", 4097)},
+	})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("RunSecurityScanNow(oversized value) error = %v, want InvalidArgument", err)
+	}
+
+	values := map[string]string{}
+	for i := range 16 {
+		values[fmt.Sprintf("p%02d", i)] = strings.Repeat("v", 4096)
+	}
+	_, err = srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "bounded", ParameterValues: values,
+	})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("RunSecurityScanNow(oversized total) error = %v, want InvalidArgument", err)
+	}
+
+	// A value at exactly the per-value cap stays accepted.
+	if _, err := srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "bounded",
+		ParameterValues: map[string]string{"big": strings.Repeat("v", 4096)},
+	}); err != nil {
+		t.Fatalf("RunSecurityScanNow(at-cap value) error = %v", err)
+	}
+}
+
+func TestRunSecurityScanNowWithParameterValuesRequiresCollaboratorAccess(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: ns},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+	}
+	srv, _ := newCronTestServer(t, existing)
+	ms := newCollaborationStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "shared", ns, testProjectSubject); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+	for subject, permission := range map[string]string{"victor": "viewer", "carl": "collaborator"} {
+		if _, err := ms.ShareResource(context.Background(), &store.ResourceShare{
+			ResourceType: securityScanResourceType, ResourceID: "shared", ResourceNamespace: ns,
+			SharedWithUserID: subject, SharedByUserID: testProjectSubject, Permission: permission,
+		}); err != nil {
+			t.Fatalf("ShareResource(%s): %v", permission, err)
+		}
+	}
+
+	req := &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: "shared",
+		ParameterValues: map[string]string{"focus": "auth"},
+	}
+	// The merge persists into spec.parameterValues, so a viewer share (read
+	// access) must not be enough.
+	if _, err := srv.RunSecurityScanNow(actorContext("victor", "member", "", ""), req); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("RunSecurityScanNow(viewer + params) error = %v, want PermissionDenied", err)
+	}
+	if _, err := srv.RunSecurityScanNow(actorContext("carl", "member", "", ""), req); err != nil {
+		t.Fatalf("RunSecurityScanNow(collaborator + params) error = %v", err)
 	}
 }

@@ -124,13 +124,7 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if msg := securityScanInvalidSpecMessage(scan.Spec); msg != "" {
-		if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
-			fresh.Status.LastError = msg
-			setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonInvalidSpec, msg)
-		}); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		return r.reconcileInvalidSpec(ctx, scan, msg)
 	}
 
 	// Retention sweeps run only here — never in the deletion/finalizer path
@@ -150,9 +144,56 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return res, nil
 }
 
+// reconcileInvalidSpec reports a statically invalid spec on the Ready
+// condition. A live deterministic execution cannot advance under an invalid
+// spec (its task runs would never be observed again), so instead of leaving
+// it Running forever it is failed with a message explaining that the spec
+// became invalid mid-execution; the terminal side effects then run through
+// the usual self-gated publishers.
+func (r *SecurityScanReconciler) reconcileInvalidSpec(ctx context.Context, scan *triggersv1alpha1.SecurityScan, msg string) (ctrl.Result, error) {
+	var failedExec *triggersv1alpha1.SecurityScanExecutionStatus
+	if exec := scan.Status.LastExecution; securityScanExecutionActive(exec) {
+		failedExec = exec.DeepCopy()
+		failSecurityScanExecution(failedExec, metav1.NewTime(r.now()),
+			truncateSecurityScanError(securityScanReasonInvalidSpec+": the spec became invalid while the execution was running: "+msg))
+	}
+	if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+		if failedExec != nil && securityScanExecutionActive(fresh.Status.LastExecution) && fresh.Status.LastExecution.ID == failedExec.ID {
+			fresh.Status.LastExecution = failedExec
+			fresh.Status.Phase = "Completed"
+		}
+		fresh.Status.LastError = msg
+		setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonInvalidSpec, msg)
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+	if failedExec != nil {
+		r.recordScanEvent(scan, corev1.EventTypeWarning, "ExecutionFailed",
+			fmt.Sprintf("execution %s failed: the spec became invalid while it was running: %s", failedExec.ID, msg))
+	}
+	// Terminal side effects (aggregate check, notifications) still run for a
+	// terminal deterministic execution — including the one failed just above
+	// — exactly like the dispatch path does; every part is idempotent and
+	// self-gated, so repeats while the spec stays invalid are no-ops.
+	exec := scan.Status.LastExecution
+	if failedExec != nil {
+		exec = failedExec
+	}
+	if exec != nil && exec.Mode == triggersv1alpha1.SecurityScanExecutionModeDeterministic && securityScanExecutionTerminal(exec.Phase) {
+		if r.finishTerminalExecution(ctx, scan, exec) {
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
 // reconcileActive dispatches a live (non-deleted, non-suspended, valid) scan
 // to the manual, event, one-shot, or scheduled path.
 func (r *SecurityScanReconciler) reconcileActive(ctx context.Context, scan *triggersv1alpha1.SecurityScan) (ctrl.Result, error) {
+	if scan.Spec.EffectiveExecutionMode() == triggersv1alpha1.SecurityScanExecutionModeDeterministic {
+		return r.reconcileDeterministic(ctx, scan)
+	}
+
 	if token := pendingManualRunToken(scan); token != "" {
 		return r.reconcileRunNow(ctx, scan, token)
 	}
@@ -209,7 +250,7 @@ func (r *SecurityScanReconciler) reconcileRunNow(ctx context.Context, scan *trig
 	}
 
 	runName := securityScanRunName(scan.Name, externalID)
-	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, externalID, externalID, nil)
+	created, resolvedRefs, execStatus, err := r.createScanRun(ctx, scan, runName, externalID, externalID, nil)
 	if err != nil {
 		log.Error(err, "failed to create manual scan AgentRun", "run", runName)
 		reason := securityScanRunFailureReason(err)
@@ -242,6 +283,7 @@ func (r *SecurityScanReconciler) reconcileRunNow(ctx context.Context, scan *trig
 			fresh.Status.ManualRunsCreated++
 			fresh.Status.LastResolvedRefs = resolvedRefs
 		}
+		applyCoordinatorExecutionStatus(fresh, execStatus, created)
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ManualRunStarted", "Manual scan AgentRun created")
 	}); err != nil {
 		return ctrl.Result{}, err
@@ -331,7 +373,7 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 
 	runName := securityScanRunName(scan.Name, fmt.Sprintf("g%d", scan.Generation))
 	externalID := fmt.Sprintf("generation-%d", scan.Generation)
-	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, externalID, externalID, nil)
+	created, resolvedRefs, execStatus, err := r.createScanRun(ctx, scan, runName, externalID, externalID, nil)
 	if err != nil {
 		log.Error(err, "failed to create scan AgentRun", "run", runName)
 		reason := securityScanRunFailureReason(err)
@@ -356,6 +398,7 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 			fresh.Status.RunsCreated++
 			fresh.Status.LastResolvedRefs = resolvedRefs
 		}
+		applyCoordinatorExecutionStatus(fresh, execStatus, created)
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ScanStarted", "Scan AgentRun created")
 	}); err != nil {
 		return ctrl.Result{}, err
@@ -455,7 +498,7 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 
 	runName := securityScanRunName(scan.Name, scheduledTime.UTC().Format("20060102150405"))
 	scheduledID := scheduledTime.UTC().Format(time.RFC3339)
-	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, scheduledID, scheduledTime.Format(time.RFC3339), nil)
+	created, resolvedRefs, execStatus, err := r.createScanRun(ctx, scan, runName, scheduledID, scheduledTime.Format(time.RFC3339), nil)
 	if err != nil {
 		log.Error(err, "failed to create scheduled scan AgentRun", "scheduledTime", scheduledTime)
 		reason := securityScanRunFailureReason(err)
@@ -484,6 +527,7 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 			fresh.Status.RunsCreated++
 			fresh.Status.LastResolvedRefs = resolvedRefs
 		}
+		applyCoordinatorExecutionStatus(fresh, execStatus, created)
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "Scheduled", "SecurityScan schedule is valid")
 	}); err != nil {
 		return ctrl.Result{}, err
@@ -501,16 +545,124 @@ type securityScanRunContext struct {
 	DiffFallback string
 }
 
-func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName, externalID, externalIdentifier string, runCtx *securityScanRunContext) (bool, []triggersv1alpha1.SecurityScanResolvedRef, error) {
+func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName, externalID, externalIdentifier string, runCtx *securityScanRunContext) (bool, []triggersv1alpha1.SecurityScanResolvedRef, *triggersv1alpha1.SecurityScanExecutionStatus, error) {
 	// Resolve library references at run-creation time and build the prompt
 	// from the resolved snapshot: the seed message is persisted when the run
 	// is created, so later edits to the referenced resources never change
 	// this run.
 	resolved, err := resolveSecurityScanRefs(ctx, r.Client, scan)
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
+	}
+	// Parameters are substituted into the task objectives BEFORE prompt
+	// construction so {{params.*}} references work identically in
+	// coordinator and deterministic mode; a missing required parameter
+	// rejects the scan instead of leaking an unresolved placeholder.
+	params, err := resolveSecurityScanParameters(resolved)
+	if err != nil {
+		return false, nil, nil, err
+	}
+	for i := range resolved.spec.Workflow {
+		resolved.spec.Workflow[i].Objective = renderSecurityScanParams(resolved.spec.Workflow[i].Objective, params)
 	}
 
+	base, err := r.buildScanRunBase(ctx, scan, resolved, runName, runCtx)
+	if err != nil {
+		return false, nil, nil, err
+	}
+	bound, boundNote := r.coordinatorParallelismBound(ctx, scan, resolved.spec)
+
+	created, _, err := CreateTriggerRun(ctx, r.Client, r.StateStore, TriggerRunSpec{
+		RunName:            runName,
+		Namespace:          scan.Namespace,
+		TriggerKind:        securityScanKind,
+		TriggerName:        scan.Name,
+		ExternalID:         externalID,
+		ExternalIdentifier: externalIdentifier,
+		SeedMessage:        BuildSecurityScanPromptWithEvent(resolved.spec, securityScanPromptEvent(runCtx), bound),
+		Revision:           base.revision,
+		Defaults:           base.defaults,
+		OwnerRef:           scan,
+		Scheme:             r.Scheme,
+		Labels:             map[string]string{securityScanLabel: securityScanLabelValue(scan.Name)},
+		Annotations:        base.annotations,
+		Context: &platformv1alpha1.AgentRunContext{
+			ProjectRef: &platformv1alpha1.ProjectRef{Kind: securityScanKind, Name: scan.Name},
+		},
+		ModeRef:       base.modeRef,
+		Limits:        base.limits,
+		SeedLogPrefix: "securityscan",
+	})
+	if err != nil {
+		return created, resolved.refs, nil, err
+	}
+	// The coordinator execution record is informational: it publishes the
+	// concurrency bound actually stated in the prompt. Its phase stays
+	// Running; the authoritative run outcome remains the AgentRun phase
+	// tracked through status.lastRunName.
+	startedAt := metav1.NewTime(r.now())
+	execStatus := &triggersv1alpha1.SecurityScanExecutionStatus{
+		ID:                       externalID,
+		Mode:                     triggersv1alpha1.SecurityScanExecutionModeCoordinator,
+		Phase:                    triggersv1alpha1.SecurityScanExecutionPhaseRunning,
+		EffectiveParallelism:     bound,
+		EffectiveParallelismNote: boundNote,
+		StartedAt:                &startedAt,
+	}
+	return created, resolved.refs, execStatus, nil
+}
+
+// coordinatorParallelismBound computes the concurrency bound a coordinator
+// run can actually honor: spec parallelism clamped to the mode template's
+// in-process sub-agent ceiling. ModeTemplates are cluster-scoped; a missing
+// or unreadable template falls back to the spec value with an explanatory
+// note.
+func (r *SecurityScanReconciler) coordinatorParallelismBound(ctx context.Context, scan *triggersv1alpha1.SecurityScan, spec triggersv1alpha1.SecurityScanSpec) (int32, string) {
+	bound := spec.EffectiveParallelism()
+	modeName := securityScanModeTemplate
+	if ref := scan.Spec.Defaults.ModeRef; ref != nil && strings.TrimSpace(ref.Name) != "" {
+		modeName = strings.TrimSpace(ref.Name)
+	}
+	mode := &platformv1alpha1.ModeTemplate{}
+	if err := r.Get(ctx, client.ObjectKey{Name: modeName}, mode); err != nil {
+		return bound, fmt.Sprintf("mode template %q could not be read (%s); using spec parallelism %d", modeName, apierrors.ReasonForError(err), bound)
+	}
+	if c := mode.Spec.Constraints; c != nil && c.MaxConcurrentSubAgents > 0 && c.MaxConcurrentSubAgents < bound {
+		return c.MaxConcurrentSubAgents, fmt.Sprintf("parallelism %d clamped to %d by mode template %q sub-agent ceiling", bound, c.MaxConcurrentSubAgents, modeName)
+	}
+	return bound, ""
+}
+
+// applyCoordinatorExecutionStatus records the coordinator execution snapshot
+// without clobbering an existing record for the same dispatch (crash
+// recovery re-enters run creation with created=false).
+func applyCoordinatorExecutionStatus(fresh *triggersv1alpha1.SecurityScan, execStatus *triggersv1alpha1.SecurityScanExecutionStatus, created bool) {
+	if execStatus == nil {
+		return
+	}
+	if !created && fresh.Status.LastExecution != nil && fresh.Status.LastExecution.ID == execStatus.ID {
+		return
+	}
+	fresh.Status.LastExecution = execStatus
+}
+
+// securityScanRunBase carries the assembled, validated run inputs shared by
+// the coordinator scan run and every deterministic task run: merged
+// defaults, policy/reporting annotations, the pinned revision, budget-derived
+// limits, and the mode reference.
+type securityScanRunBase struct {
+	defaults    triggersv1alpha1.AgentRunDefaults
+	annotations map[string]string
+	revision    string
+	limits      *platformv1alpha1.AgentRunLimits
+	modeRef     *platformv1alpha1.ModeRef
+}
+
+// buildScanRunBase assembles the shared AgentRun inputs for one scan run.
+// Enforcement (policy floors, budgets) has already been folded into resolved
+// by resolveSecurityScanRefs, so every limit derives from CRD spec before
+// prompt construction.
+func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runName string, runCtx *securityScanRunContext) (*securityScanRunBase, error) {
 	d := scan.Spec.Defaults
 	d.RepoURL = scan.Spec.RepoURL
 	d.BaseBranch = scan.Spec.EffectiveBaseBranch()
@@ -550,7 +702,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		TriggerName: scan.Name,
 		Defaults:    d,
 	}); err != nil {
-		return false, nil, err
+		return nil, err
 	}
 
 	provider := d.EffectiveProvider()
@@ -588,10 +740,10 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		instructionsName := runName + "-instructions"
 		instructions := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: instructionsName, Namespace: scan.Namespace}, Data: map[string]string{"instructions.md": d.CustomInstructions}}
 		if err := ctrl.SetControllerReference(scan, instructions, r.Scheme); err != nil {
-			return false, nil, fmt.Errorf("setting owner reference on instructions ConfigMap: %w", err)
+			return nil, fmt.Errorf("setting owner reference on instructions ConfigMap: %w", err)
 		}
 		if err := r.Create(ctx, instructions); err != nil && !apierrors.IsAlreadyExists(err) {
-			return false, nil, fmt.Errorf("creating instructions ConfigMap: %w", err)
+			return nil, fmt.Errorf("creating instructions ConfigMap: %w", err)
 		}
 		annotations["platform.gratefulagents.dev/instructions-configmap-ref"] = instructionsName
 	}
@@ -602,28 +754,13 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		annotations[triggersv1alpha1.SecurityScanResolvedRefsAnnotation] = refsJSON
 	}
 
-	created, _, err := CreateTriggerRun(ctx, r.Client, r.StateStore, TriggerRunSpec{
-		RunName:            runName,
-		Namespace:          scan.Namespace,
-		TriggerKind:        securityScanKind,
-		TriggerName:        scan.Name,
-		ExternalID:         externalID,
-		ExternalIdentifier: externalIdentifier,
-		SeedMessage:        BuildSecurityScanPromptWithEvent(resolved.spec, securityScanPromptEvent(runCtx)),
-		Revision:           revision,
-		Defaults:           d,
-		OwnerRef:           scan,
-		Scheme:             r.Scheme,
-		Labels:             map[string]string{securityScanLabel: securityScanLabelValue(scan.Name)},
-		Annotations:        annotations,
-		Context: &platformv1alpha1.AgentRunContext{
-			ProjectRef: &platformv1alpha1.ProjectRef{Kind: securityScanKind, Name: scan.Name},
-		},
-		ModeRef:       modeRef,
-		Limits:        runLimits,
-		SeedLogPrefix: "securityscan",
-	})
-	return created, resolved.refs, err
+	return &securityScanRunBase{
+		defaults:    d,
+		annotations: annotations,
+		revision:    revision,
+		limits:      runLimits,
+		modeRef:     modeRef,
+	}, nil
 }
 
 // activeScanRun returns a non-terminal AgentRun owned by this scan, ignoring

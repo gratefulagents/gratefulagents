@@ -1,0 +1,23 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPolicyPack
+metadata:
+  name: baseline
+spec:
+  description: Baseline organization policy for security scans; sets sensible reporting and gating defaults, wires in the shipped severity ranker and finding validator, bounds runtime, and keeps scan data for a bounded period. Nothing is enforced, so individual scans may override any of it.
+  minSeverity: low
+  failOnSeverity: critical
+  dedupe:
+    enabled: true
+  defaultRankerRefs:
+    - name: default-severity
+  defaultPostScriptRefs:
+    - name: validate-finding
+  budgets:
+    maxRuntime: 2h
+  retention:
+    scanDays: 365
+    findingDays: 730
+    reportDays: 365
+    evidenceDays: 365
+    pocDays: 90
+    auditEventDays: 730

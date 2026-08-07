@@ -34,6 +34,21 @@ func seedSecurityPackFixtures(t *testing.T, c client.Client, ns string) {
 			ObjectMeta: metav1.ObjectMeta{Name: "ps", Namespace: ns},
 			Spec:       triggersv1alpha1.SecurityPostScriptSpec{Prompt: "write a repro", RunOn: "all"},
 		},
+		&triggersv1alpha1.SecurityPolicyPack{
+			ObjectMeta: metav1.ObjectMeta{Name: "pp", Namespace: ns},
+			Spec: triggersv1alpha1.SecurityPolicyPackSpec{
+				Description:    "org floors",
+				MinSeverity:    "medium",
+				FailOnSeverity: "high",
+				Enforced:       []string{"minSeverity"},
+				Suppressions: []triggersv1alpha1.SecurityPolicySuppression{{
+					Name:    "legacy-md5",
+					Reason:  "accepted risk",
+					Owner:   "secteam",
+					Matcher: triggersv1alpha1.SecuritySuppressionMatcher{Category: "weak-crypto"},
+				}},
+			},
+		},
 		&triggersv1alpha1.SecurityScan{
 			ObjectMeta: metav1.ObjectMeta{Name: "scan", Namespace: ns},
 			Spec: triggersv1alpha1.SecurityScanSpec{
@@ -70,11 +85,12 @@ func TestExportSecurityPackStripsSecrets(t *testing.T) {
 		Rankers:     []string{"ranker"},
 		PostScripts: []string{"ps"},
 		ScanConfigs: []string{"scan"},
+		PolicyPacks: []string{"pp"},
 	})
 	if err != nil {
 		t.Fatalf("ExportSecurityPack() error = %v", err)
 	}
-	if resp.ItemCount != 4 || !strings.HasSuffix(resp.Filename, ".json") {
+	if resp.ItemCount != 5 || !strings.HasSuffix(resp.Filename, ".json") {
 		t.Fatalf("resp = count %d filename %q", resp.ItemCount, resp.Filename)
 	}
 	for _, banned := range []string{"oauth-secret", "openai-key", "kubernetesAdmin", "disableCommandSandbox"} {
@@ -86,8 +102,15 @@ func TestExportSecurityPackStripsSecrets(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &doc); err != nil {
 		t.Fatalf("pack is not valid JSON: %v", err)
 	}
-	if doc.SchemaVersion != securityPackSchemaVersion || doc.SourceNamespace != ns || len(doc.Items) != 4 {
+	if doc.SchemaVersion != securityPackSchemaVersion || doc.SourceNamespace != ns || len(doc.Items) != 5 {
 		t.Fatalf("doc = %+v", doc)
+	}
+	kinds := map[string]bool{}
+	for _, item := range doc.Items {
+		kinds[item.Kind] = true
+	}
+	if !kinds[securityPackKindPolicyPack] {
+		t.Fatalf("pack missing SecurityPolicyPack item: %+v", doc.Items)
 	}
 }
 
@@ -111,6 +134,7 @@ func exportedTestPack(t *testing.T, srv *Server, ctx context.Context) []byte {
 		Rankers:     []string{"ranker"},
 		PostScripts: []string{"ps"},
 		ScanConfigs: []string{"scan"},
+		PolicyPacks: []string{"pp"},
 	})
 	if err != nil {
 		t.Fatalf("ExportSecurityPack() error = %v", err)
@@ -132,7 +156,7 @@ func TestImportSecurityPackRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportSecurityPack(dry) error = %v", err)
 	}
-	if dry.Applied || len(dry.Items) != 4 {
+	if dry.Applied || len(dry.Items) != 5 {
 		t.Fatalf("dry = %+v", dry)
 	}
 	for _, item := range dry.Items {
@@ -162,6 +186,14 @@ func TestImportSecurityPackRoundTrip(t *testing.T) {
 	if scan.Spec.Defaults.Secrets.OpenAIOAuthSecret != "" || len(scan.Spec.Defaults.Secrets.ProviderKeys) != 0 ||
 		scan.Spec.Defaults.KubernetesAdmin || scan.Spec.Defaults.DisableCommandSandbox {
 		t.Fatalf("imported scan kept stripped fields: %+v", scan.Spec.Defaults)
+	}
+	pack := &triggersv1alpha1.SecurityPolicyPack{}
+	if err := dc.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "pp"}, pack); err != nil {
+		t.Fatalf("imported policy pack missing: %v", err)
+	}
+	if pack.Spec.MinSeverity != "medium" || len(pack.Spec.Suppressions) != 1 ||
+		pack.Spec.Suppressions[0].Name != "legacy-md5" {
+		t.Fatalf("imported policy pack spec = %+v", pack.Spec)
 	}
 }
 
@@ -246,6 +278,7 @@ func TestImportSecurityPackValidationErrorsReported(t *testing.T) {
 			{Kind: securityPackKindWorkflow, Name: "bad-wf", Spec: json.RawMessage(`{"tasks":[{"name":"a","objective":"x","dependsOn":["a"]}]}`)},
 			{Kind: "Nonsense", Name: "weird", Spec: json.RawMessage(`{}`)},
 			{Kind: securityPackKindScan, Name: "bad-scan", Spec: json.RawMessage(`{"repoURL":"","schedule":"bogus"}`)},
+			{Kind: securityPackKindPolicyPack, Name: "bad-pack", Spec: json.RawMessage(`{"minSeverity":"severe","enforced":["nonsense"]}`)},
 		},
 	}
 	data, err := json.Marshal(doc)
@@ -256,7 +289,7 @@ func TestImportSecurityPackValidationErrorsReported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportSecurityPack() error = %v", err)
 	}
-	if len(resp.Items) != 3 {
+	if len(resp.Items) != 4 {
 		t.Fatalf("items = %+v", resp.Items)
 	}
 	if resp.Items[0].Action != "failed" || len(resp.Items[0].ValidationErrors) == 0 {
@@ -267,6 +300,9 @@ func TestImportSecurityPackValidationErrorsReported(t *testing.T) {
 	}
 	if resp.Items[2].Action != "failed" || len(resp.Items[2].ValidationErrors) < 2 {
 		t.Fatalf("scan item = %+v", resp.Items[2])
+	}
+	if resp.Items[3].Action != "failed" || len(resp.Items[3].ValidationErrors) < 2 {
+		t.Fatalf("policy pack item = %+v", resp.Items[3])
 	}
 }
 

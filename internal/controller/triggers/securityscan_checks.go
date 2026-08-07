@@ -268,11 +268,11 @@ func securityScanSARIFRef(scan *triggersv1alpha1.SecurityScan, ev *SecurityScanT
 }
 
 func (r *SecurityScanReconciler) uploadRunCheckSARIF(
-	ctx context.Context, scan *triggersv1alpha1.SecurityScan, run *platformv1alpha1.AgentRun,
+	ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName string, ev *SecurityScanTriggerEvent,
 	gh *triggersv1alpha1.GitHubRepository, revision string, status *triggersv1alpha1.SecurityScanCheckStatus,
 ) bool {
 	retry := false
-	sarif, err := r.scanRunSARIF(ctx, scan, run.Name)
+	sarif, err := r.scanRunSARIF(ctx, scan, runName)
 	switch {
 	case err != nil:
 		status.SARIFError = "reading SARIF artifact: " + err.Error()
@@ -280,7 +280,7 @@ func (r *SecurityScanReconciler) uploadRunCheckSARIF(
 	case sarif == "":
 		status.SARIFError = "the run stored no SARIF report artifact"
 	default:
-		if _, err := r.checkPublisher().UploadSARIF(ctx, gh, revision, securityScanSARIFRef(scan, runTriggerEvent(run)), sarif); err != nil {
+		if _, err := r.checkPublisher().UploadSARIF(ctx, gh, revision, securityScanSARIFRef(scan, ev), sarif); err != nil {
 			status.SARIFError = err.Error()
 			retry = true
 		} else {
@@ -396,7 +396,7 @@ func (r *SecurityScanReconciler) publishRunCheck(ctx context.Context, scan *trig
 	}
 	retry := false
 	if sarifWanted && !sarifDone {
-		retry = r.uploadRunCheckSARIF(ctx, scan, run, gh, revision, newStatus)
+		retry = r.uploadRunCheckSARIF(ctx, scan, run.Name, runTriggerEvent(run), gh, revision, newStatus)
 	}
 
 	if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
@@ -429,4 +429,201 @@ func (r *SecurityScanReconciler) scanRunSARIF(ctx context.Context, scan *trigger
 		return "", nil
 	}
 	return strings.TrimSpace(art.Content), nil
+}
+
+// publishExecutionCheck publishes the single aggregate GitHub check for a
+// terminal deterministic execution. Per-task runs never publish: this is
+// gated on the execution being terminal and deduped through the same
+// status.lastCheck state hash the coordinator path uses, so it fires exactly
+// once per desired check state and survives controller restarts. The check
+// requires a platform-stamped revision (a trigger event or a pinned
+// spec.revision), matching the coordinator behavior.
+func (r *SecurityScanReconciler) publishExecutionCheck(ctx context.Context, scan *triggersv1alpha1.SecurityScan, exec *triggersv1alpha1.SecurityScanExecutionStatus) bool {
+	checks := scan.Spec.Checks
+	if checks == nil || !checks.Enabled || !securityScanExecutionTerminal(exec.Phase) {
+		return false
+	}
+	log := logf.FromContext(ctx)
+	ev := securityScanExecutionEvent(scan, exec)
+	revision := strings.TrimSpace(scan.Spec.Revision)
+	if ev != nil {
+		revision = strings.TrimSpace(ev.Revision)
+	}
+	if revision == "" {
+		return false
+	}
+	reportRuns := securityScanExecutionReportRuns(exec)
+	reportRun := scan.Name
+	if len(reportRuns) > 0 {
+		reportRun = reportRuns[len(reportRuns)-1]
+	}
+
+	runPhase := platformv1alpha1.AgentRunPhaseFailed
+	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+		runPhase = platformv1alpha1.AgentRunPhaseSucceeded
+	}
+	summary := r.summarizeFindings(ctx, scan)
+	openBySeverity := map[string]int32{}
+	if summary != nil {
+		openBySeverity = summary.openBySeverity
+	}
+	conclusion, title := securityScanCheckConclusion(runPhase, r.effectiveFailOnSeverity(ctx, scan), openBySeverity)
+
+	var findingLines []string
+	if checks.IncludeFindingSummaries && r.Findings != nil {
+		findings, err := r.Findings.ListSecurityFindings(ctx, store.SecurityFindingFilter{
+			Namespace: scan.Namespace, ScanName: scan.Name, Status: store.SecurityFindingStatusOpen, Limit: 200,
+		})
+		if err != nil {
+			log.Error(err, "failed to list findings for check summary", "scan", scan.Name)
+		} else {
+			findingLines = securityScanCheckFindingLines(findings, 20)
+		}
+	}
+
+	check := SecurityCheckRun{
+		Name:       "security-scan/" + scan.Name,
+		Revision:   revision,
+		Conclusion: conclusion,
+		Title:      title,
+		Summary:    securityScanCheckSummary(scan, reportRun, openBySeverity, findingLines, r.DashboardBaseURL),
+	}
+	if r.DashboardBaseURL != "" {
+		check.DetailsURL = fmt.Sprintf("%s/security/%s/%s", strings.TrimRight(r.DashboardBaseURL, "/"), scan.Namespace, reportRun)
+	}
+	sarifWanted := checks.UploadSARIF && exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded
+	hash := securityScanCheckStateHash(check, sarifWanted)
+
+	last := scan.Status.LastCheck
+	sarifDone := last != nil && last.RunName == reportRun && last.SARIFUploaded
+	if last != nil && last.StateHash == hash && last.Error == "" && last.SARIFError == "" && (!sarifWanted || sarifDone) {
+		return false
+	}
+
+	recordFailure := func(message string) {
+		r.recordScanEvent(scan, corev1.EventTypeWarning, "CheckPublishFailed", message)
+		if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+			fresh.Status.LastCheck = &triggersv1alpha1.SecurityScanCheckStatus{
+				RunName:       reportRun,
+				Revision:      revision,
+				Conclusion:    conclusion,
+				Error:         message,
+				SARIFUploaded: sarifDone,
+			}
+		}); err != nil {
+			log.Error(err, "failed to record check publish failure", "scan", scan.Name)
+		}
+	}
+
+	gh, err := r.triggerRepository(ctx, scan)
+	if err != nil {
+		recordFailure("resolving check credentials: " + err.Error())
+		return true
+	}
+	url, err := r.checkPublisher().PublishCheck(ctx, gh, check)
+	if err != nil {
+		recordFailure("publishing check: " + err.Error())
+		return true
+	}
+
+	now := metav1.NewTime(r.now())
+	newStatus := &triggersv1alpha1.SecurityScanCheckStatus{
+		RunName:       reportRun,
+		Revision:      revision,
+		Conclusion:    conclusion,
+		URL:           url,
+		PublishedAt:   &now,
+		StateHash:     hash,
+		SARIFUploaded: sarifDone,
+	}
+	retry := false
+	if sarifWanted && !sarifDone {
+		retry = r.uploadExecutionCheckSARIF(ctx, scan, reportRuns, ev, gh, revision, newStatus)
+	}
+
+	if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
+		fresh.Status.LastCheck = newStatus
+	}); err != nil {
+		log.Error(err, "failed to record published check", "scan", scan.Name)
+		return true
+	}
+	return retry
+}
+
+// uploadExecutionCheckSARIF aggregates the SARIF artifacts stored by a
+// terminal deterministic execution's succeeded task runs — every sink task
+// stores its own report, so all of them contribute — into one document and
+// uploads it once. Runs that stored no SARIF artifact contribute nothing.
+func (r *SecurityScanReconciler) uploadExecutionCheckSARIF(
+	ctx context.Context, scan *triggersv1alpha1.SecurityScan, runNames []string, ev *SecurityScanTriggerEvent,
+	gh *triggersv1alpha1.GitHubRepository, revision string, status *triggersv1alpha1.SecurityScanCheckStatus,
+) bool {
+	retry := false
+	var docs []string
+	for _, runName := range runNames {
+		sarif, err := r.scanRunSARIF(ctx, scan, runName)
+		if err != nil {
+			status.SARIFError = fmt.Sprintf("reading SARIF artifact of run %s: %s", runName, err.Error())
+			retry = true
+			break
+		}
+		if sarif != "" {
+			docs = append(docs, sarif)
+		}
+	}
+	if status.SARIFError == "" {
+		switch merged, err := mergeSecuritySARIFDocuments(docs); {
+		case err != nil:
+			status.SARIFError = "merging SARIF artifacts: " + err.Error()
+		case merged == "":
+			status.SARIFError = "no task run stored a SARIF report artifact"
+		default:
+			if _, err := r.checkPublisher().UploadSARIF(ctx, gh, revision, securityScanSARIFRef(scan, ev), merged); err != nil {
+				status.SARIFError = err.Error()
+				retry = true
+			} else {
+				status.SARIFUploaded = true
+			}
+		}
+	}
+	if status.SARIFError != "" {
+		r.recordScanEvent(scan, corev1.EventTypeWarning, "SARIFUploadFailed", status.SARIFError)
+	}
+	return retry
+}
+
+// mergeSecuritySARIFDocuments folds several SARIF documents into one by
+// concatenating their runs arrays onto the first document; a single document
+// is returned verbatim.
+func mergeSecuritySARIFDocuments(docs []string) (string, error) {
+	if len(docs) == 0 {
+		return "", nil
+	}
+	if len(docs) == 1 {
+		return docs[0], nil
+	}
+	var base map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(docs[0]), &base); err != nil {
+		return "", err
+	}
+	runs := []json.RawMessage{}
+	for _, doc := range docs {
+		var parsed struct {
+			Runs []json.RawMessage `json:"runs"`
+		}
+		if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+			return "", err
+		}
+		runs = append(runs, parsed.Runs...)
+	}
+	mergedRuns, err := json.Marshal(runs)
+	if err != nil {
+		return "", err
+	}
+	base["runs"] = mergedRuns
+	merged, err := json.Marshal(base)
+	if err != nil {
+		return "", err
+	}
+	return string(merged), nil
 }

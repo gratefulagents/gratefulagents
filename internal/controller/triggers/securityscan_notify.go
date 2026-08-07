@@ -281,9 +281,19 @@ func (r *SecurityScanReconciler) notifyRunFindings(ctx context.Context, scan *tr
 		return true
 	}
 
-	var sent, suppressed int32
-	var failures []string
-	for _, rule := range rules {
+	sent, suppressed, failures := r.deliverSecurityNotifications(ctx, scan, findings)
+
+	r.recordNotificationResult(ctx, scan, runName, sent, suppressed, strings.Join(failures, "; "))
+	return len(failures) > 0
+}
+
+// deliverSecurityNotifications evaluates every notification rule against the
+// given findings and delivers the matches, claiming persisted (scan,
+// rule/channel, fingerprint) dedupe markers before sending and releasing
+// only undelivered claims on failure. Shared by the run-scoped coordinator
+// path and the execution-scoped deterministic path.
+func (r *SecurityScanReconciler) deliverSecurityNotifications(ctx context.Context, scan *triggersv1alpha1.SecurityScan, findings []store.SecurityFindingRecord) (sent, suppressed int32, failures []string) {
+	for _, rule := range scan.Spec.Notifications {
 		matched := matchingSecurityNotificationFindings(rule, findings)
 		if len(matched) == 0 {
 			continue
@@ -345,7 +355,44 @@ func (r *SecurityScanReconciler) notifyRunFindings(ctx context.Context, scan *tr
 		}
 	}
 
-	r.recordNotificationResult(ctx, scan, runName, sent, suppressed, strings.Join(failures, "; "))
+	return sent, suppressed, failures
+}
+
+// notifyExecutionFindings is the deterministic-execution counterpart of
+// notifyRunFindings: it evaluates the notification rules against the
+// findings persisted by every task run of a SUCCEEDED execution and delivers
+// them exactly once per execution (gated on
+// status.lastNotifications.lastRunName carrying the execution key, with the
+// same persisted per-fingerprint dedupe claims underneath). Failed
+// executions never notify, mirroring the run-succeeded requirement of the
+// coordinator path.
+func (r *SecurityScanReconciler) notifyExecutionFindings(ctx context.Context, scan *triggersv1alpha1.SecurityScan, exec *triggersv1alpha1.SecurityScanExecutionStatus) bool {
+	if len(scan.Spec.Notifications) == 0 || r.Findings == nil {
+		return false
+	}
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+		return false
+	}
+	executionKey := "execution/" + exec.ID
+	if s := scan.Status.LastNotifications; s != nil && s.LastRunName == executionKey && s.LastError == "" {
+		return false
+	}
+
+	var findings []store.SecurityFindingRecord
+	for _, runName := range securityScanExecutionRunNames(exec) {
+		batch, err := r.Findings.ListSecurityFindings(ctx, store.SecurityFindingFilter{
+			Namespace: scan.Namespace, ScanName: scan.Name, RunName: runName, Limit: 1000,
+		})
+		if err != nil {
+			r.recordNotificationResult(ctx, scan, executionKey, 0, 0, "listing findings: "+err.Error())
+			return true
+		}
+		findings = append(findings, batch...)
+	}
+
+	sent, suppressed, failures := r.deliverSecurityNotifications(ctx, scan, findings)
+
+	r.recordNotificationResult(ctx, scan, executionKey, sent, suppressed, strings.Join(failures, "; "))
 	return len(failures) > 0
 }
 

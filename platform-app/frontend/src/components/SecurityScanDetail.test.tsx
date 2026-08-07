@@ -424,6 +424,60 @@ describe("SecurityScanDetail repository integration state", () => {
     await screen.findByText("nightly-1");
     expect(screen.queryByText("Repository integration")).toBeNull();
   });
+
+  it("shows execution progress for a deterministic last execution", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      lastExecution: {
+        id: "abc",
+        mode: "deterministic",
+        phase: "Running",
+        effectiveParallelism: 4,
+        effectiveParallelismNote: "",
+        startedAtUnix: 1767225600n,
+        completedAtUnix: 0n,
+        tasks: [
+          {
+            name: "recon",
+            instance: 0,
+            state: "Running",
+            runName: "nightly-recon-1",
+            attempts: 1,
+            retries: [],
+            nextRetryTimeUnix: 0n,
+            lastError: "",
+            startedAtUnix: 1767225600n,
+            finishedAtUnix: 0n,
+          },
+        ],
+      },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByTestId("execution-progress")).toBeTruthy();
+    expect(screen.getByTestId("execution-task-recon#0")).toBeTruthy();
+  });
+
+  it("hides execution progress when the last execution was the coordinator", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      lastExecution: { mode: "coordinator", phase: "Succeeded", tasks: [] },
+    });
+
+    renderDetail();
+
+    await screen.findByText("nightly-1");
+    expect(screen.queryByTestId("execution-progress")).toBeNull();
+  });
 });
 
 describe("SecurityScanDetail budgets, retention, and suppression", () => {

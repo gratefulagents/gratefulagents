@@ -159,6 +159,9 @@ describe("security pack portability", () => {
     listSecurityWorkflows.mockResolvedValue({
       workflows: [create(SecurityWorkflowResourceSchema, { name: "payments-workflow", tasks: [] })],
     });
+    listSecurityPolicyPacks.mockResolvedValue({
+      policyPacks: [{ name: "prod-policy", description: "", enforced: [], suppressions: [], requiredCategories: [], allowedRuntimeProfiles: [], defaultRankerRefs: [], defaultPostScriptRefs: [], referencingScans: [], usageCount: 0 }],
+    });
     exportSecurityPack.mockResolvedValue({
       data: new Uint8Array([123, 125]),
       filename: "security-pack-user-alice-20260101.json",
@@ -169,12 +172,14 @@ describe("security pack portability", () => {
     fireEvent.click(await screen.findByTestId("export-pack"));
     fireEvent.click(await screen.findByLabelText("Workflows: payments-workflow"));
     fireEvent.click(screen.getByLabelText("Scan configurations: nightly-scan"));
+    fireEvent.click(screen.getByLabelText("Policy packs: prod-policy"));
     fireEvent.click(screen.getByRole("button", { name: /^Export/ }));
 
     await waitFor(() => expect(exportSecurityPack).toHaveBeenCalledTimes(1));
     expect(exportSecurityPack.mock.calls[0][0]).toMatchObject({
       workflows: ["payments-workflow"],
       scanConfigs: ["nightly-scan"],
+      policyPacks: ["prod-policy"],
     });
     await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(
       "security-pack-user-alice-20260101.json",

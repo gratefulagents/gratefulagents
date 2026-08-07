@@ -1,0 +1,16 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityRanker
+metadata:
+  name: default-severity
+spec:
+  description: Baseline severity calibration; floors the classic remote-compromise categories and keeps ranking conservative for unreachable or test-only code.
+  rules:
+    - "severity-floor: injection=high"
+    - "severity-floor: authz=high"
+    - "severity-floor: authn=high"
+    - "severity-floor: secrets=medium"
+    - Rate pre-authentication reachability higher than issues that require an authenticated or privileged caller.
+    - Hardcoded credentials that still grant access to a live system are critical; long-revoked or clearly test-only credentials are informational.
+    - Cross-tenant data exposure is at least high regardless of how contrived the trigger is.
+    - Downgrade findings that are only reachable from test fixtures, dev tooling, or code paths disabled in production builds.
+    - Prefer fewer, well-evidenced findings over speculative ones; unverifiable speculation should not outrank confirmed issues.

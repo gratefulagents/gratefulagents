@@ -34,6 +34,8 @@ type Registry struct {
 	signals              bool
 	allowMutating        map[string]struct{}
 	contextualCandidates map[string]struct{}
+	nameFilterAllowed    map[string]struct{}
+	nameFilterDenied     map[string]struct{}
 	gitRemoteWrites      policy.GitRemoteWrites
 	browser              bool
 	browserScreenshotDir string
@@ -109,6 +111,60 @@ func WithAllowedMutatingTools(names ...string) RegistryOption {
 			r.allowMutating[name] = struct{}{}
 		}
 	}
+}
+
+// WithToolNameFilter narrows the registry by tool name: denied tools are
+// dropped, and when the allow list is non-empty every tool not on it is
+// dropped too (deny wins over allow). The filter is applied on top of the
+// existing permission/mode filtering and can only remove tools, never
+// re-enable a tool that mode or profile policy already excluded. Control-flow
+// tools (see isRegistryControlFlowTool: finish, save_plan, get_plan,
+// RequestMCPBreakGlass) are exempt because the run cannot complete without
+// them. Empty and unknown names are ignored.
+func WithToolNameFilter(allowed, denied []string) RegistryOption {
+	return func(r *Registry) {
+		for _, name := range allowed {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if r.nameFilterAllowed == nil {
+				r.nameFilterAllowed = make(map[string]struct{}, len(allowed))
+			}
+			r.nameFilterAllowed[name] = struct{}{}
+		}
+		for _, name := range denied {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if r.nameFilterDenied == nil {
+				r.nameFilterDenied = make(map[string]struct{}, len(denied))
+			}
+			r.nameFilterDenied[name] = struct{}{}
+		}
+	}
+}
+
+// SplitToolNameList parses a comma-separated tool name list (the
+// AGENTRUN_ALLOWED_TOOLS / AGENTRUN_DENIED_TOOLS env var format), trimming
+// whitespace and dropping empty entries and duplicates.
+func SplitToolNameList(raw string) []string {
+	seen := make(map[string]struct{})
+	var names []string
+	for part := range strings.SplitSeq(raw, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // WithContextualMutatingToolCandidates retains a narrow set of mutating tool
@@ -215,6 +271,19 @@ func (r *Registry) Register(t Tool) {
 		_, contextualCandidate := r.contextualCandidates[t.Name()]
 		if !allowed && !contextualCandidate {
 			return
+		}
+	}
+	// Run-level tool name policy (spec.toolPolicy): narrow-only, applied after
+	// every other filter so it can drop tools but never restore one. Deny wins
+	// over allow; control-flow tools are exempt so the run can still finish.
+	if !isRegistryControlFlowTool(t.Name()) {
+		if _, denied := r.nameFilterDenied[t.Name()]; denied {
+			return
+		}
+		if len(r.nameFilterAllowed) > 0 {
+			if _, ok := r.nameFilterAllowed[t.Name()]; !ok {
+				return
+			}
 		}
 	}
 	r.tools[t.Name()] = t

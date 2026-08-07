@@ -929,11 +929,14 @@ type PlatformServiceClient interface {
 	CreateSecurityScan(context.Context, *connect.Request[platform.CreateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	UpdateSecurityScan(context.Context, *connect.Request[platform.UpdateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	DeleteSecurityScan(context.Context, *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error)
-	// RunSecurityScanNow requests an immediate run of a configured SecurityScan
-	// without editing its spec. The dashboard stamps a run-now annotation token
-	// on the CR; the controller creates at most one run per token (recorded in
-	// status), so retried or concurrent duplicate requests never double-run.
-	// Suspended scans are rejected with FailedPrecondition.
+	// RunSecurityScanNow requests an immediate run of a configured SecurityScan.
+	// The dashboard stamps a run-now annotation token on the CR; the controller
+	// creates at most one run per token (recorded in status), so retried or
+	// concurrent duplicate requests never double-run. When parameter_values are
+	// provided they are merged into and PERSISTED in the scan's
+	// spec.parameterValues (this is a lasting spec edit, not a one-off
+	// override), so the call requires the same collaborator access as
+	// UpdateSecurityScan. Suspended scans are rejected with FailedPrecondition.
 	RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	// Reusable security library resources: SecurityWorkflow, SecurityRanker,
 	// and SecurityPostScript CRs referenced by SecurityScan configurations via
@@ -3779,11 +3782,14 @@ type PlatformServiceHandler interface {
 	CreateSecurityScan(context.Context, *connect.Request[platform.CreateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	UpdateSecurityScan(context.Context, *connect.Request[platform.UpdateSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	DeleteSecurityScan(context.Context, *connect.Request[platform.DeleteSecurityScanRequest]) (*connect.Response[emptypb.Empty], error)
-	// RunSecurityScanNow requests an immediate run of a configured SecurityScan
-	// without editing its spec. The dashboard stamps a run-now annotation token
-	// on the CR; the controller creates at most one run per token (recorded in
-	// status), so retried or concurrent duplicate requests never double-run.
-	// Suspended scans are rejected with FailedPrecondition.
+	// RunSecurityScanNow requests an immediate run of a configured SecurityScan.
+	// The dashboard stamps a run-now annotation token on the CR; the controller
+	// creates at most one run per token (recorded in status), so retried or
+	// concurrent duplicate requests never double-run. When parameter_values are
+	// provided they are merged into and PERSISTED in the scan's
+	// spec.parameterValues (this is a lasting spec edit, not a one-off
+	// override), so the call requires the same collaborator access as
+	// UpdateSecurityScan. Suspended scans are rejected with FailedPrecondition.
 	RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	// Reusable security library resources: SecurityWorkflow, SecurityRanker,
 	// and SecurityPostScript CRs referenced by SecurityScan configurations via

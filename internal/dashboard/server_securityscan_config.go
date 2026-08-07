@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,7 +23,9 @@ import (
 
 const securityScanResourceType = "securityscan"
 
-var securityScanTaskNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+// securityScanParameterNamePattern matches the identifier syntax accepted
+// for {{params.<name>}} parameter names (mirrors the SecurityWorkflow CRD).
+var securityScanParameterNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // ListSecurityScanConfigs returns the configured SecurityScan CRs (the
 // triggers that create scan runs), optionally filtered by namespace. This is
@@ -196,11 +199,14 @@ func (s *Server) UpdateSecurityScan(
 }
 
 // RunSecurityScanNow stamps a run-now annotation token on a SecurityScan so
-// the controller creates an immediate AgentRun without a spec edit. The token
-// is opaque and unique per request; the controller records consumed tokens in
+// the controller creates an immediate AgentRun. The token is opaque and
+// unique per request; the controller records consumed tokens in
 // status.lastManualRunToken, so retried or concurrent duplicate requests never
 // create two runs, and concurrencyPolicy Forbid surfaces ConcurrencyBlocked
-// on the scan status instead of double-running.
+// on the scan status instead of double-running. Provided parameter_values are
+// merged into and persisted on spec.parameterValues — a lasting spec edit —
+// which is why this handler requires the same collaborator access as
+// UpdateSecurityScan.
 func (s *Server) RunSecurityScanNow(
 	ctx context.Context, req *platform.RunSecurityScanNowRequest,
 ) (*platform.SecurityScanConfig, error) {
@@ -211,6 +217,10 @@ func (s *Server) RunSecurityScanNow(
 	}
 	err := s.requireResourceAccess(
 		ctx, securityScanResourceType, name, namespace, AccessCollaborator, "run this security scan")
+	if err != nil {
+		return nil, err
+	}
+	paramValues, err := securityScanParameterValuesFromProto(req.GetParameterValues())
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +235,16 @@ func (s *Server) RunSecurityScanNow(
 		if cr.Spec.Suspend {
 			return connect.NewError(connect.CodeFailedPrecondition,
 				fmt.Errorf("security scan %s/%s is suspended; resume it before requesting a run", namespace, name))
+		}
+		if len(paramValues) != 0 {
+			merged := make(map[string]string, len(cr.Spec.ParameterValues)+len(paramValues))
+			maps.Copy(merged, cr.Spec.ParameterValues)
+			maps.Copy(merged, paramValues)
+			if len(merged) > 32 {
+				return connect.NewError(connect.CodeInvalidArgument,
+					fmt.Errorf("merged parameterValues would hold %d entries; the scan spec allows at most 32", len(merged)))
+			}
+			cr.Spec.ParameterValues = merged
 		}
 		if cr.Annotations == nil {
 			cr.Annotations = map[string]string{}
@@ -297,6 +317,83 @@ func generateSecurityScanName() string {
 		suffix = suffix[len(suffix)-6:]
 	}
 	return "securityscan-" + suffix
+}
+
+// securityScanExecutionFromProto validates and converts the execution
+// config. A nil/empty proto yields nil (coordinator defaults).
+func securityScanExecutionFromProto(pb *platform.SecurityScanExecutionConfig) (*triggersv1alpha1.SecurityScanExecution, error) {
+	if pb == nil {
+		return nil, nil
+	}
+	invalid := func(format string, args ...any) error {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(format, args...))
+	}
+	exec := &triggersv1alpha1.SecurityScanExecution{}
+	switch mode := strings.TrimSpace(pb.GetMode()); mode {
+	case "", triggersv1alpha1.SecurityScanExecutionModeCoordinator, triggersv1alpha1.SecurityScanExecutionModeDeterministic:
+		exec.Mode = mode
+	default:
+		return nil, invalid("invalid execution.mode %q (want coordinator or deterministic)", pb.GetMode())
+	}
+	if pb.TaskMaxRetries != nil {
+		retries := pb.GetTaskMaxRetries()
+		if retries < 0 || retries > 10 {
+			return nil, invalid("execution.task_max_retries %d out of range (want 0-10)", retries)
+		}
+		exec.TaskMaxRetries = &retries
+	}
+	if value := strings.TrimSpace(pb.GetRetryBackoff()); value != "" {
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return nil, invalid("invalid execution.retry_backoff %q: %v", value, err)
+		}
+		if d < 0 {
+			return nil, invalid("execution.retry_backoff must not be negative")
+		}
+		exec.RetryBackoff = metav1.Duration{Duration: d}
+	}
+	if exec.Mode == "" && exec.TaskMaxRetries == nil && exec.RetryBackoff.Duration == 0 {
+		return nil, nil
+	}
+	return exec, nil
+}
+
+// securityScanParameterValuesFromProto validates parameter names against the
+// {{params.<name>}} identifier syntax and the CRD's 32-entry cap, and bounds
+// the payload: parameter values are interpolated into prompts and persisted
+// on the CR spec, so each value is capped at 4096 bytes and the whole map at
+// 64KiB.
+func securityScanParameterValuesFromProto(values map[string]string) (map[string]string, error) {
+	const (
+		maxParameterValueBytes = 4096
+		maxParameterTotalBytes = 64 * 1024
+	)
+	if len(values) == 0 {
+		return nil, nil
+	}
+	if len(values) > 32 {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("parameter_values may hold at most 32 entries, got %d", len(values)))
+	}
+	total := 0
+	out := make(map[string]string, len(values))
+	for name, value := range values {
+		if len(name) > 63 || !securityScanParameterNamePattern.MatchString(name) {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("invalid parameter name %q (want an identifier like snake_case, at most 63 characters)", name))
+		}
+		if len(value) > maxParameterValueBytes {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("parameter %q value is %d bytes; each value may hold at most %d bytes", name, len(value), maxParameterValueBytes))
+		}
+		total += len(name) + len(value)
+		out[name] = value
+	}
+	if total > maxParameterTotalBytes {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("parameter_values total %d bytes; the map may hold at most %d bytes", total, maxParameterTotalBytes))
+	}
+	return out, nil
 }
 
 // securityScanBudgetsFromProto converts and validates a budgets block shared
@@ -381,7 +478,7 @@ func securityScanSpecFromRequest(
 	}
 	workflow, err := securityScanWorkflowFromProto(pb.GetWorkflow())
 	if err != nil {
-		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, "", "", err
 	}
 	workflowRef, err := securityResourceRefFromProto("workflow_ref", pb.GetWorkflowRef())
 	if err != nil {
@@ -416,6 +513,14 @@ func securityScanSpecFromRequest(
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	budgets, err := securityScanBudgetsFromProto(pb.GetBudgets())
+	if err != nil {
+		return nil, "", "", err
+	}
+	execution, err := securityScanExecutionFromProto(pb.GetExecution())
+	if err != nil {
+		return nil, "", "", err
+	}
+	parameterValues, err := securityScanParameterValuesFromProto(pb.GetParameterValues())
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -454,6 +559,8 @@ func securityScanSpecFromRequest(
 		Workflow:          workflow,
 		WorkflowRef:       workflowRef,
 		Parallelism:       pb.GetParallelism(),
+		Execution:         execution,
+		ParameterValues:   parameterValues,
 		SeverityRankers:   rankers,
 		RankerRefs:        rankerRefs,
 		PostScripts:       postScripts,
@@ -512,48 +619,16 @@ func validateSecuritySeverity(field, value string) error {
 	}
 }
 
-// securityScanWorkflowFromProto validates that task names are unique DNS
-// labels and every depends_on entry names another task in the workflow.
+// securityScanWorkflowFromProto converts an inline scan workflow and applies
+// the same task validation the SecurityWorkflow library and import paths use.
 func securityScanWorkflowFromProto(pbTasks []*platform.SecurityScanTaskConfig) ([]triggersv1alpha1.SecurityScanTask, error) {
 	if len(pbTasks) == 0 {
 		return nil, nil
 	}
-	names := make(map[string]bool, len(pbTasks))
-	tasks := make([]triggersv1alpha1.SecurityScanTask, 0, len(pbTasks))
-	for _, t := range pbTasks {
-		name := strings.TrimSpace(t.GetName())
-		if name == "" || len(name) > maxDNSLabelLen || !securityScanTaskNamePattern.MatchString(name) {
-			return nil, fmt.Errorf("invalid workflow task name %q (want a DNS-1123 label)", t.GetName())
-		}
-		if names[name] {
-			return nil, fmt.Errorf("duplicate workflow task name %q", name)
-		}
-		names[name] = true
-		if strings.TrimSpace(t.GetObjective()) == "" {
-			return nil, fmt.Errorf("workflow task %q needs an objective", name)
-		}
-		if t.GetMaxFindings() < 0 {
-			return nil, fmt.Errorf("workflow task %q max_findings must not be negative", name)
-		}
-		tasks = append(tasks, triggersv1alpha1.SecurityScanTask{
-			Name:        name,
-			Objective:   t.GetObjective(),
-			Category:    strings.TrimSpace(t.GetCategory()),
-			DependsOn:   trimmedNonEmpty(t.GetDependsOn()),
-			Role:        strings.TrimSpace(t.GetRole()),
-			Model:       strings.TrimSpace(t.GetModel()),
-			MaxFindings: t.GetMaxFindings(),
-		})
-	}
-	for _, task := range tasks {
-		for _, dep := range task.DependsOn {
-			if !names[dep] {
-				return nil, fmt.Errorf("workflow task %q depends on unknown task %q", task.Name, dep)
-			}
-			if dep == task.Name {
-				return nil, fmt.Errorf("workflow task %q cannot depend on itself", task.Name)
-			}
-		}
+	tasks, errs := securityWorkflowTasksFromProto(pbTasks)
+	errs = append(errs, triggersv1alpha1.ValidateSecurityWorkflowTasks(tasks)...)
+	if len(errs) != 0 {
+		return nil, securityLibraryInvalidArgument(errs)
 	}
 	return tasks, nil
 }
@@ -747,6 +822,64 @@ func securityScanConfigProto(cr *triggersv1alpha1.SecurityScan) *platform.Securi
 			pb.LastNotifications.LastNotifiedAtUnix = notif.LastNotifiedAt.Unix()
 		}
 	}
+	pb.LastExecution = securityScanExecutionStateProto(cr.Status.LastExecution)
+	return pb
+}
+
+// securityScanExecutionStateProto converts status.lastExecution for the
+// SecurityScanConfig proto.
+func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionStatus) *platform.SecurityScanExecutionState {
+	if e == nil {
+		return nil
+	}
+	pb := &platform.SecurityScanExecutionState{
+		Id:                       e.ID,
+		Mode:                     e.Mode,
+		Phase:                    e.Phase,
+		EffectiveParallelism:     e.EffectiveParallelism,
+		EffectiveParallelismNote: e.EffectiveParallelismNote,
+		LastResumeToken:          e.LastResumeToken,
+	}
+	if e.StartedAt != nil {
+		pb.StartedAtUnix = e.StartedAt.Unix()
+	}
+	if e.CompletedAt != nil {
+		pb.CompletedAtUnix = e.CompletedAt.Unix()
+	}
+	for _, t := range e.Tasks {
+		pbTask := &platform.SecurityScanTaskExecutionState{
+			Name:      t.Name,
+			Instance:  t.Instance,
+			State:     t.State,
+			RunName:   t.RunName,
+			Attempts:  t.Attempts,
+			LastError: t.LastError,
+		}
+		if t.NextRetryTime != nil {
+			pbTask.NextRetryTimeUnix = t.NextRetryTime.Unix()
+		}
+		if t.StartedAt != nil {
+			pbTask.StartedAtUnix = t.StartedAt.Unix()
+		}
+		if t.FinishedAt != nil {
+			pbTask.FinishedAtUnix = t.FinishedAt.Unix()
+		}
+		for _, a := range t.Retries {
+			pbAttempt := &platform.SecurityScanTaskAttemptState{
+				RunName: a.RunName,
+				Reason:  a.Reason,
+				Class:   a.Class,
+			}
+			if a.StartedAt != nil {
+				pbAttempt.StartedAtUnix = a.StartedAt.Unix()
+			}
+			if a.FinishedAt != nil {
+				pbAttempt.FinishedAtUnix = a.FinishedAt.Unix()
+			}
+			pbTask.Retries = append(pbTask.Retries, pbAttempt)
+		}
+		pb.Tasks = append(pb.Tasks, pbTask)
+	}
 	return pb
 }
 
@@ -790,15 +923,21 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 		}
 	}
 	for _, t := range spec.Workflow {
-		pb.Workflow = append(pb.Workflow, &platform.SecurityScanTaskConfig{
-			Name:        t.Name,
-			Objective:   t.Objective,
-			Category:    t.Category,
-			DependsOn:   append([]string(nil), t.DependsOn...),
-			Role:        t.Role,
-			Model:       t.Model,
-			MaxFindings: t.MaxFindings,
-		})
+		pb.Workflow = append(pb.Workflow, securityScanTaskToProto(t))
+	}
+	if e := spec.Execution; e != nil {
+		pb.Execution = &platform.SecurityScanExecutionConfig{Mode: e.Mode}
+		if e.TaskMaxRetries != nil {
+			retries := *e.TaskMaxRetries
+			pb.Execution.TaskMaxRetries = &retries
+		}
+		if e.RetryBackoff.Duration != 0 {
+			pb.Execution.RetryBackoff = e.RetryBackoff.Duration.String()
+		}
+	}
+	if len(spec.ParameterValues) != 0 {
+		pb.ParameterValues = make(map[string]string, len(spec.ParameterValues))
+		maps.Copy(pb.ParameterValues, spec.ParameterValues)
 	}
 	for _, r := range spec.SeverityRankers {
 		pb.SeverityRankers = append(pb.SeverityRankers, &platform.SecurityRankerConfig{Name: r.Name, Rules: r.Rules})

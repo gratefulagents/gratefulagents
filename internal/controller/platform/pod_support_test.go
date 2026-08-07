@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -1546,4 +1547,87 @@ func TestBuildCommonPodSpecGitIdentityEnvOmittedWhenUnset(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestToolPolicyEnvs(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			ToolPolicy: &platformv1alpha1.AgentRunToolPolicy{
+				AllowedTools: []string{"read_file", " grep ", ""},
+				DeniedTools:  []string{"Bash"},
+			},
+		},
+	}
+
+	got := map[string]string{}
+	for _, env := range toolPolicyEnvs(run) {
+		got[env.Name] = env.Value
+	}
+
+	assertEnvValue(t, got, "AGENTRUN_ALLOWED_TOOLS", "read_file,grep")
+	assertEnvValue(t, got, "AGENTRUN_DENIED_TOOLS", "Bash")
+	if _, ok := got["AGENTRUN_TASK_OUTPUT_SCHEMA"]; ok {
+		t.Error("AGENTRUN_TASK_OUTPUT_SCHEMA set without the task-output-schema annotation")
+	}
+}
+
+func TestToolPolicyEnvsOmittedWhenUnset(t *testing.T) {
+	if envs := toolPolicyEnvs(nil); len(envs) != 0 {
+		t.Fatalf("toolPolicyEnvs(nil) = %v, want none", envs)
+	}
+	if envs := toolPolicyEnvs(&platformv1alpha1.AgentRun{}); len(envs) != 0 {
+		t.Fatalf("toolPolicyEnvs(empty run) = %v, want none", envs)
+	}
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			ToolPolicy: &platformv1alpha1.AgentRunToolPolicy{AllowedTools: []string{" ", ""}},
+		},
+	}
+	if envs := toolPolicyEnvs(run); len(envs) != 0 {
+		t.Fatalf("toolPolicyEnvs(blank names) = %v, want none", envs)
+	}
+}
+
+func TestToolPolicyEnvsForwardsTaskOutputSchemaAnnotation(t *testing.T) {
+	schema := `{"type":"object","required":["endpoints"]}`
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{taskOutputSchemaAnnotation: schema},
+		},
+	}
+
+	got := map[string]string{}
+	for _, env := range toolPolicyEnvs(run) {
+		got[env.Name] = env.Value
+	}
+	assertEnvValue(t, got, "AGENTRUN_TASK_OUTPUT_SCHEMA", schema)
+}
+
+func TestToolPolicyEnvsDropsOversizedTaskOutputSchema(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				taskOutputSchemaAnnotation: strings.Repeat("x", maxTaskOutputSchemaBytes+1),
+			},
+		},
+	}
+	if envs := toolPolicyEnvs(run); len(envs) != 0 {
+		t.Fatalf("oversized schema must be dropped, got %v env vars", len(envs))
+	}
+}
+
+func TestBuildCommonPodSpecIncludesToolPolicyEnvs(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			Repository: platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git"},
+			Model:      "gpt-5.3-codex",
+			ToolPolicy: &platformv1alpha1.AgentRunToolPolicy{DeniedTools: []string{"Bash"}},
+		},
+	}
+	spec := buildCommonPodSpec(run, "sa", []string{"agent", "run"}, nil, nil, nil)
+	got := map[string]string{}
+	for _, env := range spec.Containers[0].Env {
+		got[env.Name] = env.Value
+	}
+	assertEnvValue(t, got, "AGENTRUN_DENIED_TOOLS", "Bash")
 }

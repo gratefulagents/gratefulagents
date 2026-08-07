@@ -54,6 +54,9 @@ type TriggerRunSpec struct {
 	// leaves unset are still defaulted from trigger policy (e.g.
 	// defaults.timeout fills limits.maxRuntime only when unset).
 	Limits *platformv1alpha1.AgentRunLimits
+	// ToolPolicy, when set, narrows which tools the created run's worker
+	// registers (spec.toolPolicy). It can only narrow, never widen.
+	ToolPolicy *platformv1alpha1.AgentRunToolPolicy
 	// OwnerID, when set, is recorded in the collaboration store as the run's
 	// owner so that user can manage the run (stop, delete, share) from the
 	// dashboard. Trigger-created runs without an owner are only manageable by
@@ -155,6 +158,9 @@ func BuildTriggerRun(spec TriggerRunSpec) *platformv1alpha1.AgentRun {
 	}
 	if spec.Limits != nil {
 		run.Spec.Limits = spec.Limits.DeepCopy()
+	}
+	if spec.ToolPolicy != nil {
+		run.Spec.ToolPolicy = spec.ToolPolicy.DeepCopy()
 	}
 	applyPolicyRefs(&run.Spec, d)
 	if spec.ModeRef != nil {

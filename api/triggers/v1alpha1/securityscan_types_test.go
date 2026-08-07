@@ -203,3 +203,71 @@ func TestSecurityScanDeepCopyCoversNewTypes(t *testing.T) {
 		t.Fatal("DeepCopy() shares dedupe enabled pointer")
 	}
 }
+
+func TestSecurityScanSpecEffectiveExecutionMode(t *testing.T) {
+	var spec SecurityScanSpec
+	if got := spec.EffectiveExecutionMode(); got != SecurityScanExecutionModeCoordinator {
+		t.Fatalf("EffectiveExecutionMode() = %q, want coordinator", got)
+	}
+	spec.Execution = &SecurityScanExecution{}
+	if got := spec.EffectiveExecutionMode(); got != SecurityScanExecutionModeCoordinator {
+		t.Fatalf("EffectiveExecutionMode() with empty mode = %q, want coordinator", got)
+	}
+	spec.Execution.Mode = SecurityScanExecutionModeDeterministic
+	if got := spec.EffectiveExecutionMode(); got != SecurityScanExecutionModeDeterministic {
+		t.Fatalf("EffectiveExecutionMode() = %q, want deterministic", got)
+	}
+}
+
+func TestSecurityScanSpecEffectiveTaskMaxRetries(t *testing.T) {
+	var spec SecurityScanSpec
+	var task SecurityScanTask
+	if got := spec.EffectiveTaskMaxRetries(task); got != 1 {
+		t.Fatalf("EffectiveTaskMaxRetries() default = %d, want 1", got)
+	}
+	specDefault := int32(4)
+	spec.Execution = &SecurityScanExecution{TaskMaxRetries: &specDefault}
+	if got := spec.EffectiveTaskMaxRetries(task); got != 4 {
+		t.Fatalf("EffectiveTaskMaxRetries() spec default = %d, want 4", got)
+	}
+	perTask := int32(0)
+	task.MaxRetries = &perTask
+	if got := spec.EffectiveTaskMaxRetries(task); got != 0 {
+		t.Fatalf("EffectiveTaskMaxRetries() task override = %d, want 0", got)
+	}
+}
+
+func TestSecurityScanSpecEffectiveRetryBackoff(t *testing.T) {
+	var spec SecurityScanSpec
+	if got := spec.EffectiveRetryBackoff(); got != 30*time.Second {
+		t.Fatalf("EffectiveRetryBackoff() default = %v, want 30s", got)
+	}
+	spec.Execution = &SecurityScanExecution{}
+	if got := spec.EffectiveRetryBackoff(); got != 30*time.Second {
+		t.Fatalf("EffectiveRetryBackoff() zero backoff = %v, want 30s", got)
+	}
+	spec.Execution.RetryBackoff = metav1.Duration{Duration: 2 * time.Minute}
+	if got := spec.EffectiveRetryBackoff(); got != 2*time.Minute {
+		t.Fatalf("EffectiveRetryBackoff() = %v, want 2m", got)
+	}
+}
+
+func TestSecurityScanTaskEffectiveMaxInstances(t *testing.T) {
+	var task SecurityScanTask
+	if got := task.EffectiveMaxInstances(); got != 10 {
+		t.Fatalf("EffectiveMaxInstances() default = %d, want 10", got)
+	}
+	task.MaxInstances = 25
+	if got := task.EffectiveMaxInstances(); got != 25 {
+		t.Fatalf("EffectiveMaxInstances() = %d, want 25", got)
+	}
+}
+
+func TestSecurityScanTaskEffectiveRepeats(t *testing.T) {
+	for _, tc := range []struct{ repeats, want int32 }{{0, 1}, {1, 1}, {3, 3}, {5, 5}} {
+		task := SecurityScanTask{Repeats: tc.repeats}
+		if got := task.EffectiveRepeats(); got != tc.want {
+			t.Fatalf("EffectiveRepeats() with repeats=%d = %d, want %d", tc.repeats, got, tc.want)
+		}
+	}
+}

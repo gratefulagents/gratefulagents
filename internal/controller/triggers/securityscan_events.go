@@ -333,7 +333,7 @@ func (r *SecurityScanReconciler) reconcileTriggerEvent(ctx context.Context, scan
 	}
 
 	runName := securityScanRunName(scan.Name, externalID)
-	created, resolvedRefs, err := r.createScanRun(ctx, scan, runName, externalID, externalID, runCtx)
+	created, resolvedRefs, execStatus, err := r.createScanRun(ctx, scan, runName, externalID, externalID, runCtx)
 	if err != nil {
 		log.Error(err, "failed to create event-triggered scan AgentRun", "run", runName)
 		reason := securityScanRunFailureReason(err)
@@ -368,6 +368,7 @@ func (r *SecurityScanReconciler) reconcileTriggerEvent(ctx context.Context, scan
 			fresh.Status.EventRunsCreated++
 			fresh.Status.LastResolvedRefs = resolvedRefs
 		}
+		applyCoordinatorExecutionStatus(fresh, execStatus, created)
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "EventRunStarted", msg)
 	}); err != nil {
 		return ctrl.Result{}, err
