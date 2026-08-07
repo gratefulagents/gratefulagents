@@ -47,9 +47,9 @@ type SecurityScanResolvedRef struct {
 }
 
 // SecurityWorkflowParameter declares one scan-time input substituted for
-// {{params.<name>}} references in task objectives.
+// double-brace params.<name> references in task objectives.
 type SecurityWorkflowParameter struct {
-	// name identifies the parameter and is referenced as {{params.<name>}}.
+	// name identifies the parameter and uses double-brace params.<name> syntax.
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-zA-Z_][a-zA-Z0-9_]*$`
 	Name string `json:"name"`
@@ -81,8 +81,8 @@ type SecurityWorkflowSpec struct {
 	// +listType=atomic
 	Tasks []SecurityScanTask `json:"tasks"`
 
-	// parameters declares the scan-time inputs substituted for
-	// {{params.<name>}} references in task objectives. Scans supply values
+	// parameters declares the scan-time inputs substituted for double-brace
+	// params.<name> references in task objectives. Scans supply values
 	// via spec.parameterValues.
 	// +kubebuilder:validation:MaxItems=32
 	// +listType=atomic
