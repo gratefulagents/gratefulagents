@@ -221,20 +221,22 @@ function groupInstances(execution: SecurityScanExecutionState): TaskGroup[] {
  * for multi-instance tasks, and a retry marker when attempts exceed one.
  */
 function ExecutionDagNode({
+  name,
   group,
-  planned,
+  forEach,
   selected,
   onClick,
 }: {
+  name: string;
   group: TaskGroup | undefined;
-  planned: SecurityScanTaskConfig | undefined;
+  /** Fan-out source recorded in the execution plan (or workflow fallback). */
+  forEach: string;
   selected: boolean;
   onClick: () => void;
 }) {
-  const name = group?.name ?? planned?.name ?? "";
   const state = group?.state ?? "Blocked";
   const tone = group?.tone ?? "neutral";
-  const fanout = (group && group.instances.length > 1) || !!planned?.forEach;
+  const fanout = (group && group.instances.length > 1) || forEach !== "";
   const retried = (group?.attempts ?? 0) > (group?.instances.length ?? 0);
   return (
     <button
@@ -265,7 +267,7 @@ function ExecutionDagNode({
             ? fanout
               ? `${state} · ${group.done}/${group.instances.length} instances`
               : state
-            : planned?.forEach
+            : forEach
               ? "Waiting · fans out"
               : "Waiting"}
         </span>
@@ -313,30 +315,47 @@ export function ExecutionProgressPanel({
   const groupByName = useMemo(() => new Map(groups.map((g) => [g.name, g])), [groups]);
 
   // The planned workflow supplies the dependency edges; execution state alone
-  // has no graph shape. Nodes come from the union so instances of tasks that
-  // no longer exist in the config still render (as edge-less nodes).
+  // has no graph shape. The dependency edges come from the execution's own
+  // plan snapshot when the controller recorded one (authoritative: the source
+  // workflow may have been edited since planning), falling back to the passed
+  // workflow tasks for executions that predate plan recording. Nodes are the
+  // union with the observed instance groups so instances of tasks missing
+  // from the graph source still render (as edge-less nodes).
   const dagNodes = useMemo(() => {
-    if (!workflowTasks || workflowTasks.length === 0) return [];
-    const nodes = workflowTasks.map((t) => ({
-      name: t.name.trim(),
-      dependsOn: t.dependsOn,
-      forEach: t.forEach,
-      config: t as SecurityScanTaskConfig | undefined,
-    }));
+    const plan = execution.plan ?? [];
+    const nodes =
+      plan.length > 0
+        ? plan.map((p) => ({
+            name: p.name.trim(),
+            dependsOn: p.dependsOn,
+            forEach: p.forEach,
+            planned: true,
+          }))
+        : (workflowTasks ?? []).map((t) => ({
+            name: t.name.trim(),
+            dependsOn: t.dependsOn,
+            forEach: t.forEach,
+            planned: true,
+          }));
+    if (nodes.length === 0) return [];
     const known = new Set(nodes.map((n) => n.name));
     for (const group of groups) {
       if (!known.has(group.name)) {
-        nodes.push({ name: group.name, dependsOn: [], forEach: "", config: undefined });
+        nodes.push({ name: group.name, dependsOn: [], forEach: "", planned: false });
       }
     }
     return nodes;
-  }, [workflowTasks, groups]);
+  }, [execution.plan, workflowTasks, groups]);
 
   const layout = useMemo(() => dagLayout(dagLayers(dagNodes)), [dagNodes]);
   const edges = useMemo(() => dagEdges(dagNodes), [dagNodes]);
 
   const totalInstances = execution.tasks.length;
   const doneInstances = execution.tasks.filter((t) => DONE_STATES.has(t.state)).length;
+  // Task-level progress counts a task done only when EVERY instance of it is
+  // terminal; the raw instance figure is appended when fan-out/ensembles make
+  // the two differ, so "4/5" can never mean one five-instance task.
+  const doneGroups = groups.filter((g) => g.done === g.instances.length).length;
   // Nullish fallbacks: tests (and older servers) may omit the arrays.
   const postScriptJobs = execution.postScriptJobs ?? [];
   const coverageGaps = execution.coverageGaps ?? [];
@@ -365,7 +384,9 @@ export function ExecutionProgressPanel({
               className="rounded-md bg-muted/60 px-2 py-0.5 text-muted-foreground ring-1 ring-inset ring-border/70"
               data-testid="execution-instance-progress"
             >
-              {doneInstances}/{totalInstances} tasks done
+              {doneGroups}/{groups.length} tasks done
+              {totalInstances !== groups.length &&
+                ` · ${doneInstances}/${totalInstances} instances`}
             </span>
           )}
           {postScriptJobs.length > 0 && (
@@ -452,8 +473,9 @@ export function ExecutionProgressPanel({
                   }}
                 >
                   <ExecutionDagNode
+                    name={node.name}
                     group={groupByName.get(node.name)}
-                    planned={node.config}
+                    forEach={node.forEach}
                     selected={focusTask === node.name}
                     onClick={() =>
                       setFocusTask((current) => (current === node.name ? null : node.name))

@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 
 import { ExecutionProgressPanel, aggregateState } from "@/components/ExecutionProgressPanel";
 import {
+  SecurityScanExecutionPlanNodeSchema,
   SecurityScanExecutionStateSchema,
   SecurityScanPostScriptJobStateSchema,
   SecurityScanTaskConfigSchema,
@@ -213,6 +214,38 @@ describe("ExecutionProgressPanel", () => {
     expect(hunt.textContent).toContain("0/1 instances");
     expect(hunt.textContent).toContain("retried");
     expect(screen.getByTestId("execution-node-triage").textContent).toContain("Blocked");
+  });
+
+  it("prefers the execution's plan snapshot over the live workflow", () => {
+    const state = execution();
+    // The plan snapshot (built-in default workflow, or the workflow as it
+    // was when planned) differs from the live workflow fixture: no
+    // injection-hunt fan-out, plus a plan-only task.
+    state.plan = [
+      create(SecurityScanExecutionPlanNodeSchema, { name: "recon" }),
+      create(SecurityScanExecutionPlanNodeSchema, { name: "injection-hunt", dependsOn: ["recon"] }),
+      create(SecurityScanExecutionPlanNodeSchema, { name: "triage", dependsOn: ["injection-hunt"] }),
+      create(SecurityScanExecutionPlanNodeSchema, { name: "report", dependsOn: ["triage"] }),
+    ];
+    renderPanel(state, workflowFixture());
+    // The plan-only node renders (as never-started), proving the plan wins.
+    expect(screen.getByTestId("execution-node-report").textContent).toContain("Waiting");
+  });
+
+  it("renders the DAG from the plan alone when no workflow is passed", () => {
+    const state = execution();
+    state.plan = [
+      create(SecurityScanExecutionPlanNodeSchema, { name: "recon" }),
+      create(SecurityScanExecutionPlanNodeSchema, {
+        name: "injection-hunt",
+        dependsOn: ["recon"],
+        forEach: "recon",
+      }),
+      create(SecurityScanExecutionPlanNodeSchema, { name: "triage", dependsOn: ["injection-hunt"] }),
+    ];
+    renderPanel(state);
+    expect(screen.getByTestId("execution-dag")).toBeTruthy();
+    expect(screen.getByTestId("execution-node-recon").textContent).toContain("Succeeded");
   });
 
   it("focuses one task's instances when its node is clicked", () => {

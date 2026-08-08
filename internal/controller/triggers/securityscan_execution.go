@@ -512,7 +512,16 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 // advance.
 func planSecurityScanExecution(workflow []triggersv1alpha1.SecurityScanTask, externalID string, parallelism int32, now metav1.Time) *triggersv1alpha1.SecurityScanExecutionStatus {
 	var entries []triggersv1alpha1.SecurityScanTaskExecutionStatus
+	// The plan records the workflow snapshot's graph shape (names, edges,
+	// fan-out sources) so DAG consumers stay truthful after the source
+	// workflow — referenced, inline, or the built-in default — changes.
+	plan := make([]triggersv1alpha1.SecurityScanExecutionPlanNode, 0, len(workflow))
 	for _, task := range workflow {
+		plan = append(plan, triggersv1alpha1.SecurityScanExecutionPlanNode{
+			Name:      task.Name,
+			DependsOn: append([]string(nil), task.DependsOn...),
+			ForEach:   task.ForEach,
+		})
 		instances := int32(1)
 		if task.ForEach == "" {
 			instances = task.EffectiveRepeats()
@@ -531,6 +540,7 @@ func planSecurityScanExecution(workflow []triggersv1alpha1.SecurityScanTask, ext
 		Phase:                triggersv1alpha1.SecurityScanExecutionPhaseRunning,
 		EffectiveParallelism: parallelism,
 		Tasks:                entries,
+		Plan:                 plan,
 		StartedAt:            &now,
 	}
 }

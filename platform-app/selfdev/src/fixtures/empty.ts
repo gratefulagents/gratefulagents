@@ -38,6 +38,10 @@ export const emptyScenario: Scenario = {
   slackWorkspaces: [],
   slackDrafts: [],
 
+  securityScans: [],
+  securityScanConfigs: [],
+  securityWorkflows: [],
+
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),
   modes: modeCatalog(),

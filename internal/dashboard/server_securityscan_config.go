@@ -968,6 +968,13 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 		}
 		pb.Tasks = append(pb.Tasks, pbTask)
 	}
+	for _, p := range e.Plan {
+		pb.Plan = append(pb.Plan, &platform.SecurityScanExecutionPlanNode{
+			Name:      p.Name,
+			DependsOn: append([]string(nil), p.DependsOn...),
+			ForEach:   p.ForEach,
+		})
+	}
 	for _, j := range e.PostScriptJobs {
 		pbJob := &platform.SecurityScanPostScriptJobState{
 			Script:      j.Script,

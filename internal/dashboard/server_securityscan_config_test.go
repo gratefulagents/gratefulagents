@@ -1267,6 +1267,10 @@ func TestSecurityScanExecutionStateProtoCarriesPostScriptJobsAndCoverageGaps(t *
 		Phase:                   triggersv1alpha1.SecurityScanExecutionPhaseRunning,
 		PostScriptsMaterialized: true,
 		CoverageGaps:            []string{"forEach inventory truncated to 50 instances"},
+		Plan: []triggersv1alpha1.SecurityScanExecutionPlanNode{
+			{Name: "recon"},
+			{Name: "hunt", DependsOn: []string{"recon"}, ForEach: "recon"},
+		},
 		PostScriptJobs: []triggersv1alpha1.SecurityScanPostScriptJobStatus{
 			{
 				Script:      "false-positive-check",
@@ -1290,6 +1294,11 @@ func TestSecurityScanExecutionStateProtoCarriesPostScriptJobsAndCoverageGaps(t *
 	}
 	if len(pb.CoverageGaps) != 1 || pb.CoverageGaps[0] != "forEach inventory truncated to 50 instances" {
 		t.Fatalf("CoverageGaps = %v", pb.CoverageGaps)
+	}
+	if len(pb.Plan) != 2 || pb.Plan[0].Name != "recon" ||
+		pb.Plan[1].Name != "hunt" || len(pb.Plan[1].DependsOn) != 1 ||
+		pb.Plan[1].DependsOn[0] != "recon" || pb.Plan[1].ForEach != "recon" {
+		t.Fatalf("Plan not fully converted: %+v", pb.Plan)
 	}
 	if len(pb.PostScriptJobs) != 1 {
 		t.Fatalf("PostScriptJobs = %v", pb.PostScriptJobs)

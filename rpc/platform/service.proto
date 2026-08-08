@@ -4495,6 +4495,19 @@ message SecurityScanExecutionState {
   // jobs). Non-empty means the report is partial coverage, not an
   // authoritative all-clear.
   repeated string coverage_gaps = 12;
+  // plan is the dependency graph of the workflow snapshot this execution
+  // was planned from (one node per workflow task, including the built-in
+  // default workflow). DAG renderers must prefer it over the live library
+  // resource, which may have been edited since planning.
+  repeated SecurityScanExecutionPlanNode plan = 13;
+}
+
+// SecurityScanExecutionPlanNode is one workflow task of an execution's
+// planned dependency graph, captured when the execution was planned.
+message SecurityScanExecutionPlanNode {
+  string name = 1; // workflow task name; tasks[].name references it
+  repeated string depends_on = 2;
+  string for_each = 3; // dependency this task fans out over, when set
 }
 
 // SecurityScanPostScriptJobState is one durable finding x post-script

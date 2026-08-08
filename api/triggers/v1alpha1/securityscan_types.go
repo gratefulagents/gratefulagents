@@ -936,6 +936,25 @@ func SecurityScanPostScriptJobTerminal(state string) bool {
 	return false
 }
 
+// SecurityScanExecutionPlanNode is one workflow task of an execution's
+// planned dependency graph, captured when the execution is planned so the
+// graph stays truthful even after the source workflow is edited.
+type SecurityScanExecutionPlanNode struct {
+	// name is the workflow task name; tasks[].name values reference it.
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// dependsOn lists the plan nodes this task waits for.
+	// +listType=atomic
+	// +optional
+	DependsOn []string `json:"dependsOn,omitempty"`
+
+	// forEach names the dependency whose JSON-array output this task fans
+	// out over, when fan-out is configured.
+	// +optional
+	ForEach string `json:"forEach,omitempty"`
+}
+
 // SecurityScanExecutionStatus is the observed state of one deterministic
 // workflow execution.
 type SecurityScanExecutionStatus struct {
@@ -966,6 +985,17 @@ type SecurityScanExecutionStatus struct {
 	// +listType=atomic
 	// +optional
 	Tasks []SecurityScanTaskExecutionStatus `json:"tasks,omitempty"`
+
+	// plan is the dependency graph of the workflow snapshot this execution
+	// was planned from, one node per workflow task. Recording it here keeps
+	// the graph truthful for the execution's whole lifetime: the referenced
+	// SecurityWorkflow may be edited (or the built-in default workflow may
+	// change) after planning, and consumers rendering the DAG must not mix
+	// this execution's task states with a newer graph shape.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	Plan []SecurityScanExecutionPlanNode `json:"plan,omitempty"`
 
 	// startedAt is when the execution started.
 	// +optional

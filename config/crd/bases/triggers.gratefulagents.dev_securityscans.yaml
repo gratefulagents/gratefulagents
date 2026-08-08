@@ -1403,6 +1403,40 @@ spec:
                       phase is the execution's coarse state: Running, Succeeded, or Failed
                       (resuming a failed execution sets it back to Running).
                     type: string
+                  plan:
+                    description: |-
+                      plan is the dependency graph of the workflow snapshot this execution
+                      was planned from, one node per workflow task. Recording it here keeps
+                      the graph truthful for the execution's whole lifetime: the referenced
+                      SecurityWorkflow may be edited (or the built-in default workflow may
+                      change) after planning, and consumers rendering the DAG must not mix
+                      this execution's task states with a newer graph shape.
+                    items:
+                      description: |-
+                        SecurityScanExecutionPlanNode is one workflow task of an execution's
+                        planned dependency graph, captured when the execution is planned so the
+                        graph stays truthful even after the source workflow is edited.
+                      properties:
+                        dependsOn:
+                          description: dependsOn lists the plan nodes this task waits
+                            for.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        forEach:
+                          description: |-
+                            forEach names the dependency whose JSON-array output this task fans
+                            out over, when fan-out is configured.
+                          type: string
+                        name:
+                          description: name is the workflow task name; tasks[].name
+                            values reference it.
+                          type: string
+                      type: object
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: atomic
                   postScriptJobs:
                     description: |-
                       postScriptJobs is the materialized finding x post-script matrix. It

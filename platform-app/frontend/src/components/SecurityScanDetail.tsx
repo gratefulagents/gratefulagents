@@ -153,10 +153,15 @@ export function SecurityScanDetail() {
         try {
           const config = await client.getSecurityScanConfig({ namespace, name: scanResp.scanName });
           setScanConfig(config);
-          // The execution DAG needs the planned task graph: inline workflow
-          // tasks when present, otherwise the referenced SecurityWorkflow's
-          // tasks; best-effort (the graph degrades to a plain table).
-          if ((config.spec?.workflow ?? []).length > 0) {
+          // The execution DAG prefers the plan snapshot recorded on the
+          // execution itself (authoritative even after the source workflow
+          // is edited). Only executions predating plan recording need the
+          // planned task graph resolved here: inline workflow tasks when
+          // present, otherwise the referenced SecurityWorkflow's tasks;
+          // best-effort (the graph degrades to a plain table).
+          if ((config.lastExecution?.plan ?? []).length > 0) {
+            setWorkflowTasks([]);
+          } else if ((config.spec?.workflow ?? []).length > 0) {
             setWorkflowTasks(config.spec!.workflow);
           } else if (config.spec?.workflowRef) {
             try {

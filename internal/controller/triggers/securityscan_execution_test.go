@@ -603,6 +603,19 @@ func TestPlanSecurityScanExecutionExpandsRepeatsAndDefersFanOut(t *testing.T) {
 	assertExecutionTaskState(t, exec, "repeat", 0, triggersv1alpha1.SecurityScanTaskStatePending)
 	assertExecutionTaskState(t, exec, "repeat", 1, triggersv1alpha1.SecurityScanTaskStatePending)
 	assertExecutionTaskState(t, exec, "fan", 0, triggersv1alpha1.SecurityScanTaskStatePending)
+	// The plan records the workflow's graph shape once per task (not per
+	// instance) so DAG consumers stay truthful after the source workflow —
+	// referenced, inline, or the built-in default — is edited.
+	if len(exec.Plan) != 2 {
+		t.Fatalf("plan = %#v, want one node per workflow task", exec.Plan)
+	}
+	if exec.Plan[0].Name != "repeat" || len(exec.Plan[0].DependsOn) != 0 || exec.Plan[0].ForEach != "" {
+		t.Fatalf("plan[0] = %#v, want the repeat root node", exec.Plan[0])
+	}
+	if exec.Plan[1].Name != "fan" || len(exec.Plan[1].DependsOn) != 1 ||
+		exec.Plan[1].DependsOn[0] != "repeat" || exec.Plan[1].ForEach != "repeat" {
+		t.Fatalf("plan[1] = %#v, want the fan-out node with its edge and source", exec.Plan[1])
+	}
 }
 
 // newDeterministicSecurityScanReconciler seeds the cluster-scoped
