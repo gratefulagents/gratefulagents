@@ -6,6 +6,7 @@ import { create } from "@bufbuild/protobuf";
 import { ExecutionProgressPanel, aggregateState } from "@/components/ExecutionProgressPanel";
 import {
   SecurityScanExecutionStateSchema,
+  SecurityScanPostScriptJobStateSchema,
   SecurityScanTaskConfigSchema,
   type SecurityScanExecutionState,
   type SecurityScanTaskConfig,
@@ -222,6 +223,76 @@ describe("ExecutionProgressPanel", () => {
     expect(screen.queryByTestId("execution-task-recon#0")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Show all/ }));
     expect(screen.getByTestId("execution-task-recon#0")).toBeTruthy();
+  });
+
+  it("lists post-script jobs with progress, finding links, and results", () => {
+    const state = execution();
+    state.postScriptJobs = [
+      create(SecurityScanPostScriptJobStateSchema, {
+        script: "false-positive-check",
+        order: 0,
+        findingId: "22222222-2222-2222-2222-222222222222",
+        fingerprint: "sqli-users-list",
+        state: "Succeeded",
+        runName: "scan-ps-1",
+        attempts: 1,
+        result: "confirmed",
+        startedAtUnix: 1767225600n,
+        finishedAtUnix: 1767226600n,
+      }),
+      create(SecurityScanPostScriptJobStateSchema, {
+        script: "poc-builder",
+        order: 1,
+        findingId: "22222222-2222-2222-2222-222222222222",
+        fingerprint: "sqli-users-list",
+        state: "Failed",
+        runName: "scan-ps-2",
+        attempts: 2,
+        lastError: "sandbox provisioning failed",
+      }),
+    ];
+    render(
+      <MemoryRouter>
+        <ExecutionProgressPanel
+          namespace="user-alice"
+          execution={state}
+          findingLinkBase="/security/user-alice/nightly-1/findings"
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("execution-post-script-progress").textContent).toBe(
+      "1/2 post-scripts done",
+    );
+    const succeeded = screen.getByTestId(
+      "execution-post-script-false-positive-check#22222222-2222-2222-2222-222222222222",
+    );
+    expect(succeeded.textContent).toContain("Succeeded");
+    expect(succeeded.textContent).toContain("confirmed");
+    const findingLink = screen.getAllByRole("link", { name: "sqli-users-list" })[0];
+    expect(findingLink.getAttribute("href")).toBe(
+      "/security/user-alice/nightly-1/findings/22222222-2222-2222-2222-222222222222",
+    );
+    const failed = screen.getByTestId(
+      "execution-post-script-poc-builder#22222222-2222-2222-2222-222222222222",
+    );
+    expect(failed.textContent).toContain("Failed");
+    expect(failed.textContent).toContain("sandbox provisioning failed");
+  });
+
+  it("warns about coverage gaps", () => {
+    const state = execution();
+    state.coverageGaps = ["forEach inventory truncated to 50 instances"];
+    renderPanel(state);
+    const alert = screen.getByTestId("execution-coverage-gaps");
+    expect(alert.textContent).toContain("Partial coverage");
+    expect(alert.textContent).toContain("forEach inventory truncated to 50 instances");
+  });
+
+  it("shows neither post-script section nor coverage alert when absent", () => {
+    renderPanel();
+    expect(screen.queryByTestId("execution-post-scripts")).toBeNull();
+    expect(screen.queryByTestId("execution-post-script-progress")).toBeNull();
+    expect(screen.queryByTestId("execution-coverage-gaps")).toBeNull();
   });
 });
 

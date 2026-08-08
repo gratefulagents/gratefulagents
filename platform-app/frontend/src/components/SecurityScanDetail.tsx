@@ -646,6 +646,7 @@ export function SecurityScanDetail() {
                 namespace={namespace}
                 execution={scanConfig.lastExecution}
                 workflowTasks={workflowTasks}
+                findingLinkBase={runName ? `/security/${namespace}/${runName}/findings` : undefined}
                 onResume={async () => {
                   setActionError(null);
                   try {

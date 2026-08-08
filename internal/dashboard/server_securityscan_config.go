@@ -925,6 +925,8 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 		EffectiveParallelism:     e.EffectiveParallelism,
 		EffectiveParallelismNote: e.EffectiveParallelismNote,
 		LastResumeToken:          e.LastResumeToken,
+		PostScriptsMaterialized:  e.PostScriptsMaterialized,
+		CoverageGaps:             append([]string(nil), e.CoverageGaps...),
 	}
 	if e.StartedAt != nil {
 		pb.StartedAtUnix = e.StartedAt.Unix()
@@ -965,6 +967,26 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 			pbTask.Retries = append(pbTask.Retries, pbAttempt)
 		}
 		pb.Tasks = append(pb.Tasks, pbTask)
+	}
+	for _, j := range e.PostScriptJobs {
+		pbJob := &platform.SecurityScanPostScriptJobState{
+			Script:      j.Script,
+			Order:       j.Order,
+			FindingId:   j.FindingID,
+			Fingerprint: j.Fingerprint,
+			State:       j.State,
+			RunName:     j.RunName,
+			Attempts:    j.Attempts,
+			Result:      j.Result,
+			LastError:   j.LastError,
+		}
+		if j.StartedAt != nil {
+			pbJob.StartedAtUnix = j.StartedAt.Unix()
+		}
+		if j.FinishedAt != nil {
+			pbJob.FinishedAtUnix = j.FinishedAt.Unix()
+		}
+		pb.PostScriptJobs = append(pb.PostScriptJobs, pbJob)
 	}
 	return pb
 }

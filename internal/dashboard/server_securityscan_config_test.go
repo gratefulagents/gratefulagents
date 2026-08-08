@@ -1257,3 +1257,49 @@ func TestGetSecurityScanConfigPopulatesTaskOutputs(t *testing.T) {
 		}
 	}
 }
+
+func TestSecurityScanExecutionStateProtoCarriesPostScriptJobsAndCoverageGaps(t *testing.T) {
+	started := metav1.NewTime(time.Unix(1767225600, 0))
+	finished := metav1.NewTime(time.Unix(1767226600, 0))
+	exec := &triggersv1alpha1.SecurityScanExecutionStatus{
+		ID:                      "20260101-abc",
+		Mode:                    triggersv1alpha1.SecurityScanExecutionModeDeterministic,
+		Phase:                   triggersv1alpha1.SecurityScanExecutionPhaseRunning,
+		PostScriptsMaterialized: true,
+		CoverageGaps:            []string{"forEach inventory truncated to 50 instances"},
+		PostScriptJobs: []triggersv1alpha1.SecurityScanPostScriptJobStatus{
+			{
+				Script:      "false-positive-check",
+				Order:       1,
+				FindingID:   "22222222-2222-2222-2222-222222222222",
+				Fingerprint: "sqli-users-list",
+				State:       triggersv1alpha1.SecurityScanPostScriptStateSucceeded,
+				RunName:     "nightly-ps-1",
+				Attempts:    2,
+				Result:      "confirmed",
+				LastError:   "first attempt timed out",
+				StartedAt:   &started,
+				FinishedAt:  &finished,
+			},
+		},
+	}
+
+	pb := securityScanExecutionStateProto(exec)
+	if !pb.PostScriptsMaterialized {
+		t.Fatalf("PostScriptsMaterialized not carried")
+	}
+	if len(pb.CoverageGaps) != 1 || pb.CoverageGaps[0] != "forEach inventory truncated to 50 instances" {
+		t.Fatalf("CoverageGaps = %v", pb.CoverageGaps)
+	}
+	if len(pb.PostScriptJobs) != 1 {
+		t.Fatalf("PostScriptJobs = %v", pb.PostScriptJobs)
+	}
+	job := pb.PostScriptJobs[0]
+	if job.Script != "false-positive-check" || job.Order != 1 ||
+		job.FindingId != "22222222-2222-2222-2222-222222222222" || job.Fingerprint != "sqli-users-list" ||
+		job.State != "Succeeded" || job.RunName != "nightly-ps-1" || job.Attempts != 2 ||
+		job.Result != "confirmed" || job.LastError != "first attempt timed out" ||
+		job.StartedAtUnix != 1767225600 || job.FinishedAtUnix != 1767226600 {
+		t.Fatalf("job not fully converted: %+v", job)
+	}
+}

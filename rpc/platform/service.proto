@@ -4483,6 +4483,35 @@ message SecurityScanExecutionState {
   // last_resume_token is the most recent resume-scan annotation token the
   // controller has processed, making resume requests idempotent.
   string last_resume_token = 9;
+  // post_script_jobs is the durable finding x post-script matrix
+  // materialized once the research tasks are terminal; every job must reach
+  // a terminal state before the sink task may submit the final report.
+  repeated SecurityScanPostScriptJobState post_script_jobs = 10;
+  // post_scripts_materialized records that the job matrix was computed
+  // (even when zero findings were eligible).
+  bool post_scripts_materialized = 11;
+  // coverage_gaps are reasons this execution's results are incomplete
+  // (truncated fan-out inventories, unmaterialized or failed post-script
+  // jobs). Non-empty means the report is partial coverage, not an
+  // authoritative all-clear.
+  repeated string coverage_gaps = 12;
+}
+
+// SecurityScanPostScriptJobState is one durable finding x post-script
+// execution of a deterministic scan (SecurityScanStatus.lastExecution
+// .postScriptJobs).
+message SecurityScanPostScriptJobState {
+  string script = 1; // SecurityPostScript name
+  int32 order = 2; // 0-based position in spec.postScripts
+  string finding_id = 3; // platform finding UUID the job is bound to
+  string fingerprint = 4; // stable finding identity used in prompts
+  string state = 5; // Pending | Running | Succeeded | Failed | Skipped
+  string run_name = 6; // AgentRun currently or most recently serving the job
+  int32 attempts = 7;
+  string result = 8; // Terminal outcome summary (status left / skip reason)
+  string last_error = 9;
+  int64 started_at_unix = 10;
+  int64 finished_at_unix = 11;
 }
 
 // SecurityScanConfigSpec mirrors the operator-configurable SecurityScan CRD

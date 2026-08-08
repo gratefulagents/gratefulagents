@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { phaseTone, toneColor, toneSoft, type StatusTone } from "@/lib/status";
 import type {
   SecurityScanExecutionState,
+  SecurityScanPostScriptJobState,
   SecurityScanTaskConfig,
   SecurityScanTaskExecutionState,
 } from "@/rpc/platform/service_pb";
@@ -70,6 +71,104 @@ function prettyJson(raw: string): string {
 
 /** Terminal instance states that count toward the "done" progress figure. */
 const DONE_STATES = new Set(["Succeeded", "Skipped"]);
+
+/**
+ * PostScriptJobsTable lists the durable finding x post-script jobs the
+ * deterministic engine materializes after research tasks finish. Every job
+ * must reach a terminal state before the sink task may submit the final
+ * report, so the table doubles as the "what is the report waiting for" view.
+ */
+function PostScriptJobsTable({
+  namespace,
+  jobs,
+  findingLinkBase,
+}: {
+  namespace: string;
+  jobs: SecurityScanPostScriptJobState[];
+  findingLinkBase?: string;
+}) {
+  return (
+    <div className="space-y-1.5" data-testid="execution-post-scripts">
+      <p className="text-xs font-medium text-muted-foreground">
+        Post-script jobs
+        <span className="ml-1.5 font-normal">
+          (each finding runs every matching post-script; the final report waits for all of them)
+        </span>
+      </p>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Script</TableHead>
+            <TableHead>Finding</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Attempts</TableHead>
+            <TableHead>Run</TableHead>
+            <TableHead>Result</TableHead>
+            <TableHead>Duration</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {jobs.map((job) => {
+            const key = `${job.script}#${job.findingId}`;
+            const finding = job.fingerprint || job.findingId || "—";
+            return (
+              <TableRow key={key} data-testid={`execution-post-script-${key}`}>
+                <TableCell className="font-mono text-[13px]">{job.script}</TableCell>
+                <TableCell className="max-w-48 font-mono text-[12px]">
+                  {findingLinkBase && job.findingId ? (
+                    <Link
+                      className="block truncate underline underline-offset-2"
+                      title={finding}
+                      to={`${findingLinkBase}/${job.findingId}`}
+                    >
+                      {finding}
+                    </Link>
+                  ) : (
+                    <span className="block truncate text-muted-foreground" title={finding}>
+                      {finding}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <StatePill state={job.state} />
+                </TableCell>
+                <TableCell>{job.attempts}</TableCell>
+                <TableCell className="font-mono text-[13px]">
+                  {job.runName ? (
+                    <Link
+                      className="underline underline-offset-2"
+                      to={`/runs/${namespace}/${job.runName}`}
+                    >
+                      {job.runName}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="max-w-56 text-xs">
+                  {job.lastError && job.state === "Failed" ? (
+                    <span className="block truncate text-destructive" title={job.lastError}>
+                      {job.lastError}
+                    </span>
+                  ) : job.result ? (
+                    <span className="block truncate text-muted-foreground" title={job.result}>
+                      {job.result}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {formatDuration(job.startedAtUnix, job.finishedAtUnix)}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
 
 /**
  * aggregateState summarizes a group of fan-out instances into one node state
@@ -196,12 +295,15 @@ export function ExecutionProgressPanel({
   execution,
   workflowTasks,
   onResume,
+  findingLinkBase,
 }: {
   namespace: string;
   execution: SecurityScanExecutionState;
   workflowTasks?: SecurityScanTaskConfig[];
   /** Called when the user asks to resume a Failed execution. */
   onResume?: () => Promise<void> | void;
+  /** Route prefix for finding links in post-script job rows. */
+  findingLinkBase?: string;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [focusTask, setFocusTask] = useState<string | null>(null);
@@ -235,6 +337,10 @@ export function ExecutionProgressPanel({
 
   const totalInstances = execution.tasks.length;
   const doneInstances = execution.tasks.filter((t) => DONE_STATES.has(t.state)).length;
+  // Nullish fallbacks: tests (and older servers) may omit the arrays.
+  const postScriptJobs = execution.postScriptJobs ?? [];
+  const coverageGaps = execution.coverageGaps ?? [];
+  const donePostScripts = postScriptJobs.filter((j) => DONE_STATES.has(j.state)).length;
 
   const toggle = (key: string) => {
     setExpanded((prev) => {
@@ -260,6 +366,14 @@ export function ExecutionProgressPanel({
               data-testid="execution-instance-progress"
             >
               {doneInstances}/{totalInstances} tasks done
+            </span>
+          )}
+          {postScriptJobs.length > 0 && (
+            <span
+              className="rounded-md bg-muted/60 px-2 py-0.5 text-muted-foreground ring-1 ring-inset ring-border/70"
+              data-testid="execution-post-script-progress"
+            >
+              {donePostScripts}/{postScriptJobs.length} post-scripts done
             </span>
           )}
           <span
@@ -302,6 +416,23 @@ export function ExecutionProgressPanel({
             </Button>
           )}
         </div>
+
+        {coverageGaps.length > 0 && (
+          <div
+            role="alert"
+            data-testid="execution-coverage-gaps"
+            className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12.5px]"
+          >
+            <span className="font-medium">
+              Partial coverage: read this execution's report as incomplete, not as an all-clear.
+            </span>
+            <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+              {coverageGaps.map((gap) => (
+                <li key={gap}>{gap}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {dagNodes.length > 0 && (
           <DagCanvas layout={layout} testId="execution-dag">
@@ -464,6 +595,14 @@ export function ExecutionProgressPanel({
             })}
           </TableBody>
         </Table>
+
+        {postScriptJobs.length > 0 && (
+          <PostScriptJobsTable
+            namespace={namespace}
+            jobs={postScriptJobs}
+            findingLinkBase={findingLinkBase}
+          />
+        )}
       </div>
     </DetailSection>
   );
