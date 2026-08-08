@@ -43,6 +43,9 @@ import {
   ListProjectsResponseSchema,
   ListRepositoriesResponseSchema,
   ListRuntimeImagesResponseSchema,
+  ListSecurityScanConfigsResponseSchema,
+  ListSecurityScansResponseSchema,
+  ListSecurityWorkflowsResponseSchema,
   ListSharesResponseSchema,
   ListSharedWithMeResponseSchema,
   ListSkillsResponseSchema,
@@ -372,6 +375,35 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     watchCrons: async function* (_req: unknown, ctx: HandlerContext) {
       for (const cron of s.crons) yield create(CronEventSchema, { type: "ADDED", cron });
       await clientGone(ctx);
+    },
+
+    // ---- Security ----------------------------------------------------------
+    listSecurityScans: async () =>
+      create(ListSecurityScansResponseSchema, { scans: s.securityScans }),
+    getSecurityScan: async (req: { namespace: string; runName: string }) => {
+      const scan = s.securityScans.find(
+        (x) => x.namespace === req.namespace && x.runName === req.runName,
+      );
+      if (!scan) throw notFound(`security scan ${req.namespace}/${req.runName}`);
+      return scan;
+    },
+    listSecurityScanConfigs: async () =>
+      create(ListSecurityScanConfigsResponseSchema, { configs: s.securityScanConfigs }),
+    getSecurityScanConfig: async (req: { namespace: string; name: string }) => {
+      const config = s.securityScanConfigs.find(
+        (x) => x.namespace === req.namespace && x.name === req.name,
+      );
+      if (!config) throw notFound(`security scan config ${req.namespace}/${req.name}`);
+      return config;
+    },
+    listSecurityWorkflows: async () =>
+      create(ListSecurityWorkflowsResponseSchema, { workflows: s.securityWorkflows }),
+    getSecurityWorkflow: async (req: { namespace: string; name: string }) => {
+      const workflow = s.securityWorkflows.find(
+        (x) => x.namespace === req.namespace && x.name === req.name,
+      );
+      if (!workflow) throw notFound(`security workflow ${req.namespace}/${req.name}`);
+      return workflow;
     },
 
     // ---- Slack ------------------------------------------------------------

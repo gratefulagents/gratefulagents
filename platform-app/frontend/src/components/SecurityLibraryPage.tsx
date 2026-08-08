@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TableRowSkeleton } from "@/components/ui/list-state";
 import { filterByQuery } from "@/components/ui/list-search";
 import { ResourceListPage } from "@/components/list-page";
+import { SecurityNav } from "@/components/SecurityNav";
 import { FlowField } from "@/components/create-flow/create-flow";
 import {
   SecurityWorkflowBuilder,
@@ -669,6 +670,7 @@ export function SecurityLibraryPage() {
       onRetry={fetchAll}
       empty={false}
       skeleton={<TableRowSkeleton cols={5} />}
+      nav={<SecurityNav />}
     >
       {actionError && (
         <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-sm text-destructive" data-testid="library-action-error">

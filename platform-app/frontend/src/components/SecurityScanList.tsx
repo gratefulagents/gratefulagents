@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { TableRowSkeleton } from "@/components/ui/list-state";
 import { filterByQuery } from "@/components/ui/list-search";
 import { ResourceListPage } from "@/components/list-page";
+import { SecurityNav } from "@/components/SecurityNav";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneSoft, type StatusTone } from "@/lib/status";
@@ -151,6 +152,7 @@ export function SecurityScanList() {
           Configure scans
         </Button>
       }
+      nav={<SecurityNav />}
     >
       <Table>
         <TableCaption className="sr-only">Security scans</TableCaption>

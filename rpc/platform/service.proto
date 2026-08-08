@@ -296,6 +296,15 @@ service PlatformService {
   // override), so the call requires the same collaborator access as
   // UpdateSecurityScan. Suspended scans are rejected with FailedPrecondition.
   rpc RunSecurityScanNow(RunSecurityScanNowRequest) returns (SecurityScanConfig);
+  // ResumeSecurityScan requests a resume of the scan's most recent FAILED
+  // deterministic execution: failed and skipped task instances are reset and
+  // re-run with a refreshed retry budget while succeeded tasks keep their
+  // results. The dashboard stamps a resume-scan annotation token on the CR;
+  // the controller consumes each token exactly once (recorded in
+  // status.lastExecution.lastResumeToken), so duplicate requests are
+  // idempotent. Rejected with FailedPrecondition unless the last execution
+  // is deterministic and Failed.
+  rpc ResumeSecurityScan(ResumeSecurityScanRequest) returns (SecurityScanConfig);
 
   // Reusable security library resources: SecurityWorkflow, SecurityRanker,
   // and SecurityPostScript CRs referenced by SecurityScan configurations via
@@ -4452,6 +4461,12 @@ message SecurityScanTaskExecutionState {
   string last_error = 8; // Most recent failure summary
   int64 started_at_unix = 9;
   int64 finished_at_unix = 10;
+  // output_json is the structured output the task's AgentRun submitted via
+  // the submit_task_output tool (validated against the task's outputSchema).
+  // Populated only by GetSecurityScanConfig — list responses omit it — and
+  // read from the task's AgentRun status at response time (empty when the
+  // run produced no structured output or has been deleted).
+  string output_json = 11;
 }
 
 // SecurityScanExecutionState is the observed state of the most recent
@@ -4468,6 +4483,48 @@ message SecurityScanExecutionState {
   // last_resume_token is the most recent resume-scan annotation token the
   // controller has processed, making resume requests idempotent.
   string last_resume_token = 9;
+  // post_script_jobs is the durable finding x post-script matrix
+  // materialized once the research tasks are terminal; every job must reach
+  // a terminal state before the sink task may submit the final report.
+  repeated SecurityScanPostScriptJobState post_script_jobs = 10;
+  // post_scripts_materialized records that the job matrix was computed
+  // (even when zero findings were eligible).
+  bool post_scripts_materialized = 11;
+  // coverage_gaps are reasons this execution's results are incomplete
+  // (truncated fan-out inventories, unmaterialized or failed post-script
+  // jobs). Non-empty means the report is partial coverage, not an
+  // authoritative all-clear.
+  repeated string coverage_gaps = 12;
+  // plan is the dependency graph of the workflow snapshot this execution
+  // was planned from (one node per workflow task, including the built-in
+  // default workflow). DAG renderers must prefer it over the live library
+  // resource, which may have been edited since planning.
+  repeated SecurityScanExecutionPlanNode plan = 13;
+}
+
+// SecurityScanExecutionPlanNode is one workflow task of an execution's
+// planned dependency graph, captured when the execution was planned.
+message SecurityScanExecutionPlanNode {
+  string name = 1; // workflow task name; tasks[].name references it
+  repeated string depends_on = 2;
+  string for_each = 3; // dependency this task fans out over, when set
+}
+
+// SecurityScanPostScriptJobState is one durable finding x post-script
+// execution of a deterministic scan (SecurityScanStatus.lastExecution
+// .postScriptJobs).
+message SecurityScanPostScriptJobState {
+  string script = 1; // SecurityPostScript name
+  int32 order = 2; // 0-based position in spec.postScripts
+  string finding_id = 3; // platform finding UUID the job is bound to
+  string fingerprint = 4; // stable finding identity used in prompts
+  string state = 5; // Pending | Running | Succeeded | Failed | Skipped
+  string run_name = 6; // AgentRun currently or most recently serving the job
+  int32 attempts = 7;
+  string result = 8; // Terminal outcome summary (status left / skip reason)
+  string last_error = 9;
+  int64 started_at_unix = 10;
+  int64 finished_at_unix = 11;
 }
 
 // SecurityScanConfigSpec mirrors the operator-configurable SecurityScan CRD
@@ -4637,6 +4694,11 @@ message RunSecurityScanNowRequest {
   // spec and applies to every later run, not only the requested one. Each
   // value is capped at 4096 bytes.
   map<string, string> parameter_values = 3;
+}
+
+message ResumeSecurityScanRequest {
+  string namespace = 1;
+  string name = 2;
 }
 
 // SecurityWorkflowResource is one reusable SecurityWorkflow CR. The proto

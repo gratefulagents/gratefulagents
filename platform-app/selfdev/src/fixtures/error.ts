@@ -247,6 +247,10 @@ export const errorScenario: Scenario = {
   slackWorkspaces: [],
   slackDrafts: [],
 
+  securityScans: [],
+  securityScanConfigs: [],
+  securityWorkflows: [],
+
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),
   modes: modeCatalog(),

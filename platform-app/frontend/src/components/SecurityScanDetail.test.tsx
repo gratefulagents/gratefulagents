@@ -11,7 +11,7 @@ import {
   SecurityScanSchema,
 } from "@/rpc/platform/service_pb";
 
-const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, getSecurityScanConfig, listSecurityFindings, updateSecurityFindingStatus, getSecurityScanReport, downloadBlob } =
+const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, getSecurityScanConfig, listSecurityFindings, updateSecurityFindingStatus, getSecurityScanReport, resumeSecurityScan, downloadBlob } =
   vi.hoisted(() => ({
     getSecurityScan: vi.fn(),
     getSecurityFinding: vi.fn(),
@@ -20,6 +20,7 @@ const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, getSecur
     listSecurityFindings: vi.fn(),
     updateSecurityFindingStatus: vi.fn(),
     getSecurityScanReport: vi.fn(),
+    resumeSecurityScan: vi.fn(),
     downloadBlob: vi.fn(),
   }));
 
@@ -32,6 +33,7 @@ vi.mock("@/lib/client", () => ({
     listSecurityFindings,
     updateSecurityFindingStatus,
     getSecurityScanReport,
+    resumeSecurityScan,
   },
 }));
 
@@ -461,6 +463,96 @@ describe("SecurityScanDetail repository integration state", () => {
 
     expect(await screen.findByTestId("execution-progress")).toBeTruthy();
     expect(screen.getByTestId("execution-task-recon#0")).toBeTruthy();
+  });
+
+  it("draws the execution DAG from the config's inline workflow", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      spec: {
+        workflow: [
+          { name: "recon", objective: "Map.", dependsOn: [], forEach: "" },
+          { name: "triage", objective: "Triage.", dependsOn: ["recon"], forEach: "" },
+        ],
+      },
+      lastExecution: {
+        id: "abc",
+        mode: "deterministic",
+        phase: "Running",
+        effectiveParallelism: 4,
+        effectiveParallelismNote: "",
+        startedAtUnix: 1767225600n,
+        completedAtUnix: 0n,
+        tasks: [
+          {
+            name: "recon",
+            instance: 0,
+            state: "Running",
+            runName: "nightly-recon-1",
+            attempts: 1,
+            retries: [],
+            nextRetryTimeUnix: 0n,
+            lastError: "",
+            startedAtUnix: 1767225600n,
+            finishedAtUnix: 0n,
+          },
+        ],
+      },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByTestId("execution-dag")).toBeTruthy();
+    expect(screen.getByTestId("execution-node-recon").textContent).toContain("Running");
+    // triage has no instance yet: the planned node reads as waiting.
+    expect(screen.getByTestId("execution-node-triage").textContent).toContain("Waiting");
+  });
+
+  it("resumes a failed deterministic execution via the RPC", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      lastExecution: {
+        id: "abc",
+        mode: "deterministic",
+        phase: "Failed",
+        effectiveParallelism: 4,
+        effectiveParallelismNote: "",
+        startedAtUnix: 1767225600n,
+        completedAtUnix: 1767229200n,
+        tasks: [
+          {
+            name: "recon",
+            instance: 0,
+            state: "Failed",
+            runName: "nightly-recon-1",
+            attempts: 3,
+            retries: [],
+            nextRetryTimeUnix: 0n,
+            lastError: "budget exhausted",
+            startedAtUnix: 1767225600n,
+            finishedAtUnix: 1767229200n,
+          },
+        ],
+      },
+    });
+    resumeSecurityScan.mockResolvedValue({});
+
+    renderDetail();
+
+    fireEvent.click(await screen.findByTestId("execution-resume"));
+    await waitFor(() =>
+      expect(resumeSecurityScan).toHaveBeenCalledWith({
+        namespace: "user-alice",
+        name: "nightly",
+      }),
+    );
   });
 
   it("hides execution progress when the last execution was the coordinator", async () => {

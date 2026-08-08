@@ -85,13 +85,16 @@ describe("SecurityOverview", () => {
     // Failing configuration surfaces with its reason.
     expect(screen.getByText("RunCreationFailed")).toBeTruthy();
     expect(screen.getByText("run creation failed")).toBeTruthy();
-    // Navigation actions to configurations and run history.
+    // The shared security sub-navigation replaces the old header buttons.
     expect(
-      screen.getByRole("button", { name: /Run history/ }).getAttribute("href"),
+      screen.getByRole("link", { name: /Scan runs/ }).getAttribute("href"),
     ).toBe("/security/runs");
     expect(
-      screen.getByRole("button", { name: /Scan configurations/ }).getAttribute("href"),
+      screen.getByRole("link", { name: /Configurations/ }).getAttribute("href"),
     ).toBe("/security/configs");
+    expect(
+      screen.getByRole("link", { name: /Library/ }).getAttribute("href"),
+    ).toBe("/security/library");
     // Baseline deltas are hidden until baseline data exists.
     expect(
       screen.getByText(/baseline comparisons are available/),

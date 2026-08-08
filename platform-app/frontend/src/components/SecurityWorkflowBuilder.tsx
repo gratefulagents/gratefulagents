@@ -7,6 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FlowField } from "@/components/create-flow/create-flow";
 import {
+  DAG_NODE_HEIGHT,
+  DAG_NODE_WIDTH,
+  DagCanvas,
+  DagEdgeLayer,
+  dagEdges,
+  dagLayers,
+  dagLayout,
+  edgeMidpoint,
+} from "@/components/security-dag";
+import {
   SecurityScanTaskConfigSchema,
   SecurityScanTaskToolsSchema,
   SecurityWorkflowParameterSchema,
@@ -403,33 +413,12 @@ export function workflowCycle(tasks: WorkflowTaskDraft[]): string[] {
  * workflowLayers groups tasks into topological layers: layer 0 has no
  * dependencies, each next layer depends only on earlier ones. Tasks trapped
  * in a cycle are appended as a final layer so the graph still renders while
- * validation reports the cycle.
+ * validation reports the cycle. (Delegates to the shared security DAG layout
+ * so the builder and the execution view draw identical graphs.)
  */
 export function workflowLayers(tasks: WorkflowTaskDraft[]): WorkflowTaskDraft[][] {
-  const known = new Set(tasks.map((t) => t.name.trim()));
-  const placed = new Map<string, number>();
-  const remaining = [...tasks];
-  const layers: WorkflowTaskDraft[][] = [];
-  for (let depth = 0; remaining.length > 0 && depth < tasks.length; depth++) {
-    const ready = remaining.filter((t) =>
-      t.dependsOn.every((dep) => !known.has(dep) || placed.has(dep)),
-    );
-    if (ready.length === 0) break;
-    layers.push(ready);
-    for (const t of ready) {
-      placed.set(t.name.trim(), depth);
-      remaining.splice(remaining.indexOf(t), 1);
-    }
-  }
-  if (remaining.length > 0) layers.push(remaining);
-  return layers;
+  return dagLayers(tasks);
 }
-
-const NODE_WIDTH = 148;
-const NODE_HEIGHT = 34;
-const LAYER_GAP = 64;
-const NODE_GAP = 10;
-const CANVAS_PAD = 12;
 
 /** nextTaskName picks the first free "task-N" so a canvas-added node is drawable immediately. */
 function nextTaskName(tasks: WorkflowTaskDraft[]): string {
@@ -467,23 +456,10 @@ export function WorkflowDagEditor({
 
   const drawable = tasks.filter((t) => t.name.trim() !== "");
   const layers = workflowLayers(drawable);
-  const positions = new Map<string, { x: number; y: number }>();
-  layers.forEach((layer, layerIndex) => {
-    layer.forEach((task, taskIndex) => {
-      positions.set(task.name.trim(), {
-        x: CANVAS_PAD + layerIndex * (NODE_WIDTH + LAYER_GAP),
-        y: CANVAS_PAD + taskIndex * (NODE_HEIGHT + NODE_GAP),
-      });
-    });
-  });
-  const width =
-    layers.length > 0 ? layers.length * (NODE_WIDTH + LAYER_GAP) - LAYER_GAP + CANVAS_PAD * 2 : 0;
-  const height =
-    layers.length > 0
-      ? Math.max(...layers.map((layer) => layer.length)) * (NODE_HEIGHT + NODE_GAP) -
-        NODE_GAP +
-        CANVAS_PAD * 2
-      : 0;
+  const layout = dagLayout(layers);
+  const edges = dagEdges(
+    drawable.map((t) => ({ name: t.name.trim(), dependsOn: t.dependsOn, forEach: t.forEach })),
+  );
 
   const selected = selectedIndex !== null ? tasks[selectedIndex] : undefined;
   const connectSource = connectFrom !== null ? tasks[connectFrom] : undefined;
@@ -611,122 +587,111 @@ export function WorkflowDagEditor({
           Name at least one task to see the dependency graph.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-md border bg-muted/30" data-testid="workflow-dag">
-          <div className="relative" style={{ width, height }}>
-            <svg
-              role="img"
-              aria-label="Workflow dependency graph"
-              width={width}
-              height={height}
-              viewBox={`0 0 ${width} ${height}`}
-              className="absolute inset-0"
-            >
-              {drawable.flatMap((task) =>
-                task.dependsOn
-                  .filter((dep) => positions.has(dep) && positions.has(task.name.trim()))
-                  .map((dep) => {
-                    const from = positions.get(dep)!;
-                    const to = positions.get(task.name.trim())!;
-                    const x1 = from.x + NODE_WIDTH;
-                    const y1 = from.y + NODE_HEIGHT / 2;
-                    const x2 = to.x;
-                    const y2 = to.y + NODE_HEIGHT / 2;
-                    const mid = (x1 + x2) / 2;
-                    return (
-                      <path
-                        key={`${dep}->${task.name}`}
-                        d={`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`}
-                        fill="none"
-                        className="stroke-muted-foreground/50"
-                        strokeWidth={1.25}
-                      />
-                    );
-                  }),
-              )}
-            </svg>
-            {drawable.flatMap((task) =>
-              task.dependsOn
-                .filter((dep) => positions.has(dep) && positions.has(task.name.trim()))
-                .map((dep) => {
-                  const from = positions.get(dep)!;
-                  const to = positions.get(task.name.trim())!;
-                  const mx = (from.x + NODE_WIDTH + to.x) / 2;
-                  const my = (from.y + to.y + NODE_HEIGHT) / 2;
-                  const targetName = task.name.trim();
-                  return (
-                    <button
-                      key={`x-${dep}->${targetName}`}
-                      type="button"
-                      aria-label={`Remove dependency ${dep} → ${targetName}`}
-                      title={`Remove dependency ${dep} → ${targetName}`}
-                      onClick={() => removeEdge(dep, targetName)}
-                      className="absolute z-10 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-background text-muted-foreground hover:text-destructive"
-                      style={{ left: mx, top: my }}
-                    >
-                      <X className="size-2.5" />
-                    </button>
-                  );
-                }),
-            )}
-            {drawable.map((task) => {
-              const name = task.name.trim();
-              const pos = positions.get(name)!;
-              const index = tasks.indexOf(task);
-              const isSelected = selectedIndex === index;
-              const isConnectSource = connectFrom === index;
-              return (
-                <div
-                  key={name}
-                  className="absolute"
-                  style={{ left: pos.x, top: pos.y, width: NODE_WIDTH, height: NODE_HEIGHT }}
-                >
-                  <button
-                    type="button"
-                    data-testid={`dag-node-${name}`}
-                    aria-pressed={isSelected}
-                    title={
-                      connectFrom !== null && !isConnectSource
-                        ? `Run ${name} after ${connectSource?.name.trim()}`
-                        : name
+        <DagCanvas layout={layout} testId="workflow-dag">
+          <DagEdgeLayer edges={edges} layout={layout} label="Workflow dependency graph" />
+          {edges.map((edge) => {
+            const mid = edgeMidpoint(layout, edge.from, edge.to);
+            if (!mid) return null;
+            return (
+              <button
+                key={`x-${edge.from}->${edge.to}`}
+                type="button"
+                aria-label={`Remove dependency ${edge.from} → ${edge.to}`}
+                title={`Remove dependency ${edge.from} → ${edge.to}`}
+                onClick={() => removeEdge(edge.from, edge.to)}
+                className="absolute z-10 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-background text-muted-foreground hover:text-destructive"
+                style={{ left: mid.x, top: mid.y }}
+              >
+                <X className="size-2.5" />
+              </button>
+            );
+          })}
+          {drawable.map((task) => {
+            const name = task.name.trim();
+            const pos = layout.positions.get(name)!;
+            const index = tasks.indexOf(task);
+            const isSelected = selectedIndex === index;
+            const isConnectSource = connectFrom === index;
+            return (
+              <div
+                key={name}
+                className="absolute"
+                style={{ left: pos.x, top: pos.y, width: DAG_NODE_WIDTH, height: DAG_NODE_HEIGHT }}
+              >
+                <button
+                  type="button"
+                  data-testid={`dag-node-${name}`}
+                  aria-pressed={isSelected}
+                  title={
+                    connectFrom !== null && !isConnectSource
+                      ? `Run ${name} after ${connectSource?.name.trim()}`
+                      : name
+                  }
+                  onClick={() => nodeClick(index)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Delete" || event.key === "Backspace") {
+                      event.preventDefault();
+                      deleteTask(index);
                     }
-                    onClick={() => nodeClick(index)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Delete" || event.key === "Backspace") {
-                        event.preventDefault();
-                        deleteTask(index);
-                      }
-                    }}
-                    className={`flex h-full w-[calc(100%-1.25rem)] items-center truncate rounded-md border bg-background px-2 text-[11px] font-medium ${
-                      isSelected
-                        ? "border-primary ring-1 ring-primary"
-                        : isConnectSource
-                          ? "border-primary/60 border-dashed"
-                          : "border-border hover:border-primary/50"
-                    }`}
-                  >
-                    <span className="truncate">{name}</span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Start dependency from ${name}`}
-                    title={`Link: the next task clicked will run after ${name}`}
-                    data-testid={`dag-connect-${name}`}
-                    onClick={() => {
-                      setSelectedIndex(null);
-                      setMessage(null);
-                      setConnectFrom((current) => (current === index ? null : index));
-                    }}
-                    className={`absolute right-0 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border bg-background ${
-                      isConnectSource ? "border-primary text-primary" : "text-muted-foreground hover:text-primary"
-                    }`}
-                  >
-                    <Link2 className="size-2.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                  }}
+                  className={`flex h-full w-[calc(100%-1rem)] flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-background px-2.5 text-left ${
+                    isSelected
+                      ? "border-primary ring-1 ring-primary"
+                      : isConnectSource
+                        ? "border-primary/60 border-dashed"
+                        : "border-border hover:border-primary/50"
+                  }`}
+                >
+                  <span className="truncate font-mono text-[11.5px] font-medium leading-tight">
+                    {name}
+                  </span>
+                  <span className="flex min-w-0 items-center gap-1 text-[10px] leading-tight text-muted-foreground">
+                    <span className="truncate">{task.role.trim() || "security-reviewer"}</span>
+                    {task.forEach.trim() && (
+                      <span
+                        className="shrink-0 rounded bg-primary/10 px-1 py-px text-[9.5px] font-medium text-primary"
+                        title={`Fans out per record of ${task.forEach.trim()}'s output`}
+                      >
+                        fan-out
+                      </span>
+                    )}
+                    {Number(task.repeats.trim() || "0") > 1 && (
+                      <span
+                        className="shrink-0 rounded bg-muted px-1 py-px text-[9.5px] font-medium"
+                        title={`Ensemble: ${task.repeats.trim()} repeated instances`}
+                      >
+                        ×{task.repeats.trim()}
+                      </span>
+                    )}
+                    {task.outputSchema.trim() && (
+                      <span
+                        aria-label="Produces structured output"
+                        title="Produces structured output (JSON Schema contract)"
+                        className="size-1.5 shrink-0 rounded-full bg-primary/70"
+                      />
+                    )}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Start dependency from ${name}`}
+                  title={`Link: the next task clicked will run after ${name}`}
+                  data-testid={`dag-connect-${name}`}
+                  onClick={() => {
+                    setSelectedIndex(null);
+                    setMessage(null);
+                    setConnectFrom((current) => (current === index ? null : index));
+                  }}
+                  className={`absolute right-0 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border bg-background ${
+                    isConnectSource ? "border-primary text-primary" : "text-muted-foreground hover:text-primary"
+                  }`}
+                >
+                  <Link2 className="size-2.5" />
+                </button>
+              </div>
+            );
+          })}
+        </DagCanvas>
       )}
       {selected && selectedIndex !== null && (
         <div className="space-y-3 rounded-md border bg-muted/20 p-3" data-testid="dag-inspector">

@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
@@ -1042,5 +1043,272 @@ func TestRunSecurityScanNowWithParameterValuesRequiresCollaboratorAccess(t *test
 	}
 	if _, err := srv.RunSecurityScanNow(actorContext("carl", "member", "", ""), req); err != nil {
 		t.Fatalf("RunSecurityScanNow(collaborator + params) error = %v", err)
+	}
+}
+
+// failedDeterministicScan builds a SecurityScan whose last execution is a
+// deterministic run in the given phase, for resume/output tests.
+func failedDeterministicScan(ns, name, phase string) *triggersv1alpha1.SecurityScan {
+	return &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+		Status: triggersv1alpha1.SecurityScanStatus{
+			LastExecution: &triggersv1alpha1.SecurityScanExecutionStatus{
+				ID:    "20260101-abc",
+				Mode:  triggersv1alpha1.SecurityScanExecutionModeDeterministic,
+				Phase: phase,
+			},
+		},
+	}
+}
+
+func TestResumeSecurityScanStampsAnnotationToken(t *testing.T) {
+	ns := testUserNS()
+	existing := failedDeterministicScan(ns, "nightly", triggersv1alpha1.SecurityScanExecutionPhaseFailed)
+	srv, c := newCronTestServer(t, existing)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "nightly", ns, testProjectSubject); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	resp, err := srv.ResumeSecurityScan(projectActorCtx(),
+		&platform.ResumeSecurityScanRequest{Namespace: ns, Name: "nightly"})
+	if err != nil {
+		t.Fatalf("ResumeSecurityScan() error = %v", err)
+	}
+	if resp.Namespace != ns || resp.Name != "nightly" {
+		t.Fatalf("resp = %s/%s, want %s/nightly", resp.Namespace, resp.Name, ns)
+	}
+
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "nightly"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	first := cr.Annotations[triggersv1alpha1.SecurityScanResumeAnnotation]
+	if first == "" {
+		t.Fatalf("resume annotation not set: %#v", cr.Annotations)
+	}
+
+	// A later request stamps a fresh token so the controller sees it as new.
+	time.Sleep(time.Millisecond)
+	if _, err := srv.ResumeSecurityScan(projectActorCtx(),
+		&platform.ResumeSecurityScanRequest{Namespace: ns, Name: "nightly"}); err != nil {
+		t.Fatalf("second ResumeSecurityScan() error = %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "nightly"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if second := cr.Annotations[triggersv1alpha1.SecurityScanResumeAnnotation]; second == "" || second == first {
+		t.Fatalf("second token = %q, want a fresh token different from %q", second, first)
+	}
+}
+
+func TestResumeSecurityScanRequiresFailedDeterministicExecution(t *testing.T) {
+	ns := testUserNS()
+	cases := []struct {
+		name string
+		scan *triggersv1alpha1.SecurityScan
+	}{
+		{
+			name: "no execution",
+			scan: &triggersv1alpha1.SecurityScan{
+				ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: ns},
+				Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+			},
+		},
+		{
+			name: "running execution",
+			scan: failedDeterministicScan(ns, "nightly", triggersv1alpha1.SecurityScanExecutionPhaseRunning),
+		},
+		{
+			name: "succeeded execution",
+			scan: failedDeterministicScan(ns, "nightly", triggersv1alpha1.SecurityScanExecutionPhaseSucceeded),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, c := newCronTestServer(t, tc.scan)
+			ms := newMockStateStore()
+			srv.stateStore = ms
+			if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "nightly", ns, testProjectSubject); err != nil {
+				t.Fatalf("SetResourceOwner: %v", err)
+			}
+			_, err := srv.ResumeSecurityScan(projectActorCtx(),
+				&platform.ResumeSecurityScanRequest{Namespace: ns, Name: "nightly"})
+			if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+				t.Fatalf("ResumeSecurityScan() error = %v, want FailedPrecondition", err)
+			}
+			cr := &triggersv1alpha1.SecurityScan{}
+			if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "nightly"}, cr); err != nil {
+				t.Fatalf("Get(SecurityScan) error = %v", err)
+			}
+			if cr.Annotations[triggersv1alpha1.SecurityScanResumeAnnotation] != "" {
+				t.Fatalf("annotation stamped despite precondition failure: %#v", cr.Annotations)
+			}
+		})
+	}
+}
+
+func TestResumeSecurityScanDeniedForStranger(t *testing.T) {
+	existing := failedDeterministicScan("default", "owned", triggersv1alpha1.SecurityScanExecutionPhaseFailed)
+	srv, c := newCronTestServer(t, existing)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "owned", "default", "alice"); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	_, err := srv.ResumeSecurityScan(actorContext("mallory", "member", "", ""),
+		&platform.ResumeSecurityScanRequest{Namespace: "default", Name: "owned"})
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("ResumeSecurityScan by stranger: want PermissionDenied, got %v", err)
+	}
+	cr := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "owned"}, cr); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if cr.Annotations[triggersv1alpha1.SecurityScanResumeAnnotation] != "" {
+		t.Fatalf("annotation stamped despite denial: %#v", cr.Annotations)
+	}
+}
+
+func TestResumeSecurityScanValidatesRequest(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	for _, req := range []*platform.ResumeSecurityScanRequest{
+		{Namespace: "", Name: "nightly"},
+		{Namespace: "default", Name: ""},
+	} {
+		if _, err := srv.ResumeSecurityScan(projectActorCtx(), req); connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Fatalf("ResumeSecurityScan(%v) error = %v, want InvalidArgument", req, err)
+		}
+	}
+}
+
+func TestGetSecurityScanConfigPopulatesTaskOutputs(t *testing.T) {
+	ns := testUserNS()
+	scan := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: ns},
+		Spec:       triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/example/app.git"},
+		Status: triggersv1alpha1.SecurityScanStatus{
+			LastExecution: &triggersv1alpha1.SecurityScanExecutionStatus{
+				ID:    "20260101-abc",
+				Mode:  triggersv1alpha1.SecurityScanExecutionModeDeterministic,
+				Phase: triggersv1alpha1.SecurityScanExecutionPhaseRunning,
+				Tasks: []triggersv1alpha1.SecurityScanTaskExecutionStatus{
+					{Name: "recon", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "nightly-recon-1"},
+					{Name: "hunt", State: triggersv1alpha1.SecurityScanTaskStateFailed, RunName: "nightly-hunt-1"},
+					{Name: "gone", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "nightly-gone-1"},
+					{Name: "triage", State: triggersv1alpha1.SecurityScanTaskStateBlocked},
+				},
+			},
+		},
+	}
+	reconRun := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "nightly-recon-1", Namespace: ns},
+		Status:     platformv1alpha1.AgentRunStatus{StructuredOutput: `{"targets":["/api"]}`},
+	}
+	huntRun := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "nightly-hunt-1", Namespace: ns},
+		Status:     platformv1alpha1.AgentRunStatus{StructuredOutput: `{"ignored":true}`},
+	}
+	srv, _ := newCronTestServer(t, scan, reconRun, huntRun)
+	ms := newMockStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, "nightly", ns, testProjectSubject); err != nil {
+		t.Fatalf("SetResourceOwner: %v", err)
+	}
+
+	resp, err := srv.GetSecurityScanConfig(projectActorCtx(),
+		&platform.GetSecurityScanConfigRequest{Namespace: ns, Name: "nightly"})
+	if err != nil {
+		t.Fatalf("GetSecurityScanConfig() error = %v", err)
+	}
+	byName := map[string]*platform.SecurityScanTaskExecutionState{}
+	for _, task := range resp.LastExecution.Tasks {
+		byName[task.Name] = task
+	}
+	if got := byName["recon"].OutputJson; got != `{"targets":["/api"]}` {
+		t.Fatalf("recon output = %q, want the run's structured output", got)
+	}
+	// Failed tasks never expose output, even when the run recorded one.
+	if got := byName["hunt"].OutputJson; got != "" {
+		t.Fatalf("hunt output = %q, want empty for a failed task", got)
+	}
+	// A deleted run and a never-started task are quietly empty.
+	if got := byName["gone"].OutputJson; got != "" {
+		t.Fatalf("gone output = %q, want empty for a deleted run", got)
+	}
+	if got := byName["triage"].OutputJson; got != "" {
+		t.Fatalf("triage output = %q, want empty without a run", got)
+	}
+
+	// The list path stays lean: no outputs are populated.
+	listResp, err := srv.ListSecurityScanConfigs(projectActorCtx(),
+		&platform.ListSecurityScanConfigsRequest{Namespace: ns})
+	if err != nil {
+		t.Fatalf("ListSecurityScanConfigs() error = %v", err)
+	}
+	for _, cfg := range listResp.Configs {
+		for _, task := range cfg.LastExecution.GetTasks() {
+			if task.OutputJson != "" {
+				t.Fatalf("list response carries output for %s", task.Name)
+			}
+		}
+	}
+}
+
+func TestSecurityScanExecutionStateProtoCarriesPostScriptJobsAndCoverageGaps(t *testing.T) {
+	started := metav1.NewTime(time.Unix(1767225600, 0))
+	finished := metav1.NewTime(time.Unix(1767226600, 0))
+	exec := &triggersv1alpha1.SecurityScanExecutionStatus{
+		ID:                      "20260101-abc",
+		Mode:                    triggersv1alpha1.SecurityScanExecutionModeDeterministic,
+		Phase:                   triggersv1alpha1.SecurityScanExecutionPhaseRunning,
+		PostScriptsMaterialized: true,
+		CoverageGaps:            []string{"forEach inventory truncated to 50 instances"},
+		Plan: []triggersv1alpha1.SecurityScanExecutionPlanNode{
+			{Name: "recon"},
+			{Name: "hunt", DependsOn: []string{"recon"}, ForEach: "recon"},
+		},
+		PostScriptJobs: []triggersv1alpha1.SecurityScanPostScriptJobStatus{
+			{
+				Script:      "false-positive-check",
+				Order:       1,
+				FindingID:   "22222222-2222-2222-2222-222222222222",
+				Fingerprint: "sqli-users-list",
+				State:       triggersv1alpha1.SecurityScanPostScriptStateSucceeded,
+				RunName:     "nightly-ps-1",
+				Attempts:    2,
+				Result:      "confirmed",
+				LastError:   "first attempt timed out",
+				StartedAt:   &started,
+				FinishedAt:  &finished,
+			},
+		},
+	}
+
+	pb := securityScanExecutionStateProto(exec)
+	if !pb.PostScriptsMaterialized {
+		t.Fatalf("PostScriptsMaterialized not carried")
+	}
+	if len(pb.CoverageGaps) != 1 || pb.CoverageGaps[0] != "forEach inventory truncated to 50 instances" {
+		t.Fatalf("CoverageGaps = %v", pb.CoverageGaps)
+	}
+	if len(pb.Plan) != 2 || pb.Plan[0].Name != "recon" ||
+		pb.Plan[1].Name != "hunt" || len(pb.Plan[1].DependsOn) != 1 ||
+		pb.Plan[1].DependsOn[0] != "recon" || pb.Plan[1].ForEach != "recon" {
+		t.Fatalf("Plan not fully converted: %+v", pb.Plan)
+	}
+	if len(pb.PostScriptJobs) != 1 {
+		t.Fatalf("PostScriptJobs = %v", pb.PostScriptJobs)
+	}
+	job := pb.PostScriptJobs[0]
+	if job.Script != "false-positive-check" || job.Order != 1 ||
+		job.FindingId != "22222222-2222-2222-2222-222222222222" || job.Fingerprint != "sqli-users-list" ||
+		job.State != "Succeeded" || job.RunName != "nightly-ps-1" || job.Attempts != 2 ||
+		job.Result != "confirmed" || job.LastError != "first attempt timed out" ||
+		job.StartedAtUnix != 1767225600 || job.FinishedAtUnix != 1767226600 {
+		t.Fatalf("job not fully converted: %+v", job)
 	}
 }

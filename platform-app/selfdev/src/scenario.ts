@@ -26,6 +26,9 @@ import type {
   ResourceOwner,
   ResourceShareInfo,
   RuntimeImageOption,
+  SecurityScan,
+  SecurityScanConfig,
+  SecurityWorkflowResource,
   SharedResource,
   SkillInfo,
   SlackAgent,
@@ -89,6 +92,13 @@ export interface Scenario {
   slackAgents: SlackAgent[];
   slackWorkspaces: SlackWorkspace[];
   slackDrafts: SlackDraft[];
+
+  /** Persisted security scan RESULT rows (getSecurityScan / listSecurityScans). */
+  securityScans: SecurityScan[];
+  /** Configured SecurityScan triggers, including lastExecution state. */
+  securityScanConfigs: SecurityScanConfig[];
+  /** Reusable SecurityWorkflow library resources (workflowRef targets). */
+  securityWorkflows: SecurityWorkflowResource[];
 
   skillPackages: SkillInfo[];
   runtimeImages: RuntimeImageOption[];

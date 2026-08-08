@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { History, Settings2, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Settings2, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -10,12 +10,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListState, ListRowSkeleton } from "@/components/ui/list-state";
-import { DetailSection, StatBar, Stat } from "@/components/detail-page";
+import { DetailSection } from "@/components/detail-page";
+import { SecurityNav } from "@/components/SecurityNav";
 import { SeverityCountBadges } from "@/components/SecurityScanList";
 import { BaselineBadge, formatDurationSeconds } from "@/components/security-baseline";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
-import { toneSoft, type StatusTone } from "@/lib/status";
+import { toneColor, toneSoft, toneText, type StatusTone } from "@/lib/status";
 import { formatAge } from "@/lib/format";
 import { useNow } from "@/hooks/useNow";
 import type { GetSecurityOverviewResponse, SecurityScan } from "@/rpc/platform/service_pb";
@@ -38,6 +39,40 @@ function scanTone(status: string): StatusTone {
 function scanUnix(ts: Timestamp | undefined): bigint {
   if (!ts) return 0n;
   return BigInt(Math.floor(timestampDate(ts).getTime() / 1000));
+}
+
+/**
+ * PostureTile is one figure of the security posture strip: a small label
+ * over a large tabular number. A tone paints an inset accent along the top
+ * edge (and the number itself) so critical/high counts read at a glance;
+ * zero counts stay quiet even when a tone is set.
+ */
+function PostureTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: StatusTone;
+}) {
+  const active = tone !== undefined && value > 0;
+  return (
+    <div
+      className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5"
+      style={active ? { boxShadow: `inset 0 2px 0 0 ${toneColor[tone]}` } : undefined}
+    >
+      <p className="truncate text-[11.5px] text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          "mt-0.5 font-mono text-xl font-semibold leading-tight tabular-nums",
+          active ? toneText[tone] : "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  );
 }
 
 function ScanRow({ scan, now }: { scan: SecurityScan; now: number }) {
@@ -108,17 +143,8 @@ export function SecurityOverview() {
             Repository security posture: scan activity, open findings, and scan configurations that need attention.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/runs" />}>
-            <History />
-            Run history
-          </Button>
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/configs" />}>
-            <Settings2 />
-            Scan configurations
-          </Button>
-        </div>
       </div>
+      <SecurityNav />
 
       <ListState
         loading={loading}
@@ -159,30 +185,17 @@ export function SecurityOverview() {
             )}
 
             {overview.storeSupported && (
-              <StatBar>
-                <Stat
-                  label="Open critical"
-                  value={
-                    <span className={cn(toneSoft["danger"], "rounded-md px-2 py-0.5")}>
-                      {counts["open_critical"] ?? 0}
-                    </span>
-                  }
-                  mono={false}
-                />
-                <Stat
-                  label="Open high"
-                  value={
-                    <span className={cn(toneSoft["warning"], "rounded-md px-2 py-0.5")}>
-                      {counts["open_high"] ?? 0}
-                    </span>
-                  }
-                  mono={false}
-                />
-                <Stat label="Open findings" value={counts["open"] ?? 0} />
-                <Stat label="Total findings" value={counts["total"] ?? 0} />
-                <Stat label="Active scans" value={overview.activeScans.length} />
-                <Stat label="Configurations" value={overview.configCount} />
-              </StatBar>
+              <div
+                className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6"
+                data-testid="security-posture"
+              >
+                <PostureTile label="Open critical" value={counts["open_critical"] ?? 0} tone="danger" />
+                <PostureTile label="Open high" value={counts["open_high"] ?? 0} tone="warning" />
+                <PostureTile label="Open findings" value={counts["open"] ?? 0} />
+                <PostureTile label="Total findings" value={counts["total"] ?? 0} />
+                <PostureTile label="Active scans" value={overview.activeScans.length} tone={overview.activeScans.length > 0 ? "running" : undefined} />
+                <PostureTile label="Configurations" value={overview.configCount} />
+              </div>
             )}
 
             {overview.storeSupported && (

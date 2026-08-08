@@ -33,6 +33,9 @@ import {
   PullRequestDetailsSchema,
   RepositoryInfoSchema,
   ResourceShareInfoSchema,
+  SecurityScanConfigSchema,
+  SecurityScanSchema,
+  SecurityWorkflowResourceSchema,
   SharedResourceSchema,
   SkillInfoSchema,
   SlackAgentSchema,
@@ -1386,6 +1389,144 @@ const fileContents: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Security: a deterministic scan mid-execution whose config references a
+// reusable SecurityWorkflow. The lastExecution deliberately carries no plan
+// snapshot, so the scan detail page exercises the production
+// getSecurityWorkflow fallback path when drawing the execution DAG.
+// ---------------------------------------------------------------------------
+
+const securityWorkflows = [
+  create(SecurityWorkflowResourceSchema, {
+    namespace: NS,
+    name: "web-app-owasp",
+    description: "OWASP-style web application audit: recon, parallel hunts, one triage sink.",
+    tasks: [
+      {
+        name: "recon",
+        objective: "Map the attack surface and list entry points as JSON.",
+        category: "recon",
+        role: "threat-modeler",
+        outputSchema: '{"type":"array","items":{"type":"object"}}',
+      },
+      {
+        name: "injection-hunt",
+        objective: "Hunt injection flaws in each entry point.",
+        category: "injection",
+        role: "vulnerability-hunter",
+        dependsOn: ["recon"],
+        forEach: "recon",
+        maxInstances: 5,
+      },
+      {
+        name: "authz-audit",
+        objective: "Audit authorization on every privileged route.",
+        category: "authz",
+        role: "security-reviewer",
+        dependsOn: ["recon"],
+      },
+      {
+        name: "triage-and-report",
+        objective: "Triage findings and write the report.",
+        category: "triage",
+        role: "finding-triager",
+        dependsOn: ["injection-hunt", "authz-audit"],
+      },
+    ],
+    usageCount: 1,
+    referencingScans: ["nightly-webapp"],
+    generation: 3n,
+    createdAtUnix: unix(daysAgo(12)),
+  }),
+];
+
+const securityScanConfigs = [
+  create(SecurityScanConfigSchema, {
+    namespace: NS,
+    name: "nightly-webapp",
+    spec: {
+      repoUrl: "https://github.com/demo/operator-app.git",
+      baseBranch: "main",
+      workflowRef: "web-app-owasp",
+      schedule: "0 3 * * *",
+      execution: { mode: "deterministic" },
+    },
+    phase: "Running",
+    lastRunName: "nightly-webapp-1",
+    lastScanTimeUnix: unix(hoursAgo(2)),
+    conditionReady: "True",
+    createdAtUnix: unix(daysAgo(12)),
+    lastExecution: {
+      id: "20260101-7f3k2",
+      mode: "deterministic",
+      phase: "Running",
+      effectiveParallelism: 4,
+      startedAtUnix: unix(hoursAgo(2)),
+      tasks: [
+        {
+          name: "recon",
+          instance: 0,
+          state: "Succeeded",
+          runName: "nightly-webapp-1-recon-1",
+          attempts: 1,
+          startedAtUnix: unix(hoursAgo(2)),
+          finishedAtUnix: unix(minutesAgo(80)),
+          outputJson: '[{"route":"/api/users"},{"route":"/api/admin"}]',
+        },
+        {
+          name: "injection-hunt",
+          instance: 0,
+          state: "Succeeded",
+          runName: "nightly-webapp-1-injection-hunt-1-0",
+          attempts: 1,
+          startedAtUnix: unix(minutesAgo(78)),
+          finishedAtUnix: unix(minutesAgo(31)),
+        },
+        {
+          name: "injection-hunt",
+          instance: 1,
+          state: "Running",
+          runName: "nightly-webapp-1-injection-hunt-2-1",
+          attempts: 2,
+          startedAtUnix: unix(minutesAgo(25)),
+          retries: [
+            {
+              runName: "nightly-webapp-1-injection-hunt-1-1",
+              reason: "run failed: OOMKilled",
+              class: "retryable",
+              startedAtUnix: unix(minutesAgo(78)),
+              finishedAtUnix: unix(minutesAgo(40)),
+            },
+          ],
+        },
+        {
+          name: "authz-audit",
+          instance: 0,
+          state: "Running",
+          runName: "nightly-webapp-1-authz-audit-1",
+          attempts: 1,
+          startedAtUnix: unix(minutesAgo(78)),
+        },
+        { name: "triage-and-report", instance: 0, state: "Blocked", attempts: 0 },
+      ],
+    },
+  }),
+];
+
+const securityScans = [
+  create(SecurityScanSchema, {
+    id: "9c1f34a0-4242-4d61-9f5e-0f6a4de4b111",
+    namespace: NS,
+    scanName: "nightly-webapp",
+    runName: "nightly-webapp-1",
+    repository: "https://github.com/demo/operator-app.git",
+    revision: "4be91c2",
+    status: "running",
+    startedAt: timestampFromDate(hoursAgo(2)),
+    counts: { total: 3, open: 3, critical: 1, high: 2 },
+  }),
+];
+
+// ---------------------------------------------------------------------------
 // Scenario
 // ---------------------------------------------------------------------------
 
@@ -1422,6 +1563,10 @@ export const defaultScenario: Scenario = {
   slackAgents,
   slackWorkspaces,
   slackDrafts,
+
+  securityScans,
+  securityScanConfigs,
+  securityWorkflows,
 
   skillPackages: skills,
   runtimeImages: runtimeImageCatalog(),
@@ -1462,6 +1607,8 @@ export const defaultScenario: Scenario = {
     { name: "linear-project", path: "/linear/demo/linear-ops" },
     { name: "github-repo", path: "/github/demo/gh-operator" },
     { name: "cron-detail", path: "/cron/demo/nightly-triage" },
+    { name: "security-overview", path: "/security" },
+    { name: "security-scan-detail", path: "/security/demo/nightly-webapp-1" },
     { name: "slack-agent", path: "/slack/demo/ops-agent" },
     { name: "slack-agent-settings", path: "/slack/demo/ops-agent?tab=settings" },
     { name: "shared", path: "/shared" },

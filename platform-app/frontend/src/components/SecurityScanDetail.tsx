@@ -33,6 +33,7 @@ import type {
   SecurityFindingEvent,
   SecurityScan,
   SecurityScanConfig,
+  SecurityScanTaskConfig,
   SecuritySavedFilter,
 } from "@/rpc/platform/service_pb";
 
@@ -68,6 +69,7 @@ export function SecurityScanDetail() {
 
   const [scan, setScan] = useState<SecurityScan | null>(null);
   const [scanConfig, setScanConfig] = useState<SecurityScanConfig | null>(null);
+  const [workflowTasks, setWorkflowTasks] = useState<SecurityScanTaskConfig[]>([]);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [findings, setFindings] = useState<SecurityFinding[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,9 +151,34 @@ export function SecurityScanDetail() {
       // lives on the SecurityScan trigger config; best-effort.
       if (scanResp.scanName) {
         try {
-          setScanConfig(await client.getSecurityScanConfig({ namespace, name: scanResp.scanName }));
+          const config = await client.getSecurityScanConfig({ namespace, name: scanResp.scanName });
+          setScanConfig(config);
+          // The execution DAG prefers the plan snapshot recorded on the
+          // execution itself (authoritative even after the source workflow
+          // is edited). Only executions predating plan recording need the
+          // planned task graph resolved here: inline workflow tasks when
+          // present, otherwise the referenced SecurityWorkflow's tasks;
+          // best-effort (the graph degrades to a plain table).
+          if ((config.lastExecution?.plan ?? []).length > 0) {
+            setWorkflowTasks([]);
+          } else if ((config.spec?.workflow ?? []).length > 0) {
+            setWorkflowTasks(config.spec!.workflow);
+          } else if (config.spec?.workflowRef) {
+            try {
+              const wf = await client.getSecurityWorkflow({
+                namespace,
+                name: config.spec.workflowRef,
+              });
+              setWorkflowTasks(wf.tasks ?? []);
+            } catch {
+              setWorkflowTasks([]);
+            }
+          } else {
+            setWorkflowTasks([]);
+          }
         } catch {
           setScanConfig(null);
+          setWorkflowTasks([]);
         }
       }
     } catch (e: unknown) {
@@ -617,6 +644,28 @@ export function SecurityScanDetail() {
             ))}
           </StatBar>
 
+          {namespace &&
+            scanConfig?.lastExecution &&
+            scanConfig.lastExecution.mode === "deterministic" && (
+              <ExecutionProgressPanel
+                namespace={namespace}
+                execution={scanConfig.lastExecution}
+                workflowTasks={workflowTasks}
+                findingLinkBase={runName ? `/security/${namespace}/${runName}/findings` : undefined}
+                onResume={async () => {
+                  setActionError(null);
+                  try {
+                    await client.resumeSecurityScan({ namespace, name: scanConfig.name });
+                    await fetchScan();
+                  } catch (e: unknown) {
+                    setActionError(
+                      e instanceof Error ? e.message : "Failed to resume the execution",
+                    );
+                  }
+                }}
+              />
+            )}
+
           {namespace && runName && (
             <SecurityScanRunPanel
               namespace={namespace}
@@ -624,15 +673,6 @@ export function SecurityScanDetail() {
               onRunSettled={handleRunSettled}
             />
           )}
-
-          {namespace &&
-            scanConfig?.lastExecution &&
-            scanConfig.lastExecution.mode === "deterministic" && (
-              <ExecutionProgressPanel
-                namespace={namespace}
-                execution={scanConfig.lastExecution}
-              />
-            )}
 
           {scan.summary && (
             <DetailSection title="Scan Summary">
@@ -648,77 +688,80 @@ export function SecurityScanDetail() {
             </div>
           )}
 
-          <DetailSection
-            title="Findings"
-            aside={
-              <div className="flex flex-wrap items-center gap-2">
-                <ListSearchInput
-                  value={search}
-                  onChange={(value) => setFilter("q", value)}
-                  placeholder="Search findings…"
-                />
-                <select
-                  aria-label="Filter by severity"
-                  className={filterSelectClass}
-                  value={severity}
-                  onChange={(e) => setFilter("severity", e.target.value)}
-                >
-                  <option value="">All severities</option>
-                  {SEVERITIES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Filter by status"
-                  className={filterSelectClass}
-                  value={status}
-                  onChange={(e) => setFilter("status", e.target.value)}
-                >
-                  <option value="">All statuses</option>
-                  {FINDING_STATUSES.map((s) => (
-                    <option key={s} value={s}>{statusLabel(s)}</option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Filter by category"
-                  className={filterSelectClass}
-                  value={category}
-                  onChange={(e) => setFilter("category", e.target.value)}
-                >
-                  <option value="">All categories</option>
-                  {categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Filter by baseline state"
-                  className={filterSelectClass}
-                  value={baseline}
-                  onChange={(e) => setFilter("baseline", e.target.value)}
-                >
-                  <option value="">All baselines</option>
-                  {BASELINE_STATES.map((b) => (
-                    <option key={b} value={b}>{b}</option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Filter suppressed findings"
-                  className={filterSelectClass}
-                  value={suppressed}
-                  onChange={(e) => setFilter("suppressed", e.target.value)}
-                >
-                  <option value="">Hide suppressed</option>
-                  <option value="include">Include suppressed</option>
-                  <option value="only">Only suppressed</option>
-                </select>
-                <input
-                  aria-label="Filter by assignee"
-                  type="text"
-                  value={assigneeFilter}
-                  onChange={(e) => setFilter("assignee", e.target.value)}
-                  placeholder="Assignee…"
-                  className="h-8 w-28 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                />
+          <DetailSection title="Findings">
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2"
+              role="group"
+              aria-label="Finding filters"
+            >
+              <ListSearchInput
+                value={search}
+                onChange={(value) => setFilter("q", value)}
+                placeholder="Search findings…"
+              />
+              <select
+                aria-label="Filter by severity"
+                className={filterSelectClass}
+                value={severity}
+                onChange={(e) => setFilter("severity", e.target.value)}
+              >
+                <option value="">All severities</option>
+                {SEVERITIES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter by status"
+                className={filterSelectClass}
+                value={status}
+                onChange={(e) => setFilter("status", e.target.value)}
+              >
+                <option value="">All statuses</option>
+                {FINDING_STATUSES.map((s) => (
+                  <option key={s} value={s}>{statusLabel(s)}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter by category"
+                className={filterSelectClass}
+                value={category}
+                onChange={(e) => setFilter("category", e.target.value)}
+              >
+                <option value="">All categories</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter by baseline state"
+                className={filterSelectClass}
+                value={baseline}
+                onChange={(e) => setFilter("baseline", e.target.value)}
+              >
+                <option value="">All baselines</option>
+                {BASELINE_STATES.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter suppressed findings"
+                className={filterSelectClass}
+                value={suppressed}
+                onChange={(e) => setFilter("suppressed", e.target.value)}
+              >
+                <option value="">Hide suppressed</option>
+                <option value="include">Include suppressed</option>
+                <option value="only">Only suppressed</option>
+              </select>
+              <input
+                aria-label="Filter by assignee"
+                type="text"
+                value={assigneeFilter}
+                onChange={(e) => setFilter("assignee", e.target.value)}
+                placeholder="Assignee…"
+                className="h-8 w-28 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              />
+              <div className="ml-auto flex flex-wrap items-center gap-2">
                 <select
                   aria-label="Saved views"
                   className={filterSelectClass}
@@ -759,9 +802,8 @@ export function SecurityScanDetail() {
                   Save view
                 </Button>
               </div>
-            }
-          >
-            <div className={cn("grid gap-4", selected && "lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]")}>
+            </div>
+            <div className={cn("mt-4 grid gap-4", selected && "lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]")}>
               <ListState
                 loading={findingsLoading}
                 empty={!findings.length}

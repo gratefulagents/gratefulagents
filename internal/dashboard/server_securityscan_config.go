@@ -70,7 +70,33 @@ func (s *Server) GetSecurityScanConfig(
 	}
 	pb := securityScanConfigProto(cr)
 	pb.Owner, pb.MyPermission = s.resourceACL(ctx, securityScanResourceType, cr.Name, cr.Namespace)
+	s.populateSecurityScanTaskOutputs(ctx, cr.Namespace, pb.LastExecution)
 	return pb, nil
+}
+
+// populateSecurityScanTaskOutputs copies each deterministic task instance's
+// structured output (AgentRun status.structuredOutput, written by the
+// submit_task_output tool) into the execution-state proto. Outputs are read
+// at response time instead of being mirrored into the SecurityScan CR so
+// etcd never carries the payloads (64KiB per task instance). Best-effort:
+// deleted or unreadable runs simply leave output_json empty. Only the
+// single-get path calls this — list responses stay lean.
+func (s *Server) populateSecurityScanTaskOutputs(
+	ctx context.Context, namespace string, exec *platform.SecurityScanExecutionState,
+) {
+	if exec == nil || exec.Mode != triggersv1alpha1.SecurityScanExecutionModeDeterministic {
+		return
+	}
+	for _, task := range exec.Tasks {
+		if task.RunName == "" || task.State != triggersv1alpha1.SecurityScanTaskStateSucceeded {
+			continue
+		}
+		run := &platformv1alpha1.AgentRun{}
+		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: task.RunName}, run); err != nil {
+			continue
+		}
+		task.OutputJson = run.Status.StructuredOutput
+	}
 }
 
 // CreateSecurityScan creates a SecurityScan trigger in the caller's personal
@@ -261,6 +287,66 @@ func (s *Server) RunSecurityScanNow(
 			return nil, err
 		}
 		return nil, mapK8sError(fmt.Sprintf("run SecurityScan %s/%s now", namespace, name), err)
+	}
+	pb := securityScanConfigProto(updated)
+	pb.Owner, pb.MyPermission = s.resourceACL(ctx, securityScanResourceType, updated.Name, updated.Namespace)
+	return pb, nil
+}
+
+// ResumeSecurityScan stamps a resume-scan annotation token on a SecurityScan
+// so the controller resumes its most recent FAILED deterministic execution:
+// failed and skipped task instances are reset and re-run with a refreshed
+// retry budget while succeeded tasks keep their results. The token is opaque
+// and unique per request; the controller records the consumed token in
+// status.lastExecution.lastResumeToken, so retried or concurrent duplicate
+// requests resume at most once. Requests are rejected with
+// FailedPrecondition unless the last execution is deterministic and Failed.
+func (s *Server) ResumeSecurityScan(
+	ctx context.Context, req *platform.ResumeSecurityScanRequest,
+) (*platform.SecurityScanConfig, error) {
+	namespace := strings.TrimSpace(req.GetNamespace())
+	name := strings.TrimSpace(req.GetName())
+	if namespace == "" || name == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("namespace and name are required"))
+	}
+	err := s.requireResourceAccess(
+		ctx, securityScanResourceType, name, namespace, AccessCollaborator, "resume this security scan")
+	if err != nil {
+		return nil, err
+	}
+
+	token := time.Now().UTC().Format(time.RFC3339Nano)
+	var updated *triggersv1alpha1.SecurityScan
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cr := &triggersv1alpha1.SecurityScan{}
+		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cr); err != nil {
+			return err
+		}
+		exec := cr.Status.LastExecution
+		if exec == nil || exec.Mode != triggersv1alpha1.SecurityScanExecutionModeDeterministic {
+			return connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("security scan %s/%s has no deterministic execution to resume", namespace, name))
+		}
+		if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+			return connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("security scan %s/%s last execution is %s; only a Failed execution can be resumed",
+					namespace, name, exec.Phase))
+		}
+		if cr.Annotations == nil {
+			cr.Annotations = map[string]string{}
+		}
+		cr.Annotations[triggersv1alpha1.SecurityScanResumeAnnotation] = token
+		if err := s.k8sClient.Update(ctx, cr); err != nil {
+			return err
+		}
+		updated = cr
+		return nil
+	})
+	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
+		return nil, mapK8sError(fmt.Sprintf("resume SecurityScan %s/%s", namespace, name), err)
 	}
 	pb := securityScanConfigProto(updated)
 	pb.Owner, pb.MyPermission = s.resourceACL(ctx, securityScanResourceType, updated.Name, updated.Namespace)
@@ -839,6 +925,8 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 		EffectiveParallelism:     e.EffectiveParallelism,
 		EffectiveParallelismNote: e.EffectiveParallelismNote,
 		LastResumeToken:          e.LastResumeToken,
+		PostScriptsMaterialized:  e.PostScriptsMaterialized,
+		CoverageGaps:             append([]string(nil), e.CoverageGaps...),
 	}
 	if e.StartedAt != nil {
 		pb.StartedAtUnix = e.StartedAt.Unix()
@@ -879,6 +967,33 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 			pbTask.Retries = append(pbTask.Retries, pbAttempt)
 		}
 		pb.Tasks = append(pb.Tasks, pbTask)
+	}
+	for _, p := range e.Plan {
+		pb.Plan = append(pb.Plan, &platform.SecurityScanExecutionPlanNode{
+			Name:      p.Name,
+			DependsOn: append([]string(nil), p.DependsOn...),
+			ForEach:   p.ForEach,
+		})
+	}
+	for _, j := range e.PostScriptJobs {
+		pbJob := &platform.SecurityScanPostScriptJobState{
+			Script:      j.Script,
+			Order:       j.Order,
+			FindingId:   j.FindingID,
+			Fingerprint: j.Fingerprint,
+			State:       j.State,
+			RunName:     j.RunName,
+			Attempts:    j.Attempts,
+			Result:      j.Result,
+			LastError:   j.LastError,
+		}
+		if j.StartedAt != nil {
+			pbJob.StartedAtUnix = j.StartedAt.Unix()
+		}
+		if j.FinishedAt != nil {
+			pbJob.FinishedAtUnix = j.FinishedAt.Unix()
+		}
+		pb.PostScriptJobs = append(pb.PostScriptJobs, pbJob)
 	}
 	return pb
 }
