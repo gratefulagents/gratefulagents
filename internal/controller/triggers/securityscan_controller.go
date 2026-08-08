@@ -566,10 +566,15 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		resolved.spec.Workflow[i].Objective = renderSecurityScanParams(resolved.spec.Workflow[i].Objective, params)
 	}
 
-	base, err := r.buildScanRunBase(ctx, scan, resolved, runName, runCtx)
+	base, err := r.buildScanRunBase(ctx, scan, resolved, runName, runCtx, "")
 	if err != nil {
 		return false, nil, nil, err
 	}
+	// A coordinator scan is a one-run execution: stamping the run's own
+	// external id as the execution id gives agent-side finding tools the same
+	// aggregation key deterministic task runs get, and guarantees findings of
+	// this scan tick never mix with an earlier or later tick of the same scan.
+	base.annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation] = externalID
 	bound, boundNote := r.coordinatorParallelismBound(ctx, scan, resolved.spec)
 
 	created, _, err := CreateTriggerRun(ctx, r.Client, r.StateStore, TriggerRunSpec{
@@ -662,8 +667,20 @@ type securityScanRunBase struct {
 // Enforcement (policy floors, budgets) has already been folded into resolved
 // by resolveSecurityScanRefs, so every limit derives from CRD spec before
 // prompt construction.
-func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runName string, runCtx *securityScanRunContext) (*securityScanRunBase, error) {
+// roleInstructions, when non-empty, is appended to the scan's custom
+// instructions before they are materialised into the run's instructions
+// ConfigMap: a deterministic task run carries the effective RoleInstruction
+// contract in-band so the role a task was dispatched with is immutable for
+// that run even if the cluster-scoped CR changes mid-execution.
+func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runName string, runCtx *securityScanRunContext, roleInstructions string) (*securityScanRunBase, error) {
 	d := scan.Spec.Defaults
+	if roleInstructions = strings.TrimSpace(roleInstructions); roleInstructions != "" {
+		if strings.TrimSpace(d.CustomInstructions) == "" {
+			d.CustomInstructions = roleInstructions
+		} else {
+			d.CustomInstructions = strings.TrimRight(d.CustomInstructions, "\n") + "\n\n" + roleInstructions
+		}
+	}
 	d.RepoURL = scan.Spec.RepoURL
 	d.BaseBranch = scan.Spec.EffectiveBaseBranch()
 	if runCtx != nil && runCtx.Event != nil && runCtx.Event.Fork {

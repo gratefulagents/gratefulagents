@@ -18,7 +18,10 @@ spec:
         ordering, baseapp options, custom proposal handlers) rather than assuming the default SDK set;
         include custom or forked ABCI middleware. For each entry record the ABCI method or hook, the
         handler symbol that implements it, and the file it lives in. Skip simulation-only, test, and CLI
-        code. Publish the inventory instead of reporting findings.
+        code. Order the inventory by halt risk, most dangerous first (consensus-critical hooks such as
+        proposal handlers, begin and end blockers, and upgrade handlers before query-only paths): only the
+        first 16 entries are investigated, so anything you rank below that is never examined. Publish the
+        inventory instead of reporting findings.
       outputSchema: |-
         {
           "type": "array",
@@ -51,16 +54,17 @@ spec:
         network rather than failing a single transaction. For each report, state where the untrusted value
         enters, why it survives every check on the way, the panicking statement at file:line, and whether
         the panic is caught by baseapp's recover or halts consensus. Publish the same kept reports as this
-        task's structured output, one entry each, and an empty array when this entry point holds.
+        task's structured output, one entry each carrying the fingerprint report_security_finding returned for it, and an empty array when this entry point holds.
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "severity", "file", "halt_scope"],
+            "required": ["title", "fingerprint", "severity", "file", "halt_scope"],
             "properties": {
+              "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding for this finding"},
               "title": {"type": "string", "description": "Short name of the panic path"},
-              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity of the finding"},
               "file": {"type": "string", "description": "Repository-relative file holding the panicking statement"},
               "line": {"type": "integer", "description": "Line of the panicking statement"},
               "halt_scope": {"type": "string", "description": "chain-halt when it stops block production, transaction-only when baseapp recovers"},
@@ -88,16 +92,17 @@ spec:
         pointers or unordered data, and gas metering that depends on node-local state. Also check that
         upgrade and migration handlers write the same state on every node. Report each with file:line
         evidence and explain how two validators diverge. Publish the same kept reports as this task's
-        structured output, one entry each, and an empty array when you found none.
+        structured output, one entry each carrying the fingerprint report_security_finding returned for it, and an empty array when you found none.
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "severity", "file"],
+            "required": ["title", "fingerprint", "severity", "file"],
             "properties": {
+              "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding for this finding"},
               "title": {"type": "string", "description": "Short name of the non-determinism source"},
-              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity of the finding"},
               "file": {"type": "string", "description": "Repository-relative file holding the divergent code"},
               "line": {"type": "integer", "description": "Line where the divergence originates"},
               "summary": {"type": "string", "description": "How two honest validators end up with different state"},
@@ -124,16 +129,17 @@ spec:
         chooses, and gas metering that a user can avoid by splitting or reordering messages. Report each
         with file:line evidence, the message or sequence that triggers it, and the cost asymmetry between
         the attacker and the validator set. Publish the same kept reports as this task's structured output,
-        one entry each, and an empty array when you found none.
+        one entry each carrying the fingerprint report_security_finding returned for it, and an empty array when you found none.
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "severity", "file"],
+            "required": ["title", "fingerprint", "severity", "file"],
             "properties": {
+              "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding for this finding"},
               "title": {"type": "string", "description": "Short name of the unmetered work or state growth"},
-              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity of the finding"},
               "file": {"type": "string", "description": "Repository-relative file holding the unbounded path"},
               "line": {"type": "integer", "description": "Line of the unbounded loop, write, or allocation"},
               "summary": {"type": "string", "description": "The message or sequence that triggers it and the cost asymmetry"}
@@ -147,16 +153,21 @@ spec:
       role: finding-triager
       category: triage
       objective: >-
-        Triage the halt candidates from {{tasks.investigate-panic-paths.output}},
-        {{tasks.consensus-non-determinism.output}}, and {{tasks.unbounded-gas-and-state-growth.output}}.
+        Call list_security_findings to load every halt candidate this scan recorded - the per-entry-point
+        panic hunts, the non-determinism audit, and the gas and state-growth audit all write there - and
+        address each one by its fingerprint with update_security_finding.
         For each panic report, re-read the path and confirm two things before keeping it: that the input is
         genuinely attacker-controlled at that point, and that the panic is not already contained by an ante
         handler check, a validation step in ValidateBasic or the message server, or baseapp's per-transaction
         recover. Rank by blast radius: a panic in a begin or end blocker, proposal handler, or upgrade
         handler that stops the chain outranks one that only fails a transaction, and a deterministic
         divergence outranks a slow state-growth problem. Merge duplicates that several entry points share
-        through one helper. Then assemble and submit the final scan report.
+        through one helper. The per-entry-point fan-out covers at most the first 16 entries of the
+        risk-ranked inventory in {{tasks.map-abci-methods.output}}: name every ABCI entry point beyond that
+        cut in the report summary as an explicit coverage gap. Then assemble and submit the final scan
+        report.
       dependsOn:
+        - map-abci-methods
         - investigate-panic-paths
         - consensus-non-determinism
         - unbounded-gas-and-state-growth

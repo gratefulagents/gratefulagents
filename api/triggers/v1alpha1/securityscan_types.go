@@ -35,6 +35,31 @@ const (
 	// findings once this cap is reached, so the platform-authored value is
 	// the hard cap regardless of model output.
 	SecurityScanMaxFindingsAnnotation = "security.gratefulagents.dev/max-findings"
+	// SecurityScanExecutionIDAnnotation is the immutable identifier of the
+	// execution (campaign) the run belongs to. Every task run of one
+	// deterministic execution — and the single coordinator run of a
+	// coordinator-mode scan — carries the same value, so findings persisted
+	// by sibling task runs aggregate into exactly one report. Historical or
+	// resumed executions of the same scan carry different values and never
+	// mix.
+	SecurityScanExecutionIDAnnotation = "security.gratefulagents.dev/execution-id"
+	// SecurityScanTaskNameAnnotation is the workflow task name a
+	// deterministic task run executes. It scopes the per-task findings
+	// budget across all fan-out instances and retries of that task.
+	SecurityScanTaskNameAnnotation = "security.gratefulagents.dev/task-name"
+	// SecurityScanTaskMaxFindingsAnnotation is the task's own
+	// SecurityScanTask.maxFindings. Unlike the scan-wide cap it is counted
+	// per task (across that task's fan-out instances and retries within the
+	// execution), so parallel tasks never race for one cumulative budget.
+	SecurityScanTaskMaxFindingsAnnotation = "security.gratefulagents.dev/task-max-findings"
+	// SecurityScanTaskRoleAnnotation is the effective RoleInstruction name
+	// resolved for a deterministic task run (SecurityScanTask.EffectiveRole).
+	SecurityScanTaskRoleAnnotation = "security.gratefulagents.dev/task-role"
+	// SecurityScanPostScriptAnnotation is the SecurityPostScript name a
+	// durable post-script job run executes; SecurityScanPostScriptFindingAnnotation
+	// is the finding id that job is bound to.
+	SecurityScanPostScriptAnnotation        = "security.gratefulagents.dev/post-script"
+	SecurityScanPostScriptFindingAnnotation = "security.gratefulagents.dev/post-script-finding"
 )
 
 // SecurityScanRunNowAnnotation is set on a SecurityScan (not its runs) by the
@@ -450,8 +475,11 @@ type SecurityScanTask struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 
-	// maxFindings caps how many findings this task may report. Zero means
-	// unlimited.
+	// maxFindings caps how many findings this task may report, counted
+	// across every fan-out instance and retry of the task within one
+	// execution. Zero means unlimited. It is a separate scope from
+	// budgets.maxFindings, which every task of the execution shares, so
+	// parallel tasks never race for one cumulative allowance.
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	MaxFindings int32 `json:"maxFindings,omitempty"`
@@ -652,10 +680,14 @@ type SecurityScanBudgets struct {
 	// +optional
 	MaxRuntime metav1.Duration `json:"maxRuntime,omitempty"`
 
-	// maxFindings caps how many findings the scan may persist. Enforced by
-	// controller-side monitoring of the persisted finding count (the cap is
-	// also stated in the run prompt as guidance, but model output is never
-	// trusted for enforcement).
+	// maxFindings caps how many findings ONE execution of the scan may
+	// persist: every task run of a deterministic execution (and the single
+	// run of a coordinator-mode execution) shares this budget, and a later
+	// execution of the same scan starts from a fresh allowance rather than
+	// inheriting the scan's whole history. Enforced transactionally at the
+	// persistence boundary, so no model output can raise it (the cap is
+	// also stated in the run prompt, purely as guidance). A per-task cap is
+	// configured separately with SecurityScanTask.maxFindings.
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	MaxFindings int32 `json:"maxFindings,omitempty"`
@@ -816,6 +848,94 @@ type SecurityScanTaskExecutionStatus struct {
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
 }
 
+// Post-script job states reported in SecurityScanPostScriptJobStatus.State.
+// They mirror the task states so one terminal-state predicate covers both.
+const (
+	SecurityScanPostScriptStatePending   = "Pending"
+	SecurityScanPostScriptStateRunning   = "Running"
+	SecurityScanPostScriptStateSucceeded = "Succeeded"
+	SecurityScanPostScriptStateFailed    = "Failed"
+	// SecurityScanPostScriptStateSkipped means the job's runOn predicate did
+	// not match the finding's status/severity when the job was dispatched.
+	// Skipping is a normal, non-failing outcome: runOn is evaluated against
+	// the finding as it exists at dispatch time, not as it existed when the
+	// jobs were materialized.
+	SecurityScanPostScriptStateSkipped = "Skipped"
+)
+
+// MaxSecurityScanPostScriptJobs bounds the materialized finding x post-script
+// matrix recorded in status. A scan with many findings and several scripts
+// would otherwise push the SecurityScan object past the etcd object-size
+// limit; exceeding the bound marks the execution's post-script coverage
+// incomplete instead of silently dropping jobs.
+const MaxSecurityScanPostScriptJobs = 200
+
+// SecurityScanPostScriptJobStatus is one durable finding x post-script
+// execution. Post-scripts used to be prose in the sink prompt, so runOn,
+// ordering, retries, and completion were entirely model-discretionary and
+// unauditable. Materializing them as jobs makes each one an observable,
+// retriable unit whose terminal state gates the final report.
+type SecurityScanPostScriptJobStatus struct {
+	// script is the SecurityPostScript name.
+	// +optional
+	Script string `json:"script,omitempty"`
+
+	// order is the script's 0-based position in spec.postScripts. Jobs for
+	// one finding run in this order so a later script observes the status a
+	// previous one set.
+	// +optional
+	Order int32 `json:"order,omitempty"`
+
+	// findingID is the platform finding UUID this job is bound to;
+	// fingerprint is the stable finding identity used in prompts and audit
+	// notes.
+	// +optional
+	FindingID string `json:"findingID,omitempty"`
+	// +optional
+	Fingerprint string `json:"fingerprint,omitempty"`
+
+	// state is the job's current state: Pending, Running, Succeeded,
+	// Failed, or Skipped.
+	// +optional
+	State string `json:"state,omitempty"`
+
+	// runName is the AgentRun currently or most recently serving this job.
+	// +optional
+	RunName string `json:"runName,omitempty"`
+
+	// attempts is how many attempts have started for this job.
+	// +optional
+	Attempts int32 `json:"attempts,omitempty"`
+
+	// result summarizes the terminal outcome: the finding status the job
+	// left behind, or why it was skipped.
+	// +optional
+	Result string `json:"result,omitempty"`
+
+	// lastError summarizes the most recent failure.
+	// +optional
+	LastError string `json:"lastError,omitempty"`
+
+	// startedAt is when the first attempt started; finishedAt is when the
+	// job reached a terminal state.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// +optional
+	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+}
+
+// SecurityScanPostScriptJobTerminal reports whether a post-script job state
+// is final.
+func SecurityScanPostScriptJobTerminal(state string) bool {
+	switch state {
+	case SecurityScanPostScriptStateSucceeded,
+		SecurityScanPostScriptStateFailed,
+		SecurityScanPostScriptStateSkipped:
+		return true
+	}
+	return false
+}
+
 // SecurityScanExecutionStatus is the observed state of one deterministic
 // workflow execution.
 type SecurityScanExecutionStatus struct {
@@ -859,6 +979,30 @@ type SecurityScanExecutionStatus struct {
 	// controller has processed, making resume requests idempotent.
 	// +optional
 	LastResumeToken string `json:"lastResumeToken,omitempty"`
+
+	// postScriptJobs is the materialized finding x post-script matrix. It
+	// is populated once the research tasks are terminal and gates the sink
+	// task: the final report may only be submitted after every job reached
+	// a terminal state.
+	// +listType=atomic
+	// +optional
+	PostScriptJobs []SecurityScanPostScriptJobStatus `json:"postScriptJobs,omitempty"`
+
+	// postScriptsMaterialized records that the job matrix was computed, so
+	// a reconcile that observes zero eligible findings does not recompute
+	// it forever.
+	// +optional
+	PostScriptsMaterialized bool `json:"postScriptsMaterialized,omitempty"`
+
+	// coverageGaps records why this execution's results are not complete:
+	// truncated fan-out inventories and post-script jobs that could not be
+	// materialized or did not reach a successful terminal state. A non-empty
+	// list means the report must be read as partial coverage rather than as
+	// an authoritative all-clear.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=50
+	// +optional
+	CoverageGaps []string `json:"coverageGaps,omitempty"`
 }
 
 // SecurityScanStatus defines the observed state of SecurityScan.

@@ -98,19 +98,21 @@ spec:
         the cheapest local proof that settles the question - a focused harness, a direct call into the
         vulnerable function, a request against a locally started server - and never send traffic to a real
         system. Update each finding with the outcome: confirmed with the reproduction steps and evidence,
-        or rejected with the specific check that stops the attack. Kill every candidate whose path breaks;
-        a rejected finding is as valuable an outcome as a confirmed one. Publish one entry per settled
-        candidate as this task's structured output, and an empty array when there was nothing to settle.
+        or false_positive with the specific check that stops the attack (false_positive is the canonical status
+        for a disproved candidate; never invent a status such as "rejected"). Kill every candidate whose
+        path breaks; a disproved finding is as valuable an outcome as a confirmed one. Publish one entry per settled
+        candidate as this task's structured output, each carrying the fingerprint of the finding it settles, and an empty array when there was nothing to settle.
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "verdict", "summary"],
+            "required": ["title", "fingerprint", "verdict", "summary"],
             "properties": {
+              "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding for this finding"},
               "title": {"type": "string", "description": "Short name of the candidate finding"},
-              "verdict": {"type": "string", "description": "confirmed or rejected"},
-              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "verdict": {"type": "string", "enum": ["confirmed", "false_positive"], "description": "Status set on the finding: confirmed when the attack path holds, false_positive when it is disproved"},
+              "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity of the finding"},
               "file": {"type": "string", "description": "Repository-relative file the candidate cites"},
               "line": {"type": "integer", "description": "Line the candidate cites"},
               "summary": {"type": "string", "description": "The reproduction that confirms it, or the check that stops it"}
@@ -131,7 +133,7 @@ spec:
         Assemble the final report from the validation results in {{tasks.validate-exploitability.output}}.
         Apply one admission rule without exception: a finding stays only when the report states a concrete
         exploitation path - who the attacker is, what they send, the code path it traverses with file:line
-        evidence, and what they gain - and that path survived validation. Drop everything marked rejected,
+        evidence, and what they gain - and that path survived validation. Drop everything marked false_positive,
         everything whose path is stated in conditional or speculative terms, and everything whose impact
         does not amount to remote compromise, no matter how tidy the analysis. Merge duplicates that share a
         sink, rank the survivors by attacker prerequisites and impact, and prefer an empty report over a

@@ -130,14 +130,38 @@ func writeSecurityScanScope(b *strings.Builder, scope *triggersv1alpha1.Security
 // prompts. maxFindings <= 0 omits the budget line.
 func writeSecurityScanReportingPolicy(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec, maxFindings int32) {
 	b.WriteString("## Reporting policy\n\n")
+	writeSecurityScanReportingRules(b, spec)
+	if maxFindings > 0 {
+		fmt.Fprintf(b, "- Finding budget: report at most %d findings in total; prioritize the most severe, highest-confidence issues. The platform enforces this cap on the persisted findings regardless of what is reported.\n", maxFindings)
+	}
+	b.WriteString("\n")
+}
+
+// writeSecurityScanReportingRules renders the dedupe and minimum-severity
+// rules every scan prompt states, independent of which budgets apply.
+func writeSecurityScanReportingRules(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec) {
 	if spec.DedupeEnabled() {
 		fmt.Fprintf(b, "- Deduplicate findings: treat findings with similarity of at least %d/1000 as duplicates and report each issue once.\n", spec.DedupeSimilarityThresholdPermille())
 	} else {
 		b.WriteString("- Deduplication is disabled: report every finding, including near-duplicates.\n")
 	}
 	fmt.Fprintf(b, "- Exclude findings below severity %q from the report.\n", spec.EffectiveMinSeverity())
-	if maxFindings > 0 {
-		fmt.Fprintf(b, "- Finding budget: report at most %d findings in total; prioritize the most severe, highest-confidence issues. The platform enforces this cap on the persisted findings regardless of what is reported.\n", maxFindings)
+}
+
+// writeSecurityScanTaskReportingPolicy renders the reporting policy of one
+// deterministic task run, where TWO independent budgets apply: the task's own
+// cap, counted across every parallel instance and retry of that task, and the
+// scan-wide cap every task of the execution shares. Collapsing them into one
+// number would misstate both — a task would either believe it may report the
+// whole scan's budget alone, or that the scan-wide cap is as small as its own.
+func writeSecurityScanTaskReportingPolicy(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec, taskMaxFindings int32) {
+	b.WriteString("## Reporting policy\n\n")
+	writeSecurityScanReportingRules(b, spec)
+	if taskMaxFindings > 0 {
+		fmt.Fprintf(b, "- Task finding budget: this task may report at most %d findings in total, counted across all of its parallel instances and any retries; prioritize the most severe, highest-confidence issues.\n", taskMaxFindings)
+	}
+	if spec.Budgets != nil && spec.Budgets.MaxFindings > 0 {
+		fmt.Fprintf(b, "- Scan finding budget: every task of this execution shares one scan-wide cap of %d findings. The platform enforces both caps on the persisted findings regardless of what is reported.\n", spec.Budgets.MaxFindings)
 	}
 	b.WriteString("\n")
 }
@@ -245,6 +269,32 @@ type SecurityScanTaskInstance struct {
 	// terminal aggregation points of the DAG, so the scan-wide report is
 	// submitted exactly where all research results converge.
 	Sink bool
+	// PostScriptsInline reports that the platform could NOT run the
+	// post-scripts as durable per-finding jobs (a workflow whose every task
+	// is a sink has no research phase to derive the matrix from). The sink is
+	// then given the scripts as prose to run itself; asserting a
+	// platform-enforced execution that never happened would leave the
+	// findings unvalidated with nobody compensating.
+	PostScriptsInline bool
+	// CoverageGaps are the execution's explicit incomplete-coverage
+	// statements (truncated fan-outs, post-script jobs that never reached a
+	// verdict). They are rendered for sink tasks only: the report the sink
+	// submits must disclose them instead of reading as authoritative.
+	CoverageGaps []string
+}
+
+// SecurityScanTaskRole is the effective RoleInstruction contract a
+// deterministic task run was dispatched with, as stated in its prompt. It
+// mirrors what the run is actually configured with (instructions are injected
+// separately, the tool policy is already narrowed), so the agent is never told
+// it may do something the platform then denies.
+type SecurityScanTaskRole struct {
+	Name        string
+	Description string
+	// ToolAccess is the role's raw spec value; ReadOnly is its normalized
+	// meaning (read-only and analysis both forbid mutation).
+	ToolAccess string
+	ReadOnly   bool
 }
 
 // BuildSecurityScanTaskPrompt renders the focused single-task packet seeded
@@ -252,8 +302,9 @@ type SecurityScanTaskInstance struct {
 // target, event, and scope context, this task's rendered objective and role,
 // the machine-readable finding contract, the structured-output contract when
 // the task declares an outputSchema, and — for sink tasks only — the final
-// scan-report step. Output is deterministic for a given input.
-func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *SecurityScanPromptEvent, task triggersv1alpha1.SecurityScanTask, inst SecurityScanTaskInstance) string {
+// scan-report step. A nil role renders the task's declared role name only.
+// Output is deterministic for a given input.
+func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *SecurityScanPromptEvent, task triggersv1alpha1.SecurityScanTask, inst SecurityScanTaskInstance, role *SecurityScanTaskRole) string {
 	var b strings.Builder
 
 	b.WriteString("# Security scan task\n\n")
@@ -277,6 +328,14 @@ func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *
 	}
 	fmt.Fprintf(&b, "- Objective: %s\n", objective)
 	fmt.Fprintf(&b, "- Role: %s\n", task.EffectiveRole())
+	if role != nil {
+		if role.Description != "" {
+			fmt.Fprintf(&b, "- Role focus: %s\n", role.Description)
+		}
+		if role.ReadOnly {
+			fmt.Fprintf(&b, "- Role tool access: %s. Do not attempt to modify the repository, commit, push, or post to the forge; those tools are withheld from this run.\n", role.ToolAccess)
+		}
+	}
 	if inst.Total > 1 {
 		fmt.Fprintf(&b, "- Instance: %d of %d parallel instances of this task; stay within this instance's slice of the work.\n", inst.Instance+1, inst.Total)
 	}
@@ -290,11 +349,7 @@ func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *
 	b.WriteString(security.FindingSchemaPrompt())
 	b.WriteString("\n\n")
 
-	maxFindings := task.MaxFindings
-	if maxFindings <= 0 && spec.Budgets != nil {
-		maxFindings = spec.Budgets.MaxFindings
-	}
-	writeSecurityScanReportingPolicy(&b, spec, maxFindings)
+	writeSecurityScanTaskReportingPolicy(&b, spec, task.MaxFindings)
 
 	if strings.TrimSpace(task.OutputSchema) != "" {
 		b.WriteString("## Structured output\n\n")
@@ -306,9 +361,21 @@ func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *
 	if inst.Sink {
 		if len(spec.PostScripts) > 0 {
 			b.WriteString("## Post-scripts\n\n")
-			b.WriteString("Run each post-script below once per matching finding before submitting the report.\n\n")
-			for _, script := range spec.PostScripts {
-				fmt.Fprintf(&b, "- Post-script %q (runs on: %s findings): %s\n", script.Name, script.EffectiveRunOn(), script.Prompt)
+			if inst.PostScriptsInline {
+				b.WriteString("The platform could NOT run these post-scripts as per-finding jobs for this workflow, so running them is YOUR responsibility: run each post-script below once per matching finding, record its verdict with update_security_finding, and only then submit the report.\n\n")
+				for _, script := range spec.PostScripts {
+					fmt.Fprintf(&b, "- Post-script %q (runs on: %s findings): %s\n", script.Name, script.EffectiveRunOn(), script.Prompt)
+				}
+				b.WriteString("\n")
+			} else {
+				b.WriteString("The post-scripts already ran: the platform executed each one as its own per-finding job before this task started, in a fixed order, and recorded every verdict on the finding itself. Do not re-run them. Call list_security_findings to read the resulting statuses and audit notes, and let them drive the report.\n\n")
+			}
+		}
+		if len(inst.CoverageGaps) > 0 {
+			b.WriteString("## Incomplete coverage\n\n")
+			b.WriteString("This execution did NOT cover everything it was asked to. Your report must disclose each gap below explicitly and must not present the results as a complete or clean scan:\n\n")
+			for _, gap := range inst.CoverageGaps {
+				fmt.Fprintf(&b, "- %s\n", gap)
 			}
 			b.WriteString("\n")
 		}
@@ -329,6 +396,76 @@ func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *
 		}
 		b.WriteString(", finish the run.\n")
 	}
+
+	return b.String()
+}
+
+// SecurityPostScriptFinding is the finding one durable post-script job is
+// bound to, rendered compactly into its prompt. The job runs against exactly
+// this finding: the platform, not the model, decided that this script applies
+// to it, so the prompt states the finding instead of asking the run to select
+// one.
+type SecurityPostScriptFinding struct {
+	Fingerprint string
+	ID          string
+	Title       string
+	Category    string
+	Severity    string
+	Status      string
+	// Location is the rendered file:line(-line) (symbol) of the finding.
+	Location    string
+	Description string
+	Impact      string
+}
+
+// BuildSecurityPostScriptPrompt renders the packet seeded as the first user
+// message of one post-script job AgentRun: the scan target, event, and scope
+// context, the finding under review, the operator's post-script prompt
+// verbatim, and the hard verdict contract. The only durable output of a
+// post-script run is the finding status it sets, so the contract is stated as
+// a single update_security_finding call: anything the run concludes in prose
+// is lost when the run ends. Output is deterministic for a given input.
+func BuildSecurityPostScriptPrompt(spec triggersv1alpha1.SecurityScanSpec, event *SecurityScanPromptEvent, script triggersv1alpha1.SecurityScanPostScript, finding SecurityPostScriptFinding) string {
+	var b strings.Builder
+
+	b.WriteString("# Security scan post-script\n\n")
+	fmt.Fprintf(&b, "You are executing the post-script %q against ONE security finding of an autonomous security scan. ", script.Name)
+	b.WriteString("The research phase is over and the platform runs one job per finding: do exactly this script's work on the finding below, then record your verdict.\n\n")
+
+	writeSecurityScanTarget(&b, spec)
+	writeSecurityScanEvent(&b, event)
+	writeSecurityScanScope(&b, spec.Scope)
+
+	b.WriteString("## Finding under review\n\n")
+	fmt.Fprintf(&b, "- Fingerprint: %s\n", finding.Fingerprint)
+	fmt.Fprintf(&b, "- Finding id: %s\n", finding.ID)
+	fmt.Fprintf(&b, "- Title: %s\n", finding.Title)
+	if finding.Category != "" {
+		fmt.Fprintf(&b, "- Category: %s\n", finding.Category)
+	}
+	fmt.Fprintf(&b, "- Severity: %s\n", finding.Severity)
+	fmt.Fprintf(&b, "- Current status: %s\n", finding.Status)
+	if finding.Location != "" {
+		fmt.Fprintf(&b, "- Location: %s\n", finding.Location)
+	}
+	if finding.Description != "" {
+		fmt.Fprintf(&b, "- Description: %s\n", finding.Description)
+	}
+	if finding.Impact != "" {
+		fmt.Fprintf(&b, "- Impact: %s\n", finding.Impact)
+	}
+	b.WriteString("\n")
+
+	fmt.Fprintf(&b, "## Post-script %q\n\n", script.Name)
+	fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(script.Prompt))
+
+	b.WriteString("## Verdict contract\n\n")
+	b.WriteString("Before finishing, call update_security_finding EXACTLY ONCE for this finding. That call is the only durable output of this run; a conclusion stated only in your reply does not exist.\n\n")
+	fmt.Fprintf(&b, "- Identify the finding by `fingerprint: \"%s\"` (or `id: \"%s\"`).\n", finding.Fingerprint, finding.ID)
+	b.WriteString("- `status` must be exactly one of: open, triaged, confirmed, false_positive, fixed, accepted_risk.\n")
+	b.WriteString("- `note` carries your evidence and reasoning: what you did, what it proved or disproved, and why the status follows. The tool accepts no other fields, so anything the audit trail must keep belongs in the note.\n")
+	b.WriteString("- Leave the status unchanged (re-state the current one) when your work was inconclusive, and say so in the note.\n\n")
+	b.WriteString("Do NOT call submit_security_scan_report: a separate task submits the scan-wide report after every post-script job has finished, and it reads your verdict from the finding. Do not open, re-scan, or triage other findings; this job owns exactly the finding above.\n")
 
 	return b.String()
 }

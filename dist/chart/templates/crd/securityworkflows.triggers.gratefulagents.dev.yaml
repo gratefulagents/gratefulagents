@@ -134,8 +134,11 @@ spec:
                       type: string
                     maxFindings:
                       description: |-
-                        maxFindings caps how many findings this task may report. Zero means
-                        unlimited.
+                        maxFindings caps how many findings this task may report, counted
+                        across every fan-out instance and retry of the task within one
+                        execution. Zero means unlimited. It is a separate scope from
+                        budgets.maxFindings, which every task of the execution shares, so
+                        parallel tasks never race for one cumulative allowance.
                       format: int32
                       minimum: 0
                       type: integer

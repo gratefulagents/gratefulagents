@@ -16,9 +16,10 @@ spec:
         entrypoint record the route or topic, the HTTP method or verb ("*" when a handler accepts any),
         the handler symbol, the file that defines the handler, and whether an authentication guard is
         actually on the request path for that route rather than merely declared elsewhere. Exclude test
-        fixtures, examples, generated mocks, and code that is not reachable in a production build. Prefer
-        the entrypoints that carry the most attacker leverage when the surface is larger than the inventory
-        can hold. Finding reports are not this task's product: publish the inventory.
+        fixtures, examples, generated mocks, and code that is not reachable in a production build. Order the
+        inventory by attacker leverage, most dangerous first: only the first 20 entries are investigated, so
+        anything you rank below that is never examined. Finding reports are not this task's product: publish
+        the inventory.
       outputSchema: |-
         {
           "type": "array",
@@ -50,17 +51,18 @@ spec:
         vulnerabilities where you can name the source, every hop, and the sink with file:line evidence, and
         state the attack vector as a request an attacker could actually send. Do not report missing
         hardening, style problems, or risks with no reachable path from this entrypoint. Publish the same
-        kept reports as this task's structured output, one entry each, and an empty array when the flow is
+        kept reports as this task's structured output, one entry each carrying the fingerprint report_security_finding returned for it, and an empty array when the flow is
         clean.
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "severity", "file"],
+            "required": ["title", "fingerprint", "severity", "file"],
             "properties": {
+              "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding for this finding"},
               "title": {"type": "string", "description": "Short name of the vulnerability"},
-              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity of the finding"},
               "file": {"type": "string", "description": "Repository-relative file holding the sink"},
               "line": {"type": "integer", "description": "Line of the sink"},
               "summary": {"type": "string", "description": "Source, hops, and sink stated as the request an attacker sends"},
@@ -77,13 +79,16 @@ spec:
       role: finding-triager
       category: triage
       objective: >-
-        Triage every finding produced by the per-flow investigations in {{tasks.investigate-flow.output}},
-        judging reachability against the entrypoint inventory in {{tasks.map-entrypoints.output}}. Drop
-        findings whose source-to-sink chain does not hold up when you re-read the cited code, merge
-        duplicates that different flows reported for one shared helper (keep the instance with the strongest
-        evidence and the most exposed entrypoint), and demote anything that requires privileges the flow
-        never grants. Rank what survives by how much an external attacker gains and how little they need to
-        start. Then assemble and submit the final scan report.
+        Call list_security_findings to load every finding the per-flow investigations recorded for this
+        scan, and judge reachability against the entrypoint inventory in {{tasks.map-entrypoints.output}};
+        address each finding by its fingerprint with update_security_finding. Drop findings whose
+        source-to-sink chain does not hold up when you re-read the cited code, merge duplicates that
+        different flows reported for one shared helper (keep the instance with the strongest evidence and
+        the most exposed entrypoint), and demote anything that requires privileges the flow never grants.
+        Rank what survives by how much an external attacker gains and how little they need to start. The
+        per-flow fan-out covers at most the first 20 entries of the risk-ranked inventory: name every
+        entrypoint beyond that cut in the report summary as an explicit coverage gap. Then assemble and
+        submit the final scan report.
       dependsOn:
         - map-entrypoints
         - investigate-flow
