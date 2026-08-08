@@ -98,6 +98,46 @@ func TestIsDelegatedChildFromCRD(t *testing.T) {
 	}
 }
 
+func TestShouldTerminateAfterFinish(t *testing.T) {
+	tests := []struct {
+		name           string
+		run            *platformv1alpha1.AgentRun
+		delegatedChild bool
+		want           bool
+	}{
+		{name: "delegated child", delegatedChild: true, want: true},
+		{
+			name: "security scan task",
+			run: &platformv1alpha1.AgentRun{Spec: platformv1alpha1.AgentRunSpec{
+				Trigger: platformv1alpha1.TriggerRef{Kind: "SecurityScan"},
+			}},
+			want: true,
+		},
+		{
+			name: "security scan kind is case insensitive",
+			run: &platformv1alpha1.AgentRun{Spec: platformv1alpha1.AgentRunSpec{
+				Trigger: platformv1alpha1.TriggerRef{Kind: " securityscan "},
+			}},
+			want: true,
+		},
+		{
+			name: "user-facing run remains resumable",
+			run: &platformv1alpha1.AgentRun{Spec: platformv1alpha1.AgentRunSpec{
+				Trigger: platformv1alpha1.TriggerRef{Kind: "Project"},
+			}},
+		},
+		{name: "missing run remains resumable"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldTerminateAfterFinish(tt.run, tt.delegatedChild); got != tt.want {
+				t.Fatalf("shouldTerminateAfterFinish() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRestartPending(t *testing.T) {
 	if restartPending(nil) {
 		t.Fatal("restartPending(nil) = true, want false")

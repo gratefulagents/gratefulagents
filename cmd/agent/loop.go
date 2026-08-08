@@ -1629,7 +1629,7 @@ messageLoop:
 					log.Printf("WARN: failed to clear completion flag: %v", err)
 				}
 
-				if cfg.DelegatedChild {
+				if shouldTerminateAfterFinish(run, cfg.DelegatedChild) {
 					return runResult{Status: "succeeded"}
 				}
 				_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputIdle, "", nil)
