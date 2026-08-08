@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -137,5 +138,50 @@ func TestStableRecordsUsesTotalSerializedTieBreaker(t *testing.T) {
 	second, _ := canonicalJSON(pipeline)
 	if string(first) != string(second) {
 		t.Fatalf("ordering is not total:\n%s\n%s", first, second)
+	}
+}
+
+func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
+	registry, err := NewRegistry(DefaultManifest(sha256Digest([]byte("wrapper")), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := int64(42)
+	cases := []struct {
+		name   string
+		config RunConfig
+		want   []string
+	}{
+		{
+			name:   "nuclei",
+			config: RunConfig{Tool: "nuclei", Target: Target{Type: "base_url", Locator: "https://api.example.test/v1", Revision: "fixture-v1", Digest: sha256Digest([]byte("nuclei"))}, Arguments: map[string]string{"rate": "5"}, Scope: []string{"https://api.example.test/v1"}},
+			want:   []string{"nuclei", "-u", "https://api.example.test/v1", "-templates", "@operator/nuclei-reviewed.yaml", "-rate-limit", "5", "-concurrency", "1", "-bulk-size", "1", "-jsonl", "-silent", "-disable-update-check", "-no-interactsh"},
+		},
+		{
+			name:   "naabu",
+			config: RunConfig{Tool: "naabu", Target: Target{Type: "address_scope", Locator: "192.0.2.10", Revision: "fixture-v1", Digest: sha256Digest([]byte("naabu"))}, Arguments: map[string]string{"ports": "80,443", "rate": "25"}, Scope: []string{"192.0.2.10"}},
+			want:   []string{"naabu", "-host", "192.0.2.10", "-p", "80,443", "-rate", "25", "-c", "4", "-scan-type", "c", "-retries", "1", "-json", "-silent", "-disable-update-check"},
+		},
+		{
+			name:   "aderyn",
+			config: RunConfig{Tool: "aderyn", Target: Target{Type: "solidity_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("aderyn")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"}},
+			want:   []string{"aderyn", "/workspace/project", "--output", "report.sarif", "--stdout", "--skip-update-check"},
+		},
+		{
+			name:   "forge-security-tests",
+			config: RunConfig{Tool: "forge-security-tests", Target: Target{Type: "foundry_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("forge")), MediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"}, Seed: &seed},
+			want:   []string{"forge", "test", "--root", "/workspace/project", "--junit", "--fuzz-seed", "42", "--offline", "--threads", "1"},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			invocation, _, err := registry.BuildInvocation(test.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(invocation.Argv, test.want) {
+				t.Fatalf("argv=%q, want %q", invocation.Argv, test.want)
+			}
+		})
 	}
 }
