@@ -646,6 +646,17 @@ export function SecurityScanDetail() {
                 namespace={namespace}
                 execution={scanConfig.lastExecution}
                 workflowTasks={workflowTasks}
+                onResume={async () => {
+                  setActionError(null);
+                  try {
+                    await client.resumeSecurityScan({ namespace, name: scanConfig.name });
+                    await fetchScan();
+                  } catch (e: unknown) {
+                    setActionError(
+                      e instanceof Error ? e.message : "Failed to resume the execution",
+                    );
+                  }
+                }}
               />
             )}
 

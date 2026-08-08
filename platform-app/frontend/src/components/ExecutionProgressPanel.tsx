@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDown, ChevronRight, ListTree, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ListTree, RotateCcw, X } from "lucide-react";
 
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -57,6 +57,15 @@ function StatePill({ state }: { state: string }) {
 
 function instanceLabel(task: SecurityScanTaskExecutionState): string {
   return task.instance > 0 ? `${task.name} #${task.instance}` : task.name;
+}
+
+/** prettyJson re-indents a JSON payload for display; non-JSON stays raw. */
+function prettyJson(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
 }
 
 /** Terminal instance states that count toward the "done" progress figure. */
@@ -178,19 +187,25 @@ function ExecutionDagNode({
  * node to focus its instances); the instance table below always lists every
  * task instance with attempts, expandable retry history, timings, and a link
  * to the AgentRun serving the task. It is pure presentation — the parent
- * refreshes the scan config it reads from.
+ * refreshes the scan config it reads from — except for the optional Resume
+ * action, which the parent wires to the ResumeSecurityScan RPC and which
+ * appears only for a Failed execution.
  */
 export function ExecutionProgressPanel({
   namespace,
   execution,
   workflowTasks,
+  onResume,
 }: {
   namespace: string;
   execution: SecurityScanExecutionState;
   workflowTasks?: SecurityScanTaskConfig[];
+  /** Called when the user asks to resume a Failed execution. */
+  onResume?: () => Promise<void> | void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [focusTask, setFocusTask] = useState<string | null>(null);
+  const [resuming, setResuming] = useState(false);
 
   const groups = useMemo(() => groupInstances(execution), [execution]);
   const groupByName = useMemo(() => new Map(groups.map((g) => [g.name, g])), [groups]);
@@ -269,6 +284,23 @@ export function ExecutionProgressPanel({
               {execution.id}
             </span>
           )}
+          {onResume && execution.phase === "Failed" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              disabled={resuming}
+              data-testid="execution-resume"
+              onClick={() => {
+                setResuming(true);
+                void Promise.resolve(onResume()).finally(() => setResuming(false));
+              }}
+            >
+              <RotateCcw className="size-3.5" />
+              {resuming ? "Resuming…" : "Resume execution"}
+            </Button>
+          )}
         </div>
 
         {dagNodes.length > 0 && (
@@ -340,16 +372,17 @@ export function ExecutionProgressPanel({
             {visibleTasks.map((task) => {
               const key = `${task.name}#${task.instance}`;
               const isOpen = expanded.has(key);
+              const expandable = task.retries.length > 0 || task.outputJson !== "";
               return (
                 <Fragment key={key}>
                   <TableRow data-testid={`execution-task-${key}`}>
                     <TableCell>
-                      {task.retries.length > 0 && (
+                      {expandable && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`${isOpen ? "Hide" : "Show"} retries for ${instanceLabel(task)}`}
+                          aria-label={`${isOpen ? "Hide" : "Show"} details for ${instanceLabel(task)}`}
                           aria-expanded={isOpen}
                           onClick={() => toggle(key)}
                         >
@@ -394,23 +427,35 @@ export function ExecutionProgressPanel({
                     <TableRow data-testid={`execution-retries-${key}`}>
                       <TableCell />
                       <TableCell colSpan={7}>
-                        <ul className="space-y-1 py-1 text-xs text-muted-foreground">
-                          {task.retries.map((retry, index) => (
-                            <li key={`${retry.runName}-${index}`}>
-                              <span className="font-mono">{retry.runName || "(no run)"}</span>{" "}
-                              <span
-                                className={cn(
-                                  "rounded-md px-1.5 py-0.5",
-                                  toneSoft[retry.class === "non-retryable" ? "danger" : "warning"],
-                                )}
-                              >
-                                {retry.class || "retryable"}
-                              </span>{" "}
-                              — {retry.reason || "no reason recorded"} ·{" "}
-                              {formatUnix(retry.startedAtUnix)} → {formatUnix(retry.finishedAtUnix)}
-                            </li>
-                          ))}
-                        </ul>
+                        {task.retries.length > 0 && (
+                          <ul className="space-y-1 py-1 text-xs text-muted-foreground">
+                            {task.retries.map((retry, index) => (
+                              <li key={`${retry.runName}-${index}`}>
+                                <span className="font-mono">{retry.runName || "(no run)"}</span>{" "}
+                                <span
+                                  className={cn(
+                                    "rounded-md px-1.5 py-0.5",
+                                    toneSoft[retry.class === "non-retryable" ? "danger" : "warning"],
+                                  )}
+                                >
+                                  {retry.class || "retryable"}
+                                </span>{" "}
+                                — {retry.reason || "no reason recorded"} ·{" "}
+                                {formatUnix(retry.startedAtUnix)} → {formatUnix(retry.finishedAtUnix)}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {task.outputJson !== "" && (
+                          <div className="space-y-1 py-1" data-testid={`execution-output-${key}`}>
+                            <p className="text-[11px] font-medium text-muted-foreground">
+                              Structured output
+                            </p>
+                            <pre className="max-h-64 overflow-auto rounded-md border border-border/60 bg-muted/30 p-2 font-mono text-[11.5px] leading-relaxed">
+                              {prettyJson(task.outputJson)}
+                            </pre>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   )}

@@ -572,6 +572,9 @@ const (
 	// PlatformServiceRunSecurityScanNowProcedure is the fully-qualified name of the PlatformService's
 	// RunSecurityScanNow RPC.
 	PlatformServiceRunSecurityScanNowProcedure = "/platform.v1.PlatformService/RunSecurityScanNow"
+	// PlatformServiceResumeSecurityScanProcedure is the fully-qualified name of the PlatformService's
+	// ResumeSecurityScan RPC.
+	PlatformServiceResumeSecurityScanProcedure = "/platform.v1.PlatformService/ResumeSecurityScan"
 	// PlatformServiceListSecurityWorkflowsProcedure is the fully-qualified name of the
 	// PlatformService's ListSecurityWorkflows RPC.
 	PlatformServiceListSecurityWorkflowsProcedure = "/platform.v1.PlatformService/ListSecurityWorkflows"
@@ -938,6 +941,15 @@ type PlatformServiceClient interface {
 	// override), so the call requires the same collaborator access as
 	// UpdateSecurityScan. Suspended scans are rejected with FailedPrecondition.
 	RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error)
+	// ResumeSecurityScan requests a resume of the scan's most recent FAILED
+	// deterministic execution: failed and skipped task instances are reset and
+	// re-run with a refreshed retry budget while succeeded tasks keep their
+	// results. The dashboard stamps a resume-scan annotation token on the CR;
+	// the controller consumes each token exactly once (recorded in
+	// status.lastExecution.lastResumeToken), so duplicate requests are
+	// idempotent. Rejected with FailedPrecondition unless the last execution
+	// is deterministic and Failed.
+	ResumeSecurityScan(context.Context, *connect.Request[platform.ResumeSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	// Reusable security library resources: SecurityWorkflow, SecurityRanker,
 	// and SecurityPostScript CRs referenced by SecurityScan configurations via
 	// workflow_ref / ranker_refs / post_script_refs. Referenced content is
@@ -2092,6 +2104,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("RunSecurityScanNow")),
 			connect.WithClientOptions(opts...),
 		),
+		resumeSecurityScan: connect.NewClient[platform.ResumeSecurityScanRequest, platform.SecurityScanConfig](
+			httpClient,
+			baseURL+PlatformServiceResumeSecurityScanProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ResumeSecurityScan")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecurityWorkflows: connect.NewClient[platform.ListSecurityWorkflowsRequest, platform.ListSecurityWorkflowsResponse](
 			httpClient,
 			baseURL+PlatformServiceListSecurityWorkflowsProcedure,
@@ -2439,6 +2457,7 @@ type platformServiceClient struct {
 	updateSecurityScan                     *connect.Client[platform.UpdateSecurityScanRequest, platform.SecurityScanConfig]
 	deleteSecurityScan                     *connect.Client[platform.DeleteSecurityScanRequest, emptypb.Empty]
 	runSecurityScanNow                     *connect.Client[platform.RunSecurityScanNowRequest, platform.SecurityScanConfig]
+	resumeSecurityScan                     *connect.Client[platform.ResumeSecurityScanRequest, platform.SecurityScanConfig]
 	listSecurityWorkflows                  *connect.Client[platform.ListSecurityWorkflowsRequest, platform.ListSecurityWorkflowsResponse]
 	getSecurityWorkflow                    *connect.Client[platform.GetSecurityWorkflowRequest, platform.SecurityWorkflowResource]
 	createSecurityWorkflow                 *connect.Client[platform.CreateSecurityWorkflowRequest, platform.SecurityWorkflowResource]
@@ -3373,6 +3392,11 @@ func (c *platformServiceClient) RunSecurityScanNow(ctx context.Context, req *con
 	return c.runSecurityScanNow.CallUnary(ctx, req)
 }
 
+// ResumeSecurityScan calls platform.v1.PlatformService.ResumeSecurityScan.
+func (c *platformServiceClient) ResumeSecurityScan(ctx context.Context, req *connect.Request[platform.ResumeSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	return c.resumeSecurityScan.CallUnary(ctx, req)
+}
+
 // ListSecurityWorkflows calls platform.v1.PlatformService.ListSecurityWorkflows.
 func (c *platformServiceClient) ListSecurityWorkflows(ctx context.Context, req *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error) {
 	return c.listSecurityWorkflows.CallUnary(ctx, req)
@@ -3791,6 +3815,15 @@ type PlatformServiceHandler interface {
 	// override), so the call requires the same collaborator access as
 	// UpdateSecurityScan. Suspended scans are rejected with FailedPrecondition.
 	RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error)
+	// ResumeSecurityScan requests a resume of the scan's most recent FAILED
+	// deterministic execution: failed and skipped task instances are reset and
+	// re-run with a refreshed retry budget while succeeded tasks keep their
+	// results. The dashboard stamps a resume-scan annotation token on the CR;
+	// the controller consumes each token exactly once (recorded in
+	// status.lastExecution.lastResumeToken), so duplicate requests are
+	// idempotent. Rejected with FailedPrecondition unless the last execution
+	// is deterministic and Failed.
+	ResumeSecurityScan(context.Context, *connect.Request[platform.ResumeSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	// Reusable security library resources: SecurityWorkflow, SecurityRanker,
 	// and SecurityPostScript CRs referenced by SecurityScan configurations via
 	// workflow_ref / ranker_refs / post_script_refs. Referenced content is
@@ -4941,6 +4974,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("RunSecurityScanNow")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceResumeSecurityScanHandler := connect.NewUnaryHandler(
+		PlatformServiceResumeSecurityScanProcedure,
+		svc.ResumeSecurityScan,
+		connect.WithSchema(platformServiceMethods.ByName("ResumeSecurityScan")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListSecurityWorkflowsHandler := connect.NewUnaryHandler(
 		PlatformServiceListSecurityWorkflowsProcedure,
 		svc.ListSecurityWorkflows,
@@ -5465,6 +5504,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceDeleteSecurityScanHandler.ServeHTTP(w, r)
 		case PlatformServiceRunSecurityScanNowProcedure:
 			platformServiceRunSecurityScanNowHandler.ServeHTTP(w, r)
+		case PlatformServiceResumeSecurityScanProcedure:
+			platformServiceResumeSecurityScanHandler.ServeHTTP(w, r)
 		case PlatformServiceListSecurityWorkflowsProcedure:
 			platformServiceListSecurityWorkflowsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityWorkflowProcedure:
@@ -6246,6 +6287,10 @@ func (UnimplementedPlatformServiceHandler) DeleteSecurityScan(context.Context, *
 
 func (UnimplementedPlatformServiceHandler) RunSecurityScanNow(context.Context, *connect.Request[platform.RunSecurityScanNowRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.RunSecurityScanNow is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ResumeSecurityScan(context.Context, *connect.Request[platform.ResumeSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ResumeSecurityScan is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListSecurityWorkflows(context.Context, *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error) {

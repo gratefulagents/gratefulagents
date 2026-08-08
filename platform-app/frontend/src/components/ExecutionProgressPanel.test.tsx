@@ -125,21 +125,67 @@ describe("ExecutionProgressPanel", () => {
     renderPanel();
     expect(screen.queryByTestId("execution-retries-injection-hunt#1")).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "Show retries for injection-hunt #1" }),
+      screen.getByRole("button", { name: "Show details for injection-hunt #1" }),
     );
     const retries = screen.getByTestId("execution-retries-injection-hunt#1");
     expect(retries.textContent).toContain("scan-injection-2");
     expect(retries.textContent).toContain("run failed: OOMKilled");
     expect(retries.textContent).toContain("retryable");
     fireEvent.click(
-      screen.getByRole("button", { name: "Hide retries for injection-hunt #1" }),
+      screen.getByRole("button", { name: "Hide details for injection-hunt #1" }),
     );
     expect(screen.queryByTestId("execution-retries-injection-hunt#1")).toBeNull();
   });
 
   it("offers no retry toggle for tasks without retries", () => {
     renderPanel();
-    expect(screen.queryByRole("button", { name: /retries for recon/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /details for recon/ })).toBeNull();
+  });
+
+  it("expands a succeeded task's structured output", () => {
+    const state = execution();
+    state.tasks[0].outputJson = '{"targets":["/api","/admin"]}';
+    renderPanel(state);
+    fireEvent.click(screen.getByRole("button", { name: "Show details for recon" }));
+    const output = screen.getByTestId("execution-output-recon#0");
+    expect(output.textContent).toContain("Structured output");
+    // Pretty-printed for readability.
+    expect(output.textContent).toContain('"/admin"');
+    expect(output.querySelector("pre")?.textContent).toContain("\n");
+  });
+
+  it("offers Resume only for a failed execution and reports the click", () => {
+    let resumed = 0;
+    const running = execution();
+    render(
+      <MemoryRouter>
+        <ExecutionProgressPanel
+          namespace="user-alice"
+          execution={running}
+          onResume={() => {
+            resumed += 1;
+          }}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByTestId("execution-resume")).toBeNull();
+    cleanup();
+
+    const failed = execution();
+    failed.phase = "Failed";
+    render(
+      <MemoryRouter>
+        <ExecutionProgressPanel
+          namespace="user-alice"
+          execution={failed}
+          onResume={() => {
+            resumed += 1;
+          }}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByTestId("execution-resume"));
+    expect(resumed).toBe(1);
   });
 
   it("shows overall instance progress and the execution id", () => {

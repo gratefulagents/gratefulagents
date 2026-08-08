@@ -296,6 +296,15 @@ service PlatformService {
   // override), so the call requires the same collaborator access as
   // UpdateSecurityScan. Suspended scans are rejected with FailedPrecondition.
   rpc RunSecurityScanNow(RunSecurityScanNowRequest) returns (SecurityScanConfig);
+  // ResumeSecurityScan requests a resume of the scan's most recent FAILED
+  // deterministic execution: failed and skipped task instances are reset and
+  // re-run with a refreshed retry budget while succeeded tasks keep their
+  // results. The dashboard stamps a resume-scan annotation token on the CR;
+  // the controller consumes each token exactly once (recorded in
+  // status.lastExecution.lastResumeToken), so duplicate requests are
+  // idempotent. Rejected with FailedPrecondition unless the last execution
+  // is deterministic and Failed.
+  rpc ResumeSecurityScan(ResumeSecurityScanRequest) returns (SecurityScanConfig);
 
   // Reusable security library resources: SecurityWorkflow, SecurityRanker,
   // and SecurityPostScript CRs referenced by SecurityScan configurations via
@@ -4452,6 +4461,12 @@ message SecurityScanTaskExecutionState {
   string last_error = 8; // Most recent failure summary
   int64 started_at_unix = 9;
   int64 finished_at_unix = 10;
+  // output_json is the structured output the task's AgentRun submitted via
+  // the submit_task_output tool (validated against the task's outputSchema).
+  // Populated only by GetSecurityScanConfig — list responses omit it — and
+  // read from the task's AgentRun status at response time (empty when the
+  // run produced no structured output or has been deleted).
+  string output_json = 11;
 }
 
 // SecurityScanExecutionState is the observed state of the most recent
@@ -4637,6 +4652,11 @@ message RunSecurityScanNowRequest {
   // spec and applies to every later run, not only the requested one. Each
   // value is capped at 4096 bytes.
   map<string, string> parameter_values = 3;
+}
+
+message ResumeSecurityScanRequest {
+  string namespace = 1;
+  string name = 2;
 }
 
 // SecurityWorkflowResource is one reusable SecurityWorkflow CR. The proto
