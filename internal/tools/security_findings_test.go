@@ -1830,10 +1830,63 @@ func executionScanContext(runName, executionID, taskName string) SecurityScanCon
 	return scanCtx
 }
 
+// Every task run of one deterministic execution reports into the SAME scan
+// record (the controller-stamped record key), so the dashboard scans list
+// shows one row per execution instead of one per reporting task run — and
+// the sink's report submission completes that shared row, pointing its
+// session at the submitting run so the report artifacts resolve.
+func TestSecurityScanSiblingRunsShareOneScanRecord(t *testing.T) {
+	const recordName = "secscan-nightly-scan-exec-1"
+	findingStore := newFakeSecurityFindingStore()
+	ctxA := executionScanContext("run-a", "exec-1", "recon")
+	ctxA.RecordRunName = recordName
+	ctxB := executionScanContext("run-b", "exec-1", "exploit")
+	ctxB.RecordRunName = recordName
+	ctxB.SessionID = uuid.New()
+	runA := newSecurityTestRegistryWithCtx(t, findingStore, nil, ctxA)
+	runB := newSecurityTestRegistryWithCtx(t, findingStore, nil, ctxB)
+
+	if result := execTool(t, runA, "report_security_finding",
+		`{"title":"SQLi","category":"injection","severity":"high","description":"x","file_path":"a.go"}`); result.IsError {
+		t.Fatalf("run A report failed: %s", result.Content)
+	}
+	if result := execTool(t, runB, "report_security_finding",
+		`{"title":"XSS","category":"injection","severity":"medium","description":"y","file_path":"b.go"}`); result.IsError {
+		t.Fatalf("run B report failed: %s", result.Content)
+	}
+	if len(findingStore.scans) != 1 {
+		t.Fatalf("scan records = %d (%v), want the siblings to share one record", len(findingStore.scans), findingStore.scans)
+	}
+	shared := findingStore.scans["default/"+recordName]
+	if shared == nil {
+		t.Fatalf("scans = %v, want the record keyed by %q", findingStore.scans, recordName)
+	}
+	for _, f := range findingStore.findings {
+		if f.ScanID != shared.ID {
+			t.Fatalf("finding %q scanID = %s, want the shared record %s", f.Title, f.ScanID, shared.ID)
+		}
+	}
+
+	if result := execTool(t, runB, "submit_security_scan_report", `{"summary":"done"}`); result.IsError {
+		t.Fatalf("submit failed: %s", result.Content)
+	}
+	if len(findingStore.scans) != 1 {
+		t.Fatalf("scan records after submit = %d, want still one", len(findingStore.scans))
+	}
+	final := findingStore.scans["default/"+recordName]
+	if final.Status != "completed" || final.CompletedAt == nil {
+		t.Fatalf("shared record = %+v, want completed with completedAt", final)
+	}
+	if final.SessionID == nil || *final.SessionID != ctxB.SessionID {
+		t.Fatalf("record session = %v, want the submitting run's session %s", final.SessionID, ctxB.SessionID)
+	}
+}
+
 func TestSecurityScanContextFromRunParsesExecutionAnnotations(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
 		SecurityScanNameAnnotation:            "nightly-scan",
 		SecurityScanExecutionIDAnnotation:     "  exec-1  ",
+		SecurityScanRecordNameAnnotation:      " secscan-nightly-scan-exec-1 ",
 		SecurityScanTaskNameAnnotation:        " recon ",
 		SecurityScanTaskMaxFindingsAnnotation: "7",
 	}}}
@@ -1843,6 +1896,14 @@ func TestSecurityScanContextFromRunParsesExecutionAnnotations(t *testing.T) {
 	}
 	if scanCtx.ExecutionID != "exec-1" || scanCtx.TaskName != "recon" || scanCtx.TaskMaxFindings != 7 {
 		t.Fatalf("parsed context = %+v", scanCtx)
+	}
+	// The shared record key aims every task run's record writes at ONE row.
+	if scanCtx.RecordRunName != "secscan-nightly-scan-exec-1" || scanCtx.RecordKey() != "secscan-nightly-scan-exec-1" {
+		t.Fatalf("record key = %q (RecordRunName %q), want shared execution record name", scanCtx.RecordKey(), scanCtx.RecordRunName)
+	}
+	delete(run.Annotations, SecurityScanRecordNameAnnotation)
+	if scanCtx, _ := SecurityScanContextFromRun(run, "default", "r", uuid.Nil); scanCtx.RecordKey() != "r" {
+		t.Errorf("record key without annotation = %q, want the run's own name", scanCtx.RecordKey())
 	}
 
 	run.Annotations[SecurityScanTaskMaxFindingsAnnotation] = "not-a-number"

@@ -35,6 +35,7 @@ const (
 	// so these three identify the execution a run belongs to, the task it
 	// executes, and that task's own findings budget.
 	SecurityScanExecutionIDAnnotation     = triggersv1alpha1.SecurityScanExecutionIDAnnotation
+	SecurityScanRecordNameAnnotation      = triggersv1alpha1.SecurityScanRecordNameAnnotation
 	SecurityScanTaskNameAnnotation        = triggersv1alpha1.SecurityScanTaskNameAnnotation
 	SecurityScanTaskMaxFindingsAnnotation = triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation
 )
@@ -68,12 +69,29 @@ type SecurityScanContext struct {
 	// per execution so a sink task and the final report can see what
 	// sibling task runs persisted.
 	ExecutionID string
-	TaskName    string
+	// RecordRunName, when set, is the run-name key of the persisted scan
+	// record this run reports into. Every task run of one deterministic
+	// execution carries the same value so the execution surfaces as ONE
+	// scans-list row; empty (coordinator and legacy runs) falls back to the
+	// run's own name.
+	RecordRunName string
+	TaskName      string
 	// TaskMaxFindings is this task's own budget, counted across the task's
 	// fan-out instances and retries within the execution: parallel tasks
 	// therefore never race for one cumulative budget. 0 means unlimited.
 	TaskMaxFindings int32
 	SessionID       uuid.UUID
+}
+
+// RecordKey is the run-name key of the security_scans row this run reports
+// into: the controller-stamped shared execution record when present,
+// otherwise the run's own name. Every record read/write in these tools must
+// use it so a deterministic execution stays ONE scans-list row.
+func (c SecurityScanContext) RecordKey() string {
+	if c.RecordRunName != "" {
+		return c.RecordRunName
+	}
+	return c.RunName
 }
 
 // SecurityScanContextFromRun extracts scan context from AgentRun annotations
@@ -121,6 +139,7 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 		DedupePermille:  dedupePermille,
 		MaxFindings:     maxFindings,
 		ExecutionID:     strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),
+		RecordRunName:   strings.TrimSpace(run.Annotations[SecurityScanRecordNameAnnotation]),
 		TaskName:        strings.TrimSpace(run.Annotations[SecurityScanTaskNameAnnotation]),
 		TaskMaxFindings: taskMaxFindings,
 		SessionID:       sessionID,
@@ -177,7 +196,7 @@ func (s *securityScanState) ensureScan(ctx context.Context) (uuid.UUID, error) {
 	if s.scanID != uuid.Nil {
 		return s.scanID, nil
 	}
-	if existing, err := s.findingStore.GetSecurityScan(ctx, s.scanCtx.Namespace, s.scanCtx.RunName); err != nil {
+	if existing, err := s.findingStore.GetSecurityScan(ctx, s.scanCtx.Namespace, s.scanCtx.RecordKey()); err != nil {
 		return uuid.Nil, err
 	} else if existing != nil {
 		s.scanID = existing.ID
@@ -187,7 +206,7 @@ func (s *securityScanState) ensureScan(ctx context.Context) (uuid.UUID, error) {
 	created, err := s.findingStore.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
 		Namespace:  s.scanCtx.Namespace,
 		ScanName:   s.scanCtx.ScanName,
-		RunName:    s.scanCtx.RunName,
+		RunName:    s.scanCtx.RecordKey(),
 		SessionID:  s.sessionIDPtr(),
 		Repository: s.scanCtx.Repository,
 		Revision:   s.scanCtx.Revision,
@@ -1420,7 +1439,7 @@ func (t *submitSecurityScanReportTool) loadPriorScanState(ctx context.Context, p
 	if _, err := t.state.ensureScan(ctx); err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to open the scan record: %v", err)
 	}
-	priorScan, err = t.state.findingStore.GetSecurityScan(ctx, scanCtx.Namespace, scanCtx.RunName)
+	priorScan, err = t.state.findingStore.GetSecurityScan(ctx, scanCtx.Namespace, scanCtx.RecordKey())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to load scan record: %v", err)
 	}
@@ -1567,7 +1586,7 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 			scan = &store.SecurityScanRecord{
 				Namespace:  scanCtx.Namespace,
 				ScanName:   scanCtx.ScanName,
-				RunName:    scanCtx.RunName,
+				RunName:    scanCtx.RecordKey(),
 				SessionID:  t.state.sessionIDPtr(),
 				Repository: scanCtx.Repository,
 				Revision:   scanCtx.Revision,
@@ -1577,6 +1596,13 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 		scan.Summary = summary
 		scan.Counts = counts
 		scan.CompletedAt = &now
+		// The record's session locates the report/SARIF artifacts. On a
+		// shared execution record the row was opened by an earlier sibling
+		// task run, so point it at the submitting (sink) run's session —
+		// that is where these artifacts were just stored.
+		if sess := t.state.sessionIDPtr(); sess != nil {
+			scan.SessionID = sess
+		}
 		if _, err := t.state.findingStore.UpsertSecurityScan(ctx, scan); err != nil {
 			return Result{Content: fmt.Sprintf("failed to update scan record: %v", err), IsError: true}, nil
 		}

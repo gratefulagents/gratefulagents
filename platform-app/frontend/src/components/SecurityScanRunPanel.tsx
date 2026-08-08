@@ -25,11 +25,19 @@ export function SecurityScanRunPanel({
   namespace,
   runName,
   onRunSettled,
+  hideWhenMissing = false,
 }: {
   namespace: string;
   runName: string;
   /** Called once when the run transitions into a terminal phase. */
   onRunSettled?: (phase: string) => void;
+  /**
+   * Render nothing when no AgentRun of this name exists. Deterministic
+   * executions persist ONE scan record keyed by a synthetic execution name
+   * (not an AgentRun); their live progress is the execution DAG, so an error
+   * panel here would be noise.
+   */
+  hideWhenMissing?: boolean;
 }) {
   const { run, loading, error } = useAgentRun(namespace, runName);
   const phase = run?.phase ?? "";
@@ -59,6 +67,7 @@ export function SecurityScanRunPanel({
   }, [phase, onRunSettled]);
 
   if (error && !run) {
+    if (hideWhenMissing) return null;
     return (
       <DetailSection title="Scan Run">
         <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12.5px]">

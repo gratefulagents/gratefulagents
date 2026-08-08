@@ -213,9 +213,40 @@ func (r *SecurityScanReconciler) reconcileExecutionResume(ctx context.Context, s
 		return ctrl.Result{}, err
 	}
 	if resumed {
+		// The terminal finalizer marked the execution's scans-list row
+		// failed; the resumed campaign is running again, so reopen the row —
+		// otherwise the list keeps showing "failed" while tasks run and the
+		// settled-row guards would block the eventual outcome from landing.
+		r.reopenExecutionScanRecord(ctx, scan, execID)
 		r.recordScanEvent(scan, corev1.EventTypeNormal, "ExecutionResumed", fmt.Sprintf("execution %s resumed by token", execID))
 	}
 	return ctrl.Result{RequeueAfter: time.Second}, nil
+}
+
+// reopenExecutionScanRecord flips a resumed execution's persisted scan
+// record back to "running" and clears its completion time, preserving any
+// summary/counts a previous cycle recorded. Best-effort: on error the row
+// stays terminal until the resumed execution finishes and the terminal
+// finalizer cannot touch it, matching the pre-resume state.
+func (r *SecurityScanReconciler) reopenExecutionScanRecord(ctx context.Context, scan *triggersv1alpha1.SecurityScan, execID string) {
+	if r.Findings == nil {
+		return
+	}
+	log := logf.FromContext(ctx)
+	recordName := securityScanExecutionRecordName(scan.Name, execID)
+	rec, err := r.Findings.GetSecurityScan(ctx, scan.Namespace, recordName)
+	if err != nil {
+		log.Error(err, "failed to load scan record for resume", "record", recordName)
+		return
+	}
+	if rec == nil || (rec.Status == "running" && rec.CompletedAt == nil) {
+		return
+	}
+	rec.Status = "running"
+	rec.CompletedAt = nil
+	if _, err := r.Findings.UpsertSecurityScan(ctx, rec); err != nil {
+		log.Error(err, "failed to reopen scan record for resumed execution", "record", recordName)
+	}
 }
 
 // dispatchDeterministic mirrors the coordinator dispatch order for
@@ -663,8 +694,9 @@ func (r *SecurityScanReconciler) advanceDeterministicExecution(ctx context.Conte
 
 	if securityScanExecutionTerminal(exec.Phase) {
 		log.Info("deterministic execution reached a terminal phase", "execution", exec.ID, "phase", exec.Phase)
-		// Terminal side effects (checks, notifications) run on the next
-		// reconcile from the dispatch path, off the freshly written status.
+		// Terminal side effects — including scan-record finalization — run
+		// on the next reconcile through finishTerminalExecution, the durable
+		// terminal path, off the freshly written status.
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 	if requeue <= 0 {
@@ -1287,6 +1319,18 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 	}
 }
 
+// executionStarted reports whether the execution has ever dispatched a task
+// run (including runs superseded by retries). Its negation marks the FIRST
+// dispatch, which anchors the execution's one eager scan record.
+func (e *securityScanExecutionEngine) executionStarted() bool {
+	for _, entry := range e.exec.Tasks {
+		if entry.Attempts > 0 || entry.RunName != "" || len(entry.Retries) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // depsSatisfied reports whether every instance of every dependency task
 // succeeded.
 func (e *securityScanExecutionEngine) depsSatisfied(task triggersv1alpha1.SecurityScanTask) bool {
@@ -1327,7 +1371,7 @@ func (e *securityScanExecutionEngine) launch(ctx context.Context, entry *trigger
 
 	attempt := entry.Attempts + 1
 	runName := securityScanTaskRunName(e.scan.Name, e.exec.ID, task.Name, attempt, entry.Instance, e.exec.LastResumeToken)
-	created, err := e.r.createScanTaskRun(ctx, e.scan, e.resolved, e.runCtx, e.exec, task, runName, inst)
+	created, err := e.r.createScanTaskRun(ctx, e.scan, e.resolved, e.runCtx, e.exec, task, runName, inst, !e.executionStarted())
 	if err != nil {
 		log.Error(err, "failed to create task AgentRun", "task", task.Name, "run", runName)
 		entry.LastError = truncateSecurityScanError(err.Error())
@@ -1579,7 +1623,7 @@ func securityScanSinkTasks(workflow []triggersv1alpha1.SecurityScanTask) map[str
 // per-task overrides on top: task mode template, per-task model, folded
 // timeout, turn/cost limits, tool policy, per-task maxFindings, and the
 // output-schema annotation the worker's submit_task_output tool consumes.
-func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runCtx *securityScanRunContext, exec *triggersv1alpha1.SecurityScanExecutionStatus, task triggersv1alpha1.SecurityScanTask, runName string, inst SecurityScanTaskInstance) (bool, error) {
+func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runCtx *securityScanRunContext, exec *triggersv1alpha1.SecurityScanExecutionStatus, task triggersv1alpha1.SecurityScanTask, runName string, inst SecurityScanTaskInstance, firstRun bool) (bool, error) {
 	role, err := r.resolveSecurityScanTaskRole(ctx, task)
 	if err != nil {
 		return false, err
@@ -1635,35 +1679,7 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	}
 	var toolPolicy *platformv1alpha1.AgentRunToolPolicy
 	if task.Tools != nil {
-		allowed := append([]string(nil), task.Tools.Allowed...)
-		if len(allowed) > 0 {
-			// An allow-list is exclusive, so it would silently strip the
-			// platform contract tools the engine depends on: findings
-			// persistence, the typed output the schema contract requires,
-			// and the sink task's report submission. Auto-append them so a
-			// user-provided allow-list can narrow workspace tools without
-			// breaking the execution contract.
-			contract := []string{"report_security_finding", "update_security_finding"}
-			if strings.TrimSpace(task.OutputSchema) != "" {
-				contract = append(contract, "submit_task_output")
-			}
-			if inst.Sink {
-				contract = append(contract, "submit_security_scan_report")
-			}
-			present := make(map[string]bool, len(allowed))
-			for _, tool := range allowed {
-				present[tool] = true
-			}
-			for _, tool := range contract {
-				if !present[tool] {
-					allowed = append(allowed, tool)
-				}
-			}
-		}
-		toolPolicy = &platformv1alpha1.AgentRunToolPolicy{
-			AllowedTools: allowed,
-			DeniedTools:  append([]string(nil), task.Tools.Denied...),
-		}
+		toolPolicy = securityScanTaskToolPolicy(task, inst)
 	}
 	toolPolicy = securityScanApplyRoleToolAccess(toolPolicy, role)
 
@@ -1677,6 +1693,11 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	// already reported — while a NEW execution gets a new id and can never mix
 	// with a previous one.
 	annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation] = exec.ID
+	// One scans-list row per EXECUTION: every task run reports into the
+	// same persisted scan record, keyed by the execution record name, so
+	// the dashboard shows the execution as a single top-level scan instead
+	// of one row per reporting task run.
+	annotations[triggersv1alpha1.SecurityScanRecordNameAnnotation] = securityScanExecutionRecordName(scan.Name, exec.ID)
 	annotations[triggersv1alpha1.SecurityScanTaskNameAnnotation] = task.Name
 	annotations[triggersv1alpha1.SecurityScanTaskRoleAnnotation] = role.name
 	if task.MaxFindings > 0 {
@@ -1723,20 +1744,75 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		ToolPolicy:    toolPolicy,
 		SeedLogPrefix: "securityscan",
 	})
+	if err == nil && firstRun {
+		// The execution's FIRST dispatch eagerly creates the execution's one
+		// scan record so the scans list shows the whole execution the
+		// moment it starts. Later dispatches and every task run's finding
+		// tools reuse this row (same record-name key), so exactly one row
+		// represents the execution; finalizeExecutionScanRecords settles it
+		// when the execution terminates. created=false (the run already
+		// existed from a reconcile that crashed before persisting task
+		// status) must still ensure the record — the ensure is idempotent,
+		// and skipping it here would lose the eager row for good.
+		r.ensureSecurityScanRecord(ctx, scan, securityScanExecutionRecordName(scan.Name, exec.ID), annotations)
+	}
 	return created, err
 }
 
+// securityScanTaskToolPolicy maps a task's tools narrowing to the run's tool
+// policy. An allow-list is exclusive, so it would silently strip the
+// platform contract tools the engine depends on: findings persistence, the
+// typed output the schema contract requires, and the sink task's report
+// submission. Auto-append them so a user-provided allow-list can narrow
+// workspace tools without breaking the execution contract.
+func securityScanTaskToolPolicy(task triggersv1alpha1.SecurityScanTask, inst SecurityScanTaskInstance) *platformv1alpha1.AgentRunToolPolicy {
+	allowed := append([]string(nil), task.Tools.Allowed...)
+	if len(allowed) > 0 {
+		contract := []string{"report_security_finding", "update_security_finding"}
+		if strings.TrimSpace(task.OutputSchema) != "" {
+			contract = append(contract, "submit_task_output")
+		}
+		if inst.Sink {
+			contract = append(contract, "submit_security_scan_report")
+		}
+		present := make(map[string]bool, len(allowed))
+		for _, tool := range allowed {
+			present[tool] = true
+		}
+		for _, tool := range contract {
+			if !present[tool] {
+				allowed = append(allowed, tool)
+			}
+		}
+	}
+	return &platformv1alpha1.AgentRunToolPolicy{
+		AllowedTools: allowed,
+		DeniedTools:  append([]string(nil), task.Tools.Denied...),
+	}
+}
+
+// securityScanExecutionRecordName is the run-name key of the ONE persisted
+// scan record a deterministic execution reports into. It reuses the
+// coordinator run naming (scan name + execution id suffix) so the record
+// reads like the execution's top-level run in the scans list; execution ids
+// are unique per scan generation/trigger, so it never collides with a
+// coordinator run of the same scan.
+func securityScanExecutionRecordName(scanName, execID string) string {
+	return securityScanRunName(scanName, execID)
+}
+
 // ensureSecurityScanRecord eagerly creates the persisted scan record for a
-// newly created COORDINATOR scan run so the dashboard scans list shows the
-// scan as soon as it is dispatched instead of only after its first persisted
-// finding or report. Deterministic task runs deliberately do not get an eager
-// record: each task run would otherwise surface as its own scans-list row
-// stuck in "running" even when the task never reports a finding, flooding the
-// list with per-task ghosts (the execution's live progress is on the scan
-// configuration page instead). The record is keyed by (namespace, run name) —
-// the same key the run's finding tools use — so the tools' lazy creation path
-// reuses this row and never writes a duplicate one. Best-effort: without a
-// findings store, or on error, the lazy path still creates the row later.
+// newly created scan run so the dashboard scans list shows the scan as soon
+// as it is dispatched instead of only after its first persisted finding or
+// report. It is called for COORDINATOR runs and for the FIRST dispatched
+// task run of a deterministic execution — never for every task run, which
+// would flood the scans list with one row per task. The record is keyed by
+// (namespace, run name) — the same key the run's finding tools use — so the
+// tools' lazy creation path reuses this row and never writes a duplicate
+// one. Coordinator rows are settled by finalizeScanRecord when the run
+// terminates; deterministic rows by finalizeExecutionScanRecords when the
+// execution does. Best-effort: without a findings store, or on error, the
+// lazy path still creates the row later.
 func (r *SecurityScanReconciler) ensureSecurityScanRecord(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName string, annotations map[string]string) {
 	if r.Findings == nil || runName == "" {
 		return
@@ -1764,6 +1840,59 @@ func (r *SecurityScanReconciler) ensureSecurityScanRecord(ctx context.Context, s
 	}); err != nil {
 		log.Error(err, "failed to create eager security scan record", "run", runName)
 	}
+}
+
+// finalizeExecutionScanRecords settles every scan record anchored by a
+// terminal deterministic execution: the execution's own record (the one
+// scans-list row every task run reports into) plus any legacy per-run rows
+// created before the shared record key existed. A row still "running" with
+// no completion time inherits the execution's outcome (Succeeded ->
+// completed, Failed -> failed) and its completion time; a row the sink's
+// submit_security_scan_report already finalized is never touched. Idempotent
+// and best-effort: a failed lookup or upsert only leaves that row for the
+// lazy paths or a later reconcile.
+func (r *SecurityScanReconciler) finalizeExecutionScanRecords(ctx context.Context, scan *triggersv1alpha1.SecurityScan, exec *triggersv1alpha1.SecurityScanExecutionStatus) {
+	if r.Findings == nil || exec == nil {
+		return
+	}
+	namespace := scan.Namespace
+	status := "failed"
+	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+		status = "completed"
+	}
+	completed := r.now().UTC()
+	if exec.CompletedAt != nil {
+		completed = exec.CompletedAt.UTC()
+	}
+	log := logf.FromContext(ctx)
+	seen := map[string]bool{}
+	finalize := func(runName string) {
+		if runName == "" || seen[runName] {
+			return
+		}
+		seen[runName] = true
+		rec, err := r.Findings.GetSecurityScan(ctx, namespace, runName)
+		if err != nil {
+			log.Error(err, "failed to load scan record for execution finalization", "run", runName)
+			return
+		}
+		if rec == nil || rec.CompletedAt != nil || rec.Status != "running" {
+			return
+		}
+		rec.Status = status
+		done := completed
+		rec.CompletedAt = &done
+		if _, err := r.Findings.UpsertSecurityScan(ctx, rec); err != nil {
+			log.Error(err, "failed to finalize scan record for terminal execution", "run", runName)
+		}
+	}
+	for i := range exec.Tasks {
+		finalize(exec.Tasks[i].RunName)
+		for _, retry := range exec.Tasks[i].Retries {
+			finalize(retry.RunName)
+		}
+	}
+	finalize(securityScanExecutionRecordName(scan.Name, exec.ID))
 }
 
 // securityScanTaskRole is the effective role contract one deterministic task
@@ -2169,6 +2298,13 @@ func securityScanJSONField(raw json.RawMessage, field, what string) (string, err
 // other tasks reported. The returned flag asks the caller to requeue so
 // failed deliveries retry.
 func (r *SecurityScanReconciler) finishTerminalExecution(ctx context.Context, scan *triggersv1alpha1.SecurityScan, exec *triggersv1alpha1.SecurityScanExecutionStatus) bool {
+	// Settle the execution's scan records first: this runs on EVERY
+	// reconcile of a terminal execution (idempotent — settled rows are
+	// skipped), so a controller restart or a transient store error after
+	// the terminal status was persisted still converges instead of leaving
+	// the scans-list row "running" forever. Executions failed outside the
+	// engine (invalid spec, reference drift) converge through here too.
+	r.finalizeExecutionScanRecords(ctx, scan, exec)
 	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded && r.Findings != nil {
 		log := logf.FromContext(ctx)
 		r.sweepSecuritySuppressions(ctx, scan)

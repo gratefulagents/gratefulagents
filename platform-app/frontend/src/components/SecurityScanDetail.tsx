@@ -692,6 +692,7 @@ export function SecurityScanDetail() {
               namespace={namespace}
               runName={runName}
               onRunSettled={handleRunSettled}
+              hideWhenMissing={Boolean(scanConfig?.lastExecution)}
             />
           )}
 

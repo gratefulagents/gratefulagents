@@ -236,4 +236,33 @@ describe("SecurityScanRunPanel", () => {
     );
     expect(onRunSettled).not.toHaveBeenCalled();
   });
+
+  it("renders nothing for a missing run when hideWhenMissing is set (execution-level scan records)", () => {
+    useAgentRunMock.mockReturnValue({ run: null, loading: false, error: "run not found", starting: false });
+    useActivityLogMock.mockReturnValue({
+      entries: [],
+      subagentGraph: undefined,
+      loading: false,
+      error: null,
+      isComplete: false,
+      hasMoreBefore: false,
+      loadOlder: vi.fn(),
+    });
+    useAgentRunUsageMock.mockReturnValue({ usage: null, loading: false, error: null });
+    const { container } = render(
+      <MemoryRouter>
+        <SecurityScanRunPanel namespace="user-alice" runName="secscan-nightly-generation-1" hideWhenMissing />
+      </MemoryRouter>,
+    );
+    expect(container.textContent).toBe("");
+    cleanup();
+
+    // Without the flag the error panel still surfaces broken runs.
+    render(
+      <MemoryRouter>
+        <SecurityScanRunPanel namespace="user-alice" runName="secscan-nightly-generation-1" />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/Failed to load the scan/)).toBeTruthy();
+  });
 });

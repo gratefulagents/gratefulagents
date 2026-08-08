@@ -1994,9 +1994,12 @@ func TestSecurityScanPostScriptRunNameKeysOnFindingIdentity(t *testing.T) {
 	}
 }
 
-func TestSecurityScanDeterministicDispatchCreatesNoEagerScanRecord(t *testing.T) {
+func TestSecurityScanDeterministicDispatchCreatesOneEagerScanRecord(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "inspect", Objective: "inspect"}}, 1)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "inspect", Objective: "inspect"},
+		{Name: "review", Objective: "review"},
+	}, 4)
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	records := map[string]*store.SecurityScanRecord{}
 	reconciler.Findings = securityScanFindingStore{securityScanRecordStubStore: securityScanRecordStubStore{scanRecords: records}}
@@ -2004,14 +2007,143 @@ func TestSecurityScanDeterministicDispatchCreatesNoEagerScanRecord(t *testing.T)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	runs := securityScanRuns(t, k8sClient, scan.Namespace)
-	if len(runs) != 1 {
-		t.Fatalf("runs = %d, want one dispatched task run", len(runs))
+	if len(runs) != 2 {
+		t.Fatalf("runs = %d, want two dispatched task runs", len(runs))
 	}
-	// Task runs never eagerly create scan records: one row per task run
-	// would flood the scans list with per-task "running" ghosts. The row is
-	// created lazily by the run's finding tools when it first reports.
-	if len(records) != 0 {
-		t.Fatalf("records = %v, want no eager scan record for deterministic task runs", records)
+	// Exactly ONE eager record — keyed by the execution record name, not a
+	// task run — anchors the execution in the scans list.
+	execID := getSecurityScan(t, k8sClient, scan).Status.LastExecution.ID
+	recordName := securityScanExecutionRecordName(scan.Name, execID)
+	if len(records) != 1 {
+		t.Fatalf("records = %v, want exactly one eager scan record per execution", records)
+	}
+	rec := records[scan.Namespace+"/"+recordName]
+	if rec == nil {
+		t.Fatalf("records = %v, want the record keyed by execution record name %q", records, recordName)
+	}
+	if rec.ScanName != scan.Name || rec.Status != "running" || rec.StartedAt == nil {
+		t.Fatalf("eager record = %+v, want scanName=%q status=running with startedAt", rec, scan.Name)
+	}
+	// Every task run is stamped with the shared record key so its finding
+	// tools report into the same row.
+	for _, run := range runs {
+		if got := run.Annotations[triggersv1alpha1.SecurityScanRecordNameAnnotation]; got != recordName {
+			t.Fatalf("run %q record annotation = %q, want %q", run.Name, got, recordName)
+		}
+	}
+	// Later reconciles never create additional records for the execution.
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if len(records) != 1 {
+		t.Fatalf("records = %v after second reconcile, want still one", records)
+	}
+}
+
+func TestSecurityScanTerminalExecutionFinalizesScanRecords(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		runPhase platformv1alpha1.AgentRunPhase
+		want     string
+	}{
+		{platformv1alpha1.AgentRunPhaseSucceeded, "completed"},
+		{platformv1alpha1.AgentRunPhaseFailed, "failed"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			zero := int32(0)
+			scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+				{Name: "inspect", Objective: "inspect", MaxRetries: &zero},
+			}, 1)
+			reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+			records := map[string]*store.SecurityScanRecord{}
+			reconciler.Findings = securityScanFindingStore{securityScanRecordStubStore: securityScanRecordStubStore{scanRecords: records}}
+
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			runs := securityScanRuns(t, k8sClient, scan.Namespace)
+			if len(runs) != 1 {
+				t.Fatalf("runs = %d, want one dispatched task run", len(runs))
+			}
+			// A legacy per-run row (created before the shared record key
+			// existed) must also settle at execution end.
+			legacyStarted := now
+			records[scan.Namespace+"/"+runs[0].Name] = &store.SecurityScanRecord{
+				Namespace: scan.Namespace, ScanName: scan.Name, RunName: runs[0].Name,
+				Status: "running", StartedAt: &legacyStarted,
+			}
+			lastError := ""
+			if tc.runPhase == platformv1alpha1.AgentRunPhaseFailed {
+				lastError = "boom"
+			}
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, runs[0].Name, tc.runPhase, "", lastError)
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			// Records settle on the reconcile AFTER the terminal status was
+			// persisted: finishTerminalExecution is the durable terminal
+			// path, so a crash in between still converges.
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+			exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+			if !securityScanExecutionTerminal(exec.Phase) {
+				t.Fatalf("execution phase = %q, want terminal", exec.Phase)
+			}
+			for _, key := range []string{
+				scan.Namespace + "/" + securityScanExecutionRecordName(scan.Name, exec.ID),
+				scan.Namespace + "/" + runs[0].Name,
+			} {
+				rec := records[key]
+				if rec == nil {
+					t.Fatalf("no scan record %q; records = %v", key, records)
+				}
+				// Rows still "running" inherit the execution outcome so
+				// none lingers as running once the execution is over.
+				if rec.Status != tc.want || rec.CompletedAt == nil {
+					t.Fatalf("record %q = %+v, want status=%q with completedAt", key, rec, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestSecurityScanResumeReopensFinalizedScanRecord(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	zero := int32(0)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "inspect", Objective: "inspect", MaxRetries: &zero},
+	}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	records := map[string]*store.SecurityScanRecord{}
+	reconciler.Findings = securityScanFindingStore{securityScanRecordStubStore: securityScanRecordStubStore{scanRecords: records}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, runs[0].Name, platformv1alpha1.AgentRunPhaseFailed, "", "boom")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan) // durable terminal path settles the record
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	key := scan.Namespace + "/" + securityScanExecutionRecordName(scan.Name, exec.ID)
+	if rec := records[key]; rec == nil || rec.Status != "failed" || rec.CompletedAt == nil {
+		t.Fatalf("record before resume = %+v, want finalized failed record", records[key])
+	}
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Annotations = map[string]string{triggersv1alpha1.SecurityScanResumeAnnotation: "resume-1"}
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan resume annotation): %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	// The resumed execution is running again, so its scans-list row must
+	// not keep reading "failed" — and must be re-finalizable later.
+	rec := records[key]
+	if rec == nil || rec.Status != "running" || rec.CompletedAt != nil {
+		t.Fatalf("record after resume = %+v, want reopened running record", rec)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	resumedRun := executionTask(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "inspect", 0).RunName
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, resumedRun, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan) // durable terminal path settles the record
+	if rec := records[key]; rec == nil || rec.Status != "completed" || rec.CompletedAt == nil {
+		t.Fatalf("record after resumed success = %+v, want completed", records[key])
 	}
 }
 

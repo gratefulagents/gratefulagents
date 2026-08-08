@@ -69,6 +69,12 @@ func (s *sarifArtifactStore) GetArtifact(context.Context, uuid.UUID, string) (*s
 	return &store.Artifact{Content: s.content}, nil
 }
 
+// No session-by-run mapping: scanRunSARIF must fall back to the scan
+// record's stored session.
+func (s *sarifArtifactStore) GetSessionByRun(context.Context, string, string) (*store.Session, error) {
+	return nil, nil
+}
+
 func securityScanChecksTestFixture(t *testing.T) (*SecurityScanReconciler, *triggersv1alpha1.SecurityScan, *fakeSecurityCheckPublisher, *checksTestFindingStore) {
 	t.Helper()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -394,6 +400,12 @@ func (s *multiRunFindingStore) SummarizeSecurityFindings(context.Context, string
 type multiSarifArtifactStore struct {
 	store.StateStore
 	bySession map[uuid.UUID]string
+}
+
+// No session-by-run mapping: scanRunSARIF must fall back to the scan
+// records' stored sessions (multiRunFindingStore above).
+func (s *multiSarifArtifactStore) GetSessionByRun(context.Context, string, string) (*store.Session, error) {
+	return nil, nil
 }
 
 func (s *multiSarifArtifactStore) GetArtifact(_ context.Context, session uuid.UUID, _ string) (*store.Artifact, error) {

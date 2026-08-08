@@ -43,6 +43,14 @@ const (
 	// resumed executions of the same scan carry different values and never
 	// mix.
 	SecurityScanExecutionIDAnnotation = "security.gratefulagents.dev/execution-id"
+	// SecurityScanRecordNameAnnotation is the run-name key of the persisted
+	// scan record (security_scans row) this run's finding tools must report
+	// into. Every task run of one deterministic execution carries the same
+	// value, so the whole execution surfaces as exactly ONE row in the
+	// dashboard scans list instead of one row per reporting task run.
+	// Absent (coordinator runs, historical runs) the run's own name keys
+	// the record, preserving the previous behavior.
+	SecurityScanRecordNameAnnotation = "security.gratefulagents.dev/scan-record-name"
 	// SecurityScanTaskNameAnnotation is the workflow task name a
 	// deterministic task run executes. It scopes the per-task findings
 	// budget across all fan-out instances and retries of that task.

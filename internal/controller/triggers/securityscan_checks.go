@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v68/github"
+	"github.com/google/uuid"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/security"
@@ -409,19 +410,30 @@ func (r *SecurityScanReconciler) publishRunCheck(ctx context.Context, scan *trig
 }
 
 // scanRunSARIF loads the SARIF artifact stored by the run's report
-// submission, or "" when none exists yet.
+// submission, or "" when none exists yet. The run's own session is resolved
+// directly; the scan record's session is only a fallback for coordinator
+// runs predating session-by-run lookups. (Deterministic task runs share ONE
+// execution-level scan record, so a record lookup by task run name finds
+// nothing — the artifact still lives in that run's session.)
 func (r *SecurityScanReconciler) scanRunSARIF(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName string) (string, error) {
 	if r.Findings == nil || r.StateStore == nil {
 		return "", fmt.Errorf("no findings store configured")
 	}
-	rec, err := r.Findings.GetSecurityScan(ctx, scan.Namespace, runName)
-	if err != nil {
-		return "", err
+	var sessionID *uuid.UUID
+	if sess, err := r.StateStore.GetSessionByRun(ctx, runName, scan.Namespace); err == nil && sess != nil {
+		sessionID = &sess.ID
 	}
-	if rec == nil || rec.SessionID == nil {
-		return "", nil
+	if sessionID == nil {
+		rec, err := r.Findings.GetSecurityScan(ctx, scan.Namespace, runName)
+		if err != nil {
+			return "", err
+		}
+		if rec == nil || rec.SessionID == nil {
+			return "", nil
+		}
+		sessionID = rec.SessionID
 	}
-	art, err := r.StateStore.GetArtifact(ctx, *rec.SessionID, security.SARIFArtifactKind)
+	art, err := r.StateStore.GetArtifact(ctx, *sessionID, security.SARIFArtifactKind)
 	if err != nil {
 		return "", err
 	}
