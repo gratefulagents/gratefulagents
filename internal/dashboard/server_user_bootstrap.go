@@ -2,6 +2,9 @@ package dashboard
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -23,6 +26,8 @@ const (
 	bootstrapReadyLabel              = "platform.gratefulagents.dev/bootstrap-ready"
 	bootstrapBundleVersionKey        = "bundle-version"
 	bootstrapSyncedVersionAnnotation = "platform.gratefulagents.dev/bootstrap-synced-version"
+	bootstrapSpecHashAnnotation      = "platform.gratefulagents.dev/bootstrap-spec-hash"
+	bootstrapSyncProtocolVersion     = "v2"
 )
 
 // syncBootstrapResources makes the chart's namespaced, reusable defaults
@@ -49,6 +54,7 @@ func (s *Server) syncBootstrapResources(ctx context.Context, targetNamespace str
 	if err != nil || !ready {
 		return err
 	}
+	bundleVersion = bootstrapSyncProtocolVersion + ":" + bundleVersion
 	target := &corev1.Namespace{}
 	if err := reader.Get(ctx, client.ObjectKey{Name: targetNamespace}, target); err != nil {
 		return mapK8sError("read personal namespace bootstrap state", err)
@@ -201,8 +207,118 @@ func bootstrapObjectMeta(source client.Object, namespace string) metav1.ObjectMe
 }
 
 func (s *Server) createBootstrapResource(ctx context.Context, source, target client.Object) error {
-	if err := s.k8sClient.Create(ctx, target); err != nil && !k8serrors.IsAlreadyExists(err) {
-		return mapK8sError(fmt.Sprintf("seed bootstrap %T %s", source, source.GetName()), err)
+	desiredHash, err := bootstrapSpecHash(target)
+	if err != nil {
+		return fmt.Errorf("hash bootstrap %T %s: %w", source, source.GetName(), err)
+	}
+	targetAnnotations := target.GetAnnotations()
+	if targetAnnotations == nil {
+		targetAnnotations = map[string]string{}
+	}
+	targetAnnotations[bootstrapSpecHashAnnotation] = desiredHash
+	target.SetAnnotations(targetAnnotations)
+
+	current := emptyBootstrapResource(target)
+	key := client.ObjectKeyFromObject(target)
+	if err := s.apiReaderOrClient().Get(ctx, key, current); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return mapK8sError(fmt.Sprintf("read seeded %T %s", source, source.GetName()), err)
+		}
+		if err := s.k8sClient.Create(ctx, target); err != nil && !k8serrors.IsAlreadyExists(err) {
+			return mapK8sError(fmt.Sprintf("seed bootstrap %T %s", source, source.GetName()), err)
+		}
+		return nil
+	}
+
+	currentHash, err := bootstrapSpecHash(current)
+	if err != nil {
+		return fmt.Errorf("hash current %T %s: %w", current, current.GetName(), err)
+	}
+	previousSeedHash := current.GetAnnotations()[bootstrapSpecHashAnnotation]
+	if previousSeedHash != "" && previousSeedHash != currentHash {
+		return nil // The user changed the previously seeded spec.
+	}
+	if previousSeedHash == "" && currentHash != desiredHash {
+		return nil // A legacy copy differs from the current default; preserve it.
+	}
+
+	before := current.DeepCopyObject().(client.Object)
+	copyBootstrapSpec(current, target)
+	annotations := maps.Clone(current.GetAnnotations())
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[bootstrapDefaultAnnotation] = "true"
+	annotations[bootstrapSourceAnnotation] = source.GetNamespace()
+	annotations[bootstrapSpecHashAnnotation] = desiredHash
+	current.SetAnnotations(annotations)
+	if err := s.k8sClient.Patch(ctx, current, client.MergeFrom(before)); err != nil {
+		return mapK8sError(fmt.Sprintf("refresh seeded %T %s", source, source.GetName()), err)
 	}
 	return nil
+}
+
+func (s *Server) apiReaderOrClient() client.Reader {
+	if s.apiReader != nil {
+		return s.apiReader
+	}
+	return s.k8sClient
+}
+
+func bootstrapSpecHash(object client.Object) (string, error) {
+	var spec any
+	switch typed := object.(type) {
+	case *platformv1alpha1.Skill:
+		spec = typed.Spec
+	case *triggersv1alpha1.SecurityWorkflow:
+		spec = typed.Spec
+	case *triggersv1alpha1.SecurityRanker:
+		spec = typed.Spec
+	case *triggersv1alpha1.SecurityPostScript:
+		spec = typed.Spec
+	case *triggersv1alpha1.SecurityPolicyPack:
+		spec = typed.Spec
+	default:
+		return "", fmt.Errorf("unsupported bootstrap resource %T", object)
+	}
+	contents, err := json.Marshal(spec)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(contents)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func emptyBootstrapResource(object client.Object) client.Object {
+	switch object.(type) {
+	case *platformv1alpha1.Skill:
+		return &platformv1alpha1.Skill{}
+	case *triggersv1alpha1.SecurityWorkflow:
+		return &triggersv1alpha1.SecurityWorkflow{}
+	case *triggersv1alpha1.SecurityRanker:
+		return &triggersv1alpha1.SecurityRanker{}
+	case *triggersv1alpha1.SecurityPostScript:
+		return &triggersv1alpha1.SecurityPostScript{}
+	case *triggersv1alpha1.SecurityPolicyPack:
+		return &triggersv1alpha1.SecurityPolicyPack{}
+	default:
+		panic(fmt.Sprintf("unsupported bootstrap resource %T", object))
+	}
+}
+
+func copyBootstrapSpec(destination, source client.Object) {
+	switch dst := destination.(type) {
+	case *platformv1alpha1.Skill:
+		dst.Spec = source.(*platformv1alpha1.Skill).DeepCopy().Spec
+	case *triggersv1alpha1.SecurityWorkflow:
+		dst.Spec = source.(*triggersv1alpha1.SecurityWorkflow).DeepCopy().Spec
+	case *triggersv1alpha1.SecurityRanker:
+		dst.Spec = source.(*triggersv1alpha1.SecurityRanker).DeepCopy().Spec
+	case *triggersv1alpha1.SecurityPostScript:
+		dst.Spec = source.(*triggersv1alpha1.SecurityPostScript).DeepCopy().Spec
+	case *triggersv1alpha1.SecurityPolicyPack:
+		dst.Spec = source.(*triggersv1alpha1.SecurityPolicyPack).DeepCopy().Spec
+	default:
+		panic(fmt.Sprintf("unsupported bootstrap resource %T", destination))
+	}
 }
