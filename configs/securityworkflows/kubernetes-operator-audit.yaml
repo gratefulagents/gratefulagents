@@ -1,0 +1,115 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: kubernetes-operator-audit
+spec:
+  description: Kubernetes controller and admission-webhook audit - RBAC over-grants, unvalidated custom-resource fields reaching pod specs, privilege escalation through owned resources, admission bypass, secret handling, and cross-namespace access - fanning into a single triage pass.
+  tasks:
+    - name: rbac-over-grant
+      role: vulnerability-hunter
+      category: misconfiguration
+      objective: >-
+        Audit what this operator is allowed to do against what it actually needs. Read the RBAC markers in
+        the controller source and the generated ClusterRole and Role manifests, and compare them with the
+        API calls the reconcilers make. Report over-grants that convert a bug into a cluster compromise:
+        wildcard verbs or resources, cluster-wide rights where namespaced would do, create and patch on
+        roles, rolebindings, or clusterrolebindings (privilege escalation by binding), escalate, bind, and
+        impersonate verbs, blanket get and list on secrets across all namespaces, exec, attach, and
+        portforward on pods, approval rights on certificatesigningrequests, and write access to
+        validating or mutating webhook configurations. Also check the service accounts the operator creates
+        for workloads it owns. Cite the marker or manifest at file:line and describe the escalation path
+        an attacker gets after compromising the controller pod or a namespace it serves.
+      maxFindings: 8
+    - name: unvalidated-cr-fields
+      role: vulnerability-hunter
+      category: injection
+      objective: >-
+        Trace every custom-resource field from the API type definition into what the controller builds with
+        it. A namespace user who can create the CR controls these fields, so find the ones that reach
+        dangerous ground without validation: container image, command, and args (command injection, or
+        pulling an attacker-chosen image); env, envFrom, and secret or configmap references pointing at
+        other workloads' data; volumes and volumeMounts allowing hostPath, host networking, host PID or
+        IPC; securityContext fields granting privileged, allowPrivilegeEscalation, added capabilities, or
+        runAsUser 0; serviceAccountName selecting a more privileged identity; nodeSelector, tolerations, and
+        affinity that place pods on control-plane nodes; and free-form strings interpolated into scripts,
+        templates, labels, annotations, URLs, or shelled-out commands. Check whether CRD schema markers,
+        defaulting, or webhook validation actually constrain each field, and treat "the CRD has no
+        validation" as the finding it is. Cite the type field and the construction site at file:line and
+        state what a namespace-scoped user achieves.
+      maxFindings: 8
+    - name: privilege-escalation-via-owned-resources
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Hunt for privilege escalation through the resources this controller creates on a user's behalf. The
+        controller acts with its own service account, so any user-influenced creation is a confused-deputy
+        opportunity: check whether the controller reads or copies secrets, configmaps, or service accounts
+        named by the custom resource without verifying they belong to the requester's namespace and scope;
+        whether it mounts its own credentials or token into workloads it creates; whether it grants
+        RBAC to service accounts derived from user input; whether owner references or labels let a user
+        adopt, orphan, or redirect resources the controller manages (including cross-namespace owner
+        references that trigger garbage collection of other tenants' objects); and whether status or spec
+        fields written by users influence what the controller does with cluster-scoped objects. Report with
+        file:line evidence and name the identity or data the user reaches that they could not reach
+        directly.
+      maxFindings: 6
+    - name: admission-and-webhook-bypass
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Audit the admission path this operator relies on. For each validating or mutating webhook, compare
+        the registration (rules, resources, subresources, apiVersions, operations, scope, namespace and
+        object selectors, failurePolicy, sideEffects, matchPolicy) with the invariants the handler
+        enforces, and find the ways a request avoids the check: operations or subresources not matched
+        (UPDATE when only CREATE is covered, status or scale subresources, ephemeralcontainers), an
+        equivalent API version or group left out under matchPolicy Exact, namespaceSelector or
+        objectSelector labels a user can set or remove, failurePolicy Ignore turning an outage into a
+        bypass, and validation performed only in a mutating webhook whose result a later webhook can
+        overwrite. Also check the handler itself: decoding errors that fall through to allow, checks on
+        the old object instead of the new one, and TLS or authentication settings that let anything call
+        the webhook. Report with file:line evidence and the admission request that slips through.
+      maxFindings: 6
+    - name: secret-handling-and-logging
+      role: secrets-auditor
+      category: secrets
+      objective: >-
+        Audit how this operator handles credential material: secrets read during reconciliation and then
+        copied into status, events, annotations, configmaps, or error messages; secret values or tokens
+        written to logs directly or through a struct dump of a spec or an API object; kubeconfigs, cloud
+        credentials, and tokens materialized on disk or into environment variables of created workloads;
+        secrets propagated across namespaces; credentials rebuilt into URLs that end up in status or
+        metrics; and long-lived service-account tokens created instead of projected or bound tokens. Also
+        check for hardcoded credentials, test fixtures with real-looking keys, and default passwords in
+        manifests. Report each with file:line evidence, the sink the material reaches, and who can read
+        that sink.
+      maxFindings: 6
+    - name: cross-namespace-access
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Hunt for namespace-boundary violations in the reconcile logic: informers and clients built without
+        a namespace restriction where the CRD is namespaced, list and get calls that use a
+        user-supplied namespace field, references (secretRef, configMapRef, serviceAccountRef, issuerRef,
+        targetRef) that accept a namespace from the spec and are resolved with the controller's rights,
+        cluster-scoped custom resources that act on arbitrary namespaces without checking who created
+        them, caches or indexers keyed by name alone so two namespaces collide, and reconcilers that write
+        objects into a namespace derived from user input. Report with file:line evidence and describe the
+        object one tenant reads or writes in another tenant's namespace.
+      maxFindings: 6
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Triage every finding from the controller hunts against one question: what can a user who only holds
+        rights in one namespace (or who can create one custom resource) actually do with it? Re-read the
+        cited code and manifests, drop reports whose dangerous field is constrained by CRD schema
+        validation or an admission webhook you can point to, merge duplicates describing one reconcile
+        path, and rank escalation to cluster-admin or to another tenant's secrets above everything else.
+        Then assemble and submit the final scan report.
+      dependsOn:
+        - rbac-over-grant
+        - unvalidated-cr-fields
+        - privilege-escalation-via-owned-resources
+        - admission-and-webhook-bypass
+        - secret-handling-and-logging
+        - cross-namespace-access

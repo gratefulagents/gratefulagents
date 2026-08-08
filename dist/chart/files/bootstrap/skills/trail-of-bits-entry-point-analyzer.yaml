@@ -1,0 +1,18 @@
+# Upstream: https://github.com/trailofbits/skills/tree/main/plugins/entry-point-analyzer/skills/entry-point-analyzer
+# License: CC-BY-SA-4.0 (Creative Commons Attribution-ShareAlike 4.0), Trail of Bits.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: trail-of-bits-entry-point-analyzer
+spec:
+  version: "0.1.0"
+  description: >-
+    External Trail of Bits skill (CC-BY-SA-4.0): use when enumerating
+    the state-changing entry points of a smart contract codebase
+    (Solidity, Vyper, Solana/Rust, Move, TON, CosmWasm) and categorizing
+    them by access level before auditing privileged operations.
+  source:
+    git:
+      url: https://github.com/trailofbits/skills
+      ref: main
+      path: plugins/entry-point-analyzer/skills/entry-point-analyzer

@@ -1,0 +1,162 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: web-app-owasp
+spec:
+  description: Parallel OWASP Top 10 hunts for a web application - access control, injection, authentication, SSRF, deserialization, cryptography, misconfiguration, data exposure, CSRF, and vulnerable components - fanning into a single triage pass.
+  parameters:
+    - name: framework
+      description: Web framework and language the application is built on (for example "Django 5", "Rails 7", "Next.js app router", "Spring Boot"). Steers each hunt toward that stack's real defaults and known footguns. Leave empty to let each task infer the stack from the code.
+      default: ""
+    - name: scope_hint
+      description: Optional narrowing hint such as a directory, service, or feature area to concentrate on (for example "services/checkout" or "the admin console"). Empty means the whole repository.
+      default: ""
+  tasks:
+    - name: broken-access-control
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Hunt for broken access control. Target stack, blank when unspecified: {{params.framework}}. Scope
+        hint, blank when the whole repository is in scope: {{params.scope_hint}}. Compare what each route,
+        controller action, and server action requires against what it actually enforces: object identifiers
+        read from the request and used without an ownership or tenant predicate in the query, admin or
+        internal routes reachable by an ordinary session, permission checks placed in the client or in a
+        template instead of the handler, forced browsing to a resource by guessing or incrementing an id,
+        and privileged fields (role, plan, owner, is_admin) accepted from user input. Trace every report
+        from the request to the data access with file:line evidence and name the request an attacker sends.
+      maxFindings: 8
+    - name: injection-and-xss
+      role: vulnerability-hunter
+      category: injection
+      objective: >-
+        Hunt for injection, judging the stack's defaults from its own code and from this hint when it is
+        set: {{params.framework}}. Look for SQL and NoSQL queries assembled by string concatenation or
+        unsafe interpolation, ORM escape hatches that take raw fragments, command and shell execution built
+        from request data, template injection through user-controlled templates or expressions, LDAP and
+        header injection, and path traversal reaching the filesystem. Cover
+        cross-site scripting in the same pass: unescaped interpolation in server-rendered templates, raw
+        HTML sinks (innerHTML, dangerouslySetInnerHTML, v-html and equivalents), attribute and URL contexts
+        where escaping differs, javascript: URLs, and sanitizer configurations that allow event handlers.
+        For each report, name the untrusted source, show the sink at file:line, and state the payload that
+        proves the interpretation.
+      maxFindings: 8
+    - name: authentication-and-session
+      role: vulnerability-hunter
+      category: authn
+      objective: >-
+        Hunt for identification and authentication failures: credential comparison and password storage,
+        missing rate limiting or lockout on login, password reset and email-change flows that allow account
+        takeover through predictable or reusable tokens, session fixation and sessions that survive logout
+        or a password change, token validation that skips signature, expiry, audience, or issuer checks,
+        "remember me" cookies containing forgeable identity, and multi-factor enforcement that only guards
+        one of several session-granting paths. Report only defects reachable through executed code with
+        file:line evidence, and state which account an attacker takes over.
+      maxFindings: 6
+    - name: ssrf-and-egress
+      role: vulnerability-hunter
+      category: ssrf
+      objective: >-
+        Hunt for server-side request forgery and unsafe outbound traffic: URLs, hostnames, or ports taken
+        from requests, webhooks, or stored records and passed to an HTTP client, image or document fetcher,
+        PDF or screenshot renderer, file importer, or proxy handler. Check whether allowlists validate the
+        parsed host rather than a prefix, whether redirects are followed after validation, whether
+        link-local and internal address ranges are blocked, and whether responses or error text are returned
+        to the caller. Also cover open redirects and URL parsing mismatches. Report each with the sink at
+        file:line and the internal target an attacker would reach.
+      maxFindings: 6
+    - name: insecure-deserialization
+      role: vulnerability-hunter
+      category: deserialization
+      objective: >-
+        Hunt for unsafe deserialization and parser abuse: native or language-level deserializers (pickle,
+        Marshal, ObjectInputStream, unserialize, YAML loaders that construct objects) fed data from
+        requests, cookies, caches, or queues; signed-object or session payloads whose signature is not
+        verified before decoding; XML parsers with external entities or DTD expansion enabled; archive
+        extraction without path or size limits; and prototype-pollution sinks in deep-merge and
+        query-parsing helpers. Report the untrusted source, the decoding call at file:line, and what the
+        attacker controls once decoding happens.
+      maxFindings: 5
+    - name: cryptographic-failures
+      role: vulnerability-hunter
+      category: crypto
+      objective: >-
+        Hunt for cryptographic failures: password hashing with fast or unsalted digests, encryption in ECB
+        mode or with static, reused, or predictable IVs and nonces, keys derived from constants or
+        committed material, ciphertext without integrity protection, security-relevant randomness taken
+        from a non-cryptographic generator (tokens, password resets, session ids, nonces), signature and
+        MAC comparison that is not constant-time or is skipped entirely, and TLS clients configured to skip
+        certificate or hostname verification. Report with file:line evidence and state what the weakness
+        lets an attacker forge, decrypt, or predict.
+      maxFindings: 6
+    - name: security-misconfiguration
+      role: vulnerability-hunter
+      category: misconfiguration
+      objective: >-
+        Hunt for security misconfiguration in the application's shipped configuration: debug mode, verbose
+        error pages, or development middleware reachable in production builds; CORS policies that reflect
+        the Origin header or combine a wildcard with credentials; a missing or ineffective
+        Content-Security-Policy (unsafe-inline, unsafe-eval, wildcard sources) and missing transport or
+        frame protections;
+        session cookies without Secure, HttpOnly, or an effective SameSite value; default or sample
+        credentials and admin panels left routable; permissive file upload or static file serving; and
+        management, metrics, or profiling endpoints exposed without authentication. Cite the configuration
+        at file:line and explain the attack it enables rather than listing an absent header for its own
+        sake.
+      maxFindings: 8
+    - name: sensitive-data-exposure
+      role: vulnerability-hunter
+      category: info-leak
+      objective: >-
+        Hunt for sensitive data reaching places it should not: API responses and serializers that return
+        password hashes, tokens, internal ids, or other users' records; logs, traces, error responses, and
+        analytics events carrying credentials, session tokens, or personal data; stack traces and database
+        errors surfaced to clients; secrets embedded in client bundles or served static assets; caching
+        headers that let shared caches store per-user responses; and backup, export, or debug endpoints
+        that dump data wholesale. Report with file:line evidence and name the data an attacker obtains and
+        how they reach it.
+      maxFindings: 6
+    - name: csrf-and-state-changing-requests
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Hunt for cross-site request forgery and unsafe request handling on state-changing operations: POST,
+        PUT, PATCH, DELETE handlers, form posts, and server actions that mutate state without an
+        anti-forgery token or an equivalent origin check; token validation that is skipped for JSON or
+        multipart content types; global exemptions applied to whole route groups; state-changing operations
+        exposed over GET; SameSite settings relied on as the only defense; and JSON endpoints accepting
+        simple content types that a cross-origin form can send. Prove reachability by naming the handler at
+        file:line and the cross-site request that would succeed.
+      maxFindings: 5
+    - name: vulnerable-components
+      role: dependency-auditor
+      category: supply-chain
+      objective: >-
+        Audit the dependency surface of this application: read the manifests and lockfiles, identify
+        direct and transitive packages with known-vulnerable versions, and confirm for each one that the
+        vulnerable code path is actually used by this application before reporting it. Also flag unpinned or
+        floating version ranges on security-relevant packages, abandoned or unmaintained components in the
+        authentication, parsing, or cryptography path, packages installed from non-canonical registries or
+        git URLs, and lockfiles that disagree with the manifests. Cite the manifest entry at file:line, the
+        version in use, and the concrete impact on this application.
+      maxFindings: 8
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Triage every finding reported by the ten category hunts. Re-read the cited code for each one:
+        keep findings whose source-to-sink chain and reachability hold up, delete the ones that assume a
+        framework protection is absent when the code enables it (or present when it is disabled), and merge
+        duplicates that several categories reported for one handler or helper. Rank the survivors by what
+        an unauthenticated or low-privilege attacker gains, not by category. Then assemble and submit the
+        final scan report.
+      dependsOn:
+        - broken-access-control
+        - injection-and-xss
+        - authentication-and-session
+        - ssrf-and-egress
+        - insecure-deserialization
+        - cryptographic-failures
+        - security-misconfiguration
+        - sensitive-data-exposure
+        - csrf-and-state-changing-requests
+        - vulnerable-components

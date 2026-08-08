@@ -1,0 +1,39 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPostScript
+metadata:
+  name: resource-exhaustion-classifier
+spec:
+  description: Decides whether a finding is fundamentally a memory, CPU, or state-growth exhaustion issue and rates attack reliability, required scale, and production impact.
+  runOn: all
+  prompt: |
+    You are processing exactly one finding. Do not hunt for new issues.
+
+    Decide whether this is at heart a resource-exhaustion issue rather than
+    a correctness, authorization, or injection issue.
+
+    1. Classify it as memory, CPU, state-growth (disk, database rows, or
+       unbounded in-memory maps), or not-exhaustion. Pick the dominant
+       one; note a secondary class only if the code shows both.
+    2. Name the unbounded quantity and the attacker input that grows it,
+       quoting the allocation, loop, or write in the cited code.
+    3. Identify what already bounds it: request size limits, pagination,
+       timeouts, quotas, back-pressure, or garbage collection. A limit
+       that exists but is applied after the allocation does not count.
+
+    Then rate, each with one line of reasoning:
+    - reliability: does one crafted request reliably grow the resource, or
+      does it depend on scheduling, contention, or luck?
+    - scale: how much traffic, connection count, or wall-clock time an
+      attacker needs before anything degrades.
+    - production impact: degraded latency, single-process crash, node-wide
+      outage, or persistent corruption that survives a restart.
+
+    If it is not-exhaustion, say so in one sentence and skip the ratings.
+
+    Finish by calling update_security_finding for this finding with the
+    classification, the unbounded quantity, the existing bounds, and the
+    three ratings as `note` (the only field this tool writes). A finding
+    that already carries status `false_positive`, `accepted_risk`, or
+    `fixed` keeps it: record your note and leave the status unchanged.
+    Otherwise set status `triaged`, or keep `confirmed` when the finding is
+    already confirmed.

@@ -1,0 +1,118 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: smart-contract-review
+spec:
+  description: Solidity and EVM contract review - reentrancy and external-call assumptions, access control over privileged operations, oracle and price manipulation, arithmetic and rounding, upgradeability and storage layout, and token integration behavior - fanning into a single triage pass.
+  tasks:
+    - name: reentrancy-and-external-calls
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Hunt for reentrancy and unsafe external-call handling. Enumerate every external call in the
+        contracts (call, delegatecall, staticcall, transfer and send, ERC-20 and ERC-721 transfers with
+        their receiver hooks, callbacks into user-supplied addresses, flash-loan and router integrations)
+        and for each one determine what state is written after it returns. Report classic single-function
+        reentrancy, cross-function reentrancy through a shared balance or accounting variable,
+        cross-contract and read-only reentrancy where a view function returns stale state mid-call, reentrancy
+        into initialization or claim paths, and guards applied inconsistently across the functions that
+        share state. Also check the calls themselves: unchecked return values, low-level calls to
+        user-supplied addresses, delegatecall targets that can be set by a caller, gas assumptions in
+        transfer and send, and callbacks invoked before the effects are recorded. Cite the call site and the
+        state write at file:line and describe the sequence of transactions that drains or corrupts state.
+      maxFindings: 6
+    - name: access-control-and-privileged-operations
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Audit who may perform each privileged operation. List every state-changing function and classify
+        it: open to anyone, restricted to a role or owner, or restricted to another contract. Then hunt for
+        the gaps: missing or misapplied modifiers on mint, burn, pause, upgrade, fee, parameter, treasury,
+        and withdrawal functions; initializers that are unprotected or re-callable, including on
+        implementation contracts; ownership transfer without a two-step handover, or renounce paths that
+        strand privileges; tx.origin used for authorization; signature-based authorization missing nonce,
+        deadline, chain id, or contract address binding, or accepting malleable signatures; ecrecover
+        results not checked against the zero address; and trusted-caller checks comparing against a value
+        the caller can influence. Report each with file:line evidence and the transaction an unauthorized
+        account sends.
+      maxFindings: 6
+    - name: oracle-and-price-manipulation
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Hunt for price and oracle manipulation. Identify every source of external value the contracts trust
+        - AMM spot prices and reserves, balanceOf and totalSupply of a pool or vault, share-price
+        computations, and external oracle feeds - and judge how expensive it is to move within one
+        transaction. Report spot prices read directly from a pair or pool without a time-weighted or
+        multi-source construction, exchange rates derived from balances that a donation or flash loan can
+        inflate, first-depositor and empty-vault share inflation, missing staleness, sequencer-uptime, and
+        deviation checks on feed data, decimals mismatches between feeds and accounting, liquidation and
+        collateral logic priced from a manipulable source, and swap paths without slippage or deadline
+        protection. Cite the price read and its consumer at file:line and outline the flash-loan or
+        sandwich sequence that profits.
+      maxFindings: 6
+    - name: arithmetic-and-rounding
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Hunt for arithmetic defects that move value. Examine every fee, share, interest, reward, and
+        collateral computation for rounding that favors the user rather than the protocol, division before
+        multiplication that truncates to zero, precision loss between tokens with different decimals, and
+        accumulator or index math that drifts. Check for unchecked blocks and inline assembly where an
+        overflow or underflow is possible, casts to narrower types that silently truncate, signed and
+        unsigned conversions, and comparisons against a total or cap computed from mutable state. Look for
+        the exploitable patterns specifically: deposits or withdrawals that round in the caller's favor and
+        can be repeated, zero-amount or dust operations that mint shares or claim rewards, and invariants
+        (sum of shares, total supply, accounted balance) that the code never re-checks. Cite the expression
+        at file:line and quantify what an attacker extracts per repetition.
+      maxFindings: 6
+    - name: upgradeability-and-storage-layout
+      role: vulnerability-hunter
+      category: misconfiguration
+      objective: >-
+        Audit the upgrade machinery and storage layout. For proxy-based systems, check that the
+        implementation cannot be initialized or self-destructed by a third party, that the upgrade function
+        is protected and follows the pattern's rules (UUPS authorization present, admin and implementation
+        slots at the standard positions), and that the proxy's own function selectors cannot shadow the
+        implementation's. Compare storage layouts across versions and across inherited contracts and
+        libraries: appended state in a base contract, reordered or removed variables, changed types or
+        packing, missing storage gaps, and namespaced or diamond storage slots derived from a colliding
+        string. Also check that initializers set every variable a constructor would have, that they cannot
+        run twice, and that delegatecall into a library never writes the caller's slots unintentionally.
+        Report with file:line evidence and describe the state an upgrade or a hostile initialization
+        corrupts or takes over.
+      maxFindings: 5
+    - name: token-integration-assumptions
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Hunt for broken assumptions about the tokens and contracts this system integrates with. Check how
+        the code handles tokens that take a fee on transfer or rebase (accounting from the requested amount
+        instead of the measured balance delta), tokens that return no boolean or return false instead of
+        reverting, tokens with unusual decimals or a zero-value transfer revert, tokens whose transfer
+        reenters through a receiver hook, approval race conditions and non-standard approve behavior,
+        blacklistable or pausable tokens stranding a settlement path, and permit implementations that
+        silently no-op. Then check the integrations themselves: assumptions that an external contract is
+        immutable or non-upgradeable, arbitrary addresses accepted as a token or callee, unbounded loops
+        over a user-extensible list, ETH handling in contracts that can receive it by force, and results of
+        external calls used without validating their shape. Report with file:line evidence and the token or
+        counterparty behavior that breaks the accounting.
+      maxFindings: 6
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Triage the contract findings by value at risk. Re-read the cited code for each report and confirm
+        that the attack is economically real: that the caller reaches the function, that the sequence fits
+        in the transactions available (including a flash loan where relevant), and that a modifier, guard,
+        or invariant check elsewhere does not already stop it. Merge duplicates that describe one accounting
+        error surfaced by several functions, drop reports that only restate a design tradeoff the protocol
+        made deliberately, and rank by funds an attacker extracts or freezes and by how many preconditions
+        they need. Then assemble and submit the final scan report.
+      dependsOn:
+        - reentrancy-and-external-calls
+        - access-control-and-privileged-operations
+        - oracle-and-price-manipulation
+        - arithmetic-and-rounding
+        - upgradeability-and-storage-layout
+        - token-integration-assumptions

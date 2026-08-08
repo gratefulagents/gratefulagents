@@ -1,0 +1,17 @@
+# Upstream: https://github.com/trailofbits/skills/tree/main/plugins/semgrep-rule-creator/skills/semgrep-rule-creator
+# License: CC-BY-SA-4.0 (Creative Commons Attribution-ShareAlike 4.0), Trail of Bits.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: trail-of-bits-semgrep-rule-creator
+spec:
+  version: "0.1.0"
+  description: >-
+    External Trail of Bits skill (CC-BY-SA-4.0): use when writing a
+    custom Semgrep rule for a vulnerability pattern you found, with
+    test-driven iteration against true and false positives.
+  source:
+    git:
+      url: https://github.com/trailofbits/skills
+      ref: main
+      path: plugins/semgrep-rule-creator/skills/semgrep-rule-creator

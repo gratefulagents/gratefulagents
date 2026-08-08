@@ -1,0 +1,105 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: api-authz-hunting
+spec:
+  version: "0.1.0"
+  description: >-
+    REST, gRPC, and GraphQL authorization hunting: BOLA/BFLA method, per-endpoint
+    guard inventories, tenant scoping in queries, mass assignment, GraphQL depth
+    and batching abuse, filter/sort injection, replay, and rate-limit bypass.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill on machine-facing surfaces: REST handlers, gRPC services,
+        GraphQL resolvers, internal RPC. Authorization bugs dominate here because
+        the client is assumed to be the app's own frontend.
+
+        ## Inventory before analysis
+
+        - List every endpoint with the guard that protects it. Sources: route
+          tables, `.proto` service definitions plus interceptor registration,
+          GraphQL schema plus resolver map, OpenAPI specs cross-checked against
+          the code (specs lie; handlers do not).
+        - For each: authentication (who), authorization (what role), object scope
+          (which rows), and where each is enforced. Endpoints enforcing scope
+          inside the handler are where scope gets forgotten.
+        - gRPC: an interceptor chain is per-server. A service registered on a
+          second server, or a method listed in a `skipAuth` map, is unguarded.
+          Reflection and health services often expose the method list.
+
+        ## BOLA — object-level authorization
+
+        - For every handler taking an ID (path param, body field, filter,
+          cursor), find the query that loads the object and check the tenant or
+          owner predicate is *in the query*: `WHERE id = ? AND org_id = ?`, not a
+          post-load `if obj.OrgID != user.OrgID` that only some branches run.
+        - Red flags: `findById`, `get_object_or_404(Model, pk=...)`,
+          `Model.objects.get(pk=)`, `repo.FindOne(id)`, `db.First(&x, id)`
+          without a scope, `unscoped`/`withoutGlobalScope`, raw SQL joins that
+          drop the tenant filter, caches keyed by object ID only.
+        - Tenant taken from a request header, JWT claim the client can re-sign,
+          or a query parameter instead of the session is an instant finding.
+        - Indirect objects count: attachments, exports, signed URLs, webhook
+          delivery logs, invoice PDFs, avatar blobs — usually behind a different
+          handler with weaker checks.
+
+        ## BFLA — function-level authorization
+
+        - Compare sibling methods: if `GET /orders/{id}` checks role but
+          `PATCH /orders/{id}` or `POST /orders/{id}/refund` does not, that is
+          the bug. Admin routes that differ from user routes only by path prefix
+          are usually guarded by a prefix match — test `/Admin`, `/admin/../`.
+        - Internal-only services relying on network position: check whether the
+          gateway strips `X-Internal-*`, `X-Forwarded-For`, or auth headers a
+          client can set.
+
+        ## Mass assignment and input shaping
+
+        - Deserializing a request straight into a model or entity
+          (`json.Unmarshal(&user)`, `User(**body)`, `Model.update(params)`,
+          `ObjectMapper.readValue`, `mapstructure`) lets a client set `role`,
+          `is_admin`, `org_id`, `balance`, `verified_at`.
+        - Check for an explicit allowlist (DTO, strong params, `Pick`, serializer
+          `fields`) and that nested objects and arrays are filtered too.
+
+        ## GraphQL
+
+        - Depth, complexity, and alias limits absent: one query can request the
+          same expensive field hundreds of times through aliases.
+        - Query batching (array of operations) used to bypass per-request rate
+          limits and to brute-force login or OTP endpoints.
+        - Authorization implemented in the top-level resolver only: nested
+          resolvers (`user { organization { members { email } } }`) reached from
+          a different root field skip it. Check field-level guards and dataloader
+          batch functions, which frequently load by ID with no scope.
+        - Mutations that accept an input object mapping directly to a model, and
+          `node(id:)`-style global object lookups.
+
+        ## Filters, pagination, ordering
+
+        - `sort`, `order_by`, `fields`, `include`, `filter[...]` values
+          interpolated into SQL or ORM expressions; column names are not
+          parameterizable, so they need an allowlist.
+        - Cursor tokens that encode a raw offset or a signed-but-unverified
+          payload; `limit` unbounded (memory DoS) or negative.
+
+        ## Replay, idempotency, rate limits
+
+        - Idempotency keys stored per key but not per caller, or not consulted
+          under concurrency (two parallel refunds).
+        - State-changing operations without a version/ETag check: last-writer
+          wins across tenants, TOCTOU on balance or quota reads.
+        - Rate limits keyed on a spoofable header, applied at the gateway but not
+          on the internal route, reset by changing case or trailing slash, or
+          absent on the token/OTP/reset endpoints that matter most.
+        - Webhook receivers: signature verified with a non-constant-time compare,
+          timestamp window unbounded (replay), or verification skipped when the
+          header is missing.
+
+        ## Report
+
+        State the caller's privilege, the endpoint, the object they should not
+        reach, and the query that fails to scope it. Include the exact request
+        line and the file:line of the missing predicate.

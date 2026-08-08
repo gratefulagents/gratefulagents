@@ -1,0 +1,105 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: kubernetes-operator-hunting
+spec:
+  version: "0.1.0"
+  description: >-
+    Controller, webhook, and CRD attack surface: RBAC verb analysis and
+    escalation through owned objects, unvalidated spec fields reaching pods and
+    commands, webhook bypass and fail-open, secret handling, cross-namespace
+    reach, finalizer deadlocks.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill when the target is a Kubernetes controller, operator,
+        admission webhook, or CRD API. The attacker model is a user who can
+        create or edit a custom resource in one namespace and wants cluster
+        privileges, other tenants' secrets, or node access.
+
+        ## RBAC first
+
+        - Read the generated role, not the marker comments: `config/rbac/*.yaml`,
+          the chart's ClusterRole, and every `// +kubebuilder:rbac` marker.
+        - Escalation shapes: `create`/`update` on `pods` (schedule a pod with the
+          controller's own service account or a hostPath mount), `create` on
+          `pods/exec` or `pods/attach`, `get` on `secrets` cluster-wide,
+          `escalate`/`bind` on roles, `create` on `serviceaccounts/token`,
+          `impersonate`, `patch` on `nodes` or `validatingwebhookconfigurations`,
+          `*` verbs on `*`.
+        - A controller with cluster-wide secret read is a confused deputy: any
+          CRD field that names a Secret lets a tenant read secrets in namespaces
+          they cannot access. Check the read is constrained to the CR's own
+          namespace and that a `namespace` field in the spec is not honored.
+
+        ## Spec fields reaching dangerous sinks
+
+        Trace every user-settable CRD field to the object the controller builds:
+
+        - Into a PodSpec: `image` (untrusted registry), `command`/`args`,
+          `env`/`envFrom` (secret exfiltration into a controlled image),
+          `volumes` with `hostPath`, `securityContext.privileged`,
+          `runAsUser: 0`, `hostNetwork`, `hostPID`, added capabilities,
+          `serviceAccountName` (pick a more privileged SA), `nodeName` and
+          tolerations targeting control-plane nodes.
+        - Into a shell or exec: any field concatenated into a script, entrypoint
+          wrapper, `sh -c`, or a template rendered into a ConfigMap that a pod
+          later executes.
+        - Into a URL: fetch of a user-supplied endpoint from the controller pod
+          (SSRF from inside the cluster reaches the API server, kubelet, and
+          cloud metadata).
+        - Into names and labels: unvalidated name fragments used to build object
+          names can collide with or adopt existing objects; label selectors built
+          from user input can select someone else's pods.
+
+        Validation belongs in the CRD schema (`+kubebuilder:validation:*`,
+        Enum, Pattern, XValidation) *and* in the webhook. Defaulting webhooks
+        that fill a field the validator never re-checks are a bypass.
+
+        ## Admission webhooks
+
+        - `failurePolicy: Ignore` means an attacker who can make the webhook
+          unreachable (delete its pod, exhaust it, DoS it) bypasses validation.
+          For a security-relevant validator, that is the finding.
+        - `namespaceSelector`/`objectSelector` exclusions: a label the tenant
+          controls that removes them from admission review.
+        - `rules` not covering all operations (`UPDATE` missing while `CREATE` is
+          validated), missing subresources (`scale`, `status`), or omitting
+          `apiGroups`/`versions` a client can address instead.
+        - TLS: CA bundle injection, client cert verification, and whether the
+          webhook authenticates the API server at all.
+
+        ## Secrets and tokens
+
+        - Secret values copied into `status`, events, annotations, ConfigMaps, or
+          log lines (`log.Info("config", "spec", spec)` prints everything).
+        - Tokens minted with `TokenRequest` and long expiry, or the controller's
+          own service account token mounted into workload pods.
+        - `automountServiceAccountToken` left on for pods that need no API access.
+        - Owner references from a Secret to a tenant-owned CR: deleting the CR
+          garbage-collects, but adopting an existing Secret via a crafted
+          ownerRef can also grant reads or cause deletion of others' objects.
+
+        ## Reach and blast radius
+
+        - Cluster-scoped CRDs with per-tenant semantics: no namespace boundary
+          means no tenancy.
+        - Controllers watching all namespaces but acting on a namespace named in
+          the spec, cross-namespace `SecretRef`/`ConfigMapRef`, and references
+          resolved without checking a permission or an explicit allow-list
+          (Gateway API ReferenceGrant pattern).
+
+        ## Availability and correctness
+
+        - Finalizers added without a removal path on every error branch: a tenant
+          can wedge namespace deletion permanently.
+        - Requeue on error with no backoff, hot loops writing status each
+          reconcile (API server and etcd exhaustion), unbounded `List` without
+          pagination or field selectors, and per-CR goroutines with no limit.
+
+        ## Report
+
+        Point at the CRD field, the line where it enters the built object, and
+        the RBAC verb that makes it dangerous. State the privilege the tenant
+        starts with — "any user who can create this CR in their own namespace".

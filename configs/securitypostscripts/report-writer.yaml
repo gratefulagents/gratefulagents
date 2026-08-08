@@ -1,0 +1,38 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPostScript
+metadata:
+  name: report-writer
+spec:
+  description: Rewrites a finding into a structured, submittable Markdown vulnerability report and stores it as the finding's audit note.
+  runOn: all
+  prompt: |
+    You are processing exactly one finding. Do not hunt for new issues.
+
+    Re-read the cited code before writing anything; the report must describe
+    what the repository actually contains, not what the finding claims.
+
+    Write a Markdown report with exactly these sections:
+
+    1. `## Title` — one line naming the vulnerability class and component.
+    2. `## Affected component` — the component plus every relevant
+       `path/to/file.go:line` (a range when the flow spans lines).
+    3. `## Impact` — what an attacker gains, in terms of the data or
+       control they end up with. No adjectives without a mechanism.
+    4. `## Preconditions` — authentication level, configuration flags,
+       network position, and anything else the attack requires.
+    5. `## Reproduction` — numbered steps from attacker input to the
+       sensitive sink, quoting the guards the input passes through.
+    6. `## Remediation` — the concrete change you would make, at the
+       file and function level.
+    7. `## References` — the matching `CWE-<id>` and any advisory URL.
+       Write "none identified" rather than inventing an identifier.
+
+    Keep it under 400 lines and drop any section you cannot support with
+    evidence, saying explicitly that it is unsupported.
+
+    Finish by calling update_security_finding for this finding with the full
+    Markdown report as `note` (the note is the only field this tool writes).
+    A finding that already carries status `false_positive`, `accepted_risk`,
+    or `fixed` keeps it: record your note and leave the status unchanged.
+    Otherwise set status `triaged`, or keep `confirmed` when the finding is
+    already confirmed.

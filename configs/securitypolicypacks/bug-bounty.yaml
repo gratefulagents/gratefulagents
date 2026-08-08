@@ -1,0 +1,26 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPolicyPack
+metadata:
+  name: bug-bounty
+spec:
+  description: Bug-bounty submission policy — triager-calibrated ranking, scope eligibility enforcement, a reproducible proof of concept for high findings, and a submittable report per finding.
+  minSeverity: medium
+  failOnSeverity: critical
+  dedupe:
+    enabled: true
+  defaultRankerRefs:
+    - name: bug-bounty-triage
+  defaultPostScriptRefs:
+    - name: scope-eligibility-check
+    - name: false-positive-check
+    - name: poc-builder
+    - name: report-writer
+  budgets:
+    maxRuntime: 4h
+  retention:
+    scanDays: 730
+    findingDays: 730
+    reportDays: 730
+    evidenceDays: 730
+    pocDays: 365
+    auditEventDays: 730

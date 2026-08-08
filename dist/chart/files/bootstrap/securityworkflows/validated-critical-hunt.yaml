@@ -1,0 +1,140 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: validated-critical-hunt
+spec:
+  description: High-signal hunt restricted to remote-compromise vulnerability classes, where every task records exploitability evidence, a validation pass settles each candidate, and triage keeps only findings with a concrete end-to-end exploitation path.
+  tasks:
+    - name: unauthenticated-remote-execution
+      role: vulnerability-hunter
+      category: injection
+      objective: >-
+        Hunt for remote code execution reachable without valid credentials. Start from the entry points an
+        anonymous caller can touch and look for untrusted data reaching an interpreter: shell and subprocess
+        invocation built from request values, template or expression engines evaluating user input, dynamic
+        code loading (eval, require, import, reflection, plugin paths), file writes that land in an
+        executed location (web root, extension or config directory, archive extraction escaping its target),
+        and command arguments where an option can be injected. Ignore anything that needs an
+        administrator, a local shell, or a developer's machine. For every candidate record the exploitability
+        evidence: the exact entry point and request, each hop from source to sink with file:line, the
+        preconditions the attacker needs, and the payload shape that would execute. Report nothing you
+        cannot walk end to end.
+      maxFindings: 5
+    - name: authentication-bypass
+      role: vulnerability-hunter
+      category: authn
+      objective: >-
+        Hunt for full authentication bypass: reaching an authenticated or administrative identity without
+        the credential. Look for token validation that skips signature, algorithm, audience, issuer, or
+        expiry checks; identity taken from a client-supplied header, cookie, or body field that a proxy does
+        not strip; session or reset tokens that are guessable, non-expiring, or reusable across accounts;
+        comparison logic that fails open on empty, null, or malformed values; guards registered so that a
+        route, method, or alternate path never reaches them; and default, seeded, or debug accounts left
+        enabled. Ignore weaknesses that only matter after a valid session exists. For every candidate record
+        the exploitability evidence: the request an unauthenticated attacker sends, the code at file:line
+        that accepts it, the identity obtained, and any precondition (known username, leaked id) it needs.
+      maxFindings: 5
+    - name: remote-data-exfiltration
+      role: vulnerability-hunter
+      category: injection
+      objective: >-
+        Hunt for mass exfiltration of data an attacker is not entitled to: injection into database, search,
+        or storage queries that returns arbitrary rows; identifiers accepted without an ownership or tenant
+        predicate on endpoints that return records in bulk; export, backup, report, and admin listing
+        endpoints reachable with a weak or absent check; path traversal or object-storage key control
+        reading arbitrary files; and cross-tenant reads through shared caches or misscoped queries. Focus on
+        volume and sensitivity: one user's profile is not this task's target, every user's credentials or
+        every tenant's records is. For every candidate record the exploitability evidence: the request, the
+        query or file access at file:line, what returns to the attacker, and the privilege level required.
+      maxFindings: 5
+    - name: ssrf-to-internal-services
+      role: vulnerability-hunter
+      category: ssrf
+      objective: >-
+        Hunt for server-side request forgery that reaches something valuable: cloud instance metadata and
+        credential endpoints, internal admin or service APIs, databases and caches speaking text protocols,
+        and the container or cluster control plane. Trace every place a URL, host, port, or scheme derives
+        from user input or from a record the user controls into an HTTP client, fetcher, renderer, importer,
+        or proxy, and check the defenses honestly: allowlists matched on the parsed host, redirects
+        re-validated, DNS resolution checked against internal ranges at connection time, non-HTTP schemes
+        rejected, and whether the response body, status, or timing returns to the caller. For every
+        candidate record the exploitability evidence: the request, the outbound call at file:line, the
+        internal target reached, and what the attacker learns or obtains.
+      maxFindings: 5
+    - name: deserialization-to-rce
+      role: vulnerability-hunter
+      category: deserialization
+      objective: >-
+        Hunt for untrusted deserialization that leads to code execution or object injection: native
+        deserializers and object-constructing YAML loaders fed request, cookie, cache, or queue data;
+        session or signed-payload formats decoded before the signature is verified, or verified with a key
+        the attacker can obtain; XML parsers with external entities enabled; and prototype or class
+        pollution sinks reachable from parsed input. Establish whether a usable gadget exists in the
+        dependencies actually installed rather than assuming one. For every candidate record the
+        exploitability evidence: the untrusted source, the decoding call at file:line, the gadget or
+        constructed object, and what execution or state change follows.
+      maxFindings: 5
+    - name: credential-exposure-to-takeover
+      role: secrets-auditor
+      category: secrets
+      objective: >-
+        Hunt for exposed credential material that hands an attacker a production system: live-looking keys,
+        tokens, or private keys committed to the repository or embedded in shipped artifacts and client
+        bundles; credentials written into logs, error responses, or telemetry that a lower-privilege party
+        can read; signing and encryption keys checked in or derived from constants, letting tokens be
+        forged; and credentials reachable through an unauthenticated endpoint. Discard placeholders,
+        fixtures, expired or local-only values, and anything that grants nothing. For every candidate
+        record the exploitability evidence: the location at file:line, what the credential authenticates to,
+        who can read it today, and the takeover it enables.
+      maxFindings: 5
+    - name: validate-exploitability
+      role: exploit-validator
+      category: other
+      objective: >-
+        Settle every candidate reported by the six hunts. Take each finding in turn, re-read the code it
+        cites, and reconstruct the attack path from the attacker's position to the impact without skipping
+        a hop: confirm the entry point is reachable in a production configuration, that each intermediate
+        check is genuinely absent or bypassable, and that the final sink does what the report claims. Build
+        the cheapest local proof that settles the question - a focused harness, a direct call into the
+        vulnerable function, a request against a locally started server - and never send traffic to a real
+        system. Update each finding with the outcome: confirmed with the reproduction steps and evidence,
+        or rejected with the specific check that stops the attack. Kill every candidate whose path breaks;
+        a rejected finding is as valuable an outcome as a confirmed one. Publish one entry per settled
+        candidate as this task's structured output, and an empty array when there was nothing to settle.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "verdict", "summary"],
+            "properties": {
+              "title": {"type": "string", "description": "Short name of the candidate finding"},
+              "verdict": {"type": "string", "description": "confirmed or rejected"},
+              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "file": {"type": "string", "description": "Repository-relative file the candidate cites"},
+              "line": {"type": "integer", "description": "Line the candidate cites"},
+              "summary": {"type": "string", "description": "The reproduction that confirms it, or the check that stops it"}
+            }
+          }
+        }
+      dependsOn:
+        - unauthenticated-remote-execution
+        - authentication-bypass
+        - remote-data-exfiltration
+        - ssrf-to-internal-services
+        - deserialization-to-rce
+        - credential-exposure-to-takeover
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Assemble the final report from the validation results in {{tasks.validate-exploitability.output}}.
+        Apply one admission rule without exception: a finding stays only when the report states a concrete
+        exploitation path - who the attacker is, what they send, the code path it traverses with file:line
+        evidence, and what they gain - and that path survived validation. Drop everything marked rejected,
+        everything whose path is stated in conditional or speculative terms, and everything whose impact
+        does not amount to remote compromise, no matter how tidy the analysis. Merge duplicates that share a
+        sink, rank the survivors by attacker prerequisites and impact, and prefer an empty report over a
+        padded one. Then assemble and submit the final scan report.
+      dependsOn:
+        - validate-exploitability

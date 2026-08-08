@@ -1,0 +1,101 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: bug-bounty-reporting
+spec:
+  version: "0.1.0"
+  description: >-
+    How to write a vulnerability report that gets accepted: impact-first
+    narrative, minimal reproduction, scope compliance, severity justification,
+    deduplication against known issues, and the patterns triagers reject.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill when turning a confirmed finding into a report for a
+        maintainer, a security team, or a bounty triager. The technical work is
+        done; this is about the report being believed, understood, and fixed.
+
+        ## Before writing: is it reportable?
+
+        - Scope: check the program or SECURITY.md for in-scope assets, excluded
+          domains, excluded classes (self-XSS, missing headers, rate limiting,
+          social engineering, DoS, outdated versions with no exploit), and
+          testing rules. An out-of-scope report is worse than none.
+        - Duplicates: search existing issues, the changelog, published advisories
+          (GHSA/CVE), the repository's git log for a fix in progress, and prior
+          disclosed reports. If the class is known, say what is new about yours.
+        - Reality check: does an attacker who does not already have the privilege
+          gain something? "Admin can inject SQL as admin" and "user can break
+          their own account" are not vulnerabilities unless a boundary is crossed.
+
+        ## Structure
+
+        1. **Title** — one line: `<vuln class> in <component> allows <attacker>
+           to <impact>`. No "critical!!!", no vagueness.
+        2. **Summary** — three sentences: what is wrong, where, what an attacker
+           gains. A triager decides priority from this alone.
+        3. **Impact** — concrete and bounded. Name the data, accounts, funds, or
+           systems reachable, and the preconditions (unauthenticated? needs a
+           free account? needs a victim to click?). State what you did *not*
+           demonstrate.
+        4. **Affected version and location** — commit SHA or version, file path
+           and line, function name, endpoint.
+        5. **Root cause** — the missing check or wrong assumption, quoted from
+           the code with a short snippet. One paragraph.
+        6. **Reproduction** — numbered, deterministic, minimal.
+        7. **Suggested fix** — the specific change, not "sanitize input".
+        8. **References** — CWE, related advisories, framework docs proving the
+           API behaves as you claim.
+
+        ## Reproduction quality
+
+        - Minimal: strip everything not required. One request beats a script.
+        - Deterministic: exact URL, method, headers, body; exact CLI command;
+          exact expected output ("returns HTTP 200 with another tenant's email"
+          not "you may see other data").
+        - Self-contained: state the starting state (two accounts A and B, A's
+          object ID), how to create it, and the environment (local docker
+          compose, test fixture). Prefer a local reproduction over touching any
+          hosted system.
+        - Evidence: copy the response line that proves it, redact secrets and
+          third-party data, and never include another user's real data — recreate
+          it with your own test accounts.
+        - If a PoC exists as a test, include the test file and the command that
+          runs it; a failing-then-passing test is the most credible artifact.
+
+        ## Severity you can defend
+
+        - Use CVSS only when you can justify every metric; write the vector and a
+          one-line reason for AV, PR, UI, and the impact metrics. If the program
+          uses its own scale, use theirs.
+        - Justify by preconditions, not by adjectives. "Unauthenticated, single
+          request, returns arbitrary users' password reset tokens" is the
+          argument; "critical because auth is important" is not.
+        - Do not inflate. An inflated severity invites the triager to re-score
+          everything you wrote, including the parts that were right. Under-claim
+          the chain you did not prove and mark it as speculation.
+
+        ## What triagers reject
+
+        - Scanner output pasted with no reachability analysis.
+        - "Best practice" reports: missing headers, verbose banners, TLS config,
+          dependency versions with no exploit path.
+        - Theoretical chains requiring an already-compromised admin, physical
+          access, or a victim who pastes attacker JavaScript into a console.
+        - Non-reproducible steps, screenshots instead of requests, video with no
+          text transcript of the request.
+        - Reports where the "vulnerable" behavior is documented and intentional
+          (public API by design, sandbox that is meant to run user code).
+        - AI-sounding walls of text with no file:line. Length is not evidence.
+
+        ## Conduct
+
+        - Report privately through the stated channel; do not open a public issue
+          for an unfixed vulnerability.
+        - Respect the disclosure timeline you agreed to, and ask before
+          publishing. Offer to review the fix.
+        - Never access, retain, or exfiltrate real user data; stop at proof of
+          access and say so in the report.
+        - One issue per report. Chains go in one report only when each link is
+          worthless alone; otherwise file separately and cross-link.

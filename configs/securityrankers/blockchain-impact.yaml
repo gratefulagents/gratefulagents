@@ -1,0 +1,13 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityRanker
+metadata:
+  name: blockchain-impact
+spec:
+  description: Conservative production-impact calibration for blockchain node and protocol code; ranks liveness, fund-loss, and state-corruption issues highest and discounts collusion-only scenarios.
+  rules:
+    - Anything that halts consensus or stalls block production for the network — a panic, an unrecoverable error, or a deadlock reachable from a peer-supplied message or transaction — is critical.
+    - Direct loss, theft, or freezing of user funds is critical; incorrect fee, reward, or balance accounting that drifts over time is high.
+    - State corruption that survives a restart, or that lets one node commit a state root the rest of the network rejects, is critical.
+    - Non-determinism in transaction execution — map iteration order, wall-clock time, floating point, or unsynchronized concurrency reaching consensus state — is high even without a known trigger, because it forks the chain.
+    - Unbounded gas, memory, or state growth from a single transaction or peer message is high when one attacker can sustain it, and medium when it needs sustained privileged traffic.
+    - Downgrade to low anything that requires collusion by a validator majority, a modified node binary, or an already-compromised key, and say so explicitly in the finding rather than assuming the preconditions away.

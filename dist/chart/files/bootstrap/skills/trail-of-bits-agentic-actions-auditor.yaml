@@ -1,0 +1,17 @@
+# Upstream: https://github.com/trailofbits/skills/tree/main/plugins/agentic-actions-auditor/skills/agentic-actions-auditor
+# License: CC-BY-SA-4.0 (Creative Commons Attribution-ShareAlike 4.0), Trail of Bits.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: trail-of-bits-agentic-actions-auditor
+spec:
+  version: "0.1.0"
+  description: >-
+    External Trail of Bits skill (CC-BY-SA-4.0): use when auditing
+    GitHub Actions workflows for AI-agent security problems, such as
+    untrusted input reaching an agent that holds privileged tokens.
+  source:
+    git:
+      url: https://github.com/trailofbits/skills
+      ref: main
+      path: plugins/agentic-actions-auditor/skills/agentic-actions-auditor

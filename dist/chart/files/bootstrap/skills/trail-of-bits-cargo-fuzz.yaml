@@ -1,0 +1,17 @@
+# Upstream: https://github.com/trailofbits/skills/tree/main/plugins/testing-handbook-skills/skills/cargo-fuzz
+# License: CC-BY-SA-4.0 (Creative Commons Attribution-ShareAlike 4.0), Trail of Bits.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: trail-of-bits-cargo-fuzz
+spec:
+  version: "0.1.0"
+  description: >-
+    External Trail of Bits skill (CC-BY-SA-4.0): use when fuzzing Rust
+    crates with cargo-fuzz, from fuzz-target setup through crash
+    reproduction and triage.
+  source:
+    git:
+      url: https://github.com/trailofbits/skills
+      ref: main
+      path: plugins/testing-handbook-skills/skills/cargo-fuzz

@@ -1,0 +1,24 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPolicyPack
+metadata:
+  name: web-application
+spec:
+  description: Web application scanning policy — web-calibrated severity ranking, a written report per finding, and an adversarial false-positive pass before anything is reported as real.
+  minSeverity: low
+  failOnSeverity: critical
+  dedupe:
+    enabled: true
+  defaultRankerRefs:
+    - name: web-app-impact
+  defaultPostScriptRefs:
+    - name: false-positive-check
+    - name: report-writer
+  budgets:
+    maxRuntime: 2h
+  retention:
+    scanDays: 365
+    findingDays: 730
+    reportDays: 365
+    evidenceDays: 365
+    pocDays: 90
+    auditEventDays: 730
