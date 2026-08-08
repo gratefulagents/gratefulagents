@@ -787,8 +787,10 @@ spec:
                       type: string
                     runOn:
                       default: all
-                      description: runOn selects which findings this post-script runs
-                        against.
+                      description: |-
+                        runOn selects which findings this post-script runs against. Eligibility
+                        is frozen from the finding state at the end of research, before any
+                        per-finding pipeline starts.
                       enum:
                       - all
                       - confirmed
@@ -1439,17 +1441,16 @@ spec:
                     x-kubernetes-list-type: atomic
                   postScriptJobs:
                     description: |-
-                      postScriptJobs is the materialized finding x post-script matrix. It
-                      is populated once the research tasks are terminal and gates the sink
-                      task: the final report may only be submitted after every job reached
+                      postScriptJobs is the materialized per-finding post-script pipeline list.
+                      It is populated once the research tasks are terminal and gates the sink
+                      task: the final report may only be submitted after every pipeline reached
                       a terminal state.
                     items:
                       description: |-
-                        SecurityScanPostScriptJobStatus is one durable finding x post-script
-                        execution. Post-scripts used to be prose in the sink prompt, so runOn,
-                        ordering, retries, and completion were entirely model-discretionary and
-                        unauditable. Materializing them as jobs makes each one an observable,
-                        retriable unit whose terminal state gates the final report.
+                        SecurityScanPostScriptJobStatus is one durable per-finding post-script
+                        pipeline execution. Applicable scripts are snapshotted in order and run by
+                        one AgentRun, avoiding a finding x script explosion while keeping retries,
+                        completion, and report gating observable.
                       properties:
                         attempts:
                           description: attempts is how many attempts have started
@@ -1471,10 +1472,8 @@ spec:
                           description: lastError summarizes the most recent failure.
                           type: string
                         order:
-                          description: |-
-                            order is the script's 0-based position in spec.postScripts. Jobs for
-                            one finding run in this order so a later script observes the status a
-                            previous one set.
+                          description: order is the script's 0-based position for
+                            legacy single-script jobs.
                           format: int32
                           type: integer
                         result:
@@ -1487,8 +1486,20 @@ spec:
                             serving this job.
                           type: string
                         script:
-                          description: script is the SecurityPostScript name.
+                          description: |-
+                            script is the SecurityPostScript name for legacy single-script jobs.
+                            New pipeline jobs also set it to the first script for compatibility with
+                            older clients; scripts is the authoritative ordered pipeline.
                           type: string
+                        scripts:
+                          description: |-
+                            scripts is the ordered list of post-scripts selected for this finding at
+                            materialization time. runOn is evaluated against that finding snapshot,
+                            so scripts that do not match never become jobs.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
                         startedAt:
                           description: |-
                             startedAt is when the first attempt started; finishedAt is when the
@@ -1505,7 +1516,7 @@ spec:
                     x-kubernetes-list-type: atomic
                   postScriptsMaterialized:
                     description: |-
-                      postScriptsMaterialized records that the job matrix was computed, so
+                      postScriptsMaterialized records that the pipeline list was computed, so
                       a reconcile that observes zero eligible findings does not recompute
                       it forever.
                     type: boolean

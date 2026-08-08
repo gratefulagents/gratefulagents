@@ -1333,9 +1333,9 @@ func TestSecurityScanCoordinatorRunStampsItsOwnExecutionID(t *testing.T) {
 	}
 }
 
-// postScriptFindingStore serves the findings a post-script matrix is
+// postScriptFindingStore serves the findings post-script pipelines are
 // materialized from and reloaded against, and counts list calls so tests can
-// prove the matrix is computed exactly once.
+// prove the pipeline list is computed exactly once.
 type postScriptFindingStore struct {
 	securityScanRecordStubStore
 	findings  []store.SecurityFindingRecord
@@ -1347,8 +1347,10 @@ func (s *postScriptFindingStore) ListSecurityFindings(_ context.Context, f store
 	s.listCalls++
 	s.filters = append(s.filters, f)
 	out := append([]store.SecurityFindingRecord(nil), s.findings...)
-	// The real store caps the result at the requested limit; honouring it here
-	// is what lets a test observe truncation of the matrix.
+	if f.Offset >= int32(len(out)) {
+		return nil, nil
+	}
+	out = out[f.Offset:]
 	if f.Limit > 0 && len(out) > int(f.Limit) {
 		out = out[:f.Limit]
 	}
@@ -1406,33 +1408,33 @@ func postScriptSecurityScan(scripts []triggersv1alpha1.SecurityScanPostScript, p
 	return scan
 }
 
-func postScriptJob(t *testing.T, exec *triggersv1alpha1.SecurityScanExecutionStatus, script, fingerprint string) triggersv1alpha1.SecurityScanPostScriptJobStatus {
+func postScriptJob(t *testing.T, exec *triggersv1alpha1.SecurityScanExecutionStatus, fingerprint string) triggersv1alpha1.SecurityScanPostScriptJobStatus {
 	t.Helper()
 	if exec == nil {
 		t.Fatal("execution is nil")
 	}
 	for _, job := range exec.PostScriptJobs {
-		if job.Script == script && job.Fingerprint == fingerprint {
+		if job.Fingerprint == fingerprint {
 			return job
 		}
 	}
-	t.Fatalf("post-script job %s/%s missing from %#v", script, fingerprint, exec.PostScriptJobs)
+	t.Fatalf("post-script job for %s missing from %#v", fingerprint, exec.PostScriptJobs)
 	return triggersv1alpha1.SecurityScanPostScriptJobStatus{}
 }
 
-func postScriptRun(t *testing.T, runs []platformv1alpha1.AgentRun, script, fingerprint string) platformv1alpha1.AgentRun {
+func postScriptRun(t *testing.T, runs []platformv1alpha1.AgentRun, scripts, fingerprint string) platformv1alpha1.AgentRun {
 	t.Helper()
 	for _, run := range runs {
-		if run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] == script &&
+		if run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] == scripts &&
 			run.Annotations[triggersv1alpha1.SecurityScanPostScriptFindingAnnotation] == fingerprint {
 			return run
 		}
 	}
-	t.Fatalf("post-script run %s/%s missing from %#v", script, fingerprint, runs)
+	t.Fatalf("post-script run %s/%s missing from %#v", scripts, fingerprint, runs)
 	return platformv1alpha1.AgentRun{}
 }
 
-func TestSecurityScanPostScriptsMaterializeOncePerFindingInScriptOrder(t *testing.T) {
+func TestSecurityScanPostScriptsMaterializeOneOrderedPipelinePerFinding(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
 		{Name: "validate", Prompt: "Build a proof of concept."},
@@ -1451,31 +1453,36 @@ func TestSecurityScanPostScriptsMaterializeOncePerFindingInScriptOrder(t *testin
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
-	if !exec.PostScriptsMaterialized || len(exec.PostScriptJobs) != 4 {
-		t.Fatalf("post-script jobs = %#v, want a materialized 2x2 matrix", exec.PostScriptJobs)
+	if !exec.PostScriptsMaterialized || len(exec.PostScriptJobs) != 2 || exec.PostScriptJobs[0].State != triggersv1alpha1.SecurityScanPostScriptStatePending {
+		t.Fatalf("materialization barrier status = %#v, want persisted pending pipelines", exec.PostScriptJobs)
 	}
-	// Findings sort by fingerprint and each finding's scripts follow spec
-	// order, so a later script always observes the earlier script's verdict.
-	wantOrder := []string{"fp-alpha/validate", "fp-alpha/triage", "fp-beta/validate", "fp-beta/triage"}
+	if runs := securityScanRuns(t, k8sClient, scan.Namespace); slices.ContainsFunc(runs, func(run platformv1alpha1.AgentRun) bool {
+		return run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] != ""
+	}) {
+		t.Fatalf("post-script runs = %#v, want none in the materialization reconcile", runs)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if !exec.PostScriptsMaterialized || len(exec.PostScriptJobs) != 2 {
+		t.Fatalf("post-script jobs = %#v, want one materialized pipeline per finding", exec.PostScriptJobs)
+	}
+	wantOrder := []string{"fp-alpha", "fp-beta"}
 	for i, want := range wantOrder {
 		job := exec.PostScriptJobs[i]
-		if got := job.Fingerprint + "/" + job.Script; got != want {
-			t.Fatalf("job %d = %q, want %q", i, got, want)
+		if job.Fingerprint != want || job.Script != "validate" || !slices.Equal(job.Scripts, []string{"validate", "triage"}) {
+			t.Fatalf("job %d = %#v, want finding %q with the ordered validate/triage pipeline and legacy Script", i, job, want)
 		}
 	}
 	if exec.PostScriptJobs[0].State != triggersv1alpha1.SecurityScanPostScriptStateRunning ||
-		exec.PostScriptJobs[1].State != triggersv1alpha1.SecurityScanPostScriptStatePending {
-		t.Fatalf("per-finding serialization broken: %#v", exec.PostScriptJobs[:2])
-	}
-	if exec.PostScriptJobs[2].State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
-		t.Fatalf("second finding did not start in parallel: %#v", exec.PostScriptJobs[2])
+		exec.PostScriptJobs[1].State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+		t.Fatalf("per-finding pipelines did not start in parallel: %#v", exec.PostScriptJobs)
 	}
 	// The sink may not launch while verdicts are outstanding.
 	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStatePending)
 	if runs := taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "report"); len(runs) != 0 {
 		t.Fatalf("report runs = %#v, want none while post-script jobs are pending", runs)
 	}
-	run := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
+	run := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate,triage", "fp-alpha")
 	if run.Annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation] != exec.ID {
 		t.Fatalf("post-script run annotations = %#v, want the execution id", run.Annotations)
 	}
@@ -1490,31 +1497,22 @@ func TestSecurityScanPostScriptsMaterializeOncePerFindingInScriptOrder(t *testin
 	}
 
 	for _, fingerprint := range []string{"fp-alpha", "fp-beta"} {
-		first := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", fingerprint)
-		markSecurityScanTaskRun(t, k8sClient, scan.Namespace, first.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+		pipeline := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate,triage", fingerprint)
+		markSecurityScanTaskRun(t, k8sClient, scan.Namespace, pipeline.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
 	}
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
-	if job := postScriptJob(t, exec, "validate", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateSucceeded ||
+	if job := postScriptJob(t, exec, "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateSucceeded ||
 		!strings.Contains(job.Result, `finding status is "open"`) {
 		t.Fatalf("succeeded job = %#v, want the reloaded finding status as its result", job)
 	}
-	if job := postScriptJob(t, exec, "triage", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
-		t.Fatalf("second script = %#v, want Running once the first one finished", job)
-	}
 	if findings.listCalls != 1 {
-		t.Fatalf("finding list calls = %d, want the matrix materialized exactly once", findings.listCalls)
+		t.Fatalf("finding list calls = %d, want the pipelines materialized exactly once", findings.listCalls)
 	}
 	if got := findings.filters[0]; got.ExecutionID != exec.ID || got.Namespace != scan.Namespace || got.ScanName != scan.Name {
 		t.Fatalf("finding filter = %#v, want this execution's findings", got)
 	}
 
-	for _, fingerprint := range []string{"fp-alpha", "fp-beta"} {
-		second := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "triage", fingerprint)
-		markSecurityScanTaskRun(t, k8sClient, scan.Namespace, second.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
-	}
-	reconcileDeterministicSecurityScan(t, reconciler, scan)
-	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
 	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
 		t.Fatalf("execution phase = %q, want Running until the sink completes", exec.Phase)
@@ -1527,7 +1525,7 @@ func TestSecurityScanPostScriptsMaterializeOncePerFindingInScriptOrder(t *testin
 	}
 }
 
-func TestSecurityScanPostScriptsReevaluateRunOnAgainstTheReloadedFinding(t *testing.T) {
+func TestSecurityScanPostScriptsPrefilterRunOnAtMaterialization(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
 		{Name: "validate", Prompt: "Build a proof of concept."},
@@ -1543,30 +1541,79 @@ func TestSecurityScanPostScriptsReevaluateRunOnAgainstTheReloadedFinding(t *test
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
-	reconcileDeterministicSecurityScan(t, reconciler, scan)
-
-	// The first script confirms one finding and leaves the other open; the
-	// second script's runOn is decided by THAT state, not by the state the
-	// matrix was materialized from.
 	findings.setStatus(t, "fp-alpha", store.SecurityFindingStatusConfirmed)
-	for _, fingerprint := range []string{"fp-alpha", "fp-beta"} {
-		run := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", fingerprint)
-		markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
-	}
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
-	if job := postScriptJob(t, exec, "exploit", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
-		t.Fatalf("confirmed finding job = %#v, want Running", job)
+	alpha := postScriptJob(t, exec, "fp-alpha")
+	if !slices.Equal(alpha.Scripts, []string{"validate", "exploit"}) {
+		t.Fatalf("confirmed finding pipeline = %#v, want validate then exploit", alpha)
 	}
-	skipped := postScriptJob(t, exec, "exploit", "fp-beta")
-	if skipped.State != triggersv1alpha1.SecurityScanPostScriptStateSkipped ||
-		!strings.Contains(skipped.Result, `runOn "confirmed"`) || !strings.Contains(skipped.Result, `status "open"`) {
-		t.Fatalf("unconfirmed finding job = %#v, want Skipped stating the unmatched status", skipped)
+	beta := postScriptJob(t, exec, "fp-beta")
+	if !slices.Equal(beta.Scripts, []string{"validate"}) {
+		t.Fatalf("open finding pipeline = %#v, want only validate", beta)
 	}
-	// Skipping is a normal outcome, not incomplete coverage.
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if got := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate,exploit", "fp-alpha").Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation]; got != "validate,exploit" {
+		t.Fatalf("confirmed finding annotation = %q, want ordered comma-separated scripts", got)
+	}
+	if got := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-beta").Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation]; got != "validate" {
+		t.Fatalf("open finding annotation = %q, want only the matching script", got)
+	}
+
+	findings.setStatus(t, "fp-alpha", store.SecurityFindingStatusOpen)
+	findings.setStatus(t, "fp-beta", store.SecurityFindingStatusConfirmed)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if !slices.Equal(postScriptJob(t, exec, "fp-alpha").Scripts, []string{"validate", "exploit"}) ||
+		!slices.Equal(postScriptJob(t, exec, "fp-beta").Scripts, []string{"validate"}) {
+		t.Fatalf("materialized pipelines changed after finding statuses changed: %#v", exec.PostScriptJobs)
+	}
 	if len(exec.CoverageGaps) != 0 {
-		t.Fatalf("coverage gaps = %#v, want none for a runOn skip", exec.CoverageGaps)
+		t.Fatalf("coverage gaps = %#v, want none for scripts filtered out at materialization", exec.CoverageGaps)
+	}
+}
+
+func TestSecurityScanLegacyPostScriptJobReevaluatesRunOnAtDispatch(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "exploit", RunOn: "confirmed", Prompt: "Weaponize the confirmed issue."},
+	}, 4)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	findings := &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
+	}}
+	findings.setStatus(t, "fp-alpha", store.SecurityFindingStatusConfirmed)
+	reconciler.Findings = findings
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Status.LastExecution.PostScriptJobs[0].Scripts = nil
+	if err := k8sClient.Status().Update(context.Background(), updated); err != nil {
+		t.Fatalf("Status().Update(SecurityScan legacy job): %v", err)
+	}
+	findings.setStatus(t, "fp-alpha", store.SecurityFindingStatusOpen)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	job := postScriptJob(t, exec, "fp-alpha")
+	if job.State != triggersv1alpha1.SecurityScanPostScriptStateSkipped ||
+		!strings.Contains(job.Result, `runOn "confirmed"`) || !strings.Contains(job.Result, `status "open"`) {
+		t.Fatalf("legacy job = %#v, want dispatch-time runOn compatibility skip", job)
+	}
+	if got := securityScanPostScriptAttemptRunNames(scan.Name, exec.ID, triggersv1alpha1.SecurityScanPostScriptJobStatus{
+		Script: "exploit", FindingID: job.FindingID, Attempts: 1,
+	}, ""); !slices.Equal(got, []string{securityScanPostScriptRunName(scan.Name, exec.ID, "exploit", job.FindingID, 1, "")}) {
+		t.Fatalf("legacy attempt run names = %#v, want the script-keyed legacy name", got)
+	}
+	if runs := securityScanRuns(t, k8sClient, scan.Namespace); slices.ContainsFunc(runs, func(run platformv1alpha1.AgentRun) bool {
+		return run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] != ""
+	}) {
+		t.Fatalf("legacy runOn mismatch dispatched a post-script run: %#v", runs)
 	}
 }
 
@@ -1586,13 +1633,14 @@ func TestSecurityScanFailedPostScriptRecordsCoverageGapAndReleasesTheSink(t *tes
 	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	job := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, job.Name, platformv1alpha1.AgentRunPhaseFailed, "", "invalid post-script tool call")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
-	if entry := postScriptJob(t, exec, "validate", "fp-alpha"); entry.State != triggersv1alpha1.SecurityScanPostScriptStateFailed {
+	if entry := postScriptJob(t, exec, "fp-alpha"); entry.State != triggersv1alpha1.SecurityScanPostScriptStateFailed {
 		t.Fatalf("job = %#v, want Failed after a non-retryable failure", entry)
 	}
 	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], `post-script "validate" did not complete for finding fp-alpha`) {
@@ -1622,11 +1670,13 @@ func TestSecurityScanPostScriptsDoNotBlockTheScanWithoutAFindingStore(t *testing
 
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
 	if !exec.PostScriptsMaterialized || len(exec.PostScriptJobs) != 0 {
-		t.Fatalf("execution = %#v, want an empty materialized matrix without a finding store", exec.PostScriptJobs)
+		t.Fatalf("execution = %#v, want an empty materialized pipeline list without a finding store", exec.PostScriptJobs)
 	}
 	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "no finding store is configured") {
 		t.Fatalf("coverage gaps = %#v, want the missing finding store recorded", exec.CoverageGaps)
 	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
 	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
 }
 
@@ -1678,19 +1728,20 @@ func TestSecurityScanPostScriptDispatchFailureConsumesAttemptsAndReleasesTheSink
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	// A dispatch that never lands still consumes an attempt, so the retry
 	// budget runs out instead of re-dispatching forever behind the gate.
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
-	job := postScriptJob(t, exec, "validate", "fp-alpha")
+	job := postScriptJob(t, exec, "fp-alpha")
 	if job.Attempts != 1 || job.State != triggersv1alpha1.SecurityScanPostScriptStatePending {
 		t.Fatalf("job after a failed dispatch = %#v, want attempts 1 still pending for its last retry", job)
 	}
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
-	job = postScriptJob(t, exec, "validate", "fp-alpha")
+	job = postScriptJob(t, exec, "fp-alpha")
 	if job.Attempts != 2 || job.State != triggersv1alpha1.SecurityScanPostScriptStateFailed {
 		t.Fatalf("job after the retry budget ran out = %#v, want attempts 2 and Failed", job)
 	}
@@ -1724,6 +1775,7 @@ func TestSecurityScanResumeKeepsCoverageGapsItCannotRederive(t *testing.T) {
 	fan := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "fan")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, fan.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	postScript := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, postScript.Name, platformv1alpha1.AgentRunPhaseFailed, "", "unauthorized")
@@ -1751,7 +1803,7 @@ func TestSecurityScanResumeKeepsCoverageGapsItCannotRederive(t *testing.T) {
 	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], `task "fan" fan-out truncated from 2 to 1 instances`) {
 		t.Fatalf("coverage gaps after resume = %#v, want only the fan-out truncation kept", exec.CoverageGaps)
 	}
-	if job := postScriptJob(t, exec, "validate", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStatePending &&
+	if job := postScriptJob(t, exec, "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStatePending &&
 		job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
 		t.Fatalf("resumed post-script job = %#v, want it retried", job)
 	}
@@ -1769,13 +1821,14 @@ func TestSecurityScanAllSinkWorkflowKeepsProsePostScriptsAndDisclosesTheGap(t *t
 	reconciler.Findings = &postScriptFindingStore{}
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
 	if len(exec.PostScriptJobs) != 0 {
 		t.Fatalf("post-script jobs = %#v, want none for an all-sink workflow", exec.PostScriptJobs)
 	}
 	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "every workflow task is a terminal (sink) task") {
-		t.Fatalf("coverage gaps = %#v, want the un-run post-script matrix disclosed", exec.CoverageGaps)
+		t.Fatalf("coverage gaps = %#v, want the un-run post-script pipelines disclosed", exec.CoverageGaps)
 	}
 	audit := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "audit")
 	prompt := securityScanSeedMessage(t, stateStore, scan.Namespace, audit.Name)
@@ -1791,18 +1844,23 @@ func TestSecurityScanAllSinkWorkflowKeepsProsePostScriptsAndDisclosesTheGap(t *t
 	}
 }
 
-func TestSecurityScanPostScriptMatrixTruncationBeyondTheJobCapIsRecorded(t *testing.T) {
+func TestSecurityScanPostScriptPipelineMembershipCapPaginatesWithoutSplitting(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
-		{Name: "validate", Prompt: "Build a proof of concept."},
+		{Name: "validate", RunOn: "high-and-above", Prompt: "Build a proof of concept."},
+		{Name: "exploit", RunOn: "high-and-above", Prompt: "Confirm exploitability."},
+		{Name: "triage", RunOn: "high-and-above", Prompt: "Assign a final status."},
 	}, 1)
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
-	// One script means the finding count and the job cap coincide: listing
-	// exactly the cap cannot tell "exactly full" from "truncated".
 	findings := &postScriptFindingStore{}
-	for i := range triggersv1alpha1.MaxSecurityScanPostScriptJobs + 5 {
+	for i := range triggersv1alpha1.MaxSecurityScanPostScriptJobs + 1 {
 		findings.findings = append(findings.findings, postScriptTestFinding(
-			fmt.Sprintf("00000000-0000-0000-0000-%012d", i), fmt.Sprintf("fp-%04d", i), "high"))
+			fmt.Sprintf("00000000-0000-0000-0000-%012d", i), fmt.Sprintf("fp-low-%04d", i), "low"))
+	}
+	for i := range 70 {
+		id := i + triggersv1alpha1.MaxSecurityScanPostScriptJobs + 1
+		findings.findings = append(findings.findings, postScriptTestFinding(
+			fmt.Sprintf("00000000-0000-0000-0000-%012d", id), fmt.Sprintf("fp-high-%04d", i), "high"))
 	}
 	reconciler.Findings = findings
 
@@ -1811,15 +1869,22 @@ func TestSecurityScanPostScriptMatrixTruncationBeyondTheJobCapIsRecorded(t *test
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
-	if got := findings.filters[0].Limit; got != int32(triggersv1alpha1.MaxSecurityScanPostScriptJobs)+1 {
-		t.Fatalf("finding list limit = %d, want one row past the job cap", got)
+	wantPageSize := int32(triggersv1alpha1.MaxSecurityScanPostScriptJobs) + 1
+	if len(findings.filters) != 2 || findings.filters[0].Limit != wantPageSize || findings.filters[0].Offset != 0 || findings.filters[1].Offset != wantPageSize {
+		t.Fatalf("finding filters = %#v, want two %d-row pages at offsets 0 and %d", findings.filters, wantPageSize, wantPageSize)
 	}
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
-	if len(exec.PostScriptJobs) != triggersv1alpha1.MaxSecurityScanPostScriptJobs {
-		t.Fatalf("post-script jobs = %d, want the matrix capped at %d", len(exec.PostScriptJobs), triggersv1alpha1.MaxSecurityScanPostScriptJobs)
+	if len(exec.PostScriptJobs) != 66 {
+		t.Fatalf("post-script jobs = %d, want 66 whole three-script pipelines under the 200-membership cap", len(exec.PostScriptJobs))
 	}
-	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "post-scripts ran on 200 of at least 201 eligible findings") {
-		t.Fatalf("coverage gaps = %#v, want the uncovered findings disclosed", exec.CoverageGaps)
+	for _, job := range exec.PostScriptJobs {
+		if !slices.Equal(job.Scripts, []string{"validate", "exploit", "triage"}) {
+			t.Fatalf("pipeline was split at the membership cap: %#v", job)
+		}
+	}
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "post-scripts ran on 66 of 70 eligible findings") ||
+		!strings.Contains(exec.CoverageGaps[0], "capped at 200 selected post-scripts") {
+		t.Fatalf("coverage gaps = %#v, want the uncovered whole pipelines disclosed", exec.CoverageGaps)
 	}
 }
 
@@ -1841,17 +1906,18 @@ func TestSecurityScanPostScriptDispatchStopsAtTheModelJobBudget(t *testing.T) {
 	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
 		t.Fatalf("execution phase = %q, want Running: the budget must stop dispatch, not fail the execution", exec.Phase)
 	}
-	if job := postScriptJob(t, exec, "validate", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+	if job := postScriptJob(t, exec, "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
 		t.Fatalf("first job = %#v, want it dispatched inside the budget", job)
 	}
 	// The over-budget job is terminal, not Pending: pending jobs would hold
 	// the sink gate closed forever, since no later pass frees budget.
-	beta := postScriptJob(t, exec, "validate", "fp-beta")
+	beta := postScriptJob(t, exec, "fp-beta")
 	if beta.State != triggersv1alpha1.SecurityScanPostScriptStateSkipped || beta.Attempts != 0 {
 		t.Fatalf("over-budget job = %#v, want it skipped without an attempt", beta)
 	}
@@ -1915,6 +1981,7 @@ func TestSecurityScanPostScriptRetriesAllCountTowardTheCostBudget(t *testing.T) 
 	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	// Attempt 1 burns $0.60 and fails retryably; job.RunName is overwritten
 	// by the retry, so only the enumerated names keep it in the accounting.
@@ -1926,7 +1993,7 @@ func TestSecurityScanPostScriptRetriesAllCountTowardTheCostBudget(t *testing.T) 
 	clock = clock.Add(5 * time.Second)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
-	job := postScriptJob(t, exec, "validate", "fp-alpha")
+	job := postScriptJob(t, exec, "fp-alpha")
 	if job.Attempts != 2 || job.RunName == first.Name {
 		t.Fatalf("job after the retry = %#v, want a second attempt on a new run name", job)
 	}
@@ -1957,6 +2024,7 @@ func TestSecurityScanPostScriptRunInheritsTheSinkRoleToolNarrowing(t *testing.T)
 	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	run := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
 	if run.Spec.ToolPolicy == nil {
@@ -1976,15 +2044,15 @@ func TestSecurityScanPostScriptRunNameKeysOnFindingIdentity(t *testing.T) {
 	// A fingerprint is unique only within (namespace, scan, repository), and
 	// CreateTriggerRun swallows AlreadyExists: two same-fingerprint findings
 	// must never bind to one AgentRun.
-	a := securityScanPostScriptRunName("scan", "exec", "validate", "00000000-0000-0000-0000-0000000000a1", 1, "")
-	b := securityScanPostScriptRunName("scan", "exec", "validate", "00000000-0000-0000-0000-0000000000b1", 1, "")
+	a := securityScanPostScriptRunName("scan", "exec", "pipeline", "00000000-0000-0000-0000-0000000000a1", 1, "")
+	b := securityScanPostScriptRunName("scan", "exec", "pipeline", "00000000-0000-0000-0000-0000000000b1", 1, "")
 	if a == b {
 		t.Fatalf("post-script run names collide across findings: %q", a)
 	}
-	if retry := securityScanPostScriptRunName("scan", "exec", "validate", "00000000-0000-0000-0000-0000000000a1", 2, ""); retry == a {
+	if retry := securityScanPostScriptRunName("scan", "exec", "pipeline", "00000000-0000-0000-0000-0000000000a1", 2, ""); retry == a {
 		t.Fatalf("retry run name = %q, want it distinct from the attempt it replaces", retry)
 	}
-	if again := securityScanPostScriptRunName("scan", "exec", "validate", "00000000-0000-0000-0000-0000000000a1", 1, ""); again != a {
+	if again := securityScanPostScriptRunName("scan", "exec", "pipeline", "00000000-0000-0000-0000-0000000000a1", 1, ""); again != a {
 		t.Fatalf("run name is not deterministic: %q != %q", again, a)
 	}
 	for _, name := range []string{a, b} {

@@ -20,9 +20,9 @@ import (
 
 // Durable post-scripts: a post-script used to be prose in the sink task's
 // prompt, so which findings it ran on, in what order, and whether it ran at
-// all were model-discretionary and unauditable. The engine instead
-// materializes the finding x post-script matrix once per execution and runs
-// each cell as its own AgentRun whose terminal state gates the final report.
+// all were model-discretionary and unauditable. The engine instead selects
+// applicable scripts once per execution and runs one ordered AgentRun pipeline
+// per finding whose terminal state gates the final report.
 const (
 	// securityScanMaxCoverageGaps mirrors the CRD's MaxItems on
 	// status.lastExecution.coverageGaps; exceeding it would make the status
@@ -108,6 +108,22 @@ func securityScanPostScriptJobGapPrefix(script, fingerprint string) string {
 	return fmt.Sprintf("post-script %q did not complete for finding %s: ", script, fingerprint)
 }
 
+// securityScanPostScriptJobNames returns the pipeline snapshot, while keeping
+// status written by older controllers (which only populated Script) runnable.
+func securityScanPostScriptJobNames(job triggersv1alpha1.SecurityScanPostScriptJobStatus) []string {
+	if len(job.Scripts) > 0 {
+		return job.Scripts
+	}
+	if job.Script != "" {
+		return []string{job.Script}
+	}
+	return nil
+}
+
+func securityScanPostScriptJobLabel(job triggersv1alpha1.SecurityScanPostScriptJobStatus) string {
+	return strings.Join(securityScanPostScriptJobNames(job), ", ")
+}
+
 // securityScanRetractPostScriptJobGaps drops the coverage gaps the given jobs
 // recorded, leaving every gap from another source intact.
 func securityScanRetractPostScriptJobGaps(exec *triggersv1alpha1.SecurityScanExecutionStatus, jobs []triggersv1alpha1.SecurityScanPostScriptJobStatus) {
@@ -116,7 +132,7 @@ func securityScanRetractPostScriptJobGaps(exec *triggersv1alpha1.SecurityScanExe
 	}
 	prefixes := make([]string, 0, len(jobs))
 	for _, job := range jobs {
-		prefixes = append(prefixes, securityScanPostScriptJobGapPrefix(job.Script, job.Fingerprint))
+		prefixes = append(prefixes, securityScanPostScriptJobGapPrefix(securityScanPostScriptJobLabel(job), job.Fingerprint))
 	}
 	kept := exec.CoverageGaps[:0]
 	for _, gap := range exec.CoverageGaps {
@@ -136,23 +152,21 @@ func securityScanRetractPostScriptJobGaps(exec *triggersv1alpha1.SecurityScanExe
 	exec.CoverageGaps = kept
 }
 
-// postScripts returns the effective post-script list in spec order; the index
-// is the job order that serializes scripts per finding.
+// postScripts returns the effective post-script list in the order preserved
+// inside every per-finding pipeline.
 func (e *securityScanExecutionEngine) postScripts() []triggersv1alpha1.SecurityScanPostScript {
 	return e.resolved.spec.PostScripts
 }
 
-// materializePostScripts computes the ordered finding x post-script matrix
-// exactly once per execution, after the research phase is over: findings only
-// exist once the non-sink tasks are terminal, and re-deriving the matrix later
-// would re-run scripts whose verdicts already changed the findings they
-// selected on. Jobs are ordered by finding and then by the script's spec
-// index, so a later script for one finding observes the status an earlier one
-// set.
-func (e *securityScanExecutionEngine) materializePostScripts(ctx context.Context) {
+// materializePostScripts computes one ordered post-script pipeline per finding
+// exactly once per execution, after the research phase is over. runOn is
+// evaluated here against the stable research result, so inapplicable scripts
+// never inflate status or consume scheduler work. Each applicable sequence is
+// snapshotted into one job and one AgentRun.
+func (e *securityScanExecutionEngine) materializePostScripts(ctx context.Context) bool {
 	exec := e.exec
 	if len(e.postScripts()) == 0 || exec.PostScriptsMaterialized {
-		return
+		return false
 	}
 	if !e.workflowHasResearchPhase() {
 		// Every task is a sink, so there is no research phase whose end
@@ -164,13 +178,13 @@ func (e *securityScanExecutionEngine) materializePostScripts(ctx context.Context
 		// post-script instructions (see taskInstanceContext) so the model
 		// compensates for what the platform could not run.
 		exec.PostScriptsMaterialized = true
-		appendSecurityScanCoverageGap(exec, "post-scripts did not run as platform jobs: every workflow task is a terminal (sink) task, so no research phase precedes them and no findings existed to build the finding x post-script matrix from")
-		return
+		appendSecurityScanCoverageGap(exec, "post-scripts did not run as platform jobs: every workflow task is a terminal (sink) task, so no research phase precedes them and no findings existed to build the per-finding post-script pipeline list from")
+		return true
 	}
 	sinks := securityScanSinkTasks(e.order)
 	for _, entry := range exec.Tasks {
 		if !sinks[entry.Name] && !securityScanTaskTerminal(entry.State) {
-			return
+			return false
 		}
 	}
 	if e.r.Findings == nil {
@@ -178,62 +192,93 @@ func (e *securityScanExecutionEngine) materializePostScripts(ctx context.Context
 		// the scan proceeds to its report with the gap stated explicitly
 		// instead of blocking on jobs that can never be built.
 		exec.PostScriptsMaterialized = true
-		appendSecurityScanCoverageGap(exec, "post-scripts did not run: no finding store is configured, so the finding x post-script matrix could not be materialized")
-		return
+		appendSecurityScanCoverageGap(exec, "post-scripts did not run: no finding store is configured, so the per-finding post-script pipeline list could not be materialized")
+		return true
 	}
-	// One row past the job cap is requested so a finding list that exactly
-	// fills the cap is distinguishable from one the store truncated: with a
-	// single post-script the two numbers coincide, and listing exactly the cap
-	// would silently drop every finding past it with no gap recorded.
+	// One row past the pipeline cap is requested so a finding list that exactly
+	// fills the cap is distinguishable from one the store truncated.
 	listLimit := int32(triggersv1alpha1.MaxSecurityScanPostScriptJobs) + 1
-	findings, err := e.r.Findings.ListSecurityFindings(ctx, store.SecurityFindingFilter{
-		Namespace:   e.scan.Namespace,
-		ScanName:    e.scan.Name,
-		ExecutionID: exec.ID,
-		Limit:       listLimit,
-	})
-	if err != nil {
-		logf.FromContext(ctx).Error(err, "listing findings to materialize post-scripts", "execution", exec.ID)
-		return // transient: the matrix is materialized on a later reconcile
-	}
-	eligible := make([]store.SecurityFindingRecord, 0, len(findings))
-	for _, f := range findings {
-		if f.DuplicateOf != nil {
-			continue // a duplicate is validated through the finding it duplicates
-		}
-		eligible = append(eligible, f)
-	}
-	// Fingerprint order makes the matrix reproducible: the store orders by
-	// score and last-seen time, both of which post-script verdicts mutate.
-	sort.Slice(eligible, func(i, j int) bool { return eligible[i].Fingerprint < eligible[j].Fingerprint })
-
 	scripts := e.postScripts()
-	if maxFindings := triggersv1alpha1.MaxSecurityScanPostScriptJobs / len(scripts); len(eligible) > maxFindings {
-		// Truncate whole findings, never a finding's script sequence: a
-		// half-run sequence would leave a verdict the next script expects.
-		// The count is a lower bound when the store itself capped the list.
+	type findingPipeline struct {
+		finding store.SecurityFindingRecord
+		scripts []string
+	}
+	eligible := make([]findingPipeline, 0, triggersv1alpha1.MaxSecurityScanPostScriptJobs+1)
+	offset := int32(0)
+	moreFindings := false
+	for len(eligible) < int(listLimit) {
+		findings, err := e.r.Findings.ListSecurityFindings(ctx, store.SecurityFindingFilter{
+			Namespace:   e.scan.Namespace,
+			ScanName:    e.scan.Name,
+			ExecutionID: exec.ID,
+			Limit:       listLimit,
+			Offset:      offset,
+		})
+		if err != nil {
+			logf.FromContext(ctx).Error(err, "listing findings to materialize post-scripts", "execution", exec.ID)
+			return false // transient: the pipeline list is materialized on a later reconcile
+		}
+		for _, f := range findings {
+			if f.DuplicateOf != nil {
+				continue // a duplicate is validated through the finding it duplicates
+			}
+			selected := make([]string, 0, len(scripts))
+			for _, script := range scripts {
+				if matched, _ := securityScanPostScriptMatches(script.EffectiveRunOn(), f); matched {
+					selected = append(selected, script.Name)
+				}
+			}
+			if len(selected) > 0 {
+				eligible = append(eligible, findingPipeline{finding: f, scripts: selected})
+			}
+			if len(eligible) >= int(listLimit) {
+				moreFindings = true
+				break
+			}
+		}
+		if len(findings) < int(listLimit) {
+			break
+		}
+		offset += int32(len(findings)) //nolint:gosec // page size is bounded above
+	}
+	// Fingerprint order makes the selected pipelines reproducible: the store
+	// orders by score and last-seen time, both of which verdicts mutate.
+	sort.Slice(eligible, func(i, j int) bool { return eligible[i].finding.Fingerprint < eligible[j].finding.Fingerprint })
+
+	selectedCount := 0
+	keep := len(eligible)
+	for i, pipeline := range eligible {
+		if selectedCount+len(pipeline.scripts) > triggersv1alpha1.MaxSecurityScanPostScriptJobs {
+			keep = i
+			break
+		}
+		selectedCount += len(pipeline.scripts)
+	}
+	if keep < len(eligible) {
+		// Bound total snapshotted script memberships to preserve the original
+		// etcd object-size safety property; never split a finding's pipeline.
 		total := strconv.Itoa(len(eligible))
-		if len(findings) >= int(listLimit) {
+		if moreFindings {
 			total = "at least " + total
 		}
-		appendSecurityScanCoverageGap(exec, fmt.Sprintf("post-scripts ran on %d of %s eligible findings: the execution is capped at %d finding x post-script jobs",
-			maxFindings, total, triggersv1alpha1.MaxSecurityScanPostScriptJobs))
-		eligible = eligible[:maxFindings]
+		appendSecurityScanCoverageGap(exec, fmt.Sprintf("post-scripts ran on %d of %s eligible findings: the execution is capped at %d selected post-scripts across per-finding pipelines",
+			keep, total, triggersv1alpha1.MaxSecurityScanPostScriptJobs))
+		eligible = eligible[:keep]
 	}
-	jobs := make([]triggersv1alpha1.SecurityScanPostScriptJobStatus, 0, len(eligible)*len(scripts))
-	for _, f := range eligible {
-		for i, script := range scripts {
-			jobs = append(jobs, triggersv1alpha1.SecurityScanPostScriptJobStatus{
-				Script:      script.Name,
-				Order:       int32(i), //nolint:gosec // bounded by the CRD's postScripts item limit
-				FindingID:   f.ID.String(),
-				Fingerprint: f.Fingerprint,
-				State:       triggersv1alpha1.SecurityScanPostScriptStatePending,
-			})
-		}
+	jobs := make([]triggersv1alpha1.SecurityScanPostScriptJobStatus, 0, len(eligible))
+	for _, pipeline := range eligible {
+		f, selected := pipeline.finding, pipeline.scripts
+		jobs = append(jobs, triggersv1alpha1.SecurityScanPostScriptJobStatus{
+			Script:      selected[0], // compatibility with clients predating Scripts
+			Scripts:     selected,
+			FindingID:   f.ID.String(),
+			Fingerprint: f.Fingerprint,
+			State:       triggersv1alpha1.SecurityScanPostScriptStatePending,
+		})
 	}
 	exec.PostScriptJobs = jobs
 	exec.PostScriptsMaterialized = true
+	return true
 }
 
 // observePostScripts folds terminal post-script AgentRun phases into the job
@@ -301,13 +346,11 @@ func (e *securityScanExecutionEngine) recordPostScriptFailure(job *triggersv1alp
 	job.State = triggersv1alpha1.SecurityScanPostScriptStateFailed
 	job.FinishedAt = &e.now
 	job.Result = truncateSecurityScanError("failed: " + reason)
-	appendSecurityScanCoverageGap(e.exec, securityScanPostScriptJobGapPrefix(job.Script, job.Fingerprint)+reason)
+	appendSecurityScanCoverageGap(e.exec, securityScanPostScriptJobGapPrefix(securityScanPostScriptJobLabel(*job), job.Fingerprint)+reason)
 }
 
-// dispatchPostScripts starts the jobs whose turn it is. Per-finding
-// serialization is the ordering contract: every lower-order job for the SAME
-// finding must be terminal first, while different findings run in parallel
-// under the execution's parallelism bound.
+// dispatchPostScripts starts one ordered pipeline per finding. Different
+// findings run in parallel under the execution's parallelism bound.
 func (e *securityScanExecutionEngine) dispatchPostScripts(ctx context.Context) {
 	if len(e.exec.PostScriptJobs) == 0 {
 		return
@@ -338,14 +381,23 @@ func (e *securityScanExecutionEngine) dispatchPostScripts(ctx context.Context) {
 		if running >= parallelism {
 			continue
 		}
-		script, ok := scripts[job.Script]
-		if !ok {
-			// The post-script was removed from the spec mid-execution; the
-			// job can never run, so it is terminal with the gap recorded.
+		pipeline := make([]triggersv1alpha1.SecurityScanPostScript, 0, len(securityScanPostScriptJobNames(*job)))
+		missing := ""
+		for _, name := range securityScanPostScriptJobNames(*job) {
+			script, ok := scripts[name]
+			if !ok {
+				missing = name
+				break
+			}
+			pipeline = append(pipeline, script)
+		}
+		if missing != "" || len(pipeline) == 0 {
+			// A snapshotted post-script was removed mid-execution; the
+			// pipeline can never run, so it is terminal with the gap recorded.
 			job.State = triggersv1alpha1.SecurityScanPostScriptStateFailed
 			job.FinishedAt = &e.now
-			job.Result = truncateSecurityScanError(fmt.Sprintf("failed: post-script %q no longer exists in the spec", job.Script))
-			appendSecurityScanCoverageGap(e.exec, securityScanPostScriptJobGapPrefix(job.Script, job.Fingerprint)+"it was removed from the spec mid-execution")
+			job.Result = truncateSecurityScanError(fmt.Sprintf("failed: post-script %q no longer exists in the spec", missing))
+			appendSecurityScanCoverageGap(e.exec, securityScanPostScriptJobGapPrefix(securityScanPostScriptJobLabel(*job), job.Fingerprint)+fmt.Sprintf("post-script %q was removed from the spec mid-execution", missing))
 			continue
 		}
 		if !e.postScriptRetryReady(ctx, job) {
@@ -367,7 +419,7 @@ func (e *securityScanExecutionEngine) dispatchPostScripts(ctx context.Context) {
 			e.skipPostScriptsForBudget()
 			return
 		}
-		if e.launchPostScript(ctx, job, script) {
+		if e.launchPostScript(ctx, job, pipeline) {
 			running++
 		}
 	}
@@ -414,8 +466,8 @@ func (e *securityScanExecutionEngine) skipPostScriptsForBudget() {
 	}
 }
 
-// postScriptPredecessorsTerminal reports whether every lower-order job for
-// the same finding has finished.
+// postScriptPredecessorsTerminal preserves compatibility with an execution
+// materialized by an older controller as one job per script.
 func (e *securityScanExecutionEngine) postScriptPredecessorsTerminal(index int) bool {
 	job := e.exec.PostScriptJobs[index]
 	for _, other := range e.exec.PostScriptJobs {
@@ -459,16 +511,13 @@ func (e *securityScanExecutionEngine) postScriptRetryReady(ctx context.Context, 
 	return false
 }
 
-// launchPostScript re-evaluates runOn against the CURRENT finding and, on a
-// match, creates the job's AgentRun. Re-evaluating at dispatch is the point of
-// the ordering contract: an earlier script may have set the very status a
-// later script selects on, so the predicate is never decided at
-// materialization time.
-func (e *securityScanExecutionEngine) launchPostScript(ctx context.Context, job *triggersv1alpha1.SecurityScanPostScriptJobStatus, script triggersv1alpha1.SecurityScanPostScript) bool {
+// launchPostScript creates the one AgentRun serving a finding's snapshotted
+// ordered pipeline. runOn was already evaluated during materialization.
+func (e *securityScanExecutionEngine) launchPostScript(ctx context.Context, job *triggersv1alpha1.SecurityScanPostScriptJobStatus, scripts []triggersv1alpha1.SecurityScanPostScript) bool {
 	log := logf.FromContext(ctx)
 	rec, err := e.loadPostScriptFinding(ctx, job)
 	if err != nil {
-		log.Error(err, "reading finding to dispatch post-script", "script", script.Name, "fingerprint", job.Fingerprint)
+		log.Error(err, "reading finding to dispatch post-script pipeline", "scripts", securityScanPostScriptJobLabel(*job), "fingerprint", job.Fingerprint)
 		return false // transient: re-evaluated on the next reconcile
 	}
 	if rec == nil {
@@ -477,17 +526,25 @@ func (e *securityScanExecutionEngine) launchPostScript(ctx context.Context, job 
 		job.Result = "skipped: the finding no longer exists"
 		return false
 	}
-	if matched, reason := securityScanPostScriptMatches(script.EffectiveRunOn(), *rec); !matched {
-		job.State = triggersv1alpha1.SecurityScanPostScriptStateSkipped
-		job.FinishedAt = &e.now
-		job.Result = truncateSecurityScanError(reason)
-		return false
+	if len(job.Scripts) == 0 && len(scripts) == 1 {
+		// Executions materialized by older controllers decided runOn at
+		// dispatch time. Preserve that contract while they drain during a
+		// rolling upgrade; new pipelines always carry a non-nil Scripts list.
+		if matched, reason := securityScanPostScriptMatches(scripts[0].EffectiveRunOn(), *rec); !matched {
+			job.State = triggersv1alpha1.SecurityScanPostScriptStateSkipped
+			job.FinishedAt = &e.now
+			job.Result = truncateSecurityScanError(reason)
+			return false
+		}
 	}
-
 	attempt := job.Attempts + 1
-	runName := securityScanPostScriptRunName(e.scan.Name, e.exec.ID, script.Name, job.FindingID, attempt, e.exec.LastResumeToken)
-	if _, err := e.r.createScanPostScriptRun(ctx, e.scan, e.resolved, e.runCtx, e.exec, script, *rec, runName); err != nil {
-		log.Error(err, "failed to create post-script AgentRun", "script", script.Name, "run", runName)
+	runKey := "pipeline"
+	if len(job.Scripts) == 0 {
+		runKey = job.Script
+	}
+	runName := securityScanPostScriptRunName(e.scan.Name, e.exec.ID, runKey, job.FindingID, attempt, e.exec.LastResumeToken)
+	if _, err := e.r.createScanPostScriptRun(ctx, e.scan, e.resolved, e.runCtx, e.exec, scripts, *rec, runName); err != nil {
+		log.Error(err, "failed to create post-script pipeline AgentRun", "scripts", securityScanPostScriptJobLabel(*job), "run", runName)
 		// The attempt is consumed even though no run exists: create errors
 		// are classified retryable by default, so a permanently failing
 		// create (admission rejection, quota, conflict) on a job whose
@@ -581,8 +638,12 @@ func securityScanPostScriptRunName(scanName, executionID, scriptName, findingID 
 // resolves to no run and the caller skips it.
 func securityScanPostScriptAttemptRunNames(scanName, executionID string, job triggersv1alpha1.SecurityScanPostScriptJobStatus, resumeToken string) []string {
 	names := make([]string, 0, job.Attempts)
+	scriptName := job.Script
+	if len(job.Scripts) > 0 {
+		scriptName = "pipeline"
+	}
 	for attempt := int32(1); attempt <= job.Attempts; attempt++ {
-		names = append(names, securityScanPostScriptRunName(scanName, executionID, job.Script, job.FindingID, attempt, resumeToken))
+		names = append(names, securityScanPostScriptRunName(scanName, executionID, scriptName, job.FindingID, attempt, resumeToken))
 	}
 	return names
 }
@@ -593,7 +654,7 @@ func securityScanPostScriptAttemptRunNames(scanName, executionID string, job tri
 // exactly like the research runs, and adds the post-script and finding
 // annotations that bind the run to its job. The tool policy is narrowed by
 // postScriptToolPolicy.
-func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runCtx *securityScanRunContext, exec *triggersv1alpha1.SecurityScanExecutionStatus, script triggersv1alpha1.SecurityScanPostScript, rec store.SecurityFindingRecord, runName string) (bool, error) {
+func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runCtx *securityScanRunContext, exec *triggersv1alpha1.SecurityScanExecutionStatus, scripts []triggersv1alpha1.SecurityScanPostScript, rec store.SecurityFindingRecord, runName string) (bool, error) {
 	base, err := r.buildScanRunBase(ctx, scan, resolved, runName, runCtx, "")
 	if err != nil {
 		return false, err
@@ -602,7 +663,11 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 	// The execution id keeps the run inside the same finding campaign as the
 	// research runs, so its update lands on the findings this execution owns.
 	annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation] = exec.ID
-	annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] = script.Name
+	names := make([]string, 0, len(scripts))
+	for _, script := range scripts {
+		names = append(names, script.Name)
+	}
+	annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] = strings.Join(names, ",")
 	annotations[triggersv1alpha1.SecurityScanPostScriptFindingAnnotation] = rec.Fingerprint
 
 	modeRef := base.modeRef
@@ -616,8 +681,8 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 		TriggerKind:        securityScanKind,
 		TriggerName:        scan.Name,
 		ExternalID:         exec.ID,
-		ExternalIdentifier: fmt.Sprintf("%s/post-script/%s/%s", exec.ID, script.Name, rec.ID.String()),
-		SeedMessage:        BuildSecurityPostScriptPrompt(resolved.spec, securityScanPromptEvent(runCtx), script, securityPostScriptFinding(rec)),
+		ExternalIdentifier: fmt.Sprintf("%s/post-script-pipeline/%s", exec.ID, rec.ID.String()),
+		SeedMessage:        BuildSecurityPostScriptPipelinePrompt(resolved.spec, securityScanPromptEvent(runCtx), scripts, securityPostScriptFinding(rec)),
 		Revision:           base.revision,
 		Defaults:           base.defaults,
 		OwnerRef:           scan,

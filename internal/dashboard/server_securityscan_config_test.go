@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1274,6 +1275,7 @@ func TestSecurityScanExecutionStateProtoCarriesPostScriptJobsAndCoverageGaps(t *
 		PostScriptJobs: []triggersv1alpha1.SecurityScanPostScriptJobStatus{
 			{
 				Script:      "false-positive-check",
+				Scripts:     []string{"false-positive-check", "poc-builder"},
 				Order:       1,
 				FindingID:   "22222222-2222-2222-2222-222222222222",
 				Fingerprint: "sqli-users-list",
@@ -1304,7 +1306,7 @@ func TestSecurityScanExecutionStateProtoCarriesPostScriptJobsAndCoverageGaps(t *
 		t.Fatalf("PostScriptJobs = %v", pb.PostScriptJobs)
 	}
 	job := pb.PostScriptJobs[0]
-	if job.Script != "false-positive-check" || job.Order != 1 ||
+	if job.Script != "false-positive-check" || !slices.Equal(job.Scripts, []string{"false-positive-check", "poc-builder"}) || job.Order != 1 ||
 		job.FindingId != "22222222-2222-2222-2222-222222222222" || job.Fingerprint != "sqli-users-list" ||
 		job.State != "Succeeded" || job.RunName != "nightly-ps-1" || job.Attempts != 2 ||
 		job.Result != "confirmed" || job.LastError != "first attempt timed out" ||

@@ -844,9 +844,15 @@ func (e *securityScanExecutionEngine) advance(ctx context.Context) time.Duration
 
 	if !e.anyFailed() {
 		// Post-scripts run between the research phase and the report: the
-		// matrix is materialized once the research tasks are terminal, and
-		// schedule() holds the sink tasks until every job settled.
-		e.materializePostScripts(ctx)
+		// per-finding pipelines are materialized once research is terminal,
+		// and schedule() holds the sink until every pipeline settles.
+		if e.materializePostScripts(ctx) {
+			// Eligibility is derived from mutable finding state. Persist the
+			// frozen pipeline snapshot before a pipeline can mutate a finding;
+			// dispatch begins on the next reconciliation.
+			e.finalizePhase(false)
+			return e.nextRequeue()
+		}
 		e.dispatchPostScripts(ctx)
 		e.schedule(ctx)
 	}
