@@ -2074,6 +2074,10 @@ func TestSecurityScanTerminalExecutionFinalizesScanRecords(t *testing.T) {
 			}
 			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, runs[0].Name, tc.runPhase, "", lastError)
 			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			// Records settle on the reconcile AFTER the terminal status was
+			// persisted: finishTerminalExecution is the durable terminal
+			// path, so a crash in between still converges.
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 			exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
 			if !securityScanExecutionTerminal(exec.Phase) {
@@ -2094,6 +2098,52 @@ func TestSecurityScanTerminalExecutionFinalizesScanRecords(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSecurityScanResumeReopensFinalizedScanRecord(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	zero := int32(0)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "inspect", Objective: "inspect", MaxRetries: &zero},
+	}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	records := map[string]*store.SecurityScanRecord{}
+	reconciler.Findings = securityScanFindingStore{securityScanRecordStubStore: securityScanRecordStubStore{scanRecords: records}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, runs[0].Name, platformv1alpha1.AgentRunPhaseFailed, "", "boom")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan) // durable terminal path settles the record
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	key := scan.Namespace + "/" + securityScanExecutionRecordName(scan.Name, exec.ID)
+	if rec := records[key]; rec == nil || rec.Status != "failed" || rec.CompletedAt == nil {
+		t.Fatalf("record before resume = %+v, want finalized failed record", records[key])
+	}
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Annotations = map[string]string{triggersv1alpha1.SecurityScanResumeAnnotation: "resume-1"}
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan resume annotation): %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	// The resumed execution is running again, so its scans-list row must
+	// not keep reading "failed" — and must be re-finalizable later.
+	rec := records[key]
+	if rec == nil || rec.Status != "running" || rec.CompletedAt != nil {
+		t.Fatalf("record after resume = %+v, want reopened running record", rec)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	resumedRun := executionTask(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "inspect", 0).RunName
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, resumedRun, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan) // durable terminal path settles the record
+	if rec := records[key]; rec == nil || rec.Status != "completed" || rec.CompletedAt == nil {
+		t.Fatalf("record after resumed success = %+v, want completed", records[key])
 	}
 }
 
