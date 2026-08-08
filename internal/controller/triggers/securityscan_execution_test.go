@@ -1994,9 +1994,12 @@ func TestSecurityScanPostScriptRunNameKeysOnFindingIdentity(t *testing.T) {
 	}
 }
 
-func TestSecurityScanDeterministicDispatchCreatesNoEagerScanRecord(t *testing.T) {
+func TestSecurityScanDeterministicDispatchCreatesOneEagerScanRecord(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "inspect", Objective: "inspect"}}, 1)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "inspect", Objective: "inspect"},
+		{Name: "review", Objective: "review"},
+	}, 4)
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	records := map[string]*store.SecurityScanRecord{}
 	reconciler.Findings = securityScanFindingStore{securityScanRecordStubStore: securityScanRecordStubStore{scanRecords: records}}
@@ -2004,14 +2007,70 @@ func TestSecurityScanDeterministicDispatchCreatesNoEagerScanRecord(t *testing.T)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	runs := securityScanRuns(t, k8sClient, scan.Namespace)
-	if len(runs) != 1 {
-		t.Fatalf("runs = %d, want one dispatched task run", len(runs))
+	if len(runs) != 2 {
+		t.Fatalf("runs = %d, want two dispatched task runs", len(runs))
 	}
-	// Task runs never eagerly create scan records: one row per task run
-	// would flood the scans list with per-task "running" ghosts. The row is
-	// created lazily by the run's finding tools when it first reports.
-	if len(records) != 0 {
-		t.Fatalf("records = %v, want no eager scan record for deterministic task runs", records)
+	// Exactly ONE eager record anchors the execution in the scans list; one
+	// row per task run would flood it with per-task "running" ghosts.
+	if len(records) != 1 {
+		t.Fatalf("records = %v, want exactly one eager scan record per execution", records)
+	}
+	for _, rec := range records {
+		if rec.ScanName != scan.Name || rec.Status != "running" || rec.StartedAt == nil {
+			t.Fatalf("eager record = %+v, want scanName=%q status=running with startedAt", rec, scan.Name)
+		}
+	}
+	// Later reconciles never create additional records for the execution.
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if len(records) != 1 {
+		t.Fatalf("records = %v after second reconcile, want still one", records)
+	}
+}
+
+func TestSecurityScanTerminalExecutionFinalizesScanRecords(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		runPhase platformv1alpha1.AgentRunPhase
+		want     string
+	}{
+		{platformv1alpha1.AgentRunPhaseSucceeded, "completed"},
+		{platformv1alpha1.AgentRunPhaseFailed, "failed"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			zero := int32(0)
+			scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+				{Name: "inspect", Objective: "inspect", MaxRetries: &zero},
+			}, 1)
+			reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+			records := map[string]*store.SecurityScanRecord{}
+			reconciler.Findings = securityScanFindingStore{securityScanRecordStubStore: securityScanRecordStubStore{scanRecords: records}}
+
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			runs := securityScanRuns(t, k8sClient, scan.Namespace)
+			if len(runs) != 1 {
+				t.Fatalf("runs = %d, want one dispatched task run", len(runs))
+			}
+			lastError := ""
+			if tc.runPhase == platformv1alpha1.AgentRunPhaseFailed {
+				lastError = "boom"
+			}
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, runs[0].Name, tc.runPhase, "", lastError)
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+			exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+			if !securityScanExecutionTerminal(exec.Phase) {
+				t.Fatalf("execution phase = %q, want terminal", exec.Phase)
+			}
+			rec := records[scan.Namespace+"/"+runs[0].Name]
+			if rec == nil {
+				t.Fatalf("no scan record for run %q; records = %v", runs[0].Name, records)
+			}
+			// The eager "running" row inherits the execution outcome so it
+			// never lingers as running once the execution is over.
+			if rec.Status != tc.want || rec.CompletedAt == nil {
+				t.Fatalf("record = %+v, want status=%q with completedAt", rec, tc.want)
+			}
+		})
 	}
 }
 
