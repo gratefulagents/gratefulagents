@@ -234,6 +234,80 @@ export function runComparisonKey(run: AgentRun): string {
   return "";
 }
 
+export type SecurityScanRunGroup = {
+  key: string;
+  namespace: string;
+  scanName: string;
+  executionId: string;
+  runs: AgentRun[];
+};
+
+export type OpsRowEntry =
+  | { kind: "run"; run: AgentRun }
+  | { kind: "scan-group"; group: SecurityScanRunGroup };
+
+/**
+ * Grouping key for deterministic security-scan task runs. All task runs of
+ * one workflow execution share (namespace, trigger.name, trigger.externalId).
+ * Coordinator-mode scans may leave externalId empty and never group.
+ */
+export function securityScanGroupKey(run: AgentRun): string | null {
+  const trigger = run.trigger;
+  if (trigger?.kind !== "SecurityScan" || !trigger.name || !trigger.externalId) return null;
+  return `scan:${run.namespace}|${trigger.name}|${trigger.externalId}`;
+}
+
+/**
+ * Collapses security-scan task runs into one entry per scan execution,
+ * preserving the incoming order (a group sits where its first member was).
+ * Executions with a single visible run stay plain rows.
+ */
+export function collapseSecurityScanRuns(runs: AgentRun[]): OpsRowEntry[] {
+  const groups = new Map<string, SecurityScanRunGroup>();
+  const entries: OpsRowEntry[] = [];
+  for (const run of runs) {
+    const key = securityScanGroupKey(run);
+    if (!key) {
+      entries.push({ kind: "run", run });
+      continue;
+    }
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        namespace: run.namespace,
+        scanName: run.trigger?.name || "",
+        executionId: run.trigger?.externalId || "",
+        runs: [],
+      };
+      groups.set(key, group);
+      entries.push({ kind: "scan-group", group });
+    }
+    group.runs.push(run);
+  }
+  return entries.map((entry) =>
+    entry.kind === "scan-group" && entry.group.runs.length < 2
+      ? { kind: "run", run: entry.group.runs[0] }
+      : entry,
+  );
+}
+
+/** Aggregate phase for a scan execution: running beats failed beats pending. */
+export function scanGroupPhase(runs: AgentRun[]): string {
+  if (runs.some((run) => isLivePhase(run.phase))) return "Running";
+  if (runs.some((run) => run.phase === "Failed" || run.phase === "Error")) return "Failed";
+  if (runs.some((run) => !isDonePhase(run.phase))) return "Pending";
+  if (runs.some((run) => run.phase === "Cancelled")) return "Cancelled";
+  return "Succeeded";
+}
+
+export function scanGroupProgress(runs: AgentRun[]): { done: number; total: number } {
+  return {
+    done: runs.filter((run) => isDonePhase(run.phase)).length,
+    total: runs.length,
+  };
+}
+
 export function runDurationSeconds(run: AgentRun, nowMs = Date.now()): number {
   const start = run.startedAtUnix || run.createdAtUnix;
   if (start === 0n) return 0;

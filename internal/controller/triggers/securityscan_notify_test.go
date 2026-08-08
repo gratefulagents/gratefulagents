@@ -16,7 +16,7 @@ import (
 )
 
 type notifyTestFindingStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	findings   []store.SecurityFindingRecord
 	markers    map[string]bool
 	claimErr   error

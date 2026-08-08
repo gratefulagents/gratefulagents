@@ -30,6 +30,74 @@ func (s *Server) securityStore() (store.SecurityFindingStore, error) {
 	return sec, nil
 }
 
+// securityScanVisibility computes the caller's visibility over persisted
+// security scan data in a namespace. Scan and finding records carry
+// ScanName == the SecurityScan CR name, so record visibility follows the
+// CR's ownership: admins (and internal calls without an RPC actor) see
+// everything, unowned scans are visible to every authenticated user, and a
+// scan owned by someone else is hidden unless shared with the caller.
+//
+// visible reports whether records of one scan name may be shown (an empty
+// scan name has no owning CR and is always visible). hidden lists the scan
+// names the caller must not see, for pushing exclusion into namespace-wide
+// store queries and aggregates; it is nil for admins. A store that cannot
+// bulk-list ownership falls back to per-name access checks with a nil
+// hidden list.
+func (s *Server) securityScanVisibility(ctx context.Context, namespace string) (visible func(scanName string) bool, hidden []string, err error) {
+	allowAll := func(string) bool { return true }
+	actor, recorded := requestActorFromContextOK(ctx)
+	if !recorded || actor.Role == "admin" || actor.Role == "owner" || s.stateStore == nil {
+		return allowAll, nil, nil
+	}
+	bulk, ok := s.stateStore.(resourceOwnersByTypeStore)
+	if !ok {
+		perName := s.resourceVisibilityFilter(ctx, securityScanResourceType, false)
+		return func(scanName string) bool {
+			return scanName == "" || perName(namespace, scanName)
+		}, nil, nil
+	}
+	owners, err := bulk.ListResourceOwnersByType(ctx, securityScanResourceType)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing security scan owners: %w", err)
+	}
+	shares, err := s.stateStore.ListSharedWithMe(ctx, actor.Subject, securityScanResourceType)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing security scan shares: %w", err)
+	}
+	shared := make(map[string]bool, len(shares))
+	for _, sh := range shares {
+		if sh.ResourceNamespace == namespace {
+			shared[sh.ResourceID] = true
+		}
+	}
+	hiddenSet := map[string]bool{}
+	for _, o := range owners {
+		if o.ResourceNamespace != namespace || o.ResourceID == "" ||
+			o.OwnerID == "" || o.OwnerID == actor.Subject || shared[o.ResourceID] {
+			continue
+		}
+		if !hiddenSet[o.ResourceID] {
+			hiddenSet[o.ResourceID] = true
+			hidden = append(hidden, o.ResourceID)
+		}
+	}
+	return func(scanName string) bool { return !hiddenSet[scanName] }, hidden, nil
+}
+
+// hiddenScanNameForRun resolves the scan name of a run-scoped request and
+// reports whether that scan is hidden from the caller. An unknown run is
+// not hidden: it resolves to no scan and the query returns nothing anyway.
+func hiddenScanNameForRun(ctx context.Context, sec store.SecurityFindingStore, visible func(string) bool, namespace, runName string) (bool, error) {
+	if runName == "" {
+		return false, nil
+	}
+	rec, err := sec.GetSecurityScan(ctx, namespace, runName)
+	if err != nil {
+		return false, fmt.Errorf("getting security scan: %w", err)
+	}
+	return rec != nil && !visible(rec.ScanName), nil
+}
+
 // ListSecurityScans lists security scans in a namespace, newest first.
 func (s *Server) ListSecurityScans(ctx context.Context, req *platform.ListSecurityScansRequest) (*platform.ListSecurityScansResponse, error) {
 	sec, err := s.securityStore()
@@ -40,12 +108,19 @@ func (s *Server) ListSecurityScans(ctx context.Context, req *platform.ListSecuri
 	if err != nil {
 		return nil, err
 	}
+	visible, _, err := s.securityScanVisibility(ctx, namespace)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	scans, err := sec.ListSecurityScans(ctx, namespace, req.GetScanName(), req.GetLimit())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("listing security scans: %w", err))
 	}
 	resp := &platform.ListSecurityScansResponse{}
 	for i := range scans {
+		if !visible(scans[i].ScanName) {
+			continue
+		}
 		resp.Scans = append(resp.Scans, securityScanProto(&scans[i]))
 	}
 	return resp, nil
@@ -64,6 +139,17 @@ func (s *Server) GetSecurityScan(ctx context.Context, req *platform.GetSecurityS
 	scan, err := sec.GetSecurityScan(ctx, namespace, req.GetRunName())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("getting security scan: %w", err))
+	}
+	if scan != nil {
+		visible, _, verr := s.securityScanVisibility(ctx, namespace)
+		if verr != nil {
+			return nil, connect.NewError(connect.CodeInternal, verr)
+		}
+		// A hidden scan reports the same NotFound as a missing one so the
+		// endpoint cannot be used to probe another user's scan runs.
+		if !visible(scan.ScanName) {
+			scan = nil
+		}
 	}
 	if scan == nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, req.GetRunName()))
@@ -87,6 +173,22 @@ func (s *Server) ListSecurityFindings(ctx context.Context, req *platform.ListSec
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("invalid suppressed filter %q (want empty, exclude, include, or only)", req.GetSuppressed()))
 	}
+	visible, hidden, err := s.securityScanVisibility(ctx, namespace)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if scanName := req.GetScanName(); scanName != "" && !visible(scanName) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, scanName))
+	}
+	if req.GetScanName() == "" {
+		runHidden, err := hiddenScanNameForRun(ctx, sec, visible, namespace, req.GetRunName())
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		if runHidden {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, req.GetRunName()))
+		}
+	}
 	findings, err := sec.ListSecurityFindings(ctx, store.SecurityFindingFilter{
 		Namespace:         namespace,
 		ScanName:          req.GetScanName(),
@@ -101,6 +203,7 @@ func (s *Server) ListSecurityFindings(ctx context.Context, req *platform.ListSec
 		BaselineState:     req.GetBaselineState(),
 		Assignee:          req.GetAssignee(),
 		Suppressed:        req.GetSuppressed(),
+		ExcludedScanNames: hidden,
 		Limit:             req.GetLimit(),
 		Offset:            req.GetOffset(),
 	})
@@ -210,14 +313,36 @@ func (s *Server) GetSecurityFindingSummary(ctx context.Context, req *platform.Ge
 		return nil, err
 	}
 	s.sweepExpiredAcceptedRisks(ctx, sec, namespace)
-	counts, err := sec.SummarizeSecurityFindings(ctx, namespace, req.GetScanName(), req.GetRunName(), req.GetIncludeSuppressed())
+	visible, hidden, err := s.securityScanVisibility(ctx, namespace)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if scanName := req.GetScanName(); scanName != "" && !visible(scanName) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, scanName))
+	}
+	if req.GetScanName() == "" {
+		runHidden, err := hiddenScanNameForRun(ctx, sec, visible, namespace, req.GetRunName())
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		if runHidden {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, req.GetRunName()))
+		}
+	}
+	counts, err := sec.SummarizeSecurityFindingsScoped(ctx, store.SecurityFindingSummaryScope{
+		Namespace:         namespace,
+		ScanName:          req.GetScanName(),
+		RunName:           req.GetRunName(),
+		IncludeSuppressed: req.GetIncludeSuppressed(),
+		ExcludedScanNames: hidden,
+	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("summarizing security findings: %w", err))
 	}
 	resp := &platform.GetSecurityFindingSummaryResponse{Counts: counts}
 	// Trends are per scan (or namespace-wide); a run-scoped summary keeps
 	// the same scope as its scan.
-	if trends, err := sec.GetSecurityFindingTrends(ctx, namespace, req.GetScanName()); err == nil {
+	if trends, err := sec.GetSecurityFindingTrends(ctx, namespace, req.GetScanName(), hidden); err == nil {
 		resp.Trends = securityFindingTrendsProto(trends)
 	}
 	return resp, nil
@@ -287,10 +412,11 @@ func (s *Server) AddSecurityFindingComment(ctx context.Context, req *platform.Ad
 // authorizedSecurityFinding loads a finding by request ID, scoped to the
 // namespace the caller is authorized to act in (the requested namespace when
 // given, the caller's personal namespace otherwise). A finding that does not
-// exist and one that lives in a namespace the caller may not read are both
-// reported as NotFound so the endpoint cannot be used as a UUID-existence
-// oracle. When scanName is non-empty the finding must also belong to that
-// scan; a mismatch is likewise reported as NotFound.
+// exist, one that lives in a namespace the caller may not read, and one that
+// belongs to a scan hidden from the caller (owned by another user and not
+// shared) are all reported as NotFound so the endpoint cannot be used as a
+// UUID-existence oracle. When scanName is non-empty the finding must also
+// belong to that scan; a mismatch is likewise reported as NotFound.
 func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.SecurityFindingStore, rawID, requestedNamespace, scanName string) (*store.SecurityFindingRecord, error) {
 	id, err := uuid.Parse(strings.TrimSpace(rawID))
 	if err != nil {
@@ -306,6 +432,15 @@ func (s *Server) authorizedSecurityFinding(ctx context.Context, sec store.Securi
 	}
 	if err != nil || finding == nil || (scanName != "" && finding.ScanName != scanName) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", id))
+	}
+	if finding.ScanName != "" {
+		visible, _, verr := s.securityScanVisibility(ctx, namespace)
+		if verr != nil {
+			return nil, connect.NewError(connect.CodeInternal, verr)
+		}
+		if !visible(finding.ScanName) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", id))
+		}
 	}
 	return finding, nil
 }

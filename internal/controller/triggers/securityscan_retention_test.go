@@ -21,7 +21,7 @@ type purgeCall struct {
 // retentionTestFindingStore scripts PurgeExpiredSecurityData batches and
 // records every call plus every DeleteSecurityScanData (finalizer) call.
 type retentionTestFindingStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	calls   []purgeCall
 	results []struct {
 		counts   store.SecurityRetentionCounts

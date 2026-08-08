@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ChevronRight, FolderKanban, MessageSquarePlus, Plus } from "lucide-react";
+import { ChevronRight, FolderKanban, MessageSquarePlus, Plus, ShieldHalf } from "lucide-react";
 
 import { NewChatComposer } from "@/components/NewChatComposer";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
@@ -11,9 +11,10 @@ import { useProjects } from "@/hooks/useWatchedList";
 import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatAge } from "@/lib/format";
+import { collapseSecurityScanRuns, scanGroupPhase } from "@/lib/agentOps";
 import { runSourceLabel } from "@/lib/runSource";
 import { isRunComputing, runStatusLabel, runStatusTone } from "@/lib/runStatus";
-import { toneColor } from "@/lib/status";
+import { phaseTone, toneColor, type StatusTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { AgentRun } from "@/rpc/platform/service_pb";
 
@@ -112,10 +113,7 @@ function Row({
  * collapses below `sm`, and the accessible label is kept via `title`/sr-only
  * so status stays distinguishable everywhere.
  */
-function RunStatus({ run }: { run: AgentRun }) {
-  const tone = runStatusTone(run);
-  const live = isRunComputing(run);
-  const label = runStatusLabel(run);
+function StatusDot({ tone, live, label }: { tone: StatusTone; live: boolean; label: string }) {
   return (
     <span
       title={label}
@@ -138,6 +136,15 @@ function RunStatus({ run }: { run: AgentRun }) {
   );
 }
 
+function RunStatus({ run }: { run: AgentRun }) {
+  return <StatusDot tone={runStatusTone(run)} live={isRunComputing(run)} label={runStatusLabel(run)} />;
+}
+
+function ScanGroupStatus({ runs }: { runs: AgentRun[] }) {
+  const phase = scanGroupPhase(runs);
+  return <StatusDot tone={phaseTone(phase)} live={phase === "Running"} label={phase} />;
+}
+
 function EmptyRow({ children }: { children: React.ReactNode }) {
   return (
     <p className="px-3 py-5 text-center text-[12.5px] text-muted-foreground/80">{children}</p>
@@ -150,7 +157,10 @@ export function HomeScreen() {
   const { runs } = useAgentRuns();
 
   const recent = useMemo(
-    () => [...runs].sort((a, b) => Number(b.createdAtUnix - a.createdAtUnix)).slice(0, 6),
+    () =>
+      collapseSecurityScanRuns(
+        [...runs].sort((a, b) => Number(b.createdAtUnix - a.createdAtUnix)),
+      ).slice(0, 6),
     [runs],
   );
   const firstName = (user?.name || user?.username || "").split(" ")[0];
@@ -197,20 +207,31 @@ export function HomeScreen() {
             {recent.length === 0 ? (
               <EmptyRow>Describe a task above to start your first chat.</EmptyRow>
             ) : (
-              recent.map((r) => (
-                <Row
-                  key={`${r.namespace}/${r.name}`}
-                  to={`/runs/${r.namespace}/${r.name}`}
-                  icon={<MessageSquarePlus />}
-                  title={r.displayName || r.intentTitle || r.name}
-                  subtitle={
-                    [runSourceLabel(r), formatAge(r.createdAtUnix)]
-                      .filter(Boolean)
-                      .join(" · ") || undefined
-                  }
-                  trailing={<RunStatus run={r} />}
-                />
-              ))
+              recent.map((entry) =>
+                entry.kind === "run" ? (
+                  <Row
+                    key={`${entry.run.namespace}/${entry.run.name}`}
+                    to={`/runs/${entry.run.namespace}/${entry.run.name}`}
+                    icon={<MessageSquarePlus />}
+                    title={entry.run.displayName || entry.run.intentTitle || entry.run.name}
+                    subtitle={
+                      [runSourceLabel(entry.run), formatAge(entry.run.createdAtUnix)]
+                        .filter(Boolean)
+                        .join(" · ") || undefined
+                    }
+                    trailing={<RunStatus run={entry.run} />}
+                  />
+                ) : (
+                  <Row
+                    key={entry.group.key}
+                    to="/security/runs"
+                    icon={<ShieldHalf />}
+                    title={`Security scan ${entry.group.scanName}`}
+                    subtitle={`${entry.group.runs.length} task runs · ${formatAge(entry.group.runs[0].createdAtUnix)}`}
+                    trailing={<ScanGroupStatus runs={entry.group.runs} />}
+                  />
+                ),
+              )
             )}
           </Section>
         </motion.div>

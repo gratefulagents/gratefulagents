@@ -94,6 +94,9 @@ func securityFindingFilterSQL(f store.SecurityFindingFilter) (string, []any) {
 	if f.Assignee != "" {
 		add("assignee = $%d", f.Assignee)
 	}
+	if len(f.ExcludedScanNames) > 0 {
+		add("NOT (scan_name = ANY($%d))", f.ExcludedScanNames)
+	}
 	switch f.Suppressed {
 	case store.SecuritySuppressedInclude:
 	case store.SecuritySuppressedOnly:
@@ -946,6 +949,10 @@ func (s *Store) SummarizeSecurityFindingsScoped(ctx context.Context, scope store
 	narrow("run_name", scope.RunName)
 	narrow("execution_id", scope.ExecutionID)
 	narrow("task_name", scope.TaskName)
+	if len(scope.ExcludedScanNames) > 0 {
+		args = append(args, scope.ExcludedScanNames)
+		where += fmt.Sprintf(" AND NOT (scan_name = ANY($%d))", len(args))
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT severity, status, COALESCE(baseline_state, ''), source_kind,
 			cardinality(correlated_fingerprints) > 0, suppressed_by IS NOT NULL, COUNT(*)

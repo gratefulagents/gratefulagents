@@ -136,10 +136,12 @@ export function SecurityScanDetail() {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState("");
 
-  const fetchScan = useCallback(async () => {
+  const fetchScan = useCallback(async (background = false) => {
     if (!namespace || !runName) return;
-    setLoading(true);
-    setError("");
+    if (!background) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const [scanResp, summaryResp] = await Promise.all([
         client.getSecurityScan({ namespace, runName }),
@@ -182,15 +184,15 @@ export function SecurityScanDetail() {
         }
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load security scan");
+      if (!background) setError(e instanceof Error ? e.message : "Failed to load security scan");
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, [namespace, runName]);
 
-  const fetchFindings = useCallback(async () => {
+  const fetchFindings = useCallback(async (background = false) => {
     if (!namespace || !runName) return;
-    setFindingsLoading(true);
+    if (!background) setFindingsLoading(true);
     try {
       const resp = await client.listSecurityFindings({
         namespace,
@@ -205,9 +207,9 @@ export function SecurityScanDetail() {
       });
       setFindings(resp.findings);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load security findings");
+      if (!background) setError(e instanceof Error ? e.message : "Failed to load security findings");
     } finally {
-      setFindingsLoading(false);
+      if (!background) setFindingsLoading(false);
     }
   }, [namespace, runName, severity, status, category, search, baseline, assigneeFilter, suppressed]);
 
@@ -240,6 +242,21 @@ export function SecurityScanDetail() {
   useEffect(() => {
     void fetchEvents();
   }, [fetchEvents]);
+
+  // While the scan is still executing, its record, summary, and findings keep
+  // changing server-side; poll quietly (no loading flicker) until it settles,
+  // skipping refreshes while the tab is hidden.
+  const scanLoaded = scan !== null;
+  const scanSettled = Boolean(scan?.completedAt) && scan?.status.toLowerCase() !== "running";
+  useEffect(() => {
+    if (!scanLoaded || scanSettled) return;
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      void fetchScan(true);
+      void fetchFindings(true);
+    }, 5_000);
+    return () => window.clearInterval(id);
+  }, [scanLoaded, scanSettled, fetchScan, fetchFindings]);
 
   const categories = useMemo(() => {
     const set = new Set<string>();

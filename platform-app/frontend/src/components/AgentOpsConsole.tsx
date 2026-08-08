@@ -64,6 +64,7 @@ import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { useNow } from "@/hooks/useNow";
 import {
   canRunAction,
+  collapseSecurityScanRuns,
   getRunAttention,
   getRunBucket,
   latestRunActivity,
@@ -73,8 +74,12 @@ import {
   runRepoLabel,
   runSourceLabel,
   runSourcePath,
+  scanGroupPhase,
+  scanGroupProgress,
+  securityScanGroupKey,
   type OpsAction,
   type OpsBucket,
+  type SecurityScanRunGroup,
 } from "@/lib/agentOps";
 import { client } from "@/lib/client";
 import { useScrollEdgeFade } from "@/hooks/useScrollEdgeFade";
@@ -486,6 +491,35 @@ export function AgentOpsConsole() {
     phases.size + modes.size + sources.size + repos.size +
     (bucket === "active" ? 0 : 1) + (age === "7d" ? 0 : 1) + (cost === "all" ? 0 : 1);
 
+  const renderRunRow = (run: AgentRun, indent = false) => (
+    <RunRows
+      key={runKey(run)}
+      run={run}
+      now={now}
+      indent={indent}
+      selected={selected.has(runKey(run))}
+      expanded={expanded.has(runKey(run))}
+      busy={busyRuns.has(runKey(run))}
+      allRuns={runs}
+      onSelect={(checked) => setSelected((current) => {
+        const next = new Set(current);
+        if (checked) next.add(runKey(run)); else next.delete(runKey(run));
+        return next;
+      })}
+      onExpand={() => setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(runKey(run))) next.delete(runKey(run)); else next.add(runKey(run));
+        return next;
+      })}
+      onAction={(action) => {
+        if (action === "extend") setExtend({ runs: [run], duration: "1h" });
+        else requestAction(action, [run]);
+      }}
+      onShare={() => setSharing(run)}
+      onCompare={(comparison) => setCompareRuns(comparison)}
+    />
+  );
+
   return (
     <div className="space-y-5 pb-8">
       <header className="flex flex-wrap items-center justify-between gap-4">
@@ -729,33 +763,32 @@ export function AgentOpsConsole() {
                     </TableCell>
                   </TableRow>
                 )}
-                {!collapsed.has(groupName) && groupRuns.map((run) => (
-                  <RunRows
-                    key={runKey(run)}
-                    run={run}
-                    now={now}
-                    selected={selected.has(runKey(run))}
-                    expanded={expanded.has(runKey(run))}
-                    busy={busyRuns.has(runKey(run))}
-                    allRuns={runs}
-                    onSelect={(checked) => setSelected((current) => {
-                      const next = new Set(current);
-                      if (checked) next.add(runKey(run)); else next.delete(runKey(run));
-                      return next;
-                    })}
-                    onExpand={() => setExpanded((current) => {
-                      const next = new Set(current);
-                      if (next.has(runKey(run))) next.delete(runKey(run)); else next.add(runKey(run));
-                      return next;
-                    })}
-                    onAction={(action) => {
-                      if (action === "extend") setExtend({ runs: [run], duration: "1h" });
-                      else requestAction(action, [run]);
-                    }}
-                    onShare={() => setSharing(run)}
-                    onCompare={(comparison) => setCompareRuns(comparison)}
-                  />
-                ))}
+                {!collapsed.has(groupName) && collapseSecurityScanRuns(groupRuns).map((entry) => {
+                  if (entry.kind === "run") return renderRunRow(entry.run);
+                  const memberKeys = entry.group.runs.map(runKey);
+                  return (
+                    <React.Fragment key={entry.group.key}>
+                      <ScanGroupRow
+                        group={entry.group}
+                        allRuns={runs}
+                        now={now}
+                        expanded={expanded.has(entry.group.key)}
+                        selected={memberKeys.every((key) => selected.has(key))}
+                        onExpand={() => setExpanded((current) => {
+                          const next = new Set(current);
+                          if (next.has(entry.group.key)) next.delete(entry.group.key); else next.add(entry.group.key);
+                          return next;
+                        })}
+                        onSelect={(checked) => setSelected((current) => {
+                          const next = new Set(current);
+                          memberKeys.forEach((key) => checked ? next.add(key) : next.delete(key));
+                          return next;
+                        })}
+                      />
+                      {expanded.has(entry.group.key) && entry.group.runs.map((run) => renderRunRow(run, true))}
+                    </React.Fragment>
+                  );
+                })}
               </React.Fragment>
             ))}
           </TableBody>
@@ -896,6 +929,106 @@ function ChoiceMenu({
   );
 }
 
+/**
+ * One collapsed row per deterministic security-scan execution. Aggregates are
+ * computed over every loaded member run (not only the filtered ones) so
+ * progress reads "X of N tasks done" for the whole execution. The row links
+ * to the security scans list; individual task runs stay reachable through the
+ * expandable children. Selecting the group selects all visible member runs.
+ */
+function ScanGroupRow({
+  group,
+  allRuns,
+  now,
+  expanded,
+  selected,
+  onExpand,
+  onSelect,
+}: {
+  group: SecurityScanRunGroup;
+  allRuns: AgentRun[];
+  now: number;
+  expanded: boolean;
+  selected: boolean;
+  onExpand: () => void;
+  onSelect: (checked: boolean) => void;
+}) {
+  const members = allRuns.filter((run) => securityScanGroupKey(run) === group.key);
+  const phase = scanGroupPhase(members);
+  const progress = scanGroupProgress(members);
+  const totalCost = members.reduce((sum, run) => sum + costValue(run), 0);
+  const totalTokens = members.reduce((sum, run) => sum + Number(run.inputTokens + run.outputTokens), 0);
+  const newestActivity = members.reduce((max, run) => {
+    const ts = latestRunActivity(run)?.timestampUnix ?? latestTimestamp(run);
+    return ts > max ? ts : max;
+  }, 0n);
+  const createdAt = members.reduce(
+    (min, run) => (min === 0n || (run.createdAtUnix && run.createdAtUnix < min) ? run.createdAtUnix : min),
+    0n,
+  );
+  const label = `Security scan ${group.scanName}`;
+  return (
+    <TableRow>
+      <TableCell>
+        <input
+          type="checkbox"
+          aria-label={`Select ${label} task runs`}
+          checked={selected}
+          onChange={(event) => onSelect(event.currentTarget.checked)}
+          className="size-3.5 accent-primary"
+        />
+      </TableCell>
+      <TableCell className="max-w-[260px]">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onExpand}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${label} task runs`}
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          >
+            <ChevronRight className={cn("size-3.5 transition-transform", expanded && "rotate-90")} />
+          </button>
+          <div className="min-w-0">
+            <Link to="/security/runs" className="block truncate font-medium text-primary hover:underline" title={label}>
+              {label}
+            </Link>
+            <div className="truncate font-mono text-[10.5px] text-muted-foreground">
+              {group.namespace} · {group.executionId}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <StatusBadge phase={phase} />
+      </TableCell>
+      <TableCell className="hidden xl:table-cell">
+        <div className="text-[12px]">Security scan</div>
+      </TableCell>
+      <TableCell className="max-w-[300px] whitespace-normal">
+        <div className="text-[12.5px]">{progress.done} of {progress.total} tasks done</div>
+        <div className="mt-0.5 text-[10.5px] text-muted-foreground">
+          {newestActivity ? `${formatAge(newestActivity, now)} ago` : "-"}
+        </div>
+      </TableCell>
+      <TableCell className="hidden max-w-[200px] lg:table-cell">
+        <div className="truncate text-[12px] text-muted-foreground">SecurityScan · {group.scanName}</div>
+      </TableCell>
+      <TableCell className="hidden lg:table-cell">
+        <span className="text-muted-foreground">-</span>
+      </TableCell>
+      <TableCell className="text-right font-mono text-[12px] tabular-nums">
+        ${totalCost.toFixed(2)}
+        <div className="font-mono text-[10px] text-muted-foreground/70">{totalTokens.toLocaleString()} tok</div>
+      </TableCell>
+      <TableCell className="text-right">
+        <div className="font-mono text-[12px] tabular-nums text-muted-foreground">{createdAt ? formatAge(createdAt, now) : "-"}</div>
+      </TableCell>
+      <TableCell />
+    </TableRow>
+  );
+}
+
 function RunRows({
   run,
   now,
@@ -903,6 +1036,7 @@ function RunRows({
   expanded,
   busy,
   allRuns,
+  indent = false,
   onSelect,
   onExpand,
   onAction,
@@ -915,6 +1049,7 @@ function RunRows({
   expanded: boolean;
   busy: boolean;
   allRuns: AgentRun[];
+  indent?: boolean;
   onSelect: (checked: boolean) => void;
   onExpand: () => void;
   onAction: (action: OpsAction) => void;
@@ -939,7 +1074,7 @@ function RunRows({
         <TableCell>
           <input type="checkbox" aria-label={`Select ${run.displayName || run.name}`} checked={selected} onChange={(event) => onSelect(event.currentTarget.checked)} className="size-3.5 accent-primary" />
         </TableCell>
-        <TableCell className="max-w-[260px]">
+        <TableCell className={cn("max-w-[260px]", indent && "pl-8")}>
           <div className="flex min-w-0 items-center gap-2">
             <OwnerAvatar owner={run.owner} />
             <div className="min-w-0">

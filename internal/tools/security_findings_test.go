@@ -1422,7 +1422,7 @@ func (s *fakeSecurityFindingStore) DeleteSecuritySavedFilter(context.Context, st
 	return nil
 }
 
-func (s *fakeSecurityFindingStore) GetSecurityFindingTrends(context.Context, string, string) (*store.SecurityFindingTrends, error) {
+func (s *fakeSecurityFindingStore) GetSecurityFindingTrends(context.Context, string, string, []string) (*store.SecurityFindingTrends, error) {
 	return &store.SecurityFindingTrends{}, nil
 }
 

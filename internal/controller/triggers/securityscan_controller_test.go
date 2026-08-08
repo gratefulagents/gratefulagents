@@ -237,8 +237,33 @@ func TestSecurityScanReconcileFailsReadyConditionWhenFindingsMeetThreshold(t *te
 	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, "FindingsExceedThreshold")
 }
 
-type securityScanFindingStore struct {
+// securityScanRecordStubStore gives finding-store fakes working
+// GetSecurityScan/UpsertSecurityScan implementations so the eager scan
+// record created on run dispatch never dereferences the fakes' nil embedded
+// interface. Upserts are recorded only when a test initializes scanRecords.
+type securityScanRecordStubStore struct {
 	store.SecurityFindingStore
+	scanRecords map[string]*store.SecurityScanRecord
+}
+
+func (s securityScanRecordStubStore) GetSecurityScan(_ context.Context, namespace, runName string) (*store.SecurityScanRecord, error) {
+	if rec := s.scanRecords[namespace+"/"+runName]; rec != nil {
+		cp := *rec
+		return &cp, nil
+	}
+	return nil, nil
+}
+
+func (s securityScanRecordStubStore) UpsertSecurityScan(_ context.Context, rec *store.SecurityScanRecord) (*store.SecurityScanRecord, error) {
+	if s.scanRecords != nil {
+		cp := *rec
+		s.scanRecords[rec.Namespace+"/"+rec.RunName] = &cp
+	}
+	return rec, nil
+}
+
+type securityScanFindingStore struct {
+	securityScanRecordStubStore
 	counts map[string]int32
 }
 
@@ -247,7 +272,7 @@ func (s securityScanFindingStore) SummarizeSecurityFindings(context.Context, str
 }
 
 type recordingSecurityScanFindingStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	counts   map[string]int32
 	scanName string
 	runName  string
@@ -260,7 +285,7 @@ func (s *recordingSecurityScanFindingStore) SummarizeSecurityFindings(_ context.
 }
 
 type deletingSecurityScanFindingStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	err       error
 	calls     int
 	namespace string

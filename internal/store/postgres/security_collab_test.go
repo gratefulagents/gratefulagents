@@ -574,7 +574,7 @@ func TestSecurityFindingTrendsAndExport(t *testing.T) {
 		t.Fatalf("triage: %v", err)
 	}
 
-	trends, err := s.GetSecurityFindingTrends(ctx, "default", "nightly")
+	trends, err := s.GetSecurityFindingTrends(ctx, "default", "nightly", nil)
 	if err != nil {
 		t.Fatalf("trends: %v", err)
 	}

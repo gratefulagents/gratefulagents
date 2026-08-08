@@ -289,6 +289,13 @@ func (s *Server) BulkUpdateSecurityFindingStatus(ctx context.Context, req *platf
 	if err != nil {
 		return nil, err
 	}
+	visible, hidden, err := s.securityScanVisibility(ctx, namespace)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if scanName := req.GetScanName(); scanName != "" && !visible(scanName) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, scanName))
+	}
 	rawIDs := req.GetIds()
 	if len(rawIDs) == 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("at least one finding id is required"))
@@ -303,6 +310,22 @@ func (s *Server) BulkUpdateSecurityFindingStatus(ctx context.Context, req *platf
 			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid finding id %q", raw))
 		}
 		ids = append(ids, id)
+	}
+	// Without a scan scope the ids alone select the findings, so each one
+	// must be checked against the caller's scan visibility. A hidden
+	// finding fails the whole batch with the same NotFound a missing one
+	// would produce (no UUID-existence oracle); missing ids fall through to
+	// the store's per-id outcome reporting.
+	if req.GetScanName() == "" && len(hidden) > 0 {
+		for _, id := range ids {
+			finding, err := sec.GetSecurityFinding(ctx, namespace, id)
+			if err != nil && !errors.Is(err, store.ErrSecurityFindingNotFound) {
+				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("getting security finding: %w", err))
+			}
+			if finding != nil && !visible(finding.ScanName) {
+				return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", id))
+			}
+		}
 	}
 
 	upd := store.SecurityFindingBulkUpdate{Note: req.GetNote(), Actor: actor.Subject}
@@ -485,6 +508,13 @@ func (s *Server) ExportSecurityFindingAuditLog(ctx context.Context, req *platfor
 	scanName := strings.TrimSpace(req.GetScanName())
 	if scanName == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("scan_name is required"))
+	}
+	visible, _, err := s.securityScanVisibility(ctx, namespace)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if !visible(scanName) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, scanName))
 	}
 	format := strings.ToLower(strings.TrimSpace(req.GetFormat()))
 	if format == "" {

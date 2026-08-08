@@ -3,6 +3,8 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +47,12 @@ type mockSecurityStore struct {
 	lastBulkUpdate   *store.SecurityFindingBulkUpdate
 	savedFilters     []store.SecuritySavedFilter
 	trends           *store.SecurityFindingTrends
+
+	// Visibility plumbing: shares feeds ListSharedWithMe, and the exclusion
+	// lists the handlers pushed into the last summary/trends call.
+	shares              []store.ResourceShare
+	lastSummaryExcluded []string
+	lastTrendsExcluded  []string
 
 	appliedSuppressions     []store.SecuritySuppressionRule
 	suppressionExpirySweeps []string
@@ -100,9 +108,13 @@ func (m *mockSecurityStore) ListSecurityFindings(_ context.Context, f store.Secu
 	m.lastFilter = f
 	var out []store.SecurityFindingRecord
 	for _, finding := range m.findings {
-		if finding.Namespace == f.Namespace {
-			out = append(out, *finding)
+		if finding.Namespace != f.Namespace {
+			continue
 		}
+		if slices.Contains(f.ExcludedScanNames, finding.ScanName) {
+			continue
+		}
+		out = append(out, *finding)
 	}
 	return out, nil
 }
@@ -184,6 +196,7 @@ func (m *mockSecurityStore) SummarizeSecurityFindingsScoped(_ context.Context, s
 	}
 	m.summaryNamespace, m.summaryScanName, m.summaryRunName = scope.Namespace, scope.ScanName, scope.RunName
 	m.summaryIncludeSuppressed = scope.IncludeSuppressed
+	m.lastSummaryExcluded = scope.ExcludedScanNames
 	return m.summary, nil
 }
 
@@ -360,10 +373,11 @@ func (m *mockSecurityStore) DeleteSecuritySavedFilter(_ context.Context, namespa
 	return nil
 }
 
-func (m *mockSecurityStore) GetSecurityFindingTrends(_ context.Context, namespace, scanName string) (*store.SecurityFindingTrends, error) {
+func (m *mockSecurityStore) GetSecurityFindingTrends(_ context.Context, namespace, scanName string, excludedScanNames []string) (*store.SecurityFindingTrends, error) {
 	if namespace == "" {
 		return nil, errors.New("namespace is required")
 	}
+	m.lastTrendsExcluded = excludedScanNames
 	if m.trends != nil {
 		return m.trends, nil
 	}
@@ -393,6 +407,31 @@ func (m *mockSecurityStore) ExportSecurityFindingEvents(_ context.Context, names
 }
 
 var _ store.SecurityFindingStore = (*mockSecurityStore)(nil)
+
+// ListResourceOwnersByType exposes the embedded mockStateStore's ownership
+// records in bulk so the security visibility helper exercises the same
+// bulk-load path the postgres store provides.
+func (m *mockSecurityStore) ListResourceOwnersByType(_ context.Context, resourceType string) ([]store.ResourceOwnership, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []store.ResourceOwnership
+	for _, o := range m.owners {
+		if o.ResourceType == resourceType {
+			out = append(out, *o)
+		}
+	}
+	return out, nil
+}
+
+func (m *mockSecurityStore) ListSharedWithMe(_ context.Context, subject, resourceType string) ([]store.ResourceShare, error) {
+	var out []store.ResourceShare
+	for _, sh := range m.shares {
+		if sh.SharedWithUserID == subject && sh.ResourceType == resourceType {
+			out = append(out, sh)
+		}
+	}
+	return out, nil
+}
 
 func newSecurityTestServer(t *testing.T, sec store.StateStore) *Server {
 	t.Helper()
@@ -517,7 +556,7 @@ func TestListSecurityFindingsPassesFilter(t *testing.T) {
 		Category: "injection", Search: "sql", MinScore: 7.5, IncludeDuplicates: true,
 		Limit: 50, Offset: 10,
 	}
-	if sec.lastFilter != want {
+	if !reflect.DeepEqual(sec.lastFilter, want) {
 		t.Fatalf("filter = %+v, want %+v", sec.lastFilter, want)
 	}
 }
@@ -936,5 +975,229 @@ func TestAddSecurityFindingCommentCrossNamespaceDenied(t *testing.T) {
 	}
 	if len(sec.events[foreign.ID]) != 0 {
 		t.Fatalf("foreign finding gained events: %+v", sec.events[foreign.ID])
+	}
+}
+
+// newScanVisibilityStore seeds a mock store with three scans in "default":
+// one owned by alice, one owned by bob, one unowned — each with one finding.
+// The returned findings map is keyed by scan name.
+func newScanVisibilityStore(t *testing.T) (*mockSecurityStore, map[string]*store.SecurityFindingRecord) {
+	t.Helper()
+	sec := newMockSecurityStore()
+	ctx := context.Background()
+	if err := sec.SetResourceOwner(ctx, securityScanResourceType, "alice-scan", "default", "alice"); err != nil {
+		t.Fatalf("SetResourceOwner(alice-scan): %v", err)
+	}
+	if err := sec.SetResourceOwner(ctx, securityScanResourceType, "bob-scan", "default", "bob"); err != nil {
+		t.Fatalf("SetResourceOwner(bob-scan): %v", err)
+	}
+	findings := map[string]*store.SecurityFindingRecord{}
+	for _, scanName := range []string{"alice-scan", "bob-scan", "unowned-scan"} {
+		runName := scanName + "-run-1"
+		sec.scans = append(sec.scans, store.SecurityScanRecord{
+			ID: uuid.New(), Namespace: "default", ScanName: scanName, RunName: runName,
+		})
+		finding := newTestFinding("default")
+		finding.ScanName = scanName
+		finding.RunName = runName
+		sec.findings[finding.ID] = finding
+		findings[scanName] = finding
+	}
+	return sec, findings
+}
+
+func TestSecurityScanRecordsHiddenFromNonOwner(t *testing.T) {
+	sec, findings := newScanVisibilityStore(t)
+	srv := newSecurityTestServer(t, sec)
+	bob := actorContext("bob", "member", "", "")
+
+	scans, err := srv.ListSecurityScans(bob, &platform.ListSecurityScansRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatalf("ListSecurityScans() error = %v", err)
+	}
+	if len(scans.Scans) != 2 {
+		t.Fatalf("scans = %d, want bob-scan and unowned-scan only", len(scans.Scans))
+	}
+	for _, scan := range scans.Scans {
+		if scan.GetScanName() == "alice-scan" {
+			t.Fatalf("alice-scan leaked into bob's scan list")
+		}
+	}
+
+	if _, err := srv.GetSecurityScan(bob, &platform.GetSecurityScanRequest{Namespace: "default", RunName: "alice-scan-run-1"}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden GetSecurityScan code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.GetSecurityScan(bob, &platform.GetSecurityScanRequest{Namespace: "default", RunName: "unowned-scan-run-1"}); err != nil {
+		t.Fatalf("unowned GetSecurityScan error = %v, want visible", err)
+	}
+
+	list, err := srv.ListSecurityFindings(bob, &platform.ListSecurityFindingsRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatalf("ListSecurityFindings() error = %v", err)
+	}
+	if !slices.Equal(sec.lastFilter.ExcludedScanNames, []string{"alice-scan"}) {
+		t.Fatalf("ExcludedScanNames = %v, want [alice-scan]", sec.lastFilter.ExcludedScanNames)
+	}
+	if len(list.Findings) != 2 {
+		t.Fatalf("findings = %d, want alice's excluded", len(list.Findings))
+	}
+	for _, f := range list.Findings {
+		if f.GetScanName() == "alice-scan" {
+			t.Fatalf("alice-scan finding leaked into bob's list")
+		}
+	}
+	if _, err := srv.ListSecurityFindings(bob, &platform.ListSecurityFindingsRequest{Namespace: "default", ScanName: "alice-scan"}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden scan-scoped list code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.ListSecurityFindings(bob, &platform.ListSecurityFindingsRequest{Namespace: "default", RunName: "alice-scan-run-1"}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden run-scoped list code = %v, want NotFound", connect.CodeOf(err))
+	}
+
+	aliceFinding := findings["alice-scan"]
+	if _, err := srv.GetSecurityFinding(bob, &platform.GetSecurityFindingRequest{Id: aliceFinding.ID.String(), Namespace: "default"}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden GetSecurityFinding code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.UpdateSecurityFindingStatus(bob, &platform.UpdateSecurityFindingStatusRequest{
+		Id: aliceFinding.ID.String(), Namespace: "default", Status: store.SecurityFindingStatusTriaged,
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden UpdateSecurityFindingStatus code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if aliceFinding.Status != "open" {
+		t.Fatalf("hidden finding status = %q, want untouched", aliceFinding.Status)
+	}
+	if _, err := srv.AddSecurityFindingComment(bob, &platform.AddSecurityFindingCommentRequest{
+		Id: aliceFinding.ID.String(), Namespace: "default", Body: "hi",
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden AddSecurityFindingComment code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.BulkUpdateSecurityFindingStatus(bob, &platform.BulkUpdateSecurityFindingStatusRequest{
+		Namespace: "default", Ids: []string{aliceFinding.ID.String()}, Status: store.SecurityFindingStatusTriaged,
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden bulk update code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.BulkUpdateSecurityFindingStatus(bob, &platform.BulkUpdateSecurityFindingStatusRequest{
+		Namespace: "default", ScanName: "alice-scan", Ids: []string{aliceFinding.ID.String()}, Status: store.SecurityFindingStatusTriaged,
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden scan-scoped bulk update code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.ExportSecurityFindingAuditLog(bob, &platform.ExportSecurityFindingAuditLogRequest{
+		Namespace: "default", ScanName: "alice-scan",
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden audit export code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.GetSecurityScanReport(bob, &platform.GetSecurityScanReportRequest{
+		Namespace: "default", RunName: "alice-scan-run-1",
+	}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden report code = %v, want NotFound", connect.CodeOf(err))
+	}
+
+	// A visible finding stays writable: viewer-level visibility is enough.
+	bobFinding := findings["bob-scan"]
+	if _, err := srv.UpdateSecurityFindingStatus(bob, &platform.UpdateSecurityFindingStatusRequest{
+		Id: bobFinding.ID.String(), Namespace: "default", Status: store.SecurityFindingStatusTriaged,
+	}); err != nil {
+		t.Fatalf("own finding update error = %v", err)
+	}
+	unownedFinding := findings["unowned-scan"]
+	if _, err := srv.GetSecurityFinding(bob, &platform.GetSecurityFindingRequest{Id: unownedFinding.ID.String(), Namespace: "default"}); err != nil {
+		t.Fatalf("unowned finding read error = %v, want visible", err)
+	}
+}
+
+func TestSecurityFindingSummaryExcludesHiddenScans(t *testing.T) {
+	sec, _ := newScanVisibilityStore(t)
+	sec.summary = map[string]int32{"total": 2}
+	srv := newSecurityTestServer(t, sec)
+	bob := actorContext("bob", "member", "", "")
+
+	if _, err := srv.GetSecurityFindingSummary(bob, &platform.GetSecurityFindingSummaryRequest{Namespace: "default"}); err != nil {
+		t.Fatalf("GetSecurityFindingSummary() error = %v", err)
+	}
+	if !slices.Equal(sec.lastSummaryExcluded, []string{"alice-scan"}) {
+		t.Fatalf("summary ExcludedScanNames = %v, want [alice-scan]", sec.lastSummaryExcluded)
+	}
+	if !slices.Equal(sec.lastTrendsExcluded, []string{"alice-scan"}) {
+		t.Fatalf("trends ExcludedScanNames = %v, want [alice-scan]", sec.lastTrendsExcluded)
+	}
+	if _, err := srv.GetSecurityFindingSummary(bob, &platform.GetSecurityFindingSummaryRequest{Namespace: "default", ScanName: "alice-scan"}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden scan summary code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if _, err := srv.GetSecurityFindingSummary(bob, &platform.GetSecurityFindingSummaryRequest{Namespace: "default", RunName: "alice-scan-run-1"}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden run summary code = %v, want NotFound", connect.CodeOf(err))
+	}
+}
+
+func TestSecurityScanRecordsVisibleToSharedUserAndAdmin(t *testing.T) {
+	sec, findings := newScanVisibilityStore(t)
+	sec.shares = []store.ResourceShare{{
+		ResourceType: securityScanResourceType, ResourceID: "alice-scan",
+		ResourceNamespace: "default", SharedWithUserID: "bob", Permission: "viewer",
+	}}
+	srv := newSecurityTestServer(t, sec)
+
+	bob := actorContext("bob", "member", "", "")
+	scans, err := srv.ListSecurityScans(bob, &platform.ListSecurityScansRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatalf("ListSecurityScans() error = %v", err)
+	}
+	if len(scans.Scans) != 3 {
+		t.Fatalf("shared scans = %d, want all 3", len(scans.Scans))
+	}
+	if _, err := srv.GetSecurityScan(bob, &platform.GetSecurityScanRequest{Namespace: "default", RunName: "alice-scan-run-1"}); err != nil {
+		t.Fatalf("shared GetSecurityScan error = %v", err)
+	}
+	if _, err := srv.GetSecurityFinding(bob, &platform.GetSecurityFindingRequest{Id: findings["alice-scan"].ID.String(), Namespace: "default"}); err != nil {
+		t.Fatalf("shared GetSecurityFinding error = %v", err)
+	}
+	if _, err := srv.GetSecurityFindingSummary(bob, &platform.GetSecurityFindingSummaryRequest{Namespace: "default"}); err != nil {
+		t.Fatalf("GetSecurityFindingSummary() error = %v", err)
+	}
+	if len(sec.lastSummaryExcluded) != 0 {
+		t.Fatalf("shared summary exclusions = %v, want none", sec.lastSummaryExcluded)
+	}
+
+	sec.shares = nil
+	admin := actorContext("carol", "admin", "", "")
+	scans, err = srv.ListSecurityScans(admin, &platform.ListSecurityScansRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatalf("admin ListSecurityScans() error = %v", err)
+	}
+	if len(scans.Scans) != 3 {
+		t.Fatalf("admin scans = %d, want all 3", len(scans.Scans))
+	}
+	if _, err := srv.GetSecurityFindingSummary(admin, &platform.GetSecurityFindingSummaryRequest{Namespace: "default"}); err != nil {
+		t.Fatalf("admin GetSecurityFindingSummary() error = %v", err)
+	}
+	if len(sec.lastSummaryExcluded) != 0 {
+		t.Fatalf("admin summary exclusions = %v, want none", sec.lastSummaryExcluded)
+	}
+}
+
+func TestSecurityOverviewExcludesHiddenScans(t *testing.T) {
+	sec, _ := newScanVisibilityStore(t)
+	sec.summary = map[string]int32{"total": 2}
+	srv := newSecurityOverviewTestServer(t, sec)
+	bob := actorContext("bob", "member", "", "")
+
+	resp, err := srv.GetSecurityOverview(bob, &platform.GetSecurityOverviewRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatalf("GetSecurityOverview() error = %v", err)
+	}
+	if len(resp.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", resp.Warnings)
+	}
+	for _, scan := range append(append([]*platform.SecurityScan{}, resp.ActiveScans...), resp.RecentScans...) {
+		if scan.GetScanName() == "alice-scan" {
+			t.Fatalf("alice-scan leaked into bob's overview")
+		}
+	}
+	if got := len(resp.ActiveScans) + len(resp.RecentScans); got != 2 {
+		t.Fatalf("overview scans = %d, want 2", got)
+	}
+	if !slices.Equal(sec.lastSummaryExcluded, []string{"alice-scan"}) {
+		t.Fatalf("overview summary exclusions = %v, want [alice-scan]", sec.lastSummaryExcluded)
+	}
+	if !slices.Equal(sec.lastTrendsExcluded, []string{"alice-scan"}) {
+		t.Fatalf("overview trends exclusions = %v, want [alice-scan]", sec.lastTrendsExcluded)
 	}
 }

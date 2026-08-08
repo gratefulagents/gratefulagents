@@ -1337,7 +1337,7 @@ func TestSecurityScanCoordinatorRunStampsItsOwnExecutionID(t *testing.T) {
 // materialized from and reloaded against, and counts list calls so tests can
 // prove the matrix is computed exactly once.
 type postScriptFindingStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	findings  []store.SecurityFindingRecord
 	listCalls int
 	filters   []store.SecurityFindingFilter
@@ -1991,5 +1991,54 @@ func TestSecurityScanPostScriptRunNameKeysOnFindingIdentity(t *testing.T) {
 		if len(name) > 63 {
 			t.Fatalf("run name %q exceeds 63 characters", name)
 		}
+	}
+}
+
+func TestSecurityScanDeterministicDispatchCreatesNoEagerScanRecord(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "inspect", Objective: "inspect"}}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	records := map[string]*store.SecurityScanRecord{}
+	reconciler.Findings = securityScanFindingStore{securityScanRecordStubStore: securityScanRecordStubStore{scanRecords: records}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("runs = %d, want one dispatched task run", len(runs))
+	}
+	// Task runs never eagerly create scan records: one row per task run
+	// would flood the scans list with per-task "running" ghosts. The row is
+	// created lazily by the run's finding tools when it first reports.
+	if len(records) != 0 {
+		t.Fatalf("records = %v, want no eager scan record for deterministic task runs", records)
+	}
+}
+
+func TestSecurityScanCoordinatorRunCreatesEagerScanRecord(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	records := map[string]*store.SecurityScanRecord{}
+	reconciler.Findings = securityScanFindingStore{securityScanRecordStubStore: securityScanRecordStubStore{scanRecords: records}}
+
+	for i := 0; i < 3; i++ {
+		if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+		if getSecurityScan(t, k8sClient, scan).Status.LastRunName != "" {
+			break
+		}
+	}
+	runName := getSecurityScan(t, k8sClient, scan).Status.LastRunName
+	if runName == "" {
+		t.Fatal("coordinator run was not created")
+	}
+	rec := records[scan.Namespace+"/"+runName]
+	if rec == nil {
+		t.Fatalf("no eager scan record for coordinator run %q; records = %v", runName, records)
+	}
+	if rec.ScanName != scan.Name || rec.Status != "running" || rec.StartedAt == nil {
+		t.Fatalf("eager record = %+v, want scanName=%q status=running with startedAt", rec, scan.Name)
 	}
 }

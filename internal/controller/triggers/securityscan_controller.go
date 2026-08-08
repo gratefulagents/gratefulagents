@@ -601,6 +601,11 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 	if err != nil {
 		return created, resolved.refs, nil, err
 	}
+	if created {
+		// The scans list shows the run as soon as it is dispatched instead
+		// of only after its first persisted finding.
+		r.ensureSecurityScanRecord(ctx, scan, runName, base.annotations)
+	}
 	// The coordinator execution record is informational: it publishes the
 	// concurrency bound actually stated in the prompt. Its phase stays
 	// Running; the authoritative run outcome remains the AgentRun phase

@@ -53,6 +53,9 @@ Let tooling own formatting: Go uses `gofmt` and `goimports`. Follow existing nam
 ## Testing Guidelines
 Add or update tests with every behavior change. Go tests use the standard testing package plus envtest; e2e uses Ginkgo/Gomega in `test/e2e/`. No fixed coverage threshold is enforced, but `make test` produces coverage output and should stay green before review.
 
+## Dashboard Resource Ownership & Visibility
+Every resource a user creates from the dashboard (CRs such as SecurityScan, Cron, or GitHubRepository, and Postgres-backed records such as security scan runs and findings) must record the creating user as its owner (`SetResourceOwner`) in the same request that creates it. Every read surface — list, get, and watch RPCs, plus aggregates/summaries derived from those resources — must filter by that ownership so a user only sees their own resources, resources explicitly shared with them, and (for admins) everything. Follow the existing conventions: `resourceVisibilityFilter`/`requireResourceAccess` for authorization, "unowned resources stay visible to everyone" for backward compatibility, and NotFound (never PermissionDenied revealing existence) when hiding another user's resource. A new RPC or resource type is not complete until both the ownership write and the visibility filtering on all of its read paths are in place, with tests covering the non-owner, shared-user, and admin cases.
+
 ## Dashboard Feature Parity
 Any new user-facing or operator-configurable functionality must include corresponding dashboard controls in `platform-app/` as part of the same change. A backend API, CRD field, annotation, or configuration option alone is not considered complete. Include the RPC wiring, clear UI labels and help text, validation, and frontend tests needed to configure the feature without using Kubernetes manifests or command-line tools. If a dashboard control is intentionally inappropriate, document the reason in the pull request.
 

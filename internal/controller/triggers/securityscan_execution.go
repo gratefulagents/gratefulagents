@@ -16,6 +16,7 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1723,6 +1724,46 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		SeedLogPrefix: "securityscan",
 	})
 	return created, err
+}
+
+// ensureSecurityScanRecord eagerly creates the persisted scan record for a
+// newly created COORDINATOR scan run so the dashboard scans list shows the
+// scan as soon as it is dispatched instead of only after its first persisted
+// finding or report. Deterministic task runs deliberately do not get an eager
+// record: each task run would otherwise surface as its own scans-list row
+// stuck in "running" even when the task never reports a finding, flooding the
+// list with per-task ghosts (the execution's live progress is on the scan
+// configuration page instead). The record is keyed by (namespace, run name) —
+// the same key the run's finding tools use — so the tools' lazy creation path
+// reuses this row and never writes a duplicate one. Best-effort: without a
+// findings store, or on error, the lazy path still creates the row later.
+func (r *SecurityScanReconciler) ensureSecurityScanRecord(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runName string, annotations map[string]string) {
+	if r.Findings == nil || runName == "" {
+		return
+	}
+	log := logf.FromContext(ctx)
+	existing, err := r.Findings.GetSecurityScan(ctx, scan.Namespace, runName)
+	if err != nil {
+		log.Error(err, "failed to check for an existing security scan record", "run", runName)
+		return
+	}
+	if existing != nil {
+		// Never clobber a record the run (or a previous reconcile) already
+		// wrote: the upsert would reset its status and completion fields.
+		return
+	}
+	started := r.now().UTC()
+	if _, err := r.Findings.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
+		Namespace:  scan.Namespace,
+		ScanName:   scan.Name,
+		RunName:    runName,
+		Repository: annotations[triggersv1alpha1.SecurityScanRepositoryAnnotation],
+		Revision:   annotations[triggersv1alpha1.SecurityScanRevisionAnnotation],
+		Status:     "running",
+		StartedAt:  &started,
+	}); err != nil {
+		log.Error(err, "failed to create eager security scan record", "run", runName)
+	}
 }
 
 // securityScanTaskRole is the effective role contract one deterministic task

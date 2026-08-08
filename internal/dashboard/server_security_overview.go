@@ -46,41 +46,55 @@ func (s *Server) GetSecurityOverview(ctx context.Context, req *platform.GetSecur
 		if recentLimit <= 0 {
 			recentLimit = securityOverviewDefaultRecent
 		}
-		scans, err := sec.ListSecurityScans(ctx, namespace, "", securityOverviewScanFetch)
-		if err != nil {
-			resp.Warnings = append(resp.Warnings, fmt.Sprintf("listing security scans: %v", err))
+		// Persisted scan data follows the SecurityScan CR's ownership; a
+		// failed visibility load skips the store-backed half instead of
+		// leaking another user's scans into the aggregates.
+		scanVisible, hiddenScans, verr := s.securityScanVisibility(ctx, namespace)
+		if verr != nil {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("resolving security scan visibility: %v", verr))
 		} else {
-			for i := range scans {
-				pb := securityScanProto(&scans[i])
-				if scans[i].CompletedAt == nil {
-					resp.ActiveScans = append(resp.ActiveScans, pb)
-					continue
-				}
-				if int32(len(resp.RecentScans)) < recentLimit {
-					resp.RecentScans = append(resp.RecentScans, pb)
+			scans, err := sec.ListSecurityScans(ctx, namespace, "", securityOverviewScanFetch)
+			if err != nil {
+				resp.Warnings = append(resp.Warnings, fmt.Sprintf("listing security scans: %v", err))
+			} else {
+				for i := range scans {
+					if !scanVisible(scans[i].ScanName) {
+						continue
+					}
+					pb := securityScanProto(&scans[i])
+					if scans[i].CompletedAt == nil {
+						resp.ActiveScans = append(resp.ActiveScans, pb)
+						continue
+					}
+					if int32(len(resp.RecentScans)) < recentLimit {
+						resp.RecentScans = append(resp.RecentScans, pb)
+					}
 				}
 			}
-		}
-		counts, err := sec.SummarizeSecurityFindings(ctx, namespace, "", "", false)
-		if err != nil {
-			resp.Warnings = append(resp.Warnings, fmt.Sprintf("summarizing security findings: %v", err))
-		} else {
-			resp.FindingCounts = counts
-			// Baseline states are classified at write time; any tracked
-			// finding means observation data exists and the counters are
-			// meaningful.
-			resp.BaselineAvailable = counts["baseline_tracked"] > 0
-			resp.NewFindings = counts["baseline_new"]
-			resp.RecurringFindings = counts["baseline_recurring"]
-			resp.ResolvedFindings = counts["baseline_resolved"]
-			resp.RegressedFindings = counts["baseline_regressed"]
-			resp.ReopenedFindings = counts["baseline_reopened"]
-		}
-		trends, err := sec.GetSecurityFindingTrends(ctx, namespace, "")
-		if err != nil {
-			resp.Warnings = append(resp.Warnings, fmt.Sprintf("aggregating security finding trends: %v", err))
-		} else {
-			resp.Trends = securityFindingTrendsProto(trends)
+			counts, err := sec.SummarizeSecurityFindingsScoped(ctx, store.SecurityFindingSummaryScope{
+				Namespace:         namespace,
+				ExcludedScanNames: hiddenScans,
+			})
+			if err != nil {
+				resp.Warnings = append(resp.Warnings, fmt.Sprintf("summarizing security findings: %v", err))
+			} else {
+				resp.FindingCounts = counts
+				// Baseline states are classified at write time; any tracked
+				// finding means observation data exists and the counters are
+				// meaningful.
+				resp.BaselineAvailable = counts["baseline_tracked"] > 0
+				resp.NewFindings = counts["baseline_new"]
+				resp.RecurringFindings = counts["baseline_recurring"]
+				resp.ResolvedFindings = counts["baseline_resolved"]
+				resp.RegressedFindings = counts["baseline_regressed"]
+				resp.ReopenedFindings = counts["baseline_reopened"]
+			}
+			trends, err := sec.GetSecurityFindingTrends(ctx, namespace, "", hiddenScans)
+			if err != nil {
+				resp.Warnings = append(resp.Warnings, fmt.Sprintf("aggregating security finding trends: %v", err))
+			} else {
+				resp.Trends = securityFindingTrendsProto(trends)
+			}
 		}
 	}
 
@@ -161,6 +175,16 @@ func (s *Server) GetSecurityScanReport(ctx context.Context, req *platform.GetSec
 	scan, err := sec.GetSecurityScan(ctx, namespace, req.GetRunName())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("getting security scan: %w", err))
+	}
+	if scan != nil {
+		visible, _, verr := s.securityScanVisibility(ctx, namespace)
+		if verr != nil {
+			return nil, connect.NewError(connect.CodeInternal, verr)
+		}
+		// A hidden scan's report is NotFound, matching a missing scan.
+		if !visible(scan.ScanName) {
+			scan = nil
+		}
 	}
 	if scan == nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, req.GetRunName()))

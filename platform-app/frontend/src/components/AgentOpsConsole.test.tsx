@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import { AgentOpsConsole } from "@/components/AgentOpsConsole";
 import { client } from "@/lib/client";
-import { AgentRunSchema } from "@/rpc/platform/service_pb";
+import { AgentRunSchema, type AgentRun } from "@/rpc/platform/service_pb";
 
 const runs = [
   create(AgentRunSchema, {
@@ -59,8 +59,10 @@ const runs = [
   }),
 ];
 
+let mockRuns: AgentRun[] = runs;
+
 vi.mock("@/hooks/useAgentRuns", () => ({
-  useAgentRuns: () => ({ runs, loading: false, error: null, refetch: vi.fn() }),
+  useAgentRuns: () => ({ runs: mockRuns, loading: false, error: null, refetch: vi.fn() }),
 }));
 
 vi.mock("@/components/OwnerAvatar", () => ({ OwnerAvatar: () => null }));
@@ -81,6 +83,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.clearAllMocks();
+  mockRuns = runs;
 });
 
 describe("AgentOpsConsole", () => {
@@ -159,5 +162,89 @@ describe("AgentOpsConsole", () => {
     expect(screen.getByRole("button", { name: "Extending…" }).hasAttribute("disabled")).toBe(true);
     resolveExtension({});
     await waitFor(() => expect(screen.queryByRole("button", { name: "Extending…" })).toBeNull());
+  });
+});
+
+describe("AgentOpsConsole security scan grouping", () => {
+  const nowUnix = Math.floor(Date.now() / 1000);
+
+  function scanTaskRun(task: string, phase: string): AgentRun {
+    return create(AgentRunSchema, {
+      namespace: "demo",
+      name: `secscan-nightly-${task}`,
+      displayName: `Scan task ${task}`,
+      phase,
+      modeName: "security-task",
+      costUsd: "1.00",
+      createdAtUnix: BigInt(nowUnix - 120),
+      completedAtUnix: phase === "Succeeded" ? BigInt(nowUnix - 30) : 0n,
+      myPermission: "owner",
+      trigger: {
+        kind: "SecurityScan",
+        name: "nightly",
+        externalId: "exec-1",
+        externalIdentifier: `exec-1/${task}[0]`,
+      },
+    });
+  }
+
+  const scanTaskRuns = [
+    scanTaskRun("semgrep", "Running"),
+    scanTaskRun("codeql", "Running"),
+    scanTaskRun("triage", "Succeeded"),
+  ];
+
+  it("collapses one execution's task runs into a single row without touching other runs", () => {
+    mockRuns = [...runs, ...scanTaskRuns];
+    render(<MemoryRouter><AgentOpsConsole /></MemoryRouter>);
+
+    const groupLink = screen.getByRole("link", { name: "Security scan nightly" });
+    expect(groupLink.getAttribute("href")).toBe("/security/runs");
+    expect(screen.getByText("1 of 3 tasks done")).toBeTruthy();
+    expect(screen.getByText("$3.00")).toBeTruthy();
+    expect(screen.queryByText("Scan task semgrep")).toBeNull();
+    expect(screen.queryByText("Scan task codeql")).toBeNull();
+    expect(screen.getByText("Investigate API latency")).toBeTruthy();
+  });
+
+  it("expands the group to reveal individual task runs with run links", () => {
+    mockRuns = [...runs, ...scanTaskRuns];
+    render(<MemoryRouter><AgentOpsConsole /></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand Security scan nightly task runs" }));
+    const child = screen.getByRole("link", { name: "Scan task semgrep" });
+    expect(child.getAttribute("href")).toBe("/runs/demo/secscan-nightly-semgrep");
+    expect(screen.getByRole("link", { name: "Scan task codeql" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Security scan nightly task runs" }));
+    expect(screen.queryByText("Scan task semgrep")).toBeNull();
+  });
+
+  it("selects every visible member run through the group checkbox", () => {
+    mockRuns = [...runs, ...scanTaskRuns];
+    render(<MemoryRouter><AgentOpsConsole /></MemoryRouter>);
+
+    fireEvent.click(screen.getByLabelText("Select Security scan nightly task runs"));
+    expect(screen.getByText("2 selected")).toBeTruthy();
+  });
+
+  it("renders coordinator-mode scans without an execution id as plain rows", () => {
+    mockRuns = [
+      ...runs,
+      create(AgentRunSchema, {
+        namespace: "demo",
+        name: "secscan-coordinator",
+        displayName: "Coordinator scan",
+        phase: "Running",
+        createdAtUnix: BigInt(nowUnix - 60),
+        myPermission: "owner",
+        trigger: { kind: "SecurityScan", name: "adhoc", externalId: "" },
+      }),
+    ];
+    render(<MemoryRouter><AgentOpsConsole /></MemoryRouter>);
+
+    const row = screen.getByRole("link", { name: "Coordinator scan" });
+    expect(row.getAttribute("href")).toBe("/runs/demo/secscan-coordinator");
+    expect(screen.queryByRole("link", { name: "Security scan adhoc" })).toBeNull();
   });
 });

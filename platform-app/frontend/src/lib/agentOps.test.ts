@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   canRunAction,
+  collapseSecurityScanRuns,
   getRunAttention,
   getRunBucket,
   runComparisonKey,
   runSourcePath,
+  scanGroupPhase,
+  scanGroupProgress,
+  securityScanGroupKey,
 } from "@/lib/agentOps";
 import { AgentRunSchema, type AgentRun } from "@/rpc/platform/service_pb";
 
@@ -188,5 +192,71 @@ describe("agent ops links and comparisons", () => {
     expect(runComparisonKey(urlA)).toBe(runComparisonKey(urlB));
     expect(runComparisonKey(urlA)).not.toBe(runComparisonKey(urlOther));
     expect(runComparisonKey(run({ repoUrl: "https://github.com/acme/app", displayName: "Generic task" }))).toBe("");
+  });
+});
+
+describe("security scan run grouping", () => {
+  function scanRun(name: string, phase: string, executionId = "exec-1", scanName = "nightly"): AgentRun {
+    return run({
+      name,
+      phase,
+      trigger: {
+        kind: "SecurityScan",
+        name: scanName,
+        externalId: executionId,
+        externalIdentifier: `${executionId}/${name}[0]`,
+      },
+    });
+  }
+
+  it("keys task runs by namespace, scan name, and execution id", () => {
+    const a = scanRun("task-a", "Running");
+    const b = scanRun("task-b", "Running");
+    expect(securityScanGroupKey(a)).toBe(securityScanGroupKey(b));
+    expect(securityScanGroupKey(scanRun("task-c", "Running", "exec-2"))).not.toBe(securityScanGroupKey(a));
+    const otherNamespace = run({
+      namespace: "other",
+      trigger: { kind: "SecurityScan", name: "nightly", externalId: "exec-1" },
+    });
+    expect(securityScanGroupKey(otherNamespace)).not.toBe(securityScanGroupKey(a));
+    expect(securityScanGroupKey(run({ trigger: { kind: "SecurityScan", name: "nightly", externalId: "" } }))).toBeNull();
+    expect(securityScanGroupKey(run({ trigger: { kind: "GitHubRepository", name: "repo", externalId: "42" } }))).toBeNull();
+    expect(securityScanGroupKey(run())).toBeNull();
+  });
+
+  it("collapses 2+ task runs of one execution and keeps everything else in place", () => {
+    const plain = run({ name: "plain" });
+    const entries = collapseSecurityScanRuns([
+      scanRun("task-a", "Running"),
+      plain,
+      scanRun("task-b", "Succeeded"),
+      scanRun("other-exec", "Running", "exec-2"),
+    ]);
+    expect(entries.map((entry) => entry.kind)).toEqual(["scan-group", "run", "run"]);
+    const group = entries[0].kind === "scan-group" ? entries[0].group : null;
+    expect(group?.scanName).toBe("nightly");
+    expect(group?.executionId).toBe("exec-1");
+    expect(group?.runs.map((member) => member.name)).toEqual(["task-a", "task-b"]);
+    expect(entries[2]).toMatchObject({ kind: "run", run: { name: "other-exec" } });
+  });
+
+  it("leaves coordinator-style single runs as plain rows", () => {
+    const coordinator = run({ name: "coordinator", trigger: { kind: "SecurityScan", name: "nightly", externalId: "" } });
+    expect(collapseSecurityScanRuns([coordinator])).toEqual([{ kind: "run", run: coordinator }]);
+    const solo = scanRun("solo", "Running");
+    expect(collapseSecurityScanRuns([solo])).toEqual([{ kind: "run", run: solo }]);
+  });
+
+  it("aggregates phase: running beats failed beats pending beats terminal", () => {
+    expect(scanGroupPhase([scanRun("a", "Running"), scanRun("b", "Failed")])).toBe("Running");
+    expect(scanGroupPhase([scanRun("a", "Failed"), scanRun("b", "Succeeded")])).toBe("Failed");
+    expect(scanGroupPhase([scanRun("a", "Queued"), scanRun("b", "Succeeded")])).toBe("Pending");
+    expect(scanGroupPhase([scanRun("a", "Cancelled"), scanRun("b", "Succeeded")])).toBe("Cancelled");
+    expect(scanGroupPhase([scanRun("a", "Succeeded"), scanRun("b", "Succeeded")])).toBe("Succeeded");
+  });
+
+  it("reports task completion progress", () => {
+    expect(scanGroupProgress([scanRun("a", "Running"), scanRun("b", "Succeeded"), scanRun("c", "Failed")]))
+      .toEqual({ done: 2, total: 3 });
   });
 });

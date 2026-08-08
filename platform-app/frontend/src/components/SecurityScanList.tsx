@@ -102,21 +102,34 @@ export function SecurityScanList() {
   const [query, setQuery] = useState("");
   const now = useNow();
 
-  const fetchScans = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const fetchScans = useCallback(async (background = false) => {
+    if (!background) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const resp = await client.listSecurityScans({ namespace: "" });
       setScans(resp.scans);
+      setError("");
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load security scans");
+      if (!background) setError(e instanceof Error ? e.message : "Failed to load security scans");
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void fetchScans();
+  }, [fetchScans]);
+
+  // Scan rows change server-side while agents work; poll quietly so the list
+  // does not go stale, skipping refreshes while the tab is hidden.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      void fetchScans(true);
+    }, 5_000);
+    return () => window.clearInterval(id);
   }, [fetchScans]);
 
   const filtered = filterByQuery(scans, query, (scan) => [
@@ -136,7 +149,7 @@ export function SecurityScanList() {
       searchPlaceholder="Search security scans…"
       loading={loading}
       error={error}
-      onRetry={fetchScans}
+      onRetry={() => void fetchScans()}
       empty={!filtered.length}
       skeleton={<TableRowSkeleton rows={5} />}
       emptyIcon={<ShieldAlert className="size-6" />}

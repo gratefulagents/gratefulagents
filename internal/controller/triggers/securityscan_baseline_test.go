@@ -15,7 +15,7 @@ import (
 // finalizingSecurityScanFindingStore records baseline-finalization and
 // accepted-risk-expiry calls.
 type finalizingSecurityScanFindingStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	finalizedRuns     []string
 	expiredNamespaces []string
 }
