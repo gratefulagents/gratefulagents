@@ -234,6 +234,108 @@ export function runComparisonKey(run: AgentRun): string {
   return "";
 }
 
+export type SecurityScanRunGroup = {
+  key: string;
+  namespace: string;
+  scanName: string;
+  executionId: string;
+  runs: AgentRun[];
+};
+
+export type OpsRowEntry =
+  | { kind: "run"; run: AgentRun }
+  | { kind: "scan-group"; group: SecurityScanRunGroup };
+
+/**
+ * Grouping key for deterministic security-scan task runs. All task runs of
+ * one workflow execution share (namespace, trigger.name, trigger.externalId).
+ * Coordinator-mode scans may leave externalId empty and never group.
+ */
+export function securityScanGroupKey(run: AgentRun): string | null {
+  const trigger = run.trigger;
+  if (trigger?.kind !== "SecurityScan" || !trigger.name || !trigger.externalId) return null;
+  return `scan:${run.namespace}|${trigger.name}|${trigger.externalId}`;
+}
+
+/**
+ * Collapses security-scan task runs into one entry per scan execution,
+ * preserving the incoming order (a group sits where its first member was).
+ * Executions with a single visible run stay plain rows.
+ */
+export function collapseSecurityScanRuns(runs: AgentRun[]): OpsRowEntry[] {
+  const groups = new Map<string, SecurityScanRunGroup>();
+  const entries: OpsRowEntry[] = [];
+  for (const run of runs) {
+    const key = securityScanGroupKey(run);
+    if (!key) {
+      entries.push({ kind: "run", run });
+      continue;
+    }
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        namespace: run.namespace,
+        scanName: run.trigger?.name || "",
+        executionId: run.trigger?.externalId || "",
+        runs: [],
+      };
+      groups.set(key, group);
+      entries.push({ kind: "scan-group", group });
+    }
+    group.runs.push(run);
+  }
+  return entries.map((entry) =>
+    entry.kind === "scan-group" && entry.group.runs.length < 2
+      ? { kind: "run", run: entry.group.runs[0] }
+      : entry,
+  );
+}
+
+/**
+ * Collapses retry attempts to one run per workflow task instance. Retries of
+ * a deterministic task are separate AgentRuns sharing the task's
+ * trigger.externalIdentifier ("<execID>/<task>[<instance>]"), so deriving
+ * group state from raw runs would let a superseded failed attempt mark a
+ * since-successful execution as Failed forever and overcount task progress.
+ * The newest attempt (highest createdAtUnix) represents each task instance;
+ * runs without an identifier count individually.
+ */
+export function latestScanTaskAttempts(runs: AgentRun[]): AgentRun[] {
+  const latest = new Map<string, AgentRun>();
+  const out: AgentRun[] = [];
+  for (const run of runs) {
+    const taskId = run.trigger?.externalIdentifier || "";
+    if (!taskId) {
+      out.push(run);
+      continue;
+    }
+    const current = latest.get(taskId);
+    if (!current || run.createdAtUnix > current.createdAtUnix) {
+      latest.set(taskId, run);
+    }
+  }
+  return [...out, ...latest.values()];
+}
+
+/** Aggregate phase for a scan execution: running beats failed beats pending. */
+export function scanGroupPhase(runs: AgentRun[]): string {
+  const attempts = latestScanTaskAttempts(runs);
+  if (attempts.some((run) => isLivePhase(run.phase))) return "Running";
+  if (attempts.some((run) => run.phase === "Failed" || run.phase === "Error")) return "Failed";
+  if (attempts.some((run) => !isDonePhase(run.phase))) return "Pending";
+  if (attempts.some((run) => run.phase === "Cancelled")) return "Cancelled";
+  return "Succeeded";
+}
+
+export function scanGroupProgress(runs: AgentRun[]): { done: number; total: number } {
+  const attempts = latestScanTaskAttempts(runs);
+  return {
+    done: attempts.filter((run) => isDonePhase(run.phase)).length,
+    total: attempts.length,
+  };
+}
+
 export function runDurationSeconds(run: AgentRun, nowMs = Date.now()): number {
   const start = run.startedAtUnix || run.createdAtUnix;
   if (start === 0n) return 0;

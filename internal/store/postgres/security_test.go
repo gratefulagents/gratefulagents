@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,12 @@ func TestSecurityFindingFilterSQL(t *testing.T) {
 			wantWhere: "WHERE namespace = $1 AND suppressed_by IS NULL",
 			wantArgs:  []any{"ns"},
 		},
+		{
+			name:      "excluded scan names bind one array arg",
+			filter:    store.SecurityFindingFilter{Namespace: "ns", ExcludedScanNames: []string{"a", "b"}, IncludeDuplicates: true},
+			wantWhere: "WHERE namespace = $1 AND NOT (scan_name = ANY($2)) AND suppressed_by IS NULL",
+			wantArgs:  []any{"ns", []string{"a", "b"}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -117,7 +124,7 @@ func TestSecurityFindingFilterSQL(t *testing.T) {
 				t.Fatalf("args = %v, want %v", args, tt.wantArgs)
 			}
 			for i := range args {
-				if args[i] != tt.wantArgs[i] {
+				if !reflect.DeepEqual(args[i], tt.wantArgs[i]) {
 					t.Errorf("args[%d] = %v, want %v", i, args[i], tt.wantArgs[i])
 				}
 			}
@@ -334,9 +341,12 @@ func lifecycleTestScanUpserts(ctx context.Context, t *testing.T, s *Store) *stor
 		t.Errorf("scan2 = status %q counts %v, want completed / high=1", scan2.Status, scan2.Counts)
 	}
 
-	scans, err := s.ListSecurityScans(ctx, "default", "nightly", 0)
+	scans, err := s.ListSecurityScans(ctx, "default", "nightly", 0, nil)
 	if err != nil || len(scans) != 1 {
 		t.Fatalf("ListSecurityScans = %d scans, %v, want 1, nil", len(scans), err)
+	}
+	if excluded, err := s.ListSecurityScans(ctx, "default", "", 0, []string{"nightly"}); err != nil || len(excluded) != 0 {
+		t.Fatalf("ListSecurityScans(excluded) = %d scans, %v, want 0, nil", len(excluded), err)
 	}
 	return scan
 }
@@ -478,6 +488,21 @@ func lifecycleTestQueriesAndSummaries(ctx context.Context, t *testing.T, s *Stor
 	}
 	if summary["medium"] != 1 || summary["open"] != 1 || summary["open_medium"] != 1 {
 		t.Errorf("summary(weekly) = %v, want medium=1 open=1 open_medium=1", summary)
+	}
+
+	excluded, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ExcludedScanNames: []string{"nightly"}})
+	if err != nil || len(excluded) != 1 || excluded[0].ScanName != "weekly" {
+		t.Fatalf("ListSecurityFindings(excluding nightly) = %d findings, %v, want the weekly finding only", len(excluded), err)
+	}
+	summary, err = s.SummarizeSecurityFindingsScoped(ctx, store.SecurityFindingSummaryScope{Namespace: "default", ExcludedScanNames: []string{"nightly"}})
+	if err != nil {
+		t.Fatalf("SummarizeSecurityFindingsScoped(excluding nightly): %v", err)
+	}
+	if summary["total"] != 1 || summary["medium"] != 1 || summary["high"] != 0 {
+		t.Errorf("summary(excluding nightly) = %v, want the weekly finding only", summary)
+	}
+	if _, err := s.GetSecurityFindingTrends(ctx, "default", "", []string{"nightly"}); err != nil {
+		t.Fatalf("GetSecurityFindingTrends(excluding nightly): %v", err)
 	}
 }
 

@@ -412,7 +412,7 @@ func TestSecurityScanPolicyPackSnapshotRecorded(t *testing.T) {
 
 // suppressionSweepStore records suppression sweep calls.
 type suppressionSweepStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	expiredNamespaces  []string
 	appliedNamespace   string
 	appliedScan        string

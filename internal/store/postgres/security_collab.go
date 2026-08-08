@@ -438,7 +438,7 @@ func (s *Store) DeleteSecuritySavedFilter(ctx context.Context, namespace, owner,
 	return nil
 }
 
-func (s *Store) GetSecurityFindingTrends(ctx context.Context, namespace, scanName string) (*store.SecurityFindingTrends, error) {
+func (s *Store) GetSecurityFindingTrends(ctx context.Context, namespace, scanName string, excludedScanNames []string) (*store.SecurityFindingTrends, error) {
 	if err := requireSecurityNamespace(namespace); err != nil {
 		return nil, err
 	}
@@ -447,6 +447,10 @@ func (s *Store) GetSecurityFindingTrends(ctx context.Context, namespace, scanNam
 	if scanName != "" {
 		args = append(args, scanName)
 		where += fmt.Sprintf(" AND scan_name = $%d", len(args))
+	}
+	if len(excludedScanNames) > 0 {
+		args = append(args, excludedScanNames)
+		where += fmt.Sprintf(" AND NOT (scan_name = ANY($%d))", len(args))
 	}
 	var trends store.SecurityFindingTrends
 	err := s.pool.QueryRow(ctx, `

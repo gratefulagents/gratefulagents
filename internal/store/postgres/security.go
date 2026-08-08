@@ -94,6 +94,9 @@ func securityFindingFilterSQL(f store.SecurityFindingFilter) (string, []any) {
 	if f.Assignee != "" {
 		add("assignee = $%d", f.Assignee)
 	}
+	if len(f.ExcludedScanNames) > 0 {
+		add("NOT (scan_name = ANY($%d))", f.ExcludedScanNames)
+	}
 	switch f.Suppressed {
 	case store.SecuritySuppressedInclude:
 	case store.SecuritySuppressedOnly:
@@ -195,12 +198,16 @@ func (s *Store) GetSecurityScan(ctx context.Context, namespace, runName string) 
 	return rec, nil
 }
 
-func (s *Store) ListSecurityScans(ctx context.Context, namespace, scanName string, limit int32) ([]store.SecurityScanRecord, error) {
+func (s *Store) ListSecurityScans(ctx context.Context, namespace, scanName string, limit int32, excludedScanNames []string) ([]store.SecurityScanRecord, error) {
 	where := "WHERE namespace = $1"
 	args := []any{namespace}
 	if scanName != "" {
 		args = append(args, scanName)
 		where += fmt.Sprintf(" AND scan_name = $%d", len(args))
+	}
+	if len(excludedScanNames) > 0 {
+		args = append(args, excludedScanNames)
+		where += fmt.Sprintf(" AND NOT (scan_name = ANY($%d))", len(args))
 	}
 	args = append(args, securityLimit(limit, 200, 1000))
 	rows, err := s.pool.Query(ctx, `
@@ -946,6 +953,10 @@ func (s *Store) SummarizeSecurityFindingsScoped(ctx context.Context, scope store
 	narrow("run_name", scope.RunName)
 	narrow("execution_id", scope.ExecutionID)
 	narrow("task_name", scope.TaskName)
+	if len(scope.ExcludedScanNames) > 0 {
+		args = append(args, scope.ExcludedScanNames)
+		where += fmt.Sprintf(" AND NOT (scan_name = ANY($%d))", len(args))
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT severity, status, COALESCE(baseline_state, ''), source_kind,
 			cardinality(correlated_fingerprints) > 0, suppressed_by IS NOT NULL, COUNT(*)

@@ -42,7 +42,7 @@ func (p *fakeSecurityCheckPublisher) UploadSARIF(_ context.Context, _ *triggersv
 }
 
 type checksTestFindingStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	counts   map[string]int32
 	findings []store.SecurityFindingRecord
 	scanRec  *store.SecurityScanRecord
@@ -375,7 +375,7 @@ func (s *checksTestFindingStore) ExpireSecuritySuppressions(context.Context, str
 // multiRunFindingStore maps run names to sessions so multi-sink executions
 // can resolve each run's own SARIF artifact.
 type multiRunFindingStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	sessions map[string]uuid.UUID
 }
 

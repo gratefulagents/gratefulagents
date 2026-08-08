@@ -601,6 +601,11 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 	if err != nil {
 		return created, resolved.refs, nil, err
 	}
+	if created {
+		// The scans list shows the run as soon as it is dispatched instead
+		// of only after its first persisted finding.
+		r.ensureSecurityScanRecord(ctx, scan, runName, base.annotations)
+	}
 	// The coordinator execution record is informational: it publishes the
 	// concurrency bound actually stated in the prompt. Its phase stays
 	// Running; the authoritative run outcome remains the AgentRun phase
@@ -835,6 +840,7 @@ func (r *SecurityScanReconciler) finalizeCompletedRun(ctx context.Context, scan 
 		}
 		return
 	}
+	r.finalizeScanRecord(ctx, run)
 	if run.Status.Phase != platformv1alpha1.AgentRunPhaseSucceeded {
 		return
 	}
@@ -843,6 +849,49 @@ func (r *SecurityScanReconciler) finalizeCompletedRun(ctx context.Context, scan 
 	}
 	if _, err := r.Findings.FinalizeSecurityScanBaseline(ctx, scan.Namespace, scan.Status.LastRunName); err != nil {
 		log.Error(err, "failed to finalize scan baseline", "scan", scan.Name, "run", scan.Status.LastRunName)
+	}
+}
+
+// finalizeScanRecord mirrors a terminal coordinator AgentRun phase into the
+// persisted scan record. The record is created eagerly at dispatch with
+// status "running" and is normally finalized by the run's
+// submit_security_scan_report call — but a run that fails, is cancelled, or
+// succeeds without submitting a report never makes that call, which would
+// leave the row "running" forever in the scans list and overview (and keep
+// the UI pollers refreshing it). Only a still-running, never-completed row is
+// touched, so a report-written record is never clobbered. Best-effort.
+func (r *SecurityScanReconciler) finalizeScanRecord(ctx context.Context, run *platformv1alpha1.AgentRun) {
+	if r.Findings == nil {
+		return
+	}
+	var status string
+	switch run.Status.Phase {
+	case platformv1alpha1.AgentRunPhaseSucceeded:
+		status = "completed"
+	case platformv1alpha1.AgentRunPhaseFailed:
+		status = "failed"
+	case platformv1alpha1.AgentRunPhaseCancelled:
+		status = "cancelled"
+	default:
+		return
+	}
+	log := logf.FromContext(ctx)
+	rec, err := r.Findings.GetSecurityScan(ctx, run.Namespace, run.Name)
+	if err != nil {
+		log.Error(err, "failed to load scan record for terminal finalization", "run", run.Name)
+		return
+	}
+	if rec == nil || rec.CompletedAt != nil || rec.Status != "running" {
+		return
+	}
+	completed := r.now().UTC()
+	if run.Status.CompletedAt != nil {
+		completed = run.Status.CompletedAt.Time.UTC()
+	}
+	rec.Status = status
+	rec.CompletedAt = &completed
+	if _, err := r.Findings.UpsertSecurityScan(ctx, rec); err != nil {
+		log.Error(err, "failed to finalize scan record for terminal run", "run", run.Name)
 	}
 }
 

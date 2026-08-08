@@ -136,10 +136,12 @@ export function SecurityScanDetail() {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState("");
 
-  const fetchScan = useCallback(async () => {
+  const fetchScan = useCallback(async (background = false) => {
     if (!namespace || !runName) return;
-    setLoading(true);
-    setError("");
+    if (!background) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const [scanResp, summaryResp] = await Promise.all([
         client.getSecurityScan({ namespace, runName }),
@@ -182,15 +184,15 @@ export function SecurityScanDetail() {
         }
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load security scan");
+      if (!background) setError(e instanceof Error ? e.message : "Failed to load security scan");
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, [namespace, runName]);
 
-  const fetchFindings = useCallback(async () => {
+  const fetchFindings = useCallback(async (background = false) => {
     if (!namespace || !runName) return;
-    setFindingsLoading(true);
+    if (!background) setFindingsLoading(true);
     try {
       const resp = await client.listSecurityFindings({
         namespace,
@@ -205,9 +207,9 @@ export function SecurityScanDetail() {
       });
       setFindings(resp.findings);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load security findings");
+      if (!background) setError(e instanceof Error ? e.message : "Failed to load security findings");
     } finally {
-      setFindingsLoading(false);
+      if (!background) setFindingsLoading(false);
     }
   }, [namespace, runName, severity, status, category, search, baseline, assigneeFilter, suppressed]);
 
@@ -241,6 +243,21 @@ export function SecurityScanDetail() {
     void fetchEvents();
   }, [fetchEvents]);
 
+  // While the scan is still executing, its record, summary, and findings keep
+  // changing server-side; poll quietly (no loading flicker) until it settles,
+  // skipping refreshes while the tab is hidden.
+  const scanLoaded = scan !== null;
+  const scanSettled = Boolean(scan?.completedAt) && scan?.status.toLowerCase() !== "running";
+  useEffect(() => {
+    if (!scanLoaded || scanSettled) return;
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      void fetchScan(true);
+      void fetchFindings(true);
+    }, 5_000);
+    return () => window.clearInterval(id);
+  }, [scanLoaded, scanSettled, fetchScan, fetchFindings]);
+
   const categories = useMemo(() => {
     const set = new Set<string>();
     for (const finding of findings) {
@@ -252,11 +269,15 @@ export function SecurityScanDetail() {
 
   const selected = findings.find((f) => f.id === selectedId) ?? null;
 
-  // When the linked AgentRun reaches a terminal phase, re-fetch the persisted
-  // scan row, summary, and findings so no stale state lingers on screen.
+  // When the linked AgentRun transitions into a terminal phase, re-fetch the
+  // persisted scan row, summary, and findings so no stale state lingers on
+  // screen. Background mode is essential: a foreground fetch flips the
+  // page-level loading state, which swaps the whole page for a skeleton and
+  // unmounts the run panel — and a remounting run panel re-observing a
+  // terminal run would restart its watch streams (flicker loop).
   const handleRunSettled = useCallback(() => {
-    void fetchScan();
-    void fetchFindings();
+    void fetchScan(true);
+    void fetchFindings(true);
   }, [fetchScan, fetchFindings]);
 
   async function downloadReport(format: "markdown" | "sarif") {
@@ -292,7 +313,7 @@ export function SecurityScanDetail() {
         note: "",
         namespace: namespace ?? "",
       });
-      await Promise.all([fetchFindings(), fetchScan(), fetchEvents()]);
+      await Promise.all([fetchFindings(true), fetchScan(true), fetchEvents()]);
     } catch (e: unknown) {
       setFindings(previous);
       setActionError(e instanceof Error ? e.message : "Failed to update finding status");
@@ -448,7 +469,7 @@ export function SecurityScanDetail() {
 
   return (
     <ListState
-      loading={loading}
+      loading={loading && !scan}
       error={error}
       empty={!scan}
       skeleton={<ListRowSkeleton rows={4} />}

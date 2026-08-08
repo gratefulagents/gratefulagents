@@ -17,7 +17,7 @@ import (
 // whether any destructive store call was made, so budget tests can assert
 // findings are preserved.
 type budgetSummaryFindingStore struct {
-	store.SecurityFindingStore
+	securityScanRecordStubStore
 	total   int32
 	deletes int
 	purges  int

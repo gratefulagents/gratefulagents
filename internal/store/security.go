@@ -139,8 +139,12 @@ type SecurityFindingFilter struct {
 	// returns suppressed and unsuppressed findings alike, and
 	// SecuritySuppressedOnly returns only suppressed findings.
 	Suppressed string
-	Limit      int32
-	Offset     int32
+	// ExcludedScanNames omits findings belonging to any of the named scans.
+	// Callers use it to push per-user scan visibility into the query so
+	// namespace-wide lists never leak another user's scan data.
+	ExcludedScanNames []string
+	Limit             int32
+	Offset            int32
 }
 
 // Suppressed filter values for SecurityFindingFilter and the
@@ -388,6 +392,9 @@ type SecurityFindingSummaryScope struct {
 	ExecutionID       string
 	TaskName          string
 	IncludeSuppressed bool
+	// ExcludedScanNames omits findings belonging to any of the named scans,
+	// so a namespace-wide summary can respect per-user scan visibility.
+	ExcludedScanNames []string
 }
 
 // SecurityFindingBudget caps how many non-duplicate findings may exist
@@ -426,8 +433,10 @@ type SecurityFindingStore interface {
 	// GetSecurityScan returns (nil, nil) when the scan does not exist.
 	GetSecurityScan(ctx context.Context, namespace, runName string) (*SecurityScanRecord, error)
 	// ListSecurityScans lists scans in a namespace, optionally filtered by
-	// scan name, newest first.
-	ListSecurityScans(ctx context.Context, namespace, scanName string, limit int32) ([]SecurityScanRecord, error)
+	// scan name, newest first. Scans whose scan_name is in excludedScanNames
+	// are filtered inside the query, so the limit counts only rows the
+	// caller may see.
+	ListSecurityScans(ctx context.Context, namespace, scanName string, limit int32, excludedScanNames []string) ([]SecurityScanRecord, error)
 	// UpsertSecurityFinding inserts the finding or, when the
 	// (namespace, scan_name, repository, fingerprint) key already exists,
 	// merges into the existing row: occurrences and last_seen_at are bumped,
@@ -542,7 +551,9 @@ type SecurityFindingStore interface {
 	// GetSecurityFindingTrends aggregates time-to-triage (triaged_at -
 	// first_seen_at) and time-to-resolution (resolved_at - first_seen_at)
 	// over non-duplicate findings, optionally scoped to one scan.
-	GetSecurityFindingTrends(ctx context.Context, namespace, scanName string) (*SecurityFindingTrends, error)
+	// excludedScanNames omits findings of the named scans from a
+	// namespace-wide aggregation (per-user scan visibility).
+	GetSecurityFindingTrends(ctx context.Context, namespace, scanName string, excludedScanNames []string) (*SecurityFindingTrends, error)
 	// ExportSecurityFindingEvents returns every audit event for the scan's
 	// findings joined with identifying finding fields, ordered by event time
 	// then id, capped at limit (default 10000).
