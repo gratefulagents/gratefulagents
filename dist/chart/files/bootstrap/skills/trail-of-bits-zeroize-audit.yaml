@@ -1,0 +1,17 @@
+# Upstream: https://github.com/trailofbits/skills/tree/main/plugins/zeroize-audit/skills/zeroize-audit
+# License: CC-BY-SA-4.0 (Creative Commons Attribution-ShareAlike 4.0), Trail of Bits.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: trail-of-bits-zeroize-audit
+spec:
+  version: "0.1.0"
+  description: >-
+    External Trail of Bits skill (CC-BY-SA-4.0): use when checking C,
+    C++, or Rust code for missing or compiler-eliminated zeroization of
+    keys, passwords, and other secret material.
+  source:
+    git:
+      url: https://github.com/trailofbits/skills
+      ref: main
+      path: plugins/zeroize-audit/skills/zeroize-audit

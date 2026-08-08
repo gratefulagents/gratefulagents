@@ -1,0 +1,18 @@
+# Upstream: https://github.com/trailofbits/skills/tree/main/plugins/audit-context-building/skills/audit-context-building
+# License: CC-BY-SA-4.0 (Creative Commons Attribution-ShareAlike 4.0), Trail of Bits.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: trail-of-bits-audit-context-building
+spec:
+  version: "0.1.0"
+  description: >-
+    External Trail of Bits skill (CC-BY-SA-4.0): use when you need to
+    understand an unfamiliar codebase one function at a time before
+    hunting for bugs in it, building the architecture, trust-boundary,
+    and invariant notes an audit depends on.
+  source:
+    git:
+      url: https://github.com/trailofbits/skills
+      ref: main
+      path: plugins/audit-context-building/skills/audit-context-building

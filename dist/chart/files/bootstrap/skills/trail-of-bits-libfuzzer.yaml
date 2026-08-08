@@ -1,0 +1,17 @@
+# Upstream: https://github.com/trailofbits/skills/tree/main/plugins/testing-handbook-skills/skills/libfuzzer
+# License: CC-BY-SA-4.0 (Creative Commons Attribution-ShareAlike 4.0), Trail of Bits.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: trail-of-bits-libfuzzer
+spec:
+  version: "0.1.0"
+  description: >-
+    External Trail of Bits skill (CC-BY-SA-4.0): use when building,
+    running, or debugging libFuzzer targets for C/C++ code, including
+    sanitizer, corpus, and crash-triage setup.
+  source:
+    git:
+      url: https://github.com/trailofbits/skills
+      ref: main
+      path: plugins/testing-handbook-skills/skills/libfuzzer

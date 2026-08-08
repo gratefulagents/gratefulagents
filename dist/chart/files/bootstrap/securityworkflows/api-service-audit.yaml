@@ -1,0 +1,120 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: api-service-audit
+spec:
+  description: Backend API audit for REST, gRPC, and GraphQL services - input validation, per-endpoint authorization, mass assignment, tenant isolation, resource exhaustion, error leakage, and query-parameter injection - fanning into a single triage pass.
+  tasks:
+    - name: input-validation-and-schema
+      role: vulnerability-hunter
+      category: injection
+      objective: >-
+        Audit how this service validates what callers send. Locate the schema or validation layer for every
+        transport in use (REST body and query binding, protobuf messages and their hand-written checks,
+        GraphQL input types and custom scalars) and find where it is bypassed: handlers that bind straight
+        into a struct or map without validation, optional fields treated as present, numeric fields parsed
+        without range checks, string fields without length limits reaching queries, logs, or buffers,
+        enums and discriminators accepted as free text, and content types (form, multipart, protobuf JSON)
+        that take a different, weaker path than the documented one. Follow the unvalidated value to what it
+        actually does: an interpolated query, a spawned process, a filesystem path, a template, an
+        allocation sized by the caller. Report only reachable defects with file:line evidence for the
+        binding site and the sink.
+      maxFindings: 8
+    - name: endpoint-authorization
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Hunt for broken object-level and function-level authorization (BOLA and BFLA) across every endpoint,
+        RPC method, and GraphQL field. For each operation that reads or mutates a resource, determine
+        whether the caller's identity constrains the query: an id taken from the path, body, or variables
+        and looked up without an owner or tenant predicate is a finding, and so is an ownership check
+        performed on a different object than the one finally used. Separately, check function-level
+        gates: admin, internal, batch, export, and debug operations reachable with an ordinary token;
+        interceptors, resolvers, or route groups where the guard is registered for some methods and not
+        others; and GraphQL fields exposed through nested paths that skip the top-level check. Prove each
+        report by naming the handler and the data-access call at file:line and the request that succeeds.
+      maxFindings: 8
+    - name: mass-assignment
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Hunt for mass assignment and over-permissive field binding: request payloads deserialized directly
+        into persistence models, update handlers that copy an entire decoded map onto an existing record,
+        patch semantics that accept any key the storage layer will store, and GraphQL or protobuf inputs
+        that carry server-owned fields. Identify the fields that must never be client-writable in this
+        domain (identity and ownership ids, roles and permissions, plan or quota, balances and prices,
+        verification and approval flags, timestamps used for ordering or billing) and show which of them a
+        caller can set today. Also check the response direction for the same models leaking server-only
+        fields. Report with the binding call at file:line and the field an attacker escalates through.
+      maxFindings: 6
+    - name: tenant-isolation
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Audit multi-tenant isolation from the data layer upward. Establish how tenant scope is derived
+        (token claim, header, subdomain, session) and how it is applied (query predicate, row-level policy,
+        schema or database selection, cache key). Then hunt for the places it is lost: repository methods
+        and raw queries missing the tenant predicate, joins and aggregates that filter only the outer
+        table, background jobs, exports, webhooks, and admin tooling running without tenant context, cache
+        and rate-limit keys that omit the tenant, cross-tenant references accepted by id, and any place the
+        tenant is taken from a client-supplied value rather than the authenticated principal. Report with
+        file:line evidence and describe the cross-tenant read or write it enables.
+      maxFindings: 6
+    - name: rate-limiting-and-resource-exhaustion
+      role: vulnerability-hunter
+      category: dos
+      objective: >-
+        Hunt for ways one caller can exhaust this service. Check whether rate limiting exists at all, and
+        whether its keys can be forged or trivially rotated (client-supplied headers, unauthenticated
+        paths, per-instance in-memory counters behind multiple replicas). Then find the caller-controlled
+        amplifiers: unbounded page sizes and list endpoints without a cap, GraphQL queries without depth,
+        breadth, or complexity limits and batched aliases, recursive or fan-out resolvers, request bodies
+        and file uploads read fully into memory, decompression and archive expansion, regular expressions
+        with catastrophic backtracking on user input, per-request goroutine, thread, or connection creation,
+        and expensive operations (crypto, export, report, image work) reachable before authentication.
+        Report with file:line evidence and state the request pattern and the resource it exhausts.
+      maxFindings: 6
+    - name: error-and-info-leakage
+      role: vulnerability-hunter
+      category: info-leak
+      objective: >-
+        Hunt for information disclosure through this service's responses, errors, and telemetry: internal
+        exception text, database errors, stack traces, or gRPC status details returned to callers;
+        error messages that distinguish "not found" from "not permitted" and so confirm the existence of
+        other tenants' objects; verbose introspection, health, metrics, or debug endpoints exposed without
+        authentication; version, path, and infrastructure detail in headers or error bodies; and tokens,
+        credentials, or personal data written to logs and traces. Distinguish leakage that materially helps
+        an attacker (enumeration, credentials, internal topology) from cosmetic verbosity, and report the
+        former with file:line evidence.
+      maxFindings: 5
+    - name: pagination-and-filter-injection
+      role: vulnerability-hunter
+      category: injection
+      objective: >-
+        Hunt for injection through the query surface that APIs expose on purpose: sort, order, filter,
+        fields, include, expand, and search parameters interpolated into SQL, ORM fragments, or search
+        queries; column and table names taken from request values; operator maps ($where, $regex, $ne,
+        raw JSONB or array operators) reaching the driver from user data; cursor and continuation tokens
+        that are unsigned and decode into query state; offset and limit values used unchecked in
+        arithmetic or allocation; and GraphQL filter arguments assembled into raw predicates. For each,
+        trace the parameter from the request to the query construction at file:line and give the value that
+        changes the query's meaning or reads data the caller may not see.
+      maxFindings: 6
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Triage every finding reported by the endpoint hunts. Re-read the handler and the data-access code
+        behind each report before keeping it: authorization and tenancy reports are frequently invalidated
+        by a predicate applied one layer deeper, and validation reports by a framework-level schema. Merge
+        duplicates that several hunts filed against one shared repository method or middleware, and rank by
+        what a single authenticated caller can reach across accounts or tenants. Then assemble and submit
+        the final scan report.
+      dependsOn:
+        - input-validation-and-schema
+        - endpoint-authorization
+        - mass-assignment
+        - tenant-isolation
+        - rate-limiting-and-resource-exhaustion
+        - error-and-info-leakage
+        - pagination-and-filter-injection

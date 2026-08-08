@@ -1,0 +1,86 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: auth-surface-audit
+spec:
+  description: Enumerates every authentication and authorization decision point, then investigates each one for bypassable guards, insecure direct object references, confused-deputy delegation, and routes that never reach a check at all.
+  tasks:
+    - name: map-auth-decisions
+      role: threat-modeler
+      category: recon
+      objective: >-
+        Inventory every place this codebase decides who a caller is or what they may do: authentication
+        middleware, session and token validation, permission or policy checks, role and scope comparisons,
+        ownership and tenant lookups, admin-only branches, and the routes or handlers that reach a sensitive
+        operation without passing any of them. Read the router registration order and middleware chains to
+        learn which guards actually run for which paths; a decorator, annotation, or config entry only
+        counts when you can follow it to executed code. For each decision point record a short identifier,
+        its kind (authentication, authorization, ownership, tenancy, or unguarded), the resource or route it
+        protects, the defining file, and the mechanism that enforces it. Include unguarded sensitive
+        entrypoints explicitly: a missing check is the most valuable record in this inventory. Publish the
+        inventory rather than reporting findings from this task.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["decision_point", "kind", "file"],
+            "properties": {
+              "decision_point": {"type": "string", "description": "Short identifier for the check or gap"},
+              "kind": {"type": "string", "description": "authentication, authorization, ownership, tenancy, or unguarded"},
+              "resource": {"type": "string", "description": "Route, handler, or resource governed by this decision"},
+              "file": {"type": "string", "description": "Repository-relative file where the decision is made"},
+              "enforced_by": {"type": "string", "description": "Middleware, guard, policy, or query that enforces it"}
+            }
+          }
+        }
+    - name: investigate-decision-point
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Attack one access-control decision: {{item.decision_point}} ({{item.kind}}) covering
+        {{item.resource}}, defined in {{item.file}} and enforced by {{item.enforced_by}}. Determine what a
+        caller must present to satisfy it and then look for the ways to satisfy it without the authority it
+        implies: a guard registered after the handler or skipped by an alternate route, path normalization
+        or case handling that sidesteps a prefix match, an identifier taken from the request body instead of
+        the session, an ownership query that filters by the supplied id rather than the caller's, a
+        role comparison that fails open on an unknown or empty value, a token whose signature, audience,
+        expiry, or issuer is not checked, an internal or service credential used to perform an action on
+        behalf of an untrusted caller without re-checking that caller's rights, and privileged parameters
+        that a lower-privilege user can set. When the record is an unguarded entrypoint, prove the missing
+        check by tracing the request path and naming the sensitive operation it reaches. Report only what
+        you can demonstrate with file:line evidence and describe the concrete request that exploits it.
+      dependsOn:
+        - map-auth-decisions
+      forEach: map-auth-decisions
+      maxInstances: 16
+      maxFindings: 5
+    - name: session-and-identity-integrity
+      role: vulnerability-hunter
+      category: authn
+      objective: >-
+        Audit how identity is established and carried between requests, using the decision inventory in
+        {{tasks.map-auth-decisions.output}} as the map of what depends on it. Examine credential
+        verification (password comparison, timing, lockout, and reset flows), session issuance and
+        invalidation on logout and privilege change, cookie attributes, token signing keys and algorithm
+        selection (including algorithm confusion and unverified "none"), refresh and impersonation flows,
+        multi-factor enforcement on every path that grants a session, and any place identity is trusted from
+        a client-supplied header. Report only defects you can tie to executed code with file:line evidence,
+        and say what an attacker obtains: another user's session, a permanent token, or an authentication
+        step they never had to complete.
+      dependsOn:
+        - map-auth-decisions
+      maxFindings: 8
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Triage everything reported by {{tasks.investigate-decision-point.output}} and
+        {{tasks.session-and-identity-integrity.output}}. Re-read the cited code before keeping any finding:
+        access-control reports are the easiest to get wrong when a check lives in a middleware the hunter did
+        not read. Merge duplicates that describe one shared guard, drop reports whose bypass depends on
+        privileges the attacker would already need, and rank by how far the bypass moves an attacker across a
+        trust boundary. Then assemble and submit the final scan report.
+      dependsOn:
+        - investigate-decision-point
+        - session-and-identity-integrity

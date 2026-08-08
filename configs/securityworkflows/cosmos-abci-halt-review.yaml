@@ -1,0 +1,112 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: cosmos-abci-halt-review
+spec:
+  description: Chain-halt review for a Cosmos SDK application - enumerates every production-reachable ABCI method in the Go codebase, then investigates each one for maliciously triggerable panic paths that could halt the chain, plus consensus non-determinism and unbounded gas or state growth.
+  tasks:
+    - name: map-abci-methods
+      role: threat-modeler
+      category: recon
+      objective: >-
+        Enumerate every production-reachable ABCI method in this Go codebase and the application code it
+        drives: InitChain, PrepareProposal, ProcessProposal, VoteExtension handling, FinalizeBlock (or
+        BeginBlock and EndBlock and DeliverTx on older SDK versions), CheckTx, Commit, Query, and the
+        ExtendVote and VerifyVoteExtension hooks, together with the module-level entry points they reach -
+        begin and end blockers, message and proposal handlers, ante and post decorators, keeper Query
+        servers, and registered upgrade handlers. Follow the actual app wiring (app.go, module manager
+        ordering, baseapp options, custom proposal handlers) rather than assuming the default SDK set;
+        include custom or forked ABCI middleware. For each entry record the ABCI method or hook, the
+        handler symbol that implements it, and the file it lives in. Skip simulation-only, test, and CLI
+        code. Publish the inventory instead of reporting findings.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["method", "handler", "file"],
+            "properties": {
+              "method": {"type": "string", "description": "ABCI method or module hook, e.g. FinalizeBlock or EndBlocker"},
+              "handler": {"type": "string", "description": "Go function or method implementing it"},
+              "file": {"type": "string", "description": "Repository-relative file defining the handler"}
+            }
+          }
+        }
+    - name: investigate-panic-paths
+      role: vulnerability-hunter
+      category: dos
+      objective: >-
+        Investigate one ABCI entry point for maliciously triggerable panic paths that could halt the chain:
+        {{item.method}}, implemented by {{item.handler}} in {{item.file}}. Read the handler and everything it
+        calls, and hunt for panics an attacker can reach with a transaction, a proposal, a vote extension,
+        or crafted state they were able to write earlier: explicit panic and must-style helpers on
+        recoverable input errors, nil map writes and nil pointer dereferences on optional or unset fields,
+        slice and array indexing with attacker-controlled offsets, type assertions without the comma-ok
+        form, integer conversion and overflow (int64 to uint64, truncating casts) and division or modulo by
+        a zero the caller supplies, sdk.Dec and sdk.Int operations that panic on overflow, negative,
+        or out-of-range values, address and denom parsing helpers that panic on malformed input,
+        unmarshalling helpers that panic on stored bytes, and iterator or store misuse. Pay particular
+        attention to code running outside a transaction's recover boundary - begin and end blockers,
+        proposal handlers, and upgrade handlers - where one panic stops block production for the whole
+        network rather than failing a single transaction. For each report, state where the untrusted value
+        enters, why it survives every check on the way, the panicking statement at file:line, and whether
+        the panic is caught by baseapp's recover or halts consensus.
+      dependsOn:
+        - map-abci-methods
+      forEach: map-abci-methods
+      maxInstances: 16
+      maxFindings: 5
+    - name: consensus-non-determinism
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Hunt for non-determinism in the state-machine code reached from the ABCI entry points listed in
+        {{tasks.map-abci-methods.output}}. Any value that can differ between honest validators executing the
+        same block is an apphash mismatch and a chain halt: iteration over Go maps where order affects state
+        writes or emitted events, time.Now and other wall-clock reads instead of the block header time,
+        floating-point arithmetic in consensus-relevant math, non-seeded or per-node randomness, goroutines
+        and concurrent writes whose interleaving reaches the store, environment variables, filesystem or
+        network access during block execution, node-local configuration (min-gas-prices, pruning, custom
+        flags) influencing state rather than mempool admission, error strings or serialization that embed
+        pointers or unordered data, and gas metering that depends on node-local state. Also check that
+        upgrade and migration handlers write the same state on every node. Report each with file:line
+        evidence and explain how two validators diverge.
+      dependsOn:
+        - map-abci-methods
+      maxFindings: 6
+    - name: unbounded-gas-and-state-growth
+      role: vulnerability-hunter
+      category: dos
+      objective: >-
+        Hunt for work an attacker can force the chain to do without paying proportionally, starting from the
+        entry points in {{tasks.map-abci-methods.output}}. Look for unmetered or under-metered loops:
+        iteration over an entire store prefix in a message handler or end blocker whose size a user can
+        grow, per-block processing of queues, unbonding lists, or orders with no cap, recursion or nested
+        loops driven by message fields, and expensive cryptography or serialization outside the gas meter.
+        Look for state growth: records written without a fee or deposit that makes spam uneconomic,
+        missing size limits on memos, metadata, denoms, and client-supplied byte fields, and keys that
+        accumulate without pruning. Check CheckTx and mempool paths for work performed before the fee is
+        deducted, PrepareProposal and ProcessProposal for unbounded work over transactions a proposer
+        chooses, and gas metering that a user can avoid by splitting or reordering messages. Report each
+        with file:line evidence, the message or sequence that triggers it, and the cost asymmetry between
+        the attacker and the validator set.
+      dependsOn:
+        - map-abci-methods
+      maxFindings: 6
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Triage the halt candidates from {{tasks.investigate-panic-paths.output}},
+        {{tasks.consensus-non-determinism.output}}, and {{tasks.unbounded-gas-and-state-growth.output}}.
+        For each panic report, re-read the path and confirm two things before keeping it: that the input is
+        genuinely attacker-controlled at that point, and that the panic is not already contained by an ante
+        handler check, a validation step in ValidateBasic or the message server, or baseapp's per-transaction
+        recover. Rank by blast radius: a panic in a begin or end blocker, proposal handler, or upgrade
+        handler that stops the chain outranks one that only fails a transaction, and a deterministic
+        divergence outranks a slow state-growth problem. Merge duplicates that several entry points share
+        through one helper. Then assemble and submit the final scan report.
+      dependsOn:
+        - investigate-panic-paths
+        - consensus-non-determinism
+        - unbounded-gas-and-state-growth

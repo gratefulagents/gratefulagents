@@ -1,0 +1,75 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: pr-diff-review
+spec:
+  description: Fast change-focused review for pull-request triggered scans - ranks the changed files by security risk, reviews each risky change on its own under a tight budget, and triages the result.
+  parallelism: 4
+  tasks:
+    - name: map-changed-risk
+      role: security-reviewer
+      category: recon
+      objective: >-
+        Identify which files in this change actually carry security risk and rank them. Read the diff first
+        (git diff against the merge base, or the changed files listed in the scan scope) and judge each
+        changed file by what the change does, not by how large it is: new or modified request handlers and
+        routes, authentication and authorization logic, query construction, subprocess or filesystem access,
+        deserialization and parsing, cryptography and token handling, permission and RBAC manifests, CI
+        workflow definitions, dependency manifests and lockfiles, and anything touching secrets or
+        configuration defaults. Skip files whose change is purely cosmetic (formatting, comments, string
+        changes with no security meaning, test fixtures that no production path reads) - excluding them is
+        as valuable as including the risky ones. For each file you keep, record the path, a risk category
+        drawn from the finding vocabulary (authz, authn, injection, secrets, crypto, ssrf, deserialization,
+        supply-chain, misconfiguration, logic-flaw, info-leak, dos, other), and one sentence naming the
+        specific change that creates the risk. Order the list most dangerous first. Publish the list rather
+        than reporting findings.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "risk_category", "reason"],
+            "properties": {
+              "file": {"type": "string", "description": "Repository-relative path of the changed file"},
+              "risk_category": {"type": "string", "description": "Finding category this change most likely affects"},
+              "reason": {"type": "string", "description": "The specific change that creates the risk"}
+            }
+          }
+        }
+      timeout: 10m
+      maxTurns: 30
+    - name: review-change
+      role: vulnerability-hunter
+      category: other
+      objective: >-
+        Review one changed file for vulnerabilities introduced or exposed by this change: {{item.file}},
+        flagged as {{item.risk_category}} because {{item.reason}}. Read the diff for this file and enough of
+        the surrounding code to judge it, then answer three questions with evidence: does the change let
+        untrusted input reach a sink it could not reach before, does it remove or weaken a check that other
+        code still depends on, and does it introduce a new entry point or permission that nothing else
+        guards. Stay inside the change: pre-existing problems in untouched code are out of scope unless the
+        change makes them newly reachable. Report only what you can point at with file:line evidence in the
+        changed code and describe as a concrete attack, and say plainly that the file is clean when it is.
+        Work quickly - this review runs on every push, so depth on the risky lines beats breadth over the
+        whole file.
+      dependsOn:
+        - map-changed-risk
+      forEach: map-changed-risk
+      maxInstances: 10
+      maxFindings: 3
+      timeout: 15m
+      maxTurns: 40
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Triage the per-file reviews in {{tasks.review-change.output}} into a pull-request verdict. Keep only
+        findings introduced or made reachable by this change, drop pre-existing issues and stylistic
+        objections, merge duplicates that describe one change across several files, and re-read the cited
+        lines before keeping anything - a noisy review on every push gets the whole scan ignored. Rank what
+        survives by severity and state for each one what the author must change. If nothing survives, submit
+        a clean report saying so. Then assemble and submit the final scan report.
+      dependsOn:
+        - review-change
+      timeout: 10m
+      maxTurns: 30

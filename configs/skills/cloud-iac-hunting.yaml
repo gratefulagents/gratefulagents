@@ -1,0 +1,106 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: cloud-iac-hunting
+spec:
+  version: "0.1.0"
+  description: >-
+    Terraform, Helm, CloudFormation, and Kubernetes manifest review: public
+    exposure, over-broad IAM and trust policies, unencrypted storage, network
+    policy gaps, secret material in state and values, and drift between declared
+    intent and runtime.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill when the repository ships infrastructure as code. Read it
+        as configuration with a blast radius: the question is always "who can
+        reach this, and what do they get".
+
+        ## Orientation
+
+        - Locate the roots: `*.tf` plus `terraform.tfvars`, `templates/*.yaml`
+          plus `values*.yaml`, `template.yaml`/`*.cfn.yaml`, `kustomization.yaml`
+          overlays, `serverless.yml`, Pulumi programs.
+        - Environments differ: the `prod` overlay or `values-prod.yaml` is the
+          one that matters, but a permissive `values.yaml` default that prod does
+          not override is the bug. Diff overlays against the base.
+
+        ## Public exposure
+
+        - S3/GCS/Azure buckets: ACLs (`public-read`), bucket policies with
+          `"Principal": "*"`, missing `block_public_acls`/`restrict_public_buckets`,
+          website hosting, signed-URL lifetimes measured in weeks.
+        - Security groups and firewall rules with `0.0.0.0/0` or `::/0` on 22,
+          3389, 5432, 3306, 6379, 9200, 27017, or "all traffic"; NACLs that
+          effectively re-open what a SG closes.
+        - Databases and caches with `publicly_accessible = true`, no
+          `require_ssl`, default or shared master passwords, snapshots shared
+          publicly.
+        - Kubernetes: `Service type: LoadBalancer` on internal components,
+          Ingress without auth annotations, NodePort on debug/metrics/pprof
+          ports, dashboards and admin UIs behind no authentication.
+
+        ## IAM and trust
+
+        - Wildcards: `Action: "*"`, `Resource: "*"`, `iam:PassRole` with `*`,
+          `sts:AssumeRole` without a condition, `*:Create*`/`*:Put*` on logging
+          and IAM. Managed policies named `*FullAccess` attached to workloads.
+        - Trust policies are the real perimeter: `Principal: "*"` with a weak
+          `Condition`, cross-account principals, OIDC federation for CI where
+          `sub` is not pinned to a repository *and* a ref (a `repo:org/*` or
+          `ref:refs/heads/*` claim lets any branch or fork assume the role),
+          GCP service account impersonation grants, Azure roles at subscription
+          scope.
+        - Privilege escalation paths: a role that can edit its own policy, attach
+          policies, create access keys, update a Lambda it can invoke, or run a
+          task with a more privileged task role.
+        - Kubernetes ServiceAccount → cloud role bindings (IRSA/Workload
+          Identity) that map a namespace-scoped SA to a broad cloud role.
+
+        ## Data at rest and in transit
+
+        - Missing or default encryption: buckets, volumes, snapshots, RDS,
+          queues, logs; customer-managed keys where policy requires them; KMS key
+          policies allowing `*` to decrypt.
+        - TLS: listeners on plain HTTP, `minimum_tls_version` unset, self-signed
+          certs pinned off, internal service mesh mTLS in permissive mode.
+
+        ## Network segmentation
+
+        - Kubernetes NetworkPolicy: none at all (default allow), or ingress-only
+          policies with unrestricted egress from a namespace that holds secrets.
+        - VPC design: workloads in public subnets, NAT-less egress to the
+          internet, peering with overly broad routes, no VPC endpoints so traffic
+          leaves the network, flow logs disabled.
+        - Metadata service: IMDSv1 still allowed (`http_tokens = optional`) makes
+          every SSRF a credential theft.
+
+        ## Secret material
+
+        - Literals in `*.tfvars`, `values.yaml`, CloudFormation parameters with
+          `NoEcho` unset, Kubernetes `Secret` with `stringData` committed,
+          Dockerfile `ENV`/`ARG`, CI variables echoed into logs.
+        - Terraform state: any secret passed to a resource is in state — check
+          the backend is remote, encrypted, versioned, and access-restricted, and
+          that state is not committed or written to a public bucket.
+        - Outputs marked non-sensitive, secrets rendered into ConfigMaps or
+          annotations, `helm --set` credentials visible in release history.
+
+        ## Drift and guardrails
+
+        - Drift between declared intent and reality: resources with
+          `lifecycle { ignore_changes }` on security-relevant fields, manual
+          console changes assumed, `count = 0` disabling a security resource in
+          one environment, policy-as-code (`checkov`, `tfsec`, `kube-score`)
+          suppressions with no justification comment.
+        - Provider version and module source pinning: `source = "git::...//module"`
+          on a mutable branch or an unpinned public registry module is supply
+          chain, not just hygiene.
+
+        ## Report
+
+        Cite the file and resource block, state who reaches it (internet,
+        any authenticated cloud principal, any pod in the cluster) and what they
+        get. Configuration with no reachable asset behind it is a hardening
+        finding, not a high.

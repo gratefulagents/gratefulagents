@@ -1,0 +1,34 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPostScript
+metadata:
+  name: patched-since-check
+spec:
+  description: Checks whether the reported behaviour is already fixed on the repository's current default branch and records the commits inspected.
+  runOn: all
+  prompt: |
+    You are processing exactly one finding. Do not hunt for new issues.
+
+    The finding may have been written against an older commit. Decide
+    whether the behaviour still exists on the current default branch.
+
+    1. Read the cited file and line range at the current checkout and
+       compare it against the code quoted in the finding.
+    2. When the code moved or was renamed, follow it: search for the
+       function, the sink, and the entry point before concluding it is
+       gone. Deleted code is only a fix if the caller is gone too.
+    3. Inspect the history of the affected paths and identify the commits
+       that touched the vulnerable flow, with their short hashes and
+       subjects.
+    4. Check whether a fix is real: a guard that actually blocks the
+       attacker-controlled input, not a comment, a rename, or a log line.
+
+    Report exactly one verdict:
+    - fixed — the flow is gone or a guard now blocks it; cite the commit.
+    - still-present — the flow exists unchanged at HEAD; cite file:line.
+    - needs-manual-review — the code changed in ways you cannot judge from
+      the repository alone; say precisely what you could not settle.
+
+    Finish by calling update_security_finding for this finding with the
+    verdict, the commits inspected, and the current file:line as `note`
+    (the only field this tool writes), and status `fixed` for a fixed
+    verdict, otherwise `triaged` (keep `confirmed` if already set).

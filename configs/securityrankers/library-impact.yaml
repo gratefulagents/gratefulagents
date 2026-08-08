@@ -1,0 +1,17 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityRanker
+metadata:
+  name: library-impact
+spec:
+  description: Severity calibration for libraries and SDKs; ranks by exposure of a downstream caller using the documented API and discounts already-malicious-caller scenarios.
+  rules:
+    - "severity-floor: memory-safety=high"
+    - "severity-floor: deserialization=high"
+    - "severity-floor: path-traversal=high"
+    - The ranking question is whether a downstream application using the documented API in the documented way is exposed; if a normal caller is exposed the finding is at least high.
+    - Memory-safety violations, unsafe deserialization, and path traversal in parsing, decoding, or archive-extraction paths are high by default and critical when the input is untrusted by design (network payloads, uploaded files, user-supplied paths).
+    - Panics, unbounded allocation, and quadratic behaviour in a parser that a caller feeds untrusted bytes are high, because the caller cannot defend against them.
+    - Insecure defaults — verification disabled, a weak algorithm chosen unless overridden, a permissive mode that must be explicitly turned off — are high; the same behaviour that a caller must explicitly opt into is low.
+    - "Downgrade to low anything that requires an already-malicious caller: a documented unsafe API used against its documentation, a private symbol reached by reflection, or an argument the caller must deliberately poison."
+    - Missing input validation for values the documented contract requires the caller to have validated is informational; state it as a documentation gap instead.
+    - Internal helpers with no exported path and code reachable only from the library's own tests or benchmarks do not exceed low.

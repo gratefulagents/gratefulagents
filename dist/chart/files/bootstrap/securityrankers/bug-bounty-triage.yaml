@@ -1,0 +1,18 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityRanker
+metadata:
+  name: bug-bounty-triage
+spec:
+  description: Calibrates severity to what a bounty triager accepts; requires demonstrated impact, floors pre-auth remote compromise, and pushes hardening gaps to informational.
+  rules:
+    - "severity-floor: injection=high"
+    - "severity-floor: authz=high"
+    - "severity-floor: authn=high"
+    - Pre-authentication remote code execution, SQL injection reaching a live query, and authorization bypasses that expose another account are critical; the same classes behind authentication start at high.
+    - A finding without a demonstrated impact — no reproduction path, no concrete data or action an attacker gains — cannot exceed low no matter how alarming the code looks.
+    - Theoretical issues, findings depending on an unpatched victim browser or an attacker-controlled local machine, and self-inflicted issues that only harm the reporter's own account are informational.
+    - Missing hardening (security headers, cookie flags, TLS configuration preferences, verbose errors, outdated dependency with no reachable vulnerable call path) is informational and should be reported as a hardening note, not a vulnerability.
+    - Rate limiting, account enumeration, and clickjacking are low at most, and only when the finding shows the concrete abuse they enable.
+    - Duplicate-prone low-value classes rank below any finding with a working proof of concept; a single reproduced high beats ten unverified criticals.
+    - "severity-floor: secrets=high"
+    - A leaked credential is only high or above when the finding shows it still authenticates against a live system; expired, rotated, or fixture credentials are informational.

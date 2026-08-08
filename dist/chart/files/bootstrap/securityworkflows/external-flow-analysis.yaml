@@ -1,0 +1,71 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: external-flow-analysis
+spec:
+  description: Maps externally reachable entrypoints, traces each production flow from untrusted input to its sinks, and investigates every flow on its own for concrete security vulnerabilities before a single triage pass assembles the report.
+  tasks:
+    - name: map-entrypoints
+      role: threat-modeler
+      category: recon
+      objective: >-
+        Enumerate every externally reachable entrypoint of this codebase: HTTP routes, RPC and gRPC methods,
+        GraphQL resolvers, webhook receivers, message-queue consumers, and scheduled or CLI entrypoints that
+        process data an outside party can influence. Derive the list from the real routing tables, framework
+        registrations, and server bootstrap code, never from documentation or README claims. For each
+        entrypoint record the route or topic, the HTTP method or verb ("*" when a handler accepts any),
+        the handler symbol, the file that defines the handler, and whether an authentication guard is
+        actually on the request path for that route rather than merely declared elsewhere. Exclude test
+        fixtures, examples, generated mocks, and code that is not reachable in a production build. Prefer
+        the entrypoints that carry the most attacker leverage when the surface is larger than the inventory
+        can hold. Finding reports are not this task's product: publish the inventory.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["route", "method", "handler", "file"],
+            "properties": {
+              "route": {"type": "string", "description": "Route path, RPC method, topic, or command name"},
+              "method": {"type": "string", "description": "HTTP method or protocol verb, \"*\" when any"},
+              "handler": {"type": "string", "description": "Handler function, method, or resolver symbol"},
+              "file": {"type": "string", "description": "Repository-relative file defining the handler"},
+              "authenticated": {"type": "boolean", "description": "Whether an auth guard is on the request path"}
+            }
+          }
+        }
+    - name: investigate-flow
+      role: vulnerability-hunter
+      category: other
+      objective: >-
+        Investigate one production flow end to end: the {{item.method}} entrypoint {{item.route}}, handled by
+        {{item.handler}} in {{item.file}}. Read the handler and follow every function it calls until
+        caller-controlled data either reaches a sink (database query, shell or subprocess, filesystem path,
+        deserializer, template renderer, outbound request, authorization decision, or response body) or is
+        provably neutralized. Establish concretely: which path parameters, query parameters, headers,
+        cookies, and body fields an anonymous or low-privilege caller controls; whether the authentication
+        and authorization checks execute on this exact path instead of being assumed from a sibling route;
+        whether object identifiers are re-checked against the caller's tenant or ownership before use; and
+        what the handler does with oversized, malformed, duplicated, or absent input. Report only
+        vulnerabilities where you can name the source, every hop, and the sink with file:line evidence, and
+        state the attack vector as a request an attacker could actually send. Do not report missing
+        hardening, style problems, or risks with no reachable path from this entrypoint.
+      dependsOn:
+        - map-entrypoints
+      forEach: map-entrypoints
+      maxInstances: 20
+      maxFindings: 5
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Triage every finding produced by the per-flow investigations in {{tasks.investigate-flow.output}},
+        judging reachability against the entrypoint inventory in {{tasks.map-entrypoints.output}}. Drop
+        findings whose source-to-sink chain does not hold up when you re-read the cited code, merge
+        duplicates that different flows reported for one shared helper (keep the instance with the strongest
+        evidence and the most exposed entrypoint), and demote anything that requires privileges the flow
+        never grants. Rank what survives by how much an external attacker gains and how little they need to
+        start. Then assemble and submit the final scan report.
+      dependsOn:
+        - map-entrypoints
+        - investigate-flow

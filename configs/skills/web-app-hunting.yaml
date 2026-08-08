@@ -1,0 +1,104 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: web-app-hunting
+spec:
+  version: "0.1.0"
+  description: >-
+    Browser-facing attack surface: access-control matrices, session and cookie
+    handling, CSRF per framework, XSS sinks including SSR hydration, SSRF and
+    metadata endpoints, open redirect, upload and traversal, CORS and CSP.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill when the target exposes a browser-facing surface (server
+        rendered pages, SPA plus API, admin consoles). It narrows the general
+        handbook to the web layer; API-only surfaces are covered by
+        api-authz-hunting.
+
+        ## Build the access-control matrix first
+
+        - Enumerate routes from the router file, not from the docs: Express
+          `app.use`/`router.*`, Django `urls.py`, Rails `routes.rb`, Laravel
+          `routes/web.php`, Spring `@RequestMapping`, Next.js `app/**/page.tsx`
+          and `app/**/route.ts`, `pages/api/**`.
+        - For each route record: auth required?, role required?, object-owner
+          check?, enforced where (middleware, decorator, in-handler)?
+        - The bug is usually the row that differs: one route registered outside
+          the authenticated router group, one handler whose decorator is missing,
+          one `*.middleware` applied to `/api` but not `/internal`.
+
+        ## Session, cookies, fixation
+
+        - Cookie flags at the set site: `HttpOnly`, `Secure`, `SameSite`
+          (`None` requires `Secure`), `Domain` scoped no wider than needed,
+          `Path`, and a sane `Max-Age`.
+        - Session ID must be regenerated on privilege change: Django
+          `cycle_key`, Rails `reset_session`, Laravel `session()->regenerate()`,
+          `express-session` `req.session.regenerate`, Spring
+          `sessionFixation().newSession()`. Missing regeneration on login is
+          session fixation.
+        - Logout must invalidate server-side, not just clear the cookie. JWT
+          sessions with no revocation list cannot log out — say so explicitly.
+
+        ## CSRF per framework
+
+        - Django/Rails/Laravel/Spring ship CSRF on by default: hunt the opt-outs
+          (`@csrf_exempt`, `skip_before_action :verify_authenticity_token`,
+          `$except` in `VerifyCsrfToken`, `.csrf().disable()`).
+        - Express and most Node stacks ship nothing: state-changing routes
+          accepting `application/x-www-form-urlencoded` or JSON without a token
+          and without a strict `SameSite` cookie are exploitable.
+        - Next.js server actions are POST-only with an Origin check; custom
+          `route.ts` handlers reading cookies are not — treat them as unprotected.
+        - Token must be per-session and compared timing-safely; a token echoed
+          from a request header the attacker controls is not a token.
+
+        ## XSS sinks
+
+        - Escape-hatch grep: `dangerouslySetInnerHTML`, `v-html`, `innerHTML`,
+          `insertAdjacentHTML`, `document.write`, Angular `bypassSecurityTrust*`,
+          `mark_safe`/`|safe`, `html_safe`/`raw`, `{!! !!}`, `<%== %>`,
+          `th:utext`, Go `template.HTML`/`text/template` in an HTML response.
+        - DOM XSS: `location.hash`/`search` into `eval`, `Function`, `setTimeout`
+          string, `jQuery(...)`, `history.pushState`, `postMessage` handlers with
+          no `event.origin` check.
+        - SSR hydration: data serialized into `<script>window.__DATA__=...` must
+          be JSON-escaped for `</script>` and `<!--`; user HTML rendered on the
+          server and re-rendered on the client bypasses one of the two escapers.
+        - Sanitizer misuse: DOMPurify with `RETURN_DOM_FRAGMENT` re-serialized,
+          allowlists permitting `href`/`style`/`on*`, sanitizing before a second
+          templating pass. `javascript:` and `data:` URLs in user-supplied `href`.
+
+        ## SSRF, redirects, CORS, CSP
+
+        - SSRF: any handler fetching a user URL (webhooks, avatar import, PDF and
+          screenshot renderers, OIDC discovery, "test connection" buttons).
+          Check the allowlist runs after DNS resolution, redirects are not
+          followed blindly, and `169.254.169.254`, `metadata.google.internal`,
+          `100.100.100.200`, `localhost`, link-local and RFC1918 ranges are
+          blocked. Blind SSRF still reaches internal admin panels.
+        - Open redirect: `redirect(req.query.next)`, `?returnUrl=`, `?next=`
+          validated by `startsWith("/")` (defeated by `//evil.com` and
+          `/\evil.com`) or by substring match on the host.
+        - CORS: reflecting `Origin` into `Access-Control-Allow-Origin` with
+          `Allow-Credentials: true`, `null` origin allowed, regex anchored badly
+          (`example.com` matching `example.com.evil.net`).
+        - CSP: `unsafe-inline`, `unsafe-eval`, wildcard or CDN hosts that serve
+          user content or JSONP, `object-src` unset, nonce reused across
+          responses, report-only mode mistaken for enforcement.
+
+        ## Uploads, traversal, files
+
+        - Filename used in a path (`path.join(dir, req.file.originalname)`),
+          content type trusted from the client, no size limit, archive extraction
+          without checking entry paths (zip-slip) or symlinks.
+        - Static handlers rooted above the intended directory, or normalizing
+          after the containment check instead of before.
+
+        ## Report
+
+        Name the route, the guard that is missing or bypassable, and the exact
+        request that reaches the sink. A missing header with no reachable sink is
+        low or info, not high.

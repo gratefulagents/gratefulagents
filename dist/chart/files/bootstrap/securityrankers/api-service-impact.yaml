@@ -1,0 +1,18 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityRanker
+metadata:
+  name: api-service-impact
+spec:
+  description: Severity calibration for HTTP and RPC APIs; floors object- and function-level authorization gaps, cross-tenant leakage, and unauthenticated data exposure.
+  rules:
+    - "severity-floor: authz=high"
+    - "severity-floor: authn=high"
+    - "severity-floor: info-leak=medium"
+    - Broken object-level authorization — an endpoint that trusts a client-supplied identifier without checking ownership — is at least high, and critical when the object holds another tenant's data or credentials.
+    - Broken function-level authorization, where a lower-privileged caller reaches an administrative operation, is at least high regardless of how obscure the route is.
+    - Any cross-tenant read or write is critical; tenant isolation enforced only by a client-side filter or an unvalidated header counts as no isolation at all.
+    - Unauthenticated endpoints returning personal data, tokens, internal identifiers, or full stack traces are high; unauthenticated endpoints leaking only build metadata are low.
+    - Mass assignment that lets a request body set privilege, ownership, tenant, or billing fields is high; mass assignment restricted to cosmetic fields is low.
+    - "severity-floor: dos=medium"
+    - Missing rate limiting is medium only when a concrete amplification is shown — account enumeration, credential stuffing at scale, or an expensive query reachable without authentication — and informational otherwise.
+    - Downgrade findings that assume an attacker already holds a valid administrative API key unless the finding shows how that key is obtained.
