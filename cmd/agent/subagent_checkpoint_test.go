@@ -123,3 +123,46 @@ func TestSubAgentCheckpointPreservesCompleteHistory(t *testing.T) {
 		t.Fatalf("checkpoint lost accepted task history: got %d records", len(saved.State.Records))
 	}
 }
+
+func TestSubAgentCheckpointPreservesOptedInParentContext(t *testing.T) {
+	sc, _ := newSubAgentCheckpointTestClient(t)
+	scheduler := agent.NewSubAgentScheduler(agent.SubAgentSchedulerConfig{})
+	state := agent.SubAgentSchedulerCheckpoint{Records: []agent.SubAgentSchedulerCheckpointRecord{{
+		Task: agent.SubAgentTask{ID: "task_shared", AgentName: "executor", Status: agent.SubAgentTaskCompleted},
+		ParentContext: []agent.LLMRunItemSnapshot{{
+			Type:        "message",
+			AgentName:   "parent",
+			MessageText: "decision needed by the child",
+		}},
+	}}}
+	if err := scheduler.RestoreSchedulerCheckpoint(state); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := startSubAgentCheckpointLoop(sc, scheduler)
+	t.Cleanup(func() {
+		if err := writer.StopAndFlush(); err != nil {
+			t.Errorf("flush sub-agent checkpoint: %v", err)
+		}
+	})
+	if err := writer.persistCheckpoint(scheduler.SchedulerCheckpoint()); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sc.ReadSubAgentCheckpoint(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restored := agent.NewSubAgentScheduler(agent.SubAgentSchedulerConfig{})
+	if _, err := restoreSubAgentCheckpoint(context.Background(), sc, restored); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := restored.SchedulerCheckpoint()
+	if len(checkpoint.Records) != 1 || len(checkpoint.Records[0].ParentContext) != 1 {
+		t.Fatalf("restored checkpoint lost parent context: %s", raw)
+	}
+	got := checkpoint.Records[0].ParentContext[0]
+	if got.AgentName != "parent" || got.MessageText != "decision needed by the child" {
+		t.Fatalf("restored parent context = %+v", got)
+	}
+}
