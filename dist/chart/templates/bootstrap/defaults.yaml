@@ -14,10 +14,29 @@ are established before these custom resources are created.
 {{- $_ := set $annotations "helm.sh/hook" "post-install,post-upgrade" }}
 {{- $_ := set $annotations "helm.sh/hook-weight" "1" }}
 {{- $_ := set $annotations "helm.sh/hook-delete-policy" "before-hook-creation" }}
+{{- $_ := set $annotations "platform.gratefulagents.dev/bootstrap-default" "true" }}
 {{- $_ := set $meta "annotations" $annotations }}
 {{- $_ := set $meta "namespace" $.Release.Namespace }}
 {{- $_ := set $doc "metadata" $meta }}
 ---
 {{ toYaml $doc }}
 {{- end }}
+{{- $bundle := "" }}
+{{- range $path, $_ := .Files.Glob "files/bootstrap/**.yaml" }}
+{{- $bundle = printf "%s\n%s" $bundle ($.Files.Get $path) }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gratefulagents.fullname" . }}-bootstrap-ready
+  namespace: {{ .Release.Namespace }}
+  labels:
+    platform.gratefulagents.dev/bootstrap-ready: "true"
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "2"
+    helm.sh/hook-delete-policy: before-hook-creation
+data:
+  bundle-version: {{ $bundle | sha256sum | quote }}
 {{- end }}

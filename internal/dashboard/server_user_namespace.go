@@ -196,6 +196,9 @@ func (s *Server) ensureNamespaceForUser(ctx context.Context, userID, displayName
 	if err := s.createNamespaceIfMissing(ctx, namespace); err != nil {
 		return "", err
 	}
+	if err := s.syncBootstrapResources(ctx, namespace); err != nil {
+		return "", err
+	}
 	return namespace, nil
 }
 
