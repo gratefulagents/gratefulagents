@@ -4423,10 +4423,9 @@ message SecurityScanNotificationState {
 // SecurityScanExecutionConfig controls how the scan's workflow DAG is
 // executed (SecurityScanSpec.execution).
 message SecurityScanExecutionConfig {
-  // mode selects the execution engine: "coordinator" (default) seeds a
-  // single orchestrating run that delegates to in-process sub-agents;
-  // "deterministic" compiles the workflow into controller-scheduled
-  // per-task AgentRuns.
+  // mode selects the execution engine: "deterministic" (default) compiles
+  // the workflow into controller-scheduled per-task AgentRuns; "coordinator"
+  // seeds a single orchestrating run that delegates to in-process sub-agents.
   string mode = 1;
   // task_max_retries is the default per-task retry budget (0-10) for tasks
   // without max_retries; absent = 1.

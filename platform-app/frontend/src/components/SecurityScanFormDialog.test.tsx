@@ -450,7 +450,25 @@ describe("SecurityScanFormDialog policy pack & budgets", () => {
 });
 
 describe("SecurityScanFormDialog execution & parameter values", () => {
-  it("submits execution settings and parameter values", async () => {
+  it("omits execution settings for the deterministic default", async () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Execution/ }));
+    expect((screen.getByLabelText("Execution mode") as HTMLSelectElement).value).toBe("");
+    expect(screen.getByRole("option", { name: "deterministic (default)" })).toBeTruthy();
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => {
+      expect(client.createSecurityScan).toHaveBeenCalledTimes(1);
+    });
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.execution).toBeUndefined();
+  });
+
+  it("submits an explicit coordinator override", async () => {
     renderDialog();
 
     fireEvent.change(screen.getByLabelText(/Repository URL/), {
@@ -458,8 +476,24 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /Execution/ }));
     fireEvent.change(screen.getByLabelText("Execution mode"), {
-      target: { value: "deterministic" },
+      target: { value: "coordinator" },
     });
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => {
+      expect(client.createSecurityScan).toHaveBeenCalledTimes(1);
+    });
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.execution?.mode).toBe("coordinator");
+  });
+
+  it("submits execution settings and parameter values", async () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Execution/ }));
     fireEvent.change(screen.getByLabelText("Task max retries"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Retry backoff"), { target: { value: "45s" } });
     fireEvent.click(screen.getByRole("button", { name: "Add parameter value" }));
@@ -475,7 +509,7 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
       expect(client.createSecurityScan).toHaveBeenCalledTimes(1);
     });
     const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
-    expect(request.spec?.execution?.mode).toBe("deterministic");
+    expect(request.spec?.execution?.mode).toBe("");
     expect(request.spec?.execution?.taskMaxRetries).toBe(3);
     expect(request.spec?.execution?.retryBackoff).toBe("45s");
     expect(request.spec?.parameterValues).toEqual({ target_service: "payments-api" });

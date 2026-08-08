@@ -17,6 +17,37 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+func TestSecurityScanOmittedExecutionModeUsesDeterministicScheduler(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		execution *triggersv1alpha1.SecurityScanExecution
+	}{
+		{name: "nil execution"},
+		{name: "empty mode", execution: &triggersv1alpha1.SecurityScanExecution{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{
+				Name:      "inspect",
+				Objective: "inspect the repository",
+			}}, 1)
+			scan.Spec.Execution = tc.execution
+			reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+			updated := getSecurityScan(t, k8sClient, scan)
+			if updated.Status.LastExecution == nil || updated.Status.LastExecution.Mode != triggersv1alpha1.SecurityScanExecutionModeDeterministic {
+				t.Fatalf("LastExecution = %#v, want deterministic execution", updated.Status.LastExecution)
+			}
+			runs := securityScanRuns(t, k8sClient, scan.Namespace)
+			if len(runs) != 1 || runs[0].Labels[securityScanTaskLabel] != "inspect" {
+				t.Fatalf("runs = %#v, want one deterministic task run", runs)
+			}
+		})
+	}
+}
+
 func TestSecurityScanDeterministicExecutionSchedulesDependenciesWithinParallelismBound(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{

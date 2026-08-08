@@ -577,11 +577,11 @@ const (
 
 // SecurityScanExecution controls how the workflow DAG is executed.
 type SecurityScanExecution struct {
-	// mode selects the execution engine. "coordinator" (default) seeds a
-	// single orchestrating run that delegates to in-process sub-agents;
-	// "deterministic" compiles the workflow into controller-scheduled
-	// per-task AgentRuns with platform-enforced dependencies, retries,
-	// budgets, and concurrency.
+	// mode selects the execution engine. "deterministic" (default) compiles
+	// the workflow into controller-scheduled per-task AgentRuns with
+	// platform-enforced dependencies, retries, budgets, and concurrency;
+	// "coordinator" seeds a single orchestrating run that delegates to
+	// in-process sub-agents.
 	// +kubebuilder:validation:Enum=coordinator;deterministic
 	// +optional
 	Mode string `json:"mode,omitempty"`
@@ -1374,10 +1374,10 @@ func (s SecurityScanSpec) EffectiveMinSeverity() string {
 }
 
 // EffectiveExecutionMode returns spec.execution.mode, defaulting to
-// "coordinator".
+// "deterministic".
 func (s SecurityScanSpec) EffectiveExecutionMode() string {
 	if s.Execution == nil || s.Execution.Mode == "" {
-		return SecurityScanExecutionModeCoordinator
+		return SecurityScanExecutionModeDeterministic
 	}
 	return s.Execution.Mode
 }

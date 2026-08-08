@@ -16868,10 +16868,9 @@ export const SecurityScanNotificationStateSchema: GenMessage<SecurityScanNotific
  */
 export type SecurityScanExecutionConfig = Message<"platform.v1.SecurityScanExecutionConfig"> & {
   /**
-   * mode selects the execution engine: "coordinator" (default) seeds a
-   * single orchestrating run that delegates to in-process sub-agents;
-   * "deterministic" compiles the workflow into controller-scheduled
-   * per-task AgentRuns.
+   * mode selects the execution engine: "deterministic" (default) compiles
+   * the workflow into controller-scheduled per-task AgentRuns; "coordinator"
+   * seeds a single orchestrating run that delegates to in-process sub-agents.
    *
    * @generated from field: string mode = 1;
    */

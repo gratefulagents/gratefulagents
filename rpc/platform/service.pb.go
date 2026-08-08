@@ -31723,10 +31723,9 @@ func (x *SecurityScanNotificationState) GetLastNotifiedAtUnix() int64 {
 // executed (SecurityScanSpec.execution).
 type SecurityScanExecutionConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// mode selects the execution engine: "coordinator" (default) seeds a
-	// single orchestrating run that delegates to in-process sub-agents;
-	// "deterministic" compiles the workflow into controller-scheduled
-	// per-task AgentRuns.
+	// mode selects the execution engine: "deterministic" (default) compiles
+	// the workflow into controller-scheduled per-task AgentRuns; "coordinator"
+	// seeds a single orchestrating run that delegates to in-process sub-agents.
 	Mode string `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
 	// task_max_retries is the default per-task retry budget (0-10) for tasks
 	// without max_retries; absent = 1.
