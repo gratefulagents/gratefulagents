@@ -84,8 +84,8 @@ func TestEnsureUserNamespaceSeedsBootstrapSkillsAndSecurityLibrary(t *testing.T)
 	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, personalNamespace); err != nil {
 		t.Fatalf("get personal Namespace: %v", err)
 	}
-	if got := personalNamespace.Annotations[bootstrapSyncedVersionAnnotation]; got != "v1" {
-		t.Fatalf("bootstrap synced version = %q, want v1", got)
+	if got := personalNamespace.Annotations[bootstrapSyncedVersionAnnotation]; got != "v2:v1" {
+		t.Fatalf("bootstrap synced version = %q, want v2:v1", got)
 	}
 
 	seededSkill := &platformv1alpha1.Skill{}
@@ -153,6 +153,73 @@ func TestBootstrapSeedWaitsForBundleReadinessMarker(t *testing.T) {
 	}
 	if err := c.Get(context.Background(), key, &platformv1alpha1.Skill{}); err != nil {
 		t.Fatalf("Skill was not seeded after bundle became ready: %v", err)
+	}
+}
+
+func TestBootstrapUpgradeRefreshesOnlyUnmodifiedResources(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "system")
+	scheme := testProjectScheme(t)
+	makeSkill := func(name, instructions string) *platformv1alpha1.Skill {
+		return &platformv1alpha1.Skill{
+			ObjectMeta: bootstrapMeta(name),
+			Spec: platformv1alpha1.SkillSpec{Source: platformv1alpha1.SkillSource{
+				Inline: &platformv1alpha1.SkillInlineSource{Instructions: instructions},
+			}},
+		}
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		bootstrapReadyMarker("v1"),
+		makeSkill("unmodified", "version one"),
+		makeSkill("customized", "version one"),
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alice"}},
+	).Build()
+	srv := &Server{k8sClient: c, apiReader: c, scheme: scheme}
+	ctx := context.Background()
+	if err := srv.syncBootstrapResources(ctx, "alice"); err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+
+	customized := &platformv1alpha1.Skill{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "alice", Name: "customized"}, customized); err != nil {
+		t.Fatal(err)
+	}
+	customized.Spec.Source.Inline.Instructions = "my customization"
+	if err := c.Update(ctx, customized); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"unmodified", "customized"} {
+		source := &platformv1alpha1.Skill{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: "system", Name: name}, source); err != nil {
+			t.Fatal(err)
+		}
+		source.Spec.Source.Inline.Instructions = "version two"
+		if err := c.Update(ctx, source); err != nil {
+			t.Fatal(err)
+		}
+	}
+	marker := &corev1.ConfigMap{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "system", Name: "bootstrap-ready"}, marker); err != nil {
+		t.Fatal(err)
+	}
+	marker.Data[bootstrapBundleVersionKey] = "v2"
+	if err := c.Update(ctx, marker); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := srv.syncBootstrapResources(ctx, "alice"); err != nil {
+		t.Fatalf("upgrade sync: %v", err)
+	}
+	for name, want := range map[string]string{
+		"unmodified": "version two",
+		"customized": "my customization",
+	} {
+		got := &platformv1alpha1.Skill{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: "alice", Name: name}, got); err != nil {
+			t.Fatal(err)
+		}
+		if instructions := got.Spec.Source.Inline.Instructions; instructions != want {
+			t.Errorf("%s instructions = %q, want %q", name, instructions, want)
+		}
 	}
 }
 
