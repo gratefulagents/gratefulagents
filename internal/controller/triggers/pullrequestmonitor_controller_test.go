@@ -108,6 +108,54 @@ func TestPullRequestArtifactReconcileIdempotentlyCreatesMultipleOwnedMonitors(t 
 	}
 }
 
+func TestPullRequestArtifactReconcilePreservesRepositoryRefAfterRepositoryDeletion(t *testing.T) {
+	run := monitorProvenanceRun(t)
+	run.Status.Artifacts.PullRequestURL = "https://github.com/acme/widgets/pull/42"
+	scheme := prLoopTestScheme(t)
+	monitor := ownedMonitor(run)
+	monitor.Name = pullRequestMonitorName(run.UID, monitor.Spec.URL)
+	monitor.Spec.GitHubRepositoryRef = &corev1.LocalObjectReference{Name: "deleted-repository"}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run, monitor).Build()
+	reconciler := &PullRequestArtifactReconciler{Client: c, Scheme: scheme}
+
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)}); err != nil {
+		t.Fatalf("Reconcile() after GitHubRepository deletion error = %v", err)
+	}
+
+	got := &triggersv1alpha1.PullRequestMonitor{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(monitor), got); err != nil {
+		t.Fatalf("get PullRequestMonitor: %v", err)
+	}
+	if got.Spec.GitHubRepositoryRef == nil || got.Spec.GitHubRepositoryRef.Name != "deleted-repository" {
+		t.Fatalf("GitHubRepositoryRef = %#v, want preserved deleted-repository reference", got.Spec.GitHubRepositoryRef)
+	}
+}
+
+func TestResolveAuthFallsBackAfterExplicitRepositoryDeletion(t *testing.T) {
+	run := monitorProvenanceRun(t)
+	monitor := ownedMonitor(run)
+	monitor.Spec.GitHubRepositoryRef = &corev1.LocalObjectReference{Name: "deleted-repository"}
+	replacement := prLoopTestRepo()
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: monitorTestToken, Namespace: run.Namespace},
+		Data:       map[string][]byte{monitorTestTokenKey: []byte("replacement-token")},
+	}
+	scheme := prLoopTestScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(replacement, secret).Build()
+	reconciler := &PullRequestMonitorReconciler{Client: c, Scheme: scheme}
+
+	gotRepository, gotToken, err := reconciler.resolveAuth(context.Background(), monitor, run)
+	if err != nil {
+		t.Fatalf("resolveAuth() error = %v", err)
+	}
+	if gotRepository == nil || gotRepository.Name != replacement.Name {
+		t.Fatalf("resolveAuth() repository = %#v, want replacement %q", gotRepository, replacement.Name)
+	}
+	if gotToken != "replacement-token" {
+		t.Fatalf("resolveAuth() token = %q, want replacement token", gotToken)
+	}
+}
+
 func TestPullRequestArtifactCreatesMonitorWithoutReviewLoop(t *testing.T) {
 	run := monitorProvenanceRun(t)
 	run.Status.Artifacts.PullRequestURL = "https://github.com/acme/widgets/pull/42"

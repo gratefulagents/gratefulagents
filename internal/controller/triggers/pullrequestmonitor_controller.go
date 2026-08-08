@@ -13,6 +13,7 @@ import (
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -353,14 +354,19 @@ func (r *PullRequestMonitorReconciler) resolveAuth(ctx context.Context, monitor 
 	if monitor.Spec.GitHubRepositoryRef != nil {
 		gh := &triggersv1alpha1.GitHubRepository{}
 		key := client.ObjectKey{Namespace: monitor.Namespace, Name: monitor.Spec.GitHubRepositoryRef.Name}
-		if err := r.Get(ctx, key, gh); err != nil {
+		err := r.Get(ctx, key, gh)
+		if err == nil {
+			if normalizeRepositoryName(gh.Spec.Owner+"/"+gh.Spec.Repo) != normalizeRepositoryName(monitor.Spec.Repository) {
+				return nil, "", fmt.Errorf("explicit GitHubRepository %s/%s does not match %s", key.Namespace, key.Name, monitor.Spec.Repository)
+			}
+			token, err := resolveGitHubPollingToken(ctx, r.Client, gh, r.GitHubAppMinter)
+			return gh, token, err
+		}
+		if !apierrors.IsNotFound(err) {
 			return nil, "", fmt.Errorf("explicit GitHubRepository %s/%s: %w", key.Namespace, key.Name, err)
 		}
-		if normalizeRepositoryName(gh.Spec.Owner+"/"+gh.Spec.Repo) != normalizeRepositoryName(monitor.Spec.Repository) {
-			return nil, "", fmt.Errorf("explicit GitHubRepository %s/%s does not match %s", key.Namespace, key.Name, monitor.Spec.Repository)
-		}
-		token, err := resolveGitHubPollingToken(ctx, r.Client, gh, r.GitHubAppMinter)
-		return gh, token, err
+		// The creation-time repository binding can outlive the referenced object.
+		// Fall through to repository discovery and the implementer's token.
 	}
 	list := &triggersv1alpha1.GitHubRepositoryList{}
 	if err := r.List(ctx, list, client.InNamespace(monitor.Namespace)); err != nil {

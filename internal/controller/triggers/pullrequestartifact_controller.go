@@ -203,7 +203,10 @@ func (r *PullRequestArtifactReconciler) validateExistingMonitor(ctx context.Cont
 
 	existingSpec := existing.Spec.DeepCopy()
 	desiredSpec := desired.Spec.DeepCopy()
+	// These fields capture creation-time context, not the monitor's durable PR
+	// identity. Repository resources may legitimately disappear or be replaced.
 	existingSpec.DiscoveredAt = desiredSpec.DiscoveredAt
+	existingSpec.GitHubRepositoryRef = desiredSpec.GitHubRepositoryRef
 	if !reflect.DeepEqual(existingSpec, desiredSpec) {
 		return fmt.Errorf("PullRequestMonitor %s/%s already exists with a different spec", existing.Namespace, existing.Name)
 	}
