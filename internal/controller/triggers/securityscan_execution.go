@@ -666,7 +666,7 @@ func (r *SecurityScanReconciler) advanceDeterministicExecution(ctx context.Conte
 		// Settle every scan record the execution's runs anchored (the eager
 		// first-run record plus any rows reporting task runs created) so
 		// none lingers as "running" after the execution is over.
-		r.finalizeExecutionScanRecords(ctx, scan.Namespace, exec)
+		r.finalizeExecutionScanRecords(ctx, scan, exec)
 		// Terminal side effects (checks, notifications) run on the next
 		// reconcile from the dispatch path, off the freshly written status.
 		return ctrl.Result{RequeueAfter: time.Second}, nil
@@ -1693,6 +1693,11 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	// already reported — while a NEW execution gets a new id and can never mix
 	// with a previous one.
 	annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation] = exec.ID
+	// One scans-list row per EXECUTION: every task run reports into the
+	// same persisted scan record, keyed by the execution record name, so
+	// the dashboard shows the execution as a single top-level scan instead
+	// of one row per reporting task run.
+	annotations[triggersv1alpha1.SecurityScanRecordNameAnnotation] = securityScanExecutionRecordName(scan.Name, exec.ID)
 	annotations[triggersv1alpha1.SecurityScanTaskNameAnnotation] = task.Name
 	annotations[triggersv1alpha1.SecurityScanTaskRoleAnnotation] = role.name
 	if task.MaxFindings > 0 {
@@ -1740,16 +1745,25 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		SeedLogPrefix: "securityscan",
 	})
 	if err == nil && created && firstRun {
-		// The execution's FIRST dispatched task run anchors one eager scan
-		// record so the scans list shows the whole execution as soon as it
-		// starts. Exactly one record per execution: later task runs would
-		// each surface as their own scans-list row stuck in "running", so
-		// they still only get a row lazily when they report findings.
-		// finalizeExecutionScanRecords settles all of these rows when the
-		// execution terminates.
-		r.ensureSecurityScanRecord(ctx, scan, runName, annotations)
+		// The execution's FIRST dispatch eagerly creates the execution's one
+		// scan record so the scans list shows the whole execution the
+		// moment it starts. Later dispatches and every task run's finding
+		// tools reuse this row (same record-name key), so exactly one row
+		// represents the execution. finalizeExecutionScanRecords settles it
+		// when the execution terminates.
+		r.ensureSecurityScanRecord(ctx, scan, securityScanExecutionRecordName(scan.Name, exec.ID), annotations)
 	}
 	return created, err
+}
+
+// securityScanExecutionRecordName is the run-name key of the ONE persisted
+// scan record a deterministic execution reports into. It reuses the
+// coordinator run naming (scan name + execution id suffix) so the record
+// reads like the execution's top-level run in the scans list; execution ids
+// are unique per scan generation/trigger, so it never collides with a
+// coordinator run of the same scan.
+func securityScanExecutionRecordName(scanName, execID string) string {
+	return securityScanRunName(scanName, execID)
 }
 
 // ensureSecurityScanRecord eagerly creates the persisted scan record for a
@@ -1794,17 +1808,19 @@ func (r *SecurityScanReconciler) ensureSecurityScanRecord(ctx context.Context, s
 }
 
 // finalizeExecutionScanRecords settles every scan record anchored by a
-// terminal deterministic execution's task runs: the eager record created at
-// first dispatch and any rows the finding tools created lazily for reporting
-// task runs. A row still "running" with no completion time inherits the
-// execution's outcome (Succeeded -> completed, Failed -> failed) and its
-// completion time; a row the sink's submit_security_scan_report already
-// finalized is never touched. Idempotent and best-effort: a failed lookup or
-// upsert only leaves that row for the lazy paths or a later reconcile.
-func (r *SecurityScanReconciler) finalizeExecutionScanRecords(ctx context.Context, namespace string, exec *triggersv1alpha1.SecurityScanExecutionStatus) {
+// terminal deterministic execution: the execution's own record (the one
+// scans-list row every task run reports into) plus any legacy per-run rows
+// created before the shared record key existed. A row still "running" with
+// no completion time inherits the execution's outcome (Succeeded ->
+// completed, Failed -> failed) and its completion time; a row the sink's
+// submit_security_scan_report already finalized is never touched. Idempotent
+// and best-effort: a failed lookup or upsert only leaves that row for the
+// lazy paths or a later reconcile.
+func (r *SecurityScanReconciler) finalizeExecutionScanRecords(ctx context.Context, scan *triggersv1alpha1.SecurityScan, exec *triggersv1alpha1.SecurityScanExecutionStatus) {
 	if r.Findings == nil || exec == nil {
 		return
 	}
+	namespace := scan.Namespace
 	status := "failed"
 	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
 		status = "completed"
@@ -1841,6 +1857,7 @@ func (r *SecurityScanReconciler) finalizeExecutionScanRecords(ctx context.Contex
 			finalize(retry.RunName)
 		}
 	}
+	finalize(securityScanExecutionRecordName(scan.Name, exec.ID))
 }
 
 // securityScanTaskRole is the effective role contract one deterministic task

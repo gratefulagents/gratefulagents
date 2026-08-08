@@ -2010,14 +2010,25 @@ func TestSecurityScanDeterministicDispatchCreatesOneEagerScanRecord(t *testing.T
 	if len(runs) != 2 {
 		t.Fatalf("runs = %d, want two dispatched task runs", len(runs))
 	}
-	// Exactly ONE eager record anchors the execution in the scans list; one
-	// row per task run would flood it with per-task "running" ghosts.
+	// Exactly ONE eager record — keyed by the execution record name, not a
+	// task run — anchors the execution in the scans list.
+	execID := getSecurityScan(t, k8sClient, scan).Status.LastExecution.ID
+	recordName := securityScanExecutionRecordName(scan.Name, execID)
 	if len(records) != 1 {
 		t.Fatalf("records = %v, want exactly one eager scan record per execution", records)
 	}
-	for _, rec := range records {
-		if rec.ScanName != scan.Name || rec.Status != "running" || rec.StartedAt == nil {
-			t.Fatalf("eager record = %+v, want scanName=%q status=running with startedAt", rec, scan.Name)
+	rec := records[scan.Namespace+"/"+recordName]
+	if rec == nil {
+		t.Fatalf("records = %v, want the record keyed by execution record name %q", records, recordName)
+	}
+	if rec.ScanName != scan.Name || rec.Status != "running" || rec.StartedAt == nil {
+		t.Fatalf("eager record = %+v, want scanName=%q status=running with startedAt", rec, scan.Name)
+	}
+	// Every task run is stamped with the shared record key so its finding
+	// tools report into the same row.
+	for _, run := range runs {
+		if got := run.Annotations[triggersv1alpha1.SecurityScanRecordNameAnnotation]; got != recordName {
+			t.Fatalf("run %q record annotation = %q, want %q", run.Name, got, recordName)
 		}
 	}
 	// Later reconciles never create additional records for the execution.
@@ -2050,6 +2061,13 @@ func TestSecurityScanTerminalExecutionFinalizesScanRecords(t *testing.T) {
 			if len(runs) != 1 {
 				t.Fatalf("runs = %d, want one dispatched task run", len(runs))
 			}
+			// A legacy per-run row (created before the shared record key
+			// existed) must also settle at execution end.
+			legacyStarted := now
+			records[scan.Namespace+"/"+runs[0].Name] = &store.SecurityScanRecord{
+				Namespace: scan.Namespace, ScanName: scan.Name, RunName: runs[0].Name,
+				Status: "running", StartedAt: &legacyStarted,
+			}
 			lastError := ""
 			if tc.runPhase == platformv1alpha1.AgentRunPhaseFailed {
 				lastError = "boom"
@@ -2061,14 +2079,19 @@ func TestSecurityScanTerminalExecutionFinalizesScanRecords(t *testing.T) {
 			if !securityScanExecutionTerminal(exec.Phase) {
 				t.Fatalf("execution phase = %q, want terminal", exec.Phase)
 			}
-			rec := records[scan.Namespace+"/"+runs[0].Name]
-			if rec == nil {
-				t.Fatalf("no scan record for run %q; records = %v", runs[0].Name, records)
-			}
-			// The eager "running" row inherits the execution outcome so it
-			// never lingers as running once the execution is over.
-			if rec.Status != tc.want || rec.CompletedAt == nil {
-				t.Fatalf("record = %+v, want status=%q with completedAt", rec, tc.want)
+			for _, key := range []string{
+				scan.Namespace + "/" + securityScanExecutionRecordName(scan.Name, exec.ID),
+				scan.Namespace + "/" + runs[0].Name,
+			} {
+				rec := records[key]
+				if rec == nil {
+					t.Fatalf("no scan record %q; records = %v", key, records)
+				}
+				// Rows still "running" inherit the execution outcome so
+				// none lingers as running once the execution is over.
+				if rec.Status != tc.want || rec.CompletedAt == nil {
+					t.Fatalf("record %q = %+v, want status=%q with completedAt", key, rec, tc.want)
+				}
 			}
 		})
 	}
