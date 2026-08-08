@@ -1336,13 +1336,15 @@ func (s *postScriptFindingStore) setStatus(t *testing.T, fingerprint, status str
 	t.Fatalf("finding %q not in the store", fingerprint)
 }
 
-func postScriptTestFinding(id, fingerprint, severity, status string) store.SecurityFindingRecord {
+// postScriptTestFinding builds an open finding; tests that need another
+// status mutate the record after construction.
+func postScriptTestFinding(id, fingerprint, severity string) store.SecurityFindingRecord {
 	return store.SecurityFindingRecord{
 		ID:          uuid.MustParse(id),
 		Fingerprint: fingerprint,
 		Title:       "finding " + fingerprint,
 		Severity:    severity,
-		Status:      status,
+		Status:      store.SecurityFindingStatusOpen,
 		FilePath:    "internal/auth/session.go",
 		StartLine:   42,
 		Description: "unauthenticated session reuse",
@@ -1394,8 +1396,8 @@ func TestSecurityScanPostScriptsMaterializeOncePerFindingInScriptOrder(t *testin
 	}, 4)
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	findings := &postScriptFindingStore{findings: []store.SecurityFindingRecord{
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000b1", "fp-beta", "high", "open"),
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000b1", "fp-beta", "high"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
 	}}
 	reconciler.Findings = findings
 
@@ -1489,8 +1491,8 @@ func TestSecurityScanPostScriptsReevaluateRunOnAgainstTheReloadedFinding(t *test
 	}, 4)
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	findings := &postScriptFindingStore{findings: []store.SecurityFindingRecord{
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000b1", "fp-beta", "high", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000b1", "fp-beta", "high"),
 	}}
 	reconciler.Findings = findings
 
@@ -1533,7 +1535,7 @@ func TestSecurityScanFailedPostScriptRecordsCoverageGapAndReleasesTheSink(t *tes
 	scan.Spec.Execution.TaskMaxRetries = &noRetries
 	reconciler, k8sClient, stateStore := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
 	}}
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
@@ -1626,7 +1628,7 @@ func TestSecurityScanPostScriptDispatchFailureConsumesAttemptsAndReleasesTheSink
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconciler.Client = postScriptCreateRejector{Client: reconciler.Client}
 	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
 	}}
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
@@ -1668,7 +1670,7 @@ func TestSecurityScanResumeKeepsCoverageGapsItCannotRederive(t *testing.T) {
 	scan.Spec.PostScripts = []triggersv1alpha1.SecurityScanPostScript{{Name: "validate", Prompt: "Build a proof of concept."}}
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
 	}}
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
@@ -1754,9 +1756,9 @@ func TestSecurityScanPostScriptMatrixTruncationBeyondTheJobCapIsRecorded(t *test
 	// One script means the finding count and the job cap coincide: listing
 	// exactly the cap cannot tell "exactly full" from "truncated".
 	findings := &postScriptFindingStore{}
-	for i := 0; i < triggersv1alpha1.MaxSecurityScanPostScriptJobs+5; i++ {
+	for i := range triggersv1alpha1.MaxSecurityScanPostScriptJobs + 5 {
 		findings.findings = append(findings.findings, postScriptTestFinding(
-			fmt.Sprintf("00000000-0000-0000-0000-%012d", i), fmt.Sprintf("fp-%04d", i), "high", "open"))
+			fmt.Sprintf("00000000-0000-0000-0000-%012d", i), fmt.Sprintf("fp-%04d", i), "high"))
 	}
 	reconciler.Findings = findings
 
@@ -1786,8 +1788,8 @@ func TestSecurityScanPostScriptDispatchStopsAtTheModelJobBudget(t *testing.T) {
 	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxModelJobs: 2}
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000b1", "fp-beta", "high", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000b1", "fp-beta", "high"),
 	}}
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
@@ -1820,7 +1822,7 @@ func TestSecurityScanPostScriptRunInheritsTheSinkRoleToolNarrowing(t *testing.T)
 	}, 4)
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
-		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
 	}}
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
