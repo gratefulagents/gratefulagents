@@ -115,3 +115,105 @@ func TestBuildSecurityScanPromptIncludesConfiguredScope(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildSecurityScanTaskPromptStatesTaskAndScanFindingBudgetsSeparately(t *testing.T) {
+	spec := securityScanPromptSpec()
+	spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 40}
+	task := triggersv1alpha1.SecurityScanTask{Name: "session-review", Objective: "Trace sessions.", MaxFindings: 5}
+
+	prompt := BuildSecurityScanTaskPrompt(spec, nil, task, SecurityScanTaskInstance{Total: 2}, nil)
+
+	if !strings.Contains(prompt, "this task may report at most 5 findings in total, counted across all of its parallel instances") {
+		t.Fatalf("prompt does not state the per-task budget truthfully:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "every task of this execution shares one scan-wide cap of 40 findings") {
+		t.Fatalf("prompt does not state the scan-wide budget:\n%s", prompt)
+	}
+	// The coordinator prompt keeps its single scan-wide budget statement.
+	if coordinator := BuildSecurityScanPrompt(spec); !strings.Contains(coordinator, "Finding budget: report at most 40 findings in total") {
+		t.Fatalf("coordinator prompt budget line changed:\n%s", coordinator)
+	}
+}
+
+func TestBuildSecurityScanTaskPromptStatesResolvedRoleContract(t *testing.T) {
+	spec := securityScanPromptSpec()
+	task := triggersv1alpha1.SecurityScanTask{Name: "model", Objective: "Map trust boundaries.", Role: "threat-modeler"}
+	role := &SecurityScanTaskRole{Name: "threat-modeler", Description: "Threat modelling specialist", ToolAccess: "analysis", ReadOnly: true}
+
+	prompt := BuildSecurityScanTaskPrompt(spec, nil, task, SecurityScanTaskInstance{}, role)
+
+	if !strings.Contains(prompt, "- Role: threat-modeler") || !strings.Contains(prompt, "Threat modelling specialist") {
+		t.Fatalf("prompt does not state the resolved role:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Role tool access: analysis") {
+		t.Fatalf("prompt does not state the role's tool-access constraint:\n%s", prompt)
+	}
+	// A write-capable role must not be told its tools are withheld.
+	full := BuildSecurityScanTaskPrompt(spec, nil, task, SecurityScanTaskInstance{}, &SecurityScanTaskRole{Name: "exploit-validator", ToolAccess: "execution"})
+	if strings.Contains(full, "Role tool access") {
+		t.Fatalf("prompt states a tool-access constraint for a write-capable role:\n%s", full)
+	}
+}
+
+func TestBuildSecurityPostScriptPromptStatesTheFindingAndVerdictContract(t *testing.T) {
+	spec := securityScanPromptSpec()
+	script := spec.PostScripts[0]
+	finding := SecurityPostScriptFinding{
+		Fingerprint: "fp-alpha",
+		ID:          "00000000-0000-0000-0000-0000000000a1",
+		Title:       "Session token reuse after logout",
+		Category:    "authentication",
+		Severity:    "critical",
+		Status:      "open",
+		Location:    "internal/auth/session.go:42-51 (invalidate)",
+		Description: "Logout does not invalidate the server-side session.",
+		Impact:      "A stolen token stays valid indefinitely.",
+	}
+
+	prompt := BuildSecurityPostScriptPrompt(spec, nil, script, finding)
+
+	for _, want := range []string{
+		finding.Fingerprint, finding.ID, finding.Title, finding.Severity, finding.Status,
+		finding.Location, finding.Description, finding.Impact, script.Prompt, spec.RepoURL,
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("post-script prompt does not contain %q:\n%s", want, prompt)
+		}
+	}
+	if !strings.Contains(prompt, "call update_security_finding EXACTLY ONCE") {
+		t.Fatalf("post-script prompt does not state the single-call verdict contract:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "open, triaged, confirmed, false_positive, fixed, accepted_risk") {
+		t.Fatalf("post-script prompt does not state the allowed statuses:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Do NOT call submit_security_scan_report") {
+		t.Fatalf("post-script prompt does not forbid the scan report:\n%s", prompt)
+	}
+	if second := BuildSecurityPostScriptPrompt(spec, nil, script, finding); second != prompt {
+		t.Fatal("BuildSecurityPostScriptPrompt() returned different output for the same input")
+	}
+}
+
+func TestBuildSecurityScanTaskPromptSinkStatesPostScriptsAlreadyRanAndDisclosesCoverageGaps(t *testing.T) {
+	spec := securityScanPromptSpec()
+	task := triggersv1alpha1.SecurityScanTask{Name: "report", Objective: "Summarize the scan."}
+	inst := SecurityScanTaskInstance{Sink: true, CoverageGaps: []string{`post-script "proof" did not complete for finding fp-alpha: run failed`}}
+
+	prompt := BuildSecurityScanTaskPrompt(spec, nil, task, inst, nil)
+
+	// The prose post-script instructions are the bug this replaces: the jobs
+	// already ran deterministically, so re-running them is forbidden.
+	if strings.Contains(prompt, spec.PostScripts[0].Prompt) {
+		t.Fatalf("sink prompt still inlines the post-script prompt as prose:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "The post-scripts already ran") || !strings.Contains(prompt, "list_security_findings") {
+		t.Fatalf("sink prompt does not state that post-scripts ran as platform jobs:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "## Incomplete coverage") || !strings.Contains(prompt, inst.CoverageGaps[0]) {
+		t.Fatalf("sink prompt does not disclose the coverage gaps:\n%s", prompt)
+	}
+	// A non-sink task states neither.
+	if research := BuildSecurityScanTaskPrompt(spec, nil, task, SecurityScanTaskInstance{}, nil); strings.Contains(research, "post-scripts") {
+		t.Fatalf("non-sink prompt mentions post-scripts:\n%s", research)
+	}
+}

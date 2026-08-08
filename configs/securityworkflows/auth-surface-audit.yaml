@@ -16,21 +16,24 @@ spec:
         learn which guards actually run for which paths; a decorator, annotation, or config entry only
         counts when you can follow it to executed code. For each decision point record a short identifier,
         its kind (authentication, authorization, ownership, tenancy, or unguarded), the resource or route it
-        protects, the defining file, and the mechanism that enforces it. Include unguarded sensitive
-        entrypoints explicitly: a missing check is the most valuable record in this inventory. Publish the
+        protects, the defining file, and the mechanism that enforces it. Every record must name a resource
+        and an enforcing mechanism; write "none" for enforced_by when the entrypoint reaches a sensitive
+        operation with no check at all. Include unguarded sensitive entrypoints explicitly: a missing check
+        is the most valuable record in this inventory. Order the inventory most dangerous first - only the
+        first 16 entries are investigated, so anything you rank below that is never examined. Publish the
         inventory rather than reporting findings from this task.
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["decision_point", "kind", "file"],
+            "required": ["decision_point", "kind", "resource", "file", "enforced_by"],
             "properties": {
               "decision_point": {"type": "string", "description": "Short identifier for the check or gap"},
-              "kind": {"type": "string", "description": "authentication, authorization, ownership, tenancy, or unguarded"},
+              "kind": {"type": "string", "enum": ["authentication", "authorization", "ownership", "tenancy", "unguarded"], "description": "Class of decision this record describes"},
               "resource": {"type": "string", "description": "Route, handler, or resource governed by this decision"},
               "file": {"type": "string", "description": "Repository-relative file where the decision is made"},
-              "enforced_by": {"type": "string", "description": "Middleware, guard, policy, or query that enforces it"}
+              "enforced_by": {"type": "string", "description": "Middleware, guard, policy, or query that enforces it, or \"none\" for an unguarded entrypoint"}
             }
           }
         }
@@ -50,17 +53,18 @@ spec:
         that a lower-privilege user can set. When the record is an unguarded entrypoint, prove the missing
         check by tracing the request path and naming the sensitive operation it reaches. Report only what
         you can demonstrate with file:line evidence and describe the concrete request that exploits it.
-        Publish the same kept reports as this task's structured output, one entry each, and an empty array
+        Publish the same kept reports as this task's structured output, one entry each carrying the fingerprint report_security_finding returned for it, and an empty array
         when the decision point holds.
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "severity", "file"],
+            "required": ["title", "fingerprint", "severity", "file"],
             "properties": {
+              "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding for this finding"},
               "title": {"type": "string", "description": "Short name of the access-control defect"},
-              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity of the finding"},
               "file": {"type": "string", "description": "Repository-relative file holding the defect"},
               "line": {"type": "integer", "description": "Line where the missing or bypassable check sits"},
               "summary": {"type": "string", "description": "The request that defeats the check and what it reaches"}
@@ -85,16 +89,17 @@ spec:
         a client-supplied header. Report only defects you can tie to executed code with file:line evidence,
         and say what an attacker obtains: another user's session, a permanent token, or an authentication
         step they never had to complete. Publish the same kept reports as this task's structured output,
-        one entry each, and an empty array when identity handling holds.
+        one entry each carrying the fingerprint report_security_finding returned for it, and an empty array when identity handling holds.
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "severity", "file"],
+            "required": ["title", "fingerprint", "severity", "file"],
             "properties": {
+              "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding for this finding"},
               "title": {"type": "string", "description": "Short name of the identity or session defect"},
-              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity of the finding"},
               "file": {"type": "string", "description": "Repository-relative file holding the defect"},
               "line": {"type": "integer", "description": "Line where the defect is visible"},
               "summary": {"type": "string", "description": "What an attacker obtains and how"},
@@ -109,12 +114,17 @@ spec:
       role: finding-triager
       category: triage
       objective: >-
-        Triage everything reported by {{tasks.investigate-decision-point.output}} and
-        {{tasks.session-and-identity-integrity.output}}. Re-read the cited code before keeping any finding:
-        access-control reports are the easiest to get wrong when a check lives in a middleware the hunter did
-        not read. Merge duplicates that describe one shared guard, drop reports whose bypass depends on
-        privileges the attacker would already need, and rank by how far the bypass moves an attacker across a
-        trust boundary. Then assemble and submit the final scan report.
+        Call list_security_findings to load everything the per-decision investigations and the identity
+        audit recorded for this scan, and triage that set; address each finding by its fingerprint with
+        update_security_finding. Re-read the cited code before keeping any finding: access-control reports
+        are the easiest to get wrong when a check lives in a middleware the hunter did not read. Merge
+        duplicates that describe one shared guard, drop reports whose bypass depends on privileges the
+        attacker would already need, and rank by how far the bypass moves an attacker across a trust
+        boundary. The per-decision fan-out covers at most the first 16 entries of the risk-ranked inventory
+        in {{tasks.map-auth-decisions.output}}: name every inventory entry beyond that cut in the report
+        summary as an explicit coverage gap, so no one reads the report as full coverage of the auth
+        surface. Then assemble and submit the final scan report.
       dependsOn:
+        - map-auth-decisions
         - investigate-decision-point
         - session-and-identity-integrity

@@ -88,6 +88,10 @@ func (m *mockSecurityStore) UpsertSecurityFinding(_ context.Context, rec *store.
 	return rec, true, nil
 }
 
+func (m *mockSecurityStore) UpsertSecurityFindingWithBudget(_ context.Context, rec *store.SecurityFindingRecord, _ store.SecurityFindingBudget) (*store.SecurityFindingRecord, bool, error) {
+	return rec, true, nil
+}
+
 func (m *mockSecurityStore) CorrelateSecurityFindings(context.Context, string, string, string, string, string, string, string) (bool, error) {
 	return false, nil
 }
@@ -171,6 +175,15 @@ func (m *mockSecurityStore) SummarizeSecurityFindings(_ context.Context, namespa
 	}
 	m.summaryNamespace, m.summaryScanName, m.summaryRunName = namespace, scanName, runName
 	m.summaryIncludeSuppressed = includeSuppressed
+	return m.summary, nil
+}
+
+func (m *mockSecurityStore) SummarizeSecurityFindingsScoped(_ context.Context, scope store.SecurityFindingSummaryScope) (map[string]int32, error) {
+	if m.summaryErr != nil {
+		return nil, m.summaryErr
+	}
+	m.summaryNamespace, m.summaryScanName, m.summaryRunName = scope.Namespace, scope.ScanName, scope.RunName
+	m.summaryIncludeSuppressed = scope.IncludeSuppressed
 	return m.summary, nil
 }
 

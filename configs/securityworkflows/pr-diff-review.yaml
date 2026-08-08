@@ -21,7 +21,8 @@ spec:
         as valuable as including the risky ones. For each file you keep, record the path, a risk category
         drawn from the finding vocabulary (authz, authn, injection, secrets, crypto, ssrf, deserialization,
         supply-chain, misconfiguration, logic-flaw, info-leak, dos, other), and one sentence naming the
-        specific change that creates the risk. Order the list most dangerous first. Publish the list rather
+        specific change that creates the risk. Order the list most dangerous first: only the first 10 files
+        are reviewed, so anything you rank below that is never examined. Publish the list rather
         than reporting findings.
       outputSchema: |-
         {
@@ -51,17 +52,18 @@ spec:
         change makes them newly reachable. Report only what you can point at with file:line evidence in the
         changed code and describe as a concrete attack, and say plainly that the file is clean when it is.
         Work quickly - this review runs on every push, so depth on the risky lines beats breadth over the
-        whole file. Publish the same kept reports as this task's structured output, one entry each, and an
+        whole file. Publish the same kept reports as this task's structured output, one entry each carrying the fingerprint report_security_finding returned for it, and an
         empty array when the file is clean.
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "severity", "file", "introduced_by_change"],
+            "required": ["title", "fingerprint", "severity", "file", "introduced_by_change"],
             "properties": {
+              "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding for this finding"},
               "title": {"type": "string", "description": "Short name of the vulnerability"},
-              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity of the finding"},
               "file": {"type": "string", "description": "Repository-relative file reviewed"},
               "line": {"type": "integer", "description": "Line in the changed code carrying the defect"},
               "introduced_by_change": {"type": "boolean", "description": "True when this change created or newly exposed the defect"},
@@ -80,13 +82,19 @@ spec:
       role: finding-triager
       category: triage
       objective: >-
-        Triage the per-file reviews in {{tasks.review-change.output}} into a pull-request verdict. Keep only
+        Call list_security_findings to load every finding the per-file reviews recorded for this scan and
+        turn them into a pull-request verdict; address each one by its fingerprint with
+        update_security_finding. Keep only
         findings introduced or made reachable by this change, drop pre-existing issues and stylistic
         objections, merge duplicates that describe one change across several files, and re-read the cited
         lines before keeping anything - a noisy review on every push gets the whole scan ignored. Rank what
-        survives by severity and state for each one what the author must change. If nothing survives, submit
-        a clean report saying so. Then assemble and submit the final scan report.
+        survives by severity and state for each one what the author must change. The per-file fan-out covers
+        at most the first 10 entries of the risk-ranked list in {{tasks.map-changed-risk.output}}: name every
+        changed file beyond that cut in the report summary as an explicit coverage gap, so the change is not
+        read as fully reviewed. If nothing survives, submit a clean report saying so, with the same coverage
+        note. Then assemble and submit the final scan report.
       dependsOn:
+        - map-changed-risk
         - review-change
       timeout: 10m
       maxTurns: 30

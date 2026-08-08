@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -179,6 +180,31 @@ func (r *SecurityScanReconciler) reconcileExecutionResume(ctx context.Context, s
 				task.FinishedAt = nil
 			}
 		}
+		// Failed post-script jobs are reset with their tasks: a resume is a
+		// request to complete the campaign, and a report gated on jobs that
+		// stay Failed forever would keep disclosing the same coverage gap no
+		// retry can ever close. Only the gaps THOSE jobs recorded are
+		// retracted (matched by their source prefix): a wholesale clear would
+		// also drop gaps nothing re-derives — expandFanOuts skips
+		// already-expanded tasks, so a fan-out truncation is never re-stated,
+		// and materializePostScripts runs once, so a truncated matrix is
+		// never re-stated either — and the sink prompt would then present
+		// partial coverage as authoritative. Attempts stay cumulative
+		// (budgets.maxModelJobs must never forget prior runs), so a resume
+		// grants each failed job exactly one further attempt before its
+		// exhausted retry budget marks it Failed again.
+		var reset []triggersv1alpha1.SecurityScanPostScriptJobStatus
+		for i := range exec.PostScriptJobs {
+			job := &exec.PostScriptJobs[i]
+			if job.State == triggersv1alpha1.SecurityScanPostScriptStateFailed {
+				job.State = triggersv1alpha1.SecurityScanPostScriptStatePending
+				job.LastError = ""
+				job.Result = ""
+				job.FinishedAt = nil
+				reset = append(reset, *job)
+			}
+		}
+		securityScanRetractPostScriptJobGaps(exec, reset)
 		fresh.Status.Phase = "Running"
 		fresh.Status.LastError = ""
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ExecutionResumed", "Failed execution tasks reset for a fresh attempt")
@@ -734,6 +760,11 @@ type securityScanExecutionEngine struct {
 	runs    map[string]*platformv1alpha1.AgentRun
 	runCtx  *securityScanRunContext
 	budgets *triggersv1alpha1.SecurityScanBudgets
+
+	// postScriptRequeue is the earliest post-script retry delay this pass
+	// computed; post-script jobs carry no retry timestamp in status, so the
+	// delay only survives within the pass that derived it.
+	postScriptRequeue time.Duration
 }
 
 // advance executes one pass and returns the desired requeue delay (0 = use
@@ -758,6 +789,7 @@ func (e *securityScanExecutionEngine) advance(ctx context.Context) time.Duration
 	e.runCtx = e.r.executionTriggerEvent(ctx, e.scan, exec)
 
 	e.observe(ctx)
+	e.observePostScripts(ctx)
 	e.expandFanOuts(ctx)
 	e.propagateSkips()
 
@@ -768,6 +800,11 @@ func (e *securityScanExecutionEngine) advance(ctx context.Context) time.Duration
 	}
 
 	if !e.anyFailed() {
+		// Post-scripts run between the research phase and the report: the
+		// matrix is materialized once the research tasks are terminal, and
+		// schedule() holds the sink tasks until every job settled.
+		e.materializePostScripts(ctx)
+		e.dispatchPostScripts(ctx)
 		e.schedule(ctx)
 	}
 	if securityScanExecutionTerminal(exec.Phase) {
@@ -939,6 +976,7 @@ func (e *securityScanExecutionEngine) expandFanOuts(ctx context.Context) {
 			msg := fmt.Sprintf("task %q fan-out truncated from %d to %d instances by maxInstances", task.Name, len(records), limit)
 			logf.FromContext(ctx).Info(msg, "execution", e.exec.ID)
 			e.r.recordScanEvent(e.scan, corev1.EventTypeWarning, "FanOutTruncated", msg)
+			appendSecurityScanCoverageGap(e.exec, msg)
 			records = records[:limit]
 		}
 		// Never let the execution outgrow the entry ceiling: replacing the
@@ -951,6 +989,7 @@ func (e *securityScanExecutionEngine) expandFanOuts(ctx context.Context) {
 			msg := fmt.Sprintf("task %q fan-out truncated from %d to %d instances: the execution is capped at %d total task instances", task.Name, len(records), budget, securityScanExecutionMaxTaskEntries)
 			logf.FromContext(ctx).Info(msg, "execution", e.exec.ID)
 			e.r.recordScanEvent(e.scan, corev1.EventTypeWarning, "FanOutTruncated", msg)
+			appendSecurityScanCoverageGap(e.exec, msg)
 			records = records[:budget]
 		}
 		if len(records) == 0 {
@@ -1091,17 +1130,25 @@ func (e *securityScanExecutionEngine) hasSchedulableWork() bool {
 	return false
 }
 
-// totalAttempts counts every task run the execution has started so far.
+// totalAttempts counts every model run the execution has started so far:
+// task attempts plus post-script job attempts, since both consume the
+// budgets.maxModelJobs allowance.
 func (e *securityScanExecutionEngine) totalAttempts() int32 {
 	var attempts int32
 	for _, entry := range e.exec.Tasks {
 		attempts += entry.Attempts
 	}
+	for _, job := range e.exec.PostScriptJobs {
+		attempts += job.Attempts
+	}
 	return attempts
 }
 
 // executionRunNames collects every run name recorded for the execution:
-// current attempts plus retry history.
+// current attempts plus retry history, and the durable post-script jobs.
+// Post-script jobs are model executions of this campaign like any task run,
+// so cost and token budgets must see them; leaving them out would let a
+// large finding x script matrix spend past budgets.maxCostUSD unobserved.
 func (e *securityScanExecutionEngine) executionRunNames() []string {
 	seen := map[string]bool{}
 	var names []string
@@ -1116,6 +1163,9 @@ func (e *securityScanExecutionEngine) executionRunNames() []string {
 		for _, attempt := range entry.Retries {
 			add(attempt.RunName)
 		}
+	}
+	for _, job := range e.exec.PostScriptJobs {
+		add(job.RunName)
 	}
 	return names
 }
@@ -1164,7 +1214,7 @@ func (e *securityScanExecutionEngine) anyFailed() bool {
 // template-rendering failure is non-retryable (the input contract is broken)
 // and fails the instance without launching a run.
 func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
-	running := int32(0)
+	running := e.runningPostScriptJobs()
 	for _, entry := range e.exec.Tasks {
 		if entry.State == triggersv1alpha1.SecurityScanTaskStateRunning {
 			running++
@@ -1174,6 +1224,8 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 	if parallelism <= 0 {
 		parallelism = e.resolved.spec.EffectiveParallelism()
 	}
+	sinks := securityScanSinkTasks(e.order)
+	postScriptsGate := e.postScriptsGateSink()
 
 	for i := range e.exec.Tasks {
 		entry := &e.exec.Tasks[i]
@@ -1192,6 +1244,12 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 		// runs before scheduling, so reaching here with a completed source
 		// means the expansion produced exactly this instance.
 		entry.State = triggersv1alpha1.SecurityScanTaskStatePending
+		if postScriptsGate && sinks[entry.Name] {
+			// The sink submits the scan-wide report; launching it while
+			// post-script jobs are unmaterialized or unfinished would report
+			// verdicts that do not exist yet.
+			continue
+		}
 		if entry.NextRetryTime != nil && e.now.Time.Before(entry.NextRetryTime.Time) {
 			continue
 		}
@@ -1253,6 +1311,14 @@ func (e *securityScanExecutionEngine) launch(ctx context.Context, entry *trigger
 	if err != nil {
 		log.Error(err, "failed to create task AgentRun", "task", task.Name, "run", runName)
 		entry.LastError = truncateSecurityScanError(err.Error())
+		if classifySecurityScanTaskFailure(err.Error()) == triggersv1alpha1.SecurityScanTaskFailureNonRetryable {
+			// A deterministically rejected dispatch (missing role, invalid
+			// defaults) cannot heal by re-dispatching; leaving it pending
+			// would keep the execution Running forever with no run to await.
+			entry.State = triggersv1alpha1.SecurityScanTaskStateFailed
+			entry.FinishedAt = &e.now
+			return false
+		}
 		return false // retried on the next reconcile without consuming an attempt
 	}
 	_ = created
@@ -1293,12 +1359,25 @@ func (e *securityScanExecutionEngine) taskInstanceContext(ctx context.Context, e
 	if item != nil {
 		itemJSON = string(item)
 	}
+	// Only the sink states coverage gaps: it writes the report the gaps
+	// qualify, and a research task cannot act on them.
+	sink := securityScanSinkTasks(e.order)[task.Name]
+	var coverageGaps []string
+	if sink {
+		coverageGaps = e.exec.CoverageGaps
+	}
 	return SecurityScanTaskInstance{
 		Objective: objective,
 		Instance:  entry.Instance,
 		Total:     total,
 		ItemJSON:  itemJSON,
-		Sink:      securityScanSinkTasks(e.order)[task.Name],
+		Sink:      sink,
+		// A workflow with no research phase never got a platform-executed
+		// post-script matrix (materializePostScripts declares it vacuous), so
+		// the sink is asked to run the scripts itself instead of being told
+		// they already ran.
+		PostScriptsInline: !e.workflowHasResearchPhase(),
+		CoverageGaps:      coverageGaps,
 	}, nil
 }
 
@@ -1315,6 +1394,9 @@ func (e *securityScanExecutionEngine) finalizePhase(failed bool) {
 		}
 	}
 	if allSucceeded {
+		if e.postScriptJobsInFlight() {
+			return // jobs still owe verdicts: the execution is not complete
+		}
 		e.exec.Phase = triggersv1alpha1.SecurityScanExecutionPhaseSucceeded
 		e.exec.CompletedAt = &e.now
 		return
@@ -1341,6 +1423,9 @@ func (e *securityScanExecutionEngine) nextRequeue() time.Duration {
 		if earliest == 0 || delay < earliest {
 			earliest = delay
 		}
+	}
+	if delay := e.postScriptRequeueDelay(); delay > 0 && (earliest == 0 || delay < earliest) {
+		earliest = delay
 	}
 	if earliest > 0 && earliest < securityScanExecutionPollInterval {
 		return earliest
@@ -1475,13 +1560,27 @@ func securityScanSinkTasks(workflow []triggersv1alpha1.SecurityScanTask) map[str
 // timeout, turn/cost limits, tool policy, per-task maxFindings, and the
 // output-schema annotation the worker's submit_task_output tool consumes.
 func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runCtx *securityScanRunContext, exec *triggersv1alpha1.SecurityScanExecutionStatus, task triggersv1alpha1.SecurityScanTask, runName string, inst SecurityScanTaskInstance) (bool, error) {
-	base, err := r.buildScanRunBase(ctx, scan, resolved, runName, runCtx)
+	role, err := r.resolveSecurityScanTaskRole(ctx, task)
+	if err != nil {
+		return false, err
+	}
+	base, err := r.buildScanRunBase(ctx, scan, resolved, runName, runCtx, role.instructionsSection())
 	if err != nil {
 		return false, err
 	}
 	d := base.defaults
 	if model := strings.TrimSpace(task.Model); model != "" {
 		d.Model = model
+	} else if roleModel := securityScanRoleModelForProvider(role.spec, d.EffectiveProvider()); roleModel != "" {
+		// The task states no model, so the role's provider-specific routing
+		// decides. A model configured for another provider must never leak
+		// into this run: the role otherwise inherits the scan's model.
+		d.Model = roleModel
+	}
+	if level := role.spec.ReasoningLevel; level != "" && d.ReasoningLevel == "" {
+		// The scan pins reasoning explicitly or not at all; only the latter
+		// lets the role's default through, so a scan-level decision always wins.
+		d.ReasoningLevel = level
 	}
 	// Per-task timeout folds with the scan/budget runtime: smaller wins,
 	// like budgets.maxRuntime in buildScanRunBase.
@@ -1546,19 +1645,28 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 			DeniedTools:  append([]string(nil), task.Tools.Denied...),
 		}
 	}
+	toolPolicy = securityScanApplyRoleToolAccess(toolPolicy, role)
 
 	annotations := base.annotations
 	annotations[securityScanTaskLabel] = task.Name
+	// The execution id is the aggregation key agent-side finding tools use:
+	// every run of one execution reports into the SAME campaign, so the scan's
+	// budget and dedupe span the whole DAG instead of a single run. A RESUMED
+	// execution deliberately keeps its id — its new task runs continue the
+	// same campaign and their findings aggregate with what earlier cycles
+	// already reported — while a NEW execution gets a new id and can never mix
+	// with a previous one.
+	annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation] = exec.ID
+	annotations[triggersv1alpha1.SecurityScanTaskNameAnnotation] = task.Name
+	annotations[triggersv1alpha1.SecurityScanTaskRoleAnnotation] = role.name
 	if task.MaxFindings > 0 {
-		// The per-task cap folds with the scan-wide resolved
-		// budgets.maxFindings already stamped by buildScanRunBase: smaller
-		// wins, so a task can narrow but never loosen what the persistence
-		// boundary enforces.
-		maxFindings := task.MaxFindings
-		if budgets := resolved.spec.Budgets; budgets != nil && budgets.MaxFindings > 0 && budgets.MaxFindings < maxFindings {
-			maxFindings = budgets.MaxFindings
-		}
-		annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation] = strconv.Itoa(int(maxFindings))
+		// The two budgets are SEPARATE ceilings, not one folded number: the
+		// scan-wide budgets.maxFindings stamped by buildScanRunBase bounds the
+		// whole execution, while the per-task cap is counted per task across
+		// that task's fan-out instances and retries. Folding them (smaller
+		// wins) would silently shrink the scan-wide budget every other task
+		// shares down to one task's cap.
+		annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation] = strconv.Itoa(int(task.MaxFindings))
 	}
 	if schema := strings.TrimSpace(task.OutputSchema); schema != "" {
 		annotations[securityScanTaskOutputSchemaAnnotation] = schema
@@ -1576,7 +1684,7 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		TriggerName:        scan.Name,
 		ExternalID:         exec.ID,
 		ExternalIdentifier: fmt.Sprintf("%s/%s[%d]", exec.ID, task.Name, inst.Instance),
-		SeedMessage:        BuildSecurityScanTaskPrompt(resolved.spec, securityScanPromptEvent(runCtx), task, inst),
+		SeedMessage:        BuildSecurityScanTaskPrompt(resolved.spec, securityScanPromptEvent(runCtx), task, inst, role.promptRole()),
 		Revision:           base.revision,
 		Defaults:           d,
 		OwnerRef:           scan,
@@ -1596,6 +1704,158 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		SeedLogPrefix: "securityscan",
 	})
 	return created, err
+}
+
+// securityScanTaskRole is the effective role contract one deterministic task
+// run is dispatched with: the cluster-scoped RoleInstruction (CR name == role
+// name) plus its resolved name. It is re-resolved on every dispatch — the
+// engine keeps no scheduler state — and snapshotted into the run it creates,
+// so editing the CR mid-execution changes the NEXT dispatch and never a run
+// that already exists.
+type securityScanTaskRole struct {
+	name string
+	spec platformv1alpha1.RoleInstructionSpec
+}
+
+// resolveSecurityScanTaskRole loads the RoleInstruction a task runs as.
+// Dispatching without it would run a generic agent under a role's name while
+// the prompt claims otherwise, so an unresolvable role fails the task instead.
+// The wording carries the "not found"/"invalid" markers
+// classifySecurityScanTaskFailure buckets as non-retryable (retrying cannot
+// conjure a missing CR); a transient API error keeps its own transient marker
+// and therefore stays retryable.
+func (r *SecurityScanReconciler) resolveSecurityScanTaskRole(ctx context.Context, task triggersv1alpha1.SecurityScanTask) (securityScanTaskRole, error) {
+	name := strings.TrimSpace(task.EffectiveRole())
+	role := &platformv1alpha1.RoleInstruction{}
+	if err := r.Get(ctx, client.ObjectKey{Name: name}, role); err != nil {
+		if apierrors.IsNotFound(err) {
+			return securityScanTaskRole{}, fmt.Errorf("task %q: effective role %q not found: no RoleInstruction of that name exists", task.Name, name)
+		}
+		return securityScanTaskRole{}, fmt.Errorf("task %q: reading RoleInstruction %q for effective role: %w", task.Name, name, err)
+	}
+	if strings.TrimSpace(role.Spec.Instructions) == "" {
+		return securityScanTaskRole{}, fmt.Errorf("task %q: effective role %q is invalid: RoleInstruction has no spec.instructions", task.Name, name)
+	}
+	return securityScanTaskRole{name: name, spec: role.Spec}, nil
+}
+
+// instructionsSection renders the role prompt appended to the run's custom
+// instructions. The heading delimits it from scan-level instructions, which
+// are preserved: the run must show both contracts, not one replacing the other.
+func (role securityScanTaskRole) instructionsSection() string {
+	if role.name == "" {
+		return ""
+	}
+	return "## Role: " + role.name + "\n\n" + strings.TrimSpace(role.spec.Instructions)
+}
+
+// promptRole projects the resolved contract into the prompt so the seeded
+// message states the same role, and the same tool-access constraint, the run
+// is actually configured with.
+func (role securityScanTaskRole) promptRole() *SecurityScanTaskRole {
+	if role.name == "" {
+		return nil
+	}
+	return &SecurityScanTaskRole{
+		Name:        role.name,
+		Description: strings.TrimSpace(role.spec.Description),
+		ToolAccess:  strings.ToLower(strings.TrimSpace(role.spec.ToolAccess)),
+		ReadOnly:    role.readOnly(),
+	}
+}
+
+// readOnly mirrors the runtime's tool-access normalization: read-only and
+// analysis are the same restriction, an empty value inherits (no narrowing),
+// and an unrecognized value is treated as read-only rather than silently
+// granting writes.
+func (role securityScanTaskRole) readOnly() bool {
+	switch strings.ToLower(strings.TrimSpace(role.spec.ToolAccess)) {
+	case "", "full", "execution":
+		return false
+	default:
+		return true
+	}
+}
+
+// securityScanRoleWriteTools are the repository- and forge-mutating tools a
+// read-only role must never register. A security scan reads code and reports
+// findings; nothing in it legitimately writes files, commits, or posts to
+// GitHub. Bash is deliberately absent: name-based denial is all-or-nothing and
+// every analysis role depends on shell inspection, so its writes stay governed
+// by the pod's permission mode and command sandbox instead.
+var securityScanRoleWriteTools = []string{
+	"Write", "Edit", "ApplyPatch", "Move", "Delete",
+	"git_commit", "git_push", "git_pull", "git_merge", "git_merge_abort",
+	"create_pull_request", "update_pull_request", "submit_pull_request_review",
+	"reply_to_review_thread", "resolve_review_thread", "request_re_review",
+	"create_github_issue", "update_github_issue", "update_github_issue_labels",
+	"add_github_issue_comment", "close_github_issue",
+}
+
+// securityScanApplyRoleToolAccess narrows the run's tool policy to the role's
+// tool-access contract. spec.toolPolicy is the only run-level lever available:
+// permission mode is resolved by the AgentRun controller from the RuntimeProfile
+// and ModeTemplate, so a trigger cannot set it per run. Denials win over allows
+// in the worker registry, and the task's allow-list is scrubbed too so the
+// persisted policy states the truth rather than advertising tools the role can
+// never register.
+func securityScanApplyRoleToolAccess(policy *platformv1alpha1.AgentRunToolPolicy, role securityScanTaskRole) *platformv1alpha1.AgentRunToolPolicy {
+	if !role.readOnly() {
+		return policy
+	}
+	if policy == nil {
+		policy = &platformv1alpha1.AgentRunToolPolicy{}
+	}
+	write := make(map[string]bool, len(securityScanRoleWriteTools))
+	denied := make(map[string]bool, len(policy.DeniedTools)+len(securityScanRoleWriteTools))
+	for _, tool := range policy.DeniedTools {
+		denied[tool] = true
+	}
+	for _, tool := range securityScanRoleWriteTools {
+		write[tool] = true
+		if !denied[tool] {
+			policy.DeniedTools = append(policy.DeniedTools, tool)
+			denied[tool] = true
+		}
+	}
+	if len(policy.AllowedTools) > 0 {
+		allowed := make([]string, 0, len(policy.AllowedTools))
+		for _, tool := range policy.AllowedTools {
+			if !write[tool] {
+				allowed = append(allowed, tool)
+			}
+		}
+		policy.AllowedTools = allowed
+	}
+	return policy
+}
+
+// securityScanRoleModelForProvider mirrors the platform role-model precedence
+// (provider-specific entry, then empty so the run keeps the scan's model). A
+// model configured for one provider must never be routed to another provider's
+// run. Keys are matched case-insensitively in a stable order so hand-written
+// GitOps objects stay deterministic.
+func securityScanRoleModelForProvider(spec platformv1alpha1.RoleInstructionSpec, provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" || len(spec.ModelsByProvider) == 0 {
+		return ""
+	}
+	if model, ok := spec.ModelsByProvider[provider]; ok {
+		return strings.TrimSpace(model)
+	}
+	keys := make([]string, 0, len(spec.ModelsByProvider))
+	for key := range spec.ModelsByProvider {
+		if strings.EqualFold(strings.TrimSpace(key), provider) {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		if model := strings.TrimSpace(spec.ModelsByProvider[key]); model != "" {
+			return model
+		}
+	}
+	return ""
 }
 
 // securityScanTaskRunName derives the deterministic task-run name

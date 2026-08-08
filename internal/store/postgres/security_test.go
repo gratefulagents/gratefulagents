@@ -680,3 +680,169 @@ func TestSecurityScannerProvenanceAndCorrelation(t *testing.T) {
 		t.Errorf("summary = %v, want source_agent 1, source_scanner 1, correlated 2", summary)
 	}
 }
+
+// upsertExecutionFinding writes one finding of an execution, creating the
+// reporting run's scan row on demand so fan-out siblings can report under
+// different run names.
+func upsertExecutionFinding(ctx context.Context, t *testing.T, s *Store, runName, executionID, taskName, fingerprint string, budget store.SecurityFindingBudget) (*store.SecurityFindingRecord, bool, error) {
+	t.Helper()
+	scan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
+		Namespace: "default", ScanName: "nightly", RunName: runName, Repository: "org/repo",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSecurityScan(%s): %v", runName, err)
+	}
+	return s.UpsertSecurityFindingWithBudget(ctx, &store.SecurityFindingRecord{
+		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: runName,
+		ExecutionID: executionID, TaskName: taskName, Fingerprint: fingerprint,
+		Title: fingerprint, Category: "injection", Severity: "high",
+		Repository: "org/repo", FilePath: "db/" + fingerprint + ".go",
+	}, budget)
+}
+
+func TestSecurityFindingExecutionScope(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+
+	for _, f := range []struct{ run, execution, task, fingerprint string }{
+		{"run-a", "exec-1", "task-a", "fp-a"},
+		{"run-b", "exec-1", "task-b", "fp-b"},
+		{"run-c", "exec-2", "task-a", "fp-c"},
+	} {
+		rec, created, err := upsertExecutionFinding(ctx, t, s, f.run, f.execution, f.task, f.fingerprint, store.SecurityFindingBudget{})
+		if err != nil || !created {
+			t.Fatalf("upsert %s: created=%v err=%v", f.fingerprint, created, err)
+		}
+		if rec.ExecutionID != f.execution || rec.TaskName != f.task {
+			t.Errorf("%s stored execution/task = %q/%q, want %q/%q", f.fingerprint, rec.ExecutionID, rec.TaskName, f.execution, f.task)
+		}
+	}
+
+	found, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ExecutionID: "exec-1"})
+	if err != nil || len(found) != 2 {
+		t.Fatalf("list by execution = %d findings, %v, want 2", len(found), err)
+	}
+	fingerprints := map[string]bool{}
+	for _, f := range found {
+		fingerprints[f.Fingerprint] = true
+	}
+	if !fingerprints["fp-a"] || !fingerprints["fp-b"] {
+		t.Errorf("execution filter returned %v, want fp-a and fp-b across both runs", fingerprints)
+	}
+
+	scoped, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ExecutionID: "exec-1", TaskName: "task-b"})
+	if err != nil || len(scoped) != 1 || scoped[0].Fingerprint != "fp-b" {
+		t.Fatalf("list by execution+task = %v, %v, want only fp-b", scoped, err)
+	}
+
+	summary, err := s.SummarizeSecurityFindingsScoped(ctx, store.SecurityFindingSummaryScope{
+		Namespace: "default", ScanName: "nightly", ExecutionID: "exec-1",
+	})
+	if err != nil {
+		t.Fatalf("SummarizeSecurityFindingsScoped(exec-1): %v", err)
+	}
+	if summary["total"] != 2 || summary["high"] != 2 {
+		t.Errorf("exec-1 summary = %v, want total 2 / high 2", summary)
+	}
+
+	other, err := s.SummarizeSecurityFindingsScoped(ctx, store.SecurityFindingSummaryScope{
+		Namespace: "default", ScanName: "nightly", ExecutionID: "exec-2",
+	})
+	if err != nil {
+		t.Fatalf("SummarizeSecurityFindingsScoped(exec-2): %v", err)
+	}
+	if other["total"] != 1 {
+		t.Errorf("exec-2 summary = %v, want total 1", other)
+	}
+}
+
+func TestSecurityFindingScanBudget(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+	budget := store.SecurityFindingBudget{ScanMax: 2}
+
+	for _, fp := range []string{"fp-1", "fp-2"} {
+		if _, created, err := upsertExecutionFinding(ctx, t, s, "run-1", "exec-1", "task-a", fp, budget); err != nil || !created {
+			t.Fatalf("upsert %s under budget: created=%v err=%v", fp, created, err)
+		}
+	}
+
+	_, _, err := upsertExecutionFinding(ctx, t, s, "run-2", "exec-1", "task-b", "fp-3", budget)
+	var budgetErr *store.SecurityFindingBudgetError
+	if !errors.As(err, &budgetErr) {
+		t.Fatalf("upsert past ScanMax = %v, want *SecurityFindingBudgetError", err)
+	}
+	if budgetErr.Scope != "scan" || budgetErr.Count != 2 || budgetErr.Max != 2 {
+		t.Errorf("budget error = %+v, want scope scan count 2 max 2", budgetErr)
+	}
+
+	// The rejected insert must leave nothing behind.
+	all, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ExecutionID: "exec-1"})
+	if err != nil || len(all) != 2 {
+		t.Fatalf("findings after rejection = %d, %v, want 2", len(all), err)
+	}
+
+	// A merge creates no row, so it stays allowed at the cap.
+	merged, created, err := upsertExecutionFinding(ctx, t, s, "run-2", "exec-1", "task-a", "fp-1", budget)
+	if err != nil || created {
+		t.Fatalf("merge at cap: created=%v err=%v, want a merge", created, err)
+	}
+	if merged.Occurrences != 2 || merged.RunName != "run-2" {
+		t.Errorf("merged = occ %d run %q, want occ 2 run run-2", merged.Occurrences, merged.RunName)
+	}
+}
+
+func TestSecurityFindingTaskBudget(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+	budget := store.SecurityFindingBudget{TaskMax: 1}
+
+	if _, created, err := upsertExecutionFinding(ctx, t, s, "run-1", "exec-1", "task-a", "fp-a1", budget); err != nil || !created {
+		t.Fatalf("first task-a finding: created=%v err=%v", created, err)
+	}
+
+	// Retries and fan-out siblings of task A share its exhausted budget.
+	_, _, err := upsertExecutionFinding(ctx, t, s, "run-2", "exec-1", "task-a", "fp-a2", budget)
+	var budgetErr *store.SecurityFindingBudgetError
+	if !errors.As(err, &budgetErr) {
+		t.Fatalf("second task-a finding = %v, want *SecurityFindingBudgetError", err)
+	}
+	if budgetErr.Scope != "task" || budgetErr.Max != 1 {
+		t.Errorf("budget error = %+v, want scope task max 1", budgetErr)
+	}
+
+	if _, created, err := upsertExecutionFinding(ctx, t, s, "run-1", "exec-1", "task-b", "fp-b1", budget); err != nil || !created {
+		t.Fatalf("task-b finding blocked by task-a budget: created=%v err=%v", created, err)
+	}
+}
+
+// A merge must keep the FIRST execution/task attribution: if a re-report from
+// another task moved the row, that task's exhausted per-task budget would
+// regain headroom for every already-known fingerprint.
+func TestSecurityFindingMergeKeepsFirstAttribution(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+	budget := store.SecurityFindingBudget{TaskMax: 1}
+
+	if _, created, err := upsertExecutionFinding(ctx, t, s, "run-1", "exec-1", "task-a", "fp-a1", budget); err != nil || !created {
+		t.Fatalf("first task-a finding: created=%v err=%v", created, err)
+	}
+
+	merged, created, err := upsertExecutionFinding(ctx, t, s, "run-2", "exec-2", "task-b", "fp-a1", budget)
+	if err != nil || created {
+		t.Fatalf("re-report from task-b: created=%v err=%v, want a merge", created, err)
+	}
+	if merged.ExecutionID != "exec-1" || merged.TaskName != "task-a" {
+		t.Errorf("merged attribution = %q/%q, want exec-1/task-a", merged.ExecutionID, merged.TaskName)
+	}
+	if merged.RunName != "run-2" || merged.Occurrences != 2 {
+		t.Errorf("merged = run %q occ %d, want run-2 / 2", merged.RunName, merged.Occurrences)
+	}
+
+	// task-a's budget is still spent, so a new task-a finding stays blocked.
+	_, _, err = upsertExecutionFinding(ctx, t, s, "run-3", "exec-1", "task-a", "fp-a2", budget)
+	var budgetErr *store.SecurityFindingBudgetError
+	if !errors.As(err, &budgetErr) {
+		t.Fatalf("second task-a finding = %v, want *SecurityFindingBudgetError", err)
+	}
+}

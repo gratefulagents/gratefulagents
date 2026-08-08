@@ -31,6 +31,12 @@ const (
 	SecurityScanMinSeverityAnnotation    = triggersv1alpha1.SecurityScanMinSeverityAnnotation
 	SecurityScanDedupePermilleAnnotation = triggersv1alpha1.SecurityScanDedupePermilleAnnotation
 	SecurityScanMaxFindingsAnnotation    = triggersv1alpha1.SecurityScanMaxFindingsAnnotation
+	// The deterministic scan engine gives every task run its own AgentRun,
+	// so these three identify the execution a run belongs to, the task it
+	// executes, and that task's own findings budget.
+	SecurityScanExecutionIDAnnotation     = triggersv1alpha1.SecurityScanExecutionIDAnnotation
+	SecurityScanTaskNameAnnotation        = triggersv1alpha1.SecurityScanTaskNameAnnotation
+	SecurityScanTaskMaxFindingsAnnotation = triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation
 )
 
 // Session artifact kinds written by submit_security_scan_report, aliased from
@@ -53,10 +59,21 @@ type SecurityScanContext struct {
 	// 0 disables dedupe, negative means unset (use the built-in default).
 	DedupePermille int32
 	// MaxFindings is the scan's effective findings budget (spec merged with
-	// the policy pack), stamped by the controller: 0 means unlimited. The
-	// finding tools refuse to persist findings once it is reached.
+	// the policy pack), stamped by the controller: 0 means unlimited. It is
+	// counted across the whole execution, not per run.
 	MaxFindings int32
-	SessionID   uuid.UUID
+	// ExecutionID groups every run of one deterministic execution and
+	// TaskName names the task this run executes; both are empty for
+	// coordinator-mode (single-run) and legacy scans. Findings aggregate
+	// per execution so a sink task and the final report can see what
+	// sibling task runs persisted.
+	ExecutionID string
+	TaskName    string
+	// TaskMaxFindings is this task's own budget, counted across the task's
+	// fan-out instances and retries within the execution: parallel tasks
+	// therefore never race for one cumulative budget. 0 means unlimited.
+	TaskMaxFindings int32
+	SessionID       uuid.UUID
 }
 
 // SecurityScanContextFromRun extracts scan context from AgentRun annotations
@@ -88,16 +105,25 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 			maxFindings = int32(v)
 		}
 	}
+	taskMaxFindings := int32(0)
+	if raw := strings.TrimSpace(run.Annotations[SecurityScanTaskMaxFindingsAnnotation]); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v > 0 {
+			taskMaxFindings = int32(v)
+		}
+	}
 	return SecurityScanContext{
-		ScanName:       scanName,
-		Namespace:      namespace,
-		RunName:        runName,
-		Repository:     strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
-		Revision:       strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
-		MinSeverity:    minSeverity,
-		DedupePermille: dedupePermille,
-		MaxFindings:    maxFindings,
-		SessionID:      sessionID,
+		ScanName:        scanName,
+		Namespace:       namespace,
+		RunName:         runName,
+		Repository:      strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
+		Revision:        strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
+		MinSeverity:     minSeverity,
+		DedupePermille:  dedupePermille,
+		MaxFindings:     maxFindings,
+		ExecutionID:     strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),
+		TaskName:        strings.TrimSpace(run.Annotations[SecurityScanTaskNameAnnotation]),
+		TaskMaxFindings: taskMaxFindings,
+		SessionID:       sessionID,
 	}, true
 }
 
@@ -183,35 +209,82 @@ func (s *securityScanState) sessionIDPtr() *uuid.UUID {
 	return &id
 }
 
-// persistedFindingCount returns the number of non-duplicate findings
-// currently persisted for this scan across all of its runs, matching the
-// controller's budget monitoring (SummarizeSecurityFindings "total").
-func (s *securityScanState) persistedFindingCount(ctx context.Context) (int32, error) {
-	if s.findingStore != nil {
-		counts, err := s.findingStore.SummarizeSecurityFindings(ctx, s.scanCtx.Namespace, s.scanCtx.ScanName, "", true)
-		if err != nil {
-			return 0, err
-		}
-		return counts["total"], nil
+// scopeFilter is the single definition of "the findings this run may see".
+// Findings are aggregated per deterministic EXECUTION, not per run: the
+// engine gives every task (and every fan-out instance) its own AgentRun, so
+// run-scoped filtering would hide from the terminal sink task and the final
+// report everything its sibling runs persisted. Scan-name-only aggregation is
+// deliberately never used: it would fold historical and resumed executions of
+// the same SecurityScan into one report. When no execution id is stamped
+// (coordinator-mode single-run scans, and runs predating the annotation) the
+// run itself is the whole execution, so run scoping is both correct and the
+// safe fallback.
+func (s *securityScanState) scopeFilter() store.SecurityFindingFilter {
+	f := store.SecurityFindingFilter{
+		Namespace: s.scanCtx.Namespace,
+		ScanName:  s.scanCtx.ScanName,
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.summarizeMemLocked()["total"], nil
+	if s.scanCtx.ExecutionID != "" {
+		f.ExecutionID = s.scanCtx.ExecutionID
+	} else {
+		f.RunName = s.scanCtx.RunName
+	}
+	return f
 }
 
-// securityFindingsBudgetMessage is the tool error returned when the scan's
-// platform-enforced findings budget leaves no room for another finding.
-func securityFindingsBudgetMessage(total, maxFindings int32) string {
-	return fmt.Sprintf("the scan's findings budget is reached (%d finding(s) persisted, budgets.maxFindings = %d): no further findings can be recorded. "+
-		"Already-persisted findings are preserved; triage them with update_security_finding and finalize the scan with submit_security_scan_report.",
-		total, maxFindings)
+func (s *securityScanState) scopeSummary(includeSuppressed bool) store.SecurityFindingSummaryScope {
+	f := s.scopeFilter()
+	return store.SecurityFindingSummaryScope{
+		Namespace:         f.Namespace,
+		ScanName:          f.ScanName,
+		RunName:           f.RunName,
+		ExecutionID:       f.ExecutionID,
+		IncludeSuppressed: includeSuppressed,
+	}
+}
+
+// findingBudget is the platform-enforced budget for a new finding row. Both
+// caps come from controller-stamped run annotations, never from tool input,
+// so the model cannot raise them.
+func (s *securityScanState) findingBudget() store.SecurityFindingBudget {
+	return store.SecurityFindingBudget{
+		ScanMax: s.scanCtx.MaxFindings,
+		TaskMax: s.scanCtx.TaskMaxFindings,
+	}
+}
+
+// securityFindingsBudgetMessage is the tool error returned when a findings
+// budget leaves no room for another finding. Which cap was hit matters to the
+// agent: the scan-wide one is shared with every sibling task of the execution
+// and cannot be worked around, while the per-task one only ends this task's
+// own reporting.
+func securityFindingsBudgetMessage(scanCtx SecurityScanContext, e *store.SecurityFindingBudgetError) string {
+	reached := fmt.Sprintf("the scan's findings budget is reached across this execution (%d finding(s) persisted by all of its tasks, budgets.maxFindings = %d)", e.Count, e.Max)
+	if e.Scope == "task" {
+		reached = fmt.Sprintf("this task's own findings budget is reached across its fan-out instances (%d finding(s) persisted by task %q, its maxFindings = %d)", e.Count, scanCtx.TaskName, e.Max)
+	}
+	return reached + ": no further findings can be recorded. " +
+		"Already-persisted findings are preserved; triage them with update_security_finding and finalize the scan with submit_security_scan_report."
 }
 
 // upsertFinding persists the finding, merging into an existing record with
 // the same fingerprint. The bool reports whether a new record was created.
 func (s *securityScanState) upsertFinding(ctx context.Context, rec *store.SecurityFindingRecord) (*store.SecurityFindingRecord, bool, error) {
+	return s.upsertFindingWithBudget(ctx, rec, store.SecurityFindingBudget{})
+}
+
+// upsertFindingWithBudget is upsertFinding under budget enforcement: it
+// returns a *store.SecurityFindingBudgetError and persists nothing when a
+// cap blocks a NEW row. Counting and inserting must be one atomic step (the
+// store does it in a transaction) — a read-then-write would let concurrent
+// sibling runs of the same execution each see a count below the cap and
+// overshoot it.
+func (s *securityScanState) upsertFindingWithBudget(ctx context.Context, rec *store.SecurityFindingRecord, budget store.SecurityFindingBudget) (*store.SecurityFindingRecord, bool, error) {
 	if s.findingStore != nil {
-		return s.findingStore.UpsertSecurityFinding(ctx, rec)
+		if budget.IsZero() {
+			return s.findingStore.UpsertSecurityFinding(ctx, rec)
+		}
+		return s.findingStore.UpsertSecurityFindingWithBudget(ctx, rec, budget)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -247,9 +320,17 @@ func (s *securityScanState) upsertFinding(ctx context.Context, rec *store.Securi
 		existing.Tool = rec.Tool
 		existing.ToolVersion = rec.ToolVersion
 		existing.RuleID = rec.RuleID
+		existing.ExecutionID = rec.ExecutionID
+		existing.TaskName = rec.TaskName
 		existing.Raw = rec.Raw
 		copied := *existing
 		return &copied, false, nil
+	}
+	// Only a new row consumes budget; merges never do. s.mu is the
+	// in-memory equivalent of the store's transaction, so counting and
+	// appending here cannot interleave.
+	if budgetErr := s.memBudgetErrorLocked(rec, budget); budgetErr != nil {
+		return nil, false, budgetErr
 	}
 	stored := *rec
 	stored.ID = uuid.New()
@@ -264,6 +345,32 @@ func (s *securityScanState) upsertFinding(ctx context.Context, rec *store.Securi
 	return &copied, true, nil
 }
 
+// memBudgetErrorLocked mirrors the store's two-scope budget check over the
+// in-memory buffer. Caller must hold s.mu.
+func (s *securityScanState) memBudgetErrorLocked(rec *store.SecurityFindingRecord, budget store.SecurityFindingBudget) *store.SecurityFindingBudgetError {
+	if budget.IsZero() {
+		return nil
+	}
+	var scanCount, taskCount int32
+	for _, existing := range s.mem {
+		if existing.DuplicateOf != nil || existing.Namespace != rec.Namespace ||
+			existing.ScanName != rec.ScanName || existing.ExecutionID != rec.ExecutionID {
+			continue
+		}
+		scanCount++
+		if existing.TaskName == rec.TaskName {
+			taskCount++
+		}
+	}
+	if budget.ScanMax > 0 && scanCount >= budget.ScanMax {
+		return &store.SecurityFindingBudgetError{Scope: "scan", Count: scanCount, Max: budget.ScanMax}
+	}
+	if budget.TaskMax > 0 && taskCount >= budget.TaskMax {
+		return &store.SecurityFindingBudgetError{Scope: "task", Count: taskCount, Max: budget.TaskMax}
+	}
+	return nil
+}
+
 // memFindingMatches applies a SecurityFindingFilter to an in-memory record,
 // mirroring the SQL filtering in the Postgres store.
 func memFindingMatches(rec *store.SecurityFindingRecord, f store.SecurityFindingFilter) bool {
@@ -274,6 +381,12 @@ func memFindingMatches(rec *store.SecurityFindingRecord, f store.SecurityFinding
 		return false
 	}
 	if f.RunName != "" && rec.RunName != f.RunName {
+		return false
+	}
+	if f.ExecutionID != "" && rec.ExecutionID != f.ExecutionID {
+		return false
+	}
+	if f.TaskName != "" && rec.TaskName != f.TaskName {
 		return false
 	}
 	if f.Repository != "" && rec.Repository != f.Repository {
@@ -293,6 +406,17 @@ func memFindingMatches(rec *store.SecurityFindingRecord, f store.SecurityFinding
 	}
 	if !f.IncludeDuplicates && rec.DuplicateOf != nil {
 		return false
+	}
+	switch f.Suppressed {
+	case store.SecuritySuppressedInclude:
+	case store.SecuritySuppressedOnly:
+		if rec.SuppressedBy == "" {
+			return false
+		}
+	default:
+		if rec.SuppressedBy != "" {
+			return false
+		}
 	}
 	if f.Search != "" {
 		needle := strings.ToLower(f.Search)
@@ -346,6 +470,42 @@ func (s *securityScanState) listFindings(ctx context.Context, f store.SecurityFi
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+const (
+	// securityFindingPageSize is the store's hard cap on rows per
+	// ListSecurityFindings call, so it is also the largest useful page.
+	securityFindingPageSize = 1000
+	// securityFindingScopeMax bounds a whole-execution load: an execution's
+	// findings are the sum of every sibling run's, so one page no longer
+	// covers them, but an unbounded loop would let a runaway scan pull an
+	// arbitrary number of rows into this run's memory.
+	securityFindingScopeMax = 20000
+)
+
+// listAllFindings pages listFindings over the whole scope until the result
+// set is exhausted. It reports whether securityFindingScopeMax truncated the
+// result; callers that render findings must disclose that rather than drop
+// rows silently. Results stay ordered by score DESC, so a truncated load
+// keeps the highest-scoring findings.
+func (s *securityScanState) listAllFindings(ctx context.Context, f store.SecurityFindingFilter) ([]store.SecurityFindingRecord, bool, error) {
+	f.Limit = securityFindingPageSize
+	f.Offset = 0
+	var out []store.SecurityFindingRecord
+	for {
+		page, err := s.listFindings(ctx, f)
+		if err != nil {
+			return nil, false, err
+		}
+		out = append(out, page...)
+		if len(out) >= securityFindingScopeMax {
+			return out[:securityFindingScopeMax], true, nil
+		}
+		if len(page) < securityFindingPageSize {
+			return out, false, nil
+		}
+		f.Offset += int32(len(page))
+	}
 }
 
 // getFinding looks up a finding by id, scoped to this scan's namespace.
@@ -476,13 +636,10 @@ func (s *securityScanState) recordCorrelation(ctx context.Context, repository, f
 // correlations, and records every new pair on both sides. It returns the
 // number of pairs newly recorded.
 func (s *securityScanState) correlateScanFindings(ctx context.Context) (int, error) {
-	records, err := s.listFindings(ctx, store.SecurityFindingFilter{
-		Namespace:         s.scanCtx.Namespace,
-		ScanName:          s.scanCtx.ScanName,
-		Repository:        s.scanCtx.Repository,
-		IncludeDuplicates: true,
-		Limit:             1000,
-	})
+	filter := s.scopeFilter()
+	filter.Repository = s.scanCtx.Repository
+	filter.IncludeDuplicates = true
+	records, _, err := s.listAllFindings(ctx, filter)
 	if err != nil {
 		return 0, err
 	}
@@ -520,20 +677,25 @@ func (s *securityScanState) resolveFinding(ctx context.Context, id, fingerprint 
 		if rec == nil || errors.Is(err, store.ErrSecurityFindingNotFound) {
 			return nil, fmt.Errorf("no finding with id %s in this scan (use list_security_findings to see recorded findings)", parsed)
 		}
-		if rec.Namespace != s.scanCtx.Namespace || rec.ScanName != s.scanCtx.ScanName {
-			return nil, fmt.Errorf("finding %s does not belong to security scan %q; this run can only update findings of its own scan", parsed, s.scanCtx.ScanName)
+		// Ownership is checked against namespace, scan, and — once the
+		// controller stamps one — the execution, so a model-supplied id can
+		// never re-triage findings of another namespace, scan, or an earlier
+		// execution whose findings this run cannot even see. Run name is
+		// deliberately not required: post-script and sibling runs of the same
+		// scan legitimately triage findings they did not report.
+		scope := s.scopeFilter()
+		if rec.Namespace != scope.Namespace || rec.ScanName != scope.ScanName ||
+			(scope.ExecutionID != "" && rec.ExecutionID != scope.ExecutionID) {
+			return nil, fmt.Errorf("finding %s does not belong to security scan %q's current execution; this run can only update findings of its own execution", parsed, s.scanCtx.ScanName)
 		}
 		return rec, nil
 	}
 	if fingerprint == "" {
 		return nil, fmt.Errorf("either id or fingerprint is required")
 	}
-	records, err := s.listFindings(ctx, store.SecurityFindingFilter{
-		Namespace:         s.scanCtx.Namespace,
-		ScanName:          s.scanCtx.ScanName,
-		IncludeDuplicates: true,
-		Limit:             1000,
-	})
+	filter := s.scopeFilter()
+	filter.IncludeDuplicates = true
+	records, _, err := s.listAllFindings(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to look up finding: %v", err)
 	}
@@ -553,9 +715,14 @@ func securityFindingRecord(f security.Finding, scanCtx SecurityScanContext, sess
 		raw = nil
 	}
 	return &store.SecurityFindingRecord{
-		Namespace:    scanCtx.Namespace,
-		ScanName:     scanCtx.ScanName,
-		RunName:      scanCtx.RunName,
+		Namespace: scanCtx.Namespace,
+		ScanName:  scanCtx.ScanName,
+		RunName:   scanCtx.RunName,
+		// Execution and task attribution is what makes findings aggregate
+		// per execution and budgets count per task; both are stamped from
+		// controller annotations, never from the model.
+		ExecutionID:  scanCtx.ExecutionID,
+		TaskName:     scanCtx.TaskName,
 		SessionID:    sessionID,
 		Fingerprint:  f.Fingerprint,
 		Title:        f.Title,
@@ -711,25 +878,19 @@ func (t *reportSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 	}
 
 	rec := securityFindingRecord(finding, t.state.scanCtx, t.state.sessionIDPtr())
-	// The findings budget comes from the run annotation the controller
-	// stamped from the scan spec / policy pack — never from tool input — so
-	// the model cannot raise it. At the cap, nothing new is persisted.
-	if maxFindings := t.state.scanCtx.MaxFindings; maxFindings > 0 {
-		total, err := t.state.persistedFindingCount(ctx)
-		if err != nil {
-			return Result{Content: fmt.Sprintf("failed to check the scan's findings budget: %v", err), IsError: true}, nil
-		}
-		if total >= maxFindings {
-			return Result{Content: "finding not recorded: " + securityFindingsBudgetMessage(total, maxFindings), IsError: true}, nil
-		}
-	}
 	scanID, err := t.state.ensureScan(ctx)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("failed to open the scan record: %v", err), IsError: true}, nil
 	}
 	rec.ScanID = scanID
-	stored, created, err := t.state.upsertFinding(ctx, rec)
+	// The budget check happens inside the write: counting first and writing
+	// after would let sibling runs of the same execution overshoot the cap.
+	stored, created, err := t.state.upsertFindingWithBudget(ctx, rec, t.state.findingBudget())
 	if err != nil {
+		var budgetErr *store.SecurityFindingBudgetError
+		if errors.As(err, &budgetErr) {
+			return Result{Content: "finding not recorded: " + securityFindingsBudgetMessage(t.state.scanCtx, budgetErr), IsError: true}, nil
+		}
 		return Result{Content: fmt.Sprintf("failed to persist finding: %v", err), IsError: true}, nil
 	}
 	if created {
@@ -783,15 +944,13 @@ func (t *listSecurityFindingsTool) Execute(ctx context.Context, input json.RawMe
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil
 	}
-	records, err := t.state.listFindings(ctx, store.SecurityFindingFilter{
-		Namespace: t.state.scanCtx.Namespace,
-		RunName:   t.state.scanCtx.RunName,
-		Severity:  strings.ToLower(strings.TrimSpace(in.Severity)),
-		Category:  strings.ToLower(strings.TrimSpace(in.Category)),
-		Status:    strings.ToLower(strings.TrimSpace(in.Status)),
-		Search:    strings.TrimSpace(in.Search),
-		Limit:     in.Limit,
-	})
+	filter := t.state.scopeFilter()
+	filter.Severity = strings.ToLower(strings.TrimSpace(in.Severity))
+	filter.Category = strings.ToLower(strings.TrimSpace(in.Category))
+	filter.Status = strings.ToLower(strings.TrimSpace(in.Status))
+	filter.Search = strings.TrimSpace(in.Search)
+	filter.Limit = in.Limit
+	records, err := t.state.listFindings(ctx, filter)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("failed to list findings: %v", err), IsError: true}, nil
 	}
@@ -1016,25 +1175,15 @@ func (t *ingestScannerResultsTool) Execute(ctx context.Context, input json.RawMe
 	if err != nil {
 		return Result{Content: fmt.Sprintf("failed to open the scan record: %v", err), IsError: true}, nil
 	}
-	// The findings budget comes from the run annotation the controller
-	// stamped from the scan spec / policy pack — never from tool input. The
-	// persisted total is tracked across the batch so a single batch cannot
-	// persist past the cap: once it is reached the remaining records are
-	// refused before touching the store.
-	maxFindings := scanCtx.MaxFindings
-	var total int32
-	if maxFindings > 0 {
-		if total, err = t.state.persistedFindingCount(ctx); err != nil {
-			return Result{Content: fmt.Sprintf("failed to check the scan's findings budget: %v", err), IsError: true}, nil
-		}
-	}
+	// The budgets come from run annotations the controller stamped from the
+	// scan spec / policy pack — never from tool input. Each record is
+	// written under the cap rather than pre-counted, so a batch stops
+	// exactly where the budget runs out even when sibling runs of the
+	// execution are writing concurrently.
+	budget := t.state.findingBudget()
 	created, merged := 0, 0
 	tools := map[string]bool{}
 	for i, f := range findings {
-		if maxFindings > 0 && total >= maxFindings {
-			return Result{Content: fmt.Sprintf("batch stopped before records[%d]: %s %d record(s) of this batch were ingested before the cap (%d new, %d merged); the remaining %d record(s) were refused.",
-				i, securityFindingsBudgetMessage(total, maxFindings), i, created, merged, len(findings)-i), IsError: true}, nil
-		}
 		rec := securityFindingRecord(f, scanCtx, t.state.sessionIDPtr())
 		rec.ScanID = scanID
 		// Preserve the original scanner record verbatim (minus secrets) in
@@ -1042,13 +1191,17 @@ func (t *ingestScannerResultsTool) Execute(ctx context.Context, input json.RawMe
 		if raw, err := json.Marshal(scannerFindingRaw{Finding: f, ScannerRecord: in.Records[i].Redacted()}); err == nil {
 			rec.Raw = raw
 		}
-		_, isNew, err := t.state.upsertFinding(ctx, rec)
+		_, isNew, err := t.state.upsertFindingWithBudget(ctx, rec, budget)
 		if err != nil {
+			var budgetErr *store.SecurityFindingBudgetError
+			if errors.As(err, &budgetErr) {
+				return Result{Content: fmt.Sprintf("batch stopped before records[%d]: %s %d record(s) of this batch were ingested before the cap (%d new, %d merged); the remaining %d record(s) were refused.",
+					i, securityFindingsBudgetMessage(scanCtx, budgetErr), i, created, merged, len(findings)-i), IsError: true}, nil
+			}
 			return Result{Content: fmt.Sprintf("failed to persist scanner finding (records[%d]): %v", i, err), IsError: true}, nil
 		}
 		if isNew {
 			created++
-			total++
 		} else {
 			merged++
 		}
@@ -1092,8 +1245,10 @@ func (t *submitSecurityScanReportTool) Description() string {
 	return "Finalize this security scan: deduplicate and rank all recorded findings, render " +
 		"the markdown report and SARIF output as session artifacts, and mark the scan " +
 		"completed with a severity breakdown. The scan's configured minimum severity and " +
-		"dedupe policy are always enforced, and findings triaged as false positives are " +
-		"left out of the report and SARIF (their stored rows are kept). Call this exactly " +
+		"dedupe policy are always enforced, and findings that are no longer actionable — " +
+		"triaged as false positive, accepted risk, or fixed, collapsed as duplicates, or " +
+		"suppressed by policy — are left out of the report and SARIF (their stored rows " +
+		"are kept). Call this exactly " +
 		"once, after every finding " +
 		"has been reported and triaged; calling it again returns the existing result " +
 		"unless the findings changed. Only writes platform scan state (no workspace, " +
@@ -1164,6 +1319,55 @@ func submitScanPolicy(in submitSecurityScanReportInput, scanCtx SecurityScanCont
 	return rules, fmt.Sprintf("Policy applied: %s; %s.", minDesc, dedupeDesc)
 }
 
+// Exclusion reasons reported in the submit policy note, in the order they
+// are rendered.
+var securityReportExclusionReasons = []string{
+	store.SecurityFindingStatusFalsePositive,
+	store.SecurityFindingStatusAcceptedRisk,
+	store.SecurityFindingStatusFixed,
+	"duplicate",
+	"suppressed",
+}
+
+var securityReportExclusionLabels = map[string]string{
+	store.SecurityFindingStatusFalsePositive: "%d finding(s) triaged as false positives",
+	store.SecurityFindingStatusAcceptedRisk:  "%d finding(s) triaged as accepted risk",
+	store.SecurityFindingStatusFixed:         "%d finding(s) triaged as fixed",
+	"duplicate":                              "%d finding(s) collapsed as duplicates",
+	"suppressed":                             "%d governed-suppressed finding(s)",
+}
+
+// securityReportExclusionReason returns why a stored finding must not reach
+// the report, or "" when it is report-eligible.
+func securityReportExclusionReason(rec store.SecurityFindingRecord) string {
+	switch {
+	case rec.DuplicateOf != nil:
+		return "duplicate"
+	case rec.SuppressedBy != "":
+		return "suppressed"
+	case rec.Status == store.SecurityFindingStatusFalsePositive,
+		rec.Status == store.SecurityFindingStatusAcceptedRisk,
+		rec.Status == store.SecurityFindingStatusFixed:
+		return rec.Status
+	}
+	return ""
+}
+
+// securityExclusionNote renders the per-reason exclusion counts for the
+// policy note, so the operator can tell a quiet report from a triaged one.
+func securityExclusionNote(excluded map[string]int) string {
+	var parts []string
+	for _, reason := range securityReportExclusionReasons {
+		if n := excluded[reason]; n > 0 {
+			parts = append(parts, fmt.Sprintf(securityReportExclusionLabels[reason], n))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ") + " were excluded from the report"
+}
+
 // dedupeSubmittedFindings collapses findings per the scan's dedupe policy and
 // returns the canonical findings, the cluster count, and a policy description.
 func dedupeSubmittedFindings(findings []security.Finding, scanCtx SecurityScanContext) ([]security.Finding, int, string) {
@@ -1207,7 +1411,7 @@ func (t *submitSecurityScanReportTool) loadPriorScanState(ctx context.Context, p
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to load scan record: %v", err)
 	}
-	counts, err = t.state.findingStore.SummarizeSecurityFindings(ctx, scanCtx.Namespace, scanCtx.ScanName, scanCtx.RunName, false)
+	counts, err = t.state.findingStore.SummarizeSecurityFindingsScoped(ctx, t.state.scopeSummary(false))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to summarize findings: %v", err)
 	}
@@ -1229,24 +1433,25 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 	}
 
 	scanCtx := t.state.scanCtx
-	records, err := t.state.listFindings(ctx, store.SecurityFindingFilter{
-		Namespace:         scanCtx.Namespace,
-		RunName:           scanCtx.RunName,
-		IncludeDuplicates: true,
-		Limit:             1000,
-	})
+	filter := t.state.scopeFilter()
+	filter.IncludeDuplicates = true
+	filter.Suppressed = store.SecuritySuppressedInclude
+	records, truncated, err := t.state.listAllFindings(ctx, filter)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("failed to load findings: %v", err), IsError: true}, nil
 	}
 	findings := make([]security.Finding, 0, len(records))
-	excludedFalsePositives := 0
+	excluded := map[string]int{}
 	for _, rec := range records {
-		// Findings triaged as false positives are never deleted (the store
-		// keeps every row and its audit trail), but they must not be
-		// correlated, deduped, ranked, or rendered: otherwise a post-script
-		// that disproves a finding would still leave it in the report.
-		if rec.Status == store.SecurityFindingStatusFalsePositive {
-			excludedFalsePositives++
+		// Report-ineligible findings are never deleted (the store keeps
+		// every row and its audit trail), but they must not be correlated,
+		// deduped, ranked, or rendered: a disproved, accepted, or
+		// already-fixed finding, a row collapsed into another as a
+		// duplicate, and a governed-suppressed row all describe risk the
+		// operator has already decided about, so re-surfacing them in the
+		// report would defeat triage and suppression policy alike.
+		if reason := securityReportExclusionReason(rec); reason != "" {
+			excluded[reason]++
 			continue
 		}
 		findings = append(findings, securityFindingFromRecord(rec))
@@ -1265,9 +1470,11 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 	}
 
 	canonical, clusterCount, dedupeDesc := dedupeSubmittedFindings(findings, scanCtx)
-	if excludedFalsePositives > 0 {
-		dedupeDesc = fmt.Sprintf("%s; %d finding(s) triaged as false positives were excluded from the report",
-			dedupeDesc, excludedFalsePositives)
+	if note := securityExclusionNote(excluded); note != "" {
+		dedupeDesc = dedupeDesc + "; " + note
+	}
+	if truncated {
+		dedupeDesc = dedupeDesc + fmt.Sprintf("; truncated to the %d highest-scoring findings of this execution — lower-scoring findings are stored but absent from this report and its SARIF artifact", securityFindingScopeMax)
 	}
 	rules, policyNote := submitScanPolicy(in, scanCtx, dedupeDesc)
 

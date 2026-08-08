@@ -3,10 +3,12 @@ package triggers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
@@ -22,7 +24,7 @@ func TestSecurityScanDeterministicExecutionSchedulesDependenciesWithinParallelis
 		{Name: "b", Objective: "inspect b"},
 		{Name: "c", Objective: "join results", DependsOn: []string{"a", "b"}},
 	}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	updated := getSecurityScan(t, k8sClient, scan)
@@ -80,7 +82,7 @@ func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) 
 		OutputSchema: `{"type":"object"}`,
 		Tools:        &triggersv1alpha1.SecurityScanTaskTools{Allowed: []string{"read_file"}, Denied: []string{"Bash"}},
 	}}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	runs := securityScanRuns(t, k8sClient, scan.Namespace)
@@ -104,11 +106,19 @@ func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) 
 	// contract tools (the task declares an outputSchema and is the DAG's
 	// sink, so submit_task_output and submit_security_scan_report are due).
 	wantAllowed := "read_file,report_security_finding,update_security_finding,submit_task_output,submit_security_scan_report"
-	if run.Spec.ToolPolicy == nil || strings.Join(run.Spec.ToolPolicy.AllowedTools, ",") != wantAllowed || strings.Join(run.Spec.ToolPolicy.DeniedTools, ",") != "Bash" {
-		t.Fatalf("ToolPolicy = %#v, want allowed %q and denied Bash", run.Spec.ToolPolicy, wantAllowed)
+	// The default role is read-only, so the repository- and forge-mutating
+	// tools are denied on top of the task's own denials.
+	wantDenied := append([]string{"Bash"}, securityScanRoleWriteTools...)
+	if run.Spec.ToolPolicy == nil || strings.Join(run.Spec.ToolPolicy.AllowedTools, ",") != wantAllowed || strings.Join(run.Spec.ToolPolicy.DeniedTools, ",") != strings.Join(wantDenied, ",") {
+		t.Fatalf("ToolPolicy = %#v, want allowed %q and denied %q", run.Spec.ToolPolicy, wantAllowed, strings.Join(wantDenied, ","))
 	}
-	if run.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation] != "3" {
-		t.Fatalf("max-findings annotation = %q, want 3", run.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation])
+	// The scan declares no budgets, so only the task's own cap is stamped —
+	// it must never masquerade as the scan-wide budget.
+	if got, ok := run.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; ok {
+		t.Fatalf("scan max-findings annotation = %q, want unset without scan budgets", got)
+	}
+	if run.Annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation] != "3" {
+		t.Fatalf("task max-findings annotation = %q, want 3", run.Annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation])
 	}
 	if run.Annotations[securityScanTaskOutputSchemaAnnotation] != `{"type":"object"}` {
 		t.Fatalf("output-schema annotation = %q, want task schema", run.Annotations[securityScanTaskOutputSchemaAnnotation])
@@ -121,7 +131,7 @@ func TestSecurityScanDeterministicExecutionRetriesRetryableFailuresUntilBudgetIs
 	one := int32(1)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect", MaxRetries: &one}}, 1)
 	scan.Spec.Execution.RetryBackoff = metav1.Duration{Duration: 5 * time.Second}
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconciler.Now = func() time.Time { return clock }
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
@@ -204,7 +214,7 @@ func TestSecurityScanDeterministicFailureSkipsTransitiveDependents(t *testing.T)
 		{Name: "middle", Objective: "use source", DependsOn: []string{"source"}},
 		{Name: "leaf", Objective: "use middle", DependsOn: []string{"middle"}},
 	}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
@@ -229,7 +239,7 @@ func TestSecurityScanDeterministicResumeRestartsFailedAndSkippedTasks(t *testing
 		{Name: "source", Objective: "inspect", MaxRetries: &zero},
 		{Name: "join", Objective: "join", DependsOn: []string{"source"}},
 	}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	first := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
@@ -268,7 +278,7 @@ func TestSecurityScanDeterministicResumeRestartsFailedAndSkippedTasks(t *testing
 func TestSecurityScanDeterministicResumeConsumesTokenWithoutChangingLiveExecution(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect"}}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	updated := getSecurityScan(t, k8sClient, scan)
@@ -292,7 +302,7 @@ func TestSecurityScanDeterministicExecutionExpandsFanOutAndRendersOutputs(t *tes
 		{Name: "fan", Objective: "inspect {{item.field}}", DependsOn: []string{"source"}, ForEach: "source", OutputSchema: `{"type":"object"}`},
 		{Name: "join", Objective: "combine {{tasks.fan.output}}", DependsOn: []string{"fan"}},
 	}, 2)
-	reconciler, k8sClient, stateStore := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, stateStore := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
@@ -331,7 +341,7 @@ func TestSecurityScanDeterministicExecutionFailsFanOutForNonArrayOutput(t *testi
 		{Name: "source", Objective: "produce target", OutputSchema: `{"properties":{"field":{"type":"string"}}}`},
 		{Name: "fan", Objective: "inspect {{item.field}}", DependsOn: []string{"source"}, ForEach: "source"},
 	}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `{"field":"one"}`, "")
@@ -353,7 +363,7 @@ func TestSecurityScanDeterministicExecutionLimitsFanOutInstances(t *testing.T) {
 		{Name: "source", Objective: "produce targets", OutputSchema: `{"type":"array"}`},
 		{Name: "fan", Objective: "inspect {{item.field}}", DependsOn: []string{"source"}, ForEach: "source", MaxInstances: 1},
 	}, 2)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[{"field":"one"},{"field":"two"}]`, "")
@@ -367,7 +377,7 @@ func TestSecurityScanDeterministicExecutionLimitsFanOutInstances(t *testing.T) {
 func TestSecurityScanDeterministicExecutionFailsTaskWithoutRequiredStructuredOutput(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "source", Objective: "produce output", OutputSchema: `{"type":"object"}`}}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
@@ -384,7 +394,7 @@ func TestSecurityScanDeterministicExecutionRejectsMissingRequiredWorkflowParamet
 	scan := deterministicSecurityScan(nil, 1)
 	scan.Spec.WorkflowRef = &triggersv1alpha1.SecurityResourceRef{Name: "parameterized"}
 	workflow := parameterizedSecurityWorkflow(scan.Namespace)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, workflow)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan, workflow)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	updated := getSecurityScan(t, k8sClient, scan)
@@ -405,7 +415,7 @@ func TestSecurityScanWorkflowParametersRenderProvidedValuesAndDefaultsInBothMode
 		scan := deterministicSecurityScan(nil, 1)
 		scan.Spec.WorkflowRef = &triggersv1alpha1.SecurityResourceRef{Name: workflow.Name}
 		scan.Spec.ParameterValues = map[string]string{"required": "payments"}
-		reconciler, k8sClient, stateStore := newSecurityScanReconciler(t, now, scan, workflow)
+		reconciler, k8sClient, stateStore := newDeterministicSecurityScanReconciler(t, now, scan, workflow)
 		reconcileDeterministicSecurityScan(t, reconciler, scan)
 		run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "inspect")
 		seed := securityScanSeedMessage(t, stateStore, scan.Namespace, run.Name)
@@ -418,7 +428,7 @@ func TestSecurityScanWorkflowParametersRenderProvidedValuesAndDefaultsInBothMode
 		scan := securityScanTestScan()
 		scan.Spec.WorkflowRef = &triggersv1alpha1.SecurityResourceRef{Name: workflow.Name}
 		scan.Spec.ParameterValues = map[string]string{"required": "payments"}
-		reconciler, k8sClient, stateStore := newSecurityScanReconciler(t, now, scan, workflow)
+		reconciler, k8sClient, stateStore := newDeterministicSecurityScanReconciler(t, now, scan, workflow)
 		if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
 		}
@@ -440,7 +450,7 @@ func TestSecurityScanDeterministicExecutionFailsWhenModelJobBudgetPreventsNextTa
 		{Name: "b", Objective: "inspect b"},
 	}, 1)
 	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxModelJobs: 1}
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	a := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, a.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
@@ -459,7 +469,7 @@ func TestSecurityScanDeterministicExecutionConsumesManualRequestWhenLiveExecutio
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect"}}, 1)
 	scan.Annotations = map[string]string{triggersv1alpha1.SecurityScanRunNowAnnotation: "first"}
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	updated := getSecurityScan(t, k8sClient, scan)
@@ -490,7 +500,7 @@ func TestSecurityScanDeterministicExecutionPublishesCheckAndNotificationOnce(t *
 		ObjectMeta: metav1.ObjectMeta{Name: "slack-webhook", Namespace: scan.Namespace},
 		Data:       map[string][]byte{"url": []byte("https://hooks.example.test/security")},
 	}
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, repo, webhookSecret)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan, repo, webhookSecret)
 	publisher := &fakeSecurityCheckPublisher{}
 	notifier := &fakeSecurityScanNotifier{}
 	findings := &executionSideEffectFindingStore{notifyTestFindingStore: newNotifyTestFindingStore(notifyTestFinding("fp", "critical", store.SecurityFindingBaselineNew))}
@@ -593,6 +603,48 @@ func TestPlanSecurityScanExecutionExpandsRepeatsAndDefersFanOut(t *testing.T) {
 	assertExecutionTaskState(t, exec, "repeat", 0, triggersv1alpha1.SecurityScanTaskStatePending)
 	assertExecutionTaskState(t, exec, "repeat", 1, triggersv1alpha1.SecurityScanTaskStatePending)
 	assertExecutionTaskState(t, exec, "fan", 0, triggersv1alpha1.SecurityScanTaskStatePending)
+}
+
+// newDeterministicSecurityScanReconciler seeds the cluster-scoped
+// RoleInstructions every deterministic dispatch resolves before it creates a
+// task run, so these tests exercise the scheduler instead of a missing asset.
+func newDeterministicSecurityScanReconciler(t *testing.T, now time.Time, objects ...client.Object) (*SecurityScanReconciler, client.Client, *seedTestStore) {
+	t.Helper()
+	return newSecurityScanReconciler(t, now, append(securityScanTestRoles(), objects...)...)
+}
+
+// securityScanTestRoles mirrors the shipped security RoleInstruction assets:
+// each role carries a distinct contract (instructions, tool access, model
+// routing, reasoning) so tests can prove the dispatch applies the right one.
+func securityScanTestRoles() []client.Object {
+	return []client.Object{
+		securityScanTestRole(triggersv1alpha1.DefaultSecurityScanRole, platformv1alpha1.RoleInstructionSpec{
+			Instructions: "Review code for vulnerabilities.",
+			ToolAccess:   "read-only",
+		}),
+		securityScanTestRole("threat-modeler", platformv1alpha1.RoleInstructionSpec{
+			Instructions:     "Model the attack surface and trust boundaries.",
+			Description:      "Threat modelling specialist",
+			ToolAccess:       "analysis",
+			ModelsByProvider: map[string]string{"openai": "gpt-5.4-threat", "anthropic": "claude-threat"},
+			ReasoningLevel:   platformv1alpha1.ReasoningHigh,
+		}),
+		securityScanTestRole("exploit-validator", platformv1alpha1.RoleInstructionSpec{
+			Instructions: "Build a proof-of-concept for each candidate vulnerability.",
+			Description:  "Exploit validation specialist",
+			ToolAccess:   "execution",
+		}),
+		securityScanTestRole("finding-triager", platformv1alpha1.RoleInstructionSpec{
+			Instructions:   "Triage reported findings and rank them.",
+			Description:    "Finding triage specialist",
+			ToolAccess:     "read-only",
+			ReasoningLevel: platformv1alpha1.ReasoningLow,
+		}),
+	}
+}
+
+func securityScanTestRole(name string, spec platformv1alpha1.RoleInstructionSpec) client.Object {
+	return &platformv1alpha1.RoleInstruction{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: spec}
 }
 
 func deterministicSecurityScan(tasks []triggersv1alpha1.SecurityScanTask, parallelism int32) *triggersv1alpha1.SecurityScan {
@@ -711,7 +763,7 @@ func TestSecurityScanDeterministicExecutionFailsWhenWorkflowGainsTaskMidExecutio
 		{Name: "a", Objective: "inspect a"},
 		{Name: "c", Objective: "join", DependsOn: []string{"a"}},
 	}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	assertExecutionTaskState(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
 
@@ -763,7 +815,7 @@ func TestSecurityScanDeterministicExecutionRequeuesOnTransientRefErrorAndFailsOn
 			{Name: "a", Objective: "inspect a"},
 		}},
 	}
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, workflow)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan, workflow)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	assertExecutionTaskState(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
 
@@ -813,7 +865,7 @@ func (c *staleLastExecutionClient) Get(ctx context.Context, key client.ObjectKey
 func TestSecurityScanStartDeterministicExecutionToleratesStaleCacheAfterStatusWrite(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect a"}}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	stale := &staleLastExecutionClient{Client: reconciler.Client, armed: true}
 	reconciler.Client = stale
 
@@ -840,7 +892,7 @@ func TestSecurityScanDeterministicTaskRunAllowListAppendsOnlyDueContractTools(t 
 		{Name: "a", Objective: "inspect", Tools: &triggersv1alpha1.SecurityScanTaskTools{Allowed: []string{"read_file", "report_security_finding"}}},
 		{Name: "b", Objective: "aggregate", DependsOn: []string{"a"}},
 	}, 2)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
@@ -855,7 +907,7 @@ func TestSecurityScanExpandFanOutsTruncatesToExecutionEntryCeiling(t *testing.T)
 	source := triggersv1alpha1.SecurityScanTask{Name: "source", Objective: "list", OutputSchema: `{"type":"array"}`}
 	fan := triggersv1alpha1.SecurityScanTask{Name: "fan", Objective: "inspect {{item}}", DependsOn: []string{"source"}, ForEach: "source", MaxInstances: 50}
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{source, fan}, 1)
-	reconciler, _, _ := newSecurityScanReconciler(t, now.Time, scan)
+	reconciler, _, _ := newDeterministicSecurityScanReconciler(t, now.Time, scan)
 
 	exec := &triggersv1alpha1.SecurityScanExecutionStatus{
 		ID:   "cap",
@@ -929,14 +981,14 @@ func TestTruncateSecurityScanErrorCapsAt160Characters(t *testing.T) {
 	}
 }
 
-func TestSecurityScanDeterministicTaskCostAndFindingsCapsNeverLoosenScanBudgets(t *testing.T) {
+func TestSecurityScanDeterministicTaskCostCapsNeverLoosenScanBudgetsAndFindingCapsStaySeparate(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
 		{Name: "looser", Objective: "inspect widely", MaxCostUSD: "5.00", MaxFindings: 40},
 		{Name: "tighter", Objective: "inspect narrowly", MaxCostUSD: "0.50", MaxFindings: 5},
 	}, 2)
 	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxCostUSD: "2.00", MaxFindings: 10}
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	runs := securityScanRuns(t, k8sClient, scan.Namespace)
@@ -944,15 +996,23 @@ func TestSecurityScanDeterministicTaskCostAndFindingsCapsNeverLoosenScanBudgets(
 	if looser.Spec.Limits == nil || looser.Spec.Limits.MaxCostUsd != "2.00" {
 		t.Fatalf("looser task limits = %#v, want scan-wide maxCostUSD 2.00 (task cap must not loosen it)", looser.Spec.Limits)
 	}
-	if got := looser.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "10" {
-		t.Fatalf("looser max-findings annotation = %q, want scan-wide 10 (task cap must not loosen it)", got)
+	// The two finding budgets are separate ceilings: the per-task cap lands on
+	// its own annotation unmodified and never rewrites the scan-wide one every
+	// task of the execution shares.
+	for _, run := range []platformv1alpha1.AgentRun{looser, taskRunByTask(t, runs, "tighter")} {
+		if got := run.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "10" {
+			t.Fatalf("%s scan max-findings annotation = %q, want scan-wide 10", run.Labels[securityScanTaskLabel], got)
+		}
+	}
+	if got := looser.Annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation]; got != "40" {
+		t.Fatalf("looser task max-findings annotation = %q, want unmodified 40", got)
 	}
 	tighter := taskRunByTask(t, runs, "tighter")
 	if tighter.Spec.Limits == nil || tighter.Spec.Limits.MaxCostUsd != "0.50" {
 		t.Fatalf("tighter task limits = %#v, want narrowed maxCostUSD 0.50", tighter.Spec.Limits)
 	}
-	if got := tighter.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "5" {
-		t.Fatalf("tighter max-findings annotation = %q, want narrowed 5", got)
+	if got := tighter.Annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation]; got != "5" {
+		t.Fatalf("tighter task max-findings annotation = %q, want 5", got)
 	}
 }
 
@@ -961,7 +1021,7 @@ func TestSecurityScanDeterministicResumeKeepsAttemptsForModelJobBudget(t *testin
 	zero := int32(0)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect", MaxRetries: &zero}}, 1)
 	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxModelJobs: 1}
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	first := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
@@ -1002,7 +1062,7 @@ func TestSecurityScanDeterministicResumeRefreshesRetryBudgetPerCycle(t *testing.
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	zero := int32(0)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect", MaxRetries: &zero}}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	first := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
@@ -1038,7 +1098,7 @@ func TestSecurityScanDeterministicExecutionFailsWhenSpecBecomesInvalidMidExecuti
 		{Name: "a", Objective: "inspect a"},
 		{Name: "b", Objective: "join", DependsOn: []string{"a"}},
 	}, 1)
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	assertExecutionTaskState(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
 
@@ -1067,5 +1127,739 @@ func TestSecurityScanDeterministicExecutionFailsWhenSpecBecomesInvalidMidExecuti
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	if phase := getSecurityScan(t, k8sClient, scan).Status.LastExecution.Phase; phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
 		t.Fatalf("execution phase after re-reconcile = %q, want Failed", phase)
+	}
+}
+
+func TestSecurityScanDeterministicTaskRunsStampExecutionIdentityPerExecution(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "a", Objective: "inspect a"},
+		{Name: "b", Objective: "inspect b"},
+	}, 2)
+	scan.Annotations = map[string]string{triggersv1alpha1.SecurityScanRunNowAnnotation: "first"}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	aRun, bRun := taskRunByTask(t, runs, "a"), taskRunByTask(t, runs, "b")
+	execID := getSecurityScan(t, k8sClient, scan).Status.LastExecution.ID
+	for _, run := range []platformv1alpha1.AgentRun{aRun, bRun} {
+		if got := run.Annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation]; got != execID {
+			t.Fatalf("run %s execution-id annotation = %q, want %q", run.Name, got, execID)
+		}
+	}
+	if a, b := aRun.Annotations[triggersv1alpha1.SecurityScanTaskNameAnnotation], bRun.Annotations[triggersv1alpha1.SecurityScanTaskNameAnnotation]; a != "a" || b != "b" {
+		t.Fatalf("task-name annotations = %q/%q, want a/b", a, b)
+	}
+
+	for _, run := range []platformv1alpha1.AgentRun{aRun, bRun} {
+		markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] = "second"
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan manual token): %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	nextID := getSecurityScan(t, k8sClient, scan).Status.LastExecution.ID
+	if nextID == execID {
+		t.Fatalf("second execution id = %q, want a new id (findings must never mix across executions)", nextID)
+	}
+	for _, run := range securityScanRuns(t, k8sClient, scan.Namespace) {
+		stamped := run.Annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation]
+		if stamped != execID && stamped != nextID {
+			t.Fatalf("run %s execution-id annotation = %q, want one of the two executions", run.Name, stamped)
+		}
+	}
+}
+
+func TestSecurityScanDeterministicTaskRunsApplyDistinctRoleContracts(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "model", Objective: "map the attack surface", Role: "threat-modeler"},
+		{Name: "validate", Objective: "prove exploitability", Role: "exploit-validator"},
+		{Name: "triage", Objective: "rank findings", Role: "finding-triager"},
+	}, 3)
+	scan.Spec.Defaults.CustomInstructions = "Scan-level house rules."
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	modelRun := taskRunByTask(t, runs, "model")
+	validateRun := taskRunByTask(t, runs, "validate")
+	triageRun := taskRunByTask(t, runs, "triage")
+
+	for role, run := range map[string]platformv1alpha1.AgentRun{
+		"threat-modeler":    modelRun,
+		"exploit-validator": validateRun,
+		"finding-triager":   triageRun,
+	} {
+		if got := run.Annotations[triggersv1alpha1.SecurityScanTaskRoleAnnotation]; got != role {
+			t.Fatalf("run %s role annotation = %q, want %q", run.Name, got, role)
+		}
+		instructions := securityScanRunInstructions(t, k8sClient, scan.Namespace, run)
+		if !strings.Contains(instructions, "Scan-level house rules.") {
+			t.Fatalf("run %s instructions dropped the scan-level instructions: %q", run.Name, instructions)
+		}
+		if !strings.Contains(instructions, "## Role: "+role) {
+			t.Fatalf("run %s instructions = %q, want a delimited %q section", run.Name, instructions, role)
+		}
+	}
+	if got := securityScanRunInstructions(t, k8sClient, scan.Namespace, modelRun); !strings.Contains(got, "trust boundaries") {
+		t.Fatalf("threat-modeler instructions = %q, want its own role prompt", got)
+	}
+	if got := securityScanRunInstructions(t, k8sClient, scan.Namespace, validateRun); !strings.Contains(got, "proof-of-concept") {
+		t.Fatalf("exploit-validator instructions = %q, want its own role prompt", got)
+	}
+
+	// threat-modeler routes its own provider model and reasoning level; the
+	// execution role keeps the scan's model and full tool access.
+	if modelRun.Spec.Model != "gpt-5.4-threat" || modelRun.Spec.ReasoningLevel != platformv1alpha1.ReasoningHigh {
+		t.Fatalf("threat-modeler run model/reasoning = %q/%q, want the role's routing", modelRun.Spec.Model, modelRun.Spec.ReasoningLevel)
+	}
+	if validateRun.Spec.Model != "gpt-5.4" || validateRun.Spec.ToolPolicy != nil {
+		t.Fatalf("exploit-validator run model/toolPolicy = %q/%#v, want the scan model and no narrowing", validateRun.Spec.Model, validateRun.Spec.ToolPolicy)
+	}
+	if triageRun.Spec.ReasoningLevel != platformv1alpha1.ReasoningLow {
+		t.Fatalf("finding-triager reasoning = %q, want the role's low level", triageRun.Spec.ReasoningLevel)
+	}
+	for _, run := range []platformv1alpha1.AgentRun{modelRun, triageRun} {
+		if run.Spec.ToolPolicy == nil || !slices.Contains(run.Spec.ToolPolicy.DeniedTools, "Write") || !slices.Contains(run.Spec.ToolPolicy.DeniedTools, "git_push") {
+			t.Fatalf("run %s tool policy = %#v, want write tools denied for a read-only role", run.Name, run.Spec.ToolPolicy)
+		}
+	}
+}
+
+func TestSecurityScanDeterministicTaskDispatchFailsWhenRoleCannotBeResolved(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "ghost", Objective: "inspect", Role: "no-such-role"},
+	}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	entry := executionTask(t, updated.Status.LastExecution, "ghost", 0)
+	if entry.State != triggersv1alpha1.SecurityScanTaskStateFailed {
+		t.Fatalf("task state = %q, want Failed for an unresolvable role", entry.State)
+	}
+	if !strings.Contains(entry.LastError, `"ghost"`) || !strings.Contains(entry.LastError, "no-such-role") {
+		t.Fatalf("task lastError = %q, want it to name the task and the missing role", entry.LastError)
+	}
+	if got := len(securityScanRuns(t, k8sClient, scan.Namespace)); got != 0 {
+		t.Fatalf("AgentRuns = %d, want no run dispatched without a role contract", got)
+	}
+}
+
+// securityScanRunInstructions reads the custom instructions materialised for a
+// run through its instructions ConfigMap reference.
+func securityScanRunInstructions(t *testing.T, k8sClient client.Client, namespace string, run platformv1alpha1.AgentRun) string {
+	t.Helper()
+	name := run.Annotations["platform.gratefulagents.dev/instructions-configmap-ref"]
+	if name == "" {
+		t.Fatalf("run %s has no instructions ConfigMap reference", run.Name)
+	}
+	cm := &corev1.ConfigMap{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: name}, cm); err != nil {
+		t.Fatalf("Get(ConfigMap %s): %v", name, err)
+	}
+	return cm.Data["instructions.md"]
+}
+
+func TestSecurityScanCoordinatorRunStampsItsOwnExecutionID(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Annotations = map[string]string{triggersv1alpha1.SecurityScanRunNowAnnotation: "tok-1"}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want the coordinator run", len(runs))
+	}
+	execID := getSecurityScan(t, k8sClient, scan).Status.LastExecution.ID
+	if got := runs[0].Annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation]; got == "" || got != execID {
+		t.Fatalf("coordinator execution-id annotation = %q, want the run's execution %q", got, execID)
+	}
+}
+
+// postScriptFindingStore serves the findings a post-script matrix is
+// materialized from and reloaded against, and counts list calls so tests can
+// prove the matrix is computed exactly once.
+type postScriptFindingStore struct {
+	store.SecurityFindingStore
+	findings  []store.SecurityFindingRecord
+	listCalls int
+	filters   []store.SecurityFindingFilter
+}
+
+func (s *postScriptFindingStore) ListSecurityFindings(_ context.Context, f store.SecurityFindingFilter) ([]store.SecurityFindingRecord, error) {
+	s.listCalls++
+	s.filters = append(s.filters, f)
+	out := append([]store.SecurityFindingRecord(nil), s.findings...)
+	// The real store caps the result at the requested limit; honouring it here
+	// is what lets a test observe truncation of the matrix.
+	if f.Limit > 0 && len(out) > int(f.Limit) {
+		out = out[:f.Limit]
+	}
+	return out, nil
+}
+
+func (s *postScriptFindingStore) GetSecurityFinding(_ context.Context, _ string, id uuid.UUID) (*store.SecurityFindingRecord, error) {
+	for i := range s.findings {
+		if s.findings[i].ID == id {
+			rec := s.findings[i]
+			return &rec, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *postScriptFindingStore) SummarizeSecurityFindings(context.Context, string, string, string, bool) (map[string]int32, error) {
+	return map[string]int32{}, nil
+}
+
+func (s *postScriptFindingStore) setStatus(t *testing.T, fingerprint, status string) {
+	t.Helper()
+	for i := range s.findings {
+		if s.findings[i].Fingerprint == fingerprint {
+			s.findings[i].Status = status
+			return
+		}
+	}
+	t.Fatalf("finding %q not in the store", fingerprint)
+}
+
+func postScriptTestFinding(id, fingerprint, severity, status string) store.SecurityFindingRecord {
+	return store.SecurityFindingRecord{
+		ID:          uuid.MustParse(id),
+		Fingerprint: fingerprint,
+		Title:       "finding " + fingerprint,
+		Severity:    severity,
+		Status:      status,
+		FilePath:    "internal/auth/session.go",
+		StartLine:   42,
+		Description: "unauthenticated session reuse",
+	}
+}
+
+// postScriptSecurityScan builds a research -> report DAG (report is the sink)
+// with the given post-scripts.
+func postScriptSecurityScan(scripts []triggersv1alpha1.SecurityScanPostScript, parallelism int32) *triggersv1alpha1.SecurityScan {
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "research", Objective: "inspect the surface"},
+		{Name: "report", Objective: "summarize", DependsOn: []string{"research"}},
+	}, parallelism)
+	scan.Spec.PostScripts = scripts
+	return scan
+}
+
+func postScriptJob(t *testing.T, exec *triggersv1alpha1.SecurityScanExecutionStatus, script, fingerprint string) triggersv1alpha1.SecurityScanPostScriptJobStatus {
+	t.Helper()
+	if exec == nil {
+		t.Fatal("execution is nil")
+	}
+	for _, job := range exec.PostScriptJobs {
+		if job.Script == script && job.Fingerprint == fingerprint {
+			return job
+		}
+	}
+	t.Fatalf("post-script job %s/%s missing from %#v", script, fingerprint, exec.PostScriptJobs)
+	return triggersv1alpha1.SecurityScanPostScriptJobStatus{}
+}
+
+func postScriptRun(t *testing.T, runs []platformv1alpha1.AgentRun, script, fingerprint string) platformv1alpha1.AgentRun {
+	t.Helper()
+	for _, run := range runs {
+		if run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] == script &&
+			run.Annotations[triggersv1alpha1.SecurityScanPostScriptFindingAnnotation] == fingerprint {
+			return run
+		}
+	}
+	t.Fatalf("post-script run %s/%s missing from %#v", script, fingerprint, runs)
+	return platformv1alpha1.AgentRun{}
+}
+
+func TestSecurityScanPostScriptsMaterializeOncePerFindingInScriptOrder(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+		{Name: "triage", Prompt: "Assign a final status."},
+	}, 4)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	findings := &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000b1", "fp-beta", "high", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+	}}
+	reconciler.Findings = findings
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if !exec.PostScriptsMaterialized || len(exec.PostScriptJobs) != 4 {
+		t.Fatalf("post-script jobs = %#v, want a materialized 2x2 matrix", exec.PostScriptJobs)
+	}
+	// Findings sort by fingerprint and each finding's scripts follow spec
+	// order, so a later script always observes the earlier script's verdict.
+	wantOrder := []string{"fp-alpha/validate", "fp-alpha/triage", "fp-beta/validate", "fp-beta/triage"}
+	for i, want := range wantOrder {
+		job := exec.PostScriptJobs[i]
+		if got := job.Fingerprint + "/" + job.Script; got != want {
+			t.Fatalf("job %d = %q, want %q", i, got, want)
+		}
+	}
+	if exec.PostScriptJobs[0].State != triggersv1alpha1.SecurityScanPostScriptStateRunning ||
+		exec.PostScriptJobs[1].State != triggersv1alpha1.SecurityScanPostScriptStatePending {
+		t.Fatalf("per-finding serialization broken: %#v", exec.PostScriptJobs[:2])
+	}
+	if exec.PostScriptJobs[2].State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+		t.Fatalf("second finding did not start in parallel: %#v", exec.PostScriptJobs[2])
+	}
+	// The sink may not launch while verdicts are outstanding.
+	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStatePending)
+	if runs := taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "report"); len(runs) != 0 {
+		t.Fatalf("report runs = %#v, want none while post-script jobs are pending", runs)
+	}
+	run := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
+	if run.Annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation] != exec.ID {
+		t.Fatalf("post-script run annotations = %#v, want the execution id", run.Annotations)
+	}
+	if run.Spec.ModeRef == nil || run.Spec.ModeRef.Name != securityScanTaskModeTemplate {
+		t.Fatalf("ModeRef = %#v, want %q", run.Spec.ModeRef, securityScanTaskModeTemplate)
+	}
+	if len(run.OwnerReferences) != 1 || run.OwnerReferences[0].Name != scan.Name {
+		t.Fatalf("OwnerReferences = %#v, want SecurityScan owner", run.OwnerReferences)
+	}
+	if run.Spec.ToolPolicy == nil || !slices.Contains(run.Spec.ToolPolicy.DeniedTools, "submit_security_scan_report") {
+		t.Fatalf("ToolPolicy = %#v, want submit_security_scan_report denied", run.Spec.ToolPolicy)
+	}
+
+	for _, fingerprint := range []string{"fp-alpha", "fp-beta"} {
+		first := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", fingerprint)
+		markSecurityScanTaskRun(t, k8sClient, scan.Namespace, first.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if job := postScriptJob(t, exec, "validate", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateSucceeded ||
+		!strings.Contains(job.Result, `finding status is "open"`) {
+		t.Fatalf("succeeded job = %#v, want the reloaded finding status as its result", job)
+	}
+	if job := postScriptJob(t, exec, "triage", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+		t.Fatalf("second script = %#v, want Running once the first one finished", job)
+	}
+	if findings.listCalls != 1 {
+		t.Fatalf("finding list calls = %d, want the matrix materialized exactly once", findings.listCalls)
+	}
+	if got := findings.filters[0]; got.ExecutionID != exec.ID || got.Namespace != scan.Namespace || got.ScanName != scan.Name {
+		t.Fatalf("finding filter = %#v, want this execution's findings", got)
+	}
+
+	for _, fingerprint := range []string{"fp-alpha", "fp-beta"} {
+		second := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "triage", fingerprint)
+		markSecurityScanTaskRun(t, k8sClient, scan.Namespace, second.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
+		t.Fatalf("execution phase = %q, want Running until the sink completes", exec.Phase)
+	}
+	report := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "report")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, report.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if phase := getSecurityScan(t, k8sClient, scan).Status.LastExecution.Phase; phase != triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+		t.Fatalf("execution phase = %q, want Succeeded once every job and task finished", phase)
+	}
+}
+
+func TestSecurityScanPostScriptsReevaluateRunOnAgainstTheReloadedFinding(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+		{Name: "exploit", RunOn: "confirmed", Prompt: "Weaponize the confirmed issue."},
+	}, 4)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	findings := &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000b1", "fp-beta", "high", "open"),
+	}}
+	reconciler.Findings = findings
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	// The first script confirms one finding and leaves the other open; the
+	// second script's runOn is decided by THAT state, not by the state the
+	// matrix was materialized from.
+	findings.setStatus(t, "fp-alpha", store.SecurityFindingStatusConfirmed)
+	for _, fingerprint := range []string{"fp-alpha", "fp-beta"} {
+		run := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", fingerprint)
+		markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if job := postScriptJob(t, exec, "exploit", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+		t.Fatalf("confirmed finding job = %#v, want Running", job)
+	}
+	skipped := postScriptJob(t, exec, "exploit", "fp-beta")
+	if skipped.State != triggersv1alpha1.SecurityScanPostScriptStateSkipped ||
+		!strings.Contains(skipped.Result, `runOn "confirmed"`) || !strings.Contains(skipped.Result, `status "open"`) {
+		t.Fatalf("unconfirmed finding job = %#v, want Skipped stating the unmatched status", skipped)
+	}
+	// Skipping is a normal outcome, not incomplete coverage.
+	if len(exec.CoverageGaps) != 0 {
+		t.Fatalf("coverage gaps = %#v, want none for a runOn skip", exec.CoverageGaps)
+	}
+}
+
+func TestSecurityScanFailedPostScriptRecordsCoverageGapAndReleasesTheSink(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	noRetries := int32(0)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+	}, 4)
+	scan.Spec.Execution.TaskMaxRetries = &noRetries
+	reconciler, k8sClient, stateStore := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	job := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, job.Name, platformv1alpha1.AgentRunPhaseFailed, "", "invalid post-script tool call")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if entry := postScriptJob(t, exec, "validate", "fp-alpha"); entry.State != triggersv1alpha1.SecurityScanPostScriptStateFailed {
+		t.Fatalf("job = %#v, want Failed after a non-retryable failure", entry)
+	}
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], `post-script "validate" did not complete for finding fp-alpha`) {
+		t.Fatalf("coverage gaps = %#v, want the failed post-script recorded", exec.CoverageGaps)
+	}
+	// A failed job is terminal: it must not block the report forever, but the
+	// report must state the gap.
+	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+	report := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "report")
+	prompt := securityScanSeedMessage(t, stateStore, scan.Namespace, report.Name)
+	if !strings.Contains(prompt, "## Incomplete coverage") || !strings.Contains(prompt, exec.CoverageGaps[0]) {
+		t.Fatalf("sink prompt does not disclose the coverage gap:\n%s", prompt)
+	}
+}
+
+func TestSecurityScanPostScriptsDoNotBlockTheScanWithoutAFindingStore(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+	}, 4)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if !exec.PostScriptsMaterialized || len(exec.PostScriptJobs) != 0 {
+		t.Fatalf("execution = %#v, want an empty materialized matrix without a finding store", exec.PostScriptJobs)
+	}
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "no finding store is configured") {
+		t.Fatalf("coverage gaps = %#v, want the missing finding store recorded", exec.CoverageGaps)
+	}
+	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+}
+
+func TestSecurityScanFanOutTruncationIsRecordedAsCoverageGap(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source", Objective: "produce targets", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{item.field}}", DependsOn: []string{"source"}, ForEach: "source", MaxInstances: 1},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[{"field":"one"},{"field":"two"}]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], `task "fan" fan-out truncated from 2 to 1 instances`) {
+		t.Fatalf("coverage gaps = %#v, want the truncated inventory recorded", exec.CoverageGaps)
+	}
+}
+
+// postScriptCreateRejector fails every post-script AgentRun create the way a
+// permanent admission rejection or an exhausted quota does: the error text
+// carries no marker, so the engine classifies it retryable.
+type postScriptCreateRejector struct {
+	client.Client
+}
+
+func (c postScriptCreateRejector) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if run, ok := obj.(*platformv1alpha1.AgentRun); ok && run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] != "" {
+		return fmt.Errorf("admission webhook denied the request: post-script runs are not permitted")
+	}
+	return c.Client.Create(ctx, obj, opts...)
+}
+
+func TestSecurityScanPostScriptDispatchFailureConsumesAttemptsAndReleasesTheSink(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	oneRetry := int32(1)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+	}, 4)
+	scan.Spec.Execution.TaskMaxRetries = &oneRetry
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Client = postScriptCreateRejector{Client: reconciler.Client}
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+
+	// A dispatch that never lands still consumes an attempt, so the retry
+	// budget runs out instead of re-dispatching forever behind the gate.
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	job := postScriptJob(t, exec, "validate", "fp-alpha")
+	if job.Attempts != 1 || job.State != triggersv1alpha1.SecurityScanPostScriptStatePending {
+		t.Fatalf("job after a failed dispatch = %#v, want attempts 1 still pending for its last retry", job)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	job = postScriptJob(t, exec, "validate", "fp-alpha")
+	if job.Attempts != 2 || job.State != triggersv1alpha1.SecurityScanPostScriptStateFailed {
+		t.Fatalf("job after the retry budget ran out = %#v, want attempts 2 and Failed", job)
+	}
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], `post-script "validate" did not complete for finding fp-alpha`) {
+		t.Fatalf("coverage gaps = %#v, want the undispatchable post-script recorded", exec.CoverageGaps)
+	}
+	// The sink gate is open again: a job that can never dispatch must not
+	// deadlock the report.
+	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+}
+
+func TestSecurityScanResumeKeepsCoverageGapsItCannotRederive(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	noRetries := int32(0)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source", Objective: "produce targets", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{item.field}}", DependsOn: []string{"source"}, ForEach: "source", MaxInstances: 1},
+		{Name: "report", Objective: "summarize", DependsOn: []string{"fan"}},
+	}, 4)
+	scan.Spec.Execution.TaskMaxRetries = &noRetries
+	scan.Spec.PostScripts = []triggersv1alpha1.SecurityScanPostScript{{Name: "validate", Prompt: "Build a proof of concept."}}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[{"field":"one"},{"field":"two"}]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	fan := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "fan")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, fan.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	postScript := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, postScript.Name, platformv1alpha1.AgentRunPhaseFailed, "", "unauthorized")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	report := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "report")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, report.Name, platformv1alpha1.AgentRunPhaseFailed, "", "unauthorized")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed || len(exec.CoverageGaps) != 2 {
+		t.Fatalf("execution before resume = phase %q gaps %#v, want Failed with the fan-out and post-script gaps", exec.Phase, exec.CoverageGaps)
+	}
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Annotations = map[string]string{triggersv1alpha1.SecurityScanResumeAnnotation: "resume-gaps"}
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan resume annotation): %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	// The reset job's gap is retracted (it gets another attempt); the fan-out
+	// truncation is NOT re-derivable — expandFanOuts skips expanded tasks — so
+	// erasing it would hand the sink a partial scan presented as complete.
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], `task "fan" fan-out truncated from 2 to 1 instances`) {
+		t.Fatalf("coverage gaps after resume = %#v, want only the fan-out truncation kept", exec.CoverageGaps)
+	}
+	if job := postScriptJob(t, exec, "validate", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStatePending &&
+		job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+		t.Fatalf("resumed post-script job = %#v, want it retried", job)
+	}
+}
+
+func TestSecurityScanAllSinkWorkflowKeepsProsePostScriptsAndDisclosesTheGap(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "audit", Objective: "review the whole surface"},
+	}, 2)
+	scan.Spec.PostScripts = []triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept.", RunOn: "confirmed"},
+	}
+	reconciler, k8sClient, stateStore := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = &postScriptFindingStore{}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if len(exec.PostScriptJobs) != 0 {
+		t.Fatalf("post-script jobs = %#v, want none for an all-sink workflow", exec.PostScriptJobs)
+	}
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "every workflow task is a terminal (sink) task") {
+		t.Fatalf("coverage gaps = %#v, want the un-run post-script matrix disclosed", exec.CoverageGaps)
+	}
+	audit := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "audit")
+	prompt := securityScanSeedMessage(t, stateStore, scan.Namespace, audit.Name)
+	if strings.Contains(prompt, "The post-scripts already ran") {
+		t.Fatalf("sink prompt claims platform-executed post-scripts that never ran:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "running them is YOUR responsibility") ||
+		!strings.Contains(prompt, `Post-script "validate" (runs on: confirmed findings): Build a proof of concept.`) {
+		t.Fatalf("sink prompt does not carry the prose post-script instructions:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, exec.CoverageGaps[0]) {
+		t.Fatalf("sink prompt does not disclose the coverage gap:\n%s", prompt)
+	}
+}
+
+func TestSecurityScanPostScriptMatrixTruncationBeyondTheJobCapIsRecorded(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+	}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	// One script means the finding count and the job cap coincide: listing
+	// exactly the cap cannot tell "exactly full" from "truncated".
+	findings := &postScriptFindingStore{}
+	for i := 0; i < triggersv1alpha1.MaxSecurityScanPostScriptJobs+5; i++ {
+		findings.findings = append(findings.findings, postScriptTestFinding(
+			fmt.Sprintf("00000000-0000-0000-0000-%012d", i), fmt.Sprintf("fp-%04d", i), "high", "open"))
+	}
+	reconciler.Findings = findings
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	if got := findings.filters[0].Limit; got != int32(triggersv1alpha1.MaxSecurityScanPostScriptJobs)+1 {
+		t.Fatalf("finding list limit = %d, want one row past the job cap", got)
+	}
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if len(exec.PostScriptJobs) != triggersv1alpha1.MaxSecurityScanPostScriptJobs {
+		t.Fatalf("post-script jobs = %d, want the matrix capped at %d", len(exec.PostScriptJobs), triggersv1alpha1.MaxSecurityScanPostScriptJobs)
+	}
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "post-scripts ran on 200 of at least 201 eligible findings") {
+		t.Fatalf("coverage gaps = %#v, want the uncovered findings disclosed", exec.CoverageGaps)
+	}
+}
+
+func TestSecurityScanPostScriptDispatchStopsAtTheModelJobBudget(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+	}, 4)
+	// research (1 run) + one post-script job exhausts the allowance.
+	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxModelJobs: 2}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000b1", "fp-beta", "high", "open"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
+		t.Fatalf("execution phase = %q, want Running: the budget must stop dispatch, not fail the execution", exec.Phase)
+	}
+	if job := postScriptJob(t, exec, "validate", "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+		t.Fatalf("first job = %#v, want it dispatched inside the budget", job)
+	}
+	// The over-budget job is terminal, not Pending: pending jobs would hold
+	// the sink gate closed forever, since no later pass frees budget.
+	beta := postScriptJob(t, exec, "validate", "fp-beta")
+	if beta.State != triggersv1alpha1.SecurityScanPostScriptStateSkipped || beta.Attempts != 0 {
+		t.Fatalf("over-budget job = %#v, want it skipped without an attempt", beta)
+	}
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "1 post-script job(s) never ran") {
+		t.Fatalf("coverage gaps = %#v, want the budget-skipped jobs disclosed", exec.CoverageGaps)
+	}
+}
+
+func TestSecurityScanPostScriptRunInheritsTheSinkRoleToolNarrowing(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+	}, 4)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical", "open"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	run := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
+	if run.Spec.ToolPolicy == nil {
+		t.Fatal("post-script run has no tool policy")
+	}
+	// The sink task's read-only role governed post-scripts while they ran
+	// inside the sink run; dispatching them separately must not restore the
+	// write tools that role denies.
+	for _, tool := range []string{"submit_security_scan_report", "Write", "Edit", "create_pull_request"} {
+		if !slices.Contains(run.Spec.ToolPolicy.DeniedTools, tool) {
+			t.Fatalf("post-script denied tools = %#v, want %q denied", run.Spec.ToolPolicy.DeniedTools, tool)
+		}
+	}
+}
+
+func TestSecurityScanPostScriptRunNameKeysOnFindingIdentity(t *testing.T) {
+	// A fingerprint is unique only within (namespace, scan, repository), and
+	// CreateTriggerRun swallows AlreadyExists: two same-fingerprint findings
+	// must never bind to one AgentRun.
+	a := securityScanPostScriptRunName("scan", "exec", "validate", "00000000-0000-0000-0000-0000000000a1", 1, "")
+	b := securityScanPostScriptRunName("scan", "exec", "validate", "00000000-0000-0000-0000-0000000000b1", 1, "")
+	if a == b {
+		t.Fatalf("post-script run names collide across findings: %q", a)
+	}
+	if retry := securityScanPostScriptRunName("scan", "exec", "validate", "00000000-0000-0000-0000-0000000000a1", 2, ""); retry == a {
+		t.Fatalf("retry run name = %q, want it distinct from the attempt it replaces", retry)
+	}
+	if again := securityScanPostScriptRunName("scan", "exec", "validate", "00000000-0000-0000-0000-0000000000a1", 1, ""); again != a {
+		t.Fatalf("run name is not deterministic: %q != %q", again, a)
+	}
+	for _, name := range []string{a, b} {
+		if len(name) > 63 {
+			t.Fatalf("run name %q exceeds 63 characters", name)
+		}
 	}
 }

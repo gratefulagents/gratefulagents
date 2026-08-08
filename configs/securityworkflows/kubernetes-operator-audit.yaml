@@ -33,9 +33,12 @@ spec:
         runAsUser 0; serviceAccountName selecting a more privileged identity; nodeSelector, tolerations, and
         affinity that place pods on control-plane nodes; and free-form strings interpolated into scripts,
         templates, labels, annotations, URLs, or shelled-out commands. Check whether CRD schema markers,
-        defaulting, or webhook validation actually constrain each field, and treat "the CRD has no
-        validation" as the finding it is. Cite the type field and the construction site at file:line and
-        state what a namespace-scoped user achieves.
+        defaulting, or webhook validation actually constrain each field. A field with no schema validation is
+        only a candidate: report it as a vulnerability when you can follow the unvalidated value into a
+        privileged sink (a command line, an image reference, a mounted host path, a securityContext, a
+        service account selection, or a string interpolated into a script or URL). When no such sink is
+        reachable, the missing validation is a hardening note, not a finding. Cite the type field and the
+        construction site at file:line and state what a namespace-scoped user achieves.
       maxFindings: 8
     - name: privilege-escalation-via-owned-resources
       role: vulnerability-hunter
@@ -47,8 +50,7 @@ spec:
         named by the custom resource without verifying they belong to the requester's namespace and scope;
         whether it mounts its own credentials or token into workloads it creates; whether it grants
         RBAC to service accounts derived from user input; whether owner references or labels let a user
-        adopt, orphan, or redirect resources the controller manages (including cross-namespace owner
-        references that trigger garbage collection of other tenants' objects); and whether status or spec
+        adopt, orphan, or redirect resources the controller manages; and whether status or spec
         fields written by users influence what the controller does with cluster-scoped objects. Report with
         file:line evidence and name the identity or data the user reaches that they could not reach
         directly.

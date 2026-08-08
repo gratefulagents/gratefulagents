@@ -98,10 +98,14 @@ spec:
                     type: string
                   maxFindings:
                     description: |-
-                      maxFindings caps how many findings the scan may persist. Enforced by
-                      controller-side monitoring of the persisted finding count (the cap is
-                      also stated in the run prompt as guidance, but model output is never
-                      trusted for enforcement).
+                      maxFindings caps how many findings ONE execution of the scan may
+                      persist: every task run of a deterministic execution (and the single
+                      run of a coordinator-mode execution) shares this budget, and a later
+                      execution of the same scan starts from a fresh allowance rather than
+                      inheriting the scan's whole history. Enforced transactionally at the
+                      persistence boundary, so no model output can raise it (the cap is
+                      also stated in the run prompt, purely as guidance). A per-task cap is
+                      configured separately with SecurityScanTask.maxFindings.
                     format: int32
                     minimum: 0
                     type: integer
@@ -992,8 +996,11 @@ spec:
                       type: string
                     maxFindings:
                       description: |-
-                        maxFindings caps how many findings this task may report. Zero means
-                        unlimited.
+                        maxFindings caps how many findings this task may report, counted
+                        across every fan-out instance and retry of the task within one
+                        execution. Zero means unlimited. It is a separate scope from
+                        budgets.maxFindings, which every task of the execution shares, so
+                        parallel tasks never race for one cumulative allowance.
                       format: int32
                       minimum: 0
                       type: integer
@@ -1137,10 +1144,14 @@ spec:
                         type: string
                       maxFindings:
                         description: |-
-                          maxFindings caps how many findings the scan may persist. Enforced by
-                          controller-side monitoring of the persisted finding count (the cap is
-                          also stated in the run prompt as guidance, but model output is never
-                          trusted for enforcement).
+                          maxFindings caps how many findings ONE execution of the scan may
+                          persist: every task run of a deterministic execution (and the single
+                          run of a coordinator-mode execution) shares this budget, and a later
+                          execution of the same scan starts from a fresh allowance rather than
+                          inheriting the scan's whole history. Enforced transactionally at the
+                          persistence boundary, so no model output can raise it (the cap is
+                          also stated in the run prompt, purely as guidance). A per-task cap is
+                          configured separately with SecurityScanTask.maxFindings.
                         format: int32
                         minimum: 0
                         type: integer
@@ -1352,6 +1363,18 @@ spec:
                       phase.
                     format: date-time
                     type: string
+                  coverageGaps:
+                    description: |-
+                      coverageGaps records why this execution's results are not complete:
+                      truncated fan-out inventories and post-script jobs that could not be
+                      materialized or did not reach a successful terminal state. A non-empty
+                      list means the report must be read as partial coverage rather than as
+                      an authoritative all-clear.
+                    items:
+                      type: string
+                    maxItems: 50
+                    type: array
+                    x-kubernetes-list-type: atomic
                   effectiveParallelism:
                     description: effectiveParallelism is the concurrency bound actually
                       applied.
@@ -1381,6 +1404,78 @@ spec:
                       phase is the execution's coarse state: Running, Succeeded, or Failed
                       (resuming a failed execution sets it back to Running).
                     type: string
+                  postScriptJobs:
+                    description: |-
+                      postScriptJobs is the materialized finding x post-script matrix. It
+                      is populated once the research tasks are terminal and gates the sink
+                      task: the final report may only be submitted after every job reached
+                      a terminal state.
+                    items:
+                      description: |-
+                        SecurityScanPostScriptJobStatus is one durable finding x post-script
+                        execution. Post-scripts used to be prose in the sink prompt, so runOn,
+                        ordering, retries, and completion were entirely model-discretionary and
+                        unauditable. Materializing them as jobs makes each one an observable,
+                        retriable unit whose terminal state gates the final report.
+                      properties:
+                        attempts:
+                          description: attempts is how many attempts have started
+                            for this job.
+                          format: int32
+                          type: integer
+                        findingID:
+                          description: |-
+                            findingID is the platform finding UUID this job is bound to;
+                            fingerprint is the stable finding identity used in prompts and audit
+                            notes.
+                          type: string
+                        fingerprint:
+                          type: string
+                        finishedAt:
+                          format: date-time
+                          type: string
+                        lastError:
+                          description: lastError summarizes the most recent failure.
+                          type: string
+                        order:
+                          description: |-
+                            order is the script's 0-based position in spec.postScripts. Jobs for
+                            one finding run in this order so a later script observes the status a
+                            previous one set.
+                          format: int32
+                          type: integer
+                        result:
+                          description: |-
+                            result summarizes the terminal outcome: the finding status the job
+                            left behind, or why it was skipped.
+                          type: string
+                        runName:
+                          description: runName is the AgentRun currently or most recently
+                            serving this job.
+                          type: string
+                        script:
+                          description: script is the SecurityPostScript name.
+                          type: string
+                        startedAt:
+                          description: |-
+                            startedAt is when the first attempt started; finishedAt is when the
+                            job reached a terminal state.
+                          format: date-time
+                          type: string
+                        state:
+                          description: |-
+                            state is the job's current state: Pending, Running, Succeeded,
+                            Failed, or Skipped.
+                          type: string
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  postScriptsMaterialized:
+                    description: |-
+                      postScriptsMaterialized records that the job matrix was computed, so
+                      a reconcile that observes zero eligible findings does not recompute
+                      it forever.
+                    type: boolean
                   startedAt:
                     description: startedAt is when the execution started.
                     format: date-time

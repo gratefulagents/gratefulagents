@@ -143,13 +143,16 @@ var migration047Up string
 //go:embed migrations/048_security_scanner_provenance.up.sql
 var migration048Up string
 
+//go:embed migrations/049_security_execution_scope.up.sql
+var migration049Up string
+
 // noTxMigrations run statement-by-statement outside a transaction so they can
 // use commands PostgreSQL forbids in transaction blocks, such as
 // CREATE INDEX CONCURRENTLY (which avoids blocking writers during the build).
 // If a statement fails, the version is not recorded and the migration is
 // retried on the next startup — such migrations must be written idempotently
 // (IF EXISTS / IF NOT EXISTS, plus cleanup of invalid leftover indexes).
-var noTxMigrations = map[int]bool{40: true}
+var noTxMigrations = map[int]bool{40: true, 49: true}
 
 // applyNoTxMigration executes each semicolon-terminated statement of a
 // migration directly on the connection (no surrounding transaction), then
@@ -185,39 +188,18 @@ func stripSQLLineComments(sql string) string {
 	return strings.Join(kept, "\n")
 }
 
-// Migrate applies all pending migrations.
-// Uses a simple version table to track applied migrations.
-func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("acquiring migration connection: %w", err)
-	}
-	defer conn.Release()
+// schemaMigration is one embedded migration and how it must be applied.
+type schemaMigration struct {
+	version  int
+	sql      string
+	optional bool // optional migrations log a warning on failure instead of aborting
+}
 
-	const lockID int64 = 4143192210
-	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", lockID); err != nil {
-		return fmt.Errorf("acquiring migration advisory lock: %w", err)
-	}
-	defer func() {
-		if _, err := conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockID); err != nil && err != pgx.ErrNoRows {
-			log.Printf("WARN: releasing migration advisory lock: %v", err)
-		}
-	}()
-
-	if _, err := conn.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS schema_migrations (
-			version INT PRIMARY KEY,
-			applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-		)
-	`); err != nil {
-		return fmt.Errorf("creating schema_migrations table: %w", err)
-	}
-
-	migrations := []struct {
-		version  int
-		sql      string
-		optional bool // optional migrations log a warning on failure instead of aborting
-	}{
+// orderedMigrations lists every embedded migration in application order. A
+// migration missing from this list is never applied, so new files must be
+// registered here.
+func orderedMigrations() []schemaMigration {
+	return []schemaMigration{
 		{1, migration001Up, false},
 		{5, migration005Up, false},
 		{6, migration006Up, true}, // pgvector may not be installed; memory is gated by ENABLE_MEMORY
@@ -262,7 +244,39 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		{46, migration046Up, false},
 		{47, migration047Up, false},
 		{48, migration048Up, false},
+		{49, migration049Up, false},
 	}
+}
+
+// Migrate applies all pending migrations.
+// Uses a simple version table to track applied migrations.
+func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring migration connection: %w", err)
+	}
+	defer conn.Release()
+
+	const lockID int64 = 4143192210
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", lockID); err != nil {
+		return fmt.Errorf("acquiring migration advisory lock: %w", err)
+	}
+	defer func() {
+		if _, err := conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockID); err != nil && err != pgx.ErrNoRows {
+			log.Printf("WARN: releasing migration advisory lock: %v", err)
+		}
+	}()
+
+	if _, err := conn.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INT PRIMARY KEY,
+			applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`); err != nil {
+		return fmt.Errorf("creating schema_migrations table: %w", err)
+	}
+
+	migrations := orderedMigrations()
 
 	for _, m := range migrations {
 		var exists bool
