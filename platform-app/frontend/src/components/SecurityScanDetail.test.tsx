@@ -463,6 +463,52 @@ describe("SecurityScanDetail repository integration state", () => {
     expect(screen.getByTestId("execution-task-recon#0")).toBeTruthy();
   });
 
+  it("draws the execution DAG from the config's inline workflow", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      spec: {
+        workflow: [
+          { name: "recon", objective: "Map.", dependsOn: [], forEach: "" },
+          { name: "triage", objective: "Triage.", dependsOn: ["recon"], forEach: "" },
+        ],
+      },
+      lastExecution: {
+        id: "abc",
+        mode: "deterministic",
+        phase: "Running",
+        effectiveParallelism: 4,
+        effectiveParallelismNote: "",
+        startedAtUnix: 1767225600n,
+        completedAtUnix: 0n,
+        tasks: [
+          {
+            name: "recon",
+            instance: 0,
+            state: "Running",
+            runName: "nightly-recon-1",
+            attempts: 1,
+            retries: [],
+            nextRetryTimeUnix: 0n,
+            lastError: "",
+            startedAtUnix: 1767225600n,
+            finishedAtUnix: 0n,
+          },
+        ],
+      },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByTestId("execution-dag")).toBeTruthy();
+    expect(screen.getByTestId("execution-node-recon").textContent).toContain("Running");
+    // triage has no instance yet: the planned node reads as waiting.
+    expect(screen.getByTestId("execution-node-triage").textContent).toContain("Waiting");
+  });
+
   it("hides execution progress when the last execution was the coordinator", async () => {
     getSecurityScan.mockResolvedValue(scanFixture());
     getSecurityFindingSummary.mockResolvedValue({ counts: {} });

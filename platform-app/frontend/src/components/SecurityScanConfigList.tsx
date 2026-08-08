@@ -1,6 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { clone, create } from "@bufbuild/protobuf";
 import { Copy, Pencil, Play, Plus, ShieldCheck, Trash2 } from "lucide-react";
 
@@ -14,6 +13,7 @@ import { ReadyBadge } from "@/components/ReadyBadge";
 import { TableRowSkeleton } from "@/components/ui/list-state";
 import { filterByQuery } from "@/components/ui/list-search";
 import { ResourceListPage } from "@/components/list-page";
+import { SecurityNav } from "@/components/SecurityNav";
 import { SeverityCountBadges } from "@/components/SecurityScanList";
 import {
   scanConfigUsesSavedCredentials,
@@ -127,24 +127,17 @@ export function SecurityScanConfigList() {
           : "Create a security scan to analyze a repository for vulnerabilities."
       }
       actions={
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/runs" />}>
-            Scan results
-          </Button>
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/security/library" />}>
-            Library
-          </Button>
-          <SecurityScanFormDialog
-            trigger={
-              <Button size="sm">
-                <Plus />
-                New scan
-              </Button>
-            }
-            onSaved={() => void fetchConfigs()}
-          />
-        </div>
+        <SecurityScanFormDialog
+          trigger={
+            <Button size="sm">
+              <Plus />
+              New scan
+            </Button>
+          }
+          onSaved={() => void fetchConfigs()}
+        />
       }
+      nav={<SecurityNav />}
     >
       {actionError && (
         <p role="alert" className="mb-3 text-sm text-destructive">

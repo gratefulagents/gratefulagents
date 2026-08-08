@@ -16,6 +16,7 @@ export function ResourceListPage({
   onQuery,
   searchPlaceholder,
   actions,
+  nav,
   loading,
   error,
   onRetry,
@@ -33,6 +34,8 @@ export function ResourceListPage({
   onQuery: (v: string) => void;
   searchPlaceholder: string;
   actions?: React.ReactNode;
+  /** Optional sub-navigation strip rendered between the header and content. */
+  nav?: React.ReactNode;
   loading?: boolean;
   error?: string | null;
   onRetry?: () => void;
@@ -63,6 +66,7 @@ export function ResourceListPage({
           {actions}
         </div>
       </div>
+      {nav}
       <ListState
         loading={loading}
         error={error}

@@ -3,10 +3,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 
-import { ExecutionProgressPanel } from "@/components/ExecutionProgressPanel";
+import { ExecutionProgressPanel, aggregateState } from "@/components/ExecutionProgressPanel";
 import {
   SecurityScanExecutionStateSchema,
+  SecurityScanTaskConfigSchema,
   type SecurityScanExecutionState,
+  type SecurityScanTaskConfig,
 } from "@/rpc/platform/service_pb";
 
 afterEach(() => cleanup());
@@ -52,12 +54,37 @@ function execution(): SecurityScanExecutionState {
   });
 }
 
-function renderPanel(state: SecurityScanExecutionState = execution()) {
+function renderPanel(
+  state: SecurityScanExecutionState = execution(),
+  workflowTasks?: SecurityScanTaskConfig[],
+) {
   render(
     <MemoryRouter>
-      <ExecutionProgressPanel namespace="user-alice" execution={state} />
+      <ExecutionProgressPanel
+        namespace="user-alice"
+        execution={state}
+        workflowTasks={workflowTasks}
+      />
     </MemoryRouter>,
   );
+}
+
+/** The planned workflow matching the execution fixture, plus fan-out. */
+function workflowFixture(): SecurityScanTaskConfig[] {
+  return [
+    create(SecurityScanTaskConfigSchema, { name: "recon", objective: "Map." }),
+    create(SecurityScanTaskConfigSchema, {
+      name: "injection-hunt",
+      objective: "Hunt.",
+      dependsOn: ["recon"],
+      forEach: "recon",
+    }),
+    create(SecurityScanTaskConfigSchema, {
+      name: "triage",
+      objective: "Triage.",
+      dependsOn: ["injection-hunt"],
+    }),
+  ];
 }
 
 describe("ExecutionProgressPanel", () => {
@@ -113,5 +140,58 @@ describe("ExecutionProgressPanel", () => {
   it("offers no retry toggle for tasks without retries", () => {
     renderPanel();
     expect(screen.queryByRole("button", { name: /retries for recon/ })).toBeNull();
+  });
+
+  it("shows overall instance progress and the execution id", () => {
+    renderPanel();
+    expect(screen.getByTestId("execution-instance-progress").textContent).toBe(
+      "1/3 tasks done",
+    );
+    expect(screen.getByTitle("Execution ID").textContent).toBe("20260101-abc");
+  });
+
+  it("renders no DAG when the planned workflow is unknown", () => {
+    renderPanel();
+    expect(screen.queryByTestId("execution-dag")).toBeNull();
+  });
+
+  it("renders the live DAG with per-task state when workflow tasks are provided", () => {
+    renderPanel(execution(), workflowFixture());
+    const dag = screen.getByTestId("execution-dag");
+    expect(dag).toBeTruthy();
+    expect(screen.getByTestId("execution-node-recon").textContent).toContain("Succeeded");
+    // injection-hunt fans out over recon's output: instance progress shows.
+    const hunt = screen.getByTestId("execution-node-injection-hunt");
+    expect(hunt.textContent).toContain("Failed");
+    expect(hunt.textContent).toContain("0/1 instances");
+    expect(hunt.textContent).toContain("retried");
+    expect(screen.getByTestId("execution-node-triage").textContent).toContain("Blocked");
+  });
+
+  it("focuses one task's instances when its node is clicked", () => {
+    renderPanel(execution(), workflowFixture());
+    fireEvent.click(screen.getByTestId("execution-node-injection-hunt"));
+    expect(screen.getByTestId("execution-focus").textContent).toContain("injection-hunt");
+    expect(screen.getByTestId("execution-task-injection-hunt#1")).toBeTruthy();
+    expect(screen.queryByTestId("execution-task-recon#0")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Show all/ }));
+    expect(screen.getByTestId("execution-task-recon#0")).toBeTruthy();
+  });
+});
+
+describe("aggregateState", () => {
+  const instance = (state: string) =>
+    execution().tasks[0] && { ...execution().tasks[0], state };
+
+  it("ranks failure over any other instance state", () => {
+    expect(aggregateState([instance("Succeeded"), instance("Failed")])).toBe("Failed");
+  });
+
+  it("reads running while any instance is live", () => {
+    expect(aggregateState([instance("Succeeded"), instance("Running")])).toBe("Running");
+  });
+
+  it("reads succeeded only when every instance finished", () => {
+    expect(aggregateState([instance("Succeeded"), instance("Succeeded")])).toBe("Succeeded");
   });
 });
