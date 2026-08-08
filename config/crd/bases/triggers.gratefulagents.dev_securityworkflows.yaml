@@ -64,13 +64,13 @@ spec:
                 type: integer
               parameters:
                 description: |-
-                  parameters declares the scan-time inputs substituted for
-                  {{params.<name>}} references in task objectives. Scans supply values
+                  parameters declares the scan-time inputs substituted for double-brace
+                  params.<name> references in task objectives. Scans supply values
                   via spec.parameterValues.
                 items:
                   description: |-
                     SecurityWorkflowParameter declares one scan-time input substituted for
-                    {{params.<name>}} references in task objectives.
+                    double-brace params.<name> references in task objectives.
                   properties:
                     default:
                       description: default is the value used when a scan omits the
@@ -80,8 +80,8 @@ spec:
                       description: description explains what the parameter controls.
                       type: string
                     name:
-                      description: name identifies the parameter and is referenced
-                        as {{params.<name>}}.
+                      description: name identifies the parameter and uses double-brace
+                        params.<name> syntax.
                       maxLength: 63
                       pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
                       type: string
@@ -120,7 +120,7 @@ spec:
                       description: |-
                         forEach names a dependency task; this task fans out with one instance
                         per record of that task's JSON-array structured output. Records are
-                        exposed to the objective template as {{item}} / {{item.<field>}}. The
+                        exposed through double-brace item or item.<field> references. The
                         named task must be listed in dependsOn and must declare outputSchema.
                       maxLength: 63
                       type: string
@@ -181,7 +181,7 @@ spec:
                         outputSchema is an optional JSON Schema (object form) contract for
                         this task's structured output. Tasks with a schema must publish their
                         output via the submit_task_output tool; dependents consume it through
-                        {{tasks.<name>...}} template references.
+                        double-brace tasks.<name>... template references.
                       maxLength: 16384
                       type: string
                     repeats:

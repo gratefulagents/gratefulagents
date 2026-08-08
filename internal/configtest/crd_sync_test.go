@@ -73,6 +73,9 @@ func readCRDDocument(t *testing.T, path string, chartTemplate bool) map[string]a
 			t.Fatalf("%s: expected the standard CRD Helm wrapper", path)
 		}
 		text = strings.Join(lines[1:len(lines)-1], "\n")
+		if strings.Contains(text, "{{") || strings.Contains(text, "}}") {
+			t.Fatalf("%s: CRD content contains an unintended Helm template delimiter", path)
+		}
 	}
 	var doc map[string]any
 	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
