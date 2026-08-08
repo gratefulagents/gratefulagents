@@ -2,8 +2,11 @@ package securitytoolpacks
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -102,6 +105,80 @@ func TestDigestPathIsStableAndRejectsSymlinks(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "generated")); !os.IsNotExist(err) {
 		t.Fatal("tool output mutated original target")
+	}
+}
+
+func TestRegularFileTargetUsesPrivateVerifiedSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "openapi.json")
+	original := []byte(`{"openapi":"3.0.0"}`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, cleanup, err := snapshotDirectoryTarget(Target{Locator: path, Digest: sha256Digest(original)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if snapshot == path {
+		t.Fatal("regular target was not snapshotted")
+	}
+	if err := os.WriteFile(path, []byte("mutated"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(snapshot)
+	if err != nil || string(data) != string(original) {
+		t.Fatalf("snapshot=%q err=%v", data, err)
+	}
+}
+
+func TestWorkDirectoryQuotaIsFinalAndKernelBacked(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux process limits")
+	}
+	root := t.TempDir()
+	cmd := exec.Command("dd", "if=/dev/zero", "of="+filepath.Join(root, "oversized"), "bs=1024", "count=8", "status=none")
+	cmd.Dir = root
+	if err := runWithDirectoryLimit(cmd, root, 1024); err == nil {
+		t.Fatal("oversized fast writer escaped quota")
+	}
+	if err := os.WriteFile(filepath.Join(root, "final"), make([]byte, 1025), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkDirectoryQuota(root, 1024, 4096); !errors.Is(err, errOutputTooLarge) {
+		t.Fatalf("final quota err=%v", err)
+	}
+}
+
+func TestZAPReportRequiresExaminedSite(t *testing.T) {
+	if zapReportExaminedTarget([]byte(`{"site":[]}`), "https://example.test", []string{"https://example.test"}) {
+		t.Fatal("empty ZAP report counted as examined")
+	}
+	if !zapReportExaminedTarget([]byte(`{"site":[{"@name":"https://example.test"}]}`), "https://example.test", []string{"https://example.test"}) {
+		t.Fatal("site evidence was not recognized")
+	}
+	for _, report := range []string{`{"site":[{}]}`, `{"site":[null]}`, `{"site":[{"@name":"https://outside.test"}]}`} {
+		if zapReportExaminedTarget([]byte(report), "https://example.test", []string{"https://example.test"}) {
+			t.Fatalf("non-evidentiary report accepted: %s", report)
+		}
+	}
+}
+
+func TestOCIOutputCollectionRejectsLinksAndBoundsReads(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Symlink("/etc/passwd", filepath.Join(root, "result")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBoundedOCIOutput(root, "result", 1024); err == nil {
+		t.Fatal("symlink output was accepted")
+	}
+	if err := os.Remove(filepath.Join(root, "result")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "result"), []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBoundedOCIOutput(root, "result", 4); !errors.Is(err, errOutputTooLarge) {
+		t.Fatalf("err=%v", err)
 	}
 }
 

@@ -1,5 +1,23 @@
 # syntax=docker/dockerfile:1
 
+FROM docker.io/zaproxy/zap-stable@sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab AS zap-root
+FROM docker.io/schemathesis/schemathesis@sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2 AS schemathesis-root
+FROM docker.io/nablac0d3/sslyze@sha256:e6d59470e380ecb626e831d1c3e006a410f7081266171054c0ce616ee03627d3 AS sslyze-root
+FROM docker.io/instrumentisto/nmap@sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4416fa36e1891e8c33623cfc845 AS nmap-root
+FROM docker.io/zeek/zeek@sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a AS zeek-root
+FROM docker.io/jasonish/suricata@sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a AS suricata-root
+
+FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce AS bwrap-builder
+ARG BWRAP_VERSION=0.11.2
+ARG BWRAP_SHA256=69abc30005d2186baf7737feacd8da35633b93cf5af38838ecff17c5f8e924f6
+RUN apk add --no-cache build-base meson libcap-dev libcap-static linux-headers curl xz
+RUN curl -fsSL -o /tmp/bwrap.tar.xz "https://github.com/containers/bubblewrap/releases/download/v${BWRAP_VERSION}/bubblewrap-${BWRAP_VERSION}.tar.xz" \
+    && echo "${BWRAP_SHA256}  /tmp/bwrap.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/bwrap.tar.xz -C /tmp \
+    && cd "/tmp/bubblewrap-${BWRAP_VERSION}" \
+    && LDFLAGS=-static meson setup build --prefer-static -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled -Dtests=false \
+    && meson compile -C build && strip build/bwrap
+
 # Reproducible standalone deterministic security-tool runtime. Base image
 # manifest lists and every release archive are immutable/checksum pinned.
 FROM --platform=$BUILDPLATFORM golang:1.26@sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365 AS builder
@@ -24,6 +42,22 @@ COPY --from=builder /out/tools/ /usr/local/bin/
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY security-tools.lock.json /usr/local/share/ga-security/security-tools.lock.json
 COPY security-knowledge/nuclei-reviewed.yaml /usr/local/share/ga-security/knowledge/nuclei-reviewed.yaml
+COPY --from=bwrap-builder /tmp/bubblewrap-0.11.2/build/bwrap /usr/local/bin/bwrap
+COPY --from=zap-root / /usr/local/share/ga-security/toolroots/owasp-zap/
+COPY --from=schemathesis-root / /usr/local/share/ga-security/toolroots/schemathesis/
+COPY --from=sslyze-root / /usr/local/share/ga-security/toolroots/sslyze/
+COPY --from=nmap-root / /usr/local/share/ga-security/toolroots/nmap/
+COPY --from=zeek-root / /usr/local/share/ga-security/toolroots/zeek/
+COPY --from=suricata-root / /usr/local/share/ga-security/toolroots/suricata/
+RUN for root in owasp-zap schemathesis sslyze nmap zeek suricata; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
+    && printf '%s\n' 'sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab' > /usr/local/share/ga-security/toolroots/owasp-zap/.ga-oci-digest \
+    && printf '%s\n' 'sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2' > /usr/local/share/ga-security/toolroots/schemathesis/.ga-oci-digest \
+    && printf '%s\n' 'sha256:e6d59470e380ecb626e831d1c3e006a410f7081266171054c0ce616ee03627d3' > /usr/local/share/ga-security/toolroots/sslyze/.ga-oci-digest \
+    && printf '%s\n' 'sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4416fa36e1891e8c33623cfc845' > /usr/local/share/ga-security/toolroots/nmap/.ga-oci-digest \
+    && printf '%s\n' 'sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a' > /usr/local/share/ga-security/toolroots/zeek/.ga-oci-digest \
+    && printf '%s\n' 'sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a' > /usr/local/share/ga-security/toolroots/suricata/.ga-oci-digest \
+    && chown -R 0:0 /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap \
+    && chmod -R go-w /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap
 
 USER 65532:65532
 ENTRYPOINT ["ga-security"]

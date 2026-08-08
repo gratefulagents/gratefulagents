@@ -379,7 +379,7 @@ func (junitAdapter) Normalize(tool Tool, target Target, native []byte, r Redacto
 			if asset == "" {
 				asset = suite.Name
 			}
-			if len(test.Skipped) > 0 {
+			if len(test.Skipped) > 0 && len(test.Failures) == 0 && len(test.Errors) == 0 {
 				records = append(records, securityRecord{Asset: asset, Skipped: true})
 				continue
 			}
@@ -638,7 +638,10 @@ func normalizeAPIFailures(tool Tool, failures []apiFailure, prefix string, r Red
 
 type sslyzeDocument struct {
 	ServerScanResults *[]struct {
-		ServerLocation struct {
+		ConnectivityStatus     string `json:"connectivity_status"`
+		ConnectivityErrorTrace string `json:"connectivity_error_trace"`
+		ScanStatus             string `json:"scan_status"`
+		ServerLocation         struct {
 			Hostname  string `json:"hostname"`
 			IPAddress string `json:"ip_address"`
 			Port      int    `json:"port"`
@@ -660,6 +663,7 @@ func (sslyzeAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 		return nil, fmt.Errorf("SSLyze output requires server_scan_results")
 	}
 	var records []securityRecord
+	var operationErrors []string
 	weakProtocols := map[string]string{"ssl_2_0_cipher_suites": "SSLv2", "ssl_3_0_cipher_suites": "SSLv3", "tls_1_0_cipher_suites": "TLS 1.0", "tls_1_1_cipher_suites": "TLS 1.1"}
 	for _, server := range *document.ServerScanResults {
 		host := server.ServerLocation.Hostname
@@ -667,6 +671,14 @@ func (sslyzeAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 			host = server.ServerLocation.IPAddress
 		}
 		asset := net.JoinHostPort(host, strconv.Itoa(server.ServerLocation.Port))
+		for label, status := range map[string]string{"connectivity": server.ConnectivityStatus, "scan": server.ScanStatus} {
+			if status != "" && !strings.EqualFold(status, "completed") {
+				operationErrors = append(operationErrors, asset+" "+label+" status="+status)
+			}
+		}
+		if server.ConnectivityErrorTrace != "" {
+			operationErrors = append(operationErrors, asset+" connectivity error="+r.Text(server.ConnectivityErrorTrace))
+		}
 		keys := make([]string, 0, len(server.ScanResult))
 		for key := range server.ScanResult {
 			keys = append(keys, key)
@@ -674,6 +686,9 @@ func (sslyzeAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 		sort.Strings(keys)
 		for _, key := range keys {
 			command := server.ScanResult[key]
+			if command.Status != "" && !strings.EqualFold(command.Status, "completed") {
+				operationErrors = append(operationErrors, asset+" command "+key+" status="+command.Status)
+			}
 			if protocol, weak := weakProtocols[key]; weak {
 				var result struct {
 					Supported bool `json:"is_tls_version_supported"`
@@ -706,6 +721,10 @@ func (sslyzeAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 		}
 	}
 	sortSecurityRecords(records)
+	if len(operationErrors) > 0 {
+		sort.Strings(operationErrors)
+		return records, fmt.Errorf("SSLyze incomplete coverage: %s", strings.Join(operationErrors, "; "))
+	}
 	return records, nil
 }
 

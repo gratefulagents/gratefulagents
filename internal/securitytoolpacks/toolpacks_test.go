@@ -78,11 +78,11 @@ func TestDefaultManifestDeclaresInitialToolPacks(t *testing.T) {
 func TestTypedInvocationUsesFixedArgv(t *testing.T) {
 	reg, _ := NewRegistry(fixtureManifest())
 	target := fixtureTarget("address_scope", "192.0.2.0/24")
-	inv, _, err := reg.BuildInvocation(RunConfig{Tool: "nmap", Target: target, Scope: []string{"192.0.2.0/24"}})
+	inv, _, err := reg.BuildInvocation(RunConfig{Tool: "nmap", Target: target, Arguments: map[string]string{"ports": "80,443", "rate": "10"}, Scope: []string{"192.0.2.0/24"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inv.Argv) != 4 || inv.Argv[3] != target.Locator {
+	if len(inv.Argv) != 11 || inv.Argv[10] != target.Locator {
 		t.Fatalf("argv=%q", inv.Argv)
 	}
 }
@@ -143,7 +143,7 @@ func TestCryptoKnownAnswerPassAndFailure(t *testing.T) {
 
 func TestNetworkFixturesNmapAndZeek(t *testing.T) {
 	nmapXML := readFixture(t, "network", "nmap.xml")
-	nmap := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"192.0.2.10"}, Skipped: []string{"198.51.100.7"}, Output: nmapXML}).Run(context.Background(), RunConfig{Tool: "nmap", Target: fixtureTarget("address_scope", "192.0.2.0/24"), Scope: []string{"192.0.2.0/24"}})
+	nmap := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"192.0.2.10"}, Skipped: []string{"198.51.100.7"}, Output: nmapXML}).Run(context.Background(), RunConfig{Tool: "nmap", Target: fixtureTarget("address_scope", "192.0.2.0/24"), Arguments: map[string]string{"ports": "80,443", "rate": "10"}, Scope: []string{"192.0.2.0/24"}})
 	if nmap.Status != StatusPartial || len(nmap.Findings) != 1 || !strings.Contains(nmap.Findings[0].Message, "telnet") {
 		t.Fatalf("nmap=%+v", nmap)
 	}

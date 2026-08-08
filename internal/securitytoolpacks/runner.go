@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -106,7 +107,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig) Result {
 	}
 	publicCfg := redactedRunConfig(cfg)
 	publicJSON, _ := canonicalJSON(publicCfg)
-	res.Replay = Replay{Target: publicCfg.Target, Tool: tool.Name, ToolVersion: tool.Version, ImageDigest: tool.ImageDigest, ToolArtifactDigest: tool.ToolArtifactDigest, Knowledge: cloneStringMap(tool.KnowledgeDigests), Configuration: publicJSON, ConfigurationID: sha256Digest(cfgJSON), Seed: cloneInt64(cfg.Seed), InputDigests: []string{cfg.Target.Digest}}
+	res.Replay = Replay{Target: publicCfg.Target, Tool: tool.Name, ToolVersion: tool.Version, ImageDigest: tool.ImageDigest, ToolArtifactDigest: tool.ToolArtifactDigest, WrapperDigest: tool.WrapperDigest, PlatformDigest: tool.PlatformDigests[runtime.GOARCH], Knowledge: cloneStringMap(tool.KnowledgeDigests), Configuration: publicJSON, ConfigurationID: sha256Digest(cfgJSON), Seed: cloneInt64(cfg.Seed), InputDigests: []string{cfg.Target.Digest}}
 	if r.sandbox == nil {
 		res.Status = StatusError
 		res.Errors = []string{"no sandbox executor configured"}
@@ -115,6 +116,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig) Result {
 	native := r.sandbox.Execute(ctx, ExecutionRequest{Invocation: inv, Tool: cloneTool(tool), Config: cloneRunConfig(cfg)})
 	res.Coverage = Coverage{Examined: sortedUnique(native.Examined), Skipped: sortedUnique(native.Skipped), Uncovered: sortedUnique(native.Uncovered)}
 	res.Replay.Environment = stableEnvironment(native.Environment)
+	res.Replay.SandboxDigest = native.Environment["sandbox_digest"]
 	redactor := NewRedactor(cfg.Sensitive...)
 	if int64(len(native.Output)) > tool.Budgets.MaxOutputSize {
 		native.Err = fmt.Errorf("native output exceeds %d-byte budget", tool.Budgets.MaxOutputSize)

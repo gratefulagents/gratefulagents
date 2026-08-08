@@ -22,6 +22,13 @@ import (
 func main() { os.Exit(run(os.Args[1:])) }
 
 func run(args []string) int {
+	if len(args) > 0 && args[0] == "__sandbox-exec" {
+		if err := securitytoolpacks.ExecSandboxWithLimits(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		return 0
+	}
 	flags := flag.NewFlagSet("ga-security", flag.ContinueOnError)
 	configPath := flags.String("config", "", "path to typed RunConfig JSON")
 	outputDir := flags.String("output", "", "directory for result and raw artifacts")

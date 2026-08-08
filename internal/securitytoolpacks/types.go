@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -70,6 +71,11 @@ type Tool struct {
 	Image              string            `json:"image"`
 	ImageDigest        string            `json:"image_digest"`
 	ToolArtifactDigest string            `json:"tool_artifact_digest"`
+	WrapperDigest      string            `json:"wrapper_digest"`
+	PlatformDigests    map[string]string `json:"platform_digests,omitempty"`
+	OCIRoot            string            `json:"oci_root,omitempty"`
+	OCIExecutable      string            `json:"oci_executable,omitempty"`
+	OCIOutputPath      string            `json:"oci_output_path,omitempty"`
 	Invocation         []string          `json:"invocation"`
 	Arguments          []Argument        `json:"arguments,omitempty"`
 	TargetTypes        []string          `json:"target_types"`
@@ -128,6 +134,9 @@ type Replay struct {
 	ToolVersion        string            `json:"tool_version"`
 	ImageDigest        string            `json:"image_digest"`
 	ToolArtifactDigest string            `json:"tool_artifact_digest"`
+	WrapperDigest      string            `json:"wrapper_digest"`
+	PlatformDigest     string            `json:"platform_digest,omitempty"`
+	SandboxDigest      string            `json:"sandbox_digest,omitempty"`
 	Knowledge          map[string]string `json:"knowledge_digests,omitempty"`
 	Configuration      json.RawMessage   `json:"configuration"`
 	ConfigurationID    string            `json:"configuration_digest"`
@@ -181,6 +190,21 @@ func (m Manifest) Validate() error {
 		}
 		if !digestPattern.MatchString(t.ToolArtifactDigest) {
 			return fmt.Errorf("tool %s: tool_artifact_digest must be immutable sha256", t.Name)
+		}
+		if !digestPattern.MatchString(t.WrapperDigest) {
+			return fmt.Errorf("tool %s: wrapper_digest must be immutable sha256", t.Name)
+		}
+		if t.OCIRoot != "" {
+			if filepath.Base(t.OCIRoot) != t.OCIRoot || !strings.HasPrefix(t.OCIExecutable, "/") || !strings.Contains(t.Image, "@"+t.ImageDigest) {
+				return fmt.Errorf("tool %s: invalid pinned OCI root execution contract", t.Name)
+			}
+			for _, arch := range []string{"amd64", "arm64"} {
+				if !digestPattern.MatchString(t.PlatformDigests[arch]) {
+					return fmt.Errorf("tool %s: missing %s OCI manifest digest", t.Name, arch)
+				}
+			}
+		} else if t.OCIExecutable != "" || t.OCIOutputPath != "" {
+			return fmt.Errorf("tool %s: OCI fields require oci_root", t.Name)
 		}
 		for name, digest := range t.KnowledgeDigests {
 			if !digestPattern.MatchString(digest) {

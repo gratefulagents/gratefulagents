@@ -7,11 +7,14 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"os"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Registry is immutable after construction and is the only source from which
@@ -104,8 +107,22 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 			return Invocation{}, Tool{}, fmt.Errorf("target scope entry %d is invalid", i)
 		}
 	}
-	if t.Requirements.Network && !scopeAllowsTarget(cfg.Target.Locator, cfg.Scope) {
-		return Invocation{}, Tool{}, fmt.Errorf("target %q is outside configured scope", cfg.Target.Locator)
+	scopeTarget := cfg.Target.Locator
+	if baseURL := cfg.Arguments["base_url"]; baseURL != "" {
+		scopeTarget = baseURL
+	}
+	if t.Requirements.Network && !scopeAllowsTarget(scopeTarget, cfg.Scope) {
+		return Invocation{}, Tool{}, fmt.Errorf("target %q is outside configured scope", scopeTarget)
+	}
+	if t.Name == "owasp-zap" {
+		if err := validateZAPPlan(cfg.Target.Locator, cfg.Arguments["base_url"], cfg.Scope); err != nil {
+			return Invocation{}, Tool{}, err
+		}
+	}
+	if t.Name == "schemathesis" {
+		if err := validateOpenAPIBudget(cfg.Target.Locator, 100); err != nil {
+			return Invocation{}, Tool{}, err
+		}
 	}
 	known := map[string]Argument{}
 	for _, a := range t.Arguments {
@@ -129,10 +146,10 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 			return Invocation{}, Tool{}, fmt.Errorf("argument %q must be between 1 and 1000", "rate")
 		}
 	}
-	if t.Name == "naabu" {
+	if t.Name == "naabu" || t.Name == "nmap" {
 		if _, err := netip.ParseAddr(cfg.Target.Locator); err != nil {
 			if _, prefixErr := netip.ParsePrefix(cfg.Target.Locator); prefixErr != nil {
-				return Invocation{}, Tool{}, fmt.Errorf("naabu target must be an IP address or CIDR prefix")
+				return Invocation{}, Tool{}, fmt.Errorf("tool %s target must be an IP address or CIDR prefix", t.Name)
 			}
 		}
 		portCount, err := validatePortList(cfg.Arguments["ports"])
@@ -197,7 +214,7 @@ func validScope(scope string) bool {
 		return true
 	}
 	if u, err := url.ParseRequestURI(scope); err == nil && u.IsAbs() && u.Hostname() != "" && u.User == nil {
-		return true
+		return safeURLPath(u.EscapedPath())
 	}
 	if host, port, err := net.SplitHostPort(scope); err == nil && validScopeHost(host) {
 		n, err := strconv.Atoi(port)
@@ -208,15 +225,15 @@ func validScope(scope string) bool {
 
 func scopeAllowsTarget(target string, scopes []string) bool {
 	for _, scope := range scopes {
-		if target == scope {
-			return true
-		}
 		targetURL, targetURLErr := url.ParseRequestURI(target)
 		scopeURL, scopeURLErr := url.ParseRequestURI(scope)
 		if targetURLErr == nil && scopeURLErr == nil && targetURL.IsAbs() && scopeURL.IsAbs() &&
 			strings.EqualFold(targetURL.Scheme, scopeURL.Scheme) &&
 			strings.EqualFold(targetURL.Hostname(), scopeURL.Hostname()) &&
-			effectivePort(targetURL) == effectivePort(scopeURL) && pathWithinScope(targetURL.EscapedPath(), scopeURL.EscapedPath()) {
+			effectivePort(targetURL) == effectivePort(scopeURL) && safeURLPath(targetURL.EscapedPath()) && safeURLPath(scopeURL.EscapedPath()) && pathWithinScope(targetURL.EscapedPath(), scopeURL.EscapedPath()) {
+			return true
+		}
+		if target == scope && (targetURLErr != nil || !targetURL.IsAbs()) {
 			return true
 		}
 		targetPrefix, targetPrefixErr := netip.ParsePrefix(target)
@@ -244,6 +261,23 @@ func effectivePort(value *url.URL) string {
 	default:
 		return ""
 	}
+}
+
+func safeURLPath(escaped string) bool {
+	lower := strings.ToLower(escaped)
+	if strings.Contains(lower, "%25") || strings.Contains(lower, "%2e") || strings.Contains(lower, "%2f") || strings.Contains(lower, "%5c") {
+		return false
+	}
+	decoded, err := url.PathUnescape(escaped)
+	if err != nil || strings.Contains(decoded, "\\") {
+		return false
+	}
+	for _, segment := range strings.Split(decoded, "/") {
+		if segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func pathWithinScope(target, scope string) bool {
@@ -275,9 +309,312 @@ func validScopeHost(host string) bool {
 	return true
 }
 
+func validateOpenAPIBudget(path string, maxOperations int) error {
+	data, err := os.ReadFile(path) // #nosec G304 -- immutable typed target.
+	if err != nil {
+		return fmt.Errorf("read OpenAPI specification: %w", err)
+	}
+	if len(data) > 4<<20 {
+		return fmt.Errorf("OpenAPI specification exceeds 4 MiB limit")
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		return fmt.Errorf("parse OpenAPI specification: %w", err)
+	}
+	root := &document
+	if root.Kind == yaml.DocumentNode && len(root.Content) == 1 {
+		root = root.Content[0]
+	}
+	paths := yamlMappingValue(root, "paths")
+	if paths == nil || paths.Kind != yaml.MappingNode {
+		return fmt.Errorf("OpenAPI specification must contain paths")
+	}
+	methods := map[string]bool{"get": true, "put": true, "post": true, "delete": true, "options": true, "head": true, "patch": true, "trace": true}
+	operations := 0
+	for i := 0; i+1 < len(paths.Content); i += 2 {
+		pathItem := paths.Content[i+1]
+		if pathItem.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(pathItem.Content); j += 2 {
+			if methods[strings.ToLower(pathItem.Content[j].Value)] {
+				operations++
+			}
+		}
+	}
+	if operations == 0 || operations > maxOperations {
+		return fmt.Errorf("OpenAPI operation count %d is outside deterministic budget 1..%d", operations, maxOperations)
+	}
+	var rejectExternalRefs func(*yaml.Node) error
+	rejectExternalRefs = func(node *yaml.Node) error {
+		if node.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(node.Content); i += 2 {
+				if node.Content[i].Value == "$ref" && !strings.HasPrefix(node.Content[i+1].Value, "#") {
+					return fmt.Errorf("external OpenAPI references are not allowed")
+				}
+			}
+		}
+		for _, child := range node.Content {
+			if err := rejectExternalRefs(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return rejectExternalRefs(&document)
+}
+
+func validateZAPPlan(path, configuredBaseURL string, scopes []string) error {
+	data, err := os.ReadFile(path) // #nosec G304 -- the immutable target path is supplied by the typed request.
+	if err != nil {
+		return fmt.Errorf("read ZAP plan: %w", err)
+	}
+	if len(data) > 2<<20 {
+		return fmt.Errorf("ZAP plan exceeds 2 MiB limit")
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		return fmt.Errorf("parse ZAP plan: %w", err)
+	}
+	if err := validateYAMLStructure(&document); err != nil {
+		return fmt.Errorf("ZAP plan structure: %w", err)
+	}
+	urlCount := 0
+	var walk func(*yaml.Node) error
+	walk = func(node *yaml.Node) error {
+		if node.Kind == yaml.AliasNode {
+			return fmt.Errorf("ZAP plan aliases are not allowed")
+		}
+		if node.Kind == yaml.ScalarNode && node.Tag == "!!str" {
+			if strings.Contains(node.Value, "${") || strings.Contains(node.Value, "{{") {
+				return fmt.Errorf("ZAP plan substitutions are not allowed")
+			}
+			if parsed, parseErr := url.ParseRequestURI(node.Value); parseErr == nil && parsed.IsAbs() {
+				parsed.Scheme = strings.ToLower(parsed.Scheme)
+				if parsed.Scheme != "http" && parsed.Scheme != "https" {
+					return fmt.Errorf("ZAP plan URI scheme %q is not allowed", parsed.Scheme)
+				}
+				canonical := parsed.String()
+				urlCount++
+				if !scopeAllowsTarget(canonical, scopes) {
+					return fmt.Errorf("ZAP plan URL %q is outside configured scope", node.Value)
+				}
+			}
+		}
+		for _, child := range node.Content {
+			if err := walk(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(&document); err != nil {
+		return err
+	}
+	if urlCount == 0 || !scopeAllowsTarget(configuredBaseURL, scopes) {
+		return fmt.Errorf("ZAP plan must contain an in-scope absolute URL")
+	}
+	root := &document
+	if root.Kind == yaml.DocumentNode && len(root.Content) == 1 {
+		root = root.Content[0]
+	}
+	if err := validateZAPEnvironment(root, configuredBaseURL); err != nil {
+		return err
+	}
+	jobs := yamlMappingValue(root, "jobs")
+	if jobs == nil || jobs.Kind != yaml.SequenceNode {
+		return fmt.Errorf("ZAP plan must declare jobs")
+	}
+	allowed := map[string]bool{"passiveScan-wait": true, "spider": true, "spiderAjax": true, "openapi": true, "activeScan": true, "report": true}
+	reportFound := false
+	scanFound := false
+	for _, job := range jobs.Content {
+		jobType := yamlMappingValue(job, "type")
+		if jobType == nil || !allowed[jobType.Value] {
+			return fmt.Errorf("ZAP plan job type %q is not allowed", scalarValue(jobType))
+		}
+		if err := requireYAMLKeys(job, "type", "parameters", "enabled"); err != nil {
+			return fmt.Errorf("ZAP %s job: %w", jobType.Value, err)
+		}
+		if enabled := yamlMappingValue(job, "enabled"); enabled != nil && !strings.EqualFold(enabled.Value, "true") {
+			return fmt.Errorf("ZAP scan jobs cannot be disabled")
+		}
+		if err := validateZAPJobParameters(jobType.Value, yamlMappingValue(job, "parameters")); err != nil {
+			return err
+		}
+		if slices.Contains([]string{"spider", "spiderAjax", "openapi", "activeScan"}, jobType.Value) {
+			scanFound = true
+		}
+		if jobType.Value != "report" {
+			continue
+		}
+		params := yamlMappingValue(job, "parameters")
+		if scalarValue(yamlMappingValue(params, "template")) != "traditional-json" || scalarValue(yamlMappingValue(params, "reportDir")) != "/work" || scalarValue(yamlMappingValue(params, "reportFile")) != "zap-report" {
+			return fmt.Errorf("ZAP report job must write traditional-json to /work/zap-report.json")
+		}
+		reportFound = true
+	}
+	if !scanFound {
+		return fmt.Errorf("ZAP plan must contain a request-producing scan job")
+	}
+	if !reportFound {
+		return fmt.Errorf("ZAP plan must contain the required report job")
+	}
+	return nil
+}
+
+func validateYAMLStructure(node *yaml.Node) error {
+	if node.Kind == yaml.AliasNode {
+		return fmt.Errorf("aliases are not allowed")
+	}
+	if node.Kind == yaml.MappingNode {
+		if len(node.Content)%2 != 0 {
+			return fmt.Errorf("mapping has an unmatched key")
+		}
+		seen := map[string]bool{}
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i]
+			if key.Kind != yaml.ScalarNode || key.Tag != "!!str" || key.Value == "" {
+				return fmt.Errorf("mapping keys must be non-empty strings")
+			}
+			if seen[key.Value] {
+				return fmt.Errorf("duplicate mapping key %q", key.Value)
+			}
+			seen[key.Value] = true
+			if err := validateYAMLStructure(node.Content[i+1]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, child := range node.Content {
+		if err := validateYAMLStructure(child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateZAPEnvironment(root *yaml.Node, configuredBaseURL string) error {
+	if err := requireYAMLKeys(root, "env", "jobs"); err != nil {
+		return fmt.Errorf("ZAP plan: %w", err)
+	}
+	env := yamlMappingValue(root, "env")
+	if env == nil || env.Kind != yaml.MappingNode {
+		return fmt.Errorf("ZAP plan env must be a mapping")
+	}
+	if err := requireYAMLKeys(env, "contexts"); err != nil {
+		return fmt.Errorf("ZAP env: %w", err)
+	}
+	contexts := yamlMappingValue(env, "contexts")
+	if contexts == nil || contexts.Kind != yaml.SequenceNode || len(contexts.Content) == 0 {
+		return fmt.Errorf("ZAP plan requires at least one context")
+	}
+	base, err := url.ParseRequestURI(configuredBaseURL)
+	if err != nil || base.RawQuery != "" || base.Fragment != "" {
+		return fmt.Errorf("ZAP base URL must not contain query or fragment")
+	}
+	baseFound := false
+	for _, context := range contexts.Content {
+		if err := requireYAMLKeys(context, "name", "urls"); err != nil {
+			return fmt.Errorf("ZAP context: %w", err)
+		}
+		if scalarValue(yamlMappingValue(context, "name")) == "" {
+			return fmt.Errorf("ZAP context name is required")
+		}
+		urls := yamlMappingValue(context, "urls")
+		if urls == nil || urls.Kind != yaml.SequenceNode || len(urls.Content) == 0 {
+			return fmt.Errorf("ZAP context urls are required")
+		}
+		for _, item := range urls.Content {
+			candidate, parseErr := url.ParseRequestURI(item.Value)
+			if parseErr != nil || candidate.RawQuery != "" || candidate.Fragment != "" {
+				return fmt.Errorf("ZAP context URL is invalid")
+			}
+			if scopeAllowsTarget(item.Value, []string{configuredBaseURL}) && scopeAllowsTarget(configuredBaseURL, []string{item.Value}) {
+				baseFound = true
+			}
+		}
+	}
+	if !baseFound {
+		return fmt.Errorf("ZAP context must contain the configured base URL")
+	}
+	return nil
+}
+
+func validateZAPJobParameters(jobType string, params *yaml.Node) error {
+	if params == nil {
+		params = &yaml.Node{Kind: yaml.MappingNode}
+	}
+	if params.Kind != yaml.MappingNode {
+		return fmt.Errorf("ZAP %s parameters must be a mapping", jobType)
+	}
+	allowed := map[string][]string{
+		"spider":           {"context", "maxDuration", "maxDepth", "maxChildren"},
+		"spiderAjax":       {"context", "maxDuration", "maxCrawlDepth", "maxCrawlStates"},
+		"openapi":          {"context", "apiUrl", "targetUrl"},
+		"activeScan":       {"context", "policy", "maxRuleDurationInMins", "maxScanDurationInMins"},
+		"passiveScan-wait": {"maxDuration"},
+		"report":           {"template", "reportDir", "reportFile", "reportTitle"},
+	}
+	if err := requireYAMLKeys(params, allowed[jobType]...); err != nil {
+		return fmt.Errorf("ZAP %s job: %w", jobType, err)
+	}
+	for i := 0; i+1 < len(params.Content); i += 2 {
+		key, value := params.Content[i].Value, params.Content[i+1].Value
+		if strings.HasPrefix(key, "max") {
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 || n > 1000 {
+				return fmt.Errorf("ZAP %s %s must be between 1 and 1000", jobType, key)
+			}
+		}
+	}
+	return nil
+}
+
+func requireYAMLKeys(node *yaml.Node, allowed ...string) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return fmt.Errorf("value must be a mapping")
+	}
+	set := make(map[string]bool, len(allowed))
+	for _, key := range allowed {
+		set[key] = true
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if !set[node.Content[i].Value] {
+			return fmt.Errorf("field %q is not allowed", node.Content[i].Value)
+		}
+	}
+	return nil
+}
+
+func yamlMappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func scalarValue(node *yaml.Node) string {
+	if node == nil {
+		return ""
+	}
+	return node.Value
+}
+
 func validateArg(a Argument, value string) error {
 	switch a.Type {
-	case "string", "path", "url", "cidr":
+	case "string", "path", "cidr":
+	case "url":
+		parsed, err := url.ParseRequestURI(value)
+		if err != nil || !parsed.IsAbs() || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return fmt.Errorf("argument %q must be an absolute HTTP(S) URL", a.Name)
+		}
 	case "ports":
 		if _, err := validatePortList(value); err != nil {
 			return fmt.Errorf("argument %q: %w", a.Name, err)
@@ -342,12 +679,12 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 	knowledgeDigests = configuredKnowledge
 	const image = "ghcr.io/gratefulagents/security-toolpack"
 	base := func(name string, domain Domain, version, adapter, media string, targets, argv []string) Tool {
-		return Tool{Name: name, Enabled: true, Domain: domain, Version: version, Image: image, ImageDigest: imageDigest, ToolArtifactDigest: imageDigest, Invocation: argv, TargetTypes: targets, Requirements: Requirements{Privilege: "unprivileged"}, Budgets: Budgets{Timeout: 5 * time.Minute, CPU: 1000, Memory: 1 << 30, Requests: 1000, Concurrency: 4, MaxOutputSize: 16 << 20}, ExitCodes: map[int]Status{0: StatusPass, 1: StatusFindings, 2: StatusError}, OutputMediaType: media, Adapter: adapter, RedactionRules: []string{"authorization", "cookie", "private_key", "configured_sensitive_fields"}, Idempotent: true}
+		return Tool{Name: name, Enabled: true, Domain: domain, Version: version, Image: image, ImageDigest: imageDigest, ToolArtifactDigest: imageDigest, WrapperDigest: imageDigest, Invocation: argv, TargetTypes: targets, Requirements: Requirements{Privilege: "unprivileged"}, Budgets: Budgets{Timeout: 5 * time.Minute, CPU: 1000, Memory: 1 << 30, Requests: 1000, Concurrency: 4, MaxOutputSize: 16 << 20}, ExitCodes: map[int]Status{0: StatusPass, 1: StatusFindings, 2: StatusError}, OutputMediaType: media, Adapter: adapter, RedactionRules: []string{"authorization", "cookie", "private_key", "configured_sensitive_fields"}, Idempotent: true}
 	}
 	tools := []Tool{
 		base("playwright", DomainWeb, "1.52.0", "json-records", "application/json", []string{"base_url", "browser_script"}, []string{"playwright", "test", "{{target}}", "--reporter=json"}),
-		base("owasp-zap", DomainWeb, "2.16.1", "zap-json", "application/json", []string{"base_url", "openapi"}, []string{"zap.sh", "-cmd", "-autorun", "{{target}}"}),
-		base("schemathesis", DomainWeb, "4.0.16", "schemathesis-json", "application/json", []string{"openapi"}, []string{"schemathesis", "run", "{{target}}", "--report=json"}),
+		base("owasp-zap", DomainWeb, "2.16.1", "zap-json", "application/json", []string{"zap_plan"}, []string{"zap.sh", "-dir", "/work/.ZAP", "-cmd", "-autorun", "{{target}}"}),
+		base("schemathesis", DomainWeb, "4.0.16", "junit", "application/junit+xml", []string{"openapi"}, []string{"schemathesis", "run", "{{target}}", "--url", "{{base_url}}", "--report", "junit", "--report-junit-path", "/work/result.xml", "--workers", "1", "--max-examples", "10", "--rate-limit", "10/s"}),
 		base("restler", DomainWeb, "9.2.4", "restler-json", "application/json", []string{"openapi"}, []string{"restler", "fuzz-lean", "--grammar_file", "{{target}}"}),
 		base("mitmproxy", DomainWeb, "12.0.0", "har", "application/json", []string{"har", "base_url"}, []string{"mitmdump", "--set", "hardump={{target}}"}),
 		base("nuclei", DomainWeb, "3.11.1", "nuclei-jsonl", "application/x-ndjson", []string{"base_url"}, []string{"nuclei", "-u", "{{target}}", "-templates", "@operator/nuclei-reviewed.yaml", "-rate-limit", "{{rate}}", "-concurrency", "1", "-bulk-size", "1", "-jsonl", "-silent", "-disable-update-check", "-no-interactsh"}),
@@ -364,10 +701,10 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("openssl-inspect", DomainCrypto, "3.5.0", "openssl-json", "application/json", []string{"key", "certificate", "asn1"}, []string{"openssl-inspect", "--input", "{{target}}", "--json"}),
 		base("sslyze", DomainWeb, "6.1.0", "sslyze-json", "application/json", []string{"base_url", "tls_service"}, []string{"sslyze", "--json_out=-", "{{target}}"}),
 		base("testssl", DomainNetwork, "3.2.1", "testssl-json", "application/json", []string{"tls_service"}, []string{"testssl.sh", "--jsonfile-pretty=-", "{{target}}"}),
-		base("nmap", DomainNetwork, "7.95", "nmap-xml", "application/xml", []string{"address_scope"}, []string{"nmap", "-oX", "-", "{{target}}"}),
+		base("nmap", DomainNetwork, "7.95", "nmap-xml", "application/xml", []string{"address_scope"}, []string{"nmap", "-sT", "-n", "-Pn", "-p", "{{ports}}", "--max-rate", "{{rate}}", "-oX", "-", "{{target}}"}),
 		base("tshark", DomainNetwork, "4.4.6", "tshark-json", "application/json", []string{"pcap"}, []string{"tshark", "-r", "{{target}}", "-T", "json"}),
 		base("zeek", DomainNetwork, "7.2.2", "zeek-jsonl", "application/x-ndjson", []string{"pcap"}, []string{"zeek", "-Cr", "{{target}}", "LogAscii::use_json=T"}),
-		base("suricata", DomainNetwork, "7.0.9", "suricata-eve", "application/x-ndjson", []string{"pcap"}, []string{"suricata", "-r", "{{target}}", "--set", "outputs.1.eve-log.enabled=yes"}),
+		base("suricata", DomainNetwork, "7.0.9", "suricata-eve", "application/x-ndjson", []string{"pcap"}, []string{"suricata", "-r", "{{target}}", "-l", "/work", "--set", "outputs.1.eve-log.enabled=yes"}),
 		base("scapy", DomainNetwork, "2.6.1", "junit", "application/junit+xml", []string{"packet_assertions"}, []string{"scapy-runner", "--input", "{{target}}", "--junit"}),
 		base("boofuzz", DomainNetwork, "0.4.2", "junit", "application/junit+xml", []string{"protocol_fixture"}, []string{"boofuzz-runner", "--fixture", "{{target}}", "--junit"}),
 		base("naabu", DomainNetwork, "2.6.1", "naabu-jsonl", "application/x-ndjson", []string{"address_scope"}, []string{"naabu", "-host", "{{target}}", "-p", "{{ports}}", "-rate", "{{rate}}", "-c", "4", "-scan-type", "c", "-retries", "1", "-json", "-silent", "-disable-update-check"}),
@@ -382,21 +719,47 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "nuclei", "naabu", "aderyn", "forge-security-tests"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests"}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
+	ociTools := map[string]struct{ image, digest, amd64, arm64, root, executable, output string }{
+		"owasp-zap":    {"docker.io/zaproxy/zap-stable", "sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab", "sha256:65f8bee15a648ca4a0b6a25e1096fc76af6eea42ab2d75f2a9649981225f30b8", "sha256:7d6bc478bd0750a094349b2e9710a4e33b84e003ae4341f2f2ae7245ec1c5065", "owasp-zap", "/zap/zap.sh", "/work/zap-report.json"},
+		"schemathesis": {"docker.io/schemathesis/schemathesis", "sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2", "sha256:7f507383fc96256c1de89e8ac2fd9e00525cd46fee0be39d29dac286315fa414", "sha256:99f0b99bb8a44beb22d97fd12643d0990a28b13a8e0dd91d2ace054500373271", "schemathesis", "/usr/local/bin/schemathesis", "/work/result.xml"},
+		"sslyze":       {"docker.io/nablac0d3/sslyze", "sha256:e6d59470e380ecb626e831d1c3e006a410f7081266171054c0ce616ee03627d3", "sha256:b2a1cbb8cb716a215ea3e34ab2b8db51a149c8d7a04b8a9f146a70c76d783278", "sha256:5aba89895bc4161df0cdcd8126cb4f3e9c9e4eaf2f0462c5979e4cd38ab80e9f", "sslyze", "/opt/venv/bin/sslyze", ""},
+		"nmap":         {"docker.io/instrumentisto/nmap", "sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4416fa36e1891e8c33623cfc845", "sha256:42dc1d797c6f716ef192ac49426a19506bd6d27fc4002b7ca686796452c0b050", "sha256:6b200daa02b7b1a6628df3d815744fba596230137237e270640e788c4a0a65cb", "nmap", "/usr/bin/nmap", ""},
+		"zeek":         {"docker.io/zeek/zeek", "sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a", "sha256:c01e13d3bb837fdbccb26cddfab73c0cf8a9f3dba1eb9d181b00f412530bb4f6", "sha256:e53b6b22aaa753010ea356c5a691435a80a9aa0935721dcfd582dc76dd38572b", "zeek", "/usr/local/zeek/bin/zeek", "/work/notice.log"},
+		"suricata":     {"docker.io/jasonish/suricata", "sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a", "sha256:559a07fcccae439ffdabd05a4969e1feb74cc43f88ea456cc544a20b9b148123", "sha256:6a0b4d02f9174a74e52c904bbd10d344d024bbebc86283866f92096c09be31b0", "suricata", "/usr/bin/suricata", "/work/eve.json"},
+	}
 	for i := range tools {
 		if digest := lockedToolArtifactDigest(tools[i].Name, runtime.GOARCH); digest != "" {
 			tools[i].ToolArtifactDigest = digest
 		}
+		if oci, ok := ociTools[tools[i].Name]; ok {
+			tools[i].Image = oci.image + "@" + oci.digest
+			tools[i].ImageDigest = oci.digest
+			tools[i].ToolArtifactDigest = oci.digest
+			tools[i].PlatformDigests = map[string]string{"amd64": oci.amd64, "arm64": oci.arm64}
+			tools[i].OCIRoot = oci.root
+			tools[i].OCIExecutable = oci.executable
+			tools[i].OCIOutputPath = oci.output
+			tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
+			if tools[i].Name == "schemathesis" {
+				tools[i].ExitCodes[1] = StatusFindings
+			}
+			if tools[i].Name == "zeek" || tools[i].Name == "suricata" {
+				tools[i].KnowledgeDigests = map[string]string{"embedded": oci.digest}
+			}
+		}
 		switch tools[i].Name {
 		case "nuclei":
 			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}}
-		case "naabu":
+		case "owasp-zap", "schemathesis":
+			tools[i].Arguments = []Argument{{Name: "base_url", Type: "url", Required: true}}
+		case "naabu", "nmap":
 			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}, {Name: "ports", Type: "ports", Required: true}}
 		}
 		if digest, ok := knowledgeDigests[tools[i].Name]; ok {
 			tools[i].KnowledgeDigests = map[string]string{"bundle": digest}
-		} else if slices.Contains(knowledgeRequired, tools[i].Name) {
+		} else if slices.Contains(knowledgeRequired, tools[i].Name) && len(tools[i].KnowledgeDigests) == 0 {
 			tools[i].Enabled = false
 			tools[i].DisabledReason = "catalog-only: required knowledge bundle digest was not configured"
 		}

@@ -3,6 +3,7 @@ package securitytoolpacks
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -50,9 +51,114 @@ func TestDisabledCatalogToolCannotBuildInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = registry.BuildInvocation(RunConfig{Tool: "nmap", Target: Target{Type: "address_scope", Locator: "192.0.2.0/24", Revision: "v1", Digest: pin}, Scope: []string{"192.0.2.0/24"}})
+	_, _, err = registry.BuildInvocation(RunConfig{Tool: "playwright", Target: Target{Type: "base_url", Locator: "https://example.test", Revision: "v1", Digest: pin}, Scope: []string{"https://example.test"}})
 	if err == nil || !strings.Contains(err.Error(), "disabled") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestZAPPlanIsScopeBoundAndUsesFixedReport(t *testing.T) {
+	pin := sha256Digest([]byte("fixture"))
+	registry, err := NewRegistry(DefaultManifest(pin, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := `env:
+  contexts:
+    - name: fixture
+      urls: ["https://api.example.test/v1"]
+jobs:
+  - type: spider
+    parameters:
+      context: fixture
+      maxDuration: 1
+  - type: passiveScan-wait
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: /work
+      reportFile: zap-report
+`
+	path := filepath.Join(t.TempDir(), "plan.yaml")
+	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := RunConfig{Tool: "owasp-zap", Target: Target{Type: "zap_plan", Locator: path, Revision: "v1", Digest: sha256Digest([]byte(valid))}, Arguments: map[string]string{"base_url": "https://api.example.test/v1"}, Scope: []string{"https://api.example.test/v1"}}
+	if _, _, err := registry.BuildInvocation(cfg); err != nil {
+		t.Fatalf("valid plan: %v", err)
+	}
+	unsafe := strings.Replace(valid, "https://api.example.test/v1", "https://outside.example.test", 1)
+	if err := os.WriteFile(path, []byte(unsafe), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := registry.BuildInvocation(cfg); err == nil || !strings.Contains(err.Error(), "outside configured scope") {
+		t.Fatalf("unsafe plan err=%v", err)
+	}
+	uppercase := strings.Replace(valid, "https://api.example.test/v1", "HTTPS://outside.example.test", 1)
+	if err := os.WriteFile(path, []byte(uppercase), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := registry.BuildInvocation(cfg); err == nil || !strings.Contains(err.Error(), "outside configured scope") {
+		t.Fatalf("uppercase scheme err=%v", err)
+	}
+	noOp := strings.Replace(valid, "  - type: spider\n    parameters:\n      context: fixture\n      maxDuration: 1\n", "", 1)
+	if err := os.WriteFile(path, []byte(noOp), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := registry.BuildInvocation(cfg); err == nil || !strings.Contains(err.Error(), "request-producing") {
+		t.Fatalf("no-op plan err=%v", err)
+	}
+	disabled := strings.Replace(valid, "  - type: spider", "  - type: spider\n    enabled: false", 1)
+	if err := os.WriteFile(path, []byte(disabled), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := registry.BuildInvocation(cfg); err == nil || !strings.Contains(err.Error(), "cannot be disabled") {
+		t.Fatalf("disabled scan err=%v", err)
+	}
+	proxy := strings.Replace(valid, "env:\n", "env:\n  proxy:\n    hostname: outside.example.test\n", 1)
+	if err := os.WriteFile(path, []byte(proxy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := registry.BuildInvocation(cfg); err == nil || !strings.Contains(err.Error(), "field \"proxy\"") {
+		t.Fatalf("proxy plan err=%v", err)
+	}
+	duplicate := valid + "\nenv:\n  proxy:\n    hostname: outside.example.test\n"
+	if err := os.WriteFile(path, []byte(duplicate), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := registry.BuildInvocation(cfg); err == nil || !strings.Contains(err.Error(), "duplicate mapping key") {
+		t.Fatalf("duplicate key err=%v", err)
+	}
+}
+
+func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
+	pin := sha256Digest([]byte("fixture"))
+	registry, err := NewRegistry(DefaultManifest(pin, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerfiles := ""
+	for _, path := range []string{"../../Dockerfile.security-tools", "../../Dockerfile.injector"} {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		dockerfiles += string(data)
+	}
+	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata"} {
+		tool, ok := registry.Tool(name)
+		if !ok || !tool.Enabled {
+			t.Fatalf("%s is not executable: %+v", name, tool)
+		}
+		if tool.OCIRoot != name || !strings.Contains(tool.Image, "@"+tool.ImageDigest) || tool.ToolArtifactDigest != tool.ImageDigest || tool.WrapperDigest != pin || tool.PlatformDigests["amd64"] == "" || tool.PlatformDigests["arm64"] == "" || tool.OCIExecutable == "" {
+			t.Fatalf("%s has incomplete OCI provenance: %+v", name, tool)
+		}
+		if strings.Count(dockerfiles, tool.Image) != 2 {
+			t.Fatalf("%s pin is not present exactly once in each runtime Dockerfile", name)
+		}
+		if name != "schemathesis" && tool.ExitCodes[1] != StatusError {
+			t.Fatalf("%s exit 1 must be operational error", name)
+		}
 	}
 }
 
@@ -119,6 +225,11 @@ func TestScopeMustContainLiveTarget(t *testing.T) {
 	}
 	if scopeAllowsTarget("https://api.example.test/v10", []string{"https://api.example.test/v1"}) {
 		t.Fatal("raw path prefix was accepted")
+	}
+	for _, target := range []string{"https://api.example.test/v1/../admin", "https://api.example.test/v1/%2e%2e/admin", "https://api.example.test/v1/%2Fadmin", "https://api.example.test/v1/%252e%252e/admin", "https://api.example.test/v1/%252fadmin", "https://api.example.test/v1\\..\\admin"} {
+		if scopeAllowsTarget(target, []string{"https://api.example.test/v1"}) {
+			t.Fatalf("ambiguous traversal target accepted: %s", target)
+		}
 	}
 	if scopeAllowsTarget("198.51.100.10", []string{"192.0.2.0/24"}) {
 		t.Fatal("out-of-prefix address was accepted")

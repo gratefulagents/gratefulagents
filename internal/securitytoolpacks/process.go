@@ -3,15 +3,21 @@ package securitytoolpacks
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"syscall"
+	"time"
 )
 
 // ProcessSandbox executes a registry-produced argv vector directly. It never
@@ -38,15 +44,36 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 	stdout := &limitedBuffer{limit: limit}
 	stderr := &limitedBuffer{limit: min(limit, 1<<20)}
 	argv := slices.Clone(req.Invocation.Argv)
+	executionTarget := req.Config.Target.Locator
 	if snapshot, cleanup, err := snapshotDirectoryTarget(req.Config.Target); err != nil {
 		return NativeResult{ExitCode: -1, Err: err}
 	} else if snapshot != "" {
 		defer cleanup()
+		executionTarget = snapshot
 		for i := range argv {
 			if argv[i] == req.Config.Target.Locator {
 				argv[i] = snapshot
 			}
 		}
+	}
+	if req.Tool.Name == "owasp-zap" {
+		if err := validateZAPPlan(executionTarget, req.Config.Arguments["base_url"], req.Config.Scope); err != nil {
+			return NativeResult{ExitCode: -1, Err: err}
+		}
+	}
+	if req.Tool.Name == "schemathesis" {
+		if err := validateOpenAPIBudget(executionTarget, 100); err != nil {
+			return NativeResult{ExitCode: -1, Err: err}
+		}
+	}
+	ociWork := ""
+	if req.Tool.OCIRoot != "" {
+		prepared, work, cleanup, err := prepareOCIInvocation(req.Tool, argv, executionTarget)
+		if err != nil {
+			return NativeResult{ExitCode: -1, Err: err}
+		}
+		defer cleanup()
+		argv, ociWork = prepared, work
 	}
 	if isLockedExternalTool(req.Tool.Name) {
 		binary, err := trustedToolBinary(argv[0], req.Tool.ToolArtifactDigest)
@@ -75,20 +102,54 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 	cmd.Env = deterministicEnvironment(req.Tool.Name, home)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	err := cmd.Run()
-
-	exitCode := processExitCode(err)
-	result := NativeResult{
-		Output:   stdout.Bytes(),
-		ExitCode: exitCode,
-		Environment: map[string]string{
-			"os":      runtime.GOOS,
-			"arch":    runtime.GOARCH,
-			"runtime": runtime.Version(),
-		},
+	var err error
+	if ociWork != "" {
+		err = runWithDirectoryLimit(cmd, ociWork, limit)
+	} else {
+		err = cmd.Run()
 	}
-	if exitCode >= 0 {
+	ociOutputCollected := req.Tool.OCIRoot == "" || req.Tool.OCIOutputPath == ""
+	if req.Tool.OCIOutputPath != "" && ociWork != "" {
+		if output, readErr := readBoundedOCIOutput(ociWork, filepath.Base(req.Tool.OCIOutputPath), limit); readErr == nil {
+			if req.Tool.Name == "owasp-zap" && !zapReportExaminedTarget(output, req.Config.Arguments["base_url"], req.Config.Scope) {
+				if err == nil {
+					err = fmt.Errorf("ZAP report contains no examined site")
+				}
+			} else {
+				ociOutputCollected = true
+			}
+			stdout.buf.Reset()
+			_, _ = stdout.buf.Write(output)
+		} else if errors.Is(readErr, errOutputTooLarge) {
+			stdout.overflow = true
+		} else if !os.IsNotExist(readErr) || slices.Contains([]string{"owasp-zap", "schemathesis"}, req.Tool.Name) {
+			if err == nil {
+				err = fmt.Errorf("collect OCI output: %w", readErr)
+			}
+		}
+	}
+
+	environment := map[string]string{"os": runtime.GOOS, "arch": runtime.GOARCH, "runtime": runtime.Version()}
+	if req.Tool.OCIRoot != "" {
+		sandboxPath := argv[0]
+		if len(argv) > 4 && argv[1] == "__sandbox-exec" {
+			sandboxPath = argv[4]
+		}
+		if data, readErr := os.ReadFile(sandboxPath); readErr == nil {
+			environment["sandbox_digest"] = sha256Digest(data)
+		} else if err == nil {
+			err = fmt.Errorf("hash sandbox runtime: %w", readErr)
+		}
+		environment["scanner_platform_digest"] = req.Tool.PlatformDigests[runtime.GOARCH]
+		environment["wrapper_digest"] = req.Tool.WrapperDigest
+	}
+	exitCode := processExitCode(err)
+	result := NativeResult{Output: stdout.Bytes(), ExitCode: exitCode, Environment: environment}
+	completeEvidence := ociOutputCollected || (req.Tool.Name == "zeek" && exitCode == 0)
+	if exitCode >= 0 && completeEvidence {
 		result.Examined = []string{req.Config.Target.Locator}
+	} else if req.Tool.OCIRoot != "" {
+		result.Uncovered = []string{req.Config.Target.Locator}
 	}
 	if ctx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
@@ -110,6 +171,245 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 		}
 	}
 	return result
+}
+
+func zapReportExaminedTarget(output []byte, baseURL string, scopes []string) bool {
+	var report struct {
+		Sites []struct {
+			Name string `json:"@name"`
+			Host string `json:"@host"`
+		} `json:"site"`
+	}
+	if json.Unmarshal(output, &report) != nil {
+		return false
+	}
+	for _, site := range report.Sites {
+		identity := site.Name
+		if identity == "" {
+			identity = site.Host
+		}
+		parsed, err := url.ParseRequestURI(identity)
+		if err == nil && parsed.IsAbs() && safeURLPath(parsed.EscapedPath()) && scopeAllowsTarget(identity, scopes) && scopeAllowsTarget(identity, []string{baseURL}) {
+			return true
+		}
+	}
+	return false
+}
+
+func runWithDirectoryLimit(cmd *exec.Cmd, directory string, limit int64) error {
+	if err := checkDirectoryQuota(directory, limit, 4096); err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	stop := make(chan struct{})
+	monitorDone := make(chan struct{})
+	violation := make(chan error, 1)
+	go func() {
+		defer close(monitorDone)
+		ticker := time.NewTicker(25 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if err := checkDirectoryQuota(directory, limit, 4096); err != nil {
+					select {
+					case violation <- err:
+					default:
+					}
+					_ = cmd.Process.Kill()
+					return
+				}
+			}
+		}
+	}()
+	err := cmd.Wait()
+	close(stop)
+	<-monitorDone
+	select {
+	case quotaErr := <-violation:
+		return quotaErr
+	default:
+		if quotaErr := checkDirectoryQuota(directory, limit, 4096); quotaErr != nil {
+			return quotaErr
+		}
+		return err
+	}
+}
+
+func checkDirectoryQuota(root string, limit int64, maxEntries int) error {
+	var total int64
+	entries := 0
+	err := filepath.WalkDir(root, func(_ string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		entries++
+		if entries > maxEntries {
+			return fmt.Errorf("OCI work directory exceeds %d entries", maxEntries)
+		}
+		if entry.Type().IsRegular() {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if info.Size() > limit-total {
+				return errOutputTooLarge
+			}
+			total += info.Size()
+		} else if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("OCI work directory contains a symlink")
+		} else if !entry.IsDir() {
+			return fmt.Errorf("OCI work directory contains a special file")
+		}
+		return nil
+	})
+	return err
+}
+
+var errOutputTooLarge = errors.New("OCI output exceeds configured limit")
+
+func readBoundedOCIOutput(directory, name string, limit int64) ([]byte, error) {
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("OCI output must be a regular file")
+	}
+	if info.Size() > limit {
+		return nil, errOutputTooLarge
+	}
+	file, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	openedInfo, err := file.Stat()
+	if err != nil || !openedInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("OCI output changed or is not regular")
+	}
+	if openedInfo.Size() > limit {
+		return nil, errOutputTooLarge
+	}
+	output, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(output)) > limit {
+		return nil, errOutputTooLarge
+	}
+	return output, nil
+}
+
+func verifyOperatorOwnedPath(path string) error {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	for current := resolved; ; current = filepath.Dir(current) {
+		info, statErr := os.Stat(current)
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("%s is group/other writable", current)
+		}
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != 0 {
+			return fmt.Errorf("%s is not owned by root", current)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+	}
+	return nil
+}
+
+func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) ([]string, string, func(), error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, "", func() {}, err
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return nil, "", func() {}, err
+	}
+	if err := verifyOperatorOwnedPath(executable); err != nil {
+		return nil, "", func() {}, fmt.Errorf("untrusted wrapper: %w", err)
+	}
+	if data, readErr := os.ReadFile(executable); readErr != nil || sha256Digest(data) != tool.WrapperDigest {
+		return nil, "", func() {}, fmt.Errorf("wrapper digest mismatch")
+	}
+	root := filepath.Dir(filepath.Dir(executable))
+	rootCandidates := []string{
+		filepath.Join(root, "toolroots", tool.OCIRoot),
+		filepath.Join(root, "share", "ga-security", "toolroots", tool.OCIRoot),
+	}
+	var toolRoot string
+	for _, candidate := range rootCandidates {
+		marker, readErr := os.ReadFile(filepath.Join(candidate, ".ga-oci-digest")) // #nosec G304 -- operator-relative static root.
+		if readErr == nil && strings.TrimSpace(string(marker)) == tool.ToolArtifactDigest {
+			toolRoot = candidate
+			break
+		}
+	}
+	if toolRoot == "" {
+		return nil, "", func() {}, fmt.Errorf("pinned OCI root %s is unavailable or has invalid provenance", tool.OCIRoot)
+	}
+	if err := verifyOperatorOwnedPath(toolRoot); err != nil {
+		return nil, "", func() {}, fmt.Errorf("untrusted OCI root: %w", err)
+	}
+	bwrapCandidates := []string{filepath.Join(root, "fallback", "bin", "bwrap"), filepath.Join(filepath.Dir(executable), "bwrap")}
+	var bwrap string
+	for _, candidate := range bwrapCandidates {
+		if info, statErr := os.Stat(candidate); statErr == nil && info.Mode().IsRegular() {
+			bwrap = candidate
+			break
+		}
+	}
+	if bwrap == "" {
+		return nil, "", func() {}, fmt.Errorf("operator bubblewrap runtime is unavailable")
+	}
+	if err := verifyOperatorOwnedPath(bwrap); err != nil {
+		return nil, "", func() {}, fmt.Errorf("untrusted bubblewrap runtime: %w", err)
+	}
+	work, err := os.MkdirTemp("", "ga-security-oci-work-*")
+	if err != nil {
+		return nil, "", func() {}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(work) }
+	argv := []string{bwrap, "--die-with-parent", "--new-session", "--unshare-pid", "--ro-bind", toolRoot, "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", work, "/work", "--chdir", "/work", "--clearenv", "--setenv", "HOME", "/work", "--setenv", "LANG", "C.UTF-8", "--setenv", "PATH", "/usr/local/zeek/bin:/opt/venv/bin:/usr/local/bin:/usr/bin:/bin"}
+	if tool.Requirements.Network {
+		for _, hostFile := range []string{"/etc/resolv.conf", "/etc/hosts"} {
+			if _, statErr := os.Stat(filepath.Join(toolRoot, hostFile)); statErr == nil {
+				argv = append(argv, "--ro-bind", hostFile, hostFile)
+			}
+		}
+	} else {
+		argv = append(argv, "--unshare-net")
+	}
+	if info, statErr := os.Stat(executionTarget); statErr == nil {
+		_ = info
+		argv = append(argv, "--ro-bind", executionTarget, "/tmp/input")
+		for i := range toolArgv {
+			if toolArgv[i] == executionTarget {
+				toolArgv[i] = "/tmp/input"
+			}
+		}
+	}
+	argv = append(argv, "--", tool.OCIExecutable)
+	argv = append(argv, toolArgv[1:]...)
+	launcher := []string{executable, "__sandbox-exec", strconv.FormatInt(tool.Budgets.MaxOutputSize, 10), strconv.FormatInt(tool.Budgets.Memory, 10)}
+	return append(launcher, argv...), work, cleanup, nil
 }
 
 func isLockedExternalTool(name string) bool {
@@ -195,8 +495,8 @@ func snapshotDirectoryTarget(target Target) (string, func(), error) {
 		}
 		return "", func() {}, err
 	}
-	if !info.IsDir() {
-		return "", func() {}, nil
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		return "", func() {}, fmt.Errorf("target must be a regular file or directory")
 	}
 	root, err := os.MkdirTemp("", "ga-security-target-*")
 	if err != nil {
@@ -204,6 +504,39 @@ func snapshotDirectoryTarget(target Target) (string, func(), error) {
 	}
 	cleanup := func() { _ = os.RemoveAll(root) }
 	snapshot := filepath.Join(root, "input")
+	if info.Mode().IsRegular() {
+		source, openErr := os.Open(target.Locator) // #nosec G304 -- immutable typed target snapshot.
+		if openErr != nil {
+			cleanup()
+			return "", func() {}, openErr
+		}
+		defer func() { _ = source.Close() }()
+		destination, createErr := os.OpenFile(snapshot, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
+		if createErr != nil {
+			cleanup()
+			return "", func() {}, createErr
+		}
+		_, copyErr := io.Copy(destination, source)
+		closeErr := destination.Close()
+		if copyErr != nil {
+			cleanup()
+			return "", func() {}, copyErr
+		}
+		if closeErr != nil {
+			cleanup()
+			return "", func() {}, closeErr
+		}
+		actual, _, digestErr := DigestPath(snapshot)
+		if digestErr != nil {
+			cleanup()
+			return "", func() {}, digestErr
+		}
+		if actual != target.Digest {
+			cleanup()
+			return "", func() {}, fmt.Errorf("target changed while creating execution snapshot")
+		}
+		return snapshot, cleanup, nil
+	}
 	if err := os.Mkdir(snapshot, info.Mode().Perm()); err != nil {
 		cleanup()
 		return "", func() {}, err
