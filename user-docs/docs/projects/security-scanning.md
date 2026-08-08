@@ -322,6 +322,8 @@ Lines that are not valid directives are kept as prose and given to the triage ag
 
 ### Deterministic scanner ingestion
 
+For controller-enforced web/API, cryptography, and network wrappers, replay metadata, coverage semantics, and offline fixtures, see [Deterministic security tool packs](./security-tool-packs.md).
+
 Agent findings can be complemented with results from deterministic tools (semgrep, gosec, trivy, gitleaks, ...) that the scan agent runs in the workspace. The agent adapts each tool result into the canonical **scanner record** contract and submits batches with the `ingest_scanner_results` tool — at most 500 records and 4 MiB of input per call. Every record in a batch is validated against the contract; if any record is invalid the whole batch is rejected with per-record errors (`records[3]: rule_id is required; ...`) and nothing is ingested.
 
 ```json

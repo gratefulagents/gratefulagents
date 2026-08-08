@@ -1,0 +1,1 @@
+{"vectors":[{"id":"rfc4231-1","suite":"RFC4231-HMAC-SHA256","expected":"b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7","actual":"00344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7","passed":false}]}

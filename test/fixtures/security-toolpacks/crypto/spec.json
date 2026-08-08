@@ -1,0 +1,1 @@
+{"schema_version":"crypto-spec/v1","algorithm":"HMAC","mode":"SHA-256","key_sizes_bits":[160],"nonce":{"required":false},"associated_data":{"supported":false},"encodings":["hex"],"trust_anchors":[],"key_lifecycle_assumptions":["fixture key is public test data and never reused in production"],"expected_suites":["RFC4231-HMAC-SHA256"]}

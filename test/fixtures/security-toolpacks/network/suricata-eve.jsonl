@@ -1,0 +1,1 @@
+{"timestamp":"2025-01-01T00:00:00Z","flow_id":1,"event_type":"alert","src_ip":"192.0.2.10","dest_ip":"192.0.2.20","alert":{"signature_id":2100365,"signature":"GPL ATTACK_RESPONSE id check returned root","severity":1,"category":"Potentially Bad Traffic"}}
