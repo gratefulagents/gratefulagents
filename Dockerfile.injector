@@ -8,7 +8,7 @@
 # Linux) on both amd64 and arm64. The user's runtime image only needs a shell
 # (bash) — everything else the agent depends on is injected:
 #
-#   bin/           — PATH-first: agent (+ executor/plan-executor symlinks)
+#   bin/           — PATH-first: agent, ga-security (+ executor/plan-executor symlinks)
 #   fallback/bin/  — PATH-last gap fillers: git, gh, rg, fd, jq, curl, bwrap
 #                    (the image's own tools win when present)
 #   fallback/libexec/git-core/, fallback/share/git-core/
@@ -40,7 +40,9 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
-    go build -trimpath -o agent ./cmd/agent/
+    go build -trimpath -o agent ./cmd/agent/ \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
+    go build -trimpath -o ga-security ./cmd/ga-security/
 
 # ── Prebuilt static tools (downloaded on the build platform) ─────────────────
 FROM --platform=$BUILDPLATFORM alpine:3.22 AS fetch
@@ -174,6 +176,7 @@ RUN mkdir -p /opt/gratefulagents/bin /opt/gratefulagents/fallback/bin /opt/grate
 
 # Agent binary (statically linked — works on any Linux distro and libc).
 COPY --from=agent-builder /build/agent /opt/gratefulagents/bin/agent
+COPY --from=agent-builder /build/ga-security /opt/gratefulagents/bin/ga-security
 # Backward-compat symlinks.
 RUN ln -s agent /opt/gratefulagents/bin/executor && \
     ln -s agent /opt/gratefulagents/bin/plan-executor

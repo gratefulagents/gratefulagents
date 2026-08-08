@@ -3,6 +3,8 @@ package securitytoolpacks
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,15 +19,24 @@ type Registry struct {
 	byName   map[string]Tool
 }
 
-type notApplicableError struct{ message string }
+type ApplicabilityError struct {
+	Tool       string
+	TargetType string
+}
 
-func (e notApplicableError) Error() string { return e.message }
+func (e *ApplicabilityError) Error() string {
+	return fmt.Sprintf("tool %s does not accept target type %q", e.Tool, e.TargetType)
+}
 
 func cloneManifest(in Manifest) Manifest {
 	b, _ := json.Marshal(in)
 	var out Manifest
 	_ = json.Unmarshal(b, &out)
 	return out
+}
+
+func cloneTool(in Tool) Tool {
+	return cloneManifest(Manifest{Tools: []Tool{in}}).Tools[0]
 }
 
 func NewRegistry(m Manifest) (*Registry, error) {
@@ -60,12 +71,16 @@ type Invocation struct {
 }
 
 func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
-	t, ok := r.byName[cfg.Tool]
+	stored, ok := r.byName[cfg.Tool]
 	if !ok {
 		return Invocation{}, Tool{}, fmt.Errorf("unknown registered tool %q", cfg.Tool)
 	}
+	t := cloneTool(stored)
+	if !t.Enabled {
+		return Invocation{}, Tool{}, fmt.Errorf("tool %s is disabled: %s", t.Name, t.DisabledReason)
+	}
 	if !slices.Contains(t.TargetTypes, cfg.Target.Type) {
-		return Invocation{}, Tool{}, notApplicableError{fmt.Sprintf("tool %s does not accept target type %q", t.Name, cfg.Target.Type)}
+		return Invocation{}, Tool{}, &ApplicabilityError{Tool: t.Name, TargetType: cfg.Target.Type}
 	}
 	if cfg.Target.Revision == "" || !digestPattern.MatchString(cfg.Target.Digest) {
 		return Invocation{}, Tool{}, fmt.Errorf("target revision and immutable sha256 digest are required")
@@ -73,9 +88,9 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 	if t.Requirements.Network && len(cfg.Scope) == 0 {
 		return Invocation{}, Tool{}, fmt.Errorf("tool %s requires explicit target scope", t.Name)
 	}
-	for _, scope := range cfg.Scope {
-		if strings.TrimSpace(scope) == "" {
-			return Invocation{}, Tool{}, fmt.Errorf("target scope entries must not be empty")
+	for i, scope := range cfg.Scope {
+		if !validScope(scope) {
+			return Invocation{}, Tool{}, fmt.Errorf("target scope entry %d is invalid", i)
 		}
 	}
 	known := map[string]Argument{}
@@ -129,6 +144,47 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 	return Invocation{Image: t.Image, Digest: t.ImageDigest, Argv: argv, Budgets: t.Budgets, Network: t.Requirements.Network, Privilege: t.Requirements.Privilege}, t, nil
 }
 
+func validScope(scope string) bool {
+	if scope == "" || scope != strings.TrimSpace(scope) || strings.ContainsAny(scope, "\x00\r\n\t ") {
+		return false
+	}
+	if net.ParseIP(scope) != nil {
+		return true
+	}
+	if _, _, err := net.ParseCIDR(scope); err == nil {
+		return true
+	}
+	if u, err := url.ParseRequestURI(scope); err == nil && u.IsAbs() && u.Hostname() != "" && u.User == nil {
+		return true
+	}
+	if host, port, err := net.SplitHostPort(scope); err == nil && validScopeHost(host) {
+		n, err := strconv.Atoi(port)
+		return err == nil && n > 0 && n <= 65535
+	}
+	return validScopeHost(scope)
+}
+
+func validScopeHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	host = strings.TrimSuffix(host, ".")
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for label := range strings.SplitSeq(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func validateArg(a Argument, value string) error {
 	switch a.Type {
 	case "string", "path", "url", "cidr", "ports":
@@ -158,7 +214,7 @@ func validateArg(a Argument, value string) error {
 func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Manifest {
 	const image = "ghcr.io/gratefulagents/security-toolpack"
 	base := func(name string, domain Domain, version, adapter, media string, targets, argv []string) Tool {
-		return Tool{Name: name, Domain: domain, Version: version, Image: image, ImageDigest: imageDigest, Invocation: argv, TargetTypes: targets, Requirements: Requirements{Privilege: "unprivileged"}, Budgets: Budgets{Timeout: 5 * time.Minute, CPU: 1000, Memory: 1 << 30, Requests: 1000, Concurrency: 4, MaxOutputSize: 16 << 20}, ExitCodes: map[int]Status{0: StatusPass, 1: StatusFindings, 2: StatusError}, OutputMediaType: media, Adapter: adapter, RedactionRules: []string{"authorization", "cookie", "private_key", "configured_sensitive_fields"}, Idempotent: true}
+		return Tool{Name: name, Enabled: true, Domain: domain, Version: version, Image: image, ImageDigest: imageDigest, Invocation: argv, TargetTypes: targets, Requirements: Requirements{Privilege: "unprivileged"}, Budgets: Budgets{Timeout: 5 * time.Minute, CPU: 1000, Memory: 1 << 30, Requests: 1000, Concurrency: 4, MaxOutputSize: 16 << 20}, ExitCodes: map[int]Status{0: StatusPass, 1: StatusFindings, 2: StatusError}, OutputMediaType: media, Adapter: adapter, RedactionRules: []string{"authorization", "cookie", "private_key", "configured_sensitive_fields"}, Idempotent: true}
 	}
 	tools := []Tool{
 		base("playwright", DomainWeb, "1.52.0", "json-records", "application/json", []string{"base_url", "browser_script"}, []string{"playwright", "test", "{{target}}", "--reporter=json"}),
@@ -190,9 +246,17 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "authorization-matrix", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz"}
 	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz"}
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz"}
+	// Only in-process wrappers are universally available through the injected
+	// ga-security binary. External binaries stay catalog-only until the selected
+	// runtime lock proves that exact executable/version is present.
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors"}
+	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
 	for i := range tools {
 		if digest, ok := knowledgeDigests[tools[i].Name]; ok {
 			tools[i].KnowledgeDigests = map[string]string{"bundle": digest}
+		} else if slices.Contains(knowledgeRequired, tools[i].Name) {
+			tools[i].Enabled = false
+			tools[i].DisabledReason = "catalog-only: required knowledge bundle digest was not configured"
 		}
 		tools[i].Requirements.Network = slices.Contains(liveNetwork, tools[i].Name)
 		if slices.Contains(stateful, tools[i].Name) {
@@ -201,6 +265,10 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		if slices.Contains(seeded, tools[i].Name) {
 			tools[i].SeedSupported = true
 			tools[i].Invocation = append(tools[i].Invocation, "--seed", "{{seed}}")
+		}
+		if !slices.Contains(executable, tools[i].Name) {
+			tools[i].Enabled = false
+			tools[i].DisabledReason = "catalog-only: executable wrapper is not implemented"
 		}
 	}
 	return Manifest{SchemaVersion: "security-tool-registry/v1", Tools: tools}

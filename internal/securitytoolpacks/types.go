@@ -4,6 +4,7 @@
 package securitytoolpacks
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -61,6 +62,8 @@ type Argument struct {
 
 type Tool struct {
 	Name             string            `json:"name"`
+	Enabled          bool              `json:"enabled"`
+	DisabledReason   string            `json:"disabled_reason,omitempty"`
 	Domain           Domain            `json:"domain"`
 	Version          string            `json:"version"`
 	Image            string            `json:"image"`
@@ -161,6 +164,15 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("tools[%d]: name/version missing or duplicate", i)
 		}
 		seen[t.Name] = true
+		if !t.Enabled {
+			if strings.TrimSpace(t.DisabledReason) == "" {
+				return fmt.Errorf("tool %s: disabled catalog entry requires a reason", t.Name)
+			}
+			continue
+		}
+		if t.DisabledReason != "" {
+			return fmt.Errorf("tool %s: enabled tool must not have a disabled reason", t.Name)
+		}
 		if !digestPattern.MatchString(t.ImageDigest) {
 			return fmt.Errorf("tool %s: image_digest must be immutable sha256", t.Name)
 		}
@@ -181,6 +193,11 @@ func (m Manifest) Validate() error {
 		if len(t.ExitCodes) == 0 {
 			return fmt.Errorf("tool %s: exit-code mapping is required", t.Name)
 		}
+		for code, status := range t.ExitCodes {
+			if !slices.Contains([]Status{StatusPass, StatusFindings, StatusError, StatusTimeout}, status) {
+				return fmt.Errorf("tool %s: exit code %d has invalid execution status %q", t.Name, code, status)
+			}
+		}
 	}
 	return nil
 }
@@ -188,6 +205,13 @@ func (m Manifest) Validate() error {
 func stableRecords(records []security.ScannerRecord) {
 	sort.Slice(records, func(i, j int) bool {
 		a, b := records[i], records[j]
-		return strings.Join([]string{a.Tool, a.RuleID, a.FilePath, fmt.Sprint(a.StartLine), a.Message}, "\x00") < strings.Join([]string{b.Tool, b.RuleID, b.FilePath, fmt.Sprint(b.StartLine), b.Message}, "\x00")
+		ak := strings.Join([]string{a.Tool, a.RuleID, a.FilePath, fmt.Sprint(a.StartLine), a.Message}, "\x00")
+		bk := strings.Join([]string{b.Tool, b.RuleID, b.FilePath, fmt.Sprint(b.StartLine), b.Message}, "\x00")
+		if ak != bk {
+			return ak < bk
+		}
+		aj, _ := canonicalJSON(a)
+		bj, _ := canonicalJSON(b)
+		return bytes.Compare(aj, bj) < 0
 	})
 }

@@ -12,7 +12,21 @@ This is an execution primitive, not evidence that a clean target is secure. Huma
 - cryptography: Wycheproof, RFC/NIST vectors, dudect, ctgrind, tlsfuzzer, differential tests, Tamarin, ProVerif, Verifpal, and OpenSSL inspection;
 - network/protocol: Nmap, tshark, Zeek, Suricata, Scapy, boofuzz, and testssl.sh.
 
-The release/deployment supplies the actual `sha256:` digest of the tool-pack OCI image. Knowledge-driven tools additionally require content digests for reviewed Nuclei templates, Wycheproof/RFC/NIST vectors, Zeek policy, and Suricata rules. Registry validation rejects missing, malformed, or mutable pins. There are deliberately no placeholder digests or automatic update channels in source. A release must verify the upstream artifacts while building the image and pass the resulting provenance into `DefaultManifest`.
+The catalog distinguishes executable entries from catalog-only entries. Catalog-only tools remain visible with a reason but cannot produce an invocation. The universally available v1 execution path enables only the built-in authorization-matrix and pinned crypto-vector adapters; external scanners become executable only when their exact binary and knowledge pins are present in a reviewed runtime lock. This avoids claiming support for a binary that is absent from the worker.
+
+The release/deployment supplies the actual `sha256:` digest of the tool-pack OCI image. The injected `ga-security` wrapper falls back to hashing its own static executable when no OCI digest is available. Knowledge-driven tools additionally require content digests for reviewed Nuclei templates, Wycheproof/RFC/NIST vectors, Zeek policy, and Suricata rules. Registry validation rejects missing, malformed, or mutable pins. There are deliberately no placeholder digests or automatic update channels in source. A release must verify upstream artifacts while building the image and pass resulting provenance into `DefaultManifest`.
+
+## Agent execution through Bash
+
+`ga-security` is compiled into `Dockerfile.injector`, so it is on every worker's PATH. The agent may invoke it through the normal Bash sandbox:
+
+```text
+ga-security --config run-config.json --output .security-results/example
+```
+
+This hybrid keeps Bash available for exploration while making reportable scanner runs reproducible. `ga-security` decodes a closed `RunConfig`, rejects unknown fields and disabled tools, asks the registry to produce fixed argv, runs argv directly with `exec.CommandContext` (never a shell), checks file input digests, and enforces time/output limits. It writes `result.json` and restricted `raw-NN` artifacts. The status-specific exit codes are 0 pass, 10 findings, 20 partial, 30 not applicable, 124 timeout, and 1 error. Findings are then submitted through `ingest_scanner_results`, preserving the existing persistence, deduplication, correlation, confidence, and report path.
+
+The standalone `Dockerfile.security-tools` is a digest-pinned release artifact. `security-tools.lock.json` records exact multi-architecture archive hashes; entries that cannot be installed reproducibly are disabled with a reason. CI validates the lock and builds the image without contacting scan targets.
 
 ## Inputs and replay
 

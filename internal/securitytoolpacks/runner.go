@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -84,10 +85,11 @@ func (r *Runner) WithAdapter(name string, adapter Adapter) *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, cfg RunConfig) Result {
+	cfg = cloneRunConfig(cfg)
 	res := Result{Stages: append([]string(nil), workflowStages...)}
 	inv, tool, err := r.registry.BuildInvocation(cfg)
 	if err != nil {
-		var applicability notApplicableError
+		var applicability *ApplicabilityError
 		if errors.As(err, &applicability) {
 			res.Status = StatusNotApplicable
 		} else {
@@ -104,13 +106,13 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig) Result {
 	}
 	publicCfg := redactedRunConfig(cfg)
 	publicJSON, _ := canonicalJSON(publicCfg)
-	res.Replay = Replay{Target: publicCfg.Target, Tool: tool.Name, ToolVersion: tool.Version, ImageDigest: tool.ImageDigest, Knowledge: tool.KnowledgeDigests, Configuration: publicJSON, ConfigurationID: sha256Digest(cfgJSON), Seed: cfg.Seed, InputDigests: []string{cfg.Target.Digest}}
+	res.Replay = Replay{Target: publicCfg.Target, Tool: tool.Name, ToolVersion: tool.Version, ImageDigest: tool.ImageDigest, Knowledge: cloneStringMap(tool.KnowledgeDigests), Configuration: publicJSON, ConfigurationID: sha256Digest(cfgJSON), Seed: cloneInt64(cfg.Seed), InputDigests: []string{cfg.Target.Digest}}
 	if r.sandbox == nil {
 		res.Status = StatusError
 		res.Errors = []string{"no sandbox executor configured"}
 		return res
 	}
-	native := r.sandbox.Execute(ctx, ExecutionRequest{Invocation: inv, Tool: tool, Config: cfg})
+	native := r.sandbox.Execute(ctx, ExecutionRequest{Invocation: inv, Tool: cloneTool(tool), Config: cloneRunConfig(cfg)})
 	res.Coverage = Coverage{Examined: sortedUnique(native.Examined), Skipped: sortedUnique(native.Skipped), Uncovered: sortedUnique(native.Uncovered)}
 	res.Replay.Environment = stableEnvironment(native.Environment)
 	redactor := NewRedactor(cfg.Sensitive...)
@@ -127,15 +129,25 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig) Result {
 		}
 		return res
 	}
+	err = r.normalizeNative(tool, cfg.Target, native.Output, redactor, &res)
+	stableRecords(res.Findings)
+	if native.Err != nil {
+		res.Errors = append(res.Errors, redactor.Text(native.Err.Error()))
+	}
+	finalizeStatus(&res, tool, cfg.Target, native, err)
+	return res
+}
+
+func (r *Runner) normalizeNative(tool Tool, target Target, output []byte, redactor Redactor, res *Result) error {
 	adapter, ok := r.adapters[tool.Adapter]
 	if !ok {
-		res.Status = StatusError
-		res.Errors = []string{"normalization adapter not registered: " + tool.Adapter}
-		return res
+		res.Errors = append(res.Errors, "normalization adapter not registered: "+tool.Adapter)
+		return fmt.Errorf("adapter %s is not registered", tool.Adapter)
 	}
 	var adapted []securityRecord
-	if len(native.Output) > 0 {
-		adapted, err = adapter.Normalize(tool, cfg.Target, native.Output, redactor)
+	var err error
+	if len(output) > 0 {
+		adapted, err = adapter.Normalize(cloneTool(tool), target, output, redactor)
 	}
 	if err != nil {
 		res.Errors = append(res.Errors, "normalize: "+redactor.Text(err.Error()))
@@ -144,63 +156,95 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig) Result {
 	if len(res.Artifacts) > 0 {
 		artifactDigest = res.Artifacts[0].Digest
 	}
-	for _, a := range adapted {
-		if a.Skipped {
-			res.Coverage.Skipped = sortedUnique(append(res.Coverage.Skipped, a.Asset))
+	for _, item := range adapted {
+		if item.Skipped {
+			res.Coverage.Skipped = sortedUnique(append(res.Coverage.Skipped, item.Asset))
 			continue
 		}
-		rec := toPipelineRecord(a.Record)
-		if rec.Extra == nil {
-			rec.Extra = map[string]string{}
+		record := toPipelineRecord(item.Record)
+		if record.Extra == nil {
+			record.Extra = map[string]string{}
 		}
-		rec.Extra["raw_artifact_digest"] = artifactDigest
-		res.Findings = append(res.Findings, rec)
+		record.Extra["raw_artifact_digest"] = artifactDigest
+		res.Findings = append(res.Findings, record)
 	}
-	stableRecords(res.Findings)
-	if native.Err != nil {
-		res.Errors = append(res.Errors, redactor.Text(native.Err.Error()))
-	}
+	return err
+}
+
+func finalizeStatus(res *Result, tool Tool, target Target, native NativeResult, normalizationErr error) {
 	mapped, known := tool.ExitCodes[native.ExitCode]
 	if known && mapped == StatusTimeout {
 		res.Status = StatusTimeout
-		return res
+		return
 	}
-	if known && mapped == StatusFindings && len(res.Findings) == 0 {
+	inconsistent := known && mapped == StatusFindings && len(res.Findings) == 0
+	if inconsistent {
 		res.Errors = append(res.Errors, "exit code indicated findings but normalization produced none")
 	}
 	if known && mapped == StatusPass && len(res.Coverage.Examined) == 0 && len(res.Coverage.Skipped) == 0 && len(res.Coverage.Uncovered) == 0 {
-		res.Coverage.Uncovered = []string{cfg.Target.Locator}
+		res.Coverage.Uncovered = []string{target.Locator}
 	}
-	incomplete := len(res.Coverage.Skipped) > 0 || len(res.Coverage.Uncovered) > 0 || len(res.Errors) > 0
-	switch {
-	case !known:
+	hasFindings := len(res.Findings) > 0
+	if !known {
 		res.Errors = append(res.Errors, fmt.Sprintf("unmapped exit code %d", native.ExitCode))
-		if len(res.Findings) > 0 {
-			res.Status = StatusPartial
-		} else {
-			res.Status = StatusError
-		}
-	case mapped == StatusError || native.Err != nil || err != nil:
-		if len(res.Findings) > 0 {
-			res.Status = StatusPartial
-		} else {
-			res.Status = StatusError
-		}
-	case incomplete:
-		res.Status = StatusPartial
-	case len(res.Findings) > 0:
-		res.Status = StatusFindings
-	case mapped == StatusPass && len(res.Coverage.Examined) > 0:
-		res.Status = StatusPass
-	default:
-		res.Status = StatusError
-		res.Errors = append(res.Errors, "execution did not satisfy pass criteria")
+		res.Status = statusForFailedRun(hasFindings)
+		return
 	}
-	return res
+	if mapped == StatusError || native.Err != nil || normalizationErr != nil || inconsistent {
+		res.Status = statusForFailedRun(hasFindings)
+		return
+	}
+	if len(res.Coverage.Skipped) > 0 || len(res.Coverage.Uncovered) > 0 || len(res.Errors) > 0 {
+		res.Status = StatusPartial
+		return
+	}
+	if hasFindings {
+		res.Status = StatusFindings
+		return
+	}
+	if mapped == StatusPass && len(res.Coverage.Examined) > 0 {
+		res.Status = StatusPass
+		return
+	}
+	res.Status = StatusError
+	res.Errors = append(res.Errors, "execution did not satisfy pass criteria")
+}
+
+func statusForFailedRun(hasFindings bool) Status {
+	if hasFindings {
+		return StatusPartial
+	}
+	return StatusError
 }
 
 func toPipelineRecord(r ScannerRecord) security.ScannerRecord {
-	return security.ScannerRecord{Tool: r.Tool, ToolVersion: r.ToolVersion, RuleID: r.RuleID, RuleName: r.RuleName, Message: r.Message, Severity: r.Severity, Category: r.Category, FilePath: r.FilePath, StartLine: r.StartLine, EndLine: r.EndLine, Symbol: r.Symbol, CWE: r.CWE, References: r.References, RawEvidence: r.RawEvidence, Extra: r.Extra}
+	return security.ScannerRecord{Tool: r.Tool, ToolVersion: r.ToolVersion, RuleID: r.RuleID, RuleName: r.RuleName, Message: r.Message, Severity: r.Severity, Category: r.Category, FilePath: r.FilePath, StartLine: r.StartLine, EndLine: r.EndLine, Symbol: r.Symbol, CWE: r.CWE, References: append([]string(nil), r.References...), RawEvidence: r.RawEvidence, Extra: cloneStringMap(r.Extra)}
+}
+
+func cloneRunConfig(in RunConfig) RunConfig {
+	out := in
+	out.Arguments = cloneStringMap(in.Arguments)
+	out.Scope = append([]string(nil), in.Scope...)
+	out.Sensitive = append([]string(nil), in.Sensitive...)
+	out.Seed = cloneInt64(in.Seed)
+	return out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	maps.Copy(out, in)
+	return out
+}
+
+func cloneInt64(in *int64) *int64 {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
 }
 
 func sortedUnique(in []string) []string {
@@ -228,7 +272,7 @@ func stableEnvironment(in map[string]string) map[string]string {
 }
 
 func redactedRunConfig(in RunConfig) RunConfig {
-	out := in
+	out := cloneRunConfig(in)
 	out.Arguments = make(map[string]string, len(in.Arguments))
 	sensitive := map[string]bool{"authorization": true, "cookie": true, "token": true, "password": true, "secret": true, "private_key": true}
 	for _, name := range in.Sensitive {
@@ -242,13 +286,22 @@ func redactedRunConfig(in RunConfig) RunConfig {
 		}
 		out.Arguments[k] = redactor.Text(v)
 	}
-	if u, err := url.Parse(out.Target.Locator); err == nil && u.IsAbs() {
+	out.Target.Locator = redactedLocator(out.Target.Locator, redactor)
+	for i := range out.Scope {
+		out.Scope[i] = redactedLocator(out.Scope[i], redactor)
+	}
+	return out
+}
+
+func redactedLocator(locator string, redactor Redactor) string {
+	locator = redactor.Text(locator)
+	if u, err := url.Parse(locator); err == nil && u.IsAbs() {
 		u.User = nil
 		u.RawQuery = ""
 		u.Fragment = ""
-		out.Target.Locator = u.String()
+		return u.String()
 	}
-	return out
+	return locator
 }
 
 // MarshalCanonical removes raw-artifact identity and bytes in addition to

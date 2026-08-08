@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -35,7 +36,15 @@ func readFixture(t *testing.T, parts ...string) []byte {
 }
 func fixtureManifest() Manifest {
 	pin := sha256Digest([]byte("fixture-toolpack-image"))
-	return DefaultManifest(pin, map[string]string{"nuclei": pin, "wycheproof": pin, "rfc-nist-vectors": pin, "suricata": pin, "zeek": pin})
+	manifest := DefaultManifest(pin, map[string]string{"nuclei": pin, "wycheproof": pin, "rfc-nist-vectors": pin, "suricata": pin, "zeek": pin})
+	// Offline fixture executors stand in for verified external runtime binaries.
+	for i := range manifest.Tools {
+		if slices.Contains([]string{"nmap", "zeek", "suricata"}, manifest.Tools[i].Name) {
+			manifest.Tools[i].Enabled = true
+			manifest.Tools[i].DisabledReason = ""
+		}
+	}
+	return manifest
 }
 
 func runnerFor(t *testing.T, native NativeResult) *Runner {

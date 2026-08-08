@@ -48,8 +48,8 @@ func DefaultAdapters() map[string]Adapter {
 	generic := jsonRecordsAdapter{}
 	return map[string]Adapter{
 		"authorization-matrix": authzAdapter{}, "crypto-vectors": cryptoAdapter{}, "zeek-jsonl": zeekAdapter{}, "suricata-eve": suricataAdapter{}, "nmap-xml": nmapAdapter{},
-		"json-records": generic, "zap-json": generic, "schemathesis-json": generic, "restler-json": generic, "nuclei-jsonl": generic, "sslyze-json": generic, "testssl-json": generic, "openssl-json": generic, "tshark-json": generic,
-		"har": generic, "junit": generic,
+		"json-records": generic, "zap-json": zapAdapter{}, "schemathesis-json": schemathesisAdapter{}, "restler-json": restlerAdapter{}, "nuclei-jsonl": nucleiAdapter{}, "sslyze-json": sslyzeAdapter{}, "testssl-json": testsslAdapter{}, "openssl-json": opensslAdapter{}, "tshark-json": tsharkAdapter{},
+		"har": harAdapter{}, "junit": junitAdapter{},
 	}
 }
 
@@ -89,6 +89,656 @@ func redactPipelineRecord(rec security.ScannerRecord, r Redactor) security.Scann
 	return rec
 }
 
+func requireJSONObject(native []byte, dst any, format string) error {
+	trimmed := bytes.TrimSpace(native)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return fmt.Errorf("%s output must be a JSON object", format)
+	}
+	if err := json.Unmarshal(trimmed, dst); err != nil {
+		return fmt.Errorf("%s output: %w", format, err)
+	}
+	return nil
+}
+
+func nativeSeverity(value, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "critical", "fatal":
+		return "critical"
+	case "high", "error", "err":
+		return "high"
+	case "medium", "moderate", "warning", "warn":
+		return "medium"
+	case "low":
+		return "low"
+	case "info", "informational", "note", "chat", "unknown":
+		return "info"
+	default:
+		return fallback
+	}
+}
+
+func rawStrings(raw json.RawMessage) []string {
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil
+	}
+	var many []string
+	if json.Unmarshal(raw, &many) == nil {
+		return many
+	}
+	var one string
+	if json.Unmarshal(raw, &one) == nil && one != "" {
+		return []string{one}
+	}
+	return nil
+}
+
+type nucleiResult struct {
+	TemplateID  string   `json:"template-id"`
+	MatcherName string   `json:"matcher-name"`
+	Type        string   `json:"type"`
+	Host        string   `json:"host"`
+	MatchedAt   string   `json:"matched-at"`
+	Request     string   `json:"request"`
+	Response    string   `json:"response"`
+	Extracted   []string `json:"extracted-results"`
+	Info        struct {
+		Name           string          `json:"name"`
+		Severity       string          `json:"severity"`
+		Reference      json.RawMessage `json:"reference"`
+		Classification struct {
+			CWE json.RawMessage `json:"cwe-id"`
+		} `json:"classification"`
+	} `json:"info"`
+}
+
+type nucleiAdapter struct{}
+
+func (nucleiAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	s := bufio.NewScanner(bytes.NewReader(native))
+	var records []securityRecord
+	for line := 1; s.Scan(); line++ {
+		if len(bytes.TrimSpace(s.Bytes())) == 0 {
+			continue
+		}
+		var result nucleiResult
+		if err := requireJSONObject(s.Bytes(), &result, "nuclei JSONL line"); err != nil {
+			return nil, fmt.Errorf("line %d: %w", line, err)
+		}
+		if result.TemplateID == "" || (result.MatchedAt == "" && result.Host == "") {
+			return nil, fmt.Errorf("line %d: nuclei result requires template-id and matched-at or host", line)
+		}
+		name := result.Info.Name
+		if name == "" {
+			name = result.TemplateID
+		}
+		location := result.MatchedAt
+		if location == "" {
+			location = result.Host
+		}
+		cwes := rawStrings(result.Info.Classification.CWE)
+		cwe := ""
+		if len(cwes) > 0 {
+			cwe = cwes[0]
+		}
+		evidence := strings.Join([]string{result.Request, result.Response, strings.Join(result.Extracted, "\n")}, "\n")
+		records = append(records, securityRecord{Asset: location, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: result.TemplateID, RuleName: r.Text(name), Message: r.Text(name + " matched at " + location), Severity: nativeSeverity(result.Info.Severity, "info"), Category: result.Type, FilePath: "targets/web/" + safePath(location), CWE: cwe, References: rawStrings(result.Info.Reference), RawEvidence: r.Text(strings.TrimSpace(evidence)), Extra: map[string]string{"matcher": r.Text(result.MatcherName)}}})
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+type junitIssue struct {
+	Message string `xml:"message,attr"`
+	Type    string `xml:"type,attr"`
+	Body    string `xml:",chardata"`
+}
+type junitCase struct {
+	Name      string       `xml:"name,attr"`
+	ClassName string       `xml:"classname,attr"`
+	File      string       `xml:"file,attr"`
+	Failures  []junitIssue `xml:"failure"`
+	Errors    []junitIssue `xml:"error"`
+	Skipped   []junitIssue `xml:"skipped"`
+	SystemOut string       `xml:"system-out"`
+	SystemErr string       `xml:"system-err"`
+}
+type junitSuite struct {
+	Name   string       `xml:"name,attr"`
+	Cases  []junitCase  `xml:"testcase"`
+	Suites []junitSuite `xml:"testsuite"`
+}
+type junitSuites struct {
+	XMLName xml.Name     `xml:"testsuites"`
+	Suites  []junitSuite `xml:"testsuite"`
+}
+type junitAdapter struct{}
+
+func (junitAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	var root struct{ XMLName xml.Name }
+	if err := xml.Unmarshal(native, &root); err != nil {
+		return nil, fmt.Errorf("junit output: %w", err)
+	}
+	var suites []junitSuite
+	switch root.XMLName.Local {
+	case "testsuites":
+		var document junitSuites
+		if err := xml.Unmarshal(native, &document); err != nil {
+			return nil, err
+		}
+		suites = document.Suites
+	case "testsuite":
+		var suite junitSuite
+		if err := xml.Unmarshal(native, &suite); err != nil {
+			return nil, err
+		}
+		suites = []junitSuite{suite}
+	default:
+		return nil, fmt.Errorf("junit output root must be testsuite or testsuites")
+	}
+	var records []securityRecord
+	var visit func(junitSuite)
+	visit = func(suite junitSuite) {
+		for _, test := range suite.Cases {
+			asset := strings.Trim(strings.Join([]string{test.ClassName, test.Name}, "/"), "/")
+			if asset == "" {
+				asset = suite.Name
+			}
+			if len(test.Skipped) > 0 {
+				records = append(records, securityRecord{Asset: asset, Skipped: true})
+				continue
+			}
+			appendIssues := func(kind string, issues []junitIssue, severity string) {
+				for _, issue := range issues {
+					message := strings.TrimSpace(issue.Message)
+					if message == "" {
+						message = strings.TrimSpace(issue.Type)
+					}
+					if message == "" {
+						message = test.Name + " " + kind
+					}
+					file := test.File
+					if file == "" {
+						file = "tests/" + safePath(test.ClassName) + "/" + safePath(test.Name)
+					}
+					evidence := strings.Join([]string{issue.Body, test.SystemOut, test.SystemErr}, "\n")
+					records = append(records, securityRecord{Asset: asset, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "JUNIT-" + strings.ToUpper(kind), RuleName: r.Text(message), Message: r.Text(message), Severity: severity, Category: "other", FilePath: file, RawEvidence: r.Text(strings.TrimSpace(evidence))}})
+				}
+			}
+			appendIssues("failure", test.Failures, "medium")
+			appendIssues("error", test.Errors, "high")
+		}
+		for _, nested := range suite.Suites {
+			visit(nested)
+		}
+	}
+	for _, suite := range suites {
+		visit(suite)
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+type harDocument struct {
+	Log *struct {
+		Version string `json:"version"`
+		Entries []struct {
+			Request struct {
+				Method  string `json:"method"`
+				URL     string `json:"url"`
+				Headers []struct {
+					Name  string `json:"name"`
+					Value string `json:"value"`
+				} `json:"headers"`
+				PostData struct {
+					Text string `json:"text"`
+				} `json:"postData"`
+			} `json:"request"`
+			Response struct {
+				Status     int    `json:"status"`
+				StatusText string `json:"statusText"`
+				Headers    []struct {
+					Name  string `json:"name"`
+					Value string `json:"value"`
+				} `json:"headers"`
+				Content struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"response"`
+		} `json:"entries"`
+	} `json:"log"`
+}
+type harAdapter struct{}
+
+func (harAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	var document harDocument
+	if err := requireJSONObject(native, &document, "HAR"); err != nil {
+		return nil, err
+	}
+	if document.Log == nil || document.Log.Version == "" {
+		return nil, fmt.Errorf("HAR output requires log.version")
+	}
+	var records []securityRecord
+	for _, entry := range document.Log.Entries {
+		if entry.Request.Method == "" || entry.Request.URL == "" {
+			return nil, fmt.Errorf("HAR entry requires request.method and request.url")
+		}
+		if entry.Response.Status < 400 {
+			continue
+		}
+		severity := "low"
+		if entry.Response.Status >= 500 {
+			severity = "medium"
+		}
+		var evidence []string
+		for _, header := range entry.Request.Headers {
+			evidence = append(evidence, header.Name+": "+header.Value)
+		}
+		for _, header := range entry.Response.Headers {
+			evidence = append(evidence, header.Name+": "+header.Value)
+		}
+		sort.Strings(evidence)
+		evidence = append(evidence, entry.Request.PostData.Text, entry.Response.Content.Text)
+		message := fmt.Sprintf("%s %s returned %d %s", entry.Request.Method, entry.Request.URL, entry.Response.Status, entry.Response.StatusText)
+		records = append(records, securityRecord{Asset: entry.Request.URL, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "HTTP-STATUS-" + strconv.Itoa(entry.Response.Status), RuleName: "HTTP error response", Message: r.Text(strings.TrimSpace(message)), Severity: severity, Category: "other", FilePath: "targets/web/" + safePath(entry.Request.URL), RawEvidence: r.Text(strings.TrimSpace(strings.Join(evidence, "\n")))}})
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+type zapDocument struct {
+	Sites *[]struct {
+		Name   string `json:"@name"`
+		Host   string `json:"@host"`
+		Alerts []struct {
+			PluginID  string `json:"pluginid"`
+			Alert     string `json:"alert"`
+			Name      string `json:"name"`
+			RiskCode  string `json:"riskcode"`
+			RiskDesc  string `json:"riskdesc"`
+			Desc      string `json:"desc"`
+			Solution  string `json:"solution"`
+			Reference string `json:"reference"`
+			CWEID     string `json:"cweid"`
+			Instances []struct {
+				URI       string `json:"uri"`
+				Method    string `json:"method"`
+				Param     string `json:"param"`
+				Attack    string `json:"attack"`
+				Evidence  string `json:"evidence"`
+				OtherInfo string `json:"otherinfo"`
+			} `json:"instances"`
+		} `json:"alerts"`
+	} `json:"site"`
+}
+type zapAdapter struct{}
+
+func (zapAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	var document zapDocument
+	if err := requireJSONObject(native, &document, "ZAP"); err != nil {
+		return nil, err
+	}
+	if document.Sites == nil {
+		return nil, fmt.Errorf("ZAP output requires site")
+	}
+	var records []securityRecord
+	for _, site := range *document.Sites {
+		for _, alert := range site.Alerts {
+			if alert.PluginID == "" || (alert.Alert == "" && alert.Name == "") {
+				return nil, fmt.Errorf("ZAP alert requires pluginid and alert or name")
+			}
+			name := alert.Alert
+			if name == "" {
+				name = alert.Name
+			}
+			severity := map[string]string{"0": "info", "1": "low", "2": "medium", "3": "high", "4": "critical"}[alert.RiskCode]
+			if severity == "" {
+				fields := strings.Fields(alert.RiskDesc)
+				if len(fields) > 0 {
+					severity = nativeSeverity(fields[0], "info")
+				} else {
+					severity = "info"
+				}
+			}
+			instanceURI := site.Name
+			var evidence []string
+			for _, instance := range alert.Instances {
+				if instanceURI == "" {
+					instanceURI = instance.URI
+				}
+				evidence = append(evidence, strings.Join([]string{instance.Method, instance.URI, instance.Param, instance.Attack, instance.Evidence, instance.OtherInfo}, " "))
+			}
+			if instanceURI == "" {
+				instanceURI = site.Host
+			}
+			evidence = append(evidence, alert.Desc, alert.Solution)
+			refs := strings.Fields(alert.Reference)
+			sort.Strings(refs)
+			cwe := ""
+			if alert.CWEID != "" {
+				cwe = "CWE-" + strings.TrimPrefix(alert.CWEID, "CWE-")
+			}
+			records = append(records, securityRecord{Asset: instanceURI, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: alert.PluginID, RuleName: r.Text(name), Message: r.Text(name), Severity: severity, Category: "other", FilePath: "targets/web/" + safePath(instanceURI), CWE: cwe, References: refs, RawEvidence: r.Text(strings.TrimSpace(strings.Join(evidence, "\n")))}})
+		}
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+type apiFailure struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Message    string `json:"message"`
+	Severity   string `json:"severity"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	URL        string `json:"url"`
+	StatusCode int    `json:"status_code"`
+	Request    string `json:"request"`
+	Response   string `json:"response"`
+	Checker    string `json:"checker_name"`
+}
+type schemathesisDocument struct {
+	Failures *[]apiFailure `json:"failures"`
+}
+type schemathesisAdapter struct{}
+
+func (schemathesisAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	var document schemathesisDocument
+	if err := requireJSONObject(native, &document, "Schemathesis"); err != nil {
+		return nil, err
+	}
+	if document.Failures == nil {
+		return nil, fmt.Errorf("schemathesis output requires failures")
+	}
+	return normalizeAPIFailures(tool, *document.Failures, "SCHEMATHESIS", r)
+}
+
+type restlerDocument struct {
+	Bugs *[]apiFailure `json:"bugs"`
+}
+type restlerAdapter struct{}
+
+func (restlerAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	var document restlerDocument
+	if err := requireJSONObject(native, &document, "RESTler"); err != nil {
+		return nil, err
+	}
+	if document.Bugs == nil {
+		return nil, fmt.Errorf("RESTler output requires bugs")
+	}
+	return normalizeAPIFailures(tool, *document.Bugs, "RESTLER", r)
+}
+
+func normalizeAPIFailures(tool Tool, failures []apiFailure, prefix string, r Redactor) ([]securityRecord, error) {
+	records := make([]securityRecord, 0, len(failures))
+	for _, failure := range failures {
+		if failure.ID == "" || (failure.Message == "" && failure.Name == "") {
+			return nil, fmt.Errorf("%s entry requires id and message or name", prefix)
+		}
+		message := failure.Message
+		if message == "" {
+			message = failure.Name
+		}
+		location := failure.URL
+		if location == "" {
+			location = failure.Path
+		}
+		if location == "" {
+			location = failure.Method
+		}
+		name := failure.Name
+		if name == "" {
+			name = failure.Checker
+		}
+		if name == "" {
+			name = failure.ID
+		}
+		evidence := fmt.Sprintf("request=%s\nresponse=%s\nstatus=%d", failure.Request, failure.Response, failure.StatusCode)
+		records = append(records, securityRecord{Asset: location, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: failure.ID, RuleName: r.Text(name), Message: r.Text(message), Severity: nativeSeverity(failure.Severity, "medium"), Category: "other", FilePath: "targets/api/" + safePath(location), RawEvidence: r.Text(evidence)}})
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+type sslyzeDocument struct {
+	ServerScanResults *[]struct {
+		ServerLocation struct {
+			Hostname  string `json:"hostname"`
+			IPAddress string `json:"ip_address"`
+			Port      int    `json:"port"`
+		} `json:"server_location"`
+		ScanResult map[string]struct {
+			Status string          `json:"status"`
+			Result json.RawMessage `json:"result"`
+		} `json:"scan_result"`
+	} `json:"server_scan_results"`
+}
+type sslyzeAdapter struct{}
+
+func (sslyzeAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	var document sslyzeDocument
+	if err := requireJSONObject(native, &document, "SSLyze"); err != nil {
+		return nil, err
+	}
+	if document.ServerScanResults == nil {
+		return nil, fmt.Errorf("SSLyze output requires server_scan_results")
+	}
+	var records []securityRecord
+	weakProtocols := map[string]string{"ssl_2_0_cipher_suites": "SSLv2", "ssl_3_0_cipher_suites": "SSLv3", "tls_1_0_cipher_suites": "TLS 1.0", "tls_1_1_cipher_suites": "TLS 1.1"}
+	for _, server := range *document.ServerScanResults {
+		host := server.ServerLocation.Hostname
+		if host == "" {
+			host = server.ServerLocation.IPAddress
+		}
+		asset := net.JoinHostPort(host, strconv.Itoa(server.ServerLocation.Port))
+		keys := make([]string, 0, len(server.ScanResult))
+		for key := range server.ScanResult {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			command := server.ScanResult[key]
+			if protocol, weak := weakProtocols[key]; weak {
+				var result struct {
+					Supported bool `json:"is_tls_version_supported"`
+				}
+				if json.Unmarshal(command.Result, &result) == nil && result.Supported {
+					message := protocol + " is supported by " + asset
+					records = append(records, securityRecord{Asset: asset, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "WEAK-PROTOCOL-" + strings.ToUpper(strings.ReplaceAll(protocol, " ", "-")), RuleName: "Deprecated TLS protocol enabled", Message: message, Severity: "medium", Category: "crypto", FilePath: "targets/tls/" + safePath(asset), CWE: "CWE-327", RawEvidence: r.Text(message)}})
+				}
+			}
+			if key == "certificate_info" {
+				var result struct {
+					HostnameMatches       *bool `json:"hostname_matches_certificate"`
+					PathValidationResults []struct {
+						ValidationError string `json:"validation_error"`
+					} `json:"path_validation_results"`
+				}
+				if json.Unmarshal(command.Result, &result) == nil {
+					if result.HostnameMatches != nil && !*result.HostnameMatches {
+						message := "certificate does not match " + host
+						records = append(records, securityRecord{Asset: asset, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "CERTIFICATE-HOSTNAME-MISMATCH", RuleName: "TLS certificate hostname mismatch", Message: message, Severity: "high", Category: "crypto", FilePath: "targets/tls/" + safePath(asset), CWE: "CWE-295", RawEvidence: r.Text(message)}})
+					}
+					for _, validation := range result.PathValidationResults {
+						if validation.ValidationError == "" {
+							continue
+						}
+						records = append(records, securityRecord{Asset: asset, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "CERTIFICATE-VALIDATION-ERROR", RuleName: "TLS certificate validation failed", Message: r.Text(validation.ValidationError), Severity: "high", Category: "crypto", FilePath: "targets/tls/" + safePath(asset), CWE: "CWE-295", RawEvidence: r.Text(validation.ValidationError)}})
+					}
+				}
+			}
+		}
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+type testsslEntry struct {
+	ID       string `json:"id"`
+	IP       string `json:"ip"`
+	Port     string `json:"port"`
+	Severity string `json:"severity"`
+	Finding  string `json:"finding"`
+}
+type testsslAdapter struct{}
+
+func (testsslAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	trimmed := bytes.TrimSpace(native)
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return nil, fmt.Errorf("testssl output must be a JSON array")
+	}
+	var entries []testsslEntry
+	if err := json.Unmarshal(trimmed, &entries); err != nil {
+		return nil, fmt.Errorf("testssl output: %w", err)
+	}
+	var records []securityRecord
+	for _, entry := range entries {
+		if entry.ID == "" || entry.Finding == "" {
+			return nil, fmt.Errorf("testssl entry requires id and finding")
+		}
+		severityToken := strings.ToLower(entry.Severity)
+		if severityToken == "ok" || severityToken == "info" {
+			continue
+		}
+		asset := entry.IP
+		if entry.Port != "" {
+			asset = net.JoinHostPort(entry.IP, entry.Port)
+		}
+		records = append(records, securityRecord{Asset: asset, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: entry.ID, RuleName: entry.ID, Message: r.Text(entry.Finding), Severity: nativeSeverity(entry.Severity, "medium"), Category: "crypto", FilePath: "targets/tls/" + safePath(asset), RawEvidence: r.Text(entry.Finding)}})
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+type opensslDocument struct {
+	Findings *[]struct {
+		ID         string   `json:"id"`
+		Name       string   `json:"name"`
+		Message    string   `json:"message"`
+		Severity   string   `json:"severity"`
+		Object     string   `json:"object"`
+		CWE        string   `json:"cwe"`
+		Evidence   string   `json:"evidence"`
+		References []string `json:"references"`
+	} `json:"findings"`
+}
+type opensslAdapter struct{}
+
+func (opensslAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	var document opensslDocument
+	if err := requireJSONObject(native, &document, "OpenSSL inspection"); err != nil {
+		return nil, err
+	}
+	if document.Findings == nil {
+		return nil, fmt.Errorf("OpenSSL inspection output requires findings")
+	}
+	var records []securityRecord
+	for _, finding := range *document.Findings {
+		if finding.ID == "" || finding.Message == "" {
+			return nil, fmt.Errorf("OpenSSL inspection finding requires id and message")
+		}
+		asset := finding.Object
+		if asset == "" {
+			asset = target.Locator
+		}
+		records = append(records, securityRecord{Asset: asset, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: finding.ID, RuleName: r.Text(finding.Name), Message: r.Text(finding.Message), Severity: nativeSeverity(finding.Severity, "medium"), Category: "crypto", FilePath: "crypto/" + safePath(asset), CWE: finding.CWE, References: finding.References, RawEvidence: r.Text(finding.Evidence)}})
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+type tsharkPacket struct {
+	Source *struct {
+		Layers map[string]any `json:"layers"`
+	} `json:"_source"`
+}
+type tsharkExpert struct {
+	Path     string
+	Message  string
+	Severity string
+}
+type tsharkAdapter struct{}
+
+func (tsharkAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	trimmed := bytes.TrimSpace(native)
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return nil, fmt.Errorf("tshark output must be a JSON array")
+	}
+	var packets []tsharkPacket
+	if err := json.Unmarshal(trimmed, &packets); err != nil {
+		return nil, fmt.Errorf("tshark output: %w", err)
+	}
+	var records []securityRecord
+	for i, packet := range packets {
+		if packet.Source == nil || packet.Source.Layers == nil {
+			return nil, fmt.Errorf("tshark packet %d requires _source.layers", i)
+		}
+		frame := nestedString(packet.Source.Layers, "frame", "frame.number")
+		if frame == "" {
+			frame = strconv.Itoa(i + 1)
+		}
+		src := nestedString(packet.Source.Layers, "ip", "ip.src")
+		dst := nestedString(packet.Source.Layers, "ip", "ip.dst")
+		var experts []tsharkExpert
+		collectTsharkExperts(packet.Source.Layers, "", &experts)
+		sort.Slice(experts, func(i, j int) bool {
+			return experts[i].Path+"\x00"+experts[i].Message < experts[j].Path+"\x00"+experts[j].Message
+		})
+		for _, expert := range experts {
+			asset := strings.Trim(src+"->"+dst, "->") + "#" + frame
+			evidence := fmt.Sprintf("frame=%s source=%s destination=%s message=%s", frame, src, dst, expert.Message)
+			records = append(records, securityRecord{Asset: asset, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "TSHARK-EXPERT", RuleName: "Wireshark expert finding", Message: r.Text(expert.Message), Severity: nativeSeverity(expert.Severity, "low"), Category: "other", FilePath: "network/" + safePath(target.Locator) + "/frame-" + safePath(frame), RawEvidence: r.Text(evidence), Extra: map[string]string{"protocol_path": expert.Path}}})
+		}
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+func nestedString(root map[string]any, object, key string) string {
+	child, _ := root[object].(map[string]any)
+	return anyString(child[key])
+}
+func anyString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case []any:
+		if len(typed) > 0 {
+			return anyString(typed[0])
+		}
+	}
+	return ""
+}
+func collectTsharkExperts(value any, path string, out *[]tsharkExpert) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	severity := ""
+	for _, key := range keys {
+		if strings.Contains(key, "expert.severity") {
+			severity = anyString(object[key])
+		}
+	}
+	for _, key := range keys {
+		next := strings.Trim(path+"/"+key, "/")
+		if strings.Contains(key, "expert.message") {
+			if message := anyString(object[key]); message != "" {
+				*out = append(*out, tsharkExpert{Path: next, Message: message, Severity: severity})
+			}
+		}
+		collectTsharkExperts(object[key], next, out)
+	}
+}
+
 type authzCase struct {
 	ID             string            `json:"id"`
 	Actor          string            `json:"actor"`
@@ -114,7 +764,9 @@ func (authzAdapter) Normalize(tool Tool, target Target, native []byte, r Redacto
 	}
 	var records []securityRecord
 	for _, c := range out.Cases {
-		if c.Actual == c.Expected || !(c.Actual >= 200 && c.Actual < 300) || !(c.Expected == 401 || c.Expected == 403 || c.Expected == 404) {
+		actualAllowed := c.Actual >= 200 && c.Actual < 300
+		expectedDenied := c.Expected == 401 || c.Expected == 403 || c.Expected == 404
+		if c.Actual == c.Expected || !actualAllowed || !expectedDenied {
 			continue
 		}
 		headerNames := make([]string, 0, len(c.Headers))
@@ -149,12 +801,26 @@ func (cryptoAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 	}
 	var records []securityRecord
 	for _, v := range out.Vectors {
-		if v.Passed || v.Skipped {
+		if v.Skipped {
+			records = append(records, securityRecord{Asset: v.ID, Skipped: true})
 			continue
 		}
-		ev := r.Text(fmt.Sprintf("suite=%s vector=%s expected=%s actual=%s context=%v", v.Suite, v.ID, v.Expected, v.Actual, v.Context))
+		if v.Passed {
+			continue
+		}
+		contextKeys := make([]string, 0, len(v.Context))
+		for key := range v.Context {
+			contextKeys = append(contextKeys, key)
+		}
+		sort.Strings(contextKeys)
+		contextValues := make([]string, 0, len(contextKeys))
+		for _, key := range contextKeys {
+			contextValues = append(contextValues, key+"="+v.Context[key])
+		}
+		ev := r.Text(fmt.Sprintf("suite=%s vector=%s expected=%s actual=%s context=%s", v.Suite, v.ID, v.Expected, v.Actual, strings.Join(contextValues, ",")))
 		records = append(records, securityRecord{Asset: v.ID, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "CRYPTO-KAT-MISMATCH", RuleName: "Cryptographic known-answer mismatch", Message: "implementation failed known-answer vector " + v.ID, Severity: "high", Category: "crypto", FilePath: "vectors/" + safePath(v.Suite) + "/" + safePath(v.ID) + ".json", CWE: "CWE-327", RawEvidence: ev}})
 	}
+	sortSecurityRecords(records)
 	return records, nil
 }
 
@@ -288,5 +954,8 @@ func stringValue(m map[string]any, k string) string {
 	return ""
 }
 func sortSecurityRecords(rs []securityRecord) {
-	sort.Slice(rs, func(i, j int) bool { return rs[i].Asset < rs[j].Asset })
+	sort.Slice(rs, func(i, j int) bool {
+		a, b := rs[i], rs[j]
+		return strings.Join([]string{a.Asset, a.Record.RuleID, a.Record.FilePath, a.Record.Message, strconv.FormatBool(a.Skipped)}, "\x00") < strings.Join([]string{b.Asset, b.Record.RuleID, b.Record.FilePath, b.Record.Message, strconv.FormatBool(b.Skipped)}, "\x00")
+	})
 }

@@ -27,6 +27,23 @@ spec:
            the interceptor — and check whether every route actually uses it.
         4. Report through report_security_finding, one call per distinct issue.
 
+        ## Deterministic tool packs
+
+        `ga-security` is injected into every run alongside the agent. For a
+        repeatable scanner run, write a typed RunConfig JSON file and invoke
+        `ga-security --config <file> --output <directory>` through Bash. Never
+        invoke the underlying scanner binary directly when claiming deterministic
+        coverage. The wrapper selects fixed argv from its compiled registry,
+        checks immutable target and knowledge digests, enforces scope and output
+        budgets, and writes `result.json` plus content-addressed raw artifacts.
+        Exit 0 is pass; 10 findings; 20 partial; 30 not applicable; 124 timeout;
+        all other nonzero exits are errors. Submit `result.json.findings` through
+        `ingest_scanner_results`. Preserve the result/raw artifacts and report
+        examined, skipped, and uncovered assets. Missing pins or unavailable
+        catalog tools are errors/not-applicable, never a pass. Bash remains
+        available for exploratory commands, but exploratory output is not a
+        deterministic scan result.
+
         ## Sources and sinks by ecosystem
 
         Go: `exec.Command`, `os/exec` with shell strings, `fmt.Sprintf` into SQL,

@@ -99,6 +99,18 @@ jobs:
       - name: Run installer tests
         run: make test-installers
 
+  security-tools-lock:
+    name: Security tools lock
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify lock schema
+        run: python3 scripts/verify-security-tools-lock.py
+
+      - name: Test lock verifier
+        run: python3 -m unittest scripts/verify-security-tools-lock_test.py
+
   altstore-source-tests:
     name: AltStore source tests
     runs-on: ubuntu-24.04
@@ -128,6 +140,8 @@ jobs:
             dockerfile: ./Dockerfile.worker
           - image: injector
             dockerfile: ./Dockerfile.injector
+          - image: security-tools
+            dockerfile: ./Dockerfile.security-tools
     steps:
       - uses: actions/checkout@v4
 

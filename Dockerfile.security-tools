@@ -1,0 +1,158 @@
+# syntax=docker/dockerfile:1
+
+# Both base-image manifest digests were resolved from Docker Hub before being
+# pinned. Each digest selects a multi-architecture manifest list.
+FROM --platform=$BUILDPLATFORM golang:1.26@sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365 AS builder
+ARG TARGETOS
+ARG TARGETARCH
+WORKDIR /workspace
+ENV GOTOOLCHAIN=local
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -trimpath -buildvcs=false -o /out/ga-security ./cmd/ga-security
+
+# Use only the Go standard library to fetch, verify, and unpack the lock's
+# release artifacts. This avoids floating apt packages in the runtime image.
+RUN <<'EOF' cat > /tmp/install-security-tools.go
+package main
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+)
+
+type artifact struct {
+	Asset  string `json:"asset"`
+	SHA256 string `json:"sha256"`
+}
+type tool struct {
+	Name      string              `json:"name"`
+	Status    string              `json:"status"`
+	Binary    string              `json:"binary"`
+	Platforms map[string]artifact `json:"platforms"`
+}
+type lock struct {
+	Tools []tool `json:"tools"`
+}
+
+func fail(format string, args ...any) { panic(fmt.Sprintf(format, args...)) }
+
+func main() {
+	if len(os.Args) != 4 {
+		fail("usage: install-security-tools LOCK OUTPUT PLATFORM")
+	}
+	raw, err := os.ReadFile(os.Args[1])
+	if err != nil {
+		fail("read lock: %v", err)
+	}
+	var l lock
+	if err := json.Unmarshal(raw, &l); err != nil {
+		fail("parse lock: %v", err)
+	}
+	if err := os.MkdirAll(os.Args[2], 0755); err != nil {
+		fail("create output directory: %v", err)
+	}
+	for _, t := range l.Tools {
+		if t.Status != "enabled" {
+			continue
+		}
+		a, ok := t.Platforms[os.Args[3]]
+		if !ok {
+			fail("%s: no artifact for %s", t.Name, os.Args[3])
+		}
+		response, err := http.Get(a.Asset)
+		if err != nil {
+			fail("%s: download: %v", t.Name, err)
+		}
+		if response.StatusCode != http.StatusOK {
+			fail("%s: download returned %s", t.Name, response.Status)
+		}
+		archive, err := os.CreateTemp("", t.Name+"-*.tar.gz")
+		if err != nil {
+			fail("%s: create temporary archive: %v", t.Name, err)
+		}
+		_, err = io.Copy(archive, response.Body)
+		response.Body.Close()
+		if err != nil {
+			fail("%s: read archive: %v", t.Name, err)
+		}
+		if _, err := archive.Seek(0, io.SeekStart); err != nil {
+			fail("%s: rewind archive: %v", t.Name, err)
+		}
+		sum := sha256.New()
+		if _, err := io.Copy(sum, archive); err != nil {
+			fail("%s: checksum archive: %v", t.Name, err)
+		}
+		if actual := hex.EncodeToString(sum.Sum(nil)); actual != a.SHA256 {
+			fail("%s: SHA-256 mismatch: got %s, want %s", t.Name, actual, a.SHA256)
+		}
+		if _, err := archive.Seek(0, io.SeekStart); err != nil {
+			fail("%s: rewind archive: %v", t.Name, err)
+		}
+		gz, err := gzip.NewReader(archive)
+		if err != nil {
+			fail("%s: open archive: %v", t.Name, err)
+		}
+		found := false
+		for reader := tar.NewReader(gz); ; {
+			header, err := reader.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				fail("%s: read archive: %v", t.Name, err)
+			}
+			if header.Name != t.Binary || header.Typeflag != tar.TypeReg {
+				continue
+			}
+			destination := filepath.Join(os.Args[2], t.Binary)
+			output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+			if err != nil {
+				fail("%s: create binary: %v", t.Name, err)
+			}
+			if _, err := io.Copy(output, reader); err != nil {
+				fail("%s: extract binary: %v", t.Name, err)
+			}
+			if err := output.Close(); err != nil {
+				fail("%s: close binary: %v", t.Name, err)
+			}
+			if err := os.Chmod(destination, 0755); err != nil {
+				fail("%s: chmod binary: %v", t.Name, err)
+			}
+			found = true
+			break
+		}
+		gz.Close()
+		archive.Close()
+		os.Remove(archive.Name())
+		if !found {
+			fail("%s: archive does not contain %q", t.Name, t.Binary)
+		}
+	}
+}
+
+EOF
+RUN go run /tmp/install-security-tools.go security-tools.lock.json /out/tools linux/${TARGETARCH}
+
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
+WORKDIR /workspace
+COPY --from=builder /out/ga-security /usr/local/bin/ga-security
+COPY --from=builder /out/tools/ /usr/local/bin/
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY security-tools.lock.json /usr/local/share/ga-security/security-tools.lock.json
+
+USER 65532:65532
+ENTRYPOINT ["ga-security"]
