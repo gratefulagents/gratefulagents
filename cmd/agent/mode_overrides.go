@@ -150,6 +150,17 @@ func isDelegatedChildFromCRD(ctx context.Context, c client.Client, name, namespa
 	return false
 }
 
+// shouldTerminateAfterFinish reports whether finish is a terminal signal for
+// this worker. User-facing runs remain resumable after finish, but orchestrated
+// SecurityScan tasks must reach a terminal AgentRun phase so their workflow can
+// consume the result and advance.
+func shouldTerminateAfterFinish(run *platformv1alpha1.AgentRun, delegatedChild bool) bool {
+	if delegatedChild {
+		return true
+	}
+	return run != nil && strings.EqualFold(strings.TrimSpace(run.Spec.Trigger.Kind), "SecurityScan")
+}
+
 // autoModeIntent reads the AgentRun CRD intent to use as the first prompt
 // for autonomous runs. Returns empty string if no intent is set.
 func setRuntimeParentMetadataEnv(cfg runConfig) {
