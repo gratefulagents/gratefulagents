@@ -45,10 +45,14 @@ type SecurityFindingRecord struct {
 	// ExecutionID groups every run of one deterministic execution (fan-out
 	// instances and retries share it) and TaskName identifies the task
 	// inside that execution, so findings can be aggregated and budgeted per
-	// execution instead of per run. Unlike RunName, both keep their first
-	// non-empty value on reobservation: the execution and task that first
-	// reported a finding own its attribution, so a re-report from another
-	// task cannot move the row and free that task's budget headroom.
+	// execution instead of per run. On reobservation of an already stored
+	// fingerprint the two behave differently: ExecutionID is always
+	// re-stamped from the reporting run, because a reobservation is a
+	// finding of the CURRENT execution and must appear in its report,
+	// summaries and budget; TaskName keeps its first non-empty value only
+	// within that same execution, so a re-report from a sibling task cannot
+	// move the row and free the creating task's per-task budget headroom,
+	// and is re-stamped whenever the finding enters a new execution.
 	ExecutionID  string
 	TaskName     string
 	SessionID    *uuid.UUID

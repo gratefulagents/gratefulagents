@@ -1145,10 +1145,11 @@ func (e *securityScanExecutionEngine) totalAttempts() int32 {
 }
 
 // executionRunNames collects every run name recorded for the execution:
-// current attempts plus retry history, and the durable post-script jobs.
-// Post-script jobs are model executions of this campaign like any task run,
-// so cost and token budgets must see them; leaving them out would let a
-// large finding x script matrix spend past budgets.maxCostUSD unobserved.
+// current attempts plus retry history, and every attempt of the durable
+// post-script jobs. Post-script jobs are model executions of this campaign
+// like any task run, so cost and token budgets must see them; leaving them
+// out would let a large finding x script matrix spend past
+// budgets.maxCostUSD unobserved.
 func (e *securityScanExecutionEngine) executionRunNames() []string {
 	seen := map[string]bool{}
 	var names []string
@@ -1165,6 +1166,14 @@ func (e *securityScanExecutionEngine) executionRunNames() []string {
 		}
 	}
 	for _, job := range e.exec.PostScriptJobs {
+		// job.RunName only holds the LATEST attempt (launchPostScript
+		// overwrites it on every retry), so the earlier attempts are
+		// re-derived from their deterministic names instead; the current
+		// name is still added because a resume changes the token the derived
+		// names embed.
+		for _, name := range securityScanPostScriptAttemptRunNames(e.scan.Name, e.exec.ID, job, e.exec.LastResumeToken) {
+			add(name)
+		}
 		add(job.RunName)
 	}
 	return names

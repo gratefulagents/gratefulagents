@@ -413,10 +413,23 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 	merge := classifySecurityFindingReobservation(existing, rec.Severity)
 
 	// Provenance columns are refreshed from the reobservation (an identical
-	// fingerprint implies the same source identity), but execution_id /
-	// task_name keep their FIRST non-empty attribution: re-reporting a known
-	// fingerprint from another execution or task must not move the row off
-	// the task that created it, which would free per-task budget headroom.
+	// fingerprint implies the same source identity). execution_id and
+	// task_name then behave differently, because the uniqueness key is global
+	// across executions while every read path (listing, post-script matrix,
+	// summaries, budgets, reports) is scoped to one execution:
+	//   - execution_id is always re-stamped from the reporting run. A
+	//     reobservation is a finding OF the current execution; keeping the
+	//     first execution would update a row that the current execution can
+	//     never see again, so every recurring finding would silently vanish
+	//     from its report.
+	//   - task_name keeps its first non-empty value only WITHIN the same
+	//     execution: inside one execution a re-report from another task must
+	//     not move the row off the task that created it, which would free
+	//     that task's per-task budget headroom. Once the row enters a new
+	//     execution the old task attribution is meaningless, so it is
+	//     re-stamped from the reporting run.
+	// A reporter that carries no execution id cannot re-attribute anything,
+	// so an empty incoming execution_id leaves both columns alone.
 	// correlated_fingerprints is deliberately NOT touched: recorded
 	// correlations survive reobservation and change only via
 	// CorrelateSecurityFindings.
@@ -453,8 +466,11 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 			tool = $30,
 			tool_version = $31,
 			rule_id = $32,
-			execution_id = COALESCE(NULLIF(security_findings.execution_id, ''), $33),
-			task_name = COALESCE(NULLIF(security_findings.task_name, ''), $34),
+			execution_id = CASE WHEN $33 <> '' THEN $33 ELSE security_findings.execution_id END,
+			task_name = CASE
+				WHEN $33 <> '' AND security_findings.execution_id IS DISTINCT FROM $33 THEN $34
+				ELSE COALESCE(NULLIF(security_findings.task_name, ''), $34)
+			END,
 			occurrences = occurrences + 1,
 			last_seen_at = now()
 		WHERE id = $1
@@ -491,6 +507,15 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 // error, so a rejected finding leaves nothing behind. An empty execution_id
 // or task_name is not used as a predicate: the scope simply widens to what
 // the record does identify.
+//
+// Only inserts are budgeted; merges skip this check because they create no
+// row. A finding recurring from an earlier execution is therefore admitted
+// unconditionally into the new execution, and — since the merge re-stamps
+// execution_id — it then counts against that execution's scan and task
+// budgets for every LATER finding of the same execution. This is
+// intentional: the budget caps how many findings one execution reports, and
+// a recurring finding is one of them, but a known finding is never dropped
+// just because the cap was already reached.
 func checkSecurityFindingBudgetTx(ctx context.Context, tx pgx.Tx, rec *store.SecurityFindingRecord, budget store.SecurityFindingBudget) error {
 	count := func(scope string, max int32, byTask bool) error {
 		conds := []string{"namespace = $1", "scan_name = $2", "duplicate_of IS NULL"}

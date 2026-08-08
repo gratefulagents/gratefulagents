@@ -1784,8 +1784,9 @@ func TestSecurityScanPostScriptDispatchStopsAtTheModelJobBudget(t *testing.T) {
 	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
 		{Name: "validate", Prompt: "Build a proof of concept."},
 	}, 4)
-	// research (1 run) + one post-script job exhausts the allowance.
-	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxModelJobs: 2}
+	// research (1 run) + one post-script job + the reserved report run
+	// exhausts the allowance.
+	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxModelJobs: 3}
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
 		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
@@ -1812,6 +1813,89 @@ func TestSecurityScanPostScriptDispatchStopsAtTheModelJobBudget(t *testing.T) {
 	}
 	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "1 post-script job(s) never ran") {
 		t.Fatalf("coverage gaps = %#v, want the budget-skipped jobs disclosed", exec.CoverageGaps)
+	}
+
+	// The slot dispatch left unspent belongs to the sink: the report must
+	// still run and disclose the gap instead of the execution failing for
+	// budget with nothing submitted.
+	alpha := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, alpha.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+
+	// Reaching the cap with the sink already running is not schedulable work.
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
+		t.Fatalf("execution phase = %q, want Running: the sink's reserved run must not fail the budget", exec.Phase)
+	}
+	report := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "report")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, report.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+		t.Fatalf("execution phase = %q, want Succeeded once the reserved report finished", exec.Phase)
+	}
+}
+
+func setSecurityScanRunCost(t *testing.T, k8sClient client.Client, namespace, name, costUSD string, tokens int64) {
+	t.Helper()
+	run := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: name}, run); err != nil {
+		t.Fatalf("Get(AgentRun %s): %v", name, err)
+	}
+	run.Status.Metrics = &platformv1alpha1.AgentRunMetrics{CostUsd: costUSD, InputTokens: tokens}
+	if err := k8sClient.Status().Update(context.Background(), run); err != nil {
+		t.Fatalf("Status().Update(AgentRun %s): %v", name, err)
+	}
+}
+
+func TestSecurityScanPostScriptRetriesAllCountTowardTheCostBudget(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := now
+	oneRetry := int32(1)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+	}, 4)
+	scan.Spec.Execution.TaskMaxRetries = &oneRetry
+	scan.Spec.Execution.RetryBackoff = metav1.Duration{Duration: 5 * time.Second}
+	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxCostUSD: "1.00"}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Now = func() time.Time { return clock }
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	// Attempt 1 burns $0.60 and fails retryably; job.RunName is overwritten
+	// by the retry, so only the enumerated names keep it in the accounting.
+	first := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, first.Name, platformv1alpha1.AgentRunPhaseFailed, "", "temporary connection timeout")
+	setSecurityScanRunCost(t, k8sClient, scan.Namespace, first.Name, "0.60", 100)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	clock = clock.Add(5 * time.Second)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	job := postScriptJob(t, exec, "validate", "fp-alpha")
+	if job.Attempts != 2 || job.RunName == first.Name {
+		t.Fatalf("job after the retry = %#v, want a second attempt on a new run name", job)
+	}
+	// Attempt 2 alone stays under maxCostUSD; both attempts together do not.
+	setSecurityScanRunCost(t, k8sClient, scan.Namespace, job.RunName, "0.60", 100)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase = %q, want Failed: both post-script attempts must be summed", exec.Phase)
+	}
+	if got := executionTask(t, exec, "report", 0).LastError; !strings.Contains(got, "execution cost $1.20 exceeds budgets.maxCostUSD 1.00") {
+		t.Fatalf("budget failure = %q, want the summed cost of both post-script attempts", got)
 	}
 }
 

@@ -320,8 +320,21 @@ func (s *securityScanState) upsertFindingWithBudget(ctx context.Context, rec *st
 		existing.Tool = rec.Tool
 		existing.ToolVersion = rec.ToolVersion
 		existing.RuleID = rec.RuleID
-		existing.ExecutionID = rec.ExecutionID
-		existing.TaskName = rec.TaskName
+		// Attribution mirrors the Postgres merge: a reobservation moves the
+		// finding into the reporting run's execution (it belongs in THAT
+		// execution's report), while the task that first reported it keeps
+		// the attribution as long as the execution is unchanged, so a
+		// re-report cannot free another task's per-task budget headroom.
+		if rec.ExecutionID != "" {
+			if existing.ExecutionID != rec.ExecutionID {
+				existing.TaskName = rec.TaskName
+			} else if existing.TaskName == "" {
+				existing.TaskName = rec.TaskName
+			}
+			existing.ExecutionID = rec.ExecutionID
+		} else if existing.TaskName == "" {
+			existing.TaskName = rec.TaskName
+		}
 		existing.Raw = rec.Raw
 		copied := *existing
 		return &copied, false, nil

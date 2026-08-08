@@ -351,14 +351,19 @@ func (e *securityScanExecutionEngine) dispatchPostScripts(ctx context.Context) {
 		if !e.postScriptRetryReady(ctx, job) {
 			continue
 		}
-		if e.budgets != nil && e.budgets.MaxModelJobs > 0 && e.totalAttempts() >= e.budgets.MaxModelJobs {
+		if e.budgets != nil && e.budgets.MaxModelJobs > 0 && e.totalAttempts()+e.sinkAttemptsToReserve() >= e.budgets.MaxModelJobs {
 			// Post-script attempts count toward maxModelJobs, so a large
 			// matrix would otherwise overshoot the budget and enforceBudgets
 			// would then fail the WHOLE execution after the fact, discarding
-			// research results that are already paid for. The remaining jobs
-			// are instead marked terminal here: leaving them Pending would
-			// hold postScriptsGateSink() true forever, since no later pass
-			// can free budget.
+			// research results that are already paid for. The reserved sink
+			// attempts keep the last slots for the report: getting a report
+			// out that discloses the coverage gap is strictly more valuable
+			// than one more validation job, and spending the final slot here
+			// would leave the sink schedulable at the cap, which
+			// enforceBudgets turns into a whole-execution failure with no
+			// report at all. The remaining jobs are instead marked terminal
+			// here: leaving them Pending would hold postScriptsGateSink()
+			// true forever, since no later pass can free budget.
 			e.skipPostScriptsForBudget()
 			return
 		}
@@ -366,6 +371,27 @@ func (e *securityScanExecutionEngine) dispatchPostScripts(ctx context.Context) {
 			running++
 		}
 	}
+}
+
+// sinkAttemptsToReserve is the number of model jobs post-script dispatch must
+// leave unspent so the sink can still submit the report. Every sink instance
+// that has not started yet needs at least one attempt; instances that are
+// already Running (or terminal) have their attempt counted in totalAttempts
+// and need no reservation, which matches exactly what enforceBudgets treats
+// as schedulable work at the cap.
+func (e *securityScanExecutionEngine) sinkAttemptsToReserve() int32 {
+	sinks := securityScanSinkTasks(e.order)
+	var reserved int32
+	for _, entry := range e.exec.Tasks {
+		if !sinks[entry.Name] {
+			continue
+		}
+		switch entry.State {
+		case triggersv1alpha1.SecurityScanTaskStatePending, triggersv1alpha1.SecurityScanTaskStateBlocked:
+			reserved++
+		}
+	}
+	return reserved
 }
 
 // skipPostScriptsForBudget terminates every job that has not started because
@@ -543,6 +569,22 @@ func securityScanPostScriptRunName(scanName, executionID, scriptName, findingID 
 	hash := hex.EncodeToString(hashBytes[:])[:8]
 	truncated := strings.TrimRight(name[:63-len(hash)-1], "-.")
 	return truncated + "-" + hash
+}
+
+// securityScanPostScriptAttemptRunNames re-derives the run name of every
+// attempt a job has made. launchPostScript OVERWRITES job.RunName on each
+// retry and a post-script job deliberately carries no retry-history list, so
+// the earlier runs are recovered by enumeration rather than from status: the
+// names are a pure function of (scan, execution, script, finding, attempt),
+// which is exactly what makes storing them unnecessary. An attempt consumed
+// by a dispatch failure never created an AgentRun, so its name simply
+// resolves to no run and the caller skips it.
+func securityScanPostScriptAttemptRunNames(scanName, executionID string, job triggersv1alpha1.SecurityScanPostScriptJobStatus, resumeToken string) []string {
+	names := make([]string, 0, job.Attempts)
+	for attempt := int32(1); attempt <= job.Attempts; attempt++ {
+		names = append(names, securityScanPostScriptRunName(scanName, executionID, job.Script, job.FindingID, attempt, resumeToken))
+	}
+	return names
 }
 
 // createScanPostScriptRun creates one post-script job AgentRun. It shares the

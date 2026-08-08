@@ -816,9 +816,9 @@ func TestSecurityFindingTaskBudget(t *testing.T) {
 	}
 }
 
-// A merge must keep the FIRST execution/task attribution: if a re-report from
-// another task moved the row, that task's exhausted per-task budget would
-// regain headroom for every already-known fingerprint.
+// A merge must keep the first TASK attribution within one execution: if a
+// re-report from a sibling task moved the row, that task's exhausted
+// per-task budget would regain headroom for every already-known fingerprint.
 func TestSecurityFindingMergeKeepsFirstAttribution(t *testing.T) {
 	s := setupSecurityTestStore(t)
 	ctx := context.Background()
@@ -828,7 +828,7 @@ func TestSecurityFindingMergeKeepsFirstAttribution(t *testing.T) {
 		t.Fatalf("first task-a finding: created=%v err=%v", created, err)
 	}
 
-	merged, created, err := upsertExecutionFinding(ctx, t, s, "run-2", "exec-2", "task-b", "fp-a1", budget)
+	merged, created, err := upsertExecutionFinding(ctx, t, s, "run-2", "exec-1", "task-b", "fp-a1", budget)
 	if err != nil || created {
 		t.Fatalf("re-report from task-b: created=%v err=%v, want a merge", created, err)
 	}
@@ -844,5 +844,50 @@ func TestSecurityFindingMergeKeepsFirstAttribution(t *testing.T) {
 	var budgetErr *store.SecurityFindingBudgetError
 	if !errors.As(err, &budgetErr) {
 		t.Fatalf("second task-a finding = %v, want *SecurityFindingBudgetError", err)
+	}
+}
+
+// A finding recurring in a later execution belongs to THAT execution: the
+// merge re-stamps execution_id (and, since the execution changed, task_name)
+// so the finding shows up in the new execution's listing and report instead
+// of staying invisible under the execution that first reported it.
+func TestSecurityFindingMergeMovesToLaterExecution(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+	budget := store.SecurityFindingBudget{}
+
+	if _, created, err := upsertExecutionFinding(ctx, t, s, "run-1", "exec-1", "task-a", "fp-a1", budget); err != nil || !created {
+		t.Fatalf("first exec-1 finding: created=%v err=%v", created, err)
+	}
+
+	merged, created, err := upsertExecutionFinding(ctx, t, s, "run-2", "exec-2", "task-b", "fp-a1", budget)
+	if err != nil || created {
+		t.Fatalf("re-report in exec-2: created=%v err=%v, want a merge", created, err)
+	}
+	if merged.ExecutionID != "exec-2" || merged.TaskName != "task-b" {
+		t.Errorf("merged attribution = %q/%q, want exec-2/task-b", merged.ExecutionID, merged.TaskName)
+	}
+	if merged.Occurrences != 2 {
+		t.Errorf("merged occurrences = %d, want 2", merged.Occurrences)
+	}
+
+	later, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ExecutionID: "exec-2"})
+	if err != nil || len(later) != 1 || later[0].Fingerprint != "fp-a1" {
+		t.Fatalf("list by exec-2 = %v, %v, want fp-a1", later, err)
+	}
+
+	earlier, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ExecutionID: "exec-1"})
+	if err != nil || len(earlier) != 0 {
+		t.Fatalf("list by exec-1 = %d findings, %v, want 0", len(earlier), err)
+	}
+
+	summary, err := s.SummarizeSecurityFindingsScoped(ctx, store.SecurityFindingSummaryScope{
+		Namespace: "default", ScanName: "nightly", ExecutionID: "exec-2",
+	})
+	if err != nil {
+		t.Fatalf("SummarizeSecurityFindingsScoped(exec-2): %v", err)
+	}
+	if summary["total"] != 1 {
+		t.Errorf("exec-2 summary = %v, want total 1", summary)
 	}
 }
