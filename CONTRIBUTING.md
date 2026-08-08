@@ -48,7 +48,7 @@ make selfdev-snap ROUTE=/runs/demo/run-ui-polish
 
 Use the route and scenario that exercise the changed UI. Review the generated screenshot, accessibility tree, and console log under `platform-app/selfdev/out/` before including evidence in the pull request.
 
-`AGENTS.md` describes backend validation and generation workflows (`make build`, `make test`, `make lint`, `make manifests generate`, `make gen-protoc`, and `make gen-rpc`). The current root Makefile does not advertise those targets, so verify target availability in the branch and CI configuration before relying on them. When an API changes, regenerate both Go and TypeScript RPC stubs with the project-supported generation workflow; never patch generated output.
+`AGENTS.md` describes backend validation and generation workflows (`make build`, `make test`, `make lint`, `make manifests generate`, `make gen-protoc`, and `make gen-rpc`). Run `make help` to inspect all available root targets. When an API changes, regenerate both Go and TypeScript RPC stubs with the project-supported generation workflow; never patch generated output.
 
 ## Make a focused change
 
