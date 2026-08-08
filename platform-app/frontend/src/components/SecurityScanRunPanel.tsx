@@ -40,16 +40,21 @@ export function SecurityScanRunPanel({
   const [pendingAction, setPendingAction] = useState<"cancel" | "retry" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const settledRef = useRef(false);
+  // Notify the parent only on an OBSERVED transition into a terminal phase,
+  // never when the run is already terminal on mount. Firing on mount created
+  // a remount loop: the parent refreshed, showed a loading state that
+  // unmounted this panel, the remount saw the still-terminal phase and fired
+  // again — tearing down and reopening the watch streams several times per
+  // second (visible as violent page flicker). A parent that mounts this panel
+  // has just loaded fresh data anyway, so a mount-time notification is never
+  // needed.
+  const lastPhaseRef = useRef<string | null>(null);
   useEffect(() => {
     if (!phase) return;
-    if (isDonePhase(phase)) {
-      if (!settledRef.current) {
-        settledRef.current = true;
-        onRunSettled?.(phase);
-      }
-    } else {
-      settledRef.current = false;
+    const last = lastPhaseRef.current;
+    lastPhaseRef.current = phase;
+    if (last !== null && !isDonePhase(last) && isDonePhase(phase)) {
+      onRunSettled?.(phase);
     }
   }, [phase, onRunSettled]);
 

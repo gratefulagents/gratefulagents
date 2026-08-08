@@ -202,17 +202,38 @@ describe("SecurityScanRunPanel", () => {
     expect((screen.getByRole("button", { name: /Retry scan/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("notifies the parent exactly once when the run settles", () => {
+  it("notifies the parent exactly once when it observes the run settling", () => {
     const onRunSettled = vi.fn();
-    arrange({ run: runFixture({ phase: "Succeeded" }) });
+    arrange();
     const view = renderPanel(onRunSettled);
-    expect(onRunSettled).toHaveBeenCalledTimes(1);
-    expect(onRunSettled).toHaveBeenCalledWith("Succeeded");
+    expect(onRunSettled).not.toHaveBeenCalled();
+
+    arrange({ run: runFixture({ phase: "Succeeded" }) });
     view.rerender(
       <MemoryRouter>
         <SecurityScanRunPanel namespace="user-alice" runName="secscan-nightly-1" onRunSettled={onRunSettled} />
       </MemoryRouter>,
     );
     expect(onRunSettled).toHaveBeenCalledTimes(1);
+    expect(onRunSettled).toHaveBeenCalledWith("Succeeded");
+
+    view.rerender(
+      <MemoryRouter>
+        <SecurityScanRunPanel namespace="user-alice" runName="secscan-nightly-1" onRunSettled={onRunSettled} />
+      </MemoryRouter>,
+    );
+    expect(onRunSettled).toHaveBeenCalledTimes(1);
+  });
+
+  it("never notifies for a run that is already terminal on mount (no remount refresh loop)", () => {
+    const onRunSettled = vi.fn();
+    arrange({ run: runFixture({ phase: "Succeeded" }) });
+    const view = renderPanel(onRunSettled);
+    view.rerender(
+      <MemoryRouter>
+        <SecurityScanRunPanel namespace="user-alice" runName="secscan-nightly-1" onRunSettled={onRunSettled} />
+      </MemoryRouter>,
+    );
+    expect(onRunSettled).not.toHaveBeenCalled();
   });
 });

@@ -269,11 +269,15 @@ export function SecurityScanDetail() {
 
   const selected = findings.find((f) => f.id === selectedId) ?? null;
 
-  // When the linked AgentRun reaches a terminal phase, re-fetch the persisted
-  // scan row, summary, and findings so no stale state lingers on screen.
+  // When the linked AgentRun transitions into a terminal phase, re-fetch the
+  // persisted scan row, summary, and findings so no stale state lingers on
+  // screen. Background mode is essential: a foreground fetch flips the
+  // page-level loading state, which swaps the whole page for a skeleton and
+  // unmounts the run panel — and a remounting run panel re-observing a
+  // terminal run would restart its watch streams (flicker loop).
   const handleRunSettled = useCallback(() => {
-    void fetchScan();
-    void fetchFindings();
+    void fetchScan(true);
+    void fetchFindings(true);
   }, [fetchScan, fetchFindings]);
 
   async function downloadReport(format: "markdown" | "sarif") {
@@ -309,7 +313,7 @@ export function SecurityScanDetail() {
         note: "",
         namespace: namespace ?? "",
       });
-      await Promise.all([fetchFindings(), fetchScan(), fetchEvents()]);
+      await Promise.all([fetchFindings(true), fetchScan(true), fetchEvents()]);
     } catch (e: unknown) {
       setFindings(previous);
       setActionError(e instanceof Error ? e.message : "Failed to update finding status");
@@ -465,7 +469,7 @@ export function SecurityScanDetail() {
 
   return (
     <ListState
-      loading={loading}
+      loading={loading && !scan}
       error={error}
       empty={!scan}
       skeleton={<ListRowSkeleton rows={4} />}
