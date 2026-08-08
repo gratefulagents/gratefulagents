@@ -1,6 +1,6 @@
 # Deterministic security tool packs
 
-The `internal/securitytoolpacks` package is the controller-owned execution contract for web/API, cryptography, and network/protocol tools. It prevents an agent from choosing an executable or assembling a shell command. A scan selects a statically registered tool and provides only values accepted by that tool's typed argument declarations; the registry produces an argv vector and an immutable OCI digest for a sandbox executor.
+The `internal/securitytoolpacks` package is the controller-owned execution contract for web/API, cryptography, network/protocol, and blockchain/smart-contract tools. It prevents an agent from choosing an executable or assembling a shell command. A scan selects a statically registered tool and provides only values accepted by that tool's typed argument declarations; the registry produces an argv vector and an immutable OCI digest for a sandbox executor.
 
 This is an execution primitive, not evidence that a clean target is secure. Human approval workflows are intentionally not part of the contract. The configured target scope and budgets are authoritative.
 
@@ -10,11 +10,12 @@ This is an execution primitive, not evidence that a clean target is secure. Huma
 
 - web/API: Playwright, OWASP ZAP, Schemathesis, RESTler, mitmproxy, SSLyze, Nuclei, and the authorization-matrix runner;
 - cryptography: Wycheproof, RFC/NIST vectors, dudect, ctgrind, tlsfuzzer, differential tests, Tamarin, ProVerif, Verifpal, and OpenSSL inspection;
-- network/protocol: Nmap, tshark, Zeek, Suricata, Scapy, boofuzz, and testssl.sh.
+- network/protocol: Nmap, tshark, Zeek, Suricata, Scapy, boofuzz, testssl.sh, and Naabu;
+- blockchain/smart-contract: Aderyn, fixed offline Foundry security tests, and catalog entries for Slither, Mythril, and Echidna.
 
-The catalog distinguishes executable entries from catalog-only entries. Catalog-only tools remain visible with a reason but cannot produce an invocation. The universally available v1 execution path enables only the built-in authorization-matrix and pinned crypto-vector adapters; external scanners become executable only when their exact binary and knowledge pins are present in a reviewed runtime lock. This avoids claiming support for a binary that is absent from the worker.
+The catalog distinguishes executable entries from catalog-only entries. Catalog-only tools remain visible with a reason but cannot produce an invocation. The injected runtime installs checksum-locked Nuclei, Naabu, Aderyn, and Foundry binaries on amd64 and arm64 alongside the built-in authorization-matrix and crypto-vector runners. Nuclei uses the single reviewed template committed under `security-knowledge`; automatic template updates and caller-selected templates are disabled. Slither, Mythril, Echidna, and external tools without a complete pinned runtime remain fail-closed catalog entries. This avoids claiming support for a binary or knowledge base that is absent from the worker.
 
-The release/deployment supplies the actual `sha256:` digest of the tool-pack OCI image. The injected `ga-security` wrapper falls back to hashing its own static executable when no OCI digest is available. Knowledge-driven tools additionally require content digests for reviewed Nuclei templates, Wycheproof/RFC/NIST vectors, Zeek policy, and Suricata rules. Registry validation rejects missing, malformed, or mutable pins. There are deliberately no placeholder digests or automatic update channels in source. A release must verify upstream artifacts while building the image and pass resulting provenance into `DefaultManifest`.
+Each run records the digest of the `ga-security` execution wrapper plus the architecture-specific extracted binary digest from the operator-owned lock. Neither can be supplied through the agent environment. Knowledge-driven tools additionally require compiled content digests for reviewed Nuclei templates, Wycheproof/RFC/NIST vectors, Zeek policy, and Suricata rules. Registry validation rejects missing, malformed, or mutable pins. There are deliberately no placeholder digests or automatic update channels in source.
 
 ## Agent execution through Bash
 
@@ -24,18 +25,18 @@ The release/deployment supplies the actual `sha256:` digest of the tool-pack OCI
 ga-security --config run-config.json --output .security-results/example
 ```
 
-This hybrid keeps Bash available for exploration while making reportable scanner runs reproducible. `ga-security` decodes a closed `RunConfig`, rejects unknown fields and disabled tools, asks the registry to produce fixed argv, runs argv directly with `exec.CommandContext` (never a shell), checks file input digests, and enforces time/output limits. It writes `result.json` and restricted `raw-NN` artifacts. The status-specific exit codes are 0 pass, 10 findings, 20 partial, 30 not applicable, 124 timeout, and 1 error. Findings are then submitted through `ingest_scanner_results`, preserving the existing persistence, deduplication, correlation, confidence, and report path.
+This hybrid keeps Bash available for exploration while making reportable scanner runs reproducible. `ga-security` decodes a closed `RunConfig`, rejects unknown fields and disabled tools, asks the registry to produce fixed argv, runs argv directly with `exec.CommandContext` (never a shell), resolves external scanners only from the operator toolkit and verifies their binary digest immediately before execution, checks file and canonical directory-tree digests, snapshots directory inputs, strips ambient credentials from the child environment, and enforces time/output limits. It writes `result.json` and restricted `raw-NN` artifacts. The status-specific exit codes are 0 pass, 10 findings, 20 partial, 30 not applicable, 124 timeout, and 1 error. Findings are then submitted through `ingest_scanner_results`, preserving the existing persistence, deduplication, correlation, confidence, and report path.
 
-The standalone `Dockerfile.security-tools` is a digest-pinned release artifact. `security-tools.lock.json` records exact multi-architecture archive hashes; entries that cannot be installed reproducibly are disabled with a reason. CI validates the lock and builds the image without contacting scan targets.
+The standalone `Dockerfile.security-tools` is a digest-pinned release artifact. The injector also places the same tools in its PATH-last fallback layer. `security-tools.lock.json` records exact multi-architecture archive and extracted-binary hashes; the build-time Go installer verifies both before installing a binary and supports tar.gz, tar.xz, and zip without floating package indexes. Entries that cannot be installed reproducibly are disabled with a reason. CI validates the lock and builds the image without contacting scan targets.
 
 ## Inputs and replay
 
-Every run requires a target type, locator, immutable revision, and SHA-256 input digest. Domain-specific target types include base URLs/OpenAPI, authorization matrices, crypto vectors/binaries/models, TLS services, address scopes, pcaps, packet assertions, and resettable protocol fixtures. Tools with stochastic behavior require an explicit seed.
+Every run requires a target type, locator, immutable revision, and SHA-256 input digest. Domain-specific target types include base URLs/OpenAPI, authorization matrices, crypto vectors/binaries/models, TLS services, address scopes, pcaps, packet assertions, resettable protocol fixtures, Solidity projects, and Foundry security projects. Compute the canonical digest for a source tree with `ga-security --digest-target PATH`. Live targets must also be contained by an explicit URL/host/address/prefix scope; a syntactically valid but unrelated scope is rejected. Tools with stochastic behavior require an explicit seed.
 
 The replay record contains:
 
 - target revision/digest and native-input artifact digests;
-- exact tool and image/knowledge digests;
+- exact tool version, architecture-specific release-artifact digest, and image/knowledge digests;
 - canonical configuration and its digest;
 - seed;
 - a stable environment allowlist (`os`, `arch`, `kernel`, runtime/compiler/build, and assembly digest).
@@ -71,15 +72,22 @@ A machine-readable specification should state algorithm/mode, key sizes, nonce r
 
 ## Network scope
 
-Live discovery receives explicit addresses/prefixes, ports, protocols, rates, concurrency, and request limits. The sandbox must enforce this scope independently of model output. Nmap XML normalization excludes addresses outside the supplied target prefix; the run must record them as skipped. Offline Zeek/Suricata/tshark analysis accepts a content-addressed pcap. boofuzz requires a resettable fixture plus reset/health hooks; it must not target production.
+Live discovery receives explicit addresses/prefixes, ports, protocols, rates, concurrency, and request limits. Naabu accepts only literal IP/CIDR targets, requires an explicit validated port list, uses unprivileged connect scans, and rejects port counts beyond its request budget. The sandbox must enforce this scope independently of model output. Nmap XML normalization excludes addresses outside the supplied target prefix; the run must record them as skipped. Offline Zeek/Suricata/tshark analysis accepts a content-addressed pcap. boofuzz requires a resettable fixture plus reset/health hooks; it must not target production.
+
+## Blockchain and smart contracts
+
+Aderyn accepts a canonical-digest Solidity project directory with media type `application/vnd.gratefulagents.solidity-project.v1+directory` and emits normalized SARIF findings. `forge-security-tests` accepts only media type `application/vnd.gratefulagents.foundry-security-project.v1+directory`, requires an explicit fuzz seed, and invokes the fixed `forge test --junit --offline --threads 1` operation. Its child environment forces Foundry offline mode and disables FFI while removing ambient RPC URLs and credentials. Missing pinned compilers therefore produce an error rather than triggering a download. Foundry tests must encode the intended fuzz/invariant properties; a passing suite does not imply that unexpressed smart-contract properties are safe.
+
+Slither, Mythril, and Echidna are declared but disabled until their multi-architecture runtimes and native adapters are pinned and reviewed. Live-chain RPC scanning, transaction submission, key custody, and exploitation are not supported.
 
 ## Offline fixtures and CI
 
 `test/fixtures/security-toolpacks` contains:
 
-- a two-tenant authorization matrix with a deterministic cross-tenant failure;
+- a two-tenant authorization matrix with a deterministic cross-tenant failure and a redacted Nuclei header-disclosure result;
 - an RFC 4231 HMAC-SHA-256 passing known-answer output and reproducible failing output plus a crypto specification;
-- a fixed pcap and prerecorded Zeek, Suricata, and scoped Nmap native outputs using IANA TEST-NET addresses.
+- a fixed pcap and prerecorded Zeek, Suricata, scoped Nmap, and Naabu native outputs using IANA TEST-NET addresses;
+- Aderyn SARIF and a seeded failing Foundry invariant JUnit result for a local smart-contract project.
 
 Unit tests use a fake sandbox, so CI never downloads images or accesses public/production targets. They validate exact argv construction, pins, status precedence, redaction, coverage, replay equivalence, adapters, and flow into the existing security reporting pipeline.
 

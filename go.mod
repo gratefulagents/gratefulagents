@@ -17,6 +17,7 @@ require (
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/slack-go/slack v0.27.0
+	github.com/ulikunitz/xz v0.5.15
 	google.golang.org/protobuf v1.36.10
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0

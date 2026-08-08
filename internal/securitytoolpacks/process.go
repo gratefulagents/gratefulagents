@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"slices"
+	"sort"
 	"syscall"
 )
 
@@ -34,7 +37,42 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 	limit := req.Invocation.Budgets.MaxOutputSize
 	stdout := &limitedBuffer{limit: limit}
 	stderr := &limitedBuffer{limit: min(limit, 1<<20)}
-	cmd := exec.CommandContext(ctx, req.Invocation.Argv[0], req.Invocation.Argv[1:]...) // #nosec G204 -- executable and argv come only from the validated static registry.
+	argv := slices.Clone(req.Invocation.Argv)
+	if snapshot, cleanup, err := snapshotDirectoryTarget(req.Config.Target); err != nil {
+		return NativeResult{ExitCode: -1, Err: err}
+	} else if snapshot != "" {
+		defer cleanup()
+		for i := range argv {
+			if argv[i] == req.Config.Target.Locator {
+				argv[i] = snapshot
+			}
+		}
+	}
+	if isLockedExternalTool(req.Tool.Name) {
+		binary, err := trustedToolBinary(argv[0], req.Tool.ToolArtifactDigest)
+		if err != nil {
+			return NativeResult{ExitCode: -1, Err: err}
+		}
+		argv[0] = binary
+	}
+	if req.Tool.Name == "nuclei" {
+		knowledge, err := trustedNucleiKnowledge(req.Tool.KnowledgeDigests["bundle"])
+		if err != nil {
+			return NativeResult{ExitCode: -1, Err: err}
+		}
+		for i := range argv {
+			if argv[i] == "@operator/nuclei-reviewed.yaml" {
+				argv[i] = knowledge
+			}
+		}
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // #nosec G204 -- executable and argv come only from the validated static registry.
+	home, homeErr := os.MkdirTemp("", "ga-security-home-*")
+	if homeErr != nil {
+		return NativeResult{ExitCode: -1, Err: homeErr}
+	}
+	defer func() { _ = os.RemoveAll(home) }()
+	cmd.Env = deterministicEnvironment(req.Tool.Name, home)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()
@@ -74,25 +112,221 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 	return result
 }
 
-func verifyFileTarget(target Target) error {
-	info, err := os.Stat(target.Locator)
+func isLockedExternalTool(name string) bool {
+	return slices.Contains([]string{"nuclei", "naabu", "aderyn", "forge-security-tests"}, name)
+}
+
+func trustedToolBinary(binaryName, expectedDigest string) (string, error) {
+	if filepath.Base(binaryName) != binaryName {
+		return "", fmt.Errorf("locked tool executable must be a basename")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", err
+	}
+	root := filepath.Dir(filepath.Dir(executable))
+	candidates := []string{
+		filepath.Join(root, "fallback", "bin", binaryName),
+		filepath.Join(filepath.Dir(executable), binaryName),
+	}
+	for _, candidate := range candidates {
+		data, readErr := os.ReadFile(candidate) // #nosec G304 -- candidate is derived only from operator binary location and static argv.
+		if readErr != nil {
+			continue
+		}
+		if sha256Digest(data) != expectedDigest {
+			return "", fmt.Errorf("locked tool binary digest mismatch for %s", candidate)
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("locked tool %s was not found in the operator toolkit", binaryName)
+}
+
+func deterministicEnvironment(toolName, home string) []string {
+	environment := []string{"HOME=" + home, "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "PATH=" + os.Getenv("PATH")}
+	for _, name := range []string{"SSL_CERT_FILE", "SSL_CERT_DIR"} {
+		if value := os.Getenv(name); value != "" {
+			environment = append(environment, name+"="+value)
+		}
+	}
+	if toolName == "forge-security-tests" {
+		environment = append(environment, "FOUNDRY_OFFLINE=true", "FOUNDRY_FFI=false")
+	}
+	sort.Strings(environment)
+	return environment
+}
+
+func trustedNucleiKnowledge(expectedDigest string) (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", err
+	}
+	root := filepath.Dir(filepath.Dir(executable))
+	candidates := []string{
+		filepath.Join(root, "security", "nuclei-reviewed.yaml"),
+		filepath.Join(root, "share", "ga-security", "knowledge", "nuclei-reviewed.yaml"),
+	}
+	for _, candidate := range candidates {
+		data, readErr := os.ReadFile(candidate) // #nosec G304 -- path derives only from operator executable location.
+		if readErr != nil {
+			continue
+		}
+		if actual := sha256Digest(data); actual != expectedDigest {
+			return "", fmt.Errorf("nuclei knowledge digest mismatch")
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("reviewed Nuclei knowledge was not found in the operator toolkit")
+}
+
+func snapshotDirectoryTarget(target Target) (string, func(), error) {
+	info, err := os.Lstat(target.Locator)
 	if err != nil {
 		if os.IsNotExist(err) {
+			return "", func() {}, nil
+		}
+		return "", func() {}, err
+	}
+	if !info.IsDir() {
+		return "", func() {}, nil
+	}
+	root, err := os.MkdirTemp("", "ga-security-target-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(root) }
+	snapshot := filepath.Join(root, "input")
+	if err := os.Mkdir(snapshot, info.Mode().Perm()); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	err = filepath.WalkDir(target.Locator, func(current string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if current == target.Locator {
 			return nil
-		} // URL, address scope, or scanner-managed locator.
-		return err
+		}
+		relative, err := filepath.Rel(target.Locator, current)
+		if err != nil {
+			return err
+		}
+		destination := filepath.Join(snapshot, relative)
+		entryInfo, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return os.Mkdir(destination, entryInfo.Mode().Perm())
+		}
+		if !entryInfo.Mode().IsRegular() {
+			return fmt.Errorf("target tree contains non-regular path %q", current)
+		}
+		data, err := os.ReadFile(current) // #nosec G304 -- WalkDir confines reads to the verified target.
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(destination, data, entryInfo.Mode().Perm())
+	})
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
 	}
-	if !info.Mode().IsRegular() {
-		return nil
+	actual, _, err := DigestPath(snapshot)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
 	}
-	data, err := os.ReadFile(target.Locator) // #nosec G304 -- typed registry target.
+	if actual != target.Digest {
+		cleanup()
+		return "", func() {}, fmt.Errorf("target changed while creating execution snapshot")
+	}
+	return snapshot, cleanup, nil
+}
+
+func verifyFileTarget(target Target) error {
+	actual, exists, err := DigestPath(target.Locator)
 	if err != nil {
 		return err
 	}
-	if actual := sha256Digest(data); actual != target.Digest {
+	if !exists {
+		return nil
+	} // URL, address scope, or scanner-managed locator.
+	if actual != target.Digest {
 		return fmt.Errorf("target digest mismatch: got %s, want %s", actual, target.Digest)
 	}
 	return nil
+}
+
+// DigestPath hashes a regular file or a directory tree deterministically. Tree
+// hashes include sorted relative paths, file sizes, modes, and content digests;
+// symlinks and special files are rejected so replay cannot escape its root.
+func DigestPath(path string) (string, bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if info.Mode().IsRegular() {
+		data, err := os.ReadFile(path) // #nosec G304 -- caller-selected typed target.
+		if err != nil {
+			return "", true, err
+		}
+		return sha256Digest(data), true, nil
+	}
+	if !info.IsDir() {
+		return "", true, fmt.Errorf("target must be a regular file or directory")
+	}
+	type entry struct {
+		Path, Digest string
+		Size         int64
+		Mode         uint32
+	}
+	var entries []entry
+	err = filepath.WalkDir(path, func(current string, dirEntry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if current == path || dirEntry.IsDir() {
+			return nil
+		}
+		entryInfo, err := dirEntry.Info()
+		if err != nil {
+			return err
+		}
+		if !entryInfo.Mode().IsRegular() {
+			return fmt.Errorf("target tree contains non-regular path %q", current)
+		}
+		data, err := os.ReadFile(current) // #nosec G304 -- path originates from WalkDir under target root.
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(path, current)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, entry{Path: filepath.ToSlash(relative), Digest: sha256Digest(data), Size: entryInfo.Size(), Mode: uint32(entryInfo.Mode().Perm())})
+		return nil
+	})
+	if err != nil {
+		return "", true, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	encoded, err := canonicalJSON(entries)
+	if err != nil {
+		return "", true, err
+	}
+	return sha256Digest(encoded), true, nil
 }
 
 // Built-in vector and matrix runners consume immutable result artifacts. The

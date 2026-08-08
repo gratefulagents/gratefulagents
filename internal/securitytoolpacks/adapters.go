@@ -48,8 +48,8 @@ func DefaultAdapters() map[string]Adapter {
 	generic := jsonRecordsAdapter{}
 	return map[string]Adapter{
 		"authorization-matrix": authzAdapter{}, "crypto-vectors": cryptoAdapter{}, "zeek-jsonl": zeekAdapter{}, "suricata-eve": suricataAdapter{}, "nmap-xml": nmapAdapter{},
-		"json-records": generic, "zap-json": zapAdapter{}, "schemathesis-json": schemathesisAdapter{}, "restler-json": restlerAdapter{}, "nuclei-jsonl": nucleiAdapter{}, "sslyze-json": sslyzeAdapter{}, "testssl-json": testsslAdapter{}, "openssl-json": opensslAdapter{}, "tshark-json": tsharkAdapter{},
-		"har": harAdapter{}, "junit": junitAdapter{},
+		"json-records": generic, "zap-json": zapAdapter{}, "schemathesis-json": schemathesisAdapter{}, "restler-json": restlerAdapter{}, "nuclei-jsonl": nucleiAdapter{}, "naabu-jsonl": naabuAdapter{}, "sslyze-json": sslyzeAdapter{}, "testssl-json": testsslAdapter{}, "openssl-json": opensslAdapter{}, "tshark-json": tsharkAdapter{},
+		"har": harAdapter{}, "junit": junitAdapter{}, "sarif": sarifAdapter{},
 	}
 }
 
@@ -132,6 +132,79 @@ func rawStrings(raw json.RawMessage) []string {
 	return nil
 }
 
+type sarifDocument struct {
+	Version string `json:"version"`
+	Runs    []struct {
+		Tool struct {
+			Driver struct {
+				Name string `json:"name"`
+			} `json:"driver"`
+		} `json:"tool"`
+		Results []struct {
+			RuleID  string `json:"ruleId"`
+			Level   string `json:"level"`
+			Message struct {
+				Text string `json:"text"`
+			} `json:"message"`
+			Locations []struct {
+				PhysicalLocation struct {
+					ArtifactLocation struct {
+						URI string `json:"uri"`
+					} `json:"artifactLocation"`
+					Region struct {
+						StartLine int `json:"startLine"`
+						EndLine   int `json:"endLine"`
+					} `json:"region"`
+				} `json:"physicalLocation"`
+			} `json:"locations"`
+			Properties map[string]any `json:"properties"`
+		} `json:"results"`
+	} `json:"runs"`
+}
+type sarifAdapter struct{}
+
+func (sarifAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	if start := bytes.Index(native, []byte("STDOUT START")); start >= 0 {
+		native = native[start+len("STDOUT START"):]
+		if end := bytes.Index(native, []byte("STDOUT END")); end >= 0 {
+			native = native[:end]
+		}
+	}
+	var document sarifDocument
+	if err := requireJSONObject(native, &document, "SARIF"); err != nil {
+		return nil, err
+	}
+	if document.Version != "2.1.0" || len(document.Runs) == 0 {
+		return nil, fmt.Errorf("SARIF output requires version 2.1.0 and at least one run")
+	}
+	var records []securityRecord
+	for runIndex, run := range document.Runs {
+		if run.Tool.Driver.Name == "" {
+			return nil, fmt.Errorf("SARIF run %d requires tool.driver.name", runIndex)
+		}
+		for resultIndex, result := range run.Results {
+			if result.RuleID == "" || result.Message.Text == "" || len(result.Locations) == 0 {
+				return nil, fmt.Errorf("SARIF run %d result %d requires ruleId, message, and location", runIndex, resultIndex)
+			}
+			location := result.Locations[0].PhysicalLocation
+			if location.ArtifactLocation.URI == "" {
+				return nil, fmt.Errorf("SARIF run %d result %d requires artifact URI", runIndex, resultIndex)
+			}
+			extra := map[string]string{"sarif_driver": run.Tool.Driver.Name}
+			if swc, ok := result.Properties["swc"].(string); ok && swc != "" {
+				extra["swc"] = r.Text(swc)
+			}
+			records = append(records, securityRecord{Asset: location.ArtifactLocation.URI, Record: ScannerRecord{
+				Tool: tool.Name, ToolVersion: tool.Version, RuleID: result.RuleID, RuleName: result.RuleID,
+				Message: r.Text(result.Message.Text), Severity: nativeSeverity(result.Level, "info"), Category: "logic-flaw",
+				FilePath: r.Text(location.ArtifactLocation.URI), StartLine: location.Region.StartLine, EndLine: location.Region.EndLine, Extra: extra,
+			}})
+		}
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
 type nucleiResult struct {
 	TemplateID  string   `json:"template-id"`
 	MatcherName string   `json:"matcher-name"`
@@ -181,9 +254,69 @@ func (nucleiAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 			cwe = cwes[0]
 		}
 		evidence := strings.Join([]string{result.Request, result.Response, strings.Join(result.Extracted, "\n")}, "\n")
-		records = append(records, securityRecord{Asset: location, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: result.TemplateID, RuleName: r.Text(name), Message: r.Text(name + " matched at " + location), Severity: nativeSeverity(result.Info.Severity, "info"), Category: result.Type, FilePath: "targets/web/" + safePath(location), CWE: cwe, References: rawStrings(result.Info.Reference), RawEvidence: r.Text(strings.TrimSpace(evidence)), Extra: map[string]string{"matcher": r.Text(result.MatcherName)}}})
+		records = append(records, securityRecord{Asset: location, Record: ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: result.TemplateID, RuleName: r.Text(name), Message: r.Text(name + " matched at " + location), Severity: nativeSeverity(result.Info.Severity, "info"), Category: nucleiCategory(result.Type), FilePath: "targets/web/" + safePath(location), CWE: cwe, References: rawStrings(result.Info.Reference), RawEvidence: r.Text(strings.TrimSpace(evidence)), Extra: map[string]string{"matcher": r.Text(result.MatcherName)}}})
 	}
 	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	sortSecurityRecords(records)
+	return records, nil
+}
+
+func nucleiCategory(nativeType string) string {
+	switch strings.ToLower(nativeType) {
+	case "xss":
+		return "xss"
+	case "ssrf":
+		return "ssrf"
+	case "sqli", "injection":
+		return "injection"
+	default:
+		return "misconfiguration"
+	}
+}
+
+type naabuResult struct {
+	Host     string `json:"host"`
+	IP       string `json:"ip"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+	TLS      bool   `json:"tls"`
+}
+type naabuAdapter struct{}
+
+func (naabuAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(native))
+	var records []securityRecord
+	seen := map[string]bool{}
+	for line := 1; scanner.Scan(); line++ {
+		if len(bytes.TrimSpace(scanner.Bytes())) == 0 {
+			continue
+		}
+		var result naabuResult
+		if err := requireJSONObject(scanner.Bytes(), &result, "naabu JSONL line"); err != nil {
+			return nil, fmt.Errorf("line %d: %w", line, err)
+		}
+		if result.Port < 1 || result.Port > 65535 || (result.Host == "" && result.IP == "") {
+			return nil, fmt.Errorf("line %d: naabu result requires host or ip and a valid port", line)
+		}
+		host := result.Host
+		if host == "" {
+			host = result.IP
+		}
+		asset := net.JoinHostPort(host, strconv.Itoa(result.Port))
+		if seen[asset] {
+			continue
+		}
+		seen[asset] = true
+		evidence := fmt.Sprintf("host=%s ip=%s port=%d protocol=%s tls=%t", result.Host, result.IP, result.Port, result.Protocol, result.TLS)
+		records = append(records, securityRecord{Asset: asset, Record: ScannerRecord{
+			Tool: tool.Name, ToolVersion: tool.Version, RuleID: "NAABU-OPEN-PORT", RuleName: "Discovered open network service",
+			Message: r.Text("Open service discovered at " + asset), Severity: "info", Category: "misconfiguration",
+			FilePath: "targets/network/" + safePath(asset), RawEvidence: r.Text(evidence),
+		}})
+	}
+	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 	sortSecurityRecords(records)

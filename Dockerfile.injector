@@ -43,6 +43,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -o agent ./cmd/agent/ \
     && CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
     go build -trimpath -o ga-security ./cmd/ga-security/
+# Security tools are release-archive checksum locked and installed into the
+# PATH-last fallback layer. Runtime images may still provide their own tools.
+RUN go run ./cmd/install-security-tools security-tools.lock.json /out/security-tools linux/$TARGETARCH
 
 # ── Prebuilt static tools (downloaded on the build platform) ─────────────────
 FROM --platform=$BUILDPLATFORM alpine:3.22 AS fetch
@@ -183,6 +186,8 @@ RUN ln -s agent /opt/gratefulagents/bin/executor && \
 
 # Static fallback tools (PATH-last; the user image's own tools win).
 COPY --from=fetch /out/ /opt/gratefulagents/
+COPY --from=agent-builder /out/security-tools/ /opt/gratefulagents/fallback/bin/
+COPY --from=agent-builder /build/security-knowledge/nuclei-reviewed.yaml /opt/gratefulagents/security/nuclei-reviewed.yaml
 COPY --from=bwrap-builder /tmp/bubblewrap-${BWRAP_VERSION}/build/bwrap /opt/gratefulagents/fallback/bin/bwrap
 COPY --from=git-builder /out/ /opt/gratefulagents/fallback/
 

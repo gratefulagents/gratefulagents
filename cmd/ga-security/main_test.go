@@ -32,7 +32,6 @@ func TestRunAuthorizationFixtureEndToEnd(t *testing.T) {
 	if err := os.WriteFile(configPath, configData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(knowledgePinsEnv, `{}`)
 	if code := run([]string{"--config", configPath, "--output", filepath.Join(temp, "out")}); code != 10 {
 		t.Fatalf("exit=%d, want findings (10)", code)
 	}

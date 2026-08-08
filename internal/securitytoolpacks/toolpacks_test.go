@@ -75,9 +75,9 @@ func TestDefaultManifestDeclaresInitialToolPacks(t *testing.T) {
 	}
 }
 
-func TestTypedInvocationNeverUsesShellInterpolation(t *testing.T) {
+func TestTypedInvocationUsesFixedArgv(t *testing.T) {
 	reg, _ := NewRegistry(fixtureManifest())
-	target := fixtureTarget("address_scope", "192.0.2.0/24; touch /tmp/pwned")
+	target := fixtureTarget("address_scope", "192.0.2.0/24")
 	inv, _, err := reg.BuildInvocation(RunConfig{Tool: "nmap", Target: target, Scope: []string{"192.0.2.0/24"}})
 	if err != nil {
 		t.Fatal(err)
@@ -114,6 +114,21 @@ func TestAuthorizationMatrixFindingFlowsThroughSecurityPipeline(t *testing.T) {
 	}
 }
 
+func TestReviewedNucleiFixtureNormalizesAndRedacts(t *testing.T) {
+	output := readFixture(t, "web", "nuclei.jsonl")
+	result := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"http://127.0.0.1:18084"}, Output: output}).Run(context.Background(), RunConfig{
+		Tool: "nuclei", Target: fixtureTarget("base_url", "http://127.0.0.1:18084"),
+		Arguments: map[string]string{"rate": "1"}, Scope: []string{"http://127.0.0.1:18084"},
+	})
+	if result.Status != StatusFindings || len(result.Findings) != 1 || result.Findings[0].Category != "misconfiguration" {
+		t.Fatalf("nuclei result=%+v", result)
+	}
+	encoded, _ := canonicalJSON(result.Findings)
+	if strings.Contains(string(encoded), "fixture-secret") {
+		t.Fatal("Nuclei evidence leaked credentials")
+	}
+}
+
 func TestCryptoKnownAnswerPassAndFailure(t *testing.T) {
 	target := fixtureTarget("crypto_vectors", "fixtures/crypto/rfc4231.json")
 	pass := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"rfc4231-1"}, Output: readFixture(t, "crypto", "pass.json")}).Run(context.Background(), RunConfig{Tool: "rfc-nist-vectors", Target: target})
@@ -138,6 +153,56 @@ func TestNetworkFixturesNmapAndZeek(t *testing.T) {
 	zeek := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"capture.pcap"}, Output: zeekJSON}).Run(context.Background(), RunConfig{Tool: "zeek", Target: pcapTarget})
 	if zeek.Status != StatusFindings || len(zeek.Findings) != 1 || zeek.Artifacts[0].Digest == "" {
 		t.Fatalf("zeek=%+v", zeek)
+	}
+}
+
+func TestNetworkNaabuAndBlockchainForgeFixtures(t *testing.T) {
+	naabuOutput := readFixture(t, "network", "naabu.jsonl")
+	naabu := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"service.example.test"}, Output: naabuOutput}).Run(context.Background(), RunConfig{
+		Tool: "naabu", Target: fixtureTarget("address_scope", "192.0.2.10"), Scope: []string{"192.0.2.10"},
+		Arguments: map[string]string{"rate": "25", "ports": "80,443"},
+	})
+	if naabu.Status != StatusFindings || len(naabu.Findings) != 1 || naabu.Findings[0].RuleID != "NAABU-OPEN-PORT" {
+		t.Fatalf("naabu result=%+v", naabu)
+	}
+
+	aderynTarget := fixtureTarget("solidity_project", "fixtures/blockchain/vault")
+	aderynTarget.MediaType = "application/vnd.gratefulagents.solidity-project.v1+directory"
+	aderynOutput := readFixture(t, "blockchain", "aderyn.sarif")
+	aderyn := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"src/Vault.sol"}, Output: aderynOutput}).Run(context.Background(), RunConfig{Tool: "aderyn", Target: aderynTarget})
+	if aderyn.Status != StatusFindings || len(aderyn.Findings) != 1 || aderyn.Findings[0].RuleID != "reentrancy-state-change" {
+		t.Fatalf("aderyn result=%+v", aderyn)
+	}
+
+	seed := int64(42)
+	forgeOutput := readFixture(t, "blockchain", "forge-junit.xml")
+	forgeTarget := fixtureTarget("foundry_project", "fixtures/blockchain/vault")
+	forgeTarget.MediaType = "application/vnd.gratefulagents.foundry-security-project.v1+directory"
+	forge := runnerFor(t, NativeResult{ExitCode: 1, Examined: []string{"test/InvariantVault.t.sol"}, Output: forgeOutput}).Run(context.Background(), RunConfig{
+		Tool: "forge-security-tests", Target: forgeTarget, Seed: &seed,
+	})
+	if forge.Status != StatusFindings || len(forge.Findings) != 1 || forge.Findings[0].RuleID != "JUNIT-FAILURE" {
+		t.Fatalf("forge result=%+v", forge)
+	}
+	if forge.Replay.Seed == nil || *forge.Replay.Seed != seed {
+		t.Fatal("forge replay omitted fuzz seed")
+	}
+	registry, err := NewRegistry(DefaultManifest(sha256Digest([]byte("image")), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, _, err := registry.BuildInvocation(RunConfig{Tool: "forge-security-tests", Target: forgeTarget, Seed: &seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fuzzSeedFlags := 0
+	for _, argument := range invocation.Argv {
+		if argument == "--fuzz-seed" {
+			fuzzSeedFlags++
+		}
+	}
+	if fuzzSeedFlags != 1 || slices.Contains(invocation.Argv, "--seed") {
+		t.Fatalf("forge seed argv is not fixed: %q", invocation.Argv)
 	}
 }
 

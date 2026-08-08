@@ -2,6 +2,8 @@ package securitytoolpacks
 
 import (
 	"encoding/json"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -50,6 +52,75 @@ func TestDisabledCatalogToolCannotBuildInvocation(t *testing.T) {
 	_, _, err = registry.BuildInvocation(RunConfig{Tool: "nmap", Target: Target{Type: "address_scope", Locator: "192.0.2.0/24", Revision: "v1", Digest: pin}, Scope: []string{"192.0.2.0/24"}})
 	if err == nil || !strings.Contains(err.Error(), "disabled") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestExecutableToolArtifactPinsMatchRuntimeLock(t *testing.T) {
+	data, err := os.ReadFile("../../security-tools.lock.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock struct {
+		Tools []struct {
+			Name      string `json:"name"`
+			Platforms map[string]struct {
+				BinarySHA256 string `json:"binary_sha256"`
+			} `json:"platforms"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		t.Fatal(err)
+	}
+	locked := map[string]string{}
+	for _, tool := range lock.Tools {
+		locked[tool.Name] = "sha256:" + tool.Platforms["linux/"+runtime.GOARCH].BinarySHA256
+	}
+	manifest := DefaultManifest(sha256Digest([]byte("image")), map[string]string{"nuclei": sha256Digest([]byte("templates"))})
+	aliases := map[string]string{"forge-security-tests": "forge"}
+	for _, name := range []string{"nuclei", "naabu", "aderyn", "forge-security-tests"} {
+		lockName := name
+		if aliases[name] != "" {
+			lockName = aliases[name]
+		}
+		var got string
+		for _, tool := range manifest.Tools {
+			if tool.Name == name {
+				got = tool.ToolArtifactDigest
+			}
+		}
+		if got == "" || got != locked[lockName] {
+			t.Fatalf("%s manifest pin %q != lock pin %q", name, got, locked[lockName])
+		}
+	}
+	knowledge, err := os.ReadFile("../../security-knowledge/nuclei-reviewed.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range manifest.Tools {
+		if tool.Name == "nuclei" && tool.KnowledgeDigests["bundle"] != sha256Digest(knowledge) {
+			t.Fatal("compiled Nuclei knowledge pin does not match reviewed template")
+		}
+	}
+}
+
+func TestScopeMustContainLiveTarget(t *testing.T) {
+	if !scopeAllowsTarget("https://api.example.test/v1/users", []string{"https://api.example.test/v1"}) {
+		t.Fatal("expected URL subpath in scope")
+	}
+	if !scopeAllowsTarget("192.0.2.10", []string{"192.0.2.0/24"}) {
+		t.Fatal("expected address in prefix")
+	}
+	if scopeAllowsTarget("https://other.example.test", []string{"https://api.example.test"}) {
+		t.Fatal("unrelated host was accepted")
+	}
+	if scopeAllowsTarget("http://api.example.test:8443/v10", []string{"https://api.example.test:443/v1"}) {
+		t.Fatal("different scheme, port, and path segment were accepted")
+	}
+	if scopeAllowsTarget("https://api.example.test/v10", []string{"https://api.example.test/v1"}) {
+		t.Fatal("raw path prefix was accepted")
+	}
+	if scopeAllowsTarget("198.51.100.10", []string{"192.0.2.0/24"}) {
+		t.Fatal("out-of-prefix address was accepted")
 	}
 }
 

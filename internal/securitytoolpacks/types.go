@@ -21,9 +21,10 @@ import (
 type Domain string
 
 const (
-	DomainWeb     Domain = "web_api"
-	DomainCrypto  Domain = "cryptography"
-	DomainNetwork Domain = "network_protocol"
+	DomainWeb        Domain = "web_api"
+	DomainCrypto     Domain = "cryptography"
+	DomainNetwork    Domain = "network_protocol"
+	DomainBlockchain Domain = "blockchain_smart_contract"
 )
 
 type Status string
@@ -61,27 +62,28 @@ type Argument struct {
 }
 
 type Tool struct {
-	Name             string            `json:"name"`
-	Enabled          bool              `json:"enabled"`
-	DisabledReason   string            `json:"disabled_reason,omitempty"`
-	Domain           Domain            `json:"domain"`
-	Version          string            `json:"version"`
-	Image            string            `json:"image"`
-	ImageDigest      string            `json:"image_digest"`
-	Invocation       []string          `json:"invocation"`
-	Arguments        []Argument        `json:"arguments,omitempty"`
-	TargetTypes      []string          `json:"target_types"`
-	ArtifactTypes    []string          `json:"artifact_types,omitempty"`
-	KnowledgeDigests map[string]string `json:"knowledge_digests,omitempty"`
-	Requirements     Requirements      `json:"requirements"`
-	Budgets          Budgets           `json:"budgets"`
-	SeedSupported    bool              `json:"seed_supported,omitempty"`
-	ExitCodes        map[int]Status    `json:"exit_codes"`
-	OutputMediaType  string            `json:"output_media_type"`
-	Adapter          string            `json:"adapter"`
-	RedactionRules   []string          `json:"redaction_rules"`
-	Idempotent       bool              `json:"idempotent"`
-	Resettable       bool              `json:"resettable,omitempty"`
+	Name               string            `json:"name"`
+	Enabled            bool              `json:"enabled"`
+	DisabledReason     string            `json:"disabled_reason,omitempty"`
+	Domain             Domain            `json:"domain"`
+	Version            string            `json:"version"`
+	Image              string            `json:"image"`
+	ImageDigest        string            `json:"image_digest"`
+	ToolArtifactDigest string            `json:"tool_artifact_digest"`
+	Invocation         []string          `json:"invocation"`
+	Arguments          []Argument        `json:"arguments,omitempty"`
+	TargetTypes        []string          `json:"target_types"`
+	ArtifactTypes      []string          `json:"artifact_types,omitempty"`
+	KnowledgeDigests   map[string]string `json:"knowledge_digests,omitempty"`
+	Requirements       Requirements      `json:"requirements"`
+	Budgets            Budgets           `json:"budgets"`
+	SeedSupported      bool              `json:"seed_supported,omitempty"`
+	ExitCodes          map[int]Status    `json:"exit_codes"`
+	OutputMediaType    string            `json:"output_media_type"`
+	Adapter            string            `json:"adapter"`
+	RedactionRules     []string          `json:"redaction_rules"`
+	Idempotent         bool              `json:"idempotent"`
+	Resettable         bool              `json:"resettable,omitempty"`
 }
 
 type Manifest struct {
@@ -121,16 +123,17 @@ type Artifact struct {
 }
 
 type Replay struct {
-	Target          Target            `json:"target"`
-	Tool            string            `json:"tool"`
-	ToolVersion     string            `json:"tool_version"`
-	ImageDigest     string            `json:"image_digest"`
-	Knowledge       map[string]string `json:"knowledge_digests,omitempty"`
-	Configuration   json.RawMessage   `json:"configuration"`
-	ConfigurationID string            `json:"configuration_digest"`
-	Seed            *int64            `json:"seed,omitempty"`
-	Environment     map[string]string `json:"environment,omitempty"`
-	InputDigests    []string          `json:"input_digests"`
+	Target             Target            `json:"target"`
+	Tool               string            `json:"tool"`
+	ToolVersion        string            `json:"tool_version"`
+	ImageDigest        string            `json:"image_digest"`
+	ToolArtifactDigest string            `json:"tool_artifact_digest"`
+	Knowledge          map[string]string `json:"knowledge_digests,omitempty"`
+	Configuration      json.RawMessage   `json:"configuration"`
+	ConfigurationID    string            `json:"configuration_digest"`
+	Seed               *int64            `json:"seed,omitempty"`
+	Environment        map[string]string `json:"environment,omitempty"`
+	InputDigests       []string          `json:"input_digests"`
 }
 
 type Result struct {
@@ -175,6 +178,9 @@ func (m Manifest) Validate() error {
 		}
 		if !digestPattern.MatchString(t.ImageDigest) {
 			return fmt.Errorf("tool %s: image_digest must be immutable sha256", t.Name)
+		}
+		if !digestPattern.MatchString(t.ToolArtifactDigest) {
+			return fmt.Errorf("tool %s: tool_artifact_digest must be immutable sha256", t.Name)
 		}
 		for name, digest := range t.KnowledgeDigests {
 			if !digestPattern.MatchString(digest) {

@@ -68,12 +68,16 @@ def verify_lock(path: Path) -> None:
                 raise LockError(f"{name}: {platform} artifact must be an object")
             asset = require_string(artifact.get("asset"), f"{platform} asset", name)
             digest = require_string(artifact.get("sha256"), f"{platform} sha256", name)
-            if not HTTPS_URL.fullmatch(asset) or not asset.endswith(".tar.gz"):
-                raise LockError(f"{name}: {platform} asset must be an https tar.gz URL")
+            archive_or_binary = asset.endswith((".tar.gz", ".tar.xz", ".zip", "-update"))
+            if not HTTPS_URL.fullmatch(asset) or not archive_or_binary:
+                raise LockError(f"{name}: {platform} asset must be an https tar.gz, tar.xz, zip, or updater binary URL")
             if tool["version"] not in asset:
                 raise LockError(f"{name}: {platform} asset must identify the pinned version")
             if not SHA256.fullmatch(digest):
                 raise LockError(f"{name}: {platform} sha256 must be a lowercase SHA-256 digest")
+            binary_digest = artifact.get("binary_sha256")
+            if binary_digest is not None and not SHA256.fullmatch(binary_digest):
+                raise LockError(f"{name}: {platform} binary_sha256 must be a lowercase SHA-256 digest")
 
 
 def main(argv: list[str]) -> int:

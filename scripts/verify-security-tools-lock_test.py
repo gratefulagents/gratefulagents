@@ -37,6 +37,13 @@ class VerifySecurityToolsLockTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.LockError, "lowercase SHA-256 digest"):
             self.verify(lock)
 
+    def test_rejects_invalid_extracted_binary_digest(self):
+        lock = self.load_lock()
+        nuclei = next(tool for tool in lock["tools"] if tool["name"] == "nuclei")
+        nuclei["platforms"]["linux/amd64"]["binary_sha256"] = "A" * 64
+        with self.assertRaisesRegex(MODULE.LockError, "binary_sha256 must be a lowercase SHA-256 digest"):
+            self.verify(lock)
+
     def test_rejects_asset_that_does_not_identify_the_pinned_version(self):
         lock = self.load_lock()
         lock["tools"][0]["platforms"]["linux/amd64"]["asset"] = "https://example.test/gitleaks.tar.gz"

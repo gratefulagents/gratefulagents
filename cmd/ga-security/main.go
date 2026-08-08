@@ -19,11 +19,6 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/securitytoolpacks"
 )
 
-const (
-	imageDigestEnv   = "GRATEFULAGENTS_SECURITY_TOOLS_IMAGE_DIGEST"
-	knowledgePinsEnv = "GRATEFULAGENTS_SECURITY_KNOWLEDGE_PINS"
-)
-
 func main() { os.Exit(run(os.Args[1:])) }
 
 func run(args []string) int {
@@ -31,27 +26,28 @@ func run(args []string) int {
 	configPath := flags.String("config", "", "path to typed RunConfig JSON")
 	outputDir := flags.String("output", "", "directory for result and raw artifacts")
 	showManifest := flags.Bool("manifest", false, "print the pinned registry manifest and exit")
+	digestTarget := flags.String("digest-target", "", "print the deterministic digest of a file or directory")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
+	if *digestTarget != "" {
+		digest, exists, err := securitytoolpacks.DigestPath(*digestTarget)
+		if err != nil || !exists {
+			fmt.Fprintf(os.Stderr, "digest target: %v\n", err)
+			return 2
+		}
+		if _, err := fmt.Fprintln(os.Stdout, digest); err != nil {
+			return 1
+		}
+		return 0
+	}
 
-	imageDigest := strings.TrimSpace(os.Getenv(imageDigestEnv))
-	if imageDigest == "" {
-		var err error
-		imageDigest, err = executableDigest()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "hash ga-security executable: %v\n", err)
-			return 2
-		}
+	imageDigest, err := executableDigest()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hash ga-security executable: %v\n", err)
+		return 2
 	}
-	var knowledgePins map[string]string
-	if raw := strings.TrimSpace(os.Getenv(knowledgePinsEnv)); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &knowledgePins); err != nil {
-			fmt.Fprintf(os.Stderr, "%s must be a JSON object: %v\n", knowledgePinsEnv, err)
-			return 2
-		}
-	}
-	manifest := securitytoolpacks.DefaultManifest(imageDigest, knowledgePins)
+	manifest := securitytoolpacks.DefaultManifest(imageDigest, nil)
 	registry, err := securitytoolpacks.NewRegistry(manifest)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid pinned registry: %v\n", err)

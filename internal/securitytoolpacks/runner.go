@@ -106,7 +106,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig) Result {
 	}
 	publicCfg := redactedRunConfig(cfg)
 	publicJSON, _ := canonicalJSON(publicCfg)
-	res.Replay = Replay{Target: publicCfg.Target, Tool: tool.Name, ToolVersion: tool.Version, ImageDigest: tool.ImageDigest, Knowledge: cloneStringMap(tool.KnowledgeDigests), Configuration: publicJSON, ConfigurationID: sha256Digest(cfgJSON), Seed: cloneInt64(cfg.Seed), InputDigests: []string{cfg.Target.Digest}}
+	res.Replay = Replay{Target: publicCfg.Target, Tool: tool.Name, ToolVersion: tool.Version, ImageDigest: tool.ImageDigest, ToolArtifactDigest: tool.ToolArtifactDigest, Knowledge: cloneStringMap(tool.KnowledgeDigests), Configuration: publicJSON, ConfigurationID: sha256Digest(cfgJSON), Seed: cloneInt64(cfg.Seed), InputDigests: []string{cfg.Target.Digest}}
 	if r.sandbox == nil {
 		res.Status = StatusError
 		res.Errors = []string{"no sandbox executor configured"}
