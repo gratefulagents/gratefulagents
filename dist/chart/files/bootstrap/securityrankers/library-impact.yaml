@@ -5,9 +5,6 @@ metadata:
 spec:
   description: Severity calibration for libraries and SDKs; ranks by exposure of a downstream caller using the documented API and discounts already-malicious-caller scenarios.
   rules:
-    - "severity-floor: memory-safety=high"
-    - "severity-floor: deserialization=high"
-    - "severity-floor: path-traversal=high"
     - The ranking question is whether a downstream application using the documented API in the documented way is exposed; if a normal caller is exposed the finding is at least high.
     - Memory-safety violations, unsafe deserialization, and path traversal in parsing, decoding, or archive-extraction paths are high by default and critical when the input is untrusted by design (network payloads, uploaded files, user-supplied paths).
     - Panics, unbounded allocation, and quadratic behaviour in a parser that a caller feeds untrusted bytes are high, because the caller cannot defend against them.

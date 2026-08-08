@@ -24,6 +24,9 @@ spec:
 
     Finish by calling update_security_finding for this finding with `note`
     containing the traced flow, the proof-of-concept command and output or
-    the explicit reason it does not reproduce, and status `confirmed` when
-    you demonstrated it, `false_positive` when you disproved it, otherwise
-    `triaged`. `note` is the only free-text field this tool writes.
+    the explicit reason it does not reproduce. `note` is the only free-text
+    field this tool writes. A finding that already carries status
+    `false_positive`, `accepted_risk`, or `fixed` keeps it: record your
+    note and leave the status unchanged. Otherwise set status `confirmed`
+    when you demonstrated it, `false_positive` when you disproved it, and
+    `triaged` when neither holds.

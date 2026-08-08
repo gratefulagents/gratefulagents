@@ -1,6 +1,7 @@
 package configtest
 
 import (
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -32,13 +33,22 @@ var securityTriagePostScripts = []struct {
 	{"scope-eligibility-check", "all"},
 }
 
-// securityTriageRankers are the shipped severity rankers for bug hunting.
-var securityTriageRankers = []string{
-	"web-app-impact",
-	"api-service-impact",
-	"blockchain-impact",
-	"bug-bounty-triage",
-	"library-impact",
+// securityTriageRankers are the shipped severity rankers for bug hunting,
+// each with the severity-floor categories it is allowed to declare. A floor
+// is applied by security.Rank to every finding of that category before the
+// minSeverity cut, and no prose can condition it, so a floor may only stay
+// where the ranker's own rules never place a finding of that category below
+// it. bug-bounty-triage caps every unproven finding at low and is therefore
+// prose-only.
+var securityTriageRankers = []struct {
+	name   string
+	floors []string
+}{
+	{"web-app-impact", []string{"authn"}},
+	{"api-service-impact", []string{"authz", "authn"}},
+	{"blockchain-impact", nil},
+	{"bug-bounty-triage", nil},
+	{"library-impact", nil},
 }
 
 func TestSecurityTriagePostScriptAssets(t *testing.T) {
@@ -113,18 +123,18 @@ func TestSecurityTriagePostScriptAssets(t *testing.T) {
 func TestSecurityTriageRankerAssets(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range securityTriageRankers {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range securityTriageRankers {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			var ranker triggersv1alpha1.SecurityRanker
-			readBootstrapAsset(t, "securityrankers", name, &ranker)
+			readBootstrapAsset(t, "securityrankers", tc.name, &ranker)
 
 			if ranker.Kind != "SecurityRanker" {
 				t.Errorf("kind = %q, want SecurityRanker", ranker.Kind)
 			}
-			if ranker.Name != name {
-				t.Errorf("metadata.name = %q, want %q", ranker.Name, name)
+			if ranker.Name != tc.name {
+				t.Errorf("metadata.name = %q, want %q", ranker.Name, tc.name)
 			}
 			if errs := triggersv1alpha1.ValidateSecurityRankerRules(ranker.Spec.Rules); len(errs) != 0 {
 				t.Fatalf("rules are invalid: %v", errs)
@@ -136,7 +146,7 @@ func TestSecurityTriageRankerAssets(t *testing.T) {
 				t.Errorf("ranker has %d rules, want 5-12", n)
 			}
 
-			floors := 0
+			var floored []string
 			for i, rule := range ranker.Spec.Rules {
 				trimmed := strings.TrimSpace(rule)
 				if trimmed == "" {
@@ -145,12 +155,12 @@ func TestSecurityTriageRankerAssets(t *testing.T) {
 				}
 				directive, value, isDirective := strings.Cut(trimmed, ":")
 				if isDirective && strings.TrimSpace(directive) == "severity-floor" {
-					floors++
 					category, severity, ok := strings.Cut(strings.TrimSpace(value), "=")
 					if !ok {
 						t.Errorf("rules[%d] = %q, want severity-floor: <category>=<severity>", i, trimmed)
 						continue
 					}
+					floored = append(floored, category)
 					if !slices.Contains(security.Severities, severity) {
 						t.Errorf("rules[%d] floors to unknown severity %q, want one of %v", i, severity, security.Severities)
 					}
@@ -165,8 +175,60 @@ func TestSecurityTriageRankerAssets(t *testing.T) {
 					t.Errorf("rules[%d] = %q is too vague to calibrate anything", i, trimmed)
 				}
 			}
-			if floors == 0 {
-				t.Error("ranker must set at least one severity-floor directive")
+			// security.Rank raises every finding of a floored category
+			// unconditionally, so a floor the ranker's prose contradicts
+			// inflates speculative findings past the pack's minSeverity cut.
+			// Adding one here means proving the floor holds for every
+			// finding of that category this ranker can see.
+			if !slices.Equal(floored, tc.floors) {
+				t.Errorf("severity-floor categories = %v, want %v", floored, tc.floors)
+			}
+		})
+	}
+}
+
+// terminalFindingStatuses are the verdicts a post-script must never overwrite:
+// once a finding is a false positive, an accepted risk, or fixed, a later
+// script in the chain that unconditionally sets `triaged` or `confirmed`
+// would silently resurrect it.
+var terminalFindingStatuses = []string{
+	store.SecurityFindingStatusFalsePositive,
+	store.SecurityFindingStatusAcceptedRisk,
+	store.SecurityFindingStatusFixed,
+}
+
+// terminalStatusInstruction is the sentence each post-script prompt carries so
+// the status rule it states afterwards cannot undo an earlier script's
+// terminal verdict. Post-scripts run in pack order over the same finding.
+const terminalStatusInstruction = "A finding that already carries status `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and leave the status unchanged."
+
+func TestSecurityPostScriptsPreserveTerminalStatuses(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob(repoPath("configs", "securitypostscripts", "*.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no shipped post-script assets found")
+	}
+	for _, path := range paths {
+		name := strings.TrimSuffix(filepath.Base(path), ".yaml")
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var script triggersv1alpha1.SecurityPostScript
+			readBootstrapAsset(t, "securitypostscripts", name, &script)
+
+			// The prompt wraps, so compare on collapsed whitespace.
+			prompt := strings.Join(strings.Fields(script.Spec.Prompt), " ")
+			for _, status := range terminalFindingStatuses {
+				if !strings.Contains(prompt, "`"+status+"`") {
+					t.Errorf("prompt never mentions the terminal status %q it must not overwrite", status)
+				}
+			}
+			if want := strings.Join(strings.Fields(terminalStatusInstruction), " "); !strings.Contains(prompt, want) {
+				t.Errorf("prompt must carry the terminal-status instruction %q", terminalStatusInstruction)
 			}
 		})
 	}

@@ -28,6 +28,8 @@ spec:
 
     Finish by calling update_security_finding for this finding with `note`
     containing the artifact or diff, the exact command, and the observed
-    output (or the explicit non-reproduction and the lowered confidence),
-    and status `confirmed` only when you reproduced it, otherwise
-    `triaged`. `note` is the only field this tool writes.
+    output (or the explicit non-reproduction and the lowered confidence).
+    `note` is the only field this tool writes. A finding that already
+    carries status `false_positive`, `accepted_risk`, or `fixed` keeps it:
+    record your note and leave the status unchanged. Otherwise set status
+    `confirmed` only when you reproduced it, and `triaged` when you did not.

@@ -285,14 +285,39 @@ describe("validateWorkflowTasks advanced fields", () => {
 
   it("rejects single-field output references to multi-instance tasks", () => {
     const errors = validateWorkflowTasks([
-      draft({ name: "a", repeats: "3" }),
+      draft({ name: "a", repeats: "3", outputSchema: '{"type":"object"}' }),
       draft({ name: "b", dependsOn: ["a"], objective: "use {{tasks.a.output.summary}}" }),
     ]);
     expect(errors.some((e) => e.field === "tasks[1].objective" && e.message.includes("multi-instance"))).toBe(true);
     expect(
       validateWorkflowTasks([
-        draft({ name: "a", repeats: "3" }),
+        draft({ name: "a", repeats: "3", outputSchema: '{"type":"object"}' }),
         draft({ name: "b", dependsOn: ["a"], objective: "use {{tasks.a.output}}" }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("rejects output references to tasks without an output schema", () => {
+    const errors = validateWorkflowTasks([
+      draft({ name: "recon" }),
+      draft({ name: "hunt", dependsOn: ["recon"], objective: "dig into {{tasks.recon.output}}" }),
+    ]);
+    const objectiveError = errors.find((e) => e.field === "tasks[1].objective");
+    expect(objectiveError?.message).toContain("output schema");
+    expect(objectiveError?.message).toContain('"hunt"');
+    expect(objectiveError?.message).toContain('"recon"');
+
+    expect(
+      validateWorkflowTasks([
+        draft({ name: "recon", outputSchema: '{"type":"object"}' }),
+        draft({ name: "hunt", dependsOn: ["recon"], objective: "dig into {{tasks.recon.output}}" }),
+      ]),
+    ).toEqual([]);
+    // Referencing the task itself rather than its output needs no schema.
+    expect(
+      validateWorkflowTasks([
+        draft({ name: "recon" }),
+        draft({ name: "hunt", dependsOn: ["recon"], objective: "continue {{tasks.recon}}" }),
       ]),
     ).toEqual([]);
   });

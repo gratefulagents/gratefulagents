@@ -1092,7 +1092,9 @@ func (t *submitSecurityScanReportTool) Description() string {
 	return "Finalize this security scan: deduplicate and rank all recorded findings, render " +
 		"the markdown report and SARIF output as session artifacts, and mark the scan " +
 		"completed with a severity breakdown. The scan's configured minimum severity and " +
-		"dedupe policy are always enforced. Call this exactly once, after every finding " +
+		"dedupe policy are always enforced, and findings triaged as false positives are " +
+		"left out of the report and SARIF (their stored rows are kept). Call this exactly " +
+		"once, after every finding " +
 		"has been reported and triaged; calling it again returns the existing result " +
 		"unless the findings changed. Only writes platform scan state (no workspace, " +
 		"repository, or network mutation), so it is available on read-only scan runs."
@@ -1237,7 +1239,16 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 		return Result{Content: fmt.Sprintf("failed to load findings: %v", err), IsError: true}, nil
 	}
 	findings := make([]security.Finding, 0, len(records))
+	excludedFalsePositives := 0
 	for _, rec := range records {
+		// Findings triaged as false positives are never deleted (the store
+		// keeps every row and its audit trail), but they must not be
+		// correlated, deduped, ranked, or rendered: otherwise a post-script
+		// that disproves a finding would still leave it in the report.
+		if rec.Status == store.SecurityFindingStatusFalsePositive {
+			excludedFalsePositives++
+			continue
+		}
 		findings = append(findings, securityFindingFromRecord(rec))
 	}
 
@@ -1254,6 +1265,10 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 	}
 
 	canonical, clusterCount, dedupeDesc := dedupeSubmittedFindings(findings, scanCtx)
+	if excludedFalsePositives > 0 {
+		dedupeDesc = fmt.Sprintf("%s; %d finding(s) triaged as false positives were excluded from the report",
+			dedupeDesc, excludedFalsePositives)
+	}
 	rules, policyNote := submitScanPolicy(in, scanCtx, dedupeDesc)
 
 	ranked := security.Rank(canonical, rules)
@@ -1271,6 +1286,17 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 
 	// Second submit with unchanged findings: keep the existing completed
 	// scan record (and its completed_at) instead of silently re-stamping it.
+	//
+	// The persisted counts deliberately stay whole-scan (every stored,
+	// non-duplicate row, including false positives) rather than mirroring
+	// the filtered report: findings are marked, never erased, and the
+	// counts carry both total and open_<severity> keys. Consumers that must
+	// ignore triaged-away findings already read the open keys — the
+	// controller's failOnSeverity evaluation and the GitHub check summary,
+	// which lists only status=open findings — so filtering the report does
+	// not change any number those surfaces show. Rewriting the stored totals
+	// here would instead break the unchanged-findings comparison above,
+	// which compares them against SummarizeSecurityFindings output.
 	var priorScan *store.SecurityScanRecord
 	var counts map[string]int32
 	if t.state.findingStore != nil {
@@ -1344,7 +1370,7 @@ func (t *submitSecurityScanReportTool) Execute(ctx context.Context, input json.R
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Security scan %q finalized: %d finding(s) recorded, %d after dedupe, %d in the report.\n",
-		scanCtx.ScanName, len(findings), clusterCount, len(ranked))
+		scanCtx.ScanName, len(records), clusterCount, len(ranked))
 	b.WriteString(policyNote + "\n")
 	securitySeverityBreakdown(&b, counts)
 	b.WriteString(artifactNote)

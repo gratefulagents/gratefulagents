@@ -30,5 +30,8 @@ spec:
 
     Finish by calling update_security_finding for this finding with the
     verdict, the commits inspected, and the current file:line as `note`
-    (the only field this tool writes), and status `fixed` for a fixed
-    verdict, otherwise `triaged` (keep `confirmed` if already set).
+    (the only field this tool writes). A finding that already carries
+    status `false_positive`, `accepted_risk`, or `fixed` keeps it: record
+    your note and leave the status unchanged. Otherwise set status `fixed`
+    for a fixed verdict, `triaged` for the others, or keep `confirmed` when
+    the finding is already confirmed and still present.

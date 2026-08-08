@@ -99,7 +99,24 @@ spec:
         vulnerable function, a request against a locally started server - and never send traffic to a real
         system. Update each finding with the outcome: confirmed with the reproduction steps and evidence,
         or rejected with the specific check that stops the attack. Kill every candidate whose path breaks;
-        a rejected finding is as valuable an outcome as a confirmed one.
+        a rejected finding is as valuable an outcome as a confirmed one. Publish one entry per settled
+        candidate as this task's structured output, and an empty array when there was nothing to settle.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "verdict", "summary"],
+            "properties": {
+              "title": {"type": "string", "description": "Short name of the candidate finding"},
+              "verdict": {"type": "string", "description": "confirmed or rejected"},
+              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "file": {"type": "string", "description": "Repository-relative file the candidate cites"},
+              "line": {"type": "integer", "description": "Line the candidate cites"},
+              "summary": {"type": "string", "description": "The reproduction that confirms it, or the check that stops it"}
+            }
+          }
+        }
       dependsOn:
         - unauthenticated-remote-execution
         - authentication-bypass

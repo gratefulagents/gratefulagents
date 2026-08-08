@@ -312,8 +312,9 @@ export function validateWorkflowTasks(tasks: WorkflowTaskDraft[]): WorkflowField
     }
   });
   // Mirrors the server-side multi-instance rules: a fan-out source must be a
-  // single-instance task, and a multi-instance task's aggregated output is a
-  // JSON array so single-field access can never resolve.
+  // single-instance task, a multi-instance task's aggregated output is a
+  // JSON array so single-field access can never resolve, and only a task
+  // with an output schema ever publishes structured output to interpolate.
   const byName = new Map<string, WorkflowTaskDraft>();
   for (const task of tasks) byName.set(task.name.trim(), task);
   const isMultiInstance = (task: WorkflowTaskDraft): boolean =>
@@ -327,6 +328,19 @@ export function validateWorkflowTasks(tasks: WorkflowTaskDraft[]): WorkflowField
         errors.push({
           field: `tasks[${index}].forEach`,
           message: `Task "${name}" for-each source "${forEach}" is itself multi-instance (for-each or repeats); fan-out sources must be single-instance tasks.`,
+        });
+      }
+    }
+    const seenOutputRefs = new Set<string>();
+    for (const match of task.objective.matchAll(/\{\{\s*tasks\.([a-zA-Z0-9-]+)\.output/g)) {
+      const ref = match[1];
+      if (seenOutputRefs.has(ref)) continue;
+      seenOutputRefs.add(ref);
+      const source = byName.get(ref);
+      if (source && ref !== name && source.outputSchema.trim() === "") {
+        errors.push({
+          field: `tasks[${index}].objective`,
+          message: `Task "${name}" references {{tasks.${ref}.output}} but task "${ref}" declares no output schema and therefore never publishes structured output; add an output schema to "${ref}" or stop interpolating its output.`,
         });
       }
     }

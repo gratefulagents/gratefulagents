@@ -51,7 +51,24 @@ spec:
         change makes them newly reachable. Report only what you can point at with file:line evidence in the
         changed code and describe as a concrete attack, and say plainly that the file is clean when it is.
         Work quickly - this review runs on every push, so depth on the risky lines beats breadth over the
-        whole file.
+        whole file. Publish the same kept reports as this task's structured output, one entry each, and an
+        empty array when the file is clean.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "severity", "file", "introduced_by_change"],
+            "properties": {
+              "title": {"type": "string", "description": "Short name of the vulnerability"},
+              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "file": {"type": "string", "description": "Repository-relative file reviewed"},
+              "line": {"type": "integer", "description": "Line in the changed code carrying the defect"},
+              "introduced_by_change": {"type": "boolean", "description": "True when this change created or newly exposed the defect"},
+              "summary": {"type": "string", "description": "The attack the change enables and what the author must change"}
+            }
+          }
+        }
       dependsOn:
         - map-changed-risk
       forEach: map-changed-risk

@@ -216,7 +216,7 @@ func TestValidateSecurityWorkflowTasksExecutionFieldFailures(t *testing.T) {
 
 func TestValidateSecurityWorkflowTasksTemplateWhitespaceTolerated(t *testing.T) {
 	tasks := []SecurityScanTask{
-		{Name: "a", Objective: "objective a"},
+		{Name: "a", Objective: "objective a", OutputSchema: `{"type":"object"}`},
 		{Name: "b", Objective: "use {{ tasks.a.output }}", DependsOn: []string{"a"}},
 	}
 	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
@@ -276,9 +276,45 @@ func TestValidateSecurityWorkflowTasksEnforcesPlannedInstanceBudget(t *testing.T
 	}
 }
 
+// A {{tasks.NAME.output}} reference only resolves when NAME declares an
+// outputSchema: without one the task never receives submit_task_output, so
+// the dependent task would fail at launch instead of at authoring time.
+func TestValidateSecurityWorkflowTasksRequiresOutputSchemaForOutputReferences(t *testing.T) {
+	tasks := []SecurityScanTask{
+		{Name: "recon", Objective: "map the attack surface"},
+		{Name: "hunt", Objective: "dig into {{tasks.recon.output}}", DependsOn: []string{"recon"}},
+	}
+	errs := ValidateSecurityWorkflowTasks(tasks)
+	requireFieldError(t, errs, "tasks[1].objective", "outputSchema")
+	for _, err := range errs {
+		if err.Field != "tasks[1].objective" {
+			continue
+		}
+		if !strings.Contains(err.Message, `"hunt"`) || !strings.Contains(err.Message, `"recon"`) {
+			t.Errorf("error must name both tasks, got %q", err.Message)
+		}
+	}
+
+	tasks[0].OutputSchema = `{"type":"object","properties":{"areas":{"type":"array"}}}`
+	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
+		t.Fatalf("expected reference to a schema-declaring task to validate, got %v", errs)
+	}
+
+	// A field access on a schema-less task is rejected the same way.
+	tasks[0].OutputSchema = ""
+	tasks[1].Objective = "dig into {{tasks.recon.output.areas}}"
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].objective", "outputSchema")
+
+	// Referencing the task itself (not its output) needs no schema.
+	tasks[1].Objective = "continue the work of {{tasks.recon}}"
+	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
+		t.Fatalf("expected a non-output task reference to validate, got %v", errs)
+	}
+}
+
 func TestValidateSecurityWorkflowTasksRejectsFieldAccessOnMultiInstanceOutputs(t *testing.T) {
 	tasks := []SecurityScanTask{
-		{Name: "a", Objective: "objective a", Repeats: 3},
+		{Name: "a", Objective: "objective a", Repeats: 3, OutputSchema: `{"type":"object"}`},
 		{Name: "b", Objective: "use {{tasks.a.output.summary}}", DependsOn: []string{"a"}},
 	}
 	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].objective", "multi-instance")
@@ -289,7 +325,7 @@ func TestValidateSecurityWorkflowTasksRejectsFieldAccessOnMultiInstanceOutputs(t
 
 	tasks = []SecurityScanTask{
 		{Name: "src", Objective: "list", OutputSchema: `{"type":"array"}`},
-		{Name: "fan", Objective: "inspect {{item}}", DependsOn: []string{"src"}, ForEach: "src"},
+		{Name: "fan", Objective: "inspect {{item}}", DependsOn: []string{"src"}, ForEach: "src", OutputSchema: `{"type":"object"}`},
 		{Name: "join", Objective: "use {{tasks.fan.output.result}}", DependsOn: []string{"fan"}},
 	}
 	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[2].objective", "multi-instance")

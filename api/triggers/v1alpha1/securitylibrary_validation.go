@@ -23,6 +23,10 @@ var securityWorkflowTaskRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0
 // single-field references in a task objective template.
 var securityWorkflowTaskFieldRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9-]+)\.output\.`)
 
+// securityWorkflowTaskOutputRefPattern matches {{tasks.<name>.output}} and
+// {{tasks.<name>.output.<field>}} references in a task objective template.
+var securityWorkflowTaskOutputRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9-]+)\.output`)
+
 // securityWorkflowItemRefPattern matches {{item...}} references in a task
 // objective template.
 var securityWorkflowItemRefPattern = regexp.MustCompile(`\{\{\s*item`)
@@ -69,7 +73,8 @@ func (e SecurityWorkflowFieldError) Error() string {
 // DNS-1123 role names; models without whitespace; per-task execution settings
 // (retries, timeout, cost, tools, outputSchema, forEach fan-out, repeats)
 // within bounds; objective template references that resolve to declared
-// dependencies; dependsOn entries that resolve to other tasks; a total
+// dependencies and, for {{tasks.NAME.output}}, to tasks that declare an
+// outputSchema; dependsOn entries that resolve to other tasks; a total
 // planned-instance budget of MaxSecurityWorkflowPlannedInstances; and an
 // acyclic dependency graph.
 func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowFieldError {
@@ -185,6 +190,21 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 			referenced[ref] = true
 			if !depSet[ref] || ref == task.Name {
 				add(field+".objective", "task %q references {{tasks.%s}} but does not list %q in dependsOn", task.Name, ref, ref)
+			}
+		}
+		// Only a task that declares an outputSchema is given the
+		// submit_task_output tool, so a reference to a schema-less task's
+		// output can never resolve and fails the dependent task at launch.
+		outputReferenced := make(map[string]bool)
+		for _, match := range securityWorkflowTaskOutputRefPattern.FindAllStringSubmatch(task.Objective, -1) {
+			ref := match[1]
+			if outputReferenced[ref] {
+				continue
+			}
+			outputReferenced[ref] = true
+			src, known := byName[ref]
+			if known && ref != task.Name && strings.TrimSpace(src.OutputSchema) == "" {
+				add(field+".objective", "task %q references {{tasks.%s.output}} but task %q declares no outputSchema and therefore never publishes structured output; add an outputSchema to %q or stop interpolating its output", task.Name, ref, ref, ref)
 			}
 		}
 		// A multi-instance task's aggregated output is a JSON array of the

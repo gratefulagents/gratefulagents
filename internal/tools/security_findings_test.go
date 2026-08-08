@@ -895,6 +895,124 @@ func TestSubmitSecurityScanReport(t *testing.T) {
 	}
 }
 
+// A finding a post-script disproved is kept in the store but must not reach
+// the rendered report or the SARIF artifact.
+func TestSubmitSecurityScanReportExcludesFalsePositives(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	stateStore := &securityArtifactTestStore{}
+	registry := newSecurityTestRegistry(t, findingStore, stateStore)
+
+	for _, finding := range []string{
+		`{"title":"SQL injection in login","category":"injection","severity":"critical","description":"query concat","file_path":"a.go","start_line":10}`,
+		`{"title":"Weak hash for passwords","category":"crypto","severity":"medium","description":"md5 used","file_path":"b.go","start_line":5}`,
+	} {
+		if result := execTool(t, registry, "report_security_finding", finding); result.IsError {
+			t.Fatalf("report failed: %s", result.Content)
+		}
+	}
+
+	var fingerprint string
+	for _, rec := range findingStore.findings {
+		if rec.Title == "Weak hash for passwords" {
+			fingerprint = rec.Fingerprint
+		}
+	}
+	if fingerprint == "" {
+		t.Fatalf("finding to disprove not stored: %v", findingStore.findings)
+	}
+	update := execTool(t, registry, "update_security_finding",
+		`{"fingerprint":"`+fingerprint+`","status":"false_positive","note":"md5 only guards cache keys"}`)
+	if update.IsError {
+		t.Fatalf("update failed: %s", update.Content)
+	}
+
+	result := execTool(t, registry, "submit_security_scan_report", `{"summary":"One real issue."}`)
+	if result.IsError {
+		t.Fatalf("submit failed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "2 finding(s) recorded") || !strings.Contains(result.Content, "1 in the report") {
+		t.Errorf("false positive must be excluded from the report counts: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "1 finding(s) triaged as false positives were excluded") {
+		t.Errorf("policy note must report the excluded count: %s", result.Content)
+	}
+
+	report := stateStore.artifacts[SecurityReportArtifactKind]
+	if !strings.Contains(report, "SQL injection in login") {
+		t.Errorf("report missing the open finding:\n%s", report)
+	}
+	if strings.Contains(report, "Weak hash for passwords") {
+		t.Errorf("report must not include the disproved finding:\n%s", report)
+	}
+	sarif := stateStore.artifacts[SecuritySARIFArtifactKind]
+	if !strings.Contains(sarif, "SQL injection in login") {
+		t.Errorf("SARIF missing the open finding:\n%s", sarif)
+	}
+	if strings.Contains(sarif, "Weak hash for passwords") {
+		t.Errorf("SARIF must not include the disproved finding:\n%s", sarif)
+	}
+
+	// The disproved row is marked, never erased, and the persisted counts
+	// keep covering every stored row (open keys carry the triage outcome).
+	if len(findingStore.findings) != 2 {
+		t.Fatalf("stored findings = %d, want 2 (findings are marked, not deleted)", len(findingStore.findings))
+	}
+	for _, rec := range findingStore.findings {
+		if rec.Title == "Weak hash for passwords" && rec.Status != store.SecurityFindingStatusFalsePositive {
+			t.Errorf("disproved finding status = %q, want false_positive", rec.Status)
+		}
+	}
+	scanCtx := testScanContext()
+	scan := findingStore.scans[scanCtx.Namespace+"/"+scanCtx.RunName]
+	if scan == nil {
+		t.Fatalf("scan record not upserted")
+	}
+	if scan.Counts["total"] != 2 || scan.Counts["open"] != 1 || scan.Counts["open_critical"] != 1 {
+		t.Errorf("scan counts = %v, want total 2 with 1 open critical", scan.Counts)
+	}
+}
+
+// Every finding disproved: the report still submits cleanly, with a
+// zero-finding summary.
+func TestSubmitSecurityScanReportAllFindingsFalsePositive(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	stateStore := &securityArtifactTestStore{}
+	registry := newSecurityTestRegistry(t, findingStore, stateStore)
+
+	if result := execTool(t, registry, "report_security_finding",
+		`{"title":"SQL injection in login","category":"injection","severity":"critical","description":"query concat","file_path":"a.go"}`); result.IsError {
+		t.Fatalf("report failed: %s", result.Content)
+	}
+	update := execTool(t, registry, "update_security_finding",
+		`{"fingerprint":"`+findingStore.findings[0].Fingerprint+`","status":"false_positive","note":"the query is parameterized upstream"}`)
+	if update.IsError {
+		t.Fatalf("update failed: %s", update.Content)
+	}
+
+	result := execTool(t, registry, "submit_security_scan_report", `{"summary":"Nothing held up under triage."}`)
+	if result.IsError {
+		t.Fatalf("submit failed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "1 finding(s) recorded, 0 after dedupe, 0 in the report") {
+		t.Errorf("all-excluded scan must report zero findings: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "1 finding(s) triaged as false positives were excluded") {
+		t.Errorf("policy note must report the excluded count: %s", result.Content)
+	}
+	report := stateStore.artifacts[SecurityReportArtifactKind]
+	if !strings.Contains(report, "No findings.") || strings.Contains(report, "SQL injection in login") {
+		t.Errorf("all-excluded report must render as empty:\n%s", report)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(stateStore.artifacts[SecuritySARIFArtifactKind]), &parsed); err != nil {
+		t.Fatalf("SARIF artifact is not valid JSON: %v", err)
+	}
+	scanCtx := testScanContext()
+	if scan := findingStore.scans[scanCtx.Namespace+"/"+scanCtx.RunName]; scan == nil || scan.Status != "completed" {
+		t.Errorf("scan record = %+v, want completed", scan)
+	}
+}
+
 func TestSubmitSecurityScanReportMinSeverityAndInMemory(t *testing.T) {
 	stateStore := &securityArtifactTestStore{}
 	registry := newSecurityTestRegistry(t, nil, stateStore)

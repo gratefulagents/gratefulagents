@@ -3,11 +3,16 @@ package configtest
 import (
 	"encoding/json"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 )
+
+// workflowTaskOutputRefPattern matches the {{tasks.<name>.output}} references
+// an objective interpolates.
+var workflowTaskOutputRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9-]+)\.output`)
 
 // securityWorkflowLibrary lists the SecurityWorkflow assets shipped in
 // configs/securityworkflows/ and mirrored into the chart bootstrap, so Helm
@@ -83,6 +88,26 @@ func TestSecurityWorkflowLibraryAssets(t *testing.T) {
 				role := task.EffectiveRole()
 				if _, err := os.Stat(repoPath("configs", "roleinstructions", role+".yaml")); err != nil {
 					t.Errorf("task %q references role %q with no shipped RoleInstruction asset: %v", task.Name, role, err)
+				}
+				// A task only gets the submit_task_output tool when it
+				// declares outputSchema, so interpolating the output of a
+				// schemaless task waits for data that can never arrive.
+				for _, match := range workflowTaskOutputRefPattern.FindAllStringSubmatch(task.Objective, -1) {
+					source, ok := byName[match[1]]
+					if !ok {
+						continue // ValidateSecurityWorkflowTasks reports the dangling reference.
+					}
+					if strings.TrimSpace(source.OutputSchema) == "" {
+						t.Errorf("task %q interpolates {{tasks.%s.output}} but %q declares no outputSchema", task.Name, source.Name, source.Name)
+					}
+				}
+				if schema := strings.TrimSpace(task.OutputSchema); schema != "" {
+					var object map[string]any
+					if err := json.Unmarshal([]byte(schema), &object); err != nil {
+						t.Errorf("task %q outputSchema is not valid JSON: %v", task.Name, err)
+					} else if object == nil {
+						t.Errorf("task %q outputSchema must be a JSON object", task.Name)
+					}
 				}
 				if task.ForEach == "" {
 					continue

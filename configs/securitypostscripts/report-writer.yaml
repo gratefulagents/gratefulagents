@@ -31,6 +31,8 @@ spec:
     evidence, saying explicitly that it is unsupported.
 
     Finish by calling update_security_finding for this finding with the full
-    Markdown report as `note` (the note is the only field this tool writes)
-    and status `triaged`, unless the finding is already `confirmed`, in
-    which case keep `confirmed`.
+    Markdown report as `note` (the note is the only field this tool writes).
+    A finding that already carries status `false_positive`, `accepted_risk`,
+    or `fixed` keeps it: record your note and leave the status unchanged.
+    Otherwise set status `triaged`, or keep `confirmed` when the finding is
+    already confirmed.

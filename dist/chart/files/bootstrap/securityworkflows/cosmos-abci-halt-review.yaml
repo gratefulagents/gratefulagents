@@ -50,7 +50,24 @@ spec:
         proposal handlers, and upgrade handlers - where one panic stops block production for the whole
         network rather than failing a single transaction. For each report, state where the untrusted value
         enters, why it survives every check on the way, the panicking statement at file:line, and whether
-        the panic is caught by baseapp's recover or halts consensus.
+        the panic is caught by baseapp's recover or halts consensus. Publish the same kept reports as this
+        task's structured output, one entry each, and an empty array when this entry point holds.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "severity", "file", "halt_scope"],
+            "properties": {
+              "title": {"type": "string", "description": "Short name of the panic path"},
+              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "file": {"type": "string", "description": "Repository-relative file holding the panicking statement"},
+              "line": {"type": "integer", "description": "Line of the panicking statement"},
+              "halt_scope": {"type": "string", "description": "chain-halt when it stops block production, transaction-only when baseapp recovers"},
+              "summary": {"type": "string", "description": "Where the untrusted value enters and how it reaches the panic"}
+            }
+          }
+        }
       dependsOn:
         - map-abci-methods
       forEach: map-abci-methods
@@ -70,7 +87,24 @@ spec:
         flags) influencing state rather than mempool admission, error strings or serialization that embed
         pointers or unordered data, and gas metering that depends on node-local state. Also check that
         upgrade and migration handlers write the same state on every node. Report each with file:line
-        evidence and explain how two validators diverge.
+        evidence and explain how two validators diverge. Publish the same kept reports as this task's
+        structured output, one entry each, and an empty array when you found none.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "severity", "file"],
+            "properties": {
+              "title": {"type": "string", "description": "Short name of the non-determinism source"},
+              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "file": {"type": "string", "description": "Repository-relative file holding the divergent code"},
+              "line": {"type": "integer", "description": "Line where the divergence originates"},
+              "summary": {"type": "string", "description": "How two honest validators end up with different state"},
+              "confidence": {"type": "string", "description": "high, medium, or low, based on the evidence read"}
+            }
+          }
+        }
       dependsOn:
         - map-abci-methods
       maxFindings: 6
@@ -89,7 +123,23 @@ spec:
         deducted, PrepareProposal and ProcessProposal for unbounded work over transactions a proposer
         chooses, and gas metering that a user can avoid by splitting or reordering messages. Report each
         with file:line evidence, the message or sequence that triggers it, and the cost asymmetry between
-        the attacker and the validator set.
+        the attacker and the validator set. Publish the same kept reports as this task's structured output,
+        one entry each, and an empty array when you found none.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "severity", "file"],
+            "properties": {
+              "title": {"type": "string", "description": "Short name of the unmetered work or state growth"},
+              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "file": {"type": "string", "description": "Repository-relative file holding the unbounded path"},
+              "line": {"type": "integer", "description": "Line of the unbounded loop, write, or allocation"},
+              "summary": {"type": "string", "description": "The message or sequence that triggers it and the cost asymmetry"}
+            }
+          }
+        }
       dependsOn:
         - map-abci-methods
       maxFindings: 6

@@ -31,5 +31,8 @@ spec:
 
     Finish by calling update_security_finding for this finding with the
     verdict, the quoted scope rule, and the reason as `note` (the only
-    field this tool writes), and status `accepted_risk` for ineligible,
-    otherwise `triaged` (keep `confirmed` if already set).
+    field this tool writes). A finding that already carries status
+    `false_positive`, `accepted_risk`, or `fixed` keeps it: record your
+    note and leave the status unchanged. Otherwise set status
+    `accepted_risk` for ineligible, `triaged` for eligible, or keep
+    `confirmed` when the finding is already confirmed and eligible.

@@ -32,6 +32,8 @@ spec:
 
     Finish by calling update_security_finding for this finding with the
     classification, the unbounded quantity, the existing bounds, and the
-    three ratings as `note` (the only field this tool writes). Set status
-    `triaged`, unless the finding is already `confirmed`, in which case
-    keep `confirmed`.
+    three ratings as `note` (the only field this tool writes). A finding
+    that already carries status `false_positive`, `accepted_risk`, or
+    `fixed` keeps it: record your note and leave the status unchanged.
+    Otherwise set status `triaged`, or keep `confirmed` when the finding is
+    already confirmed.

@@ -29,6 +29,9 @@ spec:
     holds; say uncertain only when a specific fact is genuinely unavailable.
 
     Finish by calling update_security_finding for this finding with the
-    verdict and its evidence as `note` (the only field this tool writes),
-    and status `false_positive` for does-not-hold, otherwise `triaged`
-    (keep `confirmed` if it was already confirmed and still holds).
+    verdict and its evidence as `note` (the only field this tool writes).
+    A finding that already carries status `false_positive`, `accepted_risk`,
+    or `fixed` keeps it: record your note and leave the status unchanged.
+    Otherwise set status `false_positive` for does-not-hold, `triaged` for
+    the others, or keep `confirmed` when the finding is already confirmed
+    and still holds.

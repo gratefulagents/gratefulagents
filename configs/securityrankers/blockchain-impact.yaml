@@ -3,10 +3,8 @@ kind: SecurityRanker
 metadata:
   name: blockchain-impact
 spec:
-  description: Conservative production-impact calibration for blockchain node and protocol code; floors liveness, fund-loss, and state-corruption issues and discounts collusion-only scenarios.
+  description: Conservative production-impact calibration for blockchain node and protocol code; ranks liveness, fund-loss, and state-corruption issues highest and discounts collusion-only scenarios.
   rules:
-    - "severity-floor: dos=high"
-    - "severity-floor: logic-flaw=medium"
     - Anything that halts consensus or stalls block production for the network — a panic, an unrecoverable error, or a deadlock reachable from a peer-supplied message or transaction — is critical.
     - Direct loss, theft, or freezing of user funds is critical; incorrect fee, reward, or balance accounting that drifts over time is high.
     - State corruption that survives a restart, or that lets one node commit a state root the rest of the network rejects, is critical.

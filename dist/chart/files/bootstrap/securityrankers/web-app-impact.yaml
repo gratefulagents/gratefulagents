@@ -3,12 +3,9 @@ kind: SecurityRanker
 metadata:
   name: web-app-impact
 spec:
-  description: Severity calibration for user-facing web applications; floors access-control, stored-XSS, SSRF, and CSRF impact and keeps hardening gaps informational.
+  description: Severity calibration for user-facing web applications; floors authentication bypass, rates access-control, stored-XSS, SSRF, and CSRF impact by what the attacker actually reaches, and keeps hardening gaps informational.
   rules:
-    - "severity-floor: authz=high"
     - "severity-floor: authn=high"
-    - "severity-floor: xss=medium"
-    - "severity-floor: ssrf=high"
     - Authentication bypass and horizontal or vertical access-control failures that expose another user's data or actions are at least high, and critical when the bypass is pre-authentication.
     - Stored cross-site scripting that renders in another user's session is high; reflected XSS needing a crafted link is medium; self-XSS an attacker can only fire in their own browser is informational.
     - Server-side request forgery that reaches cloud instance metadata, an internal admin surface, or a service on the loopback interface is critical; SSRF limited to outbound requests to attacker-chosen public hosts is medium.

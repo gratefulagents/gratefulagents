@@ -50,6 +50,23 @@ spec:
         that a lower-privilege user can set. When the record is an unguarded entrypoint, prove the missing
         check by tracing the request path and naming the sensitive operation it reaches. Report only what
         you can demonstrate with file:line evidence and describe the concrete request that exploits it.
+        Publish the same kept reports as this task's structured output, one entry each, and an empty array
+        when the decision point holds.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "severity", "file"],
+            "properties": {
+              "title": {"type": "string", "description": "Short name of the access-control defect"},
+              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "file": {"type": "string", "description": "Repository-relative file holding the defect"},
+              "line": {"type": "integer", "description": "Line where the missing or bypassable check sits"},
+              "summary": {"type": "string", "description": "The request that defeats the check and what it reaches"}
+            }
+          }
+        }
       dependsOn:
         - map-auth-decisions
       forEach: map-auth-decisions
@@ -67,7 +84,24 @@ spec:
         multi-factor enforcement on every path that grants a session, and any place identity is trusted from
         a client-supplied header. Report only defects you can tie to executed code with file:line evidence,
         and say what an attacker obtains: another user's session, a permanent token, or an authentication
-        step they never had to complete.
+        step they never had to complete. Publish the same kept reports as this task's structured output,
+        one entry each, and an empty array when identity handling holds.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "severity", "file"],
+            "properties": {
+              "title": {"type": "string", "description": "Short name of the identity or session defect"},
+              "severity": {"type": "string", "description": "critical, high, medium, low, or informational"},
+              "file": {"type": "string", "description": "Repository-relative file holding the defect"},
+              "line": {"type": "integer", "description": "Line where the defect is visible"},
+              "summary": {"type": "string", "description": "What an attacker obtains and how"},
+              "confidence": {"type": "string", "description": "high, medium, or low, based on the evidence read"}
+            }
+          }
+        }
       dependsOn:
         - map-auth-decisions
       maxFindings: 8
