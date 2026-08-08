@@ -1,4 +1,4 @@
-# Upstream: https://github.com/trailofbits/skills/tree/main/plugins/static-analysis/skills/semgrep
+# Upstream: https://github.com/trailofbits/skills/tree/7b9bd5f950f89a9ba71b249b9801c1a95be3928e/plugins/static-analysis/skills/semgrep
 # License: CC-BY-SA-4.0 (Creative Commons Attribution-ShareAlike 4.0), Trail of Bits.
 apiVersion: platform.gratefulagents.dev/v1alpha1
 kind: Skill
@@ -13,5 +13,5 @@ spec:
   source:
     git:
       url: https://github.com/trailofbits/skills
-      ref: main
+      ref: 7b9bd5f950f89a9ba71b249b9801c1a95be3928e
       path: plugins/static-analysis/skills/semgrep

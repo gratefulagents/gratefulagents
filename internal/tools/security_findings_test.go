@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,42 @@ func (s *fakeSecurityFindingStore) UpsertSecurityFinding(_ context.Context, rec 
 	return &copied, true, nil
 }
 
+// UpsertSecurityFindingWithBudget mirrors the store contract closely enough
+// to test budget scoping: merges never consume budget, and the two caps are
+// counted over the record's execution and over its task within it.
+func (s *fakeSecurityFindingStore) UpsertSecurityFindingWithBudget(ctx context.Context, rec *store.SecurityFindingRecord, budget store.SecurityFindingBudget) (*store.SecurityFindingRecord, bool, error) {
+	if !budget.IsZero() && !s.hasFingerprint(rec) {
+		var scanCount, taskCount int32
+		for _, existing := range s.findings {
+			if existing.DuplicateOf != nil || existing.Namespace != rec.Namespace ||
+				existing.ScanName != rec.ScanName || existing.ExecutionID != rec.ExecutionID {
+				continue
+			}
+			scanCount++
+			if existing.TaskName == rec.TaskName {
+				taskCount++
+			}
+		}
+		if budget.ScanMax > 0 && scanCount >= budget.ScanMax {
+			return nil, false, &store.SecurityFindingBudgetError{Scope: "scan", Count: scanCount, Max: budget.ScanMax}
+		}
+		if budget.TaskMax > 0 && taskCount >= budget.TaskMax {
+			return nil, false, &store.SecurityFindingBudgetError{Scope: "task", Count: taskCount, Max: budget.TaskMax}
+		}
+	}
+	return s.UpsertSecurityFinding(ctx, rec)
+}
+
+func (s *fakeSecurityFindingStore) hasFingerprint(rec *store.SecurityFindingRecord) bool {
+	for _, existing := range s.findings {
+		if existing.Namespace == rec.Namespace && existing.ScanName == rec.ScanName &&
+			existing.Repository == rec.Repository && existing.Fingerprint == rec.Fingerprint {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *fakeSecurityFindingStore) CorrelateSecurityFindings(_ context.Context, namespace, scanName, repository, fpA, fpB, reason, actor string) (bool, error) {
 	if namespace == "" {
 		return false, fmt.Errorf("namespace is required")
@@ -112,6 +149,26 @@ func (s *fakeSecurityFindingStore) ListSecurityFindings(_ context.Context, f sto
 		if f.RunName != "" && rec.RunName != f.RunName {
 			continue
 		}
+		if f.ExecutionID != "" && rec.ExecutionID != f.ExecutionID {
+			continue
+		}
+		if f.TaskName != "" && rec.TaskName != f.TaskName {
+			continue
+		}
+		if !f.IncludeDuplicates && rec.DuplicateOf != nil {
+			continue
+		}
+		switch f.Suppressed {
+		case store.SecuritySuppressedInclude:
+		case store.SecuritySuppressedOnly:
+			if rec.SuppressedBy == "" {
+				continue
+			}
+		default:
+			if rec.SuppressedBy != "" {
+				continue
+			}
+		}
 		if f.Repository != "" && rec.Repository != f.Repository {
 			continue
 		}
@@ -128,6 +185,28 @@ func (s *fakeSecurityFindingStore) ListSecurityFindings(_ context.Context, f sto
 			continue
 		}
 		out = append(out, *rec)
+	}
+	// Mirror the Postgres store's ordering and its hard row cap so tests
+	// exercise the same paging the agent tools must do.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
+		}
+		return out[i].Fingerprint < out[j].Fingerprint
+	})
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	if int(f.Offset) >= len(out) {
+		return nil, nil
+	}
+	out = out[f.Offset:]
+	if int32(len(out)) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
@@ -189,6 +268,44 @@ func (s *fakeSecurityFindingStore) SummarizeSecurityFindings(_ context.Context, 
 		}
 		if runName != "" && rec.RunName != runName {
 			continue
+		}
+		out[rec.Severity]++
+		out["total"]++
+		if rec.Status == store.SecurityFindingStatusOpen {
+			out["open"]++
+			out["open_"+rec.Severity]++
+		}
+	}
+	return out, nil
+}
+
+func (s *fakeSecurityFindingStore) SummarizeSecurityFindingsScoped(_ context.Context, scope store.SecurityFindingSummaryScope) (map[string]int32, error) {
+	out := map[string]int32{
+		"total": 0, "open": 0,
+		"open_critical": 0, "open_high": 0, "open_medium": 0, "open_low": 0, "open_info": 0,
+		"suppressed": 0,
+	}
+	for _, rec := range s.findings {
+		if rec.Namespace != scope.Namespace || rec.DuplicateOf != nil {
+			continue
+		}
+		if scope.ScanName != "" && rec.ScanName != scope.ScanName {
+			continue
+		}
+		if scope.RunName != "" && rec.RunName != scope.RunName {
+			continue
+		}
+		if scope.ExecutionID != "" && rec.ExecutionID != scope.ExecutionID {
+			continue
+		}
+		if scope.TaskName != "" && rec.TaskName != scope.TaskName {
+			continue
+		}
+		if rec.SuppressedBy != "" {
+			out["suppressed"]++
+			if !scope.IncludeSuppressed {
+				continue
+			}
 		}
 		out[rec.Severity]++
 		out["total"]++
@@ -1699,5 +1816,409 @@ func TestSecurityFindingsBudgetUnsetMeansUnlimited(t *testing.T) {
 	}
 	if len(findingStore.findings) != 5 {
 		t.Fatalf("stored findings = %d, want 5", len(findingStore.findings))
+	}
+}
+
+// executionScanContext is testScanContext for one task run of a
+// deterministic execution: every task (and fan-out instance) gets its own
+// AgentRun name but shares the execution id.
+func executionScanContext(runName, executionID, taskName string) SecurityScanContext {
+	scanCtx := testScanContext()
+	scanCtx.RunName = runName
+	scanCtx.ExecutionID = executionID
+	scanCtx.TaskName = taskName
+	return scanCtx
+}
+
+func TestSecurityScanContextFromRunParsesExecutionAnnotations(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		SecurityScanNameAnnotation:            "nightly-scan",
+		SecurityScanExecutionIDAnnotation:     "  exec-1  ",
+		SecurityScanTaskNameAnnotation:        " recon ",
+		SecurityScanTaskMaxFindingsAnnotation: "7",
+	}}}
+	scanCtx, ok := SecurityScanContextFromRun(run, "default", "nightly-scan-recon-0", uuid.New())
+	if !ok {
+		t.Fatalf("scan context not recognized")
+	}
+	if scanCtx.ExecutionID != "exec-1" || scanCtx.TaskName != "recon" || scanCtx.TaskMaxFindings != 7 {
+		t.Fatalf("parsed context = %+v", scanCtx)
+	}
+
+	run.Annotations[SecurityScanTaskMaxFindingsAnnotation] = "not-a-number"
+	if scanCtx, _ := SecurityScanContextFromRun(run, "default", "r", uuid.Nil); scanCtx.TaskMaxFindings != 0 {
+		t.Errorf("garbage per-task budget must fall back to unlimited, got %d", scanCtx.TaskMaxFindings)
+	}
+	run.Annotations[SecurityScanTaskMaxFindingsAnnotation] = "-3"
+	if scanCtx, _ := SecurityScanContextFromRun(run, "default", "r", uuid.Nil); scanCtx.TaskMaxFindings != 0 {
+		t.Errorf("negative per-task budget must fall back to unlimited, got %d", scanCtx.TaskMaxFindings)
+	}
+}
+
+// The deterministic engine runs each task in its own AgentRun, so a sibling
+// task (and the terminal sink task that submits the report) must see every
+// finding of its execution — and nothing from another execution of the same
+// scan.
+func TestSecurityFindingsAggregatePerExecution(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	stateStore := &securityArtifactTestStore{}
+	runA := newSecurityTestRegistryWithCtx(t, findingStore, nil, executionScanContext("run-a", "exec-1", "recon"))
+	runB := newSecurityTestRegistryWithCtx(t, findingStore, stateStore, executionScanContext("run-b", "exec-1", "sink"))
+	otherExec := newSecurityTestRegistryWithCtx(t, findingStore, nil, executionScanContext("run-c", "exec-2", "recon"))
+
+	if result := execTool(t, runA, "report_security_finding",
+		`{"title":"SQL injection in login","category":"injection","severity":"critical","description":"query concat","file_path":"a.go"}`); result.IsError {
+		t.Fatalf("run A report failed: %s", result.Content)
+	}
+	if result := execTool(t, otherExec, "report_security_finding",
+		`{"title":"Stale execution finding","category":"crypto","severity":"high","description":"md5","file_path":"b.go"}`); result.IsError {
+		t.Fatalf("other execution report failed: %s", result.Content)
+	}
+
+	list := execTool(t, runB, "list_security_findings", `{}`)
+	if !strings.Contains(list.Content, "SQL injection in login") {
+		t.Errorf("sibling run must see its execution's findings: %s", list.Content)
+	}
+	if strings.Contains(list.Content, "Stale execution finding") {
+		t.Errorf("another execution's findings must never leak in: %s", list.Content)
+	}
+
+	result := execTool(t, runB, "submit_security_scan_report", `{"summary":"Fan-out execution."}`)
+	if result.IsError {
+		t.Fatalf("submit failed: %s", result.Content)
+	}
+	report := stateStore.artifacts[SecurityReportArtifactKind]
+	if !strings.Contains(report, "SQL injection in login") {
+		t.Errorf("report must contain the sibling run's finding:\n%s", report)
+	}
+	if strings.Contains(report, "Stale execution finding") {
+		t.Errorf("report must not contain another execution's finding:\n%s", report)
+	}
+}
+
+// The scan-wide budget is one cumulative cap for the whole execution: a
+// sibling run cannot spend past what other tasks already recorded.
+func TestSecurityFindingsScanBudgetSpansSiblingRuns(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	ctxA := executionScanContext("run-a", "exec-1", "recon")
+	ctxA.MaxFindings = 2
+	ctxB := executionScanContext("run-b", "exec-1", "exploit")
+	ctxB.MaxFindings = 2
+	runA := newSecurityTestRegistryWithCtx(t, findingStore, nil, ctxA)
+	runB := newSecurityTestRegistryWithCtx(t, findingStore, nil, ctxB)
+
+	if result := execTool(t, runA, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
+		t.Fatalf("first finding must persist: %s", result.Content)
+	}
+	if result := execTool(t, runB, "report_security_finding", securityBudgetTestFinding(2)); result.IsError {
+		t.Fatalf("second finding must persist: %s", result.Content)
+	}
+	result := execTool(t, runA, "report_security_finding", securityBudgetTestFinding(3))
+	if !result.IsError {
+		t.Fatalf("the execution-wide cap must bind sibling runs, got: %s", result.Content)
+	}
+	for _, want := range []string{"across this execution", "budgets.maxFindings = 2"} {
+		if !strings.Contains(result.Content, want) {
+			t.Errorf("refusal %q missing %q", result.Content, want)
+		}
+	}
+	if len(findingStore.findings) != 2 {
+		t.Fatalf("stored findings = %d, want 2", len(findingStore.findings))
+	}
+}
+
+// The per-task budget is counted per task across that task's fan-out
+// instances, so one exhausted task never starves a parallel one.
+func TestSecurityFindingsTaskBudgetIsPerTask(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	taskCtx := func(runName, taskName string) SecurityScanContext {
+		scanCtx := executionScanContext(runName, "exec-1", taskName)
+		scanCtx.TaskMaxFindings = 1
+		return scanCtx
+	}
+	reconInstance0 := newSecurityTestRegistryWithCtx(t, findingStore, nil, taskCtx("run-recon-0", "recon"))
+	reconInstance1 := newSecurityTestRegistryWithCtx(t, findingStore, nil, taskCtx("run-recon-1", "recon"))
+	exploit := newSecurityTestRegistryWithCtx(t, findingStore, nil, taskCtx("run-exploit-0", "exploit"))
+
+	if result := execTool(t, reconInstance0, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
+		t.Fatalf("first recon finding must persist: %s", result.Content)
+	}
+	result := execTool(t, reconInstance1, "report_security_finding", securityBudgetTestFinding(2))
+	if !result.IsError {
+		t.Fatalf("a task's budget must span its fan-out instances, got: %s", result.Content)
+	}
+	for _, want := range []string{"across its fan-out instances", `task "recon"`, "maxFindings = 1"} {
+		if !strings.Contains(result.Content, want) {
+			t.Errorf("refusal %q missing %q", result.Content, want)
+		}
+	}
+	if result := execTool(t, exploit, "report_security_finding", securityBudgetTestFinding(3)); result.IsError {
+		t.Fatalf("a parallel task must keep its own budget: %s", result.Content)
+	}
+	if len(findingStore.findings) != 2 {
+		t.Fatalf("stored findings = %d, want 2 (one per task)", len(findingStore.findings))
+	}
+}
+
+func TestSecurityFindingsTaskBudgetInMemory(t *testing.T) {
+	scanCtx := executionScanContext("run-recon-0", "exec-1", "recon")
+	scanCtx.TaskMaxFindings = 1
+	registry := newSecurityTestRegistryWithCtx(t, nil, nil, scanCtx)
+
+	if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
+		t.Fatalf("first finding must persist: %s", result.Content)
+	}
+	result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(2))
+	if !result.IsError || !strings.Contains(result.Content, "across its fan-out instances") {
+		t.Fatalf("in-memory mode must enforce the per-task cap, got: %s", result.Content)
+	}
+	if state := securityTestState(t, registry); len(state.mem) != 1 {
+		t.Fatalf("in-memory findings = %d, want 1", len(state.mem))
+	}
+}
+
+// Everything the operator already decided about — disproved, accepted,
+// fixed, duplicate, suppressed — stays out of the report while its row and
+// the whole-scan stored counts survive untouched.
+func TestSubmitSecurityScanReportExcludesIneligibleFindings(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	stateStore := &securityArtifactTestStore{}
+	scanCtx := testScanContext()
+	registry := newSecurityTestRegistryWithCtx(t, findingStore, stateStore, scanCtx)
+
+	reported := []struct{ title, status string }{
+		{"SQL injection in login", store.SecurityFindingStatusOpen},
+		{"Weak hash for passwords", store.SecurityFindingStatusFalsePositive},
+		{"Verbose error page", store.SecurityFindingStatusAcceptedRisk},
+		{"Missing CSRF token", store.SecurityFindingStatusFixed},
+	}
+	for i, f := range reported {
+		result := execTool(t, registry, "report_security_finding",
+			fmt.Sprintf(`{"title":%q,"category":"injection","severity":"high","description":"d %d","file_path":"a/b%d.go","start_line":%d}`, f.title, i, i, i+1))
+		if result.IsError {
+			t.Fatalf("report %q failed: %s", f.title, result.Content)
+		}
+		if f.status == store.SecurityFindingStatusOpen {
+			continue
+		}
+		update := execTool(t, registry, "update_security_finding",
+			fmt.Sprintf(`{"fingerprint":%q,"status":%q,"note":"triaged"}`, findingStore.findings[i].Fingerprint, f.status))
+		if update.IsError {
+			t.Fatalf("update %q failed: %s", f.title, update.Content)
+		}
+	}
+	// A duplicate row and a governed-suppressed row are written directly:
+	// neither can be produced through the tools.
+	canonical := findingStore.findings[0].ID
+	findingStore.findings = append(findingStore.findings,
+		&store.SecurityFindingRecord{
+			ID: uuid.New(), Namespace: scanCtx.Namespace, ScanName: scanCtx.ScanName, RunName: scanCtx.RunName,
+			Repository: scanCtx.Repository, Fingerprint: "dup00000000000000", Title: "Duplicate of the injection",
+			Category: "injection", Severity: "high", Status: store.SecurityFindingStatusOpen, DuplicateOf: &canonical,
+		},
+		&store.SecurityFindingRecord{
+			ID: uuid.New(), Namespace: scanCtx.Namespace, ScanName: scanCtx.ScanName, RunName: scanCtx.RunName,
+			Repository: scanCtx.Repository, Fingerprint: "sup00000000000000", Title: "Suppressed by policy pack",
+			Category: "injection", Severity: "high", Status: store.SecurityFindingStatusOpen,
+			SuppressedBy: "baseline-pack/test-fixtures",
+		})
+
+	result := execTool(t, registry, "submit_security_scan_report", `{"summary":"One real issue."}`)
+	if result.IsError {
+		t.Fatalf("submit failed: %s", result.Content)
+	}
+	for _, want := range []string{
+		"1 finding(s) triaged as false positives",
+		"1 finding(s) triaged as accepted risk",
+		"1 finding(s) triaged as fixed",
+		"1 finding(s) collapsed as duplicates",
+		"1 governed-suppressed finding(s)",
+		"were excluded from the report",
+	} {
+		if !strings.Contains(result.Content, want) {
+			t.Errorf("policy note %q missing %q", result.Content, want)
+		}
+	}
+	report := stateStore.artifacts[SecurityReportArtifactKind]
+	sarif := stateStore.artifacts[SecuritySARIFArtifactKind]
+	if !strings.Contains(report, "SQL injection in login") || !strings.Contains(sarif, "SQL injection in login") {
+		t.Errorf("the actionable finding must be reported:\n%s\n%s", report, sarif)
+	}
+	for _, title := range []string{"Weak hash for passwords", "Verbose error page", "Missing CSRF token", "Duplicate of the injection", "Suppressed by policy pack"} {
+		if strings.Contains(report, title) {
+			t.Errorf("report must not contain %q:\n%s", title, report)
+		}
+		if strings.Contains(sarif, title) {
+			t.Errorf("SARIF must not contain %q:\n%s", title, sarif)
+		}
+	}
+
+	if len(findingStore.findings) != 6 {
+		t.Fatalf("stored findings = %d, want 6 (rows are marked, never erased)", len(findingStore.findings))
+	}
+	scan := findingStore.scans[scanCtx.Namespace+"/"+scanCtx.RunName]
+	if scan == nil {
+		t.Fatalf("scan record not upserted")
+	}
+	// Whole-scan counts: the four tool-reported rows (duplicates and
+	// suppressed rows are excluded from summaries by contract), of which
+	// only one is still open.
+	if scan.Counts["total"] != 4 || scan.Counts["open"] != 1 || scan.Counts["open_high"] != 1 {
+		t.Errorf("scan counts = %v, want total 4 with 1 open high", scan.Counts)
+	}
+	if scan.Counts["suppressed"] != 1 {
+		t.Errorf("suppressed count = %d, want 1", scan.Counts["suppressed"])
+	}
+}
+
+// An execution's findings are the sum of every sibling run's, so they can
+// exceed the store's per-call row cap: the report must page over them instead
+// of silently dropping the lowest-scoring ones.
+func TestSubmitSecurityScanReportPagesPastStoreRowCap(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	stateStore := &securityArtifactTestStore{}
+	scanCtx := testScanContext()
+	scanCtx.ExecutionID = "exec-1"
+	scanCtx.DedupePermille = 0
+	registry := newSecurityTestRegistryWithCtx(t, findingStore, stateStore, scanCtx)
+
+	const total = securityFindingPageSize + 250
+	for i := range total {
+		findingStore.findings = append(findingStore.findings, seedSecurityFinding(scanCtx, i, float64(total-i)))
+	}
+
+	result := execTool(t, registry, "submit_security_scan_report", `{"summary":"Big execution."}`)
+	if result.IsError {
+		t.Fatalf("submit failed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, fmt.Sprintf("%d finding(s) recorded", total)) ||
+		!strings.Contains(result.Content, fmt.Sprintf("%d in the report", total)) {
+		t.Errorf("report must cover every finding of the execution: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "truncated to the") {
+		t.Errorf("no truncation expected below the ceiling: %s", result.Content)
+	}
+	report := stateStore.artifacts[SecurityReportArtifactKind]
+	// The lowest-scoring finding is exactly the one a single 1000-row load
+	// would have dropped.
+	for _, want := range []string{"Finding 0000", "Finding 0999", fmt.Sprintf("Finding %04d", total-1)} {
+		if !strings.Contains(report, want) {
+			t.Errorf("markdown report missing %q", want)
+		}
+	}
+	sarif := stateStore.artifacts[SecuritySARIFArtifactKind]
+	if !strings.Contains(sarif, fmt.Sprintf("Finding %04d", total-1)) {
+		t.Errorf("SARIF artifact missing the lowest-scoring finding")
+	}
+}
+
+// Paging is bounded, and hitting the ceiling must be disclosed rather than
+// silently truncating the result.
+func TestListAllFindingsCeilingIsDisclosed(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	scanCtx := testScanContext()
+	registry := newSecurityTestRegistryWithCtx(t, findingStore, &securityArtifactTestStore{}, scanCtx)
+	state := securityTestState(t, registry)
+
+	for i := range securityFindingScopeMax + 10 {
+		findingStore.findings = append(findingStore.findings, seedSecurityFinding(scanCtx, i, float64(securityFindingScopeMax+10-i)))
+	}
+
+	records, truncated, err := state.listAllFindings(context.Background(), state.scopeFilter())
+	if err != nil {
+		t.Fatalf("listAllFindings: %v", err)
+	}
+	if !truncated {
+		t.Errorf("truncated = false, want true past the ceiling")
+	}
+	if len(records) != securityFindingScopeMax {
+		t.Errorf("records = %d, want %d", len(records), securityFindingScopeMax)
+	}
+	if records[0].Fingerprint != "fp-00000" {
+		t.Errorf("truncation must keep the highest-scoring findings, got %q first", records[0].Fingerprint)
+	}
+}
+
+func seedSecurityFinding(scanCtx SecurityScanContext, i int, score float64) *store.SecurityFindingRecord {
+	return &store.SecurityFindingRecord{
+		ID:          uuid.New(),
+		Namespace:   scanCtx.Namespace,
+		ScanName:    scanCtx.ScanName,
+		RunName:     scanCtx.RunName,
+		ExecutionID: scanCtx.ExecutionID,
+		Repository:  scanCtx.Repository,
+		Revision:    scanCtx.Revision,
+		Fingerprint: fmt.Sprintf("fp-%05d", i),
+		Title:       fmt.Sprintf("Finding %04d", i),
+		Category:    "injection",
+		Severity:    "medium",
+		Confidence:  "high",
+		Description: fmt.Sprintf("issue number %04d", i),
+		FilePath:    fmt.Sprintf("pkg/f%04d.go", i),
+		SourceKind:  "agent",
+		Status:      store.SecurityFindingStatusOpen,
+		Score:       score,
+		Occurrences: 1,
+		LastSeenAt:  time.Now().UTC(),
+	}
+}
+
+// Without Postgres the in-memory filter must hide governed-suppressed
+// findings exactly like the SQL one, or the no-store path shows findings the
+// store would have hidden.
+func TestMemFindingMatchesSuppressedSemantics(t *testing.T) {
+	registry := newSecurityTestRegistry(t, nil, &securityArtifactTestStore{})
+	state := securityTestState(t, registry)
+
+	for _, finding := range []string{
+		`{"title":"SQL injection in login","category":"injection","severity":"critical","description":"query concat","file_path":"a.go"}`,
+		`{"title":"Weak hash for passwords","category":"crypto","severity":"medium","description":"md5 used","file_path":"b.go"}`,
+	} {
+		if result := execTool(t, registry, "report_security_finding", finding); result.IsError {
+			t.Fatalf("report failed: %s", result.Content)
+		}
+	}
+	state.mu.Lock()
+	suppressed := state.mem[1]
+	suppressed.SuppressedBy = "policy-pack/known-md5"
+	suppressed.SuppressedReason = "accepted by policy"
+	state.mu.Unlock()
+
+	list := func(mode string) []string {
+		t.Helper()
+		filter := state.scopeFilter()
+		filter.Suppressed = mode
+		records, err := state.listFindings(context.Background(), filter)
+		if err != nil {
+			t.Fatalf("listFindings(%q): %v", mode, err)
+		}
+		titles := make([]string, 0, len(records))
+		for _, rec := range records {
+			titles = append(titles, rec.Title)
+		}
+		slices.Sort(titles)
+		return titles
+	}
+
+	for _, tc := range []struct {
+		mode string
+		want []string
+	}{
+		{"", []string{"SQL injection in login"}},
+		{store.SecuritySuppressedExclude, []string{"SQL injection in login"}},
+		{store.SecuritySuppressedInclude, []string{"SQL injection in login", "Weak hash for passwords"}},
+		{store.SecuritySuppressedOnly, []string{"Weak hash for passwords"}},
+	} {
+		if got := list(tc.mode); !slices.Equal(got, tc.want) {
+			t.Errorf("suppressed=%q listed %v, want %v", tc.mode, got, tc.want)
+		}
+	}
+
+	result := execTool(t, registry, "list_security_findings", `{}`)
+	if result.IsError {
+		t.Fatalf("list failed: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "Weak hash for passwords") {
+		t.Errorf("list_security_findings must hide suppressed findings by default: %s", result.Content)
 	}
 }

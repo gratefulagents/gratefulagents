@@ -86,10 +86,14 @@ spec:
                     type: string
                   maxFindings:
                     description: |-
-                      maxFindings caps how many findings the scan may persist. Enforced by
-                      controller-side monitoring of the persisted finding count (the cap is
-                      also stated in the run prompt as guidance, but model output is never
-                      trusted for enforcement).
+                      maxFindings caps how many findings ONE execution of the scan may
+                      persist: every task run of a deterministic execution (and the single
+                      run of a coordinator-mode execution) shares this budget, and a later
+                      execution of the same scan starts from a fresh allowance rather than
+                      inheriting the scan's whole history. Enforced transactionally at the
+                      persistence boundary, so no model output can raise it (the cap is
+                      also stated in the run prompt, purely as guidance). A per-task cap is
+                      configured separately with SecurityScanTask.maxFindings.
                     format: int32
                     minimum: 0
                     type: integer
