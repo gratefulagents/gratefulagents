@@ -341,9 +341,12 @@ func lifecycleTestScanUpserts(ctx context.Context, t *testing.T, s *Store) *stor
 		t.Errorf("scan2 = status %q counts %v, want completed / high=1", scan2.Status, scan2.Counts)
 	}
 
-	scans, err := s.ListSecurityScans(ctx, "default", "nightly", 0)
+	scans, err := s.ListSecurityScans(ctx, "default", "nightly", 0, nil)
 	if err != nil || len(scans) != 1 {
 		t.Fatalf("ListSecurityScans = %d scans, %v, want 1, nil", len(scans), err)
+	}
+	if excluded, err := s.ListSecurityScans(ctx, "default", "", 0, []string{"nightly"}); err != nil || len(excluded) != 0 {
+		t.Fatalf("ListSecurityScans(excluded) = %d scans, %v, want 0, nil", len(excluded), err)
 	}
 	return scan
 }

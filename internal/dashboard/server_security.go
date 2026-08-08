@@ -108,11 +108,14 @@ func (s *Server) ListSecurityScans(ctx context.Context, req *platform.ListSecuri
 	if err != nil {
 		return nil, err
 	}
-	visible, _, err := s.securityScanVisibility(ctx, namespace)
+	visible, hidden, err := s.securityScanVisibility(ctx, namespace)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	scans, err := sec.ListSecurityScans(ctx, namespace, req.GetScanName(), req.GetLimit())
+	// Hidden scans are excluded inside the store query so the limit counts
+	// only rows the caller may see; the predicate remains as a second layer
+	// for stores that cannot push the exclusion down.
+	scans, err := sec.ListSecurityScans(ctx, namespace, req.GetScanName(), req.GetLimit(), hidden)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("listing security scans: %w", err))
 	}

@@ -2042,3 +2042,62 @@ func TestSecurityScanCoordinatorRunCreatesEagerScanRecord(t *testing.T) {
 		t.Fatalf("eager record = %+v, want scanName=%q status=running with startedAt", rec, scan.Name)
 	}
 }
+
+func TestSecurityScanTerminalRunFinalizesEagerScanRecord(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		phase platformv1alpha1.AgentRunPhase
+		want  string
+	}{
+		{platformv1alpha1.AgentRunPhaseFailed, "failed"},
+		{platformv1alpha1.AgentRunPhaseCancelled, "cancelled"},
+		{platformv1alpha1.AgentRunPhaseSucceeded, "completed"},
+	} {
+		t.Run(string(tc.phase), func(t *testing.T) {
+			scan := securityScanTestScan()
+			reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+			records := map[string]*store.SecurityScanRecord{}
+			reconciler.Findings = securityScanFindingStore{securityScanRecordStubStore: securityScanRecordStubStore{scanRecords: records}}
+
+			if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+			runName := getSecurityScan(t, k8sClient, scan).Status.LastRunName
+			if runName == "" {
+				t.Fatal("coordinator run was not created")
+			}
+			runs := securityScanRuns(t, k8sClient, scan.Namespace)
+			run := runs[0].DeepCopy()
+			run.Status.Phase = tc.phase
+			if err := k8sClient.Status().Update(context.Background(), run); err != nil {
+				t.Fatalf("Status().Update(AgentRun) error = %v", err)
+			}
+			if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+				t.Fatalf("post-run Reconcile() error = %v", err)
+			}
+
+			rec := records[scan.Namespace+"/"+runName]
+			if rec == nil {
+				t.Fatalf("no scan record for run %q", runName)
+			}
+			// The eager "running" row is finalized when the run terminates
+			// without submitting a report, so it never lingers as running.
+			if rec.Status != tc.want || rec.CompletedAt == nil {
+				t.Fatalf("record = %+v, want status=%q with completedAt", rec, tc.want)
+			}
+
+			// A record the run already finalized (report submitted) is
+			// never clobbered by later reconciles.
+			done := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+			rec.Status = "completed"
+			rec.Summary = "report"
+			rec.CompletedAt = &done
+			if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+				t.Fatalf("re-Reconcile() error = %v", err)
+			}
+			if got := records[scan.Namespace+"/"+runName]; got.Summary != "report" || !got.CompletedAt.Equal(done) {
+				t.Fatalf("record = %+v, want report-written record preserved", got)
+			}
+		})
+	}
+}

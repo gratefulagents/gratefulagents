@@ -433,8 +433,10 @@ type SecurityFindingStore interface {
 	// GetSecurityScan returns (nil, nil) when the scan does not exist.
 	GetSecurityScan(ctx context.Context, namespace, runName string) (*SecurityScanRecord, error)
 	// ListSecurityScans lists scans in a namespace, optionally filtered by
-	// scan name, newest first.
-	ListSecurityScans(ctx context.Context, namespace, scanName string, limit int32) ([]SecurityScanRecord, error)
+	// scan name, newest first. Scans whose scan_name is in excludedScanNames
+	// are filtered inside the query, so the limit counts only rows the
+	// caller may see.
+	ListSecurityScans(ctx context.Context, namespace, scanName string, limit int32, excludedScanNames []string) ([]SecurityScanRecord, error)
 	// UpsertSecurityFinding inserts the finding or, when the
 	// (namespace, scan_name, repository, fingerprint) key already exists,
 	// merges into the existing row: occurrences and last_seen_at are bumped,

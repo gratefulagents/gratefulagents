@@ -79,13 +79,17 @@ func (m *mockSecurityStore) GetSecurityScan(_ context.Context, namespace, runNam
 	return nil, nil
 }
 
-func (m *mockSecurityStore) ListSecurityScans(_ context.Context, namespace, scanName string, _ int32) ([]store.SecurityScanRecord, error) {
+func (m *mockSecurityStore) ListSecurityScans(_ context.Context, namespace, scanName string, _ int32, excludedScanNames []string) ([]store.SecurityScanRecord, error) {
 	if m.listScansErr != nil {
 		return nil, m.listScansErr
 	}
+	excluded := make(map[string]bool, len(excludedScanNames))
+	for _, name := range excludedScanNames {
+		excluded[name] = true
+	}
 	var out []store.SecurityScanRecord
 	for _, scan := range m.scans {
-		if scan.Namespace == namespace && (scanName == "" || scan.ScanName == scanName) {
+		if scan.Namespace == namespace && (scanName == "" || scan.ScanName == scanName) && !excluded[scan.ScanName] {
 			out = append(out, scan)
 		}
 	}

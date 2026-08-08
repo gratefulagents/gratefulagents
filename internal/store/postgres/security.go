@@ -198,12 +198,16 @@ func (s *Store) GetSecurityScan(ctx context.Context, namespace, runName string) 
 	return rec, nil
 }
 
-func (s *Store) ListSecurityScans(ctx context.Context, namespace, scanName string, limit int32) ([]store.SecurityScanRecord, error) {
+func (s *Store) ListSecurityScans(ctx context.Context, namespace, scanName string, limit int32, excludedScanNames []string) ([]store.SecurityScanRecord, error) {
 	where := "WHERE namespace = $1"
 	args := []any{namespace}
 	if scanName != "" {
 		args = append(args, scanName)
 		where += fmt.Sprintf(" AND scan_name = $%d", len(args))
+	}
+	if len(excludedScanNames) > 0 {
+		args = append(args, excludedScanNames)
+		where += fmt.Sprintf(" AND NOT (scan_name = ANY($%d))", len(args))
 	}
 	args = append(args, securityLimit(limit, 200, 1000))
 	rows, err := s.pool.Query(ctx, `

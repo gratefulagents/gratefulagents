@@ -292,19 +292,47 @@ export function collapseSecurityScanRuns(runs: AgentRun[]): OpsRowEntry[] {
   );
 }
 
+/**
+ * Collapses retry attempts to one run per workflow task instance. Retries of
+ * a deterministic task are separate AgentRuns sharing the task's
+ * trigger.externalIdentifier ("<execID>/<task>[<instance>]"), so deriving
+ * group state from raw runs would let a superseded failed attempt mark a
+ * since-successful execution as Failed forever and overcount task progress.
+ * The newest attempt (highest createdAtUnix) represents each task instance;
+ * runs without an identifier count individually.
+ */
+export function latestScanTaskAttempts(runs: AgentRun[]): AgentRun[] {
+  const latest = new Map<string, AgentRun>();
+  const out: AgentRun[] = [];
+  for (const run of runs) {
+    const taskId = run.trigger?.externalIdentifier || "";
+    if (!taskId) {
+      out.push(run);
+      continue;
+    }
+    const current = latest.get(taskId);
+    if (!current || run.createdAtUnix > current.createdAtUnix) {
+      latest.set(taskId, run);
+    }
+  }
+  return [...out, ...latest.values()];
+}
+
 /** Aggregate phase for a scan execution: running beats failed beats pending. */
 export function scanGroupPhase(runs: AgentRun[]): string {
-  if (runs.some((run) => isLivePhase(run.phase))) return "Running";
-  if (runs.some((run) => run.phase === "Failed" || run.phase === "Error")) return "Failed";
-  if (runs.some((run) => !isDonePhase(run.phase))) return "Pending";
-  if (runs.some((run) => run.phase === "Cancelled")) return "Cancelled";
+  const attempts = latestScanTaskAttempts(runs);
+  if (attempts.some((run) => isLivePhase(run.phase))) return "Running";
+  if (attempts.some((run) => run.phase === "Failed" || run.phase === "Error")) return "Failed";
+  if (attempts.some((run) => !isDonePhase(run.phase))) return "Pending";
+  if (attempts.some((run) => run.phase === "Cancelled")) return "Cancelled";
   return "Succeeded";
 }
 
 export function scanGroupProgress(runs: AgentRun[]): { done: number; total: number } {
+  const attempts = latestScanTaskAttempts(runs);
   return {
-    done: runs.filter((run) => isDonePhase(run.phase)).length,
-    total: runs.length,
+    done: attempts.filter((run) => isDonePhase(run.phase)).length,
+    total: attempts.length,
   };
 }
 

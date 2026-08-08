@@ -259,4 +259,29 @@ describe("security scan run grouping", () => {
     expect(scanGroupProgress([scanRun("a", "Running"), scanRun("b", "Succeeded"), scanRun("c", "Failed")]))
       .toEqual({ done: 2, total: 3 });
   });
+
+  it("derives phase and progress from the latest attempt of each task, not superseded retries", () => {
+    // A failed first attempt and its successful retry share the task's
+    // externalIdentifier; only the newest attempt may represent the task.
+    const failedAttempt = {
+      ...scanRun("task-a-attempt-1", "Failed"),
+      createdAtUnix: 100n,
+    };
+    failedAttempt.trigger!.externalIdentifier = "exec-1/task-a[0]";
+    const retry = {
+      ...scanRun("task-a-attempt-2", "Succeeded"),
+      createdAtUnix: 200n,
+    };
+    retry.trigger!.externalIdentifier = "exec-1/task-a[0]";
+    const sibling = { ...scanRun("task-b", "Succeeded"), createdAtUnix: 150n };
+
+    expect(scanGroupPhase([failedAttempt, retry, sibling])).toBe("Succeeded");
+    expect(scanGroupProgress([failedAttempt, retry, sibling])).toEqual({ done: 2, total: 2 });
+    // Order does not matter: the newest attempt wins either way.
+    expect(scanGroupPhase([retry, failedAttempt, sibling])).toBe("Succeeded");
+    // A retry that is still running keeps the task (and group) live.
+    const liveRetry = { ...retry, phase: "Running" };
+    expect(scanGroupPhase([failedAttempt, liveRetry, sibling])).toBe("Running");
+    expect(scanGroupProgress([failedAttempt, liveRetry, sibling])).toEqual({ done: 1, total: 2 });
+  });
 });

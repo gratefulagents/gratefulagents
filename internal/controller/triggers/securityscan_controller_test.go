@@ -262,6 +262,33 @@ func (s securityScanRecordStubStore) UpsertSecurityScan(_ context.Context, rec *
 	return rec, nil
 }
 
+// No-op terminal-reconcile hooks so tests can drive a run to a terminal
+// phase without every fake implementing the whole suppression/baseline
+// surface; fakes that assert on these calls override them.
+func (s securityScanRecordStubStore) ExpireAcceptedRisks(context.Context, string) (int32, error) {
+	return 0, nil
+}
+
+func (s securityScanRecordStubStore) FinalizeSecurityScanBaseline(context.Context, string, string) (int32, error) {
+	return 0, nil
+}
+
+func (s securityScanRecordStubStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
+	return 0, nil
+}
+
+func (s securityScanRecordStubStore) RevokeSecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
+func (s securityScanRecordStubStore) ApplySecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
+	return 0, nil
+}
+
+func (s securityScanRecordStubStore) ListSecurityFindings(context.Context, store.SecurityFindingFilter) ([]store.SecurityFindingRecord, error) {
+	return nil, nil
+}
+
 type securityScanFindingStore struct {
 	securityScanRecordStubStore
 	counts map[string]int32

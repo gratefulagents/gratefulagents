@@ -53,7 +53,7 @@ func (s *Server) GetSecurityOverview(ctx context.Context, req *platform.GetSecur
 		if verr != nil {
 			resp.Warnings = append(resp.Warnings, fmt.Sprintf("resolving security scan visibility: %v", verr))
 		} else {
-			scans, err := sec.ListSecurityScans(ctx, namespace, "", securityOverviewScanFetch)
+			scans, err := sec.ListSecurityScans(ctx, namespace, "", securityOverviewScanFetch, hiddenScans)
 			if err != nil {
 				resp.Warnings = append(resp.Warnings, fmt.Sprintf("listing security scans: %v", err))
 			} else {

@@ -45,7 +45,7 @@ func (s *fakeSecurityFindingStore) GetSecurityScan(_ context.Context, namespace,
 	return &copied, nil
 }
 
-func (s *fakeSecurityFindingStore) ListSecurityScans(context.Context, string, string, int32) ([]store.SecurityScanRecord, error) {
+func (s *fakeSecurityFindingStore) ListSecurityScans(context.Context, string, string, int32, []string) ([]store.SecurityScanRecord, error) {
 	return nil, nil
 }
 
