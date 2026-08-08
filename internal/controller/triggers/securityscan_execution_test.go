@@ -1888,6 +1888,65 @@ func TestSecurityScanPostScriptPipelineMembershipCapPaginatesWithoutSplitting(t 
 	}
 }
 
+func TestSecurityScanPostScriptPipelineSplitsOversizedCombinedPrompts(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	largePrompt := strings.Repeat("x", 280*1024)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "first", Prompt: largePrompt},
+		{Name: "second", Prompt: largePrompt},
+		{Name: "third", Prompt: largePrompt},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "high"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan) // persist chunks
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if len(exec.PostScriptJobs) != 3 {
+		t.Fatalf("post-script jobs = %#v, want three bounded chunks", exec.PostScriptJobs)
+	}
+	for i, want := range []string{"first", "second", "third"} {
+		job := exec.PostScriptJobs[i]
+		if job.Order != int32(i) || !slices.Equal(job.Scripts, []string{want}) {
+			t.Fatalf("chunk %d = %#v, want order %d containing only %q", i, job, i, want)
+		}
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan) // dispatch first chunk only
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.PostScriptJobs[0].State != triggersv1alpha1.SecurityScanPostScriptStateRunning ||
+		exec.PostScriptJobs[1].State != triggersv1alpha1.SecurityScanPostScriptStatePending ||
+		exec.PostScriptJobs[2].State != triggersv1alpha1.SecurityScanPostScriptStatePending {
+		t.Fatalf("oversized chunks did not preserve per-finding order: %#v", exec.PostScriptJobs)
+	}
+	runCount := 0
+	for _, run := range securityScanRuns(t, k8sClient, scan.Namespace) {
+		if run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] != "" {
+			runCount++
+		}
+	}
+	if runCount != 1 {
+		t.Fatalf("post-script run count = %d, want only the first chunk dispatched", runCount)
+	}
+
+	first := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "first", "fp-alpha")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, first.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.PostScriptJobs[1].State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+		t.Fatalf("second chunk = %#v, want Running after the first settled", exec.PostScriptJobs[1])
+	}
+	second := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "second", "fp-alpha")
+	if second.Name == first.Name {
+		t.Fatalf("oversized chunks reused run name %q", first.Name)
+	}
+}
+
 func TestSecurityScanPostScriptDispatchStopsAtTheModelJobBudget(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{

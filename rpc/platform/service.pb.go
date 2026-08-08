@@ -32014,7 +32014,7 @@ type SecurityScanExecutionState struct {
 	// last_resume_token is the most recent resume-scan annotation token the
 	// controller has processed, making resume requests idempotent.
 	LastResumeToken string `protobuf:"bytes,9,opt,name=last_resume_token,json=lastResumeToken,proto3" json:"last_resume_token,omitempty"`
-	// post_script_jobs is the durable per-finding pipeline list materialized
+	// post_script_jobs is the durable per-finding pipeline chunk list materialized
 	// once the research tasks are terminal; every pipeline must reach a
 	// terminal state before the sink task may submit the final report.
 	PostScriptJobs []*SecurityScanPostScriptJobState `protobuf:"bytes,10,rep,name=post_script_jobs,json=postScriptJobs,proto3" json:"post_script_jobs,omitempty"`
@@ -32219,7 +32219,7 @@ func (x *SecurityScanExecutionPlanNode) GetForEach() string {
 }
 
 // SecurityScanPostScriptJobState is one durable per-finding post-script
-// pipeline execution of a deterministic scan.
+// pipeline chunk of a deterministic scan.
 type SecurityScanPostScriptJobState struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Script         string                 `protobuf:"bytes,1,opt,name=script,proto3" json:"script,omitempty"`                        // first/legacy SecurityPostScript name

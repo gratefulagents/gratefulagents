@@ -110,8 +110,9 @@ spec:
       runOn: high-and-above             # one of: all (default), confirmed, high-and-above
 
   # Matching is evaluated once against each finding as research ends. All
-  # matching post-scripts for that finding then run in order in one AgentRun,
-  # so N findings create at most N follow-up runs rather than N × scripts.
+  # matching post-scripts for that finding then normally run in order in one
+  # AgentRun, so N findings create N follow-up runs rather than N × scripts.
+  # Exceptionally large combined prompts split safely at script boundaries.
 
   # Duplicate suppression. This policy is enforced when the report is submitted.
   dedupe:

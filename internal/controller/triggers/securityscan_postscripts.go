@@ -21,13 +21,18 @@ import (
 // Durable post-scripts: a post-script used to be prose in the sink task's
 // prompt, so which findings it ran on, in what order, and whether it ran at
 // all were model-discretionary and unauditable. The engine instead selects
-// applicable scripts once per execution and runs one ordered AgentRun pipeline
-// per finding whose terminal state gates the final report.
+// applicable scripts once per execution and normally runs one ordered AgentRun
+// pipeline per finding. Oversized prompts split at script boundaries.
 const (
 	// securityScanMaxCoverageGaps mirrors the CRD's MaxItems on
 	// status.lastExecution.coverageGaps; exceeding it would make the status
 	// write fail validation, so the last slot is spent on an overflow notice.
 	securityScanMaxCoverageGaps = 50
+	// securityScanMaxPostScriptPipelinePromptBytes keeps the combined seed
+	// message comfortably below Kubernetes' object-size ceiling. Pipelines
+	// that would cross it are split at script boundaries; an individually
+	// oversized script remains a singleton, matching the legacy behavior.
+	securityScanMaxPostScriptPipelinePromptBytes = 512 * 1024
 )
 
 // appendSecurityScanCoverageGap records one reason this execution's results
@@ -158,11 +163,11 @@ func (e *securityScanExecutionEngine) postScripts() []triggersv1alpha1.SecurityS
 	return e.resolved.spec.PostScripts
 }
 
-// materializePostScripts computes one ordered post-script pipeline per finding
+// materializePostScripts computes ordered post-script pipelines per finding
 // exactly once per execution, after the research phase is over. runOn is
 // evaluated here against the stable research result, so inapplicable scripts
 // never inflate status or consume scheduler work. Each applicable sequence is
-// snapshotted into one job and one AgentRun.
+// snapshotted, then split into bounded jobs only when its prompt is oversized.
 func (e *securityScanExecutionEngine) materializePostScripts(ctx context.Context) bool {
 	exec := e.exec
 	if len(e.postScripts()) == 0 || exec.PostScriptsMaterialized {
@@ -268,17 +273,50 @@ func (e *securityScanExecutionEngine) materializePostScripts(ctx context.Context
 	jobs := make([]triggersv1alpha1.SecurityScanPostScriptJobStatus, 0, len(eligible))
 	for _, pipeline := range eligible {
 		f, selected := pipeline.finding, pipeline.scripts
-		jobs = append(jobs, triggersv1alpha1.SecurityScanPostScriptJobStatus{
-			Script:      selected[0], // compatibility with clients predating Scripts
-			Scripts:     selected,
-			FindingID:   f.ID.String(),
-			Fingerprint: f.Fingerprint,
-			State:       triggersv1alpha1.SecurityScanPostScriptStatePending,
-		})
+		for order, chunk := range e.postScriptPipelineChunks(scripts, selected, f) {
+			jobs = append(jobs, triggersv1alpha1.SecurityScanPostScriptJobStatus{
+				Script:      chunk[0], // compatibility with clients predating Scripts
+				Scripts:     chunk,
+				Order:       int32(order), //nolint:gosec // selected scripts are bounded by the status cap
+				FindingID:   f.ID.String(),
+				Fingerprint: f.Fingerprint,
+				State:       triggersv1alpha1.SecurityScanPostScriptStatePending,
+			})
+		}
 	}
 	exec.PostScriptJobs = jobs
 	exec.PostScriptsMaterialized = true
 	return true
+}
+
+// postScriptPipelineChunks greedily packs selected scripts into bounded seed
+// messages without reordering or splitting one script. The exact rendered
+// prompt is measured so target, event, scope, and finding context count too.
+func (e *securityScanExecutionEngine) postScriptPipelineChunks(all []triggersv1alpha1.SecurityScanPostScript, selected []string, finding store.SecurityFindingRecord) [][]string {
+	byName := make(map[string]triggersv1alpha1.SecurityScanPostScript, len(all))
+	for _, script := range all {
+		byName[script.Name] = script
+	}
+	var chunks [][]string
+	var names []string
+	var pipeline []triggersv1alpha1.SecurityScanPostScript
+	for _, name := range selected {
+		script := byName[name]
+		candidate := append(append([]triggersv1alpha1.SecurityScanPostScript(nil), pipeline...), script)
+		prompt := BuildSecurityPostScriptPipelinePrompt(e.resolved.spec, securityScanPromptEvent(e.runCtx), candidate, securityPostScriptFinding(finding))
+		if len(pipeline) > 0 && len(prompt) > securityScanMaxPostScriptPipelinePromptBytes {
+			chunks = append(chunks, append([]string(nil), names...))
+			names = []string{name}
+			pipeline = []triggersv1alpha1.SecurityScanPostScript{script}
+			continue
+		}
+		names = append(names, name)
+		pipeline = candidate
+	}
+	if len(names) > 0 {
+		chunks = append(chunks, append([]string(nil), names...))
+	}
+	return chunks
 }
 
 // observePostScripts folds terminal post-script AgentRun phases into the job
@@ -349,8 +387,8 @@ func (e *securityScanExecutionEngine) recordPostScriptFailure(job *triggersv1alp
 	appendSecurityScanCoverageGap(e.exec, securityScanPostScriptJobGapPrefix(securityScanPostScriptJobLabel(*job), job.Fingerprint)+reason)
 }
 
-// dispatchPostScripts starts one ordered pipeline per finding. Different
-// findings run in parallel under the execution's parallelism bound.
+// dispatchPostScripts starts ordered pipeline chunks. Chunks for one finding
+// are serialized; different findings run under the parallelism bound.
 func (e *securityScanExecutionEngine) dispatchPostScripts(ctx context.Context) {
 	if len(e.exec.PostScriptJobs) == 0 {
 		return
@@ -511,8 +549,8 @@ func (e *securityScanExecutionEngine) postScriptRetryReady(ctx context.Context, 
 	return false
 }
 
-// launchPostScript creates the one AgentRun serving a finding's snapshotted
-// ordered pipeline. runOn was already evaluated during materialization.
+// launchPostScript creates the AgentRun serving one snapshotted pipeline
+// chunk. runOn was already evaluated during materialization.
 func (e *securityScanExecutionEngine) launchPostScript(ctx context.Context, job *triggersv1alpha1.SecurityScanPostScriptJobStatus, scripts []triggersv1alpha1.SecurityScanPostScript) bool {
 	log := logf.FromContext(ctx)
 	rec, err := e.loadPostScriptFinding(ctx, job)
@@ -541,6 +579,8 @@ func (e *securityScanExecutionEngine) launchPostScript(ctx context.Context, job 
 	runKey := "pipeline"
 	if len(job.Scripts) == 0 {
 		runKey = job.Script
+	} else if job.Order > 0 {
+		runKey = fmt.Sprintf("pipeline-%d", job.Order)
 	}
 	runName := securityScanPostScriptRunName(e.scan.Name, e.exec.ID, runKey, job.FindingID, attempt, e.exec.LastResumeToken)
 	if _, err := e.r.createScanPostScriptRun(ctx, e.scan, e.resolved, e.runCtx, e.exec, scripts, *rec, runName); err != nil {
@@ -641,6 +681,9 @@ func securityScanPostScriptAttemptRunNames(scanName, executionID string, job tri
 	scriptName := job.Script
 	if len(job.Scripts) > 0 {
 		scriptName = "pipeline"
+		if job.Order > 0 {
+			scriptName = fmt.Sprintf("pipeline-%d", job.Order)
+		}
 	}
 	for attempt := int32(1); attempt <= job.Attempts; attempt++ {
 		names = append(names, securityScanPostScriptRunName(scanName, executionID, scriptName, job.FindingID, attempt, resumeToken))

@@ -17105,7 +17105,7 @@ export type SecurityScanExecutionState = Message<"platform.v1.SecurityScanExecut
   lastResumeToken: string;
 
   /**
-   * post_script_jobs is the durable per-finding pipeline list materialized
+   * post_script_jobs is the durable per-finding pipeline chunk list materialized
    * once the research tasks are terminal; every pipeline must reach a
    * terminal state before the sink task may submit the final report.
    *
@@ -17185,7 +17185,7 @@ export const SecurityScanExecutionPlanNodeSchema: GenMessage<SecurityScanExecuti
 
 /**
  * SecurityScanPostScriptJobState is one durable per-finding post-script
- * pipeline execution of a deterministic scan.
+ * pipeline chunk of a deterministic scan.
  *
  * @generated from message platform.v1.SecurityScanPostScriptJobState
  */

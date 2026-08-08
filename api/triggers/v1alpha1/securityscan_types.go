@@ -880,9 +880,8 @@ const (
 const MaxSecurityScanPostScriptJobs = 200
 
 // SecurityScanPostScriptJobStatus is one durable per-finding post-script
-// pipeline execution. Applicable scripts are snapshotted in order and run by
-// one AgentRun, avoiding a finding x script explosion while keeping retries,
-// completion, and report gating observable.
+// pipeline chunk. Applicable scripts are snapshotted in order and normally
+// run by one AgentRun; oversized prompts split at script boundaries.
 type SecurityScanPostScriptJobStatus struct {
 	// script is the SecurityPostScript name for legacy single-script jobs.
 	// New pipeline jobs also set it to the first script for compatibility with
@@ -1025,7 +1024,7 @@ type SecurityScanExecutionStatus struct {
 	// +optional
 	LastResumeToken string `json:"lastResumeToken,omitempty"`
 
-	// postScriptJobs is the materialized per-finding post-script pipeline list.
+	// postScriptJobs is the materialized per-finding pipeline chunk list.
 	// It is populated once the research tasks are terminal and gates the sink
 	// task: the final report may only be submitted after every pipeline reached
 	// a terminal state.

@@ -92,7 +92,7 @@ function PostScriptJobsTable({
       <p className="text-xs font-medium text-muted-foreground">
         Post-script pipelines
         <span className="ml-1.5 font-normal">
-          (one run executes the finding&apos;s matching scripts in order; the report waits for all pipelines)
+          (matching scripts run in order; oversized pipelines split safely and the report waits for all chunks)
         </span>
       </p>
       <Table>
@@ -109,7 +109,9 @@ function PostScriptJobsTable({
         </TableHeader>
         <TableBody>
           {jobs.map((job) => {
-            const key = job.findingId || `${job.script}#${job.fingerprint}`;
+            const key = job.findingId
+              ? `${job.findingId}#${job.order}`
+              : `${job.script}#${job.fingerprint}#${job.order}`;
             const finding = job.fingerprint || job.findingId || "—";
             const scripts = job.scripts.length > 0 ? job.scripts : job.script ? [job.script] : [];
             return (

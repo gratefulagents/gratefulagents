@@ -4482,7 +4482,7 @@ message SecurityScanExecutionState {
   // last_resume_token is the most recent resume-scan annotation token the
   // controller has processed, making resume requests idempotent.
   string last_resume_token = 9;
-  // post_script_jobs is the durable per-finding pipeline list materialized
+  // post_script_jobs is the durable per-finding pipeline chunk list materialized
   // once the research tasks are terminal; every pipeline must reach a
   // terminal state before the sink task may submit the final report.
   repeated SecurityScanPostScriptJobState post_script_jobs = 10;
@@ -4510,7 +4510,7 @@ message SecurityScanExecutionPlanNode {
 }
 
 // SecurityScanPostScriptJobState is one durable per-finding post-script
-// pipeline execution of a deterministic scan.
+// pipeline chunk of a deterministic scan.
 message SecurityScanPostScriptJobState {
   string script = 1; // first/legacy SecurityPostScript name
   int32 order = 2; // legacy single-script order

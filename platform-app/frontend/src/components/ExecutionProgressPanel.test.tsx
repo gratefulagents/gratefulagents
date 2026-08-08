@@ -289,7 +289,7 @@ describe("ExecutionProgressPanel", () => {
       "1/1 post-script pipelines done",
     );
     const pipeline = screen.getByTestId(
-      "execution-post-script-pipeline-22222222-2222-2222-2222-222222222222",
+      "execution-post-script-pipeline-22222222-2222-2222-2222-222222222222#0",
     );
     expect(pipeline.textContent).toContain("false-positive-check → poc-builder");
     expect(pipeline.textContent).toContain("Succeeded");
