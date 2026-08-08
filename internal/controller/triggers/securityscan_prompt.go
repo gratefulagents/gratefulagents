@@ -418,19 +418,22 @@ type SecurityPostScriptFinding struct {
 	Impact      string
 }
 
-// BuildSecurityPostScriptPrompt renders the packet seeded as the first user
-// message of one post-script job AgentRun: the scan target, event, and scope
-// context, the finding under review, the operator's post-script prompt
-// verbatim, and the hard verdict contract. The only durable output of a
-// post-script run is the finding status it sets, so the contract is stated as
-// a single update_security_finding call: anything the run concludes in prose
-// is lost when the run ends. Output is deterministic for a given input.
+// BuildSecurityPostScriptPrompt retains the single-script API for callers and
+// tests while rendering through the per-finding pipeline prompt.
 func BuildSecurityPostScriptPrompt(spec triggersv1alpha1.SecurityScanSpec, event *SecurityScanPromptEvent, script triggersv1alpha1.SecurityScanPostScript, finding SecurityPostScriptFinding) string {
+	return BuildSecurityPostScriptPipelinePrompt(spec, event, []triggersv1alpha1.SecurityScanPostScript{script}, finding)
+}
+
+// BuildSecurityPostScriptPipelinePrompt renders one AgentRun packet containing
+// every post-script selected for a finding, in configured order. The run keeps
+// intermediate conclusions in context and writes one aggregate durable verdict
+// after completing the whole pipeline.
+func BuildSecurityPostScriptPipelinePrompt(spec triggersv1alpha1.SecurityScanSpec, event *SecurityScanPromptEvent, scripts []triggersv1alpha1.SecurityScanPostScript, finding SecurityPostScriptFinding) string {
 	var b strings.Builder
 
-	b.WriteString("# Security scan post-script\n\n")
-	fmt.Fprintf(&b, "You are executing the post-script %q against ONE security finding of an autonomous security scan. ", script.Name)
-	b.WriteString("The research phase is over and the platform runs one job per finding: do exactly this script's work on the finding below, then record your verdict.\n\n")
+	b.WriteString("# Security scan post-script pipeline\n\n")
+	fmt.Fprintf(&b, "You are executing an ordered pipeline of %d post-script(s) against ONE security finding of an autonomous security scan. ", len(scripts))
+	b.WriteString("The research phase is over and the platform runs one pipeline job per finding. Complete every step below in order, carry evidence and conclusions forward between steps, then record one aggregate verdict.\n\n")
 
 	writeSecurityScanTarget(&b, spec)
 	writeSecurityScanEvent(&b, event)
@@ -456,8 +459,12 @@ func BuildSecurityPostScriptPrompt(spec triggersv1alpha1.SecurityScanSpec, event
 	}
 	b.WriteString("\n")
 
-	fmt.Fprintf(&b, "## Post-script %q\n\n", script.Name)
-	fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(script.Prompt))
+	b.WriteString("## Ordered post-scripts\n\n")
+	b.WriteString("Execute these instructions as pipeline steps. If an individual step asks you to finish by calling `update_security_finding`, retain that step's proposed status and note as an intermediate conclusion instead; do not call the tool until every step is complete. Later steps should consider all earlier evidence and proposed changes.\n\n")
+	for i, script := range scripts {
+		fmt.Fprintf(&b, "### %d. %s\n\n", i+1, script.Name)
+		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(script.Prompt))
+	}
 
 	b.WriteString("## Verdict contract\n\n")
 	b.WriteString("Before finishing, call update_security_finding EXACTLY ONCE for this finding. That call is the only durable output of this run; a conclusion stated only in your reply does not exist.\n\n")
@@ -465,7 +472,7 @@ func BuildSecurityPostScriptPrompt(spec triggersv1alpha1.SecurityScanSpec, event
 	b.WriteString("- `status` must be exactly one of: open, triaged, confirmed, false_positive, fixed, accepted_risk.\n")
 	b.WriteString("- `note` carries your evidence and reasoning: what you did, what it proved or disproved, and why the status follows. The tool accepts no other fields, so anything the audit trail must keep belongs in the note.\n")
 	b.WriteString("- Leave the status unchanged (re-state the current one) when your work was inconclusive, and say so in the note.\n\n")
-	b.WriteString("Do NOT call submit_security_scan_report: a separate task submits the scan-wide report after every post-script job has finished, and it reads your verdict from the finding. Do not open, re-scan, or triage other findings; this job owns exactly the finding above.\n")
+	b.WriteString("Do NOT call submit_security_scan_report: a separate task submits the scan-wide report after every post-script pipeline has finished, and it reads your verdict from the finding. Do not open, re-scan, or triage other findings; this pipeline owns exactly the finding above.\n")
 
 	return b.String()
 }

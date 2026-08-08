@@ -32014,11 +32014,11 @@ type SecurityScanExecutionState struct {
 	// last_resume_token is the most recent resume-scan annotation token the
 	// controller has processed, making resume requests idempotent.
 	LastResumeToken string `protobuf:"bytes,9,opt,name=last_resume_token,json=lastResumeToken,proto3" json:"last_resume_token,omitempty"`
-	// post_script_jobs is the durable finding x post-script matrix
-	// materialized once the research tasks are terminal; every job must reach
-	// a terminal state before the sink task may submit the final report.
+	// post_script_jobs is the durable per-finding pipeline chunk list materialized
+	// once the research tasks are terminal; every pipeline must reach a
+	// terminal state before the sink task may submit the final report.
 	PostScriptJobs []*SecurityScanPostScriptJobState `protobuf:"bytes,10,rep,name=post_script_jobs,json=postScriptJobs,proto3" json:"post_script_jobs,omitempty"`
-	// post_scripts_materialized records that the job matrix was computed
+	// post_scripts_materialized records that the pipeline list was computed
 	// (even when zero findings were eligible).
 	PostScriptsMaterialized bool `protobuf:"varint,11,opt,name=post_scripts_materialized,json=postScriptsMaterialized,proto3" json:"post_scripts_materialized,omitempty"`
 	// coverage_gaps are reasons this execution's results are incomplete
@@ -32218,13 +32218,12 @@ func (x *SecurityScanExecutionPlanNode) GetForEach() string {
 	return ""
 }
 
-// SecurityScanPostScriptJobState is one durable finding x post-script
-// execution of a deterministic scan (SecurityScanStatus.lastExecution
-// .postScriptJobs).
+// SecurityScanPostScriptJobState is one durable per-finding post-script
+// pipeline chunk of a deterministic scan.
 type SecurityScanPostScriptJobState struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	Script         string                 `protobuf:"bytes,1,opt,name=script,proto3" json:"script,omitempty"`                        // SecurityPostScript name
-	Order          int32                  `protobuf:"varint,2,opt,name=order,proto3" json:"order,omitempty"`                         // 0-based position in spec.postScripts
+	Script         string                 `protobuf:"bytes,1,opt,name=script,proto3" json:"script,omitempty"`                        // first/legacy SecurityPostScript name
+	Order          int32                  `protobuf:"varint,2,opt,name=order,proto3" json:"order,omitempty"`                         // legacy single-script order
 	FindingId      string                 `protobuf:"bytes,3,opt,name=finding_id,json=findingId,proto3" json:"finding_id,omitempty"` // platform finding UUID the job is bound to
 	Fingerprint    string                 `protobuf:"bytes,4,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`              // stable finding identity used in prompts
 	State          string                 `protobuf:"bytes,5,opt,name=state,proto3" json:"state,omitempty"`                          // Pending | Running | Succeeded | Failed | Skipped
@@ -32234,6 +32233,7 @@ type SecurityScanPostScriptJobState struct {
 	LastError      string                 `protobuf:"bytes,9,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	StartedAtUnix  int64                  `protobuf:"varint,10,opt,name=started_at_unix,json=startedAtUnix,proto3" json:"started_at_unix,omitempty"`
 	FinishedAtUnix int64                  `protobuf:"varint,11,opt,name=finished_at_unix,json=finishedAtUnix,proto3" json:"finished_at_unix,omitempty"`
+	Scripts        []string               `protobuf:"bytes,12,rep,name=scripts,proto3" json:"scripts,omitempty"` // ordered pipeline snapshot
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -32343,6 +32343,13 @@ func (x *SecurityScanPostScriptJobState) GetFinishedAtUnix() int64 {
 		return x.FinishedAtUnix
 	}
 	return 0
+}
+
+func (x *SecurityScanPostScriptJobState) GetScripts() []string {
+	if x != nil {
+		return x.Scripts
+	}
+	return nil
 }
 
 // SecurityScanConfigSpec mirrors the operator-configurable SecurityScan CRD
@@ -39681,7 +39688,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"depends_on\x18\x02 \x03(\tR\tdependsOn\x12\x19\n" +
-	"\bfor_each\x18\x03 \x01(\tR\aforEach\"\xe5\x02\n" +
+	"\bfor_each\x18\x03 \x01(\tR\aforEach\"\xff\x02\n" +
 	"\x1eSecurityScanPostScriptJobState\x12\x16\n" +
 	"\x06script\x18\x01 \x01(\tR\x06script\x12\x14\n" +
 	"\x05order\x18\x02 \x01(\x05R\x05order\x12\x1d\n" +
@@ -39696,7 +39703,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"last_error\x18\t \x01(\tR\tlastError\x12&\n" +
 	"\x0fstarted_at_unix\x18\n" +
 	" \x01(\x03R\rstartedAtUnix\x12(\n" +
-	"\x10finished_at_unix\x18\v \x01(\x03R\x0efinishedAtUnix\"\xe0\v\n" +
+	"\x10finished_at_unix\x18\v \x01(\x03R\x0efinishedAtUnix\x12\x18\n" +
+	"\ascripts\x18\f \x03(\tR\ascripts\"\xe0\v\n" +
 	"\x16SecurityScanConfigSpec\x12\x19\n" +
 	"\brepo_url\x18\x01 \x01(\tR\arepoUrl\x12\x1f\n" +
 	"\vbase_branch\x18\x02 \x01(\tR\n" +

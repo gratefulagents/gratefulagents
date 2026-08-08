@@ -4482,11 +4482,11 @@ message SecurityScanExecutionState {
   // last_resume_token is the most recent resume-scan annotation token the
   // controller has processed, making resume requests idempotent.
   string last_resume_token = 9;
-  // post_script_jobs is the durable finding x post-script matrix
-  // materialized once the research tasks are terminal; every job must reach
-  // a terminal state before the sink task may submit the final report.
+  // post_script_jobs is the durable per-finding pipeline chunk list materialized
+  // once the research tasks are terminal; every pipeline must reach a
+  // terminal state before the sink task may submit the final report.
   repeated SecurityScanPostScriptJobState post_script_jobs = 10;
-  // post_scripts_materialized records that the job matrix was computed
+  // post_scripts_materialized records that the pipeline list was computed
   // (even when zero findings were eligible).
   bool post_scripts_materialized = 11;
   // coverage_gaps are reasons this execution's results are incomplete
@@ -4509,12 +4509,11 @@ message SecurityScanExecutionPlanNode {
   string for_each = 3; // dependency this task fans out over, when set
 }
 
-// SecurityScanPostScriptJobState is one durable finding x post-script
-// execution of a deterministic scan (SecurityScanStatus.lastExecution
-// .postScriptJobs).
+// SecurityScanPostScriptJobState is one durable per-finding post-script
+// pipeline chunk of a deterministic scan.
 message SecurityScanPostScriptJobState {
-  string script = 1; // SecurityPostScript name
-  int32 order = 2; // 0-based position in spec.postScripts
+  string script = 1; // first/legacy SecurityPostScript name
+  int32 order = 2; // legacy single-script order
   string finding_id = 3; // platform finding UUID the job is bound to
   string fingerprint = 4; // stable finding identity used in prompts
   string state = 5; // Pending | Running | Succeeded | Failed | Skipped
@@ -4524,6 +4523,7 @@ message SecurityScanPostScriptJobState {
   string last_error = 9;
   int64 started_at_unix = 10;
   int64 finished_at_unix = 11;
+  repeated string scripts = 12; // ordered pipeline snapshot
 }
 
 // SecurityScanConfigSpec mirrors the operator-configurable SecurityScan CRD

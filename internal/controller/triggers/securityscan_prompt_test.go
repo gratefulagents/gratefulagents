@@ -194,6 +194,37 @@ func TestBuildSecurityPostScriptPromptStatesTheFindingAndVerdictContract(t *test
 	}
 }
 
+func TestBuildSecurityPostScriptPipelinePromptIncludesScriptsOnceInOrderAndOneVerdictCall(t *testing.T) {
+	spec := securityScanPromptSpec()
+	scripts := []triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate-exploitability", Prompt: "Build the unique validation proof."},
+		{Name: "assign-verdict", Prompt: "Apply the unique final triage decision."},
+	}
+	finding := SecurityPostScriptFinding{
+		Fingerprint: "fp-alpha",
+		ID:          "00000000-0000-0000-0000-0000000000a1",
+		Title:       "Session token reuse after logout",
+		Severity:    "critical",
+		Status:      "open",
+	}
+
+	prompt := BuildSecurityPostScriptPipelinePrompt(spec, nil, scripts, finding)
+
+	first := strings.Index(prompt, "### 1. validate-exploitability")
+	second := strings.Index(prompt, "### 2. assign-verdict")
+	if first < 0 || second <= first {
+		t.Fatalf("pipeline scripts are missing or out of order:\n%s", prompt)
+	}
+	for _, script := range scripts {
+		if strings.Count(prompt, script.Name) != 1 || strings.Count(prompt, script.Prompt) != 1 {
+			t.Fatalf("script %q does not appear exactly once:\n%s", script.Name, prompt)
+		}
+	}
+	if strings.Count(prompt, "call update_security_finding EXACTLY ONCE") != 1 {
+		t.Fatalf("pipeline prompt does not require exactly one aggregate verdict call:\n%s", prompt)
+	}
+}
+
 func TestBuildSecurityScanTaskPromptSinkStatesPostScriptsAlreadyRanAndDisclosesCoverageGaps(t *testing.T) {
 	spec := securityScanPromptSpec()
 	task := triggersv1alpha1.SecurityScanTask{Name: "report", Objective: "Summarize the scan."}

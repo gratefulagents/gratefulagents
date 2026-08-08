@@ -63,9 +63,9 @@ const (
 	// SecurityScanTaskRoleAnnotation is the effective RoleInstruction name
 	// resolved for a deterministic task run (SecurityScanTask.EffectiveRole).
 	SecurityScanTaskRoleAnnotation = "security.gratefulagents.dev/task-role"
-	// SecurityScanPostScriptAnnotation is the SecurityPostScript name a
-	// durable post-script job run executes; SecurityScanPostScriptFindingAnnotation
-	// is the finding id that job is bound to.
+	// SecurityScanPostScriptAnnotation is the comma-separated ordered list of
+	// SecurityPostScript names a durable pipeline run executes;
+	// SecurityScanPostScriptFindingAnnotation is the finding id it is bound to.
 	SecurityScanPostScriptAnnotation        = "security.gratefulagents.dev/post-script"
 	SecurityScanPostScriptFindingAnnotation = "security.gratefulagents.dev/post-script-finding"
 )
@@ -631,7 +631,9 @@ type SecurityScanPostScript struct {
 	// +kubebuilder:validation:MinLength=1
 	Prompt string `json:"prompt"`
 
-	// runOn selects which findings this post-script runs against.
+	// runOn selects which findings this post-script runs against. Eligibility
+	// is frozen from the finding state at the end of research, before any
+	// per-finding pipeline starts.
 	// +kubebuilder:validation:Enum=all;confirmed;high-and-above
 	// +kubebuilder:default="all"
 	// +optional
@@ -863,34 +865,38 @@ const (
 	SecurityScanPostScriptStateRunning   = "Running"
 	SecurityScanPostScriptStateSucceeded = "Succeeded"
 	SecurityScanPostScriptStateFailed    = "Failed"
-	// SecurityScanPostScriptStateSkipped means the job's runOn predicate did
-	// not match the finding's status/severity when the job was dispatched.
-	// Skipping is a normal, non-failing outcome: runOn is evaluated against
-	// the finding as it exists at dispatch time, not as it existed when the
-	// jobs were materialized.
+	// SecurityScanPostScriptStateSkipped means a selected pipeline could not
+	// run for a normal non-failing reason, such as its finding disappearing or
+	// the model-job budget being exhausted. runOn mismatches are filtered out
+	// before pipelines are materialized.
 	SecurityScanPostScriptStateSkipped = "Skipped"
 )
 
-// MaxSecurityScanPostScriptJobs bounds the materialized finding x post-script
-// matrix recorded in status. A scan with many findings and several scripts
-// would otherwise push the SecurityScan object past the etcd object-size
-// limit; exceeding the bound marks the execution's post-script coverage
-// incomplete instead of silently dropping jobs.
+// MaxSecurityScanPostScriptJobs bounds the total selected script memberships
+// across materialized per-finding pipelines. A scan with many findings and
+// scripts would otherwise push the SecurityScan object past the etcd object-
+// size limit; exceeding the bound marks coverage incomplete instead of
+// silently splitting or dropping part of a pipeline.
 const MaxSecurityScanPostScriptJobs = 200
 
-// SecurityScanPostScriptJobStatus is one durable finding x post-script
-// execution. Post-scripts used to be prose in the sink prompt, so runOn,
-// ordering, retries, and completion were entirely model-discretionary and
-// unauditable. Materializing them as jobs makes each one an observable,
-// retriable unit whose terminal state gates the final report.
+// SecurityScanPostScriptJobStatus is one durable per-finding post-script
+// pipeline chunk. Applicable scripts are snapshotted in order and normally
+// run by one AgentRun; oversized prompts split at script boundaries.
 type SecurityScanPostScriptJobStatus struct {
-	// script is the SecurityPostScript name.
+	// script is the SecurityPostScript name for legacy single-script jobs.
+	// New pipeline jobs also set it to the first script for compatibility with
+	// older clients; scripts is the authoritative ordered pipeline.
 	// +optional
 	Script string `json:"script,omitempty"`
 
-	// order is the script's 0-based position in spec.postScripts. Jobs for
-	// one finding run in this order so a later script observes the status a
-	// previous one set.
+	// scripts is the ordered list of post-scripts selected for this finding at
+	// materialization time. runOn is evaluated against that finding snapshot,
+	// so scripts that do not match never become jobs.
+	// +listType=atomic
+	// +optional
+	Scripts []string `json:"scripts,omitempty"`
+
+	// order is the script's 0-based position for legacy single-script jobs.
 	// +optional
 	Order int32 `json:"order,omitempty"`
 
@@ -1018,15 +1024,15 @@ type SecurityScanExecutionStatus struct {
 	// +optional
 	LastResumeToken string `json:"lastResumeToken,omitempty"`
 
-	// postScriptJobs is the materialized finding x post-script matrix. It
-	// is populated once the research tasks are terminal and gates the sink
-	// task: the final report may only be submitted after every job reached
+	// postScriptJobs is the materialized per-finding pipeline chunk list.
+	// It is populated once the research tasks are terminal and gates the sink
+	// task: the final report may only be submitted after every pipeline reached
 	// a terminal state.
 	// +listType=atomic
 	// +optional
 	PostScriptJobs []SecurityScanPostScriptJobStatus `json:"postScriptJobs,omitempty"`
 
-	// postScriptsMaterialized records that the job matrix was computed, so
+	// postScriptsMaterialized records that the pipeline list was computed, so
 	// a reconcile that observes zero eligible findings does not recompute
 	// it forever.
 	// +optional

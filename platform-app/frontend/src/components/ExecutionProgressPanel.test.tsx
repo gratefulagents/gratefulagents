@@ -258,12 +258,11 @@ describe("ExecutionProgressPanel", () => {
     expect(screen.getByTestId("execution-task-recon#0")).toBeTruthy();
   });
 
-  it("lists post-script jobs with progress, finding links, and results", () => {
+  it("lists per-finding post-script pipelines with ordered scripts and one run", () => {
     const state = execution();
     state.postScriptJobs = [
       create(SecurityScanPostScriptJobStateSchema, {
-        script: "false-positive-check",
-        order: 0,
+        scripts: ["false-positive-check", "poc-builder"],
         findingId: "22222222-2222-2222-2222-222222222222",
         fingerprint: "sqli-users-list",
         state: "Succeeded",
@@ -272,16 +271,6 @@ describe("ExecutionProgressPanel", () => {
         result: "confirmed",
         startedAtUnix: 1767225600n,
         finishedAtUnix: 1767226600n,
-      }),
-      create(SecurityScanPostScriptJobStateSchema, {
-        script: "poc-builder",
-        order: 1,
-        findingId: "22222222-2222-2222-2222-222222222222",
-        fingerprint: "sqli-users-list",
-        state: "Failed",
-        runName: "scan-ps-2",
-        attempts: 2,
-        lastError: "sandbox provisioning failed",
       }),
     ];
     render(
@@ -293,23 +282,27 @@ describe("ExecutionProgressPanel", () => {
         />
       </MemoryRouter>,
     );
+    expect(screen.getByTestId("execution-post-scripts").textContent).toContain(
+      "Post-script pipelines",
+    );
     expect(screen.getByTestId("execution-post-script-progress").textContent).toBe(
-      "1/2 post-scripts done",
+      "1/1 post-script pipelines done",
     );
-    const succeeded = screen.getByTestId(
-      "execution-post-script-false-positive-check#22222222-2222-2222-2222-222222222222",
+    const pipeline = screen.getByTestId(
+      "execution-post-script-pipeline-22222222-2222-2222-2222-222222222222#0",
     );
-    expect(succeeded.textContent).toContain("Succeeded");
-    expect(succeeded.textContent).toContain("confirmed");
-    const findingLink = screen.getAllByRole("link", { name: "sqli-users-list" })[0];
+    expect(pipeline.textContent).toContain("false-positive-check → poc-builder");
+    expect(pipeline.textContent).toContain("Succeeded");
+    expect(pipeline.textContent).toContain("confirmed");
+    const findingLink = screen.getByRole("link", { name: "sqli-users-list" });
     expect(findingLink.getAttribute("href")).toBe(
       "/security/user-alice/nightly-1/findings/22222222-2222-2222-2222-222222222222",
     );
-    const failed = screen.getByTestId(
-      "execution-post-script-poc-builder#22222222-2222-2222-2222-222222222222",
+    const runLinks = screen.getAllByRole("link", { name: "scan-ps-1" });
+    expect(runLinks).toHaveLength(1);
+    expect(runLinks[0].getAttribute("href")).toBe(
+      "/runs/user-alice/scan-ps-1",
     );
-    expect(failed.textContent).toContain("Failed");
-    expect(failed.textContent).toContain("sandbox provisioning failed");
   });
 
   it("warns about coverage gaps", () => {

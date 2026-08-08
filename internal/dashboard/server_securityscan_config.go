@@ -978,6 +978,7 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 	for _, j := range e.PostScriptJobs {
 		pbJob := &platform.SecurityScanPostScriptJobState{
 			Script:      j.Script,
+			Scripts:     append([]string(nil), j.Scripts...),
 			Order:       j.Order,
 			FindingId:   j.FindingID,
 			Fingerprint: j.Fingerprint,

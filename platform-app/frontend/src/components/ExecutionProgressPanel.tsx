@@ -71,12 +71,12 @@ function prettyJson(raw: string): string {
 
 /** Terminal instance states that count toward the "done" progress figure. */
 const DONE_STATES = new Set(["Succeeded", "Skipped"]);
+const POST_SCRIPT_DONE_STATES = new Set(["Succeeded", "Failed", "Skipped"]);
 
 /**
- * PostScriptJobsTable lists the durable finding x post-script jobs the
- * deterministic engine materializes after research tasks finish. Every job
- * must reach a terminal state before the sink task may submit the final
- * report, so the table doubles as the "what is the report waiting for" view.
+ * PostScriptJobsTable lists the durable per-finding post-script pipelines the
+ * deterministic engine materializes after research tasks finish. Every
+ * pipeline must reach a terminal state before the sink may submit the report.
  */
 function PostScriptJobsTable({
   namespace,
@@ -90,15 +90,15 @@ function PostScriptJobsTable({
   return (
     <div className="space-y-1.5" data-testid="execution-post-scripts">
       <p className="text-xs font-medium text-muted-foreground">
-        Post-script jobs
+        Post-script pipelines
         <span className="ml-1.5 font-normal">
-          (each finding runs every matching post-script; the final report waits for all of them)
+          (matching scripts run in order; oversized pipelines split safely and the report waits for all chunks)
         </span>
       </p>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Script</TableHead>
+            <TableHead>Scripts</TableHead>
             <TableHead>Finding</TableHead>
             <TableHead>State</TableHead>
             <TableHead>Attempts</TableHead>
@@ -109,11 +109,14 @@ function PostScriptJobsTable({
         </TableHeader>
         <TableBody>
           {jobs.map((job) => {
-            const key = `${job.script}#${job.findingId}`;
+            const key = job.findingId
+              ? `${job.findingId}#${job.order}`
+              : `${job.script}#${job.fingerprint}#${job.order}`;
             const finding = job.fingerprint || job.findingId || "—";
+            const scripts = job.scripts.length > 0 ? job.scripts : job.script ? [job.script] : [];
             return (
-              <TableRow key={key} data-testid={`execution-post-script-${key}`}>
-                <TableCell className="font-mono text-[13px]">{job.script}</TableCell>
+              <TableRow key={key} data-testid={`execution-post-script-pipeline-${key}`}>
+                <TableCell className="font-mono text-[13px]">{scripts.join(" → ") || "—"}</TableCell>
                 <TableCell className="max-w-48 font-mono text-[12px]">
                   {findingLinkBase && job.findingId ? (
                     <Link
@@ -359,7 +362,7 @@ export function ExecutionProgressPanel({
   // Nullish fallbacks: tests (and older servers) may omit the arrays.
   const postScriptJobs = execution.postScriptJobs ?? [];
   const coverageGaps = execution.coverageGaps ?? [];
-  const donePostScripts = postScriptJobs.filter((j) => DONE_STATES.has(j.state)).length;
+  const donePostScripts = postScriptJobs.filter((j) => POST_SCRIPT_DONE_STATES.has(j.state)).length;
 
   const toggle = (key: string) => {
     setExpanded((prev) => {
@@ -394,7 +397,7 @@ export function ExecutionProgressPanel({
               className="rounded-md bg-muted/60 px-2 py-0.5 text-muted-foreground ring-1 ring-inset ring-border/70"
               data-testid="execution-post-script-progress"
             >
-              {donePostScripts}/{postScriptJobs.length} post-scripts done
+              {donePostScripts}/{postScriptJobs.length} post-script pipelines done
             </span>
           )}
           <span
