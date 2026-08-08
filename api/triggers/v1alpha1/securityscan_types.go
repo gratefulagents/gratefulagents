@@ -124,7 +124,7 @@ type SecurityScanSpec struct {
 	// +optional
 	Execution *SecurityScanExecution `json:"execution,omitempty"`
 
-	// parameterValues are values substituted for {{params.<name>}}
+	// parameterValues are values substituted for double-brace params.<name>
 	// references in task objectives. The accepted names are declared by the
 	// referenced SecurityWorkflow's parameters, or free-form for inline
 	// workflows.
@@ -493,14 +493,14 @@ type SecurityScanTask struct {
 	// outputSchema is an optional JSON Schema (object form) contract for
 	// this task's structured output. Tasks with a schema must publish their
 	// output via the submit_task_output tool; dependents consume it through
-	// {{tasks.<name>...}} template references.
+	// double-brace tasks.<name>... template references.
 	// +kubebuilder:validation:MaxLength=16384
 	// +optional
 	OutputSchema string `json:"outputSchema,omitempty"`
 
 	// forEach names a dependency task; this task fans out with one instance
 	// per record of that task's JSON-array structured output. Records are
-	// exposed to the objective template as {{item}} / {{item.<field>}}. The
+	// exposed through double-brace item or item.<field> references. The
 	// named task must be listed in dependsOn and must declare outputSchema.
 	// +kubebuilder:validation:MaxLength=63
 	// +optional
