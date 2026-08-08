@@ -15,8 +15,8 @@ package platform
 // namespace that hosts worker pods so credentials are never inlined in pod specs.
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update
 // The dashboard provisions a personal namespace per user (where their projects and
-// saved credential Secrets live), so it needs to create and read namespaces.
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create
+// saved credential Secrets live), so it needs to create, read, and annotate namespaces.
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch
 // Kubernetes-admin dogfooding runs bind their worker service account to the
 // built-in cluster-admin ClusterRole. The bind verb is constrained to that
 // single ClusterRole.

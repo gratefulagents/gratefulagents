@@ -26,6 +26,15 @@ rules:
   - ""
   resources:
   - namespaces
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - serviceaccounts
   verbs:
   - create
