@@ -131,6 +131,31 @@ func TestPullRequestArtifactReconcilePreservesRepositoryRefAfterRepositoryDeleti
 	}
 }
 
+func TestResolveAuthFallsBackAfterExplicitRepositoryDeletion(t *testing.T) {
+	run := monitorProvenanceRun(t)
+	monitor := ownedMonitor(run)
+	monitor.Spec.GitHubRepositoryRef = &corev1.LocalObjectReference{Name: "deleted-repository"}
+	replacement := prLoopTestRepo()
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: monitorTestToken, Namespace: run.Namespace},
+		Data:       map[string][]byte{monitorTestTokenKey: []byte("replacement-token")},
+	}
+	scheme := prLoopTestScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(replacement, secret).Build()
+	reconciler := &PullRequestMonitorReconciler{Client: c, Scheme: scheme}
+
+	gotRepository, gotToken, err := reconciler.resolveAuth(context.Background(), monitor, run)
+	if err != nil {
+		t.Fatalf("resolveAuth() error = %v", err)
+	}
+	if gotRepository == nil || gotRepository.Name != replacement.Name {
+		t.Fatalf("resolveAuth() repository = %#v, want replacement %q", gotRepository, replacement.Name)
+	}
+	if gotToken != "replacement-token" {
+		t.Fatalf("resolveAuth() token = %q, want replacement token", gotToken)
+	}
+}
+
 func TestPullRequestArtifactCreatesMonitorWithoutReviewLoop(t *testing.T) {
 	run := monitorProvenanceRun(t)
 	run.Status.Artifacts.PullRequestURL = "https://github.com/acme/widgets/pull/42"
