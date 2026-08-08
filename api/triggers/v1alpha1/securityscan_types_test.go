@@ -206,16 +206,16 @@ func TestSecurityScanDeepCopyCoversNewTypes(t *testing.T) {
 
 func TestSecurityScanSpecEffectiveExecutionMode(t *testing.T) {
 	var spec SecurityScanSpec
-	if got := spec.EffectiveExecutionMode(); got != SecurityScanExecutionModeCoordinator {
-		t.Fatalf("EffectiveExecutionMode() = %q, want coordinator", got)
-	}
-	spec.Execution = &SecurityScanExecution{}
-	if got := spec.EffectiveExecutionMode(); got != SecurityScanExecutionModeCoordinator {
-		t.Fatalf("EffectiveExecutionMode() with empty mode = %q, want coordinator", got)
-	}
-	spec.Execution.Mode = SecurityScanExecutionModeDeterministic
 	if got := spec.EffectiveExecutionMode(); got != SecurityScanExecutionModeDeterministic {
 		t.Fatalf("EffectiveExecutionMode() = %q, want deterministic", got)
+	}
+	spec.Execution = &SecurityScanExecution{}
+	if got := spec.EffectiveExecutionMode(); got != SecurityScanExecutionModeDeterministic {
+		t.Fatalf("EffectiveExecutionMode() with empty mode = %q, want deterministic", got)
+	}
+	spec.Execution.Mode = SecurityScanExecutionModeCoordinator
+	if got := spec.EffectiveExecutionMode(); got != SecurityScanExecutionModeCoordinator {
+		t.Fatalf("EffectiveExecutionMode() = %q, want coordinator", got)
 	}
 }
 

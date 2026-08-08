@@ -406,7 +406,7 @@ func generateSecurityScanName() string {
 }
 
 // securityScanExecutionFromProto validates and converts the execution
-// config. A nil/empty proto yields nil (coordinator defaults).
+// config. A nil/empty proto yields nil (deterministic defaults).
 func securityScanExecutionFromProto(pb *platform.SecurityScanExecutionConfig) (*triggersv1alpha1.SecurityScanExecution, error) {
 	if pb == nil {
 		return nil, nil

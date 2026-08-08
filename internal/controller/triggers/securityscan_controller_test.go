@@ -699,6 +699,9 @@ func securityScanTestScan() *triggersv1alpha1.SecurityScan {
 		Spec: triggersv1alpha1.SecurityScanSpec{
 			RepoURL:    "https://github.com/acme/widget.git",
 			BaseBranch: "main",
+			Execution: &triggersv1alpha1.SecurityScanExecution{
+				Mode: triggersv1alpha1.SecurityScanExecutionModeCoordinator,
+			},
 			Defaults: triggersv1alpha1.AgentRunDefaults{
 				Model:    "gpt-5.4",
 				Provider: triggersv1alpha1.ProviderOpenAI,

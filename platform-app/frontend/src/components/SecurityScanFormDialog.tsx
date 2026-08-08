@@ -129,7 +129,7 @@ type SpecState = {
   uploadSarif: boolean;
   policyPackRef: string;
   budgets: BudgetDraft;
-  /** "" = coordinator (default single seeded run); "deterministic" = controller-scheduled per-task runs. */
+  /** "" = deterministic default; "coordinator" = single seeded orchestrating run. */
   executionMode: string;
   taskMaxRetries: string;
   retryBackoff: string;
@@ -305,7 +305,7 @@ function policyPackSummary(spec: SpecState): string {
 const GO_DURATION_PATTERN = /^(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$/;
 
 function executionSummary(spec: SpecState): string {
-  const parts = [spec.executionMode.trim() === "deterministic" ? "deterministic" : "coordinator"];
+  const parts = [spec.executionMode.trim() === "coordinator" ? "coordinator" : "deterministic"];
   const params = spec.parameterValues.filter((entry) => entry.key.trim() !== "").length;
   if (params > 0) parts.push(`${params} parameter${params === 1 ? "" : "s"}`);
   return parts.join(" · ");
@@ -1543,8 +1543,8 @@ export function SecurityScanFormDialog({
                     value={spec.executionMode}
                     onChange={(event) => update("executionMode", event.target.value)}
                   >
-                    <option value="">coordinator (default)</option>
-                    <option value="deterministic">deterministic</option>
+                    <option value="">deterministic (default)</option>
+                    <option value="coordinator">coordinator</option>
                   </select>
                 </FlowField>
                 <div className="grid gap-4 sm:grid-cols-2">
