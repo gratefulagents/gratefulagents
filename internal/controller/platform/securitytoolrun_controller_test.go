@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/securitytoolpacks"
 	"github.com/gratefulagents/gratefulagents/internal/securitytoolrun"
 	"github.com/gratefulagents/gratefulagents/internal/store"
@@ -42,9 +43,16 @@ type stubBlobReader struct {
 	err     error
 	calls   int
 	deleted []string
+	// deleteFail makes the next N delete attempts fail, standing in for a
+	// temporarily unreachable object store.
+	deleteFail int
 }
 
 func (s *stubBlobReader) Delete(_ context.Context, key string) error {
+	if s.deleteFail > 0 {
+		s.deleteFail--
+		return fmt.Errorf("dial tcp: connection refused")
+	}
 	s.deleted = append(s.deleted, key)
 	delete(s.objects, key)
 	return nil
@@ -681,7 +689,7 @@ func TestSecurityToolRunClampsOversizedManifestStatus(t *testing.T) {
 		ResultObjectKey: securitytoolrun.ResultObjectKey("ns", "scan"),
 		ResultDigest:    securityToolTestDigest,
 	}
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		manifest.Errors = append(manifest.Errors, strings.Repeat("x", 4096))
 		manifest.Artifacts = append(manifest.Artifacts, securitytoolrun.ManifestArtifact{
 			ObjectKey: fmt.Sprintf("%s/raw-%03d", securitytoolrun.OutputPrefix("ns", "scan"), i),
@@ -807,4 +815,354 @@ func hasSecurityToolCondition(run *platformv1alpha1.SecurityToolRun, reason stri
 		}
 	}
 	return false
+}
+
+// newNetworkSecurityToolRun builds a request for a tool that reaches the
+// network, owned by an AgentRun the way the agent-side tool creates it.
+func newNetworkSecurityToolRun(mutate func(*platformv1alpha1.SecurityToolRun)) *platformv1alpha1.SecurityToolRun {
+	return newSecurityToolRun(func(run *platformv1alpha1.SecurityToolRun) {
+		run.Spec.Tool = "sslyze"
+		run.Spec.Target = platformv1alpha1.SecurityToolTarget{
+			Type:     "base_url",
+			Locator:  "https://api.example.test/v1",
+			Revision: "v1",
+			Digest:   securityToolTestDigest,
+		}
+		run.Spec.Scope = []string{"https://api.example.test/v1"}
+		run.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(),
+			Kind:       "AgentRun",
+			Name:       "owner-run",
+			UID:        types.UID("owner-uid"),
+		}}
+		if mutate != nil {
+			mutate(run)
+		}
+	})
+}
+
+func newScanAgentRun(authorized string) *platformv1alpha1.AgentRun {
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "owner-run", Namespace: "ns", UID: types.UID("owner-uid")},
+	}
+	if authorized != "" {
+		run.Annotations = map[string]string{
+			triggersv1alpha1.SecurityScanAuthorizedNetworkTargetsAnnotation: authorized,
+		}
+	}
+	return run
+}
+
+// Network scope is operator configuration: it comes from the annotation the
+// SecurityScan controller stamps on the owning AgentRun, never from the tool
+// input the model wrote.
+func TestSecurityToolRunEnforcesOperatorNetworkAuthorization(t *testing.T) {
+	t.Setenv(securityToolsImageEnv, securityToolTestImage)
+	c := newSecurityToolRunClient(t, newNetworkSecurityToolRun(nil),
+		newScanAgentRun("api.example.test, 192.0.2.0/24"))
+
+	run := reconcileSecurityToolRun(t, c, &stubBlobReader{})
+	if run.Status.Phase != platformv1alpha1.SecurityToolRunPhaseRunning {
+		t.Fatalf("phase = %q message = %q, want Running", run.Status.Phase, run.Status.Message)
+	}
+	if job := getSecurityToolJob(t, c); job.Name != "scan-job" {
+		t.Fatalf("job = %q", job.Name)
+	}
+}
+
+func TestSecurityToolRunRefusesUnauthorizedNetworkTargets(t *testing.T) {
+	t.Setenv(securityToolsImageEnv, securityToolTestImage)
+	cases := []struct {
+		name       string
+		authorized string
+		owner      bool
+		mutate     func(*platformv1alpha1.SecurityToolRun)
+		reason     string
+		message    string
+	}{
+		{
+			name:       "target outside the authorization",
+			authorized: "api.example.test",
+			owner:      true,
+			mutate: func(run *platformv1alpha1.SecurityToolRun) {
+				run.Spec.Target.Locator = "https://metadata.internal/latest/meta-data"
+				run.Spec.Scope = []string{"https://metadata.internal/latest/meta-data"}
+			},
+			reason:  "NetworkTargetNotAuthorized",
+			message: "not covered by the authorized network targets",
+		},
+		{
+			name:       "scope entry outside the authorization",
+			authorized: "api.example.test",
+			owner:      true,
+			mutate: func(run *platformv1alpha1.SecurityToolRun) {
+				run.Spec.Scope = []string{"https://api.example.test/v1", "169.254.169.254"}
+			},
+			reason:  "NetworkTargetNotAuthorized",
+			message: `"169.254.169.254" is not covered`,
+		},
+		{
+			name:    "owner carries no authorization",
+			owner:   true,
+			reason:  "NetworkAuthorizationUnavailable",
+			message: "carries no security.gratefulagents.dev/authorized-network-targets authorization",
+		},
+		{
+			name:    "no owning agent run",
+			mutate:  func(run *platformv1alpha1.SecurityToolRun) { run.OwnerReferences = nil },
+			reason:  "NetworkAuthorizationUnavailable",
+			message: "no owning AgentRun",
+		},
+		{
+			name:    "owning agent run does not exist",
+			reason:  "NetworkAuthorizationUnavailable",
+			message: "does not exist",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			objects := []client.Object{newNetworkSecurityToolRun(tc.mutate)}
+			if tc.owner {
+				objects = append(objects, newScanAgentRun(tc.authorized))
+			}
+			c := newSecurityToolRunClient(t, objects...)
+
+			run := reconcileSecurityToolRun(t, c, &stubBlobReader{})
+			if run.Status.Phase != platformv1alpha1.SecurityToolRunPhaseFailed {
+				t.Fatalf("phase = %q, want Failed", run.Status.Phase)
+			}
+			if run.Status.Result == nil || run.Status.Result.Status != "error" {
+				t.Fatalf("result = %+v, want status error", run.Status.Result)
+			}
+			if !hasSecurityToolCondition(run, tc.reason) {
+				t.Fatalf("conditions = %+v, want reason %s", run.Status.Conditions, tc.reason)
+			}
+			if !strings.Contains(run.Status.Message, tc.message) {
+				t.Fatalf("message = %q, want it to contain %q", run.Status.Message, tc.message)
+			}
+			jobs := &batchv1.JobList{}
+			if err := c.List(context.Background(), jobs, client.InNamespace("ns")); err != nil {
+				t.Fatalf("List(Job) error = %v", err)
+			}
+			if len(jobs.Items) != 0 {
+				t.Fatalf("jobs = %d, want no Job for an unauthorized network scan", len(jobs.Items))
+			}
+			configMaps := &corev1.ConfigMapList{}
+			if err := c.List(context.Background(), configMaps, client.InNamespace("ns")); err != nil {
+				t.Fatalf("List(ConfigMap) error = %v", err)
+			}
+			for _, item := range configMaps.Items {
+				if item.Name == "scan-config" {
+					t.Fatal("execution ConfigMap was created for an unauthorized network scan")
+				}
+			}
+		})
+	}
+}
+
+// A staged, offline target needs no network authorization at all.
+func TestSecurityToolRunStagedTargetNeedsNoNetworkAuthorization(t *testing.T) {
+	t.Setenv(securityToolsImageEnv, securityToolTestImage)
+	c := newSecurityToolRunClient(t, newSecurityToolRun(func(run *platformv1alpha1.SecurityToolRun) {
+		run.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(),
+			Kind:       "AgentRun",
+			Name:       "owner-run",
+			UID:        types.UID("owner-uid"),
+		}}
+	}), newScanAgentRun(""))
+
+	run := reconcileSecurityToolRun(t, c, &stubBlobReader{})
+	if run.Status.Phase != platformv1alpha1.SecurityToolRunPhaseRunning {
+		t.Fatalf("phase = %q message = %q, want Running", run.Status.Phase, run.Status.Message)
+	}
+}
+
+// Agent service accounts may create ConfigMaps in their namespace, so the
+// execution ConfigMap is immutable and a pre-existing one is only trusted when
+// this run owns it and its bytes are identical.
+func TestSecurityToolRunExecutionConfigMapIsImmutable(t *testing.T) {
+	t.Setenv(securityToolsImageEnv, securityToolTestImage)
+	c := newSecurityToolRunClient(t, newSecurityToolRun(nil))
+	reconcileSecurityToolRun(t, c, &stubBlobReader{})
+
+	configMap := &corev1.ConfigMap{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: "scan-config"}, configMap); err != nil {
+		t.Fatalf("Get(ConfigMap) error = %v", err)
+	}
+	if configMap.Immutable == nil || !*configMap.Immutable {
+		t.Fatalf("immutable = %v, want true", configMap.Immutable)
+	}
+}
+
+func TestSecurityToolRunRefusesPreCreatedExecutionConfigMap(t *testing.T) {
+	t.Setenv(securityToolsImageEnv, securityToolTestImage)
+	run := newSecurityToolRun(nil)
+	owner := securityToolRunOwnerRef(run)
+	cases := map[string]*corev1.ConfigMap{
+		"foreign": {
+			ObjectMeta: metav1.ObjectMeta{Name: "scan-config", Namespace: "ns"},
+			Data:       map[string]string{securitytoolrun.ConfigFileName: `{"tool":"authorization-matrix"}`},
+		},
+		"owned but edited": {
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "scan-config", Namespace: "ns", OwnerReferences: []metav1.OwnerReference{owner},
+			},
+			Immutable: new(true),
+			Data:      map[string]string{securitytoolrun.ConfigFileName: `{"tool":"gitleaks"}`},
+		},
+		"owned but mutable": {
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "scan-config", Namespace: "ns", OwnerReferences: []metav1.OwnerReference{owner},
+			},
+			Data: map[string]string{securitytoolrun.ConfigFileName: securityToolRunConfigJSON(t, run)},
+		},
+	}
+	for name, existing := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := newSecurityToolRunClient(t, newSecurityToolRun(nil), existing)
+			got := reconcileSecurityToolRun(t, c, &stubBlobReader{})
+			if got.Status.Phase != platformv1alpha1.SecurityToolRunPhaseFailed {
+				t.Fatalf("phase = %q, want Failed", got.Status.Phase)
+			}
+			if got.Status.Result == nil || got.Status.Result.Status != "error" {
+				t.Fatalf("result = %+v, want status error", got.Status.Result)
+			}
+			if !hasSecurityToolCondition(got, "ConfigMapConflict") {
+				t.Fatalf("conditions = %+v, want reason ConfigMapConflict", got.Status.Conditions)
+			}
+			jobs := &batchv1.JobList{}
+			if err := c.List(context.Background(), jobs, client.InNamespace("ns")); err != nil {
+				t.Fatalf("List(Job) error = %v", err)
+			}
+			if len(jobs.Items) != 0 {
+				t.Fatalf("jobs = %d, want no Job when the execution inputs are not trustworthy", len(jobs.Items))
+			}
+		})
+	}
+}
+
+// The run's own, byte-identical ConfigMap from an interrupted attempt is
+// accepted: a retried startJob must not deadlock the run.
+func TestSecurityToolRunAcceptsItsOwnExecutionConfigMap(t *testing.T) {
+	t.Setenv(securityToolsImageEnv, securityToolTestImage)
+	run := newSecurityToolRun(nil)
+	existing := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "scan-config", Namespace: "ns",
+			OwnerReferences: []metav1.OwnerReference{securityToolRunOwnerRef(run)},
+		},
+		Immutable: new(true),
+		Data:      map[string]string{securitytoolrun.ConfigFileName: securityToolRunConfigJSON(t, run)},
+	}
+	c := newSecurityToolRunClient(t, newSecurityToolRun(nil), existing)
+
+	got := reconcileSecurityToolRun(t, c, &stubBlobReader{})
+	if got.Status.Phase != platformv1alpha1.SecurityToolRunPhaseRunning {
+		t.Fatalf("phase = %q message = %q, want Running", got.Status.Phase, got.Status.Message)
+	}
+	getSecurityToolJob(t, c)
+}
+
+func securityToolRunConfigJSON(t *testing.T, run *platformv1alpha1.SecurityToolRun) string {
+	t.Helper()
+	request, err := securitytoolrun.RunConfigFor(run.Spec)
+	if err != nil {
+		t.Fatalf("RunConfigFor() error = %v", err)
+	}
+	encoded, err := json.Marshal(request.RunConfig)
+	if err != nil {
+		t.Fatalf("marshal run config: %v", err)
+	}
+	return string(encoded)
+}
+
+// A staged archive that could not be deleted is not forgotten: the terminal
+// run keeps retrying until the object store accepts the delete.
+func TestSecurityToolRunRetriesStagedTargetCleanup(t *testing.T) {
+	t.Setenv(securityToolsImageEnv, securityToolTestImage)
+	targetKey := securitytoolrun.TargetObjectKey("ns", "scan")
+	blobs := &stubBlobReader{
+		objects:    map[string][]byte{targetKey: []byte("archive")},
+		err:        store.ErrContentBlobNotFound,
+		deleteFail: 2,
+	}
+	c := newSecurityToolRunClient(t, newSecurityToolRun(nil))
+	reconcileSecurityToolRun(t, c, blobs)
+	completeSecurityToolJob(t, c, batchv1.JobComplete, "")
+
+	// The run fails on the missing manifest and the first cleanup attempt
+	// fails too, which must be recorded rather than dropped.
+	_, run := reconcileSecurityToolRunResult(t, c, blobs)
+	if run.Status.Phase != platformv1alpha1.SecurityToolRunPhaseFailed {
+		t.Fatalf("phase = %q, want Failed", run.Status.Phase)
+	}
+	if stagedCleanupSettled(run) {
+		t.Fatalf("conditions = %+v, want an unsettled staged-target cleanup", run.Status.Conditions)
+	}
+
+	// A terminal run keeps being requeued until the archive is really gone.
+	result, run := reconcileSecurityToolRunResult(t, c, blobs)
+	if result.RequeueAfter == 0 || stagedCleanupSettled(run) {
+		t.Fatalf("result = %+v conditions = %+v, want a bounded retry", result, run.Status.Conditions)
+	}
+	result, run = reconcileSecurityToolRunResult(t, c, blobs)
+	if result.RequeueAfter != 0 || !stagedCleanupSettled(run) {
+		t.Fatalf("result = %+v conditions = %+v, want the cleanup to settle", result, run.Status.Conditions)
+	}
+	if _, ok := blobs.objects[targetKey]; ok {
+		t.Fatal("staged target archive is still retained")
+	}
+
+	// Once settled, nothing is retried.
+	deletes := len(blobs.deleted)
+	reconcileSecurityToolRunResult(t, c, blobs)
+	if len(blobs.deleted) != deletes {
+		t.Fatalf("delete calls = %d, want no further attempts after cleanup settled", len(blobs.deleted))
+	}
+}
+
+// The retry window is bounded: a permanently failing delete is given up on,
+// and the run says the archive may still exist.
+func TestSecurityToolRunGivesUpOnStagedTargetCleanup(t *testing.T) {
+	t.Setenv(securityToolsImageEnv, securityToolTestImage)
+	targetKey := securitytoolrun.TargetObjectKey("ns", "scan")
+	blobs := &stubBlobReader{
+		objects:    map[string][]byte{targetKey: []byte("archive")},
+		err:        store.ErrContentBlobNotFound,
+		deleteFail: 100,
+	}
+	c := newSecurityToolRunClient(t, newSecurityToolRun(nil))
+	reconcileSecurityToolRun(t, c, blobs)
+	completeSecurityToolJob(t, c, batchv1.JobComplete, "")
+	_, run := reconcileSecurityToolRunResult(t, c, blobs)
+
+	completed := metav1.NewTime(time.Now().Add(-2 * securityToolsStagedCleanupDeadline))
+	run.Status.CompletedAt = &completed
+	if err := c.Status().Update(context.Background(), run); err != nil {
+		t.Fatalf("Status().Update(SecurityToolRun) error = %v", err)
+	}
+
+	result, run := reconcileSecurityToolRunResult(t, c, blobs)
+	if result.RequeueAfter != 0 || !stagedCleanupSettled(run) {
+		t.Fatalf("result = %+v conditions = %+v, want the controller to give up", result, run.Status.Conditions)
+	}
+	if !hasSecurityToolCondition(run, securityToolStagedCleanupAbandonedReason) {
+		t.Fatalf("conditions = %+v, want reason %s", run.Status.Conditions, securityToolStagedCleanupAbandonedReason)
+	}
+	if !strings.Contains(run.Status.Message, "was not deleted") {
+		t.Fatalf("message = %q, want the retained archive recorded in the status message", run.Status.Message)
+	}
+}
+
+func TestStagedCleanupBackoffIsBounded(t *testing.T) {
+	if got := stagedCleanupBackoff(0); got != securityToolsStagedCleanupBackoff {
+		t.Fatalf("backoff(0) = %v, want %v", got, securityToolsStagedCleanupBackoff)
+	}
+	if got := stagedCleanupBackoff(time.Hour); got != securityToolsStagedCleanupMaxBackoff {
+		t.Fatalf("backoff(1h) = %v, want %v", got, securityToolsStagedCleanupMaxBackoff)
+	}
+	if got := stagedCleanupBackoff(time.Minute); got != time.Minute {
+		t.Fatalf("backoff(1m) = %v, want 1m", got)
+	}
 }

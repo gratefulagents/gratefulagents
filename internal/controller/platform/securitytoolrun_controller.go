@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/securitytoolpacks"
 	"github.com/gratefulagents/gratefulagents/internal/securitytoolrun"
 	"github.com/gratefulagents/gratefulagents/internal/store"
@@ -60,6 +63,17 @@ const (
 	securityToolMaxStatusErrors     = 32
 	securityToolMaxStatusErrorBytes = 1 << 10
 	securityToolMaxStatusArtifacts  = 64
+
+	// securityToolStagedCleanupCondition durably records whether the staged
+	// customer archive has been dropped, so a transient object-store failure
+	// is retried by later reconciles instead of retaining the archive forever.
+	securityToolStagedCleanupCondition = "StagedTargetCleanup"
+	// securityToolStagedCleanupAbandonedReason marks the retry window closed:
+	// the archive may still exist and the run says so.
+	securityToolStagedCleanupAbandonedReason = "Abandoned"
+	securityToolsStagedCleanupBackoff        = 15 * time.Second
+	securityToolsStagedCleanupMaxBackoff     = 5 * time.Minute
+	securityToolsStagedCleanupDeadline       = 30 * time.Minute
 )
 
 // SecurityToolBlobReader reads Job output from object storage. Tests inject a
@@ -98,7 +112,7 @@ func (r *SecurityToolRunReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 	if isTerminalSecurityToolRun(run) {
-		return ctrl.Result{}, nil
+		return r.reconcileStagedCleanup(ctx, run)
 	}
 
 	registry := r.Registry
@@ -124,6 +138,19 @@ func (r *SecurityToolRunReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				fmt.Sprintf("staged target must be %s, got %s", expected, staged), "error")
 		}
 	}
+	if securitytoolrun.NeedsNetworkAuthorization(tool, request) {
+		authorized, err := r.authorizedNetworkTargets(ctx, run)
+		if err != nil {
+			var refusal *securityToolRunRefusal
+			if errors.As(err, &refusal) {
+				return ctrl.Result{}, r.failRun(ctx, run, refusal.reason, refusal.message, "error")
+			}
+			return ctrl.Result{}, err
+		}
+		if err := securitytoolrun.AuthorizeNetworkTargets(authorized, request); err != nil {
+			return ctrl.Result{}, r.failRun(ctx, run, "NetworkTargetNotAuthorized", err.Error(), "error")
+		}
+	}
 	image, err := resolveSecurityToolsImage()
 	if err != nil {
 		return ctrl.Result{}, r.failRun(ctx, run, "InvalidImage", err.Error(), "error")
@@ -145,6 +172,10 @@ func (r *SecurityToolRunReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				fmt.Sprintf("execution Job %s no longer exists; a scan is never re-executed", jobKey.Name), "error")
 		}
 		if err := r.startJob(ctx, run, request.RunConfig, tool, image); err != nil {
+			var refusal *securityToolRunRefusal
+			if errors.As(err, &refusal) {
+				return ctrl.Result{}, r.failRun(ctx, run, refusal.reason, refusal.message, "error")
+			}
 			return ctrl.Result{}, err
 		}
 		log.Info("SecurityToolRun job created", "name", run.Name, "job", jobKey.Name, "tool", tool.Name)
@@ -173,6 +204,61 @@ func (r *SecurityToolRunReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, r.failRun(ctx, run, "JobFailed", message, resultStatus)
 	default:
 		return ctrl.Result{RequeueAfter: securityToolsRequeue}, r.markRunning(ctx, run, job.Name, image)
+	}
+}
+
+// securityToolRunRefusal is a reason to refuse a request outright rather than
+// retry it: the run is failed with this reason and message, and nothing is
+// created.
+type securityToolRunRefusal struct {
+	reason  string
+	message string
+}
+
+func (e *securityToolRunRefusal) Error() string { return e.message }
+
+// authorizedNetworkTargets reads the network authorization stamped by the
+// platform onto the AgentRun that owns this request. The list is operator
+// configuration reached through ownership, never anything the requesting model
+// supplied: a run whose owner cannot be read, or that carries no
+// authorization, may not touch the network at all.
+func (r *SecurityToolRunReconciler) authorizedNetworkTargets(ctx context.Context, run *platformv1alpha1.SecurityToolRun) ([]string, error) {
+	for _, ref := range run.OwnerReferences {
+		if ref.Kind != "AgentRun" {
+			continue
+		}
+		group, _, _ := strings.Cut(ref.APIVersion, "/")
+		if group != platformv1alpha1.GroupVersion.Group {
+			continue
+		}
+		owner := &platformv1alpha1.AgentRun{}
+		key := client.ObjectKey{Namespace: run.Namespace, Name: ref.Name}
+		if err := r.Get(ctx, key, owner); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil, &securityToolRunRefusal{
+					reason: "NetworkAuthorizationUnavailable",
+					message: fmt.Sprintf("owning AgentRun %s does not exist; "+
+						"network security tools run only under an authorized scan run", ref.Name),
+				}
+			}
+			return nil, fmt.Errorf("reading owning AgentRun %s: %w", ref.Name, err)
+		}
+		targets := securitytoolrun.SplitAuthorizedNetworkTargets(
+			owner.Annotations[triggersv1alpha1.SecurityScanAuthorizedNetworkTargetsAnnotation])
+		if len(targets) == 0 {
+			return nil, &securityToolRunRefusal{
+				reason: "NetworkAuthorizationUnavailable",
+				message: fmt.Sprintf("owning AgentRun %s carries no %s authorization; "+
+					"no network scanning is authorized for this run", ref.Name,
+					triggersv1alpha1.SecurityScanAuthorizedNetworkTargetsAnnotation),
+			}
+		}
+		return targets, nil
+	}
+	return nil, &securityToolRunRefusal{
+		reason: "NetworkAuthorizationUnavailable",
+		message: "this request has no owning AgentRun to read network authorization from; " +
+			"network security tools run only under an authorized scan run",
 	}
 }
 
@@ -283,14 +369,51 @@ func (r *SecurityToolRunReconciler) startJob(ctx context.Context, run *platformv
 			Namespace:       run.Namespace,
 			OwnerReferences: []metav1.OwnerReference{owner},
 		},
-		Data: map[string]string{securitytoolrun.ConfigFileName: string(encoded)},
+		// Agent service accounts may create ConfigMaps in their namespace, so
+		// the execution inputs are pinned: an immutable ConfigMap cannot be
+		// edited after the Job mounts it, and a pre-existing one is only
+		// accepted when this run owns it and its bytes are identical.
+		Immutable: new(true),
+		Data:      map[string]string{securitytoolrun.ConfigFileName: string(encoded)},
 	}
-	if err := r.Create(ctx, configMap); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("creating ConfigMap %s: %w", configMap.Name, err)
+	if err := r.Create(ctx, configMap); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("creating ConfigMap %s: %w", configMap.Name, err)
+		}
+		if err := r.verifyExecutionConfigMap(ctx, run, configMap); err != nil {
+			return err
+		}
 	}
 	job := securityToolRunJob(run, tool, image, owner)
 	if err := r.Create(ctx, job); err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("creating Job %s: %w", job.Name, err)
+	}
+	return nil
+}
+
+// verifyExecutionConfigMap accepts an already-existing execution ConfigMap
+// only when this run created it and its bytes are exactly the ones this
+// reconcile would write. Anything else — a foreign object, edited data, or a
+// mutable ConfigMap whose content could still change under the running Job —
+// refuses the execution instead of mounting attacker-chosen configuration.
+func (r *SecurityToolRunReconciler) verifyExecutionConfigMap(ctx context.Context, run *platformv1alpha1.SecurityToolRun, want *corev1.ConfigMap) error {
+	existing := &corev1.ConfigMap{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(want), existing); err != nil {
+		return fmt.Errorf("reading ConfigMap %s: %w", want.Name, err)
+	}
+	conflict := func(detail string) error {
+		return &securityToolRunRefusal{
+			reason:  "ConfigMapConflict",
+			message: fmt.Sprintf("execution ConfigMap %s %s; refusing to run against it", want.Name, detail),
+		}
+	}
+	switch {
+	case !metav1.IsControlledBy(existing, run):
+		return conflict("already exists and is not controlled by this SecurityToolRun")
+	case existing.Immutable == nil || !*existing.Immutable:
+		return conflict("already exists and is mutable")
+	case !maps.Equal(existing.Data, want.Data) || len(existing.BinaryData) != 0:
+		return conflict("already exists with different content")
 	}
 	return nil
 }
@@ -301,8 +424,8 @@ func securityToolRunOwnerRef(run *platformv1alpha1.SecurityToolRun) metav1.Owner
 		Kind:               "SecurityToolRun",
 		Name:               run.Name,
 		UID:                run.UID,
-		Controller:         boolPtr(true),
-		BlockOwnerDeletion: boolPtr(true),
+		Controller:         new(true),
+		BlockOwnerDeletion: new(true),
 	}
 }
 
@@ -310,10 +433,7 @@ func securityToolRunOwnerRef(run *platformv1alpha1.SecurityToolRun) metav1.Owner
 // fixed: no part of the request reaches the command line, the tool reads its
 // typed configuration from the mounted ConfigMap instead.
 func securityToolRunJob(run *platformv1alpha1.SecurityToolRun, tool securitytoolpacks.Tool, image string, owner metav1.OwnerReference) *batchv1.Job {
-	workLimit := tool.Budgets.MaxOutputSize * 4
-	if workLimit < 1<<30 {
-		workLimit = 1 << 30
-	}
+	workLimit := max(tool.Budgets.MaxOutputSize*4, 1<<30)
 	const tmpLimit int64 = 256 << 20
 	env := []corev1.EnvVar{
 		{Name: securitytoolrun.EnvConfig, Value: securitytoolrun.ConfigPath},
@@ -355,7 +475,7 @@ func securityToolRunJob(run *platformv1alpha1.SecurityToolRun, tool securitytool
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy:                corev1.RestartPolicyNever,
-					AutomountServiceAccountToken: boolPtr(false),
+					AutomountServiceAccountToken: new(false),
 					Containers: []corev1.Container{{
 						Name:       "security-tool",
 						Image:      image,
@@ -374,11 +494,11 @@ func securityToolRunJob(run *platformv1alpha1.SecurityToolRun, tool securitytool
 							},
 						},
 						SecurityContext: &corev1.SecurityContext{
-							RunAsUser:                int64Ptr(securityToolsRunAsID),
-							RunAsGroup:               int64Ptr(securityToolsRunAsID),
-							RunAsNonRoot:             boolPtr(true),
-							AllowPrivilegeEscalation: boolPtr(false),
-							ReadOnlyRootFilesystem:   boolPtr(true),
+							RunAsUser:                new(securityToolsRunAsID),
+							RunAsGroup:               new(securityToolsRunAsID),
+							RunAsNonRoot:             new(true),
+							AllowPrivilegeEscalation: new(false),
+							ReadOnlyRootFilesystem:   new(true),
 							SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 						},
@@ -460,13 +580,19 @@ func (r *SecurityToolRunReconciler) completeRun(ctx context.Context, run *platfo
 		fresh.Status.Phase = platformv1alpha1.SecurityToolRunPhaseSucceeded
 		fresh.Status.Message = message
 		fresh.Status.Result = result
-		fresh.Status.CompletedAt = ptrTime(metav1.Now())
+		fresh.Status.CompletedAt = new(metav1.Now())
 		setCondition(&fresh.Status.Conditions, "Ready", metav1.ConditionFalse, "Completed", message)
 		setCondition(&fresh.Status.Conditions, "Completed", metav1.ConditionTrue, "JobComplete", message)
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
-	r.deleteStagedTarget(ctx, run)
+	settled, err := r.deleteStagedTarget(ctx, run)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !settled {
+		return ctrl.Result{RequeueAfter: securityToolsStagedCleanupBackoff}, nil
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -500,24 +626,112 @@ func (r *SecurityToolRunReconciler) blobStore() (SecurityToolBlobReader, error) 
 // deleteStagedTarget drops the customer source archive once the run is
 // terminal. Results and raw artifacts stay: the agent reads them afterwards.
 // Only this run's own key is ever deleted, whatever the spec asserted.
-func (r *SecurityToolRunReconciler) deleteStagedTarget(ctx context.Context, run *platformv1alpha1.SecurityToolRun) {
+//
+// The outcome is recorded durably in the StagedTargetCleanup condition so a
+// transient object-store failure is retried by later reconciles — a terminal
+// run whose archive is still there is not done — instead of being lost to a
+// log line. It reports whether the cleanup has settled, either because the
+// archive is gone or because the retry window closed.
+func (r *SecurityToolRunReconciler) deleteStagedTarget(ctx context.Context, run *platformv1alpha1.SecurityToolRun) (bool, error) {
 	key := securitytoolrun.TargetObjectKey(run.Namespace, run.Name)
 	if strings.TrimSpace(run.Spec.Target.StagedObjectKey) != key {
-		return
+		return true, r.recordStagedCleanup(ctx, run, metav1.ConditionTrue, "NotStaged",
+			"this run staged no target archive of its own")
 	}
-	log := logf.FromContext(ctx)
+	failure := ""
 	blobs, err := r.blobStore()
-	if err != nil {
-		log.Info("staged target was not deleted", "name", run.Name, "key", key, "error", err.Error())
-		return
+	switch {
+	case err != nil:
+		failure = err.Error()
+	default:
+		deleter, ok := blobs.(SecurityToolBlobDeleter)
+		if !ok {
+			return true, r.recordStagedCleanup(ctx, run, metav1.ConditionTrue, "DeleteUnsupported",
+				"the configured object store cannot delete objects")
+		}
+		if err := deleter.Delete(ctx, key); err != nil {
+			failure = err.Error()
+		}
 	}
-	deleter, ok := blobs.(SecurityToolBlobDeleter)
-	if !ok {
-		return
+	if failure == "" {
+		return true, r.recordStagedCleanup(ctx, run, metav1.ConditionTrue, "Deleted",
+			fmt.Sprintf("staged target %s was deleted", key))
 	}
-	if err := deleter.Delete(ctx, key); err != nil {
-		log.Info("staged target was not deleted", "name", run.Name, "key", key, "error", err.Error())
+	logf.FromContext(ctx).Info("staged target was not deleted", "name", run.Name, "key", key, "error", failure)
+	message := fmt.Sprintf("staged target %s was not deleted: %s", key, failure)
+	if stagedCleanupElapsed(run, time.Now()) >= securityToolsStagedCleanupDeadline {
+		return true, r.recordStagedCleanup(ctx, run, metav1.ConditionFalse, securityToolStagedCleanupAbandonedReason,
+			fmt.Sprintf("%s; giving up after %s", message, securityToolsStagedCleanupDeadline))
 	}
+	return false, r.recordStagedCleanup(ctx, run, metav1.ConditionFalse, "DeletePending", message)
+}
+
+// reconcileStagedCleanup keeps retrying the archive deletion of a terminal run
+// until it succeeds or the retry window closes.
+func (r *SecurityToolRunReconciler) reconcileStagedCleanup(ctx context.Context, run *platformv1alpha1.SecurityToolRun) (ctrl.Result, error) {
+	if stagedCleanupSettled(run) {
+		return ctrl.Result{}, nil
+	}
+	settled, err := r.deleteStagedTarget(ctx, run)
+	if err != nil || settled {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: stagedCleanupBackoff(stagedCleanupElapsed(run, time.Now()))}, nil
+}
+
+// stagedCleanupSettled reports whether the archive still needs attention.
+func stagedCleanupSettled(run *platformv1alpha1.SecurityToolRun) bool {
+	condition := apimeta.FindStatusCondition(run.Status.Conditions, securityToolStagedCleanupCondition)
+	if condition == nil {
+		return false
+	}
+	return condition.Status == metav1.ConditionTrue || condition.Reason == securityToolStagedCleanupAbandonedReason
+}
+
+func stagedCleanupElapsed(run *platformv1alpha1.SecurityToolRun, now time.Time) time.Duration {
+	if run.Status.CompletedAt == nil {
+		return 0
+	}
+	return now.Sub(run.Status.CompletedAt.Time)
+}
+
+// stagedCleanupBackoff spaces retries out roughly geometrically: the next
+// attempt is one elapsed-time away, bounded on both ends.
+func stagedCleanupBackoff(elapsed time.Duration) time.Duration {
+	return min(max(elapsed, securityToolsStagedCleanupBackoff), securityToolsStagedCleanupMaxBackoff)
+}
+
+func (r *SecurityToolRunReconciler) recordStagedCleanup(ctx context.Context, run *platformv1alpha1.SecurityToolRun,
+	status metav1.ConditionStatus, reason, message string) error {
+	if len(message) > securityToolMaxStatusErrorBytes {
+		message = message[:securityToolMaxStatusErrorBytes]
+	}
+	existing := apimeta.FindStatusCondition(run.Status.Conditions, securityToolStagedCleanupCondition)
+	if existing != nil && existing.Status == status && existing.Reason == reason && existing.Message == message {
+		return nil
+	}
+	return r.patchStatus(ctx, run, func(fresh *platformv1alpha1.SecurityToolRun) {
+		setCondition(&fresh.Status.Conditions, securityToolStagedCleanupCondition, status, reason, message)
+		// A retained archive is an operator-visible outcome, not just a
+		// condition: it belongs in the run's own message.
+		if reason == securityToolStagedCleanupAbandonedReason {
+			fresh.Status.Message = appendSecurityToolRunMessage(fresh.Status.Message, message)
+		}
+	})
+}
+
+func appendSecurityToolRunMessage(existing, addition string) string {
+	if strings.TrimSpace(existing) == "" {
+		return addition
+	}
+	if strings.Contains(existing, addition) {
+		return existing
+	}
+	joined := existing + "; " + addition
+	if len(joined) > securityToolMaxStatusErrorBytes {
+		joined = joined[:securityToolMaxStatusErrorBytes]
+	}
+	return joined
 }
 
 // clampSecurityToolErrors keeps a Job-supplied error list inside the CRD
@@ -545,7 +759,7 @@ func (r *SecurityToolRunReconciler) markRunning(ctx context.Context, run *platfo
 		fresh.Status.JobName = jobName
 		fresh.Status.Image = image
 		if fresh.Status.StartedAt == nil {
-			fresh.Status.StartedAt = ptrTime(metav1.Now())
+			fresh.Status.StartedAt = new(metav1.Now())
 		}
 		message := fmt.Sprintf("execution Job %s is running", jobName)
 		fresh.Status.Message = message
@@ -566,13 +780,17 @@ func (r *SecurityToolRunReconciler) failRun(ctx context.Context, run *platformv1
 		}
 		fresh.Status.Result.Status = resultStatus
 		fresh.Status.Result.Errors = clampSecurityToolErrors(append(fresh.Status.Result.Errors, message))
-		fresh.Status.CompletedAt = ptrTime(metav1.Now())
+		fresh.Status.CompletedAt = new(metav1.Now())
 		setCondition(&fresh.Status.Conditions, "Ready", metav1.ConditionFalse, reason, message)
 		setCondition(&fresh.Status.Conditions, "Completed", metav1.ConditionTrue, reason, message)
 	}); err != nil {
 		return err
 	}
-	r.deleteStagedTarget(ctx, run)
+	// A cleanup that does not settle here is retried by the reconcile the
+	// status update itself triggers, through the terminal-run path.
+	if _, err := r.deleteStagedTarget(ctx, run); err != nil {
+		return err
+	}
 	return nil
 }
 

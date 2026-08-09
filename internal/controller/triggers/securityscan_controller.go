@@ -741,6 +741,12 @@ func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *tri
 		triggersv1alpha1.SecurityScanMinSeverityAnnotation:    resolved.spec.EffectiveMinSeverity(),
 		triggersv1alpha1.SecurityScanDedupePermilleAnnotation: strconv.Itoa(int(dedupePermille)),
 	}
+	// Network authorization is operator configuration: it is stamped from the
+	// resolved spec so a model can never widen what a deterministic security
+	// tool is allowed to probe by naming a host in its own tool input.
+	if targets := securityScanAuthorizedNetworkTargets(resolved.spec.Scope); targets != "" {
+		annotations[triggersv1alpha1.SecurityScanAuthorizedNetworkTargetsAnnotation] = targets
+	}
 	if budgets := resolved.spec.Budgets; budgets != nil && budgets.MaxFindings > 0 {
 		annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation] = strconv.Itoa(int(budgets.MaxFindings))
 	}
@@ -783,6 +789,23 @@ func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *tri
 		limits:      runLimits,
 		modeRef:     modeRef,
 	}, nil
+}
+
+// securityScanAuthorizedNetworkTargets renders the operator-declared network
+// authorization as the comma-separated annotation value carried by every scan
+// run. Entries are trimmed; an empty result stamps nothing, which authorizes
+// no network scanning at all.
+func securityScanAuthorizedNetworkTargets(scope *triggersv1alpha1.SecurityScanScope) string {
+	if scope == nil {
+		return ""
+	}
+	targets := make([]string, 0, len(scope.AuthorizedNetworkTargets))
+	for _, target := range scope.AuthorizedNetworkTargets {
+		if trimmed := strings.TrimSpace(target); trimmed != "" {
+			targets = append(targets, trimmed)
+		}
+	}
+	return strings.Join(targets, ",")
 }
 
 // activeScanRun returns a non-terminal AgentRun owned by this scan, ignoring

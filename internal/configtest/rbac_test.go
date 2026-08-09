@@ -27,6 +27,40 @@ var dashboardManagedResources = []string{
 	"securityworkflows",
 }
 
+// reconcilerRequiredRules are the API access the controllers themselves need
+// at runtime, kind by kind. Unlike the dashboard table above these are not
+// about write RPCs: a missing verb here means a reconcile loop fails against a
+// live API server with a forbidden error that no unit test using a fake client
+// can catch. The SecurityToolRun reconciler runs one Kubernetes Job per
+// request and mounts its typed configuration from a ConfigMap, so it needs the
+// batch and core verbs as well as its own kind.
+var reconcilerRequiredRules = []struct {
+	apiGroup string
+	resource string
+	verbs    []string
+}{
+	{
+		apiGroup: "platform.gratefulagents.dev",
+		resource: "securitytoolruns",
+		verbs:    []string{"get", "list", "watch", "create", "update", "patch", "delete"},
+	},
+	{
+		apiGroup: "platform.gratefulagents.dev",
+		resource: "securitytoolruns/status",
+		verbs:    []string{"get", "update", "patch"},
+	},
+	{
+		apiGroup: "batch",
+		resource: "jobs",
+		verbs:    []string{"create", "get", "list", "watch", "delete"},
+	},
+	{
+		apiGroup: "",
+		resource: "configmaps",
+		verbs:    []string{"create", "get", "list", "watch"},
+	},
+}
+
 type clusterRoleDocument struct {
 	Rules []struct {
 		APIGroups []string `json:"apiGroups"`
@@ -51,9 +85,41 @@ func TestManagerRoleGrantsDashboardWriteVerbs(t *testing.T) {
 		t.Fatalf("parse config/rbac/role.yaml: %v", err)
 	}
 
+	granted := grantedVerbs(role, "triggers.gratefulagents.dev")
+
+	for _, resource := range dashboardManagedResources {
+		for _, verb := range []string{"create", "delete", "get", "list", "watch", "update", "patch"} {
+			if !granted[resource][verb] {
+				t.Errorf("manager role is missing verb %q on %q; the dashboard cannot manage it", verb, resource)
+			}
+		}
+	}
+}
+
+// TestManagerRoleGrantsReconcilerVerbs fails when a controller is missing API
+// access its reconcile loop performs. Add the verb to the marker in the
+// controller package, regenerate config/rbac, and sync the chart copy.
+func TestManagerRoleGrantsReconcilerVerbs(t *testing.T) {
+	t.Parallel()
+
+	role := readManagerRole(t)
+	for _, required := range reconcilerRequiredRules {
+		granted := grantedVerbs(role, required.apiGroup)
+		for _, verb := range required.verbs {
+			if !granted[required.resource][verb] {
+				t.Errorf("manager role is missing verb %q on %q (apiGroup %q); the reconciler cannot run",
+					verb, required.resource, required.apiGroup)
+			}
+		}
+	}
+}
+
+// grantedVerbs collects the verbs the ClusterRole grants per resource within
+// one API group.
+func grantedVerbs(role clusterRoleDocument, apiGroup string) map[string]map[string]bool {
 	granted := map[string]map[string]bool{}
 	for _, rule := range role.Rules {
-		if !slices.Contains(rule.APIGroups, "triggers.gratefulagents.dev") {
+		if !slices.Contains(rule.APIGroups, apiGroup) {
 			continue
 		}
 		for _, resource := range rule.Resources {
@@ -65,14 +131,20 @@ func TestManagerRoleGrantsDashboardWriteVerbs(t *testing.T) {
 			}
 		}
 	}
+	return granted
+}
 
-	for _, resource := range dashboardManagedResources {
-		for _, verb := range []string{"create", "delete", "get", "list", "watch", "update", "patch"} {
-			if !granted[resource][verb] {
-				t.Errorf("manager role is missing verb %q on %q; the dashboard cannot manage it", verb, resource)
-			}
-		}
+func readManagerRole(t *testing.T) clusterRoleDocument {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "rbac", "role.yaml"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	var role clusterRoleDocument
+	if err := yaml.Unmarshal(data, &role); err != nil {
+		t.Fatalf("parse config/rbac/role.yaml: %v", err)
+	}
+	return role
 }
 
 // TestChartManagerRoleMatchesGeneratedRules keeps the shipped Helm ClusterRole
