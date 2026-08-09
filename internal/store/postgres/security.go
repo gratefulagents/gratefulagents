@@ -56,6 +56,9 @@ func securityFindingFilterSQL(f store.SecurityFindingFilter) (string, []any) {
 	if f.Namespace != "" {
 		add("namespace = $%d", f.Namespace)
 	}
+	if f.ScanID != uuid.Nil {
+		add("scan_id = $%d", f.ScanID)
+	}
 	if f.ScanName != "" {
 		add("scan_name = $%d", f.ScanName)
 	}
@@ -948,6 +951,10 @@ func (s *Store) SummarizeSecurityFindingsScoped(ctx context.Context, scope store
 		}
 		args = append(args, value)
 		where += fmt.Sprintf(" AND %s = $%d", column, len(args))
+	}
+	if scope.ScanID != uuid.Nil {
+		args = append(args, scope.ScanID)
+		where += fmt.Sprintf(" AND scan_id = $%d", len(args))
 	}
 	narrow("scan_name", scope.ScanName)
 	narrow("run_name", scope.RunName)

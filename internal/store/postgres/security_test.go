@@ -72,6 +72,12 @@ func TestSecurityFindingFilterSQL(t *testing.T) {
 			wantArgs: []any{"default", "nightly", "nightly-1", "org/repo", "injection", "high", "open", "%sql%", 42.5},
 		},
 		{
+			name:      "persisted scan id scopes sibling task runs",
+			filter:    store.SecurityFindingFilter{Namespace: "ns", ScanID: uuid.MustParse("11111111-1111-1111-1111-111111111111")},
+			wantWhere: "WHERE namespace = $1 AND scan_id = $2 AND suppressed_by IS NULL AND duplicate_of IS NULL",
+			wantArgs:  []any{"ns", uuid.MustParse("11111111-1111-1111-1111-111111111111")},
+		},
+		{
 			name:      "search binds one wildcard-wrapped arg",
 			filter:    store.SecurityFindingFilter{Search: "token", IncludeDuplicates: true},
 			wantWhere: "WHERE (title ILIKE $1 OR description ILIKE $1 OR file_path ILIKE $1) AND suppressed_by IS NULL",
