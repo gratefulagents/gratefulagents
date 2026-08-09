@@ -337,6 +337,12 @@ func (e *securityScanExecutionEngine) observePostScripts(ctx context.Context) {
 			e.recordPostScriptFailure(job, "post-script run disappeared before completing", triggersv1alpha1.SecurityScanTaskFailureRetryable)
 			continue
 		}
+		// Paused is published before the AgentRun controller drains the old
+		// sandbox. Keep the pipeline and sink gated until that worker can no
+		// longer mutate the finding during shutdown.
+		if run.Status.Phase == platformv1alpha1.AgentRunPhasePaused && run.Status.Sandbox != nil {
+			continue
+		}
 		switch run.Status.Phase {
 		case platformv1alpha1.AgentRunPhaseSucceeded:
 			job.State = triggersv1alpha1.SecurityScanPostScriptStateSucceeded
@@ -344,11 +350,14 @@ func (e *securityScanExecutionEngine) observePostScripts(ctx context.Context) {
 			job.FinishedAt = &e.now
 			job.Result = truncateSecurityScanError(e.postScriptVerdict(ctx, job))
 		case platformv1alpha1.AgentRunPhaseFailed, platformv1alpha1.AgentRunPhaseCancelled:
-			reason := strings.TrimSpace(run.Status.LastError)
-			if reason == "" {
-				reason = "post-script run " + strings.ToLower(string(run.Status.Phase))
-			}
+			reason := securityScanAgentRunFailureReason(run, "post-script")
 			e.recordPostScriptFailure(job, reason, classifySecurityScanTaskFailure(reason))
+		case platformv1alpha1.AgentRunPhasePaused:
+			// A pause requires a limit change to resume. Retrying the same
+			// immutable scan attempt would carry the same exhausted limit and,
+			// because Paused has no completion timestamp, bypass retry backoff.
+			e.recordPostScriptFailure(job, securityScanAgentRunFailureReason(run, "post-script"),
+				triggersv1alpha1.SecurityScanTaskFailureNonRetryable)
 		}
 	}
 }

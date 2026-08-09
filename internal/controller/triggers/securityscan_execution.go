@@ -910,6 +910,12 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 			e.recordAttemptFailure(entry, nil, "task run disappeared before completing", triggersv1alpha1.SecurityScanTaskFailureRetryable)
 			continue
 		}
+		// Paused is published before the AgentRun controller drains the old
+		// sandbox. Do not launch a retry while that worker can still exit and
+		// publish results from the previous attempt.
+		if run.Status.Phase == platformv1alpha1.AgentRunPhasePaused && run.Status.Sandbox != nil {
+			continue
+		}
 		switch run.Status.Phase {
 		case platformv1alpha1.AgentRunPhaseSucceeded:
 			task := e.tasks[entry.Name]
@@ -926,14 +932,37 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 			entry.LastError = ""
 			entry.NextRetryTime = nil
 			entry.FinishedAt = &e.now
-		case platformv1alpha1.AgentRunPhaseFailed, platformv1alpha1.AgentRunPhaseCancelled:
-			reason := strings.TrimSpace(run.Status.LastError)
-			if reason == "" {
-				reason = "task run " + strings.ToLower(string(run.Status.Phase))
-			}
+		case platformv1alpha1.AgentRunPhaseFailed, platformv1alpha1.AgentRunPhaseCancelled,
+			platformv1alpha1.AgentRunPhasePaused:
+			reason := securityScanAgentRunFailureReason(run, "task")
 			e.recordAttemptFailure(entry, run, reason, classifySecurityScanTaskFailure(reason))
 		}
 	}
+}
+
+// securityScanAgentRunFailureReason preserves the actionable queue reason used by
+// Paused AgentRuns. Runtime limits pause (rather than fail) a run and publish
+// the timeout only in status.queue.blockedReason; ignoring that phase leaves a
+// deterministic scan counting the run as live forever after its worker has
+// already been drained.
+func securityScanAgentRunFailureReason(run *platformv1alpha1.AgentRun, kind string) string {
+	if run == nil {
+		return kind + " run failed"
+	}
+	if run.Status.Phase == platformv1alpha1.AgentRunPhasePaused && run.Status.Queue != nil {
+		if reason := strings.TrimSpace(run.Status.Queue.BlockedReason); reason != "" {
+			return reason
+		}
+	}
+	if reason := strings.TrimSpace(run.Status.LastError); reason != "" {
+		return reason
+	}
+	if run.Status.Queue != nil {
+		if reason := strings.TrimSpace(run.Status.Queue.BlockedReason); reason != "" {
+			return reason
+		}
+	}
+	return kind + " run " + strings.ToLower(string(run.Status.Phase))
 }
 
 // recordAttemptFailure appends the failed attempt to the retry history
