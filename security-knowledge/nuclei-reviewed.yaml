@@ -1,0 +1,20 @@
+id: ga-server-version-disclosure
+
+info:
+  name: HTTP Server Version Disclosure
+  author: gratefulagents
+  severity: info
+  description: Detects version-bearing HTTP Server response headers.
+  tags: exposure,headers,ga-reviewed
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    redirects: false
+    max-redirects: 0
+    matchers:
+      - type: regex
+        part: header
+        regex:
+          - '(?i)server:\s*[^\r\n/]+/[0-9][^\r\n]*'

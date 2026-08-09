@@ -37,8 +37,8 @@ test-installers: ## Run installer helper tests.
 	./scripts/latest-release-tag_test.sh
 	./scripts/install-k3s_test.sh
 
-.PHONY: docker-build-all docker-build docker-build-worker docker-build-injector
-docker-build-all: docker-build docker-build-worker docker-build-injector
+.PHONY: docker-build-all docker-build docker-build-worker docker-build-injector docker-build-security-tools
+docker-build-all: docker-build docker-build-worker docker-build-injector docker-build-security-tools
 
 docker-build:
 	$(CONTAINER_TOOL) build -t $(IMG) .
@@ -49,8 +49,11 @@ docker-build-worker:
 docker-build-injector:
 	$(CONTAINER_TOOL) build -t $(INJECTOR_IMG) -f Dockerfile.injector .
 
-.PHONY: docker-push-all docker-push docker-push-worker docker-push-injector
-docker-push-all: docker-push docker-push-worker docker-push-injector
+docker-build-security-tools:
+	$(CONTAINER_TOOL) build -t $(SECURITY_TOOLS_IMG) -f Dockerfile.security-tools .
+
+.PHONY: docker-push-all docker-push docker-push-worker docker-push-injector docker-push-security-tools
+docker-push-all: docker-push docker-push-worker docker-push-injector docker-push-security-tools
 
 docker-push:
 	$(CONTAINER_TOOL) push $(IMG)
@@ -60,3 +63,6 @@ docker-push-worker:
 
 docker-push-injector:
 	$(CONTAINER_TOOL) push $(INJECTOR_IMG)
+
+docker-push-security-tools:
+	$(CONTAINER_TOOL) push $(SECURITY_TOOLS_IMG)

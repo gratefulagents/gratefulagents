@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="2" failures="1">
+  <testsuite name="InvariantVault" tests="2" failures="1">
+    <testcase classname="test/InvariantVault.t.sol:InvariantVault" name="invariant_totalAssetsCoverShares()" file="test/InvariantVault.t.sol">
+      <failure type="InvariantFailure" message="total assets fell below outstanding shares">counterexample: deposit=100 withdrawal=101 seed=0x2a</failure>
+    </testcase>
+    <testcase classname="test/InvariantVault.t.sol:InvariantVault" name="invariant_noUnauthorizedMint()" file="test/InvariantVault.t.sol"/>
+  </testsuite>
+</testsuites>
