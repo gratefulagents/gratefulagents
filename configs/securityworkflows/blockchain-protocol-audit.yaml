@@ -23,8 +23,7 @@ spec:
         system contracts, proof/message semantics, and VM/host boundaries; leave ordinary reentrancy, oracle,
         token, proxy-layout, and contract access-control review to smart-contract-review. Publish the complete
         risk-ranked inventory, not findings. Sort the array by strictly ascending, unique risk_rank (one is
-        highest risk); later fan-out consumes that array order and reviews at most its first 16 entries, so do
-        not silently omit lower-ranked surfaces.
+        highest risk); later fan-out consumes that array order and reviews every surface.
       outputSchema: |-
         {
           "type": "array",
@@ -48,29 +47,40 @@ spec:
       role: vulnerability-hunter
       category: other
       objective: >-
-        Review one risk-ranked protocol surface end to end: {{item.surface_id}} in domain {{item.domain}},
-        entering at {{item.entrypoint}} in {{item.file}}. The least-privileged relevant attacker is
-        {{item.attacker}}; the protected property is {{item.asset_or_invariant}}, and the expected control is
-        {{item.control}}. Follow attacker-controlled data through parsing, validation, authorization,
-        state reads and writes, cryptography, external calls, persistence, and error or rollback handling.
-        Compare alternate admission, replay, synchronization, estimation, tracing, recovery, and upgrade paths
-        that perform the same operation. Report only a concrete path where the stated control is absent or
-        bypassable, with every hop and the resulting fund, key, safety, liveness, or node-compromise impact at
-        file:line. Publish one structured result saying the surface was reviewed and listing every finding
-        fingerprint returned by report_security_finding; use an empty fingerprints array when it holds.
+        Process the indexed array in {{items}}, reviewing every risk-ranked protocol surface it contains end
+        to end. For each input, use its surface_id, domain, entrypoint, file, attacker, asset_or_invariant, and
+        control. Follow attacker-controlled data through parsing, validation, authorization, state reads and
+        writes, cryptography, external calls, persistence, and error or rollback handling. Compare alternate
+        admission, replay, synchronization, estimation, tracing, recovery, and upgrade paths that perform the
+        same operation. Report only a concrete path where the stated control is absent or bypassable, with
+        every hop and the resulting fund, key, safety, liveness, or node-compromise impact at file:line. Return
+        exactly one envelope per input, preserving its absolute recordIndex, with result containing surface_id,
+        status, fingerprints, and summary. Set status to reviewed when the review completes or blocked when it
+        cannot complete. List every finding fingerprint returned by report_security_finding; use an empty
+        fingerprints array when the surface holds.
       dependsOn: [map-protocol-surfaces]
       forEach: map-protocol-surfaces
-      maxInstances: 16
+      targetRuns: 16
       maxFindings: 4
       outputSchema: |-
         {
-          "type": "object",
-          "required": ["surface_id", "status", "fingerprints", "summary"],
-          "properties": {
-            "surface_id": {"type": "string"},
-            "status": {"type": "string", "enum": ["reviewed", "blocked"]},
-            "fingerprints": {"type": "array", "items": {"type": "string"}},
-            "summary": {"type": "string", "description": "What was checked or why review was blocked"}
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["recordIndex", "result"],
+            "properties": {
+              "recordIndex": {"type": "integer", "minimum": 0, "description": "Absolute index of the input record"},
+              "result": {
+                "type": "object",
+                "required": ["surface_id", "status", "fingerprints", "summary"],
+                "properties": {
+                  "surface_id": {"type": "string"},
+                  "status": {"type": "string", "enum": ["reviewed", "blocked"]},
+                  "fingerprints": {"type": "array", "items": {"type": "string"}},
+                  "summary": {"type": "string", "description": "What was checked or why review was blocked"}
+                }
+              }
+            }
           }
         }
 
@@ -319,10 +329,9 @@ spec:
         Rank unauthenticated consensus failure or direct fund loss first, then persistent state corruption,
         key compromise, bridge safety failure, and
         single-peer node takeover or sustained DoS; state validator, sequencer, relayer, and operator
-        prerequisites explicitly. The per-surface fan-out reviews at most the first 16 inventory entries:
-        name every lower-ranked surface beyond that cut, every blocked review result, and every domain absent
-        from the inventory as explicit coverage information rather than implying full coverage. Then assemble
-        and submit exactly one final report.
+        prerequisites explicitly. The per-surface fan-out reviews every inventory entry: name every blocked
+        review result and every domain absent from the inventory as explicit coverage information rather than
+        implying full coverage. Then assemble and submit exactly one final report.
       dependsOn:
         - map-protocol-surfaces
         - review-critical-surface

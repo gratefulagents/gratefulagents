@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -62,7 +63,7 @@ const (
 	// the SecurityScan object stays well below the etcd object-size limit.
 	// Validation enforces the same planned-instance budget up front
 	// (MaxSecurityWorkflowPlannedInstances); the engine re-enforces it at
-	// fan-out expansion time and truncates over-budget expansions.
+	// expansion time. Legacy expansions truncate; targetRuns fails closed.
 	securityScanExecutionMaxTaskEntries = triggersv1alpha1.MaxSecurityWorkflowPlannedInstances
 
 	// securityScanMaxRenderedObjectiveBytes caps a fully rendered task
@@ -550,9 +551,10 @@ func planSecurityScanExecution(workflow []triggersv1alpha1.SecurityScanTask, ext
 	plan := make([]triggersv1alpha1.SecurityScanExecutionPlanNode, 0, len(workflow))
 	for _, task := range workflow {
 		plan = append(plan, triggersv1alpha1.SecurityScanExecutionPlanNode{
-			Name:      task.Name,
-			DependsOn: append([]string(nil), task.DependsOn...),
-			ForEach:   task.ForEach,
+			Name:       task.Name,
+			DependsOn:  append([]string(nil), task.DependsOn...),
+			ForEach:    task.ForEach,
+			TargetRuns: task.TargetRuns,
 		})
 		instances := int32(1)
 		if task.ForEach == "" {
@@ -833,8 +835,15 @@ func (e *securityScanExecutionEngine) advance(ctx context.Context) time.Duration
 
 	e.observe(ctx)
 	e.observePostScripts(ctx)
-	e.expandFanOuts(ctx)
+	materializedFanOut := e.expandFanOuts(ctx)
 	e.propagateSkips()
+	if materializedFanOut {
+		// Chunk entries and their source binding must be durable before any
+		// corresponding AgentRun can exist. The next reconcile dispatches the
+		// frozen plan.
+		e.finalizePhase(e.anyFailed())
+		return e.nextRequeue()
+	}
 
 	e.budgets = effectiveSecurityScanBudgets(e.scan, e.r.scanPolicyPack(ctx, e.scan))
 	if budgetErr := e.enforceBudgets(ctx); budgetErr != "" {
@@ -882,9 +891,16 @@ func (e *securityScanExecutionEngine) workflowDrift() string {
 	for i := range e.exec.Tasks {
 		planned[e.exec.Tasks[i].Name] = true
 	}
+	planByName := make(map[string]triggersv1alpha1.SecurityScanExecutionPlanNode, len(e.exec.Plan))
+	for _, node := range e.exec.Plan {
+		planByName[node.Name] = node
+	}
 	for _, task := range e.order {
 		if !planned[task.Name] {
 			return fmt.Sprintf("%s (task %q was added after the execution was planned)", remedy, task.Name)
+		}
+		if node, ok := planByName[task.Name]; ok && node.ForEach != task.ForEach {
+			return fmt.Sprintf("%s (task %q changed forEach from %q to %q)", remedy, task.Name, node.ForEach, task.ForEach)
 		}
 		for _, dep := range task.DependsOn {
 			if !planned[dep] {
@@ -919,7 +935,15 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 		switch run.Status.Phase {
 		case platformv1alpha1.AgentRunPhaseSucceeded:
 			task := e.tasks[entry.Name]
-			if strings.TrimSpace(task.OutputSchema) != "" {
+			plan := e.fanOutStatus(entry.Name)
+			if plan != nil && plan.Strategy == "chunk-v1" {
+				if _, outputErr := validateSecurityScanChunkOutput(run.Status.StructuredOutput, entry.RecordStart, entry.RecordEnd); outputErr != nil {
+					e.recordAttemptFailure(entry, run,
+						securityScanReasonOutputContractUnmet+": "+outputErr.Error(),
+						triggersv1alpha1.SecurityScanTaskFailureNonRetryable)
+					continue
+				}
+			} else if strings.TrimSpace(task.OutputSchema) != "" {
 				out := strings.TrimSpace(run.Status.StructuredOutput)
 				if out == "" || !json.Valid([]byte(out)) {
 					e.recordAttemptFailure(entry, run,
@@ -938,6 +962,48 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 			e.recordAttemptFailure(entry, run, reason, classifySecurityScanTaskFailure(reason))
 		}
 	}
+}
+
+func validateSecurityScanChunkOutput(output string, start, end int32) ([]json.RawMessage, error) {
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(output), &entries); err != nil || entries == nil {
+		return nil, fmt.Errorf("chunk output is not a JSON array")
+	}
+	want := int(end - start)
+	if len(entries) != want {
+		return nil, fmt.Errorf("chunk output has %d records, want exactly %d", len(entries), want)
+	}
+	results := make([]json.RawMessage, want)
+	seen := make([]bool, want)
+	for _, entry := range entries {
+		if len(entry) != 2 {
+			return nil, fmt.Errorf("each chunk output entry must contain exactly recordIndex and result")
+		}
+		rawIndex, hasIndex := entry["recordIndex"]
+		result, hasResult := entry["result"]
+		if !hasIndex || !hasResult {
+			return nil, fmt.Errorf("each chunk output entry must contain exactly recordIndex and result")
+		}
+		var index int64
+		if err := json.Unmarshal(rawIndex, &index); err != nil {
+			return nil, fmt.Errorf("chunk output recordIndex must be an integer")
+		}
+		if index < int64(start) || index >= int64(end) {
+			return nil, fmt.Errorf("chunk output contains foreign recordIndex %d outside [%d,%d)", index, start, end)
+		}
+		offset := int(index - int64(start))
+		if seen[offset] {
+			return nil, fmt.Errorf("chunk output contains duplicate recordIndex %d", index)
+		}
+		seen[offset] = true
+		results[offset] = result
+	}
+	for i, present := range seen {
+		if !present {
+			return nil, fmt.Errorf("chunk output is missing recordIndex %d", int(start)+i)
+		}
+	}
+	return results, nil
 }
 
 // securityScanAgentRunFailureReason preserves the actionable queue reason used by
@@ -1021,14 +1087,21 @@ func securityScanRetryBackoff(base time.Duration, attempt int32) time.Duration {
 }
 
 // expandFanOuts replaces the un-started placeholder instance of each forEach
-// task whose source task has fully succeeded with one instance per source
-// record. Zero records complete the task vacuously (Succeeded with no run)
-// so downstream joins still proceed with an empty array. The expansion is
-// recomputed deterministically from the source output, so re-running it
-// after a crash yields the same instances.
-func (e *securityScanExecutionEngine) expandFanOuts(ctx context.Context) {
+// task whose source task has fully succeeded. Legacy maxInstances tasks keep
+// their one-instance-per-record behavior. targetRuns tasks instead persist a
+// source-bound, count-balanced chunk plan and return true so dispatch is
+// deferred until the plan has survived a status write.
+func (e *securityScanExecutionEngine) expandFanOuts(ctx context.Context) bool {
+	materialized := false
 	for _, task := range e.order {
-		if task.ForEach == "" {
+		sourceName := e.plannedForEach(task.Name)
+		if sourceName == "" {
+			continue
+		}
+		if targetRuns := e.plannedTargetRuns(task.Name); targetRuns > 0 {
+			if e.expandTargetRunsFanOut(ctx, task, sourceName, targetRuns) {
+				materialized = true
+			}
 			continue
 		}
 		entries := e.taskEntries(task.Name)
@@ -1039,13 +1112,13 @@ func (e *securityScanExecutionEngine) expandFanOuts(ctx context.Context) {
 		if placeholder.Attempts > 0 || securityScanTaskTerminal(placeholder.State) {
 			continue
 		}
-		if !e.taskComplete(task.ForEach) {
+		if !e.taskComplete(sourceName) {
 			continue
 		}
-		records, err := e.fanOutRecords(ctx, task.ForEach)
+		records, err := e.fanOutRecords(ctx, sourceName)
 		if err != nil {
 			placeholder.State = triggersv1alpha1.SecurityScanTaskStateFailed
-			placeholder.LastError = truncateSecurityScanError(fmt.Sprintf("forEach source %q: %s", task.ForEach, err.Error()))
+			placeholder.LastError = truncateSecurityScanError(fmt.Sprintf("forEach source %q: %s", sourceName, err.Error()))
 			placeholder.FinishedAt = &e.now
 			continue
 		}
@@ -1085,12 +1158,168 @@ func (e *securityScanExecutionEngine) expandFanOuts(ctx context.Context) {
 		}
 		e.replaceTaskEntries(task.Name, expanded)
 	}
+	return materialized
+}
+
+func (e *securityScanExecutionEngine) plannedForEach(name string) string {
+	for _, node := range e.exec.Plan {
+		if node.Name == name {
+			return node.ForEach
+		}
+	}
+	// Executions created before plan snapshots existed retain their legacy
+	// behavior. A non-empty plan is authoritative and must not be filled from
+	// a subsequently edited workflow.
+	if len(e.exec.Plan) == 0 {
+		return e.tasks[name].ForEach
+	}
+	return ""
+}
+
+func (e *securityScanExecutionEngine) plannedTargetRuns(name string) int32 {
+	for _, node := range e.exec.Plan {
+		if node.Name == name {
+			return node.TargetRuns
+		}
+	}
+	// Executions created before targetRuns was snapshotted remain legacy.
+	return 0
+}
+
+func (e *securityScanExecutionEngine) expandTargetRunsFanOut(ctx context.Context, task triggersv1alpha1.SecurityScanTask, sourceName string, targetRuns int32) bool {
+	if e.fanOutStatus(task.Name) != nil {
+		return false
+	}
+	entries := e.taskEntries(task.Name)
+	if len(entries) != 1 {
+		return false
+	}
+	placeholder := entries[0]
+	if placeholder.Attempts > 0 || securityScanTaskTerminal(placeholder.State) || !e.taskComplete(sourceName) {
+		return false
+	}
+
+	sourceRunName, sourceOutput, records, err := e.targetRunsSource(ctx, sourceName)
+	if err != nil {
+		placeholder.State = triggersv1alpha1.SecurityScanTaskStateFailed
+		placeholder.LastError = truncateSecurityScanError(fmt.Sprintf("forEach source %q: %s", sourceName, err.Error()))
+		placeholder.FinishedAt = &e.now
+		return false
+	}
+
+	chunkCount := len(records)
+	if target := int(targetRuns); chunkCount > target {
+		chunkCount = target
+	}
+	sourceHash := securityScanSHA256(sourceOutput)
+	e.exec.FanOuts = append(e.exec.FanOuts, triggersv1alpha1.SecurityScanFanOutExecutionStatus{
+		Name:               task.Name,
+		SourceTask:         sourceName,
+		SourceRunName:      sourceRunName,
+		Strategy:           "chunk-v1",
+		SourceOutputSHA256: sourceHash,
+		RecordCount:        int32(len(records)), //nolint:gosec // structured outputs are bounded well below int32
+		ChunkCount:         int32(chunkCount),   //nolint:gosec // targetRuns is API-bounded
+	})
+
+	if chunkCount == 0 {
+		placeholder.State = triggersv1alpha1.SecurityScanTaskStateSucceeded
+		placeholder.FinishedAt = &e.now
+		return true
+	}
+	if len(e.exec.Tasks)-1+chunkCount > securityScanExecutionMaxTaskEntries {
+		placeholder.State = triggersv1alpha1.SecurityScanTaskStateFailed
+		placeholder.LastError = truncateSecurityScanError(fmt.Sprintf("task %q targetRuns fan-out requires %d chunks, exceeding the execution cap of %d total task instances", task.Name, chunkCount, securityScanExecutionMaxTaskEntries))
+		placeholder.FinishedAt = &e.now
+		return true
+	}
+
+	expanded := make([]triggersv1alpha1.SecurityScanTaskExecutionStatus, 0, chunkCount)
+	start := 0
+	base, extra := len(records)/chunkCount, len(records)%chunkCount
+	for i := 0; i < chunkCount; i++ {
+		size := base
+		if i < extra {
+			size++
+		}
+		end := start + size
+		items := securityScanIndexedItems(records, start, end)
+		expanded = append(expanded, triggersv1alpha1.SecurityScanTaskExecutionStatus{
+			Name:        task.Name,
+			Instance:    int32(i), //nolint:gosec // targetRuns is API-bounded
+			State:       triggersv1alpha1.SecurityScanTaskStatePending,
+			RecordStart: int32(start), //nolint:gosec // structured outputs are bounded well below int32
+			RecordEnd:   int32(end),   //nolint:gosec // structured outputs are bounded well below int32
+			InputSHA256: securityScanSHA256(items),
+		})
+		start = end
+	}
+	e.replaceTaskEntries(task.Name, expanded)
+	return true
+}
+
+func (e *securityScanExecutionEngine) fanOutStatus(name string) *triggersv1alpha1.SecurityScanFanOutExecutionStatus {
+	for i := range e.exec.FanOuts {
+		if e.exec.FanOuts[i].Name == name {
+			return &e.exec.FanOuts[i]
+		}
+	}
+	return nil
+}
+
+func (e *securityScanExecutionEngine) targetRunsSource(ctx context.Context, sourceName string) (string, string, []json.RawMessage, error) {
+	entries := e.taskEntries(sourceName)
+	if len(entries) != 1 || entries[0].RunName == "" {
+		return "", "", nil, fmt.Errorf("targetRuns requires a single source task run")
+	}
+	run, err := e.getRun(ctx, entries[0].RunName)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if run == nil {
+		return "", "", nil, fmt.Errorf("task %q run %q no longer exists; its output is unavailable", sourceName, entries[0].RunName)
+	}
+	output := run.Status.StructuredOutput
+	var records []json.RawMessage
+	if err := json.Unmarshal([]byte(output), &records); err != nil || records == nil {
+		return "", "", nil, fmt.Errorf("structured output is not a JSON array")
+	}
+	return run.Name, output, records, nil
+}
+
+func securityScanIndexedItems(records []json.RawMessage, start, end int) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i := start; i < end; i++ {
+		if i > start {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `{"recordIndex":%d,"item":%s}`, i, records[i])
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+func securityScanSHA256(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 // fanOutRecords parses the forEach source task's output into records: a
 // single-instance source must publish a JSON array; a multi-instance source
 // contributes one record per instance output.
 func (e *securityScanExecutionEngine) fanOutRecords(ctx context.Context, sourceName string) ([]json.RawMessage, error) {
+	if plan := e.fanOutStatus(sourceName); plan != nil && plan.Strategy == "chunk-v1" {
+		output, err := e.taskOutput(ctx, sourceName)
+		if err != nil {
+			return nil, err
+		}
+		var records []json.RawMessage
+		if err := json.Unmarshal([]byte(output), &records); err != nil {
+			return nil, fmt.Errorf("structured output is not a JSON array")
+		}
+		return records, nil
+	}
 	outputs, vacuous, err := e.taskInstanceOutputs(ctx, sourceName)
 	if err != nil {
 		return nil, err
@@ -1435,21 +1664,36 @@ func (e *securityScanExecutionEngine) launch(ctx context.Context, entry *trigger
 // prompt instance context.
 func (e *securityScanExecutionEngine) taskInstanceContext(ctx context.Context, entry *triggersv1alpha1.SecurityScanTaskExecutionStatus, task triggersv1alpha1.SecurityScanTask) (SecurityScanTaskInstance, error) {
 	var item json.RawMessage
+	var items json.RawMessage
 	total := int32(len(e.taskEntries(task.Name)))
-	if task.ForEach != "" {
-		records, err := e.fanOutRecords(ctx, task.ForEach)
-		if err != nil {
-			return SecurityScanTaskInstance{}, fmt.Errorf("forEach source %q: %w", task.ForEach, err)
+	plan := e.fanOutStatus(task.Name)
+	chunked := plan != nil && plan.Strategy == "chunk-v1"
+	sourceName := e.plannedForEach(task.Name)
+	if sourceName != "" {
+		if chunked {
+			chunkItems, err := e.targetRunsChunkItems(ctx, task, entry)
+			if err != nil {
+				return SecurityScanTaskInstance{}, err
+			}
+			items = json.RawMessage(chunkItems)
+		} else {
+			records, err := e.fanOutRecords(ctx, sourceName)
+			if err != nil {
+				return SecurityScanTaskInstance{}, fmt.Errorf("forEach source %q: %w", sourceName, err)
+			}
+			if int(entry.Instance) >= len(records) {
+				return SecurityScanTaskInstance{}, fmt.Errorf("forEach source %q no longer yields record %d", sourceName, entry.Instance)
+			}
+			item = records[entry.Instance]
 		}
-		if int(entry.Instance) >= len(records) {
-			return SecurityScanTaskInstance{}, fmt.Errorf("forEach source %q no longer yields record %d", task.ForEach, entry.Instance)
-		}
-		item = records[entry.Instance]
 	}
 	objective, err := renderSecurityScanTaskObjective(task.Objective, &securityScanTaskTemplateContext{
-		params: e.params,
-		item:   item,
-		output: func(name string) (string, error) { return e.taskOutput(ctx, name) },
+		params:      e.params,
+		item:        item,
+		items:       items,
+		recordStart: entry.RecordStart,
+		recordEnd:   entry.RecordEnd,
+		output:      func(name string) (string, error) { return e.taskOutput(ctx, name) },
 	})
 	if err != nil {
 		return SecurityScanTaskInstance{}, err
@@ -1457,6 +1701,10 @@ func (e *securityScanExecutionEngine) taskInstanceContext(ctx context.Context, e
 	itemJSON := ""
 	if item != nil {
 		itemJSON = string(item)
+	}
+	itemsJSON := ""
+	if items != nil {
+		itemsJSON = string(items)
 	}
 	// Only the sink states coverage gaps: it writes the report the gaps
 	// qualify, and a research task cannot act on them.
@@ -1466,11 +1714,15 @@ func (e *securityScanExecutionEngine) taskInstanceContext(ctx context.Context, e
 		coverageGaps = e.exec.CoverageGaps
 	}
 	return SecurityScanTaskInstance{
-		Objective: objective,
-		Instance:  entry.Instance,
-		Total:     total,
-		ItemJSON:  itemJSON,
-		Sink:      sink,
+		Objective:   objective,
+		Instance:    entry.Instance,
+		Total:       total,
+		ItemJSON:    itemJSON,
+		ItemsJSON:   itemsJSON,
+		Chunked:     chunked,
+		RecordStart: entry.RecordStart,
+		RecordEnd:   entry.RecordEnd,
+		Sink:        sink,
 		// A workflow with no research phase never got a platform-executed
 		// post-script matrix (materializePostScripts declares it vacuous), so
 		// the sink is asked to run the scripts itself instead of being told
@@ -1478,6 +1730,29 @@ func (e *securityScanExecutionEngine) taskInstanceContext(ctx context.Context, e
 		PostScriptsInline: !e.workflowHasResearchPhase(),
 		CoverageGaps:      coverageGaps,
 	}, nil
+}
+
+func (e *securityScanExecutionEngine) targetRunsChunkItems(ctx context.Context, task triggersv1alpha1.SecurityScanTask, entry *triggersv1alpha1.SecurityScanTaskExecutionStatus) (string, error) {
+	plan := e.fanOutStatus(task.Name)
+	if plan == nil || plan.Strategy != "chunk-v1" {
+		return "", fmt.Errorf("task %q targetRuns chunk plan is unavailable", task.Name)
+	}
+	sourceRunName, sourceOutput, records, err := e.targetRunsSource(ctx, plan.SourceTask)
+	if err != nil {
+		return "", fmt.Errorf("forEach source %q drifted after chunk planning: %w", plan.SourceTask, err)
+	}
+	if sourceRunName != plan.SourceRunName || securityScanSHA256(sourceOutput) != plan.SourceOutputSHA256 || int32(len(records)) != plan.RecordCount {
+		return "", fmt.Errorf("forEach source %q output drifted after chunk planning; re-run the scan", plan.SourceTask)
+	}
+	start, end := int(entry.RecordStart), int(entry.RecordEnd)
+	if start < 0 || end <= start || end > len(records) {
+		return "", fmt.Errorf("task %q has invalid persisted record range [%d,%d)", task.Name, start, end)
+	}
+	items := securityScanIndexedItems(records, start, end)
+	if securityScanSHA256(items) != entry.InputSHA256 {
+		return "", fmt.Errorf("task %q chunk %d input drifted after chunk planning; re-run the scan", task.Name, entry.Instance)
+	}
+	return items, nil
 }
 
 // finalizePhase computes the execution phase from the task states.
@@ -1630,6 +1905,20 @@ func (e *securityScanExecutionEngine) taskOutput(ctx context.Context, name strin
 	if vacuous {
 		return "[]", nil
 	}
+	if plan := e.fanOutStatus(name); plan != nil && plan.Strategy == "chunk-v1" {
+		entries := e.taskEntries(name)
+		results := make([]string, 0)
+		for i, output := range outputs {
+			chunk, chunkErr := validateSecurityScanChunkOutput(output, entries[i].RecordStart, entries[i].RecordEnd)
+			if chunkErr != nil {
+				return "", fmt.Errorf("task %q: %w", name, chunkErr)
+			}
+			for _, result := range chunk {
+				results = append(results, string(result))
+			}
+		}
+		return "[" + strings.Join(results, ",") + "]", nil
+	}
 	if len(outputs) == 1 {
 		return outputs[0], nil
 	}
@@ -1744,7 +2033,7 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		// shares down to one task's cap.
 		annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation] = strconv.Itoa(int(task.MaxFindings))
 	}
-	if schema := strings.TrimSpace(task.OutputSchema); schema != "" {
+	if schema := securityScanTaskOutputSchema(task, inst); schema != "" {
 		annotations[securityScanTaskOutputSchemaAnnotation] = schema
 	}
 
@@ -1804,7 +2093,7 @@ func securityScanTaskToolPolicy(task triggersv1alpha1.SecurityScanTask, inst Sec
 	allowed := append([]string(nil), task.Tools.Allowed...)
 	if len(allowed) > 0 {
 		contract := []string{"report_security_finding", "update_security_finding"}
-		if strings.TrimSpace(task.OutputSchema) != "" {
+		if strings.TrimSpace(task.OutputSchema) != "" || inst.Chunked {
 			contract = append(contract, "submit_task_output")
 		}
 		if inst.Sink {
@@ -1824,6 +2113,44 @@ func securityScanTaskToolPolicy(task triggersv1alpha1.SecurityScanTask, inst Sec
 		AllowedTools: allowed,
 		DeniedTools:  append([]string(nil), task.Tools.Denied...),
 	}
+}
+
+func securityScanTaskOutputSchema(task triggersv1alpha1.SecurityScanTask, inst SecurityScanTaskInstance) string {
+	if !inst.Chunked {
+		return strings.TrimSpace(task.OutputSchema)
+	}
+	count := inst.RecordEnd - inst.RecordStart
+	schema := map[string]any{}
+	if declared := strings.TrimSpace(task.OutputSchema); declared != "" {
+		// Workflow validation guarantees an object-form JSON Schema. Merge the
+		// chunk constraints into it because the worker's intentionally minimal
+		// validator does not implement allOf.
+		_ = json.Unmarshal([]byte(declared), &schema)
+	}
+	schema["type"] = "array"
+	schema["minItems"] = count
+	schema["maxItems"] = count
+	items, _ := schema["items"].(map[string]any)
+	if items == nil {
+		items = map[string]any{}
+	}
+	items["type"] = "object"
+	items["additionalProperties"] = false
+	items["required"] = []any{"recordIndex", "result"}
+	properties, _ := items["properties"].(map[string]any)
+	if properties == nil {
+		properties = map[string]any{}
+	}
+	properties["recordIndex"] = map[string]any{
+		"type": "integer", "minimum": inst.RecordStart, "maximum": inst.RecordEnd - 1,
+	}
+	if _, ok := properties["result"]; !ok {
+		properties["result"] = map[string]any{}
+	}
+	items["properties"] = properties
+	schema["items"] = items
+	encoded, _ := json.Marshal(schema)
+	return string(encoded)
 }
 
 // securityScanExecutionRecordName is the run-name key of the ONE persisted
@@ -2218,6 +2545,10 @@ type securityScanTaskTemplateContext struct {
 	output func(name string) (string, error)
 	// item is this instance's fan-out record; nil outside forEach tasks.
 	item json.RawMessage
+	// items is a targetRuns chunk's indexed input array.
+	items       json.RawMessage
+	recordStart int32
+	recordEnd   int32
 }
 
 // renderSecurityScanTaskObjective substitutes every supported template
@@ -2278,6 +2609,21 @@ func resolveSecurityScanTemplateRef(ref string, tctx *securityScanTaskTemplateCo
 		}
 		value, err := securityScanJSONField(tctx.item, strings.TrimSpace(field), "item")
 		return value, true, err
+	}
+	if ref == "items" {
+		if tctx.items == nil {
+			return "", true, fmt.Errorf("{{items}} is only available in targetRuns task instances")
+		}
+		return string(tctx.items), true, nil
+	}
+	if ref == "range.start" || ref == "range.end" {
+		if tctx.items == nil {
+			return "", true, fmt.Errorf("{{%s}} is only available in targetRuns task instances", ref)
+		}
+		if ref == "range.start" {
+			return strconv.Itoa(int(tctx.recordStart)), true, nil
+		}
+		return strconv.Itoa(int(tctx.recordEnd)), true, nil
 	}
 	if rest, ok := strings.CutPrefix(ref, "tasks."); ok {
 		name, accessor, found := strings.Cut(rest, ".")

@@ -41,7 +41,7 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 				OutputSchema: `{"type":"array","items":{"type":"object"}}`},
 			{Name: "triage", Objective: "triage findings", Role: "finding-triager", Model: "gpt-5.2",
 				DependsOn: []string{"injection"}, MaxRetries: &taskRetries, Timeout: "45m", MaxTurns: 30,
-				MaxCostUsd: "2.50", ForEach: "injection", MaxInstances: 5,
+				MaxCostUsd: "2.50", ForEach: "injection", TargetRuns: 5,
 				Tools: &platform.SecurityScanTaskTools{Allowed: []string{"grep", "read_file"}, Denied: []string{"web_fetch"}}},
 		},
 		Parallelism: 8,
@@ -126,7 +126,7 @@ func TestCreateSecurityScanHappyPathFullSpec(t *testing.T) {
 	}
 	pt := ps.Workflow[1]
 	if pt.MaxRetries == nil || *pt.MaxRetries != 2 || pt.Timeout != "45m0s" || pt.MaxTurns != 30 ||
-		pt.MaxCostUsd != "2.50" || pt.ForEach != "injection" || pt.MaxInstances != 5 ||
+		pt.MaxCostUsd != "2.50" || pt.ForEach != "injection" || pt.TargetRuns != 5 ||
 		pt.Tools == nil || len(pt.Tools.Allowed) != 2 || len(pt.Tools.Denied) != 1 {
 		t.Fatalf("proto workflow[1] = %+v", pt)
 	}
@@ -179,7 +179,7 @@ func assertFullScanAdvancedSpec(t *testing.T, spec triggersv1alpha1.SecurityScan
 	}
 	task := spec.Workflow[1]
 	if task.MaxRetries == nil || *task.MaxRetries != 2 || task.Timeout.Duration != 45*time.Minute ||
-		task.MaxTurns != 30 || task.MaxCostUSD != "2.50" || task.ForEach != "injection" || task.MaxInstances != 5 {
+		task.MaxTurns != 30 || task.MaxCostUSD != "2.50" || task.ForEach != "injection" || task.TargetRuns != 5 {
 		t.Fatalf("Workflow[1] execution fields = %+v", task)
 	}
 	if task.Tools == nil || len(task.Tools.Allowed) != 2 || task.Tools.Allowed[0] != "grep" ||
@@ -943,6 +943,9 @@ func TestSecurityScanConfigSurfacesLastExecution(t *testing.T) {
 						LastError:     "attempt 1 timed out",
 						NextRetryTime: &nextRetry,
 						StartedAt:     &started,
+						RecordStart:   25,
+						RecordEnd:     50,
+						InputSHA256:   "chunk-sha",
 						Retries: []triggersv1alpha1.SecurityScanTaskAttempt{{
 							RunName:    "deterministic-triage-0",
 							Reason:     "timeout",
@@ -952,6 +955,10 @@ func TestSecurityScanConfigSurfacesLastExecution(t *testing.T) {
 						}},
 					},
 				},
+				FanOuts: []triggersv1alpha1.SecurityScanFanOutExecutionStatus{{
+					Name: "triage", SourceTask: "injection", SourceRunName: "deterministic-injection-0",
+					Strategy: "chunk-v1", SourceOutputSHA256: "source-sha", RecordCount: 100, ChunkCount: 4,
+				}},
 			},
 		},
 	}
@@ -975,8 +982,15 @@ func TestSecurityScanConfigSurfacesLastExecution(t *testing.T) {
 	if task.Name != "triage" || task.Instance != 1 || task.State != "Running" ||
 		task.RunName != "deterministic-triage-1" || task.Attempts != 2 ||
 		task.LastError != "attempt 1 timed out" || task.NextRetryTimeUnix != nextRetry.Unix() ||
-		task.StartedAtUnix != started.Unix() || task.FinishedAtUnix != 0 {
+		task.StartedAtUnix != started.Unix() || task.FinishedAtUnix != 0 ||
+		task.RecordStart != 25 || task.RecordEnd != 50 || task.InputSha256 != "chunk-sha" {
 		t.Fatalf("task = %+v", task)
+	}
+	if len(le.FanOuts) != 1 || le.FanOuts[0].Name != "triage" ||
+		le.FanOuts[0].SourceTask != "injection" || le.FanOuts[0].SourceRunName != "deterministic-injection-0" ||
+		le.FanOuts[0].Strategy != "chunk-v1" || le.FanOuts[0].SourceOutputSha256 != "source-sha" ||
+		le.FanOuts[0].RecordCount != 100 || le.FanOuts[0].ChunkCount != 4 {
+		t.Fatalf("fan outs = %+v", le.FanOuts)
 	}
 	if len(task.Retries) != 1 || task.Retries[0].RunName != "deterministic-triage-0" ||
 		task.Retries[0].Reason != "timeout" || task.Retries[0].Class != "retryable" ||

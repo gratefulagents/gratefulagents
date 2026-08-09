@@ -68,6 +68,8 @@ export interface WorkflowTaskDraft {
   /** Name of a dependency whose JSON-array output this task fans out over. */
   forEach: string;
   maxInstances: string;
+  /** Desired chunk count for complete fan-out (1-50); exclusive with maxInstances. */
+  targetRuns: string;
   repeats: string;
 }
 
@@ -94,6 +96,7 @@ export function emptyWorkflowTask(): WorkflowTaskDraft {
     outputSchema: "",
     forEach: "",
     maxInstances: "",
+    targetRuns: "",
     repeats: "",
   };
 }
@@ -124,6 +127,9 @@ export function workflowTasksFromProto(tasks: SecurityScanTaskConfig[]): Workflo
     outputSchema: t.outputSchema,
     forEach: t.forEach,
     maxInstances: t.maxInstances ? String(t.maxInstances) : "",
+    targetRuns: (t as SecurityScanTaskConfig & { targetRuns: number }).targetRuns
+      ? String((t as SecurityScanTaskConfig & { targetRuns: number }).targetRuns)
+      : "",
     repeats: t.repeats ? String(t.repeats) : "",
   }));
 }
@@ -137,7 +143,7 @@ export function workflowTasksToProto(tasks: WorkflowTaskDraft[]): SecurityScanTa
   return tasks.map((t) => {
     const allowed = splitCsv(t.toolsAllowed);
     const denied = splitCsv(t.toolsDenied);
-    return create(SecurityScanTaskConfigSchema, {
+    const task = create(SecurityScanTaskConfigSchema, {
       name: t.name.trim(),
       objective: t.objective,
       category: t.category.trim(),
@@ -158,6 +164,9 @@ export function workflowTasksToProto(tasks: WorkflowTaskDraft[]): SecurityScanTa
       maxInstances: t.maxInstances.trim() ? Number(t.maxInstances) : 0,
       repeats: t.repeats.trim() ? Number(t.repeats) : 0,
     });
+    (task as SecurityScanTaskConfig & { targetRuns: number }).targetRuns =
+      t.targetRuns.trim() ? Number(t.targetRuns) : 0;
+    return task;
   });
 }
 
@@ -305,7 +314,30 @@ export function validateWorkflowTasks(tasks: WorkflowTaskDraft[]): WorkflowField
     if (maxInstances !== "" && (!isNonNegativeInt(maxInstances) || Number(maxInstances) > 50)) {
       errors.push({ field: `${field}.maxInstances`, message: `Task "${name}" max instances must be between 0 and 50.` });
     }
+    const targetRuns = task.targetRuns.trim();
+    if (targetRuns !== "" && (!isNonNegativeInt(targetRuns) || Number(targetRuns) < 1 || Number(targetRuns) > 50)) {
+      errors.push({ field: `${field}.targetRuns`, message: `Task "${name}" target runs must be between 1 and 50.` });
+    }
+    if (maxInstances !== "" && Number(maxInstances) > 0 && targetRuns !== "") {
+      errors.push({ field: `${field}.targetRuns`, message: `Task "${name}" cannot combine target runs with max instances.` });
+    }
+    if (targetRuns !== "" && Number(targetRuns) > 0 && task.forEach.trim() === "") {
+      errors.push({ field: `${field}.targetRuns`, message: `Task "${name}" may set target runs only with fan-out.` });
+    }
+    if (targetRuns !== "" && Number(targetRuns) > 0 && outputSchema !== "") {
+      try {
+        const parsed = JSON.parse(outputSchema) as { type?: unknown };
+        if (parsed.type !== "array") {
+          errors.push({ field: `${field}.outputSchema`, message: `Task "${name}" output schema must declare type array when target runs is set.` });
+        }
+      } catch {
+        // The generic output-schema validation above reports malformed JSON.
+      }
+    }
     const repeats = task.repeats.trim();
+    if (targetRuns !== "" && Number(targetRuns) > 0 && Number(repeats) > 1) {
+      errors.push({ field: `${field}.targetRuns`, message: `Task "${name}" cannot combine target runs with repeats.` });
+    }
     if (repeats !== "" && (!isNonNegativeInt(repeats) || Number(repeats) > 5)) {
       errors.push({ field: `${field}.repeats`, message: `Task "${name}" repeats must be between 0 and 5.` });
     }
@@ -1110,7 +1142,7 @@ export function SecurityWorkflowBuilder({
                   placeholder='{"type":"object","properties":{...}}'
                 />
               </FlowField>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-4">
                 <FlowField
                   id={`${idPrefix}-task-for-each-${index}`}
                   label="Fan out per record of"
@@ -1138,7 +1170,7 @@ export function SecurityWorkflowBuilder({
                 <FlowField
                   id={`${idPrefix}-task-max-instances-${index}`}
                   label="Max instances"
-                  hint="Fan-out cap; empty or 0 = 10, max 50."
+                  hint="Legacy fan-out cap; empty or 0 = 10, max 50."
                 >
                   <Input
                     id={`${idPrefix}-task-max-instances-${index}`}
@@ -1147,6 +1179,20 @@ export function SecurityWorkflowBuilder({
                     max={50}
                     value={task.maxInstances}
                     onChange={(event) => updateTask(index, { maxInstances: event.target.value })}
+                  />
+                </FlowField>
+                <FlowField
+                  id={`${idPrefix}-task-target-runs-${index}`}
+                  label="Target runs"
+                  hint="Split every record across 1-50 runs; exclusive with max instances."
+                >
+                  <Input
+                    id={`${idPrefix}-task-target-runs-${index}`}
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={task.targetRuns}
+                    onChange={(event) => updateTask(index, { targetRuns: event.target.value })}
                   />
                 </FlowField>
                 <FlowField

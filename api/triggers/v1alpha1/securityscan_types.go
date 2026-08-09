@@ -569,6 +569,15 @@ type SecurityScanTask struct {
 	// +optional
 	MaxInstances int32 `json:"maxInstances,omitempty"`
 
+	// targetRuns sets the desired number of AgentRuns used to process a
+	// forEach source. Records are deterministically partitioned across the
+	// runs. Zero preserves the legacy one-run-per-record behavior bounded by
+	// maxInstances.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
+	// +optional
+	TargetRuns int32 `json:"targetRuns,omitempty"`
+
 	// repeats configures ensemble execution: run this many identical
 	// instances of the task and let dependents consume all of their
 	// outputs. Zero or one means a single instance.
@@ -843,6 +852,18 @@ type SecurityScanTaskExecutionStatus struct {
 	// +optional
 	RunName string `json:"runName,omitempty"`
 
+	// recordStart and recordEnd identify the half-open source-record range
+	// assigned to this task instance when targetRuns partitions a fan-out.
+	// +optional
+	RecordStart int32 `json:"recordStart,omitempty"`
+	// +optional
+	RecordEnd int32 `json:"recordEnd,omitempty"`
+
+	// inputSHA256 identifies the exact source-record input assigned to this
+	// task instance.
+	// +optional
+	InputSHA256 string `json:"inputSHA256,omitempty"`
+
 	// attempts is how many attempts have started for this task instance.
 	// It is cumulative across resume cycles so budgets.maxModelJobs
 	// accounting never forgets prior runs.
@@ -988,6 +1009,46 @@ type SecurityScanExecutionPlanNode struct {
 	// out over, when fan-out is configured.
 	// +optional
 	ForEach string `json:"forEach,omitempty"`
+
+	// targetRuns snapshots whether this execution uses complete chunked
+	// fan-out. Zero keeps pre-upgrade and legacy executions on their original
+	// one-record-per-run path even if the referenced workflow later changes.
+	// +optional
+	TargetRuns int32 `json:"targetRuns,omitempty"`
+}
+
+// SecurityScanFanOutExecutionStatus records the durable materialization of a
+// forEach task's source output into task instances.
+type SecurityScanFanOutExecutionStatus struct {
+	// name is the fan-out workflow task name.
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// sourceTask is the workflow task whose output supplied the records.
+	// +optional
+	SourceTask string `json:"sourceTask,omitempty"`
+
+	// sourceRunName is the AgentRun that published the source output.
+	// +optional
+	SourceRunName string `json:"sourceRunName,omitempty"`
+
+	// strategy identifies how source records were partitioned into chunks.
+	// +optional
+	Strategy string `json:"strategy,omitempty"`
+
+	// sourceOutputSHA256 identifies the exact source output that was
+	// materialized.
+	// +optional
+	SourceOutputSHA256 string `json:"sourceOutputSHA256,omitempty"`
+
+	// recordCount is the number of records in the source output.
+	// +optional
+	RecordCount int32 `json:"recordCount,omitempty"`
+
+	// chunkCount is the number of task instances materialized from the
+	// source records.
+	// +optional
+	ChunkCount int32 `json:"chunkCount,omitempty"`
 }
 
 // SecurityScanExecutionStatus is the observed state of one deterministic
@@ -1020,6 +1081,13 @@ type SecurityScanExecutionStatus struct {
 	// +listType=atomic
 	// +optional
 	Tasks []SecurityScanTaskExecutionStatus `json:"tasks,omitempty"`
+
+	// fanOuts records each forEach task's durable source binding and
+	// partitioning decision.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	FanOuts []SecurityScanFanOutExecutionStatus `json:"fanOuts,omitempty"`
 
 	// plan is the dependency graph of the workflow snapshot this execution
 	// was planned from, one node per workflow task. Recording it here keeps
@@ -1471,6 +1539,16 @@ func (t SecurityScanTask) EffectiveMaxInstances() int32 {
 		return 10
 	}
 	return t.MaxInstances
+}
+
+// EffectiveTargetRuns returns the planned forEach run count. A positive
+// targetRuns opts into partitioned fan-out; zero preserves maxInstances and
+// its legacy default.
+func (t SecurityScanTask) EffectiveTargetRuns() int32 {
+	if t.TargetRuns > 0 {
+		return t.TargetRuns
+	}
+	return t.EffectiveMaxInstances()
 }
 
 // EffectiveRepeats returns how many identical instances of the task run as

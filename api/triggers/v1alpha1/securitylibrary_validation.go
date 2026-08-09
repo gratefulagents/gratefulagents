@@ -27,9 +27,15 @@ var securityWorkflowTaskFieldRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-
 // {{tasks.<name>.output.<field>}} references in a task objective template.
 var securityWorkflowTaskOutputRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9-]+)\.output`)
 
-// securityWorkflowItemRefPattern matches {{item...}} references in a task
-// objective template.
-var securityWorkflowItemRefPattern = regexp.MustCompile(`\{\{\s*item`)
+// securityWorkflowItemRefPattern matches singular {{item}} and
+// {{item.<field>}} references without also matching {{items}}.
+var securityWorkflowItemRefPattern = regexp.MustCompile(`\{\{\s*item(?:\s*\}\}|\.)`)
+
+// securityWorkflowItemsRefPattern matches the complete chunk input reference.
+var securityWorkflowItemsRefPattern = regexp.MustCompile(`\{\{\s*items\s*\}\}`)
+
+// securityWorkflowRangeRefPattern matches chunk range references.
+var securityWorkflowRangeRefPattern = regexp.MustCompile(`\{\{\s*range\.(?:start|end)\s*\}\}`)
 
 // securityWorkflowParameterNamePattern matches valid workflow parameter
 // names, referenced as {{params.<name>}}.
@@ -124,6 +130,9 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 		if task.MaxInstances < 0 || task.MaxInstances > 50 {
 			add(field+".maxInstances", "task %q maxInstances must be between 0 and 50", name)
 		}
+		if task.TargetRuns < 0 || task.TargetRuns > 50 {
+			add(field+".targetRuns", "task %q targetRuns must be between 0 and 50", name)
+		}
 		if task.Repeats < 0 || task.Repeats > 5 {
 			add(field+".repeats", "task %q repeats must be between 0 and 5", name)
 		}
@@ -177,8 +186,28 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 			if task.Repeats > 1 {
 				add(field+".repeats", "task %q cannot combine forEach with repeats", task.Name)
 			}
-		} else if securityWorkflowItemRefPattern.MatchString(task.Objective) {
-			add(field+".objective", "task %q references {{item}} but does not set forEach", task.Name)
+			if task.TargetRuns > 0 && task.MaxInstances > 0 {
+				add(field+".targetRuns", "task %q cannot combine targetRuns with maxInstances", task.Name)
+			}
+			if task.TargetRuns > 0 && task.Repeats > 1 {
+				add(field+".targetRuns", "task %q cannot combine targetRuns with repeats", task.Name)
+			}
+			if task.TargetRuns > 0 && securityWorkflowItemRefPattern.MatchString(task.Objective) {
+				add(field+".objective", "task %q uses targetRuns and must reference {{items}}, not {{item}}", task.Name)
+			}
+			if task.TargetRuns > 0 && strings.TrimSpace(task.OutputSchema) != "" && !securityWorkflowSchemaAllowsArray(task.OutputSchema) {
+				add(field+".outputSchema", "task %q uses targetRuns and outputSchema must declare \"type\":\"array\"", task.Name)
+			}
+			if task.TargetRuns == 0 && (securityWorkflowItemsRefPattern.MatchString(task.Objective) || securityWorkflowRangeRefPattern.MatchString(task.Objective)) {
+				add(field+".objective", "task %q references chunk context but does not set targetRuns", task.Name)
+			}
+		} else {
+			if securityWorkflowItemRefPattern.MatchString(task.Objective) || securityWorkflowItemsRefPattern.MatchString(task.Objective) || securityWorkflowRangeRefPattern.MatchString(task.Objective) {
+				add(field+".objective", "task %q references forEach input context but does not set forEach", task.Name)
+			}
+			if task.TargetRuns > 0 {
+				add(field+".targetRuns", "task %q may set targetRuns only with forEach", task.Name)
+			}
 		}
 
 		referenced := make(map[string]bool)
@@ -227,13 +256,13 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 	}
 
 	// Planned-instance budget: what planSecurityScanExecution would expand
-	// (ensemble repeats now, forEach fan-outs up to their maxInstances cap
-	// later) must fit the execution-entry ceiling.
+	// (ensemble repeats now, forEach fan-outs up to targetRuns or the legacy
+	// maxInstances cap later) must fit the execution-entry ceiling.
 	planned := 0
 	for _, task := range tasks {
 		instances := task.EffectiveRepeats()
-		if task.ForEach != "" && task.EffectiveMaxInstances() > instances {
-			instances = task.EffectiveMaxInstances()
+		if task.ForEach != "" && task.EffectiveTargetRuns() > instances {
+			instances = task.EffectiveTargetRuns()
 		}
 		planned += int(instances)
 	}

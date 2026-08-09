@@ -91,6 +91,18 @@ func TestValidateSecurityWorkflowTasksExecutionFieldFailures(t *testing.T) {
 			fragment: "between 0 and 50",
 		},
 		{
+			name:     "targetRuns too large",
+			mutate:   func(ts []SecurityScanTask) []SecurityScanTask { ts[0].TargetRuns = 51; return ts },
+			field:    "tasks[0].targetRuns",
+			fragment: "between 0 and 50",
+		},
+		{
+			name:     "targetRuns without forEach",
+			mutate:   func(ts []SecurityScanTask) []SecurityScanTask { ts[0].TargetRuns = 4; return ts },
+			field:    "tasks[0].targetRuns",
+			fragment: "only with forEach",
+		},
+		{
 			name:     "repeats too large",
 			mutate:   func(ts []SecurityScanTask) []SecurityScanTask { ts[0].Repeats = 6; return ts },
 			field:    "tasks[0].repeats",
@@ -187,6 +199,39 @@ func TestValidateSecurityWorkflowTasksExecutionFieldFailures(t *testing.T) {
 			fragment: "cannot combine forEach with repeats",
 		},
 		{
+			name: "targetRuns combined with maxInstances",
+			mutate: func(ts []SecurityScanTask) []SecurityScanTask {
+				ts[1].ForEach = "a"
+				ts[1].TargetRuns = 4
+				ts[1].MaxInstances = 20
+				return ts
+			},
+			field:    "tasks[1].targetRuns",
+			fragment: "cannot combine targetRuns with maxInstances",
+		},
+		{
+			name: "targetRuns combined with repeats",
+			mutate: func(ts []SecurityScanTask) []SecurityScanTask {
+				ts[1].ForEach = "a"
+				ts[1].TargetRuns = 4
+				ts[1].Repeats = 2
+				return ts
+			},
+			field:    "tasks[1].targetRuns",
+			fragment: "cannot combine targetRuns with repeats",
+		},
+		{
+			name: "targetRuns output must be an array",
+			mutate: func(ts []SecurityScanTask) []SecurityScanTask {
+				ts[1].ForEach = "a"
+				ts[1].TargetRuns = 4
+				ts[1].OutputSchema = `{"type":"object"}`
+				return ts
+			},
+			field:    "tasks[1].outputSchema",
+			fragment: `must declare "type":"array"`,
+		},
+		{
 			name: "tasks reference outside dependsOn",
 			mutate: func(ts []SecurityScanTask) []SecurityScanTask {
 				ts[0].Objective = "use {{tasks.b.output}}"
@@ -273,6 +318,18 @@ func TestValidateSecurityWorkflowTasksEnforcesPlannedInstanceBudget(t *testing.T
 	fanned[4].MaxInstances = 49
 	if errs := ValidateSecurityWorkflowTasks(fanned); len(errs) != 0 {
 		t.Fatalf("expected exactly-at-budget fan-out workflow to validate, got %v", errs)
+	}
+
+	// targetRuns replaces the legacy maxInstances ceiling in the budget.
+	for i := 1; i < len(fanned); i++ {
+		fanned[i].Objective = "inspect {{items}}"
+		fanned[i].MaxInstances = 0
+		fanned[i].TargetRuns = 50
+	}
+	requireFieldError(t, ValidateSecurityWorkflowTasks(fanned), "tasks", "task instances")
+	fanned[4].TargetRuns = 49
+	if errs := ValidateSecurityWorkflowTasks(fanned); len(errs) != 0 {
+		t.Fatalf("expected exactly-at-budget targetRuns workflow to validate, got %v", errs)
 	}
 }
 
