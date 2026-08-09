@@ -189,7 +189,18 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{Requeue: true}, nil
 		}
 		if run.Status.Sandbox != nil {
-			if err := clearRunSandboxStatus(ctx, r.Client, run); err != nil {
+			// Clear the drained sandbox and, when the latest persisted limits
+			// permit it, leave Paused in the same status patch. Publishing an
+			// intermediate Paused/nil state lets owner controllers consume a
+			// run as terminal immediately before this controller resumes it.
+			if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+				fresh.Status.Sandbox = nil
+				if fresh.Status.Phase == platformv1alpha1.AgentRunPhasePaused &&
+					fresh.Status.StartedAt != nil && !runPastTimeout(fresh) && costCapSatisfied(fresh) {
+					fresh.Status.Phase = platformv1alpha1.AgentRunPhaseProvisioning
+					fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Resuming", AdmittedAt: queueAdmittedAt(&fresh.Status)}
+				}
+			}); err != nil {
 				return ctrl.Result{}, err
 			}
 			return ctrl.Result{Requeue: true}, nil
