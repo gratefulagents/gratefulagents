@@ -411,6 +411,7 @@ func TestMonitorPodTimeoutPausesAndReconcileReleasesSandbox(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "run-timeout-pauses",
 			Namespace: "default",
+			UID:       types.UID("run-timeout-pauses-uid"),
 		},
 		Spec: platformv1alpha1.AgentRunSpec{
 			Limits: &platformv1alpha1.AgentRunLimits{
@@ -427,8 +428,10 @@ func TestMonitorPodTimeoutPausesAndReconcileReleasesSandbox(t *testing.T) {
 		},
 	}
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "pod-timeout-pauses", Namespace: "default"},
-		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		ObjectMeta: metav1.ObjectMeta{Name: "pod-timeout-pauses", Namespace: "default", Labels: map[string]string{
+			"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
+		}},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 
 	k8sClient := fake.NewClientBuilder().
@@ -948,6 +951,7 @@ func TestMonitorAgentSandboxExpiredClaimWithinTimeoutReplacesForResume(t *testin
 		},
 	}
 	claim := expiredSandboxClaim("run-expired-claim-resume", "default")
+	claim.OwnerReferences = []metav1.OwnerReference{runOwnerRef(run)}
 
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -1235,10 +1239,14 @@ func TestReconcileRestartRunningRunBouncesCompute(t *testing.T) {
 			},
 		},
 	}
-	oldClaim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{Name: "run-restart-run", Namespace: "default"}}
+	oldClaim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "run-restart-run", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
 	oldPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "old-restart-pod", Namespace: "default"},
-		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		ObjectMeta: metav1.ObjectMeta{Name: "old-restart-pod", Namespace: "default", Labels: map[string]string{
+			"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
+		}},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 
 	k8sClient := fake.NewClientBuilder().
@@ -1394,11 +1402,17 @@ func TestReconcileWakeSucceededRunRequeuesFreshSandbox(t *testing.T) {
 			},
 		},
 	}
-	oldClaim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{Name: "run-wake-run", Namespace: "default"}}
-	oldTemplate := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Name: managedSandboxTemplateName(run), Namespace: "default"}}
+	oldClaim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "run-wake-run", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
+	oldTemplate := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
 	oldPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "old-wake-pod", Namespace: "default"},
-		Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+		ObjectMeta: metav1.ObjectMeta{Name: "old-wake-pod", Namespace: "default", Labels: map[string]string{
+			"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
+		}},
+		Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
 	}
 
 	k8sClient := fake.NewClientBuilder().
@@ -1517,9 +1531,15 @@ func TestReconcileCancelRunningRunTearsDownComputeAndMarksCancelled(t *testing.T
 			},
 		},
 	}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "cancel-pod", Namespace: "default"}}
-	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{Name: "run-cancel-run", Namespace: "default"}}
-	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Name: managedSandboxTemplateName(run), Namespace: "default"}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "cancel-pod", Namespace: "default", Labels: map[string]string{
+		"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
+	}}}
+	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "run-cancel-run", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
+	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
 	crb := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "cancel-run-binding",
@@ -1792,6 +1812,7 @@ func TestReconcileDeletedRunDrainsPodBeforeDeletingSandboxOrData(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "delete-drain-run",
 			Namespace:  "default",
+			UID:        types.UID("delete-drain-run-uid"),
 			Finalizers: []string{agentRunCleanupFinalizer},
 		},
 		Status: platformv1alpha1.AgentRunStatus{
@@ -1807,10 +1828,17 @@ func TestReconcileDeletedRunDrainsPodBeforeDeletingSandboxOrData(t *testing.T) {
 			Name:       "delete-drain-pod",
 			Namespace:  "default",
 			Finalizers: []string{"test.example/drain"},
+			Labels: map[string]string{
+				"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
+			},
 		},
 	}
-	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{Name: "delete-drain-claim", Namespace: "default"}}
-	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Name: managedSandboxTemplateName(run), Namespace: "default"}}
+	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "delete-drain-claim", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
+	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&platformv1alpha1.AgentRun{}).

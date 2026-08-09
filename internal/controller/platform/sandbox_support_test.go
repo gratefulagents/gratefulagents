@@ -1,0 +1,194 @@
+package platform
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	extensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+)
+
+func TestManagedSandboxTemplateNameSeparatesLongRunRetries(t *testing.T) {
+	first := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
+		Name: "secscan-securityscan-sxz2ew-generation-1-ps-pipeline-9-53a5085d",
+		UID:  types.UID("709192fd-f7b6-4215-818b-b0fa23945c13"),
+	}}
+	second := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
+		Name: "secscan-securityscan-sxz2ew-generation-1-ps-pipeline-9-634b314a",
+		UID:  types.UID("d7cc4293-486b-4a87-bf98-3b4ce36210f9"),
+	}}
+	firstName := managedSandboxTemplateName(first)
+	secondName := managedSandboxTemplateName(second)
+	if firstName == secondName {
+		t.Fatalf("long retry template names collided at %q", firstName)
+	}
+	if len(firstName) > 63 || len(secondName) > 63 {
+		t.Fatalf("template names exceed 63 characters: %q (%d), %q (%d)", firstName, len(firstName), secondName, len(secondName))
+	}
+	firstClaim := sandboxClaimName(first)
+	secondClaim := sandboxClaimName(second)
+	if firstClaim == secondClaim {
+		t.Fatalf("long retry claim names collided at %q", firstClaim)
+	}
+	if len(firstClaim) > 63 || len(secondClaim) > 63 {
+		t.Fatalf("claim names exceed 63 characters: %q (%d), %q (%d)", firstClaim, len(firstClaim), secondClaim, len(secondClaim))
+	}
+	if got := managedSandboxTemplateName(&platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "short-run", UID: types.UID("uid")}}); got != "run-tpl-short-run" {
+		t.Fatalf("short template name = %q, want backward-compatible name", got)
+	}
+	collapsed := managedSandboxTemplateName(&platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
+		Name: "a" + strings.Repeat("-", 54) + "b", UID: types.UID("collapsed-run-uid"),
+	}})
+	if len(collapsed) > 63 || !strings.HasPrefix(collapsed, "run-tpl-a-b-") {
+		t.Fatalf("collapsed long template name = %q (%d), want bounded hashed name", collapsed, len(collapsed))
+	}
+}
+
+func TestEnsureRunSandboxTemplateRejectsForeignController(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(core): %v", err)
+	}
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(platform): %v", err)
+	}
+	if err := extensionsv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(sandbox extensions): %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
+		Name: "collision-run", Namespace: "default", UID: types.UID("new-run-uid"),
+	}}
+	controller := true
+	conflicting := &extensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name:      managedSandboxTemplateName(run),
+		Namespace: run.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun",
+			Name: run.Name, UID: types.UID("old-run-uid"), Controller: &controller,
+		}},
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(conflicting).Build()
+	if _, err := ensureRunSandboxTemplate(context.Background(), c, run, nil, "run-sa", ""); err == nil || !strings.Contains(err.Error(), "belongs to another AgentRun") {
+		t.Fatalf("ensureRunSandboxTemplate() error = %v, want owner collision", err)
+	}
+}
+
+func TestDeleteManagedSandboxTemplateOnlyDeletesCurrentRunOwner(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(platform): %v", err)
+	}
+	if err := extensionsv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(sandbox extensions): %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "default", UID: types.UID("run-uid")}}
+	controller := true
+	foreign := &extensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "foreign", Namespace: run.Namespace, UID: types.UID("foreign-template-uid"), ResourceVersion: "1",
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: "other", UID: types.UID("other-uid"), Controller: &controller,
+		}},
+	}}
+	owned := &extensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "owned", Namespace: run.Namespace, UID: types.UID("owned-template-uid"), ResourceVersion: "1",
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller,
+		}},
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(foreign, owned).Build()
+	if err := deleteManagedSandboxTemplateIfOwned(context.Background(), c, run, foreign.Name); err != nil {
+		t.Fatalf("foreign cleanup: %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(foreign), &extensionsv1alpha1.SandboxTemplate{}); err != nil {
+		t.Fatalf("foreign template was deleted: %v", err)
+	}
+	if err := deleteManagedSandboxTemplateIfOwned(context.Background(), c, run, owned.Name); err != nil {
+		t.Fatalf("owned cleanup: %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(owned), &extensionsv1alpha1.SandboxTemplate{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("owned template get error = %v, want NotFound", err)
+	}
+}
+
+func TestReleaseRunSandboxDeletesOwnedLegacyClaimAndPreservesForeignResources(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(core): %v", err)
+	}
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(platform): %v", err)
+	}
+	if err := extensionsv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(sandbox extensions): %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "long-current-run", Namespace: "default", UID: types.UID("current-run-uid")}}
+	controller := true
+	ownedLegacy := &extensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "legacy-claim-not-in-status", Namespace: run.Namespace, UID: types.UID("owned-claim-uid"), ResourceVersion: "1",
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller,
+		}},
+	}}
+	foreignClaim := &extensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "foreign-status-claim", Namespace: run.Namespace, UID: types.UID("foreign-claim-uid"), ResourceVersion: "1",
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: "other-run", UID: types.UID("other-run-uid"), Controller: &controller,
+		}},
+	}}
+	foreignPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "foreign-status-pod", Namespace: run.Namespace, Labels: map[string]string{
+			"platform.gratefulagents.dev/owner-run-uid": "other-run-uid",
+		},
+	}}
+	run.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{
+		ClaimRef: &platformv1alpha1.NamedRef{Name: foreignClaim.Name}, SandboxRef: &platformv1alpha1.NamedRef{Name: foreignPod.Name},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run, ownedLegacy, foreignClaim, foreignPod).Build()
+	r := &AgentRunReconciler{Client: c}
+
+	drained, err := r.releaseRunSandbox(context.Background(), run)
+	if err != nil || !drained {
+		t.Fatalf("releaseRunSandbox() = drained %v, err %v; want true, nil", drained, err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(ownedLegacy), &extensionsv1alpha1.SandboxClaim{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("owned legacy claim get error = %v, want NotFound", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(foreignClaim), &extensionsv1alpha1.SandboxClaim{}); err != nil {
+		t.Fatalf("foreign claim was deleted: %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(foreignPod), &corev1.Pod{}); err != nil {
+		t.Fatalf("foreign pod was deleted: %v", err)
+	}
+}
+
+func TestSandboxTemplateOwnershipRequiresControllerReference(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run", UID: types.UID("run-uid")}}
+	controller := true
+	controlled := &extensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{
+		APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller,
+	}}}}
+	if !sandboxTemplateOwnedByRun(controlled, run) {
+		t.Fatal("controller-owned template was rejected")
+	}
+	secondary := controlled.DeepCopy()
+	secondary.OwnerReferences[0].Controller = nil
+	if sandboxTemplateOwnedByRun(secondary, run) {
+		t.Fatal("secondary owner reference authorized template reuse")
+	}
+	claim := &extensionsv1alpha1.SandboxClaim{ObjectMeta: controlled.ObjectMeta}
+	if !sandboxClaimOwnedByRun(claim, run) {
+		t.Fatal("controller-owned claim was rejected")
+	}
+	claim.OwnerReferences[0].UID = types.UID("foreign-run-uid")
+	if sandboxClaimOwnedByRun(claim, run) {
+		t.Fatal("foreign controller authorized claim reuse")
+	}
+}

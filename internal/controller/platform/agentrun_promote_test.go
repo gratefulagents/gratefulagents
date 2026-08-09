@@ -54,9 +54,15 @@ func TestReconcilePromoteRunningRunTearsDownComputeAndMarksSucceeded(t *testing.
 			},
 		},
 	}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "promote-pod", Namespace: "default"}}
-	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{Name: "run-promote-run", Namespace: "default"}}
-	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Name: managedSandboxTemplateName(run), Namespace: "default"}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "promote-pod", Namespace: "default", Labels: map[string]string{
+		"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
+	}}}
+	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "run-promote-run", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
+	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
 	crb := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "promote-run-binding",
