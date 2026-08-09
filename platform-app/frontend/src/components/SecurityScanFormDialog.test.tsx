@@ -135,6 +135,9 @@ describe("SecurityScanFormDialog", () => {
     fireEvent.change(screen.getByLabelText("Exclude paths"), {
       target: { value: "vendor/**, testdata/**" },
     });
+    fireEvent.change(screen.getByLabelText("Authorized network targets"), {
+      target: { value: "staging.example.com, https://api.example.com\n10.0.0.0/8" },
+    });
 
     fireEvent.submit(document.querySelector("form") as HTMLFormElement);
 
@@ -145,6 +148,27 @@ describe("SecurityScanFormDialog", () => {
     expect(request.spec?.minSeverity).toBe("medium");
     expect(request.spec?.failOnSeverity).toBe("high");
     expect(request.spec?.scope?.excludePaths).toEqual(["vendor/**", "testdata/**"]);
+    expect(request.spec?.scope?.authorizedNetworkTargets).toEqual([
+      "staging.example.com",
+      "https://api.example.com",
+      "10.0.0.0/8",
+    ]);
+  });
+
+  it("omits network authorization when the targets field is left empty", async () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(client.createSecurityScan).toHaveBeenCalledTimes(1);
+    });
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.scope?.authorizedNetworkTargets).toEqual([]);
   });
 
   it("keeps validation errors inline when the repository URL is missing", async () => {
