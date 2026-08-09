@@ -44,6 +44,14 @@ jobs:
           grep -q -- '- --enable-agentrun-overseer' "$rendered"
           grep -q -- '- --enable-repo-maintainer' "$rendered"
           grep -A1 -- 'name: ENABLE_BROWSER_TOOLS' "$rendered" | grep -q 'value: "true"'
+          grep -q -- 'max_connections=500' "$rendered"
+
+      - name: Render with custom PostgreSQL connection capacity
+        run: |
+          rendered="$(mktemp)"
+          helm template test ./dist/chart --namespace gratefulagents-system \
+            --set postgres.maxConnections=1000 > "$rendered"
+          grep -q -- 'max_connections=1000' "$rendered"
 
       - name: Render with browser tools disabled
         run: |
