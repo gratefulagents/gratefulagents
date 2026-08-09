@@ -358,9 +358,7 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 	spec.Target.Digest = digest
 	spec.Target.StagedObjectKey = key
 	spec.Target.MediaType = stagedTargetMediaType
-	if spec.Target.Revision == "" {
-		spec.Target.Revision = t.state.scanCtx.Revision
-	}
+	spec.Target.Revision = t.stagedTargetRevision(in.Target.Revision, local, digest)
 	return spec, stagedTarget{
 		ObjectKey: key,
 		Digest:    digest,
@@ -369,6 +367,139 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 		Entries:   entries,
 		Skipped:   skipped,
 	}, nil
+}
+
+// stagedTargetRevision derives the revision recorded for a staged target. It
+// must never be empty: a SecurityScan may scan the head of its base branch
+// without pinning a revision, and the tool call's revision is optional too,
+// yet the control plane requires both a revision and a digest. The preference
+// order is the caller's revision, the scan context's revision, the commit the
+// staged checkout has at HEAD, and finally the staged content digest, which
+// always describes exactly what was scanned.
+func (t *runSecurityToolTool) stagedTargetRevision(callerRevision, local, digest string) string {
+	if revision := strings.TrimSpace(callerRevision); revision != "" {
+		return revision
+	}
+	if revision := strings.TrimSpace(t.state.scanCtx.Revision); revision != "" {
+		return revision
+	}
+	root, err := t.workspaceRoot()
+	if err == nil {
+		if commit := gitHeadCommit(local, root); commit != "" {
+			return commit
+		}
+	}
+	return "staged:" + digest
+}
+
+var securityToolRunCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}(?:[0-9a-f]{24})?$`)
+
+// gitHeadCommit resolves the commit HEAD points at for the git checkout that
+// contains path, looking no further up than ceiling. It reads the plumbing
+// files rather than shelling out to git, which the agent image is not
+// guaranteed to carry.
+func gitHeadCommit(path, ceiling string) string {
+	if strings.TrimSpace(ceiling) == "" {
+		return ""
+	}
+	dir := path
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+	for {
+		if commit := gitDirHeadCommit(filepath.Join(dir, ".git")); commit != "" {
+			return commit
+		}
+		parent := filepath.Dir(dir)
+		if dir == ceiling || parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// gitDirHeadCommit reads HEAD from a git directory, following the "gitdir:"
+// indirection a worktree or submodule uses, the loose ref HEAD names, and
+// packed-refs when the ref was packed.
+func gitDirHeadCommit(gitPath string) string {
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return ""
+	}
+	if !info.IsDir() {
+		data, readErr := os.ReadFile(gitPath) // #nosec G304 -- workspace content the agent already reads
+		if readErr != nil {
+			return ""
+		}
+		target, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+		if !ok {
+			return ""
+		}
+		target = strings.TrimSpace(target)
+		if target == "" {
+			return ""
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(gitPath), target)
+		}
+		gitPath = target
+	}
+	head, err := os.ReadFile(filepath.Join(gitPath, "HEAD")) // #nosec G304 -- workspace content the agent already reads
+	if err != nil {
+		return ""
+	}
+	value := strings.TrimSpace(string(head))
+	if securityToolRunCommitPattern.MatchString(value) {
+		return value
+	}
+	ref, ok := strings.CutPrefix(value, "ref:")
+	if !ok {
+		return ""
+	}
+	ref = strings.TrimSpace(ref)
+	if !strings.HasPrefix(ref, "refs/") || slices.Contains(strings.Split(ref, "/"), "..") {
+		return ""
+	}
+	if data, err := os.ReadFile(filepath.Join(gitPath, filepath.FromSlash(ref))); err == nil { // #nosec G304 -- workspace content the agent already reads
+		if commit := strings.TrimSpace(string(data)); securityToolRunCommitPattern.MatchString(commit) {
+			return commit
+		}
+	}
+	return packedRefCommit(filepath.Join(gitPath, "packed-refs"), ref)
+}
+
+// packedRefCommit looks a ref up in packed-refs, ignoring comments and the
+// "^" peel lines that follow an annotated tag.
+func packedRefCommit(path, ref string) string {
+	data, err := os.ReadFile(path) // #nosec G304 -- workspace content the agent already reads
+	if err != nil {
+		return ""
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		commit, name, found := strings.Cut(strings.TrimSpace(line), " ")
+		if !found || strings.TrimSpace(name) != ref || !securityToolRunCommitPattern.MatchString(commit) {
+			continue
+		}
+		return commit
+	}
+	return ""
+}
+
+// workspaceRoot is the resolved run workspace directory, or "" when this run
+// has none.
+func (t *runSecurityToolTool) workspaceRoot() (string, error) {
+	root := strings.TrimSpace(t.deps.WorkspaceDir)
+	if root == "" {
+		return "", nil
+	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	if evaluated, err := filepath.EvalSymlinks(root); err == nil {
+		root = evaluated
+	}
+	return root, nil
 }
 
 // resolveWorkspacePath classifies a target locator. It returns the absolute
@@ -387,19 +518,15 @@ func (t *runSecurityToolTool) resolveWorkspacePath(locator string) (string, stri
 		return fmt.Errorf("target locator %q %s; a filesystem target must name existing content inside the run workspace so it can be staged, and an unstaged target must be a network locator (an absolute http(s) URL, host[:port], or an image reference pinned with @sha256:)",
 			locator, reason)
 	}
-	root := strings.TrimSpace(t.deps.WorkspaceDir)
+	root, err := t.workspaceRoot()
+	if err != nil {
+		return "", "", reject(fmt.Sprintf("cannot be resolved against the run workspace: %v", err))
+	}
 	if root == "" {
 		if pathLike {
 			return "", "", reject("cannot be staged because this run has no workspace directory")
 		}
 		return "", "", nil
-	}
-	root, err := filepath.Abs(root)
-	if err != nil {
-		return "", "", reject(fmt.Sprintf("cannot be resolved against the run workspace: %v", err))
-	}
-	if evaluated, err := filepath.EvalSymlinks(root); err == nil {
-		root = evaluated
 	}
 	candidate := locator
 	if !filepath.IsAbs(candidate) {

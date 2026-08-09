@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -95,13 +96,13 @@ func runJob(args []string) int {
 func executeJob(ctx context.Context, deps jobDeps) int {
 	manifest, err := stageRunAndPublish(ctx, deps)
 	if err != nil {
-		fmt.Fprintf(deps.stderr, "ga-security job: %v\n", err)
+		_, _ = fmt.Fprintf(deps.stderr, "ga-security job: %v\n", err)
 		return 2
 	}
 	encoder := json.NewEncoder(deps.stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(manifest); err != nil {
-		fmt.Fprintf(deps.stderr, "ga-security job: encode manifest: %v\n", err)
+		_, _ = fmt.Fprintf(deps.stderr, "ga-security job: encode manifest: %v\n", err)
 		return 2
 	}
 	return 0
@@ -150,7 +151,8 @@ func jobSettingsFromEnv(env func(string) string) (jobSettings, error) {
 		return jobSettings{}, fmt.Errorf("%s is required", securitytoolrun.EnvOutputPrefix)
 	}
 	if settings.targetKey != "" && !sha256DigestPattern.MatchString(settings.targetDigest) {
-		return jobSettings{}, fmt.Errorf("%s must be sha256:<hex> when %s is set, got %q", securitytoolrun.EnvTargetDigest, securitytoolrun.EnvTargetKey, settings.targetDigest)
+		return jobSettings{}, fmt.Errorf("%s must be sha256:<hex> when %s is set, got %q",
+			securitytoolrun.EnvTargetDigest, securitytoolrun.EnvTargetKey, settings.targetDigest)
 	}
 	return settings, nil
 }
@@ -177,7 +179,8 @@ func stageTarget(ctx context.Context, store objectStore, settings jobSettings) (
 		return "", fmt.Errorf("download target %q: %w", settings.targetKey, err)
 	}
 	if actual := digestBytes(archive); actual != settings.targetDigest {
-		return "", fmt.Errorf("target %q digest mismatch: recorded %s, downloaded %s", settings.targetKey, settings.targetDigest, actual)
+		return "", fmt.Errorf("target %q digest mismatch: recorded %s, downloaded %s",
+			settings.targetKey, settings.targetDigest, actual)
 	}
 	targetDir := filepath.Join(settings.workdir, "target")
 	if err := extractTarGz(archive, targetDir, defaultTarLimits); err != nil {
@@ -186,7 +189,9 @@ func stageTarget(ctx context.Context, store objectStore, settings jobSettings) (
 	return targetDir, nil
 }
 
-func publishResult(ctx context.Context, store objectStore, prefix, outputDir, tool string, result securitytoolpacks.Result) (securitytoolrun.Manifest, error) {
+func publishResult(ctx context.Context, store objectStore, prefix, outputDir, tool string,
+	result securitytoolpacks.Result,
+) (securitytoolrun.Manifest, error) {
 	resultKey := prefix + "/" + securitytoolrun.ResultObjectName
 	resultBytes, err := os.ReadFile(filepath.Join(outputDir, securitytoolrun.ResultObjectName))
 	if err != nil {
@@ -300,7 +305,8 @@ func extractTarGz(archive []byte, dest string, limits tarLimits) error {
 			}
 		case tar.TypeReg:
 			if header.Size > limits.maxEntryBytes {
-				return fmt.Errorf("archive entry %q is %d bytes, over the %d-byte entry limit", header.Name, header.Size, limits.maxEntryBytes)
+				return fmt.Errorf("archive entry %q is %d bytes, over the %d-byte entry limit",
+					header.Name, header.Size, limits.maxEntryBytes)
 			}
 			if err := ensureDir(root, filepath.Dir(path)); err != nil {
 				return err
@@ -344,10 +350,8 @@ func resolveEntryPath(root, name string) (string, error) {
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "/") || filepath.VolumeName(clean) != "" {
 		return "", fmt.Errorf("archive entry %q uses an absolute path", name)
 	}
-	for _, part := range strings.Split(filepath.ToSlash(clean), "/") {
-		if part == ".." {
-			return "", fmt.Errorf("archive entry %q traverses outside the extraction root", name)
-		}
+	if slices.Contains(strings.Split(filepath.ToSlash(clean), "/"), "..") {
+		return "", fmt.Errorf("archive entry %q traverses outside the extraction root", name)
 	}
 	path := filepath.Join(root, filepath.FromSlash(clean))
 	if !withinRoot(root, path) {
@@ -384,7 +388,7 @@ func ensureDir(root, dir string) error {
 	if relative == "." {
 		return nil
 	}
-	for _, part := range strings.Split(relative, string(os.PathSeparator)) {
+	for part := range strings.SplitSeq(relative, string(os.PathSeparator)) {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		switch {

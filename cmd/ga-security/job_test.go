@@ -274,7 +274,9 @@ func TestJobUploadsManifestLastWithExpectedShape(t *testing.T) {
 		t.Fatalf("exit=%d stderr=%s", code, fixture.stderr.String())
 	}
 
-	wantKeys := []string{"runs/scan-1/result.json", "runs/scan-1/raw-00", "runs/scan-1/raw-01", "runs/scan-1/manifest.json"}
+	wantKeys := []string{
+		"runs/scan-1/result.json", "runs/scan-1/raw-00", "runs/scan-1/raw-01", "runs/scan-1/manifest.json",
+	}
 	if got := fixture.store.keys(); !slicesEqual(got, wantKeys) {
 		t.Fatalf("upload order = %v, want %v", got, wantKeys)
 	}
@@ -306,7 +308,8 @@ func TestJobUploadsManifestLastWithExpectedShape(t *testing.T) {
 	}
 	first, _ := artifacts[0].(map[string]any)
 	if first["name"] != "raw-00" || first["object_key"] != "runs/scan-1/raw-00" ||
-		first["media_type"] != "application/json" || first["digest"] != digestBytes([]byte("one")) || first["size"] != float64(3) {
+		first["media_type"] != "application/json" || first["digest"] != digestBytes([]byte("one")) ||
+		first["size"] != float64(3) {
 		t.Fatalf("manifest artifacts[0] = %v", first)
 	}
 	if got := fixture.store.objects["runs/scan-1/raw-01"]; string(got) != "two" {
@@ -318,7 +321,10 @@ func TestJobUploadsManifestLastWithExpectedShape(t *testing.T) {
 }
 
 func TestJobExitsZeroWhenScannerReportsErrorOrTimeout(t *testing.T) {
-	for _, status := range []securitytoolpacks.Status{securitytoolpacks.StatusError, securitytoolpacks.StatusTimeout, securitytoolpacks.StatusPartial} {
+	statuses := []securitytoolpacks.Status{
+		securitytoolpacks.StatusError, securitytoolpacks.StatusTimeout, securitytoolpacks.StatusPartial,
+	}
+	for _, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
 			fixture := newJobFixture(t, securitytoolpacks.RunConfig{Tool: "authorization-matrix"})
 			fixture.result = securitytoolpacks.Result{Status: status, Errors: []string{"boom"}}
@@ -399,7 +405,8 @@ func TestJobFailsWhenStagingOrUploadFails(t *testing.T) {
 	t.Run("manifest upload failure", func(t *testing.T) {
 		fixture := newJobFixture(t, securitytoolpacks.RunConfig{Tool: "authorization-matrix"})
 		fixture.store.putErr["runs/scan-1/manifest.json"] = errors.New("s3 down")
-		if code := fixture.run(t); code == 0 || !strings.Contains(fixture.stderr.String(), "upload runs/scan-1/manifest.json") {
+		code := fixture.run(t)
+		if code == 0 || !strings.Contains(fixture.stderr.String(), "upload runs/scan-1/manifest.json") {
 			t.Fatalf("exit=%d stderr=%q", code, fixture.stderr.String())
 		}
 	})
@@ -422,7 +429,8 @@ func TestJobStagesVerifiedTargetAndRewritesLocator(t *testing.T) {
 	if fixture.runs != 1 || fixture.config.Target.Locator != wantLocator {
 		t.Fatalf("runs=%d locator=%q, want %q", fixture.runs, fixture.config.Target.Locator, wantLocator)
 	}
-	if data, err := os.ReadFile(filepath.Join(wantLocator, "repo", "main.go")); err != nil || string(data) != "package main\n" {
+	data, err := os.ReadFile(filepath.Join(wantLocator, "repo", "main.go"))
+	if err != nil || string(data) != "package main\n" {
 		t.Fatalf("staged target file = %q, %v", data, err)
 	}
 }
@@ -453,8 +461,10 @@ func TestJobSetsTheMediaTypeTheRegistryExpectsForExtractedTargets(t *testing.T) 
 	for name, testCase := range tests {
 		t.Run(name, func(t *testing.T) {
 			fixture := newJobFixture(t, securitytoolpacks.RunConfig{
-				Tool:   testCase.tool,
-				Target: securitytoolpacks.Target{Locator: "staged/target.tar.gz", Digest: digestBytes(archive), MediaType: testCase.media},
+				Tool: testCase.tool,
+				Target: securitytoolpacks.Target{
+					Locator: "staged/target.tar.gz", Digest: digestBytes(archive), MediaType: testCase.media,
+				},
 			})
 			fixture.store.objects["staged/target.tar.gz"] = archive
 			fixture.env["GA_JOB_TARGET_KEY"] = "staged/target.tar.gz"
@@ -479,7 +489,8 @@ func TestJobSettingsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.configPath != securitytoolrun.ConfigPath || settings.workdir != securitytoolrun.WorkDir || settings.outputPrefix != "runs/scan-1" {
+	if settings.configPath != securitytoolrun.ConfigPath || settings.workdir != securitytoolrun.WorkDir ||
+		settings.outputPrefix != "runs/scan-1" {
 		t.Fatalf("settings = %+v", settings)
 	}
 }

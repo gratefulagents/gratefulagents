@@ -74,7 +74,7 @@ func (c *reconcilingSecurityToolRunClient) Create(ctx context.Context, obj clien
 	}
 	c.created = run.DeepCopy()
 	fresh := &platformv1alpha1.SecurityToolRun{}
-	if err := c.Client.Get(ctx, client.ObjectKeyFromObject(run), fresh); err != nil {
+	if err := c.Get(ctx, client.ObjectKeyFromObject(run), fresh); err != nil {
 		return err
 	}
 	fresh.Status = *c.status.DeepCopy()
@@ -176,8 +176,11 @@ func (f *securityToolRunFixture) writeProject(t *testing.T) {
 
 // publishResult stores a result document under the key the controller
 // recorded, optionally with a deliberately wrong digest.
-func securityToolRunStatusForResult(t *testing.T, blobs *fakeSecurityToolBlobStore, key string, document securitytoolpacks.Result, digestOverride string) platformv1alpha1.SecurityToolRunStatus {
+func securityToolRunStatusForResult(t *testing.T, blobs *fakeSecurityToolBlobStore,
+	document securitytoolpacks.Result, digestOverride string,
+) platformv1alpha1.SecurityToolRunStatus {
 	t.Helper()
+	key := testResultObjectKey
 	raw, err := json.Marshal(document)
 	if err != nil {
 		t.Fatalf("marshal result: %v", err)
@@ -234,7 +237,7 @@ const testResultObjectKey = "security-tool-runs/default/fixture/output/result.js
 func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
 	fixture.writeProject(t)
-	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, testResultObjectKey, sampleSecurityToolResult(), "")
+	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
 
 	result, summary := fixture.exec(t, aderynRequest)
 	if result.IsError {
@@ -244,7 +247,15 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 	if created == nil {
 		t.Fatal("no SecurityToolRun was created")
 	}
-	if created.Namespace != "default" || created.Spec.Tool != "aderyn" || created.Spec.RequestedBy != "nightly-scan-run-1" {
+	assertStagedAderynSpec(t, fixture, created)
+	assertSpecCarriesTypedFieldsOnly(t, created)
+	assertAderynSummary(t, fixture, summary)
+}
+
+func assertStagedAderynSpec(t *testing.T, fixture *securityToolRunFixture, created *platformv1alpha1.SecurityToolRun) {
+	t.Helper()
+	if created.Namespace != "default" || created.Spec.Tool != "aderyn" ||
+		created.Spec.RequestedBy != "nightly-scan-run-1" {
 		t.Fatalf("unexpected spec: %+v", created.Spec)
 	}
 	if len(created.OwnerReferences) != 1 || created.OwnerReferences[0].Kind != "AgentRun" ||
@@ -271,8 +282,12 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 	if names := archiveEntryNames(t, archive); len(names) == 0 || !contains(names, "Token.sol") {
 		t.Fatalf("archive entries = %v, want the target contents", names)
 	}
+}
 
-	// The request carries typed fields only: no image, command, or raw flags.
+// assertSpecCarriesTypedFieldsOnly proves the request holds no image, command,
+// or raw scanner flags.
+func assertSpecCarriesTypedFieldsOnly(t *testing.T, created *platformv1alpha1.SecurityToolRun) {
+	t.Helper()
 	encoded, err := json.Marshal(created.Spec)
 	if err != nil {
 		t.Fatalf("marshal spec: %v", err)
@@ -282,7 +297,10 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 			t.Fatalf("spec must not carry %q: %s", forbidden, encoded)
 		}
 	}
+}
 
+func assertAderynSummary(t *testing.T, fixture *securityToolRunFixture, summary runSecurityToolSummary) {
+	t.Helper()
 	if summary.Status != "findings" || summary.Findings.Reported != 1 || summary.Findings.IngestedNew != 1 {
 		t.Fatalf("unexpected summary: %+v", summary)
 	}
@@ -304,10 +322,124 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 	}
 }
 
+// gitCheckoutCommit is the commit the fake workspace checkout has at HEAD.
+const gitCheckoutCommit = "9f1a2b3c4d5e6f708192a3b4c5d6e7f809a1b2c3"
+
+// writeGitCheckout lays down the plumbing a git checkout keeps: HEAD naming a
+// branch whose commit lives either in a loose ref file or in packed-refs.
+func writeGitCheckout(t *testing.T, root string, packed bool) {
+	t.Helper()
+	gitDir := filepath.Join(root, ".git")
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs", "heads"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	write(filepath.Join(gitDir, "HEAD"), "ref: refs/heads/main\n")
+	if packed {
+		write(filepath.Join(gitDir, "packed-refs"),
+			"# pack-refs with: peeled fully-peeled sorted\n"+gitCheckoutCommit+" refs/heads/main\n")
+		return
+	}
+	write(filepath.Join(gitDir, "refs", "heads", "main"), gitCheckoutCommit+"\n")
+}
+
+// TestRunSecurityToolStagedTargetRevision covers the fallback chain that keeps
+// a staged request valid when a scan runs against an unpinned branch head.
+func TestRunSecurityToolStagedTargetRevision(t *testing.T) {
+	tests := []struct {
+		name           string
+		callerRevision string
+		scanRevision   string
+		git            string
+		want           string
+	}{
+		{name: "caller revision wins", callerRevision: "cafe1234", scanRevision: "abc1234", git: "loose", want: "cafe1234"},
+		{name: "scan context revision is used", scanRevision: "abc1234", git: "loose", want: "abc1234"},
+		{name: "git HEAD is derived from a loose ref", git: "loose", want: gitCheckoutCommit},
+		{name: "git HEAD is derived from packed-refs", git: "packed", want: gitCheckoutCommit},
+		{name: "staged content digest is the last resort"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
+			fixture.writeProject(t)
+			fixture.tool.state.scanCtx.Revision = tc.scanRevision
+			if tc.git != "" {
+				writeGitCheckout(t, filepath.Join(fixture.workspace, "repo"), tc.git == "packed")
+			}
+
+			in := runSecurityToolInput{
+				Tool: "aderyn",
+				Target: runSecurityToolTarget{
+					Type:     "solidity_project",
+					Locator:  "repo/contracts",
+					Revision: tc.callerRevision,
+				},
+			}
+			spec, staged, failure := fixture.tool.buildSpec(context.Background(), in, "fixture-run")
+			if failure != nil {
+				t.Fatalf("buildSpec failed: %s", failure.Content)
+			}
+			want := tc.want
+			if want == "" {
+				want = "staged:" + staged.Digest
+				if !strings.HasPrefix(want, "staged:sha256:") {
+					t.Fatalf("staged digest %q is not a sha256 digest", staged.Digest)
+				}
+			}
+			if spec.Target.Revision != want {
+				t.Fatalf("revision = %q, want %q", spec.Target.Revision, want)
+			}
+
+			// The whole point of a derived revision is that the control plane
+			// accepts the request.
+			config, err := securitytoolrun.RunConfigFor(spec)
+			if err != nil {
+				t.Fatalf("RunConfigFor: %v", err)
+			}
+			registry, err := securitytoolrun.DefaultRegistry()
+			if err != nil {
+				t.Fatalf("DefaultRegistry: %v", err)
+			}
+			if _, err := securitytoolrun.Validate(registry, config); err != nil {
+				t.Fatalf("staged request must validate: %v", err)
+			}
+		})
+	}
+}
+
+// TestRunSecurityToolCallerCannotAssertFilesystemDigest keeps the digest
+// provenance rule: only staged content or a digest-pinned locator may set it.
+func TestRunSecurityToolCallerCannotAssertFilesystemDigest(t *testing.T) {
+	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
+	fixture.writeProject(t)
+	asserted := "sha256:" + strings.Repeat("d", 64)
+
+	in := runSecurityToolInput{
+		Tool:   "aderyn",
+		Target: runSecurityToolTarget{Type: "solidity_project", Locator: "repo/contracts", Revision: asserted},
+	}
+	spec, staged, failure := fixture.tool.buildSpec(context.Background(), in, "fixture-run")
+	if failure != nil {
+		t.Fatalf("buildSpec failed: %s", failure.Content)
+	}
+	if spec.Target.Digest != staged.Digest || spec.Target.Digest == asserted {
+		t.Fatalf("digest = %q, want the staged archive digest %q", spec.Target.Digest, staged.Digest)
+	}
+	if spec.Target.Revision != asserted {
+		t.Fatalf("revision = %q, want the caller value recorded as a revision", spec.Target.Revision)
+	}
+}
+
 func TestRunSecurityToolRejectsResultDigestMismatch(t *testing.T) {
 	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
 	fixture.writeProject(t)
-	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, testResultObjectKey,
+	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs,
 		sampleSecurityToolResult(), "sha256:"+strings.Repeat("c", 64))
 
 	result, summary := fixture.exec(t, aderynRequest)
@@ -328,7 +460,7 @@ func TestRunSecurityToolRejectsResultDigestMismatch(t *testing.T) {
 func TestRunSecurityToolUnreadableResultIsNeverAPass(t *testing.T) {
 	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
 	fixture.writeProject(t)
-	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, testResultObjectKey, sampleSecurityToolResult(), "")
+	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
 	fixture.blobs.failGet = errors.New("bucket unavailable")
 
 	result, summary := fixture.exec(t, aderynRequest)
@@ -354,14 +486,14 @@ func TestRunSecurityToolTerminalStatusMapping(t *testing.T) {
 		{
 			name: "succeeded with findings",
 			status: func(t *testing.T, blobs *fakeSecurityToolBlobStore) platformv1alpha1.SecurityToolRunStatus {
-				return securityToolRunStatusForResult(t, blobs, testResultObjectKey, sampleSecurityToolResult(), "")
+				return securityToolRunStatusForResult(t, blobs, sampleSecurityToolResult(), "")
 			},
 			wantStatus: "findings",
 		},
 		{
 			name: "succeeded clean",
 			status: func(t *testing.T, blobs *fakeSecurityToolBlobStore) platformv1alpha1.SecurityToolRunStatus {
-				return securityToolRunStatusForResult(t, blobs, testResultObjectKey, pass, "")
+				return securityToolRunStatusForResult(t, blobs, pass, "")
 			},
 			wantStatus: "pass",
 		},
@@ -512,7 +644,7 @@ func TestRunSecurityToolRejectsInvalidRequestsLocally(t *testing.T) {
 func TestRunSecurityToolNetworkTargetIsNotStaged(t *testing.T) {
 	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
 	digest := "sha256:" + strings.Repeat("e", 64)
-	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, testResultObjectKey, sampleSecurityToolResult(), "")
+	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
 
 	result, _ := fixture.exec(t, `{"tool":"nuclei","target":{"type":"base_url","locator":"https://example.com","revision":"`+digest+`"},"arguments":{"rate":"10"},"scope":["example.com"],"timeout_seconds":60}`)
 	if result.IsError {
@@ -573,7 +705,7 @@ func TestRunSecurityToolRejectsLocatorsOutsideTheWorkspace(t *testing.T) {
 func TestRunSecurityToolDigestIsNeverTakenFromTheCallerForStagedContent(t *testing.T) {
 	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
 	fixture.writeProject(t)
-	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, testResultObjectKey, sampleSecurityToolResult(), "")
+	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
 	fabricated := "sha256:" + strings.Repeat("9", 64)
 
 	result, _ := fixture.exec(t, fmt.Sprintf(
@@ -674,7 +806,7 @@ func TestRunSecurityToolReportsADisappearedRunDistinctly(t *testing.T) {
 func TestRunSecurityToolReportsTheResultSizeCap(t *testing.T) {
 	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
 	fixture.writeProject(t)
-	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, testResultObjectKey, sampleSecurityToolResult(), "")
+	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
 	fixture.blobs.failGet = fmt.Errorf("project asset object %q exceeds the %d-byte limit", testResultObjectKey, 25<<20)
 
 	result, summary := fixture.exec(t, aderynRequest)
@@ -724,11 +856,11 @@ func TestRunSecurityToolMetadata(t *testing.T) {
 			t.Errorf("description must mention %q: %s", want, description)
 		}
 	}
-	var schema map[string]any
-	if err := json.Unmarshal(fixture.tool.InputSchema(), &schema); err != nil {
+	var inputSchema map[string]any
+	if err := json.Unmarshal(fixture.tool.InputSchema(), &inputSchema); err != nil {
 		t.Fatalf("input schema is not valid JSON: %v", err)
 	}
-	properties, _ := schema["properties"].(map[string]any)
+	properties, _ := inputSchema["properties"].(map[string]any)
 	for _, forbidden := range []string{"image", "command", "argv", "flags"} {
 		if _, exists := properties[forbidden]; exists {
 			t.Errorf("input schema must not expose %q", forbidden)
