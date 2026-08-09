@@ -13,25 +13,45 @@ This is an execution primitive, not evidence that a clean target is secure. Huma
 - network/protocol: Nmap, tshark, Zeek, Suricata, Scapy, boofuzz, testssl.sh, and Naabu;
 - blockchain/smart-contract: Aderyn, fixed offline Foundry security tests, and catalog entries for Slither, Mythril, and Echidna.
 
-The catalog distinguishes executable entries from catalog-only entries. Catalog-only tools remain visible with a reason but cannot produce an invocation. The injected runtime installs checksum-locked Nuclei, Naabu, Aderyn, and Foundry binaries on amd64 and arm64 alongside the built-in authorization-matrix and crypto-vector runners. It also installs complete, digest-pinned OCI runtime closures for OWASP ZAP, Schemathesis, SSLyze, Nmap, Zeek, and Suricata. These closures execute as ordinary tools inside an unprivileged Bubblewrap root filesystem; they require neither Docker nor a container socket, and the agent cannot replace their executable or arguments. Nuclei uses the single reviewed template committed under `security-knowledge`; automatic template updates and caller-selected templates are disabled. Slither, Mythril, Echidna, and external tools without a complete pinned runtime remain fail-closed catalog entries. This avoids claiming support for a binary or knowledge base that is absent from the worker.
+The catalog distinguishes executable entries from catalog-only entries. Catalog-only tools remain visible with a reason but cannot produce an invocation. The `security-tools` image (`Dockerfile.security-tools`) carries checksum-locked Nuclei, Naabu, Aderyn, and Foundry binaries on amd64 and arm64 alongside the built-in authorization-matrix and crypto-vector runners, plus complete digest-pinned OCI runtime closures for OWASP ZAP, Schemathesis, SSLyze, Nmap, Zeek, and Suricata. Those closures execute as ordinary tools inside an unprivileged Bubblewrap root filesystem; they require neither Docker nor a container socket, and the agent cannot replace their executable or arguments. Nuclei uses the single reviewed template committed under `security-knowledge`; automatic template updates and caller-selected templates are disabled. Slither, Mythril, Echidna, and external tools without a complete pinned runtime remain fail-closed catalog entries. This avoids claiming support for a binary or knowledge base that is absent from the image.
+
+None of this payload is injected into ordinary agent runs. The injector toolkit carries the agent binary, the fallback tools (`git`, `gh`, `rg`, `fd`, `jq`, `curl`, `bwrap`) and a CA bundle — several gigabytes of scanner root filesystems no longer ride along with every run, and they are pulled only when a scan actually needs them.
 
 Each run separately records the `ga-security` wrapper digest, the immutable scanner OCI index digest, the selected amd64/arm64 manifest digest, and the runtime Bubblewrap digest (or the architecture-specific extracted binary digest for standalone tools). None can be supplied through the agent environment. Knowledge-driven tools additionally require compiled content digests for reviewed Nuclei templates, Wycheproof/RFC/NIST vectors, Zeek policy, and Suricata rules. Registry validation rejects missing, malformed, or mutable pins. There are deliberately no placeholder digests or automatic update channels in source.
 
-## Agent execution through Bash
+## Agent execution through `run_security_tool`
 
-`ga-security` is compiled into `Dockerfile.injector`, so it is on every worker's PATH. The agent may invoke it through the normal Bash sandbox:
+A scan never runs a scanner itself. The agent calls the typed `run_security_tool` tool, and the platform takes over:
 
-```text
-ga-security --config run-config.json --output .security-results/example
+1. **Agent call.** Inputs are the registered tool name, a typed target (type, locator, revision, and — for workspace content — a staged object key with its sha256 digest and media type), typed registry arguments, an authorized `scope`, an optional `seed`, and the argument names whose values must be redacted. There is deliberately no image, command, argv, or raw-flag input: a model cannot choose what executable runs or how it is invoked.
+2. **SecurityToolRun.** The call creates a `SecurityToolRun` (`platform.gratefulagents.dev/v1alpha1`) owned by the requesting AgentRun. Its spec is immutable, so a request cannot be rewritten after admission.
+3. **Kubernetes Job.** The controller resolves the digest-pinned `security-tools` image, builds fixed argv from the compiled registry, and creates a short-lived Job that runs `ga-security`. Content from the agent workspace is staged through object storage and materialized in the Job; the Job refuses to run when the staged archive does not match the recorded sha256 digest.
+4. **Result.** The Job writes `result.json` and the raw artifacts back to object storage. The controller records the verdict on `status.result` and the tool call returns it to the agent, which sees the status, finding count, coverage, and artifact references — not a shell transcript.
+
+`status.phase` (`Pending`, `Running`, `Succeeded`, `Failed`) describes the Job; `status.result.status` is the scanner verdict. A `Succeeded` Job does not mean the target is clean, and a `Failed` Job never becomes a `pass`.
+
+Because scanners frequently need to reach the target under test, the Job's egress is not restricted by the platform. The authorization boundary is the declared `scope`, which the registry and the tool wrapper enforce independently of model output — so scope must describe assets you are actually authorized to touch. Completed Jobs are removed by a TTL after they finish; the `SecurityToolRun` status and the object-storage artifacts remain the durable record.
+
+Inside the Job, `ga-security` decodes a closed `RunConfig`, rejects unknown fields and disabled tools, runs argv directly with `exec.CommandContext` (never a shell), resolves external scanners only from the image and verifies their binary digest immediately before execution, checks file and canonical directory-tree digests, snapshots directory inputs, strips ambient credentials from the child environment, and enforces time and output limits. The status-specific exit codes are 0 pass, 10 findings, 20 partial, 30 not applicable, 124 timeout, and 1 error. Normalized findings flow into the existing persistence, deduplication, correlation, confidence, and report path.
+
+Bash stays available to the agent for exploration, but the scanner binaries are not present in the run image, so exploratory Bash output is never a deterministic scan result.
+
+## Operator configuration
+
+The controller reads the image from the `SECURITY_TOOLS_IMAGE` environment variable, set from the `agentImages.securityTools` Helm value:
+
+```yaml
+agentImages:
+  worker: ghcr.io/gratefulagents/worker:latest
+  injector: ghcr.io/gratefulagents/injector:latest
+  securityTools: ghcr.io/gratefulagents/security-tools@sha256:...
 ```
 
-This hybrid keeps Bash available for exploration while making reportable scanner runs reproducible. `ga-security` decodes a closed `RunConfig`, rejects unknown fields and disabled tools, asks the registry to produce fixed argv, runs argv directly with `exec.CommandContext` (never a shell), resolves external scanners only from the operator toolkit and verifies their binary digest immediately before execution, checks file and canonical directory-tree digests, snapshots directory inputs, strips ambient credentials from the child environment, and enforces time/output limits. It writes `result.json` and restricted `raw-NN` artifacts. The status-specific exit codes are 0 pass, 10 findings, 20 partial, 30 not applicable, 124 timeout, and 1 error. Findings are then submitted through `ingest_scanner_results`, preserving the existing persistence, deduplication, correlation, confidence, and report path.
-
-The standalone `Dockerfile.security-tools` is a digest-pinned release artifact. The injector also places the same tools in its PATH-last fallback layer. `security-tools.lock.json` records exact multi-architecture archive and extracted-binary hashes; the build-time Go installer verifies both before installing a binary and supports tar.gz, tar.xz, and zip without floating package indexes. Entries that cannot be installed reproducibly are disabled with a reason. CI validates the lock and builds the image without contacting scan targets.
+Pin it by digest: the value is the trust anchor for every scanner argv, and it is recorded on each `SecurityToolRun` status as the image actually used. `Dockerfile.security-tools` is the reproducible build of that image. `security-tools.lock.json` records exact multi-architecture archive and extracted-binary hashes; the build-time Go installer verifies both before installing a binary and supports tar.gz, tar.xz, and zip without floating package indexes. Entries that cannot be installed reproducibly are disabled with a reason. CI validates the lock and builds the image without contacting scan targets.
 
 ## Inputs and replay
 
-Every run requires a target type, locator, immutable revision, and SHA-256 input digest. Domain-specific target types include base URLs/OpenAPI, authorization matrices, crypto vectors/binaries/models, TLS services, address scopes, pcaps, packet assertions, resettable protocol fixtures, Solidity projects, and Foundry security projects. Compute the canonical digest for a source tree with `ga-security --digest-target PATH`. Live targets must also be contained by an explicit URL/host/address/prefix scope; a syntactically valid but unrelated scope is rejected. Tools with stochastic behavior require an explicit seed.
+Every run requires a target type, locator, immutable revision, and SHA-256 input digest. Domain-specific target types include base URLs/OpenAPI, authorization matrices, crypto vectors/binaries/models, TLS services, address scopes, pcaps, packet assertions, resettable protocol fixtures, Solidity projects, and Foundry security projects. The canonical digest of a source tree is computed when the target is staged and recorded on the `SecurityToolRun`; the Job recomputes it before the scanner sees the content. Live targets must also be contained by an explicit URL/host/address/prefix scope; a syntactically valid but unrelated scope is rejected. Tools with stochastic behavior require an explicit seed.
 
 The replay record contains:
 
@@ -56,7 +76,7 @@ A result is exactly one of:
 
 A failure, unknown exit code, skipped asset, or coverage gap can never become `pass`. Coverage records independently list examined, skipped, and uncovered assets.
 
-Native output is retained as a content-addressed artifact with media type, size, and SHA-256 digest. Binary pcaps remain separate artifacts. Only redacted evidence is copied into finding/report fields. Authorization and proxy-authorization values, cookies, private keys, JWTs, and configured sensitive fields are removed. Raw artifacts can still contain sensitive packet or application content and therefore must use the same restricted artifact-store authorization and retention controls as scan source material.
+Native output is retained as a content-addressed artifact with media type, size, and SHA-256 digest. Binary pcaps remain separate artifacts. Every object for one run lives under `security-tool-runs/<namespace>/<name>/`: the staged `target.tar.gz`, and under `output/` the Job's `manifest.json`, the normalized `result.json`, and the `raw-NN` artifacts. `status.result.resultObjectKey`/`resultDigest` and each entry in `status.result.artifacts` (name, media type, size, digest, object key) point at them, and they outlive the Job and its TTL. Only redacted evidence is copied into finding/report fields. Authorization and proxy-authorization values, cookies, private keys, JWTs, and configured sensitive fields are removed. Raw artifacts can still contain sensitive packet or application content and therefore must use the same restricted artifact-store authorization and retention controls as scan source material.
 
 Adapters produce `security.ScannerRecord` values. These feed the existing `NormalizeScannerRecord` → persistence/upsert → correlation/deduplication → confidence/ranking → Markdown/SARIF report pipeline. Each record cites its raw artifact digest in `extra.raw_artifact_digest` while preserving tool/version/rule provenance.
 

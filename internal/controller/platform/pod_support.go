@@ -191,6 +191,15 @@ func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifi
 			Verbs:     []string{"get"},
 		},
 		{
+			APIGroups: []string{"platform.gratefulagents.dev"},
+			// run_security_tool records a SecurityToolRun in the run's own
+			// namespace and watches its status until the execution Job
+			// finishes. The request carries no image or argv: the controller
+			// derives both from the pinned registry.
+			Resources: []string{"securitytoolruns"},
+			Verbs:     []string{"create", "get", "list", "watch"},
+		},
+		{
 			APIGroups: []string{""},
 			Resources: []string{"configmaps"},
 			Verbs:     []string{"create", "get", "patch", "update"},

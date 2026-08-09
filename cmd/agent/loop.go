@@ -19,6 +19,7 @@ import (
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/store"
+	"github.com/gratefulagents/gratefulagents/internal/store/contentblob"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	"github.com/gratefulagents/gratefulagents/internal/tools"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
@@ -236,9 +237,29 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		// nil when the state store has no Postgres-backed finding storage; the
 		// tools then fall back to an in-memory finding buffer for this run.
 		securityFindingStore, _ := sc.StateStore().(store.SecurityFindingStore)
-		tools.RegisterSecurityScanTools(toolRegistry, securityFindingStore, sc.StateStore(), scanCtx)
+		scanState := tools.RegisterSecurityScanTools(toolRegistry, securityFindingStore, sc.StateStore(), scanCtx)
 		log.Printf("security scan tools enabled for scan %q (persistent findings: %t)",
 			scanCtx.ScanName, securityFindingStore != nil)
+		// run_security_tool is the only path from an agent to a real scanner:
+		// it records a SecurityToolRun the platform executes in a hardened
+		// Job. Without a cluster client there is nothing to record, so the
+		// tool stays unregistered rather than failing at call time.
+		securityBlobs, securityBlobsErr := contentblob.NewS3FromEnv()
+		deps := tools.SecurityToolRunDeps{
+			Client:       crdClient,
+			BlobsErr:     securityBlobsErr,
+			Namespace:    cfg.Namespace,
+			RunName:      cfg.TaskName,
+			RunUID:       cfg.TaskUID,
+			WorkspaceDir: cfg.WorkspaceDir,
+		}
+		if securityBlobsErr == nil {
+			deps.Blobs = securityBlobs
+		}
+		tools.RegisterSecurityToolRunTool(toolRegistry, scanState, deps)
+		if securityBlobsErr != nil {
+			log.Printf("WARN: run_security_tool cannot stage targets or read results: %v", securityBlobsErr)
+		}
 	}
 	// submit_task_output: typed-result sink for deterministic workflow task
 	// runs, gated on the controller-forwarded output schema. The persister is

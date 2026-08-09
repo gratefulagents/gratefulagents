@@ -150,9 +150,11 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 // run. findingStore may be nil (no Postgres); the tools then keep findings in
 // an in-memory buffer scoped to this process so the scan still works, minus
 // cross-run persistence.
-func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFindingStore, stateStore store.StateStore, scanCtx SecurityScanContext) {
+// It returns the shared scan state so callers can register additional tools
+// (run_security_tool) that must ingest through the very same pipeline.
+func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFindingStore, stateStore store.StateStore, scanCtx SecurityScanContext) *securityScanState {
 	if registry == nil {
-		return
+		return nil
 	}
 	state := &securityScanState{
 		findingStore: findingStore,
@@ -164,6 +166,7 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 	registry.Register(&updateSecurityFindingTool{state: state})
 	registry.Register(&ingestScannerResultsTool{state: state})
 	registry.Register(&submitSecurityScanReportTool{state: state})
+	return state
 }
 
 // securityScanState is shared by the security scan tools. When findingStore
@@ -1212,31 +1215,17 @@ func (t *ingestScannerResultsTool) Execute(ctx context.Context, input json.RawMe
 	// written under the cap rather than pre-counted, so a batch stops
 	// exactly where the budget runs out even when sibling runs of the
 	// execution are writing concurrently.
-	budget := t.state.findingBudget()
-	created, merged := 0, 0
+	created, merged, stoppedAt, err := ingestNormalizedScannerFindings(ctx, t.state, scanID, findings, in.Records, t.state.findingBudget())
+	if err != nil {
+		var budgetErr *store.SecurityFindingBudgetError
+		if errors.As(err, &budgetErr) {
+			return Result{Content: fmt.Sprintf("batch stopped before records[%d]: %s %d record(s) of this batch were ingested before the cap (%d new, %d merged); the remaining %d record(s) were refused.",
+				stoppedAt, securityFindingsBudgetMessage(scanCtx, budgetErr), stoppedAt, created, merged, len(findings)-stoppedAt), IsError: true}, nil
+		}
+		return Result{Content: fmt.Sprintf("failed to persist scanner finding (records[%d]): %v", stoppedAt, err), IsError: true}, nil
+	}
 	tools := map[string]bool{}
-	for i, f := range findings {
-		rec := securityFindingRecord(f, scanCtx, t.state.sessionIDPtr())
-		rec.ScanID = scanID
-		// Preserve the original scanner record verbatim (minus secrets) in
-		// the raw payload alongside the normalized finding.
-		if raw, err := json.Marshal(scannerFindingRaw{Finding: f, ScannerRecord: in.Records[i].Redacted()}); err == nil {
-			rec.Raw = raw
-		}
-		_, isNew, err := t.state.upsertFindingWithBudget(ctx, rec, budget)
-		if err != nil {
-			var budgetErr *store.SecurityFindingBudgetError
-			if errors.As(err, &budgetErr) {
-				return Result{Content: fmt.Sprintf("batch stopped before records[%d]: %s %d record(s) of this batch were ingested before the cap (%d new, %d merged); the remaining %d record(s) were refused.",
-					i, securityFindingsBudgetMessage(scanCtx, budgetErr), i, created, merged, len(findings)-i), IsError: true}, nil
-			}
-			return Result{Content: fmt.Sprintf("failed to persist scanner finding (records[%d]): %v", i, err), IsError: true}, nil
-		}
-		if isNew {
-			created++
-		} else {
-			merged++
-		}
+	for _, f := range findings {
 		tools[f.Tool] = true
 	}
 
@@ -1257,6 +1246,30 @@ func (t *ingestScannerResultsTool) Execute(ctx context.Context, input json.RawMe
 		fmt.Fprintf(&b, "\n%d new agent↔scanner correlation(s) recorded; use list_security_findings and validate correlated findings first.", correlated)
 	}
 	return Result{Content: b.String()}, nil
+}
+
+// ingestNormalizedScannerFindings persists normalized scanner findings under
+// the run's findings budget, preserving each original record (minus secrets)
+// in the raw payload. It stops at the first failure and returns the index it
+// stopped at so callers can report exactly how much of the batch landed.
+func ingestNormalizedScannerFindings(ctx context.Context, state *securityScanState, scanID uuid.UUID, findings []security.Finding, records []security.ScannerRecord, budget store.SecurityFindingBudget) (created, merged, stoppedAt int, err error) {
+	for i, f := range findings {
+		rec := securityFindingRecord(f, state.scanCtx, state.sessionIDPtr())
+		rec.ScanID = scanID
+		if raw, marshalErr := json.Marshal(scannerFindingRaw{Finding: f, ScannerRecord: records[i].Redacted()}); marshalErr == nil {
+			rec.Raw = raw
+		}
+		_, isNew, upsertErr := state.upsertFindingWithBudget(ctx, rec, budget)
+		if upsertErr != nil {
+			return created, merged, i, upsertErr
+		}
+		if isNew {
+			created++
+		} else {
+			merged++
+		}
+	}
+	return created, merged, len(findings), nil
 }
 
 // --- submit_security_scan_report ---
