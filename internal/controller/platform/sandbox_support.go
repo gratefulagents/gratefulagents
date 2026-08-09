@@ -2,6 +2,8 @@ package platform
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -119,10 +121,23 @@ func ensureRunSandboxTemplate(ctx context.Context, c client.Client, run *platfor
 		Spec: buildManagedSandboxTemplateSpec(run, runtimeProfile, saName, baseTemplate, workspacePVCName,
 			resolveMCPServerSecretEnvs(ctx, c, run)),
 	}
-	if err := c.Create(ctx, template); err != nil && !apierrors.IsAlreadyExists(err) {
-		return "", fmt.Errorf("creating sandbox template: %w", err)
+	if err := c.Create(ctx, template); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return "", fmt.Errorf("creating sandbox template: %w", err)
+		}
+		existing := &extensionsv1alpha1.SandboxTemplate{}
+		if getErr := c.Get(ctx, client.ObjectKey{Name: name, Namespace: run.Namespace}, existing); getErr != nil {
+			return "", fmt.Errorf("getting existing sandbox template: %w", getErr)
+		}
+		if !sandboxTemplateOwnedByRun(existing, run) {
+			return "", fmt.Errorf("sandbox template %s/%s already belongs to another AgentRun", run.Namespace, name)
+		}
 	}
 	return name, nil
+}
+
+func sandboxTemplateOwnedByRun(template *extensionsv1alpha1.SandboxTemplate, run *platformv1alpha1.AgentRun) bool {
+	return template != nil && run != nil && run.UID != "" && metav1.IsControlledBy(template, run)
 }
 
 func explicitSandboxTemplateRef(runtimeProfile *platformv1alpha1.RuntimeProfile) string {
@@ -277,6 +292,31 @@ func sandboxClaimName(run *platformv1alpha1.AgentRun) string {
 }
 
 func managedSandboxTemplateName(run *platformv1alpha1.AgentRun) string {
+	legacy := legacyManagedSandboxTemplateName(run)
+	if run == nil || len(strings.TrimSpace("run-tpl-"+run.Name)) <= 63 {
+		return legacy
+	}
+	identity := string(run.UID)
+	if identity == "" {
+		identity = run.Namespace + "/" + run.Name
+	}
+	sum := sha256.Sum256([]byte(identity))
+	hash := hex.EncodeToString(sum[:16])
+	stemLimit := 63 - len(hash) - 1
+	if len(legacy) < stemLimit {
+		stemLimit = len(legacy)
+	}
+	stem := strings.TrimRight(legacy[:stemLimit], "-")
+	if stem == "" {
+		stem = "run-tpl"
+	}
+	return stem + "-" + hash
+}
+
+func legacyManagedSandboxTemplateName(run *platformv1alpha1.AgentRun) string {
+	if run == nil {
+		return sanitizeDNSLabel("run-tpl", "")
+	}
 	return sanitizeDNSLabel("run-tpl", run.Name)
 }
 
