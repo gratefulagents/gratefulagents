@@ -192,6 +192,10 @@ dashboard:
 postgres:
   enabled: true
   image: pgvector/pgvector:pg17
+  ## Maximum concurrent database connections accepted by the bundled server.
+  ## A worker uses several independent pools, so PostgreSQL's default of 100
+  ## is too small for installations running many agents concurrently.
+  maxConnections: 500
   auth:
     username: sample-user
     password: sample-password

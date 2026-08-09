@@ -64,6 +64,9 @@ spec:
             containers:
                 - name: postgres
                   image: {{ .Values.postgres.image }}
+                  args:
+                    - -c
+                    - {{ printf "max_connections=%v" .Values.postgres.maxConnections | quote }}
                   env:
                     - name: POSTGRES_USER
                       value: {{ .Values.postgres.auth.username | quote }}
