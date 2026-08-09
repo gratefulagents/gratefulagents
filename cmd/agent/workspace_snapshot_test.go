@@ -91,6 +91,28 @@ const (
 	testCheckpointPrefix = "workspace-checkpoints/v1/test-ns/test-uid"
 )
 
+func TestBestRemoteAncestorExactHeadSkipsHistoryWalk(t *testing.T) {
+	requireGit(t)
+	origin := newOriginWithSeed(t)
+	work := cloneAndCheckout(t, origin, false)
+	head := mustGit(t, work, "rev-parse", "HEAD")
+	trace := filepath.Join(t.TempDir(), "git.trace")
+	t.Setenv("GIT_TRACE", trace)
+
+	if got := bestRemoteAncestor(testCtx(t), work, head); got != head {
+		t.Fatalf("bestRemoteAncestor() = %q, want exact HEAD %q", got, head)
+	}
+	data, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatalf("reading Git trace: %v", err)
+	}
+	for _, command := range []string{"merge-base", "rev-list"} {
+		if strings.Contains(string(data), command) {
+			t.Fatalf("exact HEAD match unexpectedly ran git %s:\n%s", command, data)
+		}
+	}
+}
+
 type memoryWorkspaceObjectStore struct {
 	mu         sync.Mutex
 	objects    map[string][]byte

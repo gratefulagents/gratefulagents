@@ -696,9 +696,15 @@ func bestRemoteAncestor(ctx context.Context, dir, head string) string {
 	if err != nil || out == "" {
 		return ""
 	}
+	candidates := strings.Fields(out)
+	for _, candidate := range candidates {
+		if candidate == head {
+			return head
+		}
+	}
 	best, bestDistance := "", int64(^uint64(0)>>1)
 	seen := map[string]struct{}{}
-	for _, candidate := range strings.Fields(out) {
+	for _, candidate := range candidates {
 		if _, ok := seen[candidate]; ok || !isGitAncestor(ctx, dir, candidate, head) {
 			continue
 		}
