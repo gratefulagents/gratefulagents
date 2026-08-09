@@ -1142,7 +1142,7 @@ func (r *AgentRunReconciler) releaseRunSandbox(ctx context.Context, run *platfor
 			return false, nil
 		}
 	}
-	if err := deleteManagedSandboxTemplateIfExists(ctx, r.Client, run.Namespace, managedSandboxTemplateName(run)); err != nil {
+	if err := deleteManagedSandboxTemplateIfOwned(ctx, r.Client, run, managedSandboxTemplateName(run)); err != nil {
 		return false, err
 	}
 	return true, nil

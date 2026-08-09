@@ -79,7 +79,7 @@ func createPlanSandbox(ctx context.Context, c client.Client, run *platformv1alph
 				return nil, fmt.Errorf("deleting unassigned stale sandbox claim: %w", delErr)
 			}
 			if managedSandboxTemplateName(run) == templateName {
-				_ = deleteManagedSandboxTemplateIfExists(ctx, c, run.Namespace, templateName)
+				_ = deleteManagedSandboxTemplateIfOwned(ctx, c, run, templateName)
 			}
 			return nil, errRunSandboxReplaced
 		}
@@ -449,12 +449,24 @@ func clearSandboxClaimLifecycle(ctx context.Context, c client.Client, claim *ext
 	return nil
 }
 
-func deleteManagedSandboxTemplateIfExists(ctx context.Context, c client.Client, namespace, name string) error {
-	template := &extensionsv1alpha1.SandboxTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+func deleteManagedSandboxTemplateIfOwned(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun, name string) error {
+	if run == nil {
+		return nil
 	}
-	if err := c.Delete(ctx, template); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting stale sandbox template %s/%s: %w", namespace, name, err)
+	template := &extensionsv1alpha1.SandboxTemplate{}
+	key := client.ObjectKey{Name: name, Namespace: run.Namespace}
+	if err := c.Get(ctx, key, template); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("getting stale sandbox template %s/%s: %w", run.Namespace, name, err)
+	}
+	if !sandboxTemplateOwnedByRun(template, run) {
+		return nil
+	}
+	preconditions := client.Preconditions{UID: &template.UID, ResourceVersion: &template.ResourceVersion}
+	if err := c.Delete(ctx, template, preconditions); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("deleting stale sandbox template %s/%s: %w", run.Namespace, name, err)
 	}
 	return nil
 }

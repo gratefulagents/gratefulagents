@@ -1395,7 +1395,9 @@ func TestReconcileWakeSucceededRunRequeuesFreshSandbox(t *testing.T) {
 		},
 	}
 	oldClaim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{Name: "run-wake-run", Namespace: "default"}}
-	oldTemplate := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Name: managedSandboxTemplateName(run), Namespace: "default"}}
+	oldTemplate := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
 	oldPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "old-wake-pod", Namespace: "default"},
 		Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1519,7 +1521,9 @@ func TestReconcileCancelRunningRunTearsDownComputeAndMarksCancelled(t *testing.T
 	}
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "cancel-pod", Namespace: "default"}}
 	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{Name: "run-cancel-run", Namespace: "default"}}
-	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Name: managedSandboxTemplateName(run), Namespace: "default"}}
+	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
 	crb := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "cancel-run-binding",
@@ -1792,6 +1796,7 @@ func TestReconcileDeletedRunDrainsPodBeforeDeletingSandboxOrData(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "delete-drain-run",
 			Namespace:  "default",
+			UID:        types.UID("delete-drain-run-uid"),
 			Finalizers: []string{agentRunCleanupFinalizer},
 		},
 		Status: platformv1alpha1.AgentRunStatus{
@@ -1810,7 +1815,9 @@ func TestReconcileDeletedRunDrainsPodBeforeDeletingSandboxOrData(t *testing.T) {
 		},
 	}
 	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{Name: "delete-drain-claim", Namespace: "default"}}
-	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Name: managedSandboxTemplateName(run), Namespace: "default"}}
+	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&platformv1alpha1.AgentRun{}).

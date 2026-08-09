@@ -7,10 +7,12 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	extensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -68,6 +70,43 @@ func TestEnsureRunSandboxTemplateRejectsForeignController(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(conflicting).Build()
 	if _, err := ensureRunSandboxTemplate(context.Background(), c, run, nil, "run-sa", ""); err == nil || !strings.Contains(err.Error(), "belongs to another AgentRun") {
 		t.Fatalf("ensureRunSandboxTemplate() error = %v, want owner collision", err)
+	}
+}
+
+func TestDeleteManagedSandboxTemplateOnlyDeletesCurrentRunOwner(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(platform): %v", err)
+	}
+	if err := extensionsv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(sandbox extensions): %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "default", UID: types.UID("run-uid")}}
+	controller := true
+	foreign := &extensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "foreign", Namespace: run.Namespace, UID: types.UID("foreign-template-uid"), ResourceVersion: "1",
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: "other", UID: types.UID("other-uid"), Controller: &controller,
+		}},
+	}}
+	owned := &extensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "owned", Namespace: run.Namespace, UID: types.UID("owned-template-uid"), ResourceVersion: "1",
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller,
+		}},
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(foreign, owned).Build()
+	if err := deleteManagedSandboxTemplateIfOwned(context.Background(), c, run, foreign.Name); err != nil {
+		t.Fatalf("foreign cleanup: %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(foreign), &extensionsv1alpha1.SandboxTemplate{}); err != nil {
+		t.Fatalf("foreign template was deleted: %v", err)
+	}
+	if err := deleteManagedSandboxTemplateIfOwned(context.Background(), c, run, owned.Name); err != nil {
+		t.Fatalf("owned cleanup: %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(owned), &extensionsv1alpha1.SandboxTemplate{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("owned template get error = %v, want NotFound", err)
 	}
 }
 
