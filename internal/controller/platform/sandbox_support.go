@@ -31,7 +31,7 @@ var (
 )
 
 func createPlanSandbox(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun, runtimeProfile *platformv1alpha1.RuntimeProfile) (*platformv1alpha1.AgentRunSandboxStatus, error) {
-	saName := sanitizeDNSLabel("run", run.Name)
+	saName := sandboxRunResourceName("run", run)
 	if err := ensureRunRBAC(ctx, c, run, saName); err != nil {
 		return nil, err
 	}
@@ -64,6 +64,9 @@ func createPlanSandbox(ctx context.Context, c client.Client, run *platformv1alph
 				return nil, errRunSandboxReplaced
 			}
 			return nil, fmt.Errorf("getting existing sandbox claim: %w", getErr)
+		}
+		if !sandboxClaimOwnedByRun(existing, run) {
+			return nil, fmt.Errorf("sandbox claim %s/%s already belongs to another AgentRun", run.Namespace, claimName)
 		}
 		replace, replaceErr := shouldReplaceExistingSandboxClaim(ctx, c, run, existing)
 		if replaceErr != nil {
@@ -138,6 +141,10 @@ func ensureRunSandboxTemplate(ctx context.Context, c client.Client, run *platfor
 
 func sandboxTemplateOwnedByRun(template *extensionsv1alpha1.SandboxTemplate, run *platformv1alpha1.AgentRun) bool {
 	return template != nil && run != nil && run.UID != "" && metav1.IsControlledBy(template, run)
+}
+
+func sandboxClaimOwnedByRun(claim *extensionsv1alpha1.SandboxClaim, run *platformv1alpha1.AgentRun) bool {
+	return claim != nil && run != nil && run.UID != "" && metav1.IsControlledBy(claim, run)
 }
 
 func explicitSandboxTemplateRef(runtimeProfile *platformv1alpha1.RuntimeProfile) string {
@@ -288,12 +295,19 @@ func buildRuntimeProfileNetworkPolicy(runtimeProfile *platformv1alpha1.RuntimePr
 }
 
 func sandboxClaimName(run *platformv1alpha1.AgentRun) string {
-	return sanitizeDNSLabel("run", run.Name)
+	return sandboxRunResourceName("run", run)
 }
 
 func managedSandboxTemplateName(run *platformv1alpha1.AgentRun) string {
-	legacy := legacyManagedSandboxTemplateName(run)
-	if run == nil || len(strings.TrimSpace("run-tpl-"+run.Name)) <= 63 {
+	return sandboxRunResourceName("run-tpl", run)
+}
+
+func sandboxRunResourceName(prefix string, run *platformv1alpha1.AgentRun) string {
+	legacy := sanitizeDNSLabel(prefix, "")
+	if run != nil {
+		legacy = sanitizeDNSLabel(prefix, run.Name)
+	}
+	if run == nil || len(strings.TrimSpace(prefix+"-"+run.Name)) <= 63 {
 		return legacy
 	}
 	identity := string(run.UID)
@@ -302,22 +316,12 @@ func managedSandboxTemplateName(run *platformv1alpha1.AgentRun) string {
 	}
 	sum := sha256.Sum256([]byte(identity))
 	hash := hex.EncodeToString(sum[:16])
-	stemLimit := 63 - len(hash) - 1
-	if len(legacy) < stemLimit {
-		stemLimit = len(legacy)
-	}
+	stemLimit := min(len(legacy), 63-len(hash)-1)
 	stem := strings.TrimRight(legacy[:stemLimit], "-")
 	if stem == "" {
-		stem = "run-tpl"
+		stem = strings.Trim(sanitizeDNSLabel(prefix, "resource"), "-")
 	}
 	return stem + "-" + hash
-}
-
-func legacyManagedSandboxTemplateName(run *platformv1alpha1.AgentRun) string {
-	if run == nil {
-		return sanitizeDNSLabel("run-tpl", "")
-	}
-	return sanitizeDNSLabel("run-tpl", run.Name)
 }
 
 func runOwnerRef(run *platformv1alpha1.AgentRun) metav1.OwnerReference {

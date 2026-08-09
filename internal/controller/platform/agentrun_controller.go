@@ -1058,38 +1058,17 @@ func (r *AgentRunReconciler) releaseRunSandbox(ctx context.Context, run *platfor
 		return true, nil
 	}
 
-	podNames := make(map[string]struct{})
-	claimNames := map[string]struct{}{sandboxClaimName(run): {}}
-	if sandbox := run.Status.Sandbox; sandbox != nil {
-		if sandbox.SandboxRef != nil {
-			if name := strings.TrimSpace(sandbox.SandboxRef.Name); name != "" {
-				podNames[name] = struct{}{}
-			}
-		}
-		if sandbox.ClaimRef != nil {
-			if name := strings.TrimSpace(sandbox.ClaimRef.Name); name != "" {
-				claimNames[name] = struct{}{}
-			}
-		}
+	// Discover claims by immutable controller ownership. Derived names and
+	// status references can point at another run after legacy name collisions.
+	claimList := &agentsandboxextensionsv1alpha1.SandboxClaimList{}
+	if err := r.List(ctx, claimList, client.InNamespace(run.Namespace)); err != nil {
+		return false, fmt.Errorf("listing sandbox claims during drain: %w", err)
 	}
-
-	claimsPresent := false
-	for name := range claimNames {
-		claim := &agentsandboxextensionsv1alpha1.SandboxClaim{}
-		err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: run.Namespace}, claim)
-		if apierrors.IsNotFound(err) {
-			continue
-		}
-		if err != nil {
-			return false, fmt.Errorf("getting sandbox claim %s/%s during drain: %w", run.Namespace, name, err)
-		}
-		claimsPresent = true
-		if sandboxName := strings.TrimSpace(claim.Status.SandboxStatus.Name); sandboxName != "" {
-			if podName, err := resolveSandboxPodName(ctx, r.Client, run.Namespace, sandboxName); err == nil && podName != "" {
-				podNames[podName] = struct{}{}
-			} else if err != nil && !apierrors.IsNotFound(err) {
-				return false, fmt.Errorf("resolving sandbox pod during drain: %w", err)
-			}
+	ownedClaims := make(map[string]*agentsandboxextensionsv1alpha1.SandboxClaim)
+	for i := range claimList.Items {
+		claim := &claimList.Items[i]
+		if sandboxClaimOwnedByRun(claim, run) {
+			ownedClaims[claim.Name] = claim.DeepCopy()
 		}
 	}
 
@@ -1099,36 +1078,24 @@ func (r *AgentRunReconciler) releaseRunSandbox(ctx context.Context, run *platfor
 	}); err != nil {
 		return false, fmt.Errorf("listing owned runner pods during drain: %w", err)
 	}
-	for i := range ownedPods.Items {
-		podNames[ownedPods.Items[i].Name] = struct{}{}
-	}
-
-	podPresent := false
-	for name := range podNames {
-		pod := &corev1.Pod{}
-		err := r.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, pod)
-		if apierrors.IsNotFound(err) {
-			continue
-		}
-		if err != nil {
-			return false, fmt.Errorf("getting runner pod %s/%s during drain: %w", run.Namespace, name, err)
-		}
-		podPresent = true
-		if pod.DeletionTimestamp.IsZero() {
-			if err := r.Delete(ctx, pod); err != nil && !apierrors.IsNotFound(err) {
-				return false, fmt.Errorf("deleting runner pod %s/%s: %w", run.Namespace, name, err)
+	if len(ownedPods.Items) > 0 {
+		for i := range ownedPods.Items {
+			pod := &ownedPods.Items[i]
+			if pod.DeletionTimestamp.IsZero() {
+				preconditions := client.Preconditions{UID: &pod.UID, ResourceVersion: &pod.ResourceVersion}
+				if err := r.Delete(ctx, pod, preconditions); err != nil && !apierrors.IsNotFound(err) {
+					return false, fmt.Errorf("deleting runner pod %s/%s: %w", run.Namespace, pod.Name, err)
+				}
 			}
 		}
-	}
-	if podPresent {
 		return false, nil
 	}
 
-	if claimsPresent {
+	if len(ownedClaims) > 0 {
 		remaining := false
-		for name := range claimNames {
-			claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: run.Namespace}}
-			if err := r.Delete(ctx, claim); err != nil && !apierrors.IsNotFound(err) {
+		for name, claim := range ownedClaims {
+			preconditions := client.Preconditions{UID: &claim.UID, ResourceVersion: &claim.ResourceVersion}
+			if err := r.Delete(ctx, claim, preconditions); err != nil && !apierrors.IsNotFound(err) {
 				return false, fmt.Errorf("deleting sandbox claim %s/%s: %w", run.Namespace, name, err)
 			}
 			probe := &agentsandboxextensionsv1alpha1.SandboxClaim{}
