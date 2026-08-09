@@ -17,6 +17,11 @@ package platform
 // The dashboard provisions a personal namespace per user (where their projects and
 // saved credential Secrets live), so it needs to create, read, and annotate namespaces.
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch
+// SecurityToolRun requests are reconciled into short-lived execution Jobs
+// carrying a controller-generated RunConfig ConfigMap.
+// +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=securitytoolruns,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=securitytoolruns/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
 // Kubernetes-admin dogfooding runs bind their worker service account to the
 // built-in cluster-admin ClusterRole. The bind verb is constrained to that
 // single ClusterRole.

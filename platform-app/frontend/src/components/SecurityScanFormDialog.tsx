@@ -109,6 +109,7 @@ type SpecState = {
   includePaths: string;
   excludePaths: string;
   languages: string;
+  authorizedNetworkTargets: string;
   minSeverity: string;
   failOnSeverity: string;
   parallelism: string;
@@ -159,6 +160,7 @@ function initialSpec(config?: SecurityScanConfig): SpecState {
     includePaths: spec?.scope?.includePaths.join(", ") ?? "",
     excludePaths: spec?.scope?.excludePaths.join(", ") ?? "",
     languages: spec?.scope?.languages.join(", ") ?? "",
+    authorizedNetworkTargets: spec?.scope?.authorizedNetworkTargets.join(", ") ?? "",
     minSeverity: spec?.minSeverity ?? "",
     failOnSeverity: spec?.failOnSeverity ?? "",
     parallelism: spec?.parallelism ? String(spec.parallelism) : "",
@@ -269,6 +271,7 @@ function scopeSummary(spec: SpecState): string {
   if (spec.focus.trim()) parts.push("focus set");
   if (spec.includePaths.trim() || spec.excludePaths.trim()) parts.push("path filters");
   if (spec.languages.trim()) parts.push(spec.languages.trim());
+  if (spec.authorizedNetworkTargets.trim()) parts.push("network targets authorized");
   return parts.length ? parts.join(" · ") : "Whole repository";
 }
 
@@ -436,6 +439,7 @@ export function SecurityScanFormDialog({
       includePaths: splitList(spec.includePaths, /[,\n]/),
       excludePaths: splitList(spec.excludePaths, /[,\n]/),
       languages: splitList(spec.languages, /[,\n]/),
+      authorizedNetworkTargets: splitList(spec.authorizedNetworkTargets, /[,\n]/),
     });
     return create(SecurityScanConfigSpecSchema, {
       repoUrl: spec.repoUrl.trim(),
@@ -820,7 +824,11 @@ export function SecurityScanFormDialog({
                 title="Scope"
                 summary={scopeSummary(spec)}
                 modified={Boolean(
-                  spec.focus.trim() || spec.includePaths.trim() || spec.excludePaths.trim() || spec.languages.trim(),
+                  spec.focus.trim() ||
+                    spec.includePaths.trim() ||
+                    spec.excludePaths.trim() ||
+                    spec.languages.trim() ||
+                    spec.authorizedNetworkTargets.trim(),
                 )}
               >
                 <FlowField
@@ -862,6 +870,19 @@ export function SecurityScanFormDialog({
                     value={spec.languages}
                     onChange={(event) => update("languages", event.target.value)}
                     placeholder="go, typescript"
+                  />
+                </FlowField>
+                <FlowField
+                  id="scan-authorized-network-targets"
+                  label="Authorized network targets"
+                  hint="Comma or newline separated hosts, host:port pairs, CIDRs, or http(s) URLs. Deterministic network scanners (nuclei, ZAP, nmap, …) may only probe these; empty disables network scanning for this scan."
+                >
+                  <Textarea
+                    id="scan-authorized-network-targets"
+                    value={spec.authorizedNetworkTargets}
+                    onChange={(event) => update("authorizedNetworkTargets", event.target.value)}
+                    className="min-h-16 font-mono"
+                    placeholder="staging.example.com, https://api.example.com, 10.0.0.0/8"
                   />
                 </FlowField>
               </OptionRow>

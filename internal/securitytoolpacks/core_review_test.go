@@ -137,8 +137,10 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Scanner toolroots ship only in the security-tools runtime image; the
+	// injector no longer carries them.
 	dockerfiles := ""
-	for _, path := range []string{"../../Dockerfile.security-tools", "../../Dockerfile.injector"} {
+	for _, path := range []string{"../../Dockerfile.security-tools"} {
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			t.Fatal(readErr)
@@ -153,8 +155,8 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		if tool.OCIRoot != name || !strings.Contains(tool.Image, "@"+tool.ImageDigest) || tool.ToolArtifactDigest != tool.ImageDigest || tool.WrapperDigest != pin || tool.PlatformDigests["amd64"] == "" || tool.PlatformDigests["arm64"] == "" || tool.OCIExecutable == "" {
 			t.Fatalf("%s has incomplete OCI provenance: %+v", name, tool)
 		}
-		if strings.Count(dockerfiles, tool.Image) != 2 {
-			t.Fatalf("%s pin is not present exactly once in each runtime Dockerfile", name)
+		if strings.Count(dockerfiles, tool.Image) != 1 {
+			t.Fatalf("%s pin is not present exactly once in the security-tools Dockerfile", name)
 		}
 		if name != "schemathesis" && tool.ExitCodes[1] != StatusError {
 			t.Fatalf("%s exit 1 must be operational error", name)

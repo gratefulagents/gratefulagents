@@ -63,6 +63,13 @@ const (
 	// SecurityScanTaskRoleAnnotation is the effective RoleInstruction name
 	// resolved for a deterministic task run (SecurityScanTask.EffectiveRole).
 	SecurityScanTaskRoleAnnotation = "security.gratefulagents.dev/task-role"
+	// SecurityScanAuthorizedNetworkTargetsAnnotation is the comma-separated
+	// list of network targets the scan is authorized to probe, taken from the
+	// resolved spec.scope.authorizedNetworkTargets. It is operator
+	// configuration, never model output: the SecurityToolRun reconciler
+	// refuses to start a network-enabled tool whose target or scope is not
+	// covered by this list, and an absent annotation authorizes nothing.
+	SecurityScanAuthorizedNetworkTargetsAnnotation = "security.gratefulagents.dev/authorized-network-targets"
 	// SecurityScanPostScriptAnnotation is the comma-separated ordered list of
 	// SecurityPostScript names a durable pipeline run executes;
 	// SecurityScanPostScriptFindingAnnotation is the finding id it is bound to.
@@ -451,6 +458,20 @@ type SecurityScanScope struct {
 	// +listType=atomic
 	// +optional
 	Languages []string `json:"languages,omitempty"`
+
+	// authorizedNetworkTargets declares which hosts the scan may probe over
+	// the network: hostnames, host:port pairs, CIDR prefixes, or absolute
+	// http(s) URLs. It is operator-declared authorization, not guidance: the
+	// platform stamps the resolved list onto every scan run and refuses any
+	// deterministic security tool that needs network access unless both its
+	// target and every scope entry are covered by an entry here. Matching is
+	// exact (host, or an address inside a declared prefix); there are no
+	// wildcards. An empty list means no network scanning is authorized.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=2048
+	// +optional
+	AuthorizedNetworkTargets []string `json:"authorizedNetworkTargets,omitempty"`
 }
 
 // SecurityScanTask is one focused research task in the scan workflow, executed

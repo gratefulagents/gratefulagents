@@ -808,12 +808,14 @@ func securityScanScopeFromProto(pb *platform.SecurityScanScopeConfig) *triggersv
 		return nil
 	}
 	scope := &triggersv1alpha1.SecurityScanScope{
-		Focus:        strings.TrimSpace(pb.GetFocus()),
-		IncludePaths: trimmedNonEmpty(pb.GetIncludePaths()),
-		ExcludePaths: trimmedNonEmpty(pb.GetExcludePaths()),
-		Languages:    trimmedNonEmpty(pb.GetLanguages()),
+		Focus:                    strings.TrimSpace(pb.GetFocus()),
+		IncludePaths:             trimmedNonEmpty(pb.GetIncludePaths()),
+		ExcludePaths:             trimmedNonEmpty(pb.GetExcludePaths()),
+		Languages:                trimmedNonEmpty(pb.GetLanguages()),
+		AuthorizedNetworkTargets: trimmedNonEmpty(pb.GetAuthorizedNetworkTargets()),
 	}
-	if scope.Focus == "" && scope.IncludePaths == nil && scope.ExcludePaths == nil && scope.Languages == nil {
+	if scope.Focus == "" && scope.IncludePaths == nil && scope.ExcludePaths == nil &&
+		scope.Languages == nil && scope.AuthorizedNetworkTargets == nil {
 		return nil
 	}
 	return scope
@@ -1032,10 +1034,11 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 	}
 	if scope := spec.Scope; scope != nil {
 		pb.Scope = &platform.SecurityScanScopeConfig{
-			Focus:        scope.Focus,
-			IncludePaths: append([]string(nil), scope.IncludePaths...),
-			ExcludePaths: append([]string(nil), scope.ExcludePaths...),
-			Languages:    append([]string(nil), scope.Languages...),
+			Focus:                    scope.Focus,
+			IncludePaths:             append([]string(nil), scope.IncludePaths...),
+			ExcludePaths:             append([]string(nil), scope.ExcludePaths...),
+			Languages:                append([]string(nil), scope.Languages...),
+			AuthorizedNetworkTargets: append([]string(nil), scope.AuthorizedNetworkTargets...),
 		}
 	}
 	for _, t := range spec.Workflow {

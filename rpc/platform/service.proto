@@ -4293,6 +4293,11 @@ message SecurityScanScopeConfig {
   repeated string include_paths = 2;
   repeated string exclude_paths = 3;
   repeated string languages = 4;
+  // authorized_network_targets is the operator's allowlist of hosts,
+  // host:port pairs, CIDR prefixes, or absolute http(s) URLs that the scan's
+  // deterministic network tools may probe. Empty means no network scanning is
+  // authorized. At most 64 entries.
+  repeated string authorized_network_targets = 5;
 }
 
 // SecurityScanTaskConfig is one focused research task in the scan workflow.

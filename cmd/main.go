@@ -314,6 +314,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&platformcontroller.SecurityToolRunReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SecurityToolRun")
+		os.Exit(1)
+	}
+
 	if err := (&triggercontroller.ProjectReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),

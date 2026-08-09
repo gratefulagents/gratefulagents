@@ -29,6 +29,9 @@ func run(args []string) int {
 		}
 		return 0
 	}
+	if len(args) > 0 && args[0] == "job" {
+		return runJob(args[1:])
+	}
 	flags := flag.NewFlagSet("ga-security", flag.ContinueOnError)
 	configPath := flags.String("config", "", "path to typed RunConfig JSON")
 	outputDir := flags.String("output", "", "directory for result and raw artifacts")

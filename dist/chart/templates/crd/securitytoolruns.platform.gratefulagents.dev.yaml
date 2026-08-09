@@ -1,0 +1,318 @@
+{{- if .Values.crd.enable }}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: securitytoolruns.platform.gratefulagents.dev
+spec:
+  group: platform.gratefulagents.dev
+  names:
+    kind: SecurityToolRun
+    listKind: SecurityToolRunList
+    plural: securitytoolruns
+    singular: securitytoolrun
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.tool
+      name: Tool
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.result.status
+      name: Result
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SecurityToolRun is one deterministic security-tool execution carried out by
+          a short-lived Kubernetes Job running the pinned security-tools image.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              SecurityToolRunSpec is an immutable request to execute one registered
+              security tool in a dedicated Kubernetes Job. There is deliberately no image,
+              command, or raw-argument field: the controller derives all of those from the
+              pinned registry and operator configuration.
+            properties:
+              arguments:
+                description: arguments are typed registry arguments.
+                items:
+                  description: |-
+                    SecurityToolArgument is one typed argument. Names and values are validated
+                    against the compiled tool registry; free-form scanner flags are impossible.
+                  properties:
+                    name:
+                      maxLength: 64
+                      minLength: 1
+                      type: string
+                    value:
+                      maxLength: 1024
+                      type: string
+                  required:
+                  - name
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-type: atomic
+              requestedBy:
+                description: |-
+                  requestedBy identifies the AgentRun that asked for this execution. It is
+                  informational; ownership is enforced through owner references.
+                maxLength: 253
+                type: string
+              scope:
+                description: scope records the authorized assets for this execution.
+                items:
+                  type: string
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: atomic
+              seed:
+                description: seed pins randomized tool behavior for replay.
+                format: int64
+                type: integer
+              sensitiveFields:
+                description: |-
+                  sensitiveFields lists argument names whose values must be redacted from
+                  replay metadata and artifacts.
+                items:
+                  type: string
+                maxItems: 32
+                type: array
+                x-kubernetes-list-type: atomic
+              target:
+                description: |-
+                  SecurityToolTarget identifies what a deterministic security tool runs
+                  against. Content that lives inside the requesting agent's workspace is
+                  staged through object storage; the Job verifies the recorded digest before
+                  the scanner sees it.
+                properties:
+                  digest:
+                    description: |-
+                      digest is the sha256 digest of the staged artifact (or of the target
+                      itself when nothing is staged). The Job refuses to run when a staged
+                      artifact does not match it.
+                    pattern: ^(sha256:[0-9a-f]{64})?$
+                    type: string
+                  locator:
+                    description: |-
+                      locator is the target reference. For staged content it is the logical
+                      path recorded for replay; the Job substitutes the materialized path.
+                    maxLength: 2048
+                    minLength: 1
+                    type: string
+                  mediaType:
+                    description: mediaType describes the staged artifact.
+                    maxLength: 128
+                    type: string
+                  revision:
+                    description: revision pins the target version (commit SHA, tag,
+                      or image digest).
+                    maxLength: 256
+                    type: string
+                  stagedObjectKey:
+                    description: |-
+                      stagedObjectKey is the object-storage key of the staged target archive
+                      (tar.gz) uploaded by the requester. Empty for network targets.
+                    maxLength: 1024
+                    type: string
+                  type:
+                    description: |-
+                      type is the registry target type (for example repository, directory,
+                      url, image, or openapi).
+                    maxLength: 64
+                    minLength: 1
+                    type: string
+                required:
+                - locator
+                - type
+                type: object
+              tool:
+                description: tool is the registered tool name (for example gitleaks
+                  or trivy).
+                maxLength: 64
+                minLength: 1
+                type: string
+            required:
+            - target
+            - tool
+            type: object
+            x-kubernetes-validations:
+            - message: securityToolRun spec is immutable
+              rule: self == oldSelf
+          status:
+            description: SecurityToolRunStatus is the observed state of a SecurityToolRun.
+            properties:
+              completedAt:
+                format: date-time
+                type: string
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              image:
+                description: image is the resolved, digest-pinned security-tools image
+                  used.
+                type: string
+              jobName:
+                description: jobName is the execution Job created for this request.
+                type: string
+              message:
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                enum:
+                - Pending
+                - Running
+                - Succeeded
+                - Failed
+                type: string
+              result:
+                description: |-
+                  SecurityToolRunResult is the typed outcome summary. The full normalized
+                  document (findings, coverage, replay) stays in object storage.
+                properties:
+                  artifacts:
+                    items:
+                      description: SecurityToolRunArtifact references one raw artifact
+                        produced by the Job.
+                      properties:
+                        digest:
+                          type: string
+                        mediaType:
+                          type: string
+                        name:
+                          type: string
+                        objectKey:
+                          description: objectKey is the object-storage key holding
+                            the artifact bytes.
+                          type: string
+                        size:
+                          format: int64
+                          type: integer
+                      type: object
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  errors:
+                    items:
+                      type: string
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  findingCount:
+                    format: int32
+                    type: integer
+                  resultDigest:
+                    description: resultDigest is the sha256 digest of result.json.
+                    type: string
+                  resultObjectKey:
+                    description: resultObjectKey is the object-storage key of result.json.
+                    type: string
+                  status:
+                    description: |-
+                      status is the deterministic verdict: pass, findings, error, timeout,
+                      partial, or not_applicable. A failed or timed-out Job never becomes a
+                      pass.
+                    enum:
+                    - pass
+                    - findings
+                    - error
+                    - timeout
+                    - partial
+                    - not_applicable
+                    type: string
+                type: object
+              startedAt:
+                format: date-time
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+{{- end }}

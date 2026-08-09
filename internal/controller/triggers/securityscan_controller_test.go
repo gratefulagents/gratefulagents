@@ -169,6 +169,9 @@ func TestSecurityScanReconcileCreatedRunCarriesScanMetadataOwnerAndDefaultMode(t
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanTestScan()
 	scan.Spec.Revision = "abc123"
+	scan.Spec.Scope = &triggersv1alpha1.SecurityScanScope{
+		AuthorizedNetworkTargets: []string{" api.example.test ", "", "192.0.2.0/24"},
+	}
 	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
 
 	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
@@ -187,6 +190,11 @@ func TestSecurityScanReconcileCreatedRunCarriesScanMetadataOwnerAndDefaultMode(t
 	}
 	if run.Annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] != scan.Spec.Revision {
 		t.Fatalf("revision annotation = %q, want %q", run.Annotations[triggersv1alpha1.SecurityScanRevisionAnnotation], scan.Spec.Revision)
+	}
+	// Network authorization is operator configuration, stamped onto the run so
+	// the SecurityToolRun reconciler can enforce it against model tool input.
+	if got := run.Annotations[triggersv1alpha1.SecurityScanAuthorizedNetworkTargetsAnnotation]; got != "api.example.test,192.0.2.0/24" {
+		t.Fatalf("authorized-network-targets annotation = %q", got)
 	}
 	if run.Spec.Repository.Revision != scan.Spec.Revision {
 		t.Fatalf("Spec.Repository.Revision = %q, want pinned revision %q", run.Spec.Repository.Revision, scan.Spec.Revision)

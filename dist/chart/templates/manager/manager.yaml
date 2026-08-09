@@ -65,6 +65,17 @@ spec:
                       value: {{ .Values.agentImages.worker | quote }}
                     - name: INJECTOR_IMAGE
                       value: {{ .Values.agentImages.injector | quote }}
+                    {{- if .Values.agentImages.securityTools }}
+                    {{- $securityTools := .Values.securityTools | default dict }}
+                    - name: SECURITY_TOOLS_IMAGE
+                      value: {{ .Values.agentImages.securityTools | quote }}
+                    - name: SECURITY_TOOLS_JOB_TTL_SECONDS
+                      value: {{ $securityTools.jobTTLSeconds | default 600 | quote }}
+                    {{- if $securityTools.allowUnpinnedImage }}
+                    - name: SECURITY_TOOLS_ALLOW_UNPINNED_IMAGE
+                      value: "true"
+                    {{- end }}
+                    {{- end }}
                     - name: VIDEO_TMP_DIR
                       value: /var/run/video-tmp
                     {{- if include "gratefulagents.otlpEndpoint" . }}

@@ -245,6 +245,11 @@ manager_image_repository="$IMAGE_REGISTRY/controller"
 manager_image="$manager_image_repository:$IMAGE_TAG"
 worker_image="$IMAGE_REGISTRY/worker:$IMAGE_TAG"
 injector_image="$IMAGE_REGISTRY/injector:$IMAGE_TAG"
+# Evaluation installs track the floating release tag, so the security-tools
+# image is not digest pinned and allowUnpinnedImage=true is required. Pin a
+# digest (security-tools@sha256:...) in production: a scan can only be replayed
+# against the exact bytes that produced it.
+security_tools_image="$IMAGE_REGISTRY/security-tools:$IMAGE_TAG"
 
 log "Using gratefulagents $IMAGE_TAG from $IMAGE_REGISTRY"
 
@@ -291,7 +296,9 @@ helm lint "$CHART_DIR" --values "$VALUES_FILE" \
   --set-string "manager.image.tag=$IMAGE_TAG" \
   --set manager.image.pullPolicy=IfNotPresent \
   --set-string "agentImages.worker=$worker_image" \
-  --set-string "agentImages.injector=$injector_image"
+  --set-string "agentImages.injector=$injector_image" \
+  --set-string "agentImages.securityTools=$security_tools_image" \
+  --set securityTools.allowUnpinnedImage=true
 helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --namespace "$NAMESPACE" --create-namespace \
   --values "$VALUES_FILE" \
@@ -301,6 +308,8 @@ helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --set manager.image.pullPolicy=IfNotPresent \
   --set-string "agentImages.worker=$worker_image" \
   --set-string "agentImages.injector=$injector_image" \
+  --set-string "agentImages.securityTools=$security_tools_image" \
+  --set securityTools.allowUnpinnedImage=true \
   --atomic --wait --wait-for-jobs --timeout "$TIMEOUT" --history-max 10
 
 manager_deployment="$(kubectl -n "$NAMESPACE" get deployment \

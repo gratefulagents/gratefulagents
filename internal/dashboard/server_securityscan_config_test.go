@@ -30,10 +30,11 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 		Revision:        "abc123",
 		AdditionalRepos: []string{"https://github.com/example/lib.git"},
 		Scope: &platform.SecurityScanScopeConfig{
-			Focus:        "payment flows",
-			IncludePaths: []string{"internal/**"},
-			ExcludePaths: []string{"vendor/**"},
-			Languages:    []string{"go"},
+			Focus:                    "payment flows",
+			IncludePaths:             []string{"internal/**"},
+			ExcludePaths:             []string{"vendor/**"},
+			Languages:                []string{"go"},
+			AuthorizedNetworkTargets: []string{" staging.example.test ", "", "192.0.2.0/24"},
 		},
 		Workflow: []*platform.SecurityScanTaskConfig{
 			{Name: "injection", Objective: "hunt injections", Category: "injection", MaxFindings: 5,
@@ -166,6 +167,9 @@ func assertFullScanAdvancedSpec(t *testing.T, spec triggersv1alpha1.SecurityScan
 		len(spec.Scope.ExcludePaths) != 1 || len(spec.Scope.Languages) != 1 {
 		t.Fatalf("Scope = %+v", spec.Scope)
 	}
+	if !slices.Equal(spec.Scope.AuthorizedNetworkTargets, []string{"staging.example.test", "192.0.2.0/24"}) {
+		t.Fatalf("Scope.AuthorizedNetworkTargets = %#v", spec.Scope.AuthorizedNetworkTargets)
+	}
 	if len(spec.Workflow) != 2 || spec.Workflow[0].Name != "injection" || spec.Workflow[0].MaxFindings != 5 ||
 		spec.Workflow[1].Role != "finding-triager" || spec.Workflow[1].DependsOn[0] != "injection" {
 		t.Fatalf("Workflow = %+v", spec.Workflow)
@@ -199,6 +203,24 @@ func assertFullScanAdvancedSpec(t *testing.T, spec triggersv1alpha1.SecurityScan
 	if spec.Dedupe == nil || spec.Dedupe.Enabled == nil || !*spec.Dedupe.Enabled ||
 		spec.Dedupe.SimilarityThresholdPermille != 900 {
 		t.Fatalf("Dedupe = %+v", spec.Dedupe)
+	}
+}
+
+func TestSecurityScanScopeAuthorizedNetworkTargetsRoundTrip(t *testing.T) {
+	scope := securityScanScopeFromProto(&platform.SecurityScanScopeConfig{
+		AuthorizedNetworkTargets: []string{" api.example.test:8443 ", "  ", "10.0.0.0/8"},
+	})
+	if scope == nil {
+		t.Fatalf("securityScanScopeFromProto() = nil, want scope carrying authorized targets")
+	}
+	want := []string{"api.example.test:8443", "10.0.0.0/8"}
+	if !slices.Equal(scope.AuthorizedNetworkTargets, want) {
+		t.Fatalf("AuthorizedNetworkTargets = %#v, want %#v", scope.AuthorizedNetworkTargets, want)
+	}
+
+	pb := securityScanSpecToProto(&triggersv1alpha1.SecurityScanSpec{Scope: scope})
+	if !slices.Equal(pb.GetScope().GetAuthorizedNetworkTargets(), want) {
+		t.Fatalf("proto AuthorizedNetworkTargets = %#v, want %#v", pb.GetScope().GetAuthorizedNetworkTargets(), want)
 	}
 }
 

@@ -30812,13 +30812,18 @@ func (x *AddSecurityFindingCommentRequest) GetBody() string {
 
 // SecurityScanScopeConfig narrows what a scan looks at.
 type SecurityScanScopeConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Focus         string                 `protobuf:"bytes,1,opt,name=focus,proto3" json:"focus,omitempty"` // free-form guidance about what to prioritize
-	IncludePaths  []string               `protobuf:"bytes,2,rep,name=include_paths,json=includePaths,proto3" json:"include_paths,omitempty"`
-	ExcludePaths  []string               `protobuf:"bytes,3,rep,name=exclude_paths,json=excludePaths,proto3" json:"exclude_paths,omitempty"`
-	Languages     []string               `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Focus        string                 `protobuf:"bytes,1,opt,name=focus,proto3" json:"focus,omitempty"` // free-form guidance about what to prioritize
+	IncludePaths []string               `protobuf:"bytes,2,rep,name=include_paths,json=includePaths,proto3" json:"include_paths,omitempty"`
+	ExcludePaths []string               `protobuf:"bytes,3,rep,name=exclude_paths,json=excludePaths,proto3" json:"exclude_paths,omitempty"`
+	Languages    []string               `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
+	// authorized_network_targets is the operator's allowlist of hosts,
+	// host:port pairs, CIDR prefixes, or absolute http(s) URLs that the scan's
+	// deterministic network tools may probe. Empty means no network scanning is
+	// authorized. At most 64 entries.
+	AuthorizedNetworkTargets []string `protobuf:"bytes,5,rep,name=authorized_network_targets,json=authorizedNetworkTargets,proto3" json:"authorized_network_targets,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *SecurityScanScopeConfig) Reset() {
@@ -30875,6 +30880,13 @@ func (x *SecurityScanScopeConfig) GetExcludePaths() []string {
 func (x *SecurityScanScopeConfig) GetLanguages() []string {
 	if x != nil {
 		return x.Languages
+	}
+	return nil
+}
+
+func (x *SecurityScanScopeConfig) GetAuthorizedNetworkTargets() []string {
+	if x != nil {
+		return x.AuthorizedNetworkTargets
 	}
 	return nil
 }
@@ -39559,12 +39571,13 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1b\n" +
 	"\tscan_name\x18\x03 \x01(\tR\bscanName\x12\x12\n" +
-	"\x04body\x18\x04 \x01(\tR\x04body\"\x97\x01\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\"\xd5\x01\n" +
 	"\x17SecurityScanScopeConfig\x12\x14\n" +
 	"\x05focus\x18\x01 \x01(\tR\x05focus\x12#\n" +
 	"\rinclude_paths\x18\x02 \x03(\tR\fincludePaths\x12#\n" +
 	"\rexclude_paths\x18\x03 \x03(\tR\fexcludePaths\x12\x1c\n" +
-	"\tlanguages\x18\x04 \x03(\tR\tlanguages\"\x9a\x04\n" +
+	"\tlanguages\x18\x04 \x03(\tR\tlanguages\x12<\n" +
+	"\x1aauthorized_network_targets\x18\x05 \x03(\tR\x18authorizedNetworkTargets\"\x9a\x04\n" +
 	"\x16SecurityScanTaskConfig\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tobjective\x18\x02 \x01(\tR\tobjective\x12\x1a\n" +

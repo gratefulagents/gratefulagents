@@ -97,6 +97,16 @@ rules:
   - update
   - watch
 - apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
   - extensions.agents.x-k8s.io
   resources:
   - sandboxclaims
@@ -120,6 +130,7 @@ rules:
   - modetemplates
   - roleinstructions
   - runtimeprofiles
+  - securitytoolruns
   - skills
   verbs:
   - create
@@ -142,6 +153,7 @@ rules:
   - agentrunteamruntimes/status
   - mcpservers/status
   - runtimeprofiles/status
+  - securitytoolruns/status
   - skills/status
   verbs:
   - get

@@ -843,6 +843,22 @@ spec:
               scope:
                 description: scope optionally narrows what the scan looks at.
                 properties:
+                  authorizedNetworkTargets:
+                    description: |-
+                      authorizedNetworkTargets declares which hosts the scan may probe over
+                      the network: hostnames, host:port pairs, CIDR prefixes, or absolute
+                      http(s) URLs. It is operator-declared authorization, not guidance: the
+                      platform stamps the resolved list onto every scan run and refuses any
+                      deterministic security tool that needs network access unless both its
+                      target and every scope entry are covered by an entry here. Matching is
+                      exact (host, or an address inside a declared prefix); there are no
+                      wildcards. An empty list means no network scanning is authorized.
+                    items:
+                      maxLength: 2048
+                      type: string
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: atomic
                   excludePaths:
                     description: excludePaths are path globs the scan should skip.
                     items:
