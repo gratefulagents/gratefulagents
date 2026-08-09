@@ -1,0 +1,329 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: blockchain-protocol-audit
+spec:
+  description: Deep security review for blockchain clients, rollups, bridges, peer-to-peer nodes, and signing services. It inventories protocol-critical surfaces, reviews the highest-risk flows individually, and hunts consensus, rollup, transaction, network, bridge, execution, signer, storage, native-safety, and release-integrity failures before exploit validation and triage. Contract-only repositories should use smart-contract-review instead.
+  parallelism: 6
+  tasks:
+    - name: map-protocol-surfaces
+      role: threat-modeler
+      category: recon
+      objective: >-
+        Map and risk-rank every production protocol surface in this repository: consensus and finality;
+        transaction, block, batch, proof, and state-transition validation; rollup derivation and disputes;
+        peer-to-peer, mempool, synchronization, and public RPC entry points; cross-chain messages and
+        withdrawals; execution engines, precompiles, system contracts, and host boundaries; persistent state,
+        snapshots, and reorgs; signing, HSM, and privileged operator interfaces; and genesis, upgrade, build,
+        and release mechanisms that can change protocol behavior. Follow real production wiring rather than
+        documentation. Distinguish unauthenticated peers, transaction senders, RPC callers, block producers,
+        validators, sequencers, relayers, and operators. Give each surface a stable id, protected asset or
+        invariant, principal control already enforced, and risk rank. Exclude tests and unreachable code.
+        This workflow is not a generic Solidity audit: in mixed repositories map only cross-layer contracts,
+        system contracts, proof/message semantics, and VM/host boundaries; leave ordinary reentrancy, oracle,
+        token, proxy-layout, and contract access-control review to smart-contract-review. Publish the complete
+        risk-ranked inventory, not findings. Sort the array by strictly ascending, unique risk_rank (one is
+        highest risk); later fan-out consumes that array order and reviews at most its first 16 entries, so do
+        not silently omit lower-ranked surfaces.
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["surface_id", "domain", "entrypoint", "file", "attacker", "asset_or_invariant", "control", "risk_rank"],
+            "properties": {
+              "surface_id": {"type": "string", "description": "Stable short identifier for this review unit"},
+              "domain": {"type": "string", "enum": ["consensus", "rollup", "transaction", "p2p", "bridge", "execution", "signer", "storage", "native", "deployment", "release"]},
+              "entrypoint": {"type": "string", "description": "Production handler, message, method, hook, or build entry point"},
+              "file": {"type": "string", "description": "Repository-relative implementation file"},
+              "attacker": {"type": "string", "description": "Least-privileged principal able to influence this surface"},
+              "asset_or_invariant": {"type": "string", "description": "Funds, keys, safety, liveness, state, or release property protected here"},
+              "control": {"type": "string", "description": "Validation or authorization expected to enforce the invariant"},
+              "risk_rank": {"type": "integer", "minimum": 1, "description": "One is highest risk; ranks are unique and the array is strictly ascending by this field"}
+            }
+          }
+        }
+
+    - name: review-critical-surface
+      role: vulnerability-hunter
+      category: other
+      objective: >-
+        Review one risk-ranked protocol surface end to end: {{item.surface_id}} in domain {{item.domain}},
+        entering at {{item.entrypoint}} in {{item.file}}. The least-privileged relevant attacker is
+        {{item.attacker}}; the protected property is {{item.asset_or_invariant}}, and the expected control is
+        {{item.control}}. Follow attacker-controlled data through parsing, validation, authorization,
+        state reads and writes, cryptography, external calls, persistence, and error or rollback handling.
+        Compare alternate admission, replay, synchronization, estimation, tracing, recovery, and upgrade paths
+        that perform the same operation. Report only a concrete path where the stated control is absent or
+        bypassable, with every hop and the resulting fund, key, safety, liveness, or node-compromise impact at
+        file:line. Publish one structured result saying the surface was reviewed and listing every finding
+        fingerprint returned by report_security_finding; use an empty fingerprints array when it holds.
+      dependsOn: [map-protocol-surfaces]
+      forEach: map-protocol-surfaces
+      maxInstances: 16
+      maxFindings: 4
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["surface_id", "status", "fingerprints", "summary"],
+          "properties": {
+            "surface_id": {"type": "string"},
+            "status": {"type": "string", "enum": ["reviewed", "blocked"]},
+            "fingerprints": {"type": "array", "items": {"type": "string"}},
+            "summary": {"type": "string", "description": "What was checked or why review was blocked"}
+          }
+        }
+
+    - name: consensus-finality-and-state-transition
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Use {{tasks.map-protocol-surfaces.output}} to audit consensus, finality, and state transitions. Cover
+        vote and certificate validation, stake-weighted quorum, validator-set and epoch changes,
+        equivocation and slashing, view or round transitions, weak-subjectivity and checkpoint assumptions,
+        fork-choice and upgrade activation, block and transaction execution, and state-root construction.
+        Hunt for validation differences across admission, proposal, replay, sync, and recovery paths;
+        invalid transitions; fail-open errors; and nondeterminism from iteration order, wall-clock time,
+        floating point, environment, I/O, or concurrency. Report only a production-reachable object or
+        sequence that honest nodes accept differently, commits invalid state, violates finality, or halts
+        network progress, with the attacker's role and decisive code at file:line.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 7
+
+    - name: rollup-derivation-da-and-fault-proofs
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Determine from {{tasks.map-protocol-surfaces.output}} whether this is a rollup or supplies a rollup
+        component. If applicable, audit L1 origin selection and reorg handling, batch framing, compression and
+        decoding, data-availability rules, deposits and forced inclusion, safe/unsafe/finalized head
+        transitions, sequencer and batcher assumptions, output-root construction, withdrawal finalization,
+        challenge windows, bonds, fault-proof games, and proof VM behavior. Hunt for alternate derivation
+        paths, malformed or withheld data, stale L1 views, deadline and boundary errors, censorship escape
+        failures, and disagreement between proposer and verifier that permits an invalid output or blocks a
+        valid challenge. If absent, report nothing. Cite the crafted L1 event, batch, output, or dispute move,
+        the validation defect at file:line, and its safety, liveness, or fund impact.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 7
+
+    - name: transaction-crypto-and-accounting
+      role: vulnerability-hunter
+      category: crypto
+      objective: >-
+        Audit transaction and protocol authorization, proof verification, and value accounting using
+        {{tasks.map-protocol-surfaces.output}}. Check signature encoding and recovery, domain and chain
+        separation, nonces and replay, threshold and multisignature rules, commitments, randomness, and
+        cryptographic errors that fail open. Follow fees, balances, gas, rewards, deposits, withdrawals,
+        integer conversions, precision, and rounding across every representation and layer. Hunt for an
+        alternate path that omits a check, accepts a proof for the wrong statement, truncates or overflows,
+        double counts, or reorders/replays an operation to mint, steal, or freeze value. Leave ordinary
+        token/oracle/contract arithmetic to smart-contract-review. Report the attacker-controlled object,
+        broken invariant, and verification or accounting defect at file:line.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 7
+
+    - name: p2p-sync-mempool-and-rpc
+      role: vulnerability-hunter
+      category: dos
+      objective: >-
+        Audit unauthenticated peer, discovery, gossip, mempool, synchronization, RPC, API, and binary parser
+        surfaces in {{tasks.map-protocol-surfaces.output}}. Check peer identity and handshake binding,
+        eclipse/Sybil resistance assumptions, scoring and ban evasion, equivocation handling, gossip
+        validation order, scarce-queue capture, and request amplification. Trace attacker-controlled lengths,
+        counts, nesting, compression, framing, and identifiers through decoding, allocation, database work,
+        cryptography, logging, and replies. Hunt for panic, memory/disk/CPU amplification, deadlock,
+        goroutine/thread/connection leaks, starvation, malformed-state poisoning, rate-limit bypass, and
+        exposed admin/debug methods. Distinguish clean rejection from measurable node degradation. Report
+        the request/message pattern, cost asymmetry or trust bypass, recovery behavior, and sink at file:line.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 7
+
+    - name: cross-chain-bridge-and-custody
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Where {{tasks.map-protocol-surfaces.output}} shows a chain, layer, shard, or custody boundary, trace
+        the entire message and value lifecycle. Audit origin, destination, chain-id, emitter, nonce,
+        membership, stake/guardian quorum, epoch, sequence, finality, proof root, replay, and execution checks;
+        canonical encoding across producer and verifier; reorg behavior; relayer confused-deputy paths; and
+        retry, refund, partial failure, and withdrawal ownership. Hunt for forged, substituted, reordered, or
+        double-executed messages and accounting that creates value twice or strands it. Include on-chain and
+        off-chain halves present here, but not generic contract vulnerabilities. If no such boundary exists,
+        report nothing. Cite acceptance and execution at file:line and the exact message sequence and impact.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 7
+
+    - name: execution-vm-and-host-boundaries
+      role: vulnerability-hunter
+      category: logic-flaw
+      objective: >-
+        Audit virtual machines, interpreters, precompiles, system contracts, host functions, plugins, WASM,
+        native extensions, and privileged protocol-to-contract calls in {{tasks.map-protocol-surfaces.output}}.
+        Hunt for gas undercharging or inconsistent metering, context/caller confusion, reentrancy specifically
+        across host or system boundaries, state committed before failed execution, sandbox escape, unsafe
+        dynamic loading, memory aliasing, nondeterministic host behavior, and fork-dependent opcode or
+        precompile semantics. Compare validation, estimation, tracing, proof, and execution implementations.
+        Do not duplicate generic Solidity reentrancy, oracle, token, access-control, or storage-layout work.
+        If no execution boundary exists, report nothing. Cite the crafted program or call sequence and the
+        consensus, fund, or node-compromise impact at file:line.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 7
+
+    - name: signer-policy-quorum-and-hsm
+      role: vulnerability-hunter
+      category: authz
+      objective: >-
+        Audit signing policy, threshold coordination, and remote signer/HSM interfaces identified in
+        {{tasks.map-protocol-surfaces.output}}. Check that each signing request binds the authenticated caller,
+        chain, purpose, payload, policy, epoch, and monotonic anti-replay or anti-equivocation state; validate
+        DKG and threshold transcripts, participant identity, quorum, and share handling; and compare every
+        parser/encoding before policy evaluation and signing. For PKCS#11, KMS, or firmware boundaries, check
+        mechanism allowlists, key attributes, handle/tenant isolation, session and login state, attestation,
+        firmware authenticity and anti-rollback, backup/restore counters, and audit enforcement. Hunt for a
+        concrete request that obtains an unauthorized or conflicting signature or bypasses operator policy.
+        Report the request, trust boundary, and decisive authorization or state defect at file:line.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 6
+
+    - name: key-material-and-operator-secrets
+      role: secrets-auditor
+      category: secrets
+      objective: >-
+        Audit generation, derivation, storage, import/export, wrapping, backup, transport, rotation,
+        zeroization, logging, and error handling for private keys, seed material, operator credentials, and
+        API tokens referenced by {{tasks.map-protocol-surfaces.output}}. Hunt for real credentials in source
+        or shipped artifacts; extractable or weakly protected keys; secrets exposed through logs, metrics,
+        errors, temporary files, core dumps, environment propagation, or permissive permissions; and
+        development credentials enabled in production. Never print secret values. Do not review algorithms
+        or signing authorization here. Discard fixtures and placeholders; report only a concrete disclosure
+        path and what key or privilege it compromises, with redacted file:line evidence.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 5
+
+    - name: storage-snapshot-reorg-and-concurrency
+      role: vulnerability-hunter
+      category: race-condition
+      objective: >-
+        Audit persistent state, sync, snapshots, pruning, rollback, reorg, migration, recovery, and concurrent
+        processing from {{tasks.map-protocol-surfaces.output}}. Hunt for snapshots or metadata accepted without
+        integrity and network binding, path traversal or unsafe extraction, partial writes and crash states,
+        rollback that misses an index/balance/cache/side effect, stale-cache validation, races and lock-order
+        deadlocks, check-then-act windows, and cancellation or retry paths that commit twice or lose work.
+        Also check attacker-growable state and queues without proportional cost or pruning. Require a normal
+        transaction, peer, relayer, or RPC path rather than assumed local corruption. Report the trigger,
+        interleaving or recovery sequence, and persistent safety/liveness impact at file:line.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 7
+
+    - name: native-memory-and-ffi-safety
+      role: vulnerability-hunter
+      category: memory-safety
+      objective: >-
+        In C, C++, Rust unsafe code, cgo/JNI, cryptographic native libraries, firmware, and FFI exposed by
+        {{tasks.map-protocol-surfaces.output}}, trace peer-, transaction-, proof-, and signer-controlled sizes,
+        indexes, pointers, lifetimes, ownership, integer conversions, and callback concurrency. Hunt for
+        overflow before allocation, out-of-bounds access, use-after-free, double-free, uninitialized data,
+        invalid aliasing, panic or exception crossing FFI, ABI/layout mismatches, and unsafe error cleanup.
+        Check whether language-level validation occurs before or after conversion to the native type. Report
+        only an attacker-reachable crash, corruption, secret disclosure, or code-execution path with source,
+        conversion, and unsafe sink at file:line.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 6
+
+    - name: genesis-deployment-and-upgrades
+      role: vulnerability-hunter
+      category: misconfiguration
+      objective: >-
+        Audit genesis and chain configuration, network and chain IDs, trusted checkpoints, fork and upgrade
+        activation, migrations, default service bindings, exposed ports, and deployment wiring associated
+        with {{tasks.map-protocol-surfaces.output}}. Hunt for inconsistent parameters across components,
+        boundary and rollback errors in activation, unsafe production defaults, unverified genesis or
+        checkpoint selection, migrations that violate state invariants, and drift between a fork and its
+        upstream implementation that changes protocol semantics. Report only a concrete configuration,
+        startup, migration, or upgrade path that makes honest nodes diverge, accepts the wrong network,
+        exposes a privileged service, corrupts state, or loses liveness, with file:line evidence and the
+        attacker or operator precondition.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 6
+
+    - name: dependencies-build-and-release
+      role: dependency-auditor
+      category: supply-chain
+      objective: >-
+        Audit consensus-critical dependencies, generated protocol code, build scripts, CI release jobs,
+        container images, downloaded tools and binaries, reproducibility, and signed upgrade artifacts tied
+        to {{tasks.map-protocol-surfaces.output}}. Hunt for mutable or unverified inputs, dependency confusion,
+        reachable vulnerable dependency APIs, generated code whose compiler or schema is not pinned,
+        untrusted pull-request code executing with release secrets, artifact substitution, and missing
+        signature or digest verification before distribution or installation. Triage advisories by actual
+        node, bridge, or signer reachability rather than version alone. Do not own genesis or protocol
+        activation correctness here. Report only a concrete path to compromise a shipped artifact or exploit
+        a reachable dependency, with file:line evidence and required privilege.
+      dependsOn: [map-protocol-surfaces]
+      maxFindings: 6
+
+    - name: validate-high-impact-findings
+      role: exploit-validator
+      category: other
+      objective: >-
+        Settle every reported critical or high candidate from the per-surface and domain hunts. Re-read the
+        full path and confirm the entry point is production-reachable, the attacker has the stated protocol
+        role, every intermediate validation is absent or bypassable, and the final impact follows. Use only
+        safe local fixtures, focused tests, harnesses, or model-level reproductions; never contact a live
+        network. For consensus and bridge issues, construct the smallest object/sequence that makes the
+        implementations disagree or accept invalid state. For DoS, measure or tightly bound attacker versus
+        victim cost and recovery. For races, establish a concrete interleaving. For signer issues, use dummy
+        keys and prove the unauthorized signing decision. Update each candidate to confirmed when the local
+        proof holds, false_positive when a specific control disproves it, or triaged when safe local evidence
+        cannot settle it. Publish one result for every eligible fingerprint, including the concrete blocker
+        for every triaged result; publish an empty array only when no critical or high candidates qualify.
+      dependsOn:
+        - review-critical-surface
+        - consensus-finality-and-state-transition
+        - rollup-derivation-da-and-fault-proofs
+        - transaction-crypto-and-accounting
+        - p2p-sync-mempool-and-rpc
+        - cross-chain-bridge-and-custody
+        - execution-vm-and-host-boundaries
+        - signer-policy-quorum-and-hsm
+        - key-material-and-operator-secrets
+        - storage-snapshot-reorg-and-concurrency
+        - native-memory-and-ffi-safety
+        - genesis-deployment-and-upgrades
+        - dependencies-build-and-release
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "verdict", "summary"],
+            "properties": {
+              "fingerprint": {"type": "string"},
+              "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "triaged"]},
+              "summary": {"type": "string", "description": "Local proof, the control that disproves the path, or the specific validation blocker"}
+            }
+          }
+        }
+
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      objective: >-
+        Triage the findings and validation results in {{tasks.validate-high-impact-findings.output}} and the
+        per-surface coverage results in {{tasks.review-critical-surface.output}} against the risk-ranked
+        inventory in {{tasks.map-protocol-surfaces.output}}. Keep confirmed critical/high findings; retain a
+        triaged candidate only when its evidence still supports a plausible path, mark it tentative, and make
+        the unresolved validation blocker conspicuous rather than silently discarding it. Independently
+        re-read lower-severity paths and reject claims that assume a modified binary, pre-existing operator
+        compromise, impossible state, or a check performed elsewhere. Merge reports sharing one root cause.
+        Rank unauthenticated consensus failure or direct fund loss first, then persistent state corruption,
+        key compromise, bridge safety failure, and
+        single-peer node takeover or sustained DoS; state validator, sequencer, relayer, and operator
+        prerequisites explicitly. The per-surface fan-out reviews at most the first 16 inventory entries:
+        name every lower-ranked surface beyond that cut, every blocked review result, and every domain absent
+        from the inventory as explicit coverage information rather than implying full coverage. Then assemble
+        and submit exactly one final report.
+      dependsOn:
+        - map-protocol-surfaces
+        - review-critical-surface
+        - validate-high-impact-findings

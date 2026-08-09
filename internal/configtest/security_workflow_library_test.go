@@ -20,6 +20,7 @@ var workflowTaskOutputRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9
 var securityWorkflowLibrary = []string{
 	"api-service-audit",
 	"auth-surface-audit",
+	"blockchain-protocol-audit",
 	"cosmos-abci-halt-review",
 	"default-deep-scan",
 	"external-flow-analysis",
