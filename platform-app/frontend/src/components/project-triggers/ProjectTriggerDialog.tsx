@@ -153,6 +153,7 @@ function buildTrigger(form: FormState, existing?: ProjectTrigger): ProjectTrigge
     slack:
       source === "slack"
         ? {
+            ...existing?.slack,
             connectionRef: form.connectionRef.trim(),
             channel: form.channel.trim(),
             channelReplyMode: form.channelReplyMode,
@@ -165,6 +166,7 @@ function buildTrigger(form: FormState, existing?: ProjectTrigger): ProjectTrigge
     cron:
       source === "cron"
         ? {
+            ...existing?.cron,
             schedule: form.schedule.trim(),
             timeZone: form.timeZone.trim() || "UTC",
             prompt: form.prompt.trim(),
@@ -173,6 +175,7 @@ function buildTrigger(form: FormState, existing?: ProjectTrigger): ProjectTrigge
     linear:
       source === "linear"
         ? {
+            ...existing?.linear,
             connectionRef: form.connectionRef.trim(),
             teamId: form.team.trim(),
             projectId: form.project.trim(),
@@ -185,6 +188,7 @@ function buildTrigger(form: FormState, existing?: ProjectTrigger): ProjectTrigge
 
 export function ProjectTriggerDialog({
   trigger,
+  duplicateFrom,
   open,
   onOpenChange,
   onSave,
@@ -192,6 +196,8 @@ export function ProjectTriggerDialog({
   onManageConnections,
 }: {
   trigger?: ProjectTrigger;
+  /** Create a new trigger with settings copied from this trigger. */
+  duplicateFrom?: ProjectTrigger;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (trigger: ProjectTrigger) => Promise<void>;
@@ -199,8 +205,14 @@ export function ProjectTriggerDialog({
   onManageConnections: () => void;
 }) {
   const editing = Boolean(trigger);
-  const [step, setStep] = useState<"type" | "details">(editing ? "details" : "type");
-  const [form, setForm] = useState<FormState>(() => initialForm(trigger));
+  const duplicating = !editing && Boolean(duplicateFrom);
+  const source = trigger ?? duplicateFrom;
+  const [step, setStep] = useState<"type" | "details">(editing || duplicating ? "details" : "type");
+  const [form, setForm] = useState<FormState>(() => {
+    const initial = initialForm(source);
+    if (duplicating) initial.name = "";
+    return initial;
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -211,7 +223,7 @@ export function ProjectTriggerDialog({
 
   function handleClose(next: boolean) {
     if (!next) {
-      setStep(editing ? "details" : "type");
+      setStep(editing || duplicating ? "details" : "type");
       setError(null);
     }
     onOpenChange(next);
@@ -265,7 +277,9 @@ export function ProjectTriggerDialog({
     setSaving(true);
     setError(null);
     try {
-      await onSave(buildTrigger(form, trigger));
+      // In duplicate mode, carry through settings not represented by this
+      // form while still creating a distinct resource with the new name.
+      await onSave(buildTrigger(form, source));
       onOpenChange(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to save trigger");
@@ -283,7 +297,7 @@ export function ProjectTriggerDialog({
           <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
             <DialogHeader className="space-y-1 border-b px-5 py-4 sm:px-6 sm:py-5">
               <div className="flex items-center gap-2">
-                {!editing && (
+                {!editing && !duplicating && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -298,13 +312,19 @@ export function ProjectTriggerDialog({
                   <Plus className="size-4" />
                 </span>
                 <DialogTitle className="text-base">
-                  {editing ? `Edit ${trigger?.name}` : "New trigger"}
+                  {editing
+                    ? `Edit ${trigger?.name}`
+                    : duplicating
+                      ? `Duplicate ${duplicateFrom?.name}`
+                      : "New trigger"}
                 </DialogTitle>
               </div>
               <DialogDescription>
                 {editing
                   ? "Update this project entry point."
-                  : "Configure how this trigger fires."}
+                  : duplicating
+                    ? "Review the copied settings and give the new trigger a name."
+                    : "Configure how this trigger fires."}
               </DialogDescription>
             </DialogHeader>
 
@@ -346,7 +366,7 @@ export function ProjectTriggerDialog({
                 <Input
                   value={form.name}
                   onChange={(e) => update("name", e.target.value)}
-                  autoFocus={editing}
+                  autoFocus={editing || duplicating}
                   placeholder="my-trigger"
                   autoComplete="off"
                   aria-label="Trigger name"
@@ -374,7 +394,7 @@ export function ProjectTriggerDialog({
               </DialogClose>
               <Button type="submit" size="sm" disabled={saving}>
                 {saving && <Loader2 className="size-4 animate-spin" />}
-                {saving ? "Saving…" : editing ? "Save changes" : "Create trigger"}
+                {saving ? "Saving…" : editing ? "Save changes" : duplicating ? "Create duplicate" : "Create trigger"}
               </Button>
             </div>
           </form>
