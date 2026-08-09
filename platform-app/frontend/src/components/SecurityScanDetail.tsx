@@ -496,7 +496,9 @@ export function SecurityScanDetail() {
             }
             actions={
               <>
-                {scanConfig && (
+                {scanConfig &&
+                  scanConfig.namespace === scan.namespace &&
+                  scanConfig.name === scan.scanName && (
                   <SecurityScanFormDialog
                     key={`${scanConfig.namespace}/${scanConfig.name}`}
                     duplicateFrom={scanConfig}

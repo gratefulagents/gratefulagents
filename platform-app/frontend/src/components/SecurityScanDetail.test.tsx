@@ -155,6 +155,23 @@ describe("SecurityScanDetail", () => {
     expect(screen.getByTestId("duplicate-scan-nightly")).toBeTruthy();
   });
 
+  it("does not offer duplication for a stale scan configuration", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "previous-scan",
+      spec: { repoUrl: "https://github.com/acme/previous.git" },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByRole("heading", { name: "nightly-1" })).toBeTruthy();
+    await waitFor(() => expect(getSecurityScanConfig).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Duplicate scan" })).toBeNull();
+  });
+
   it("renders the scan header, severity summary, and findings table", async () => {
     getSecurityScan.mockResolvedValue(scanFixture());
     getSecurityFindingSummary.mockResolvedValue({ counts: { critical: 1, total: 1, open: 1 } });
