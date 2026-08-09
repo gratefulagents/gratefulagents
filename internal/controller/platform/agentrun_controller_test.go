@@ -2182,6 +2182,60 @@ func TestPausedRunResumeRespectsCostCap(t *testing.T) {
 	}
 }
 
+func TestPausedRunClearsDrainedSandboxAndResumesAtomically(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add corev1 scheme: %v", err)
+	}
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add platform scheme: %v", err)
+	}
+	addAgentSandboxSchemes(t, scheme)
+	started := metav1.NewTime(time.Now().Add(-time.Minute))
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "paused-drained", Namespace: "default", UID: types.UID("paused-drained-uid")},
+		Spec: platformv1alpha1.AgentRunSpec{
+			Repository: platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git"},
+			Limits:     &platformv1alpha1.AgentRunLimits{MaxRuntime: metav1.Duration{Duration: time.Hour}},
+		},
+		Status: platformv1alpha1.AgentRunStatus{
+			Phase:     platformv1alpha1.AgentRunPhasePaused,
+			StartedAt: &started,
+			Queue:     &platformv1alpha1.AgentRunQueueStatus{State: "Paused", BlockedReason: "old limit reached"},
+			Sandbox: &platformv1alpha1.AgentRunSandboxStatus{
+				Provider: agentSandboxProvider,
+				ClaimRef: &platformv1alpha1.NamedRef{Name: "missing-drained-claim"},
+			},
+		},
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		Build()
+	reconciler := &AgentRunReconciler{Client: k8sClient}
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)})
+	if err != nil {
+		t.Fatalf("Reconcile error = %v", err)
+	}
+	if !result.Requeue {
+		t.Fatalf("result = %#v, want immediate requeue", result)
+	}
+	updated := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(run), updated); err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if updated.Status.Sandbox != nil || updated.Status.Phase != platformv1alpha1.AgentRunPhaseProvisioning {
+		t.Fatalf("status = %#v, want sandbox nil and Provisioning without an intermediate Paused/nil state", updated.Status)
+	}
+	if updated.Status.Queue == nil || updated.Status.Queue.State != "Resuming" {
+		t.Fatalf("queue = %#v, want Resuming", updated.Status.Queue)
+	}
+}
+
 func TestHandleWakeRequestPinsCurrentPhaseGate(t *testing.T) {
 	t.Parallel()
 

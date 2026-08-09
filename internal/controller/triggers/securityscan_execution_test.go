@@ -196,6 +196,51 @@ func TestSecurityScanDeterministicExecutionRetriesRetryableFailuresUntilBudgetIs
 	}
 }
 
+func TestSecurityScanPausedTaskDoesNotRemainRunning(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	noRetries := int32(0)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect"}}, 1)
+	scan.Spec.Execution.TaskMaxRetries = &noRetries
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhasePaused, "", "stale worker error")
+	paused := taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), run.Name)
+	paused.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{
+		State:         "Paused",
+		BlockedReason: "paused after 2h0m0s timeout — extend maxRuntime to resume",
+	}
+	paused.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{
+		Provider: "agent-sandbox",
+		ClaimRef: &platformv1alpha1.NamedRef{Name: "draining-claim"},
+	}
+	if err := k8sClient.Status().Update(context.Background(), &paused); err != nil {
+		t.Fatalf("record paused run with draining sandbox: %v", err)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if entry := executionTask(t, exec, "a", 0); entry.State != triggersv1alpha1.SecurityScanTaskStateRunning {
+		t.Fatalf("paused task with a draining sandbox = %#v, want Running", entry)
+	}
+
+	paused = taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), run.Name)
+	paused.Status.Sandbox = nil
+	if err := k8sClient.Status().Update(context.Background(), &paused); err != nil {
+		t.Fatalf("clear drained sandbox: %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	entry := executionTask(t, exec, "a", 0)
+	if entry.State != triggersv1alpha1.SecurityScanTaskStateFailed || !strings.Contains(entry.LastError, "paused after 2h0m0s timeout") {
+		t.Fatalf("paused task = %#v, want terminal failure with the queue timeout reason", entry)
+	}
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase = %q, want Failed", exec.Phase)
+	}
+}
+
 func TestSecurityScanRetryBackoffDoublesAndCaps(t *testing.T) {
 	base := 2 * time.Second
 	cases := []struct {
@@ -1654,6 +1699,64 @@ func TestSecurityScanFailedPostScriptRecordsCoverageGapAndReleasesTheSink(t *tes
 	if !strings.Contains(prompt, "## Incomplete coverage") || !strings.Contains(prompt, exec.CoverageGaps[0]) {
 		t.Fatalf("sink prompt does not disclose the coverage gap:\n%s", prompt)
 	}
+}
+
+func TestSecurityScanPausedPostScriptWaitsForDrainThenReleasesTheSink(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	noRetries := int32(0)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+		{Name: "validate", Prompt: "Build a proof of concept."},
+	}, 4)
+	scan.Spec.Execution.TaskMaxRetries = &noRetries
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	run := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhasePaused, "", "stale worker error")
+	paused := taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), run.Name)
+	paused.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{
+		State:         "Paused",
+		BlockedReason: "paused after 2h0m0s timeout — extend maxRuntime to resume",
+	}
+	paused.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{
+		Provider: "agent-sandbox",
+		ClaimRef: &platformv1alpha1.NamedRef{Name: "draining-claim"},
+	}
+	if err := k8sClient.Status().Update(context.Background(), &paused); err != nil {
+		t.Fatalf("record paused run with draining sandbox: %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if job := postScriptJob(t, exec, "fp-alpha"); job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+		t.Fatalf("paused post-script with a draining sandbox = %#v, want Running", job)
+	}
+	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStatePending)
+
+	paused = taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), run.Name)
+	paused.Status.Sandbox = nil
+	if err := k8sClient.Status().Update(context.Background(), &paused); err != nil {
+		t.Fatalf("clear drained sandbox: %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	job := postScriptJob(t, exec, "fp-alpha")
+	if job.State != triggersv1alpha1.SecurityScanPostScriptStateFailed || !strings.Contains(job.LastError, "paused after 2h0m0s timeout") {
+		t.Fatalf("drained paused post-script = %#v, want terminal failure with the queue timeout reason", job)
+	}
+	if len(exec.CoverageGaps) != 1 || !strings.Contains(exec.CoverageGaps[0], "paused after 2h0m0s timeout") {
+		t.Fatalf("coverage gaps = %#v, want the paused post-script timeout", exec.CoverageGaps)
+	}
+	assertExecutionTaskState(t, exec, "report", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
 }
 
 func TestSecurityScanPostScriptsDoNotBlockTheScanWithoutAFindingStore(t *testing.T) {
