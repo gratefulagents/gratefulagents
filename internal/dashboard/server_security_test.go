@@ -35,6 +35,7 @@ type mockSecurityStore struct {
 	lastCommentNamespace string
 
 	summaryNamespace string
+	summaryScanID    uuid.UUID
 	summaryScanName  string
 	summaryRunName   string
 	summary          map[string]int32
@@ -113,6 +114,15 @@ func (m *mockSecurityStore) ListSecurityFindings(_ context.Context, f store.Secu
 	var out []store.SecurityFindingRecord
 	for _, finding := range m.findings {
 		if finding.Namespace != f.Namespace {
+			continue
+		}
+		if f.ScanID != uuid.Nil && finding.ScanID != f.ScanID {
+			continue
+		}
+		if f.ScanName != "" && finding.ScanName != f.ScanName {
+			continue
+		}
+		if f.RunName != "" && finding.RunName != f.RunName {
 			continue
 		}
 		if slices.Contains(f.ExcludedScanNames, finding.ScanName) {
@@ -199,6 +209,7 @@ func (m *mockSecurityStore) SummarizeSecurityFindingsScoped(_ context.Context, s
 		return nil, m.summaryErr
 	}
 	m.summaryNamespace, m.summaryScanName, m.summaryRunName = scope.Namespace, scope.ScanName, scope.RunName
+	m.summaryScanID = scope.ScanID
 	m.summaryIncludeSuppressed = scope.IncludeSuppressed
 	m.lastSummaryExcluded = scope.ExcludedScanNames
 	return m.summary, nil
@@ -562,6 +573,49 @@ func TestListSecurityFindingsPassesFilter(t *testing.T) {
 	}
 	if !reflect.DeepEqual(sec.lastFilter, want) {
 		t.Fatalf("filter = %+v, want %+v", sec.lastFilter, want)
+	}
+}
+
+func TestRunScopedFindingReadsUsePersistedScanID(t *testing.T) {
+	sec := newMockSecurityStore()
+	scanID := uuid.New()
+	sec.scans = []store.SecurityScanRecord{{
+		ID: scanID, Namespace: "default", ScanName: "nightly", RunName: "nightly-execution-1",
+	}}
+	for _, runName := range []string{"nightly-hunt-1", "nightly-review-1"} {
+		finding := newTestFinding("default")
+		finding.ScanID = scanID
+		finding.RunName = runName
+		sec.findings[finding.ID] = finding
+	}
+	sec.summary = map[string]int32{"high": 1, "medium": 1, "total": 2}
+	srv := newSecurityTestServer(t, sec)
+	ctx := actorContext("alice", "admin", "", "")
+
+	list, err := srv.ListSecurityFindings(ctx, &platform.ListSecurityFindingsRequest{
+		Namespace: "default", RunName: "nightly-execution-1",
+	})
+	if err != nil {
+		t.Fatalf("ListSecurityFindings() error = %v", err)
+	}
+	if len(list.Findings) != 2 {
+		t.Fatalf("findings = %d, want both sibling task findings", len(list.Findings))
+	}
+	if sec.lastFilter.ScanID != scanID || sec.lastFilter.RunName != "" {
+		t.Fatalf("list scope = scan ID %s / run %q, want %s / empty", sec.lastFilter.ScanID, sec.lastFilter.RunName, scanID)
+	}
+
+	resp, err := srv.GetSecurityFindingSummary(ctx, &platform.GetSecurityFindingSummaryRequest{
+		Namespace: "default", RunName: "nightly-execution-1",
+	})
+	if err != nil {
+		t.Fatalf("GetSecurityFindingSummary() error = %v", err)
+	}
+	if resp.GetCounts()["total"] != 2 {
+		t.Fatalf("summary counts = %v, want total 2", resp.GetCounts())
+	}
+	if sec.summaryScanID != scanID || sec.summaryRunName != "" {
+		t.Fatalf("summary scope = scan ID %s / run %q, want %s / empty", sec.summaryScanID, sec.summaryRunName, scanID)
 	}
 }
 

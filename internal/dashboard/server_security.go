@@ -84,18 +84,19 @@ func (s *Server) securityScanVisibility(ctx context.Context, namespace string) (
 	return func(scanName string) bool { return !hiddenSet[scanName] }, hidden, nil
 }
 
-// hiddenScanNameForRun resolves the scan name of a run-scoped request and
-// reports whether that scan is hidden from the caller. An unknown run is
-// not hidden: it resolves to no scan and the query returns nothing anyway.
-func hiddenScanNameForRun(ctx context.Context, sec store.SecurityFindingStore, visible func(string) bool, namespace, runName string) (bool, error) {
+// securityScanRecordForRun resolves a run-scoped request to its persisted
+// scan record and reports whether that scan is hidden from the caller. An
+// unknown run is not hidden and returns no record, preserving compatibility
+// with legacy findings that may exist without a scan row.
+func securityScanRecordForRun(ctx context.Context, sec store.SecurityFindingStore, visible func(string) bool, namespace, runName string) (*store.SecurityScanRecord, bool, error) {
 	if runName == "" {
-		return false, nil
+		return nil, false, nil
 	}
 	rec, err := sec.GetSecurityScan(ctx, namespace, runName)
 	if err != nil {
-		return false, fmt.Errorf("getting security scan: %w", err)
+		return nil, false, fmt.Errorf("getting security scan: %w", err)
 	}
-	return rec != nil && !visible(rec.ScanName), nil
+	return rec, rec != nil && !visible(rec.ScanName), nil
 }
 
 // ListSecurityScans lists security scans in a namespace, newest first.
@@ -183,19 +184,27 @@ func (s *Server) ListSecurityFindings(ctx context.Context, req *platform.ListSec
 	if scanName := req.GetScanName(); scanName != "" && !visible(scanName) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, scanName))
 	}
-	if req.GetScanName() == "" {
-		runHidden, err := hiddenScanNameForRun(ctx, sec, visible, namespace, req.GetRunName())
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		if runHidden {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, req.GetRunName()))
-		}
+	rec, runHidden, err := securityScanRecordForRun(ctx, sec, visible, namespace, req.GetRunName())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if runHidden {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, req.GetRunName()))
+	}
+	// A detail-page run name identifies the persisted scan row. Deterministic
+	// executions store findings from sibling task AgentRuns under their own
+	// run names, so scan_id is the only complete execution-wide scope.
+	var scanID uuid.UUID
+	runName := req.GetRunName()
+	if rec != nil {
+		scanID = rec.ID
+		runName = ""
 	}
 	findings, err := sec.ListSecurityFindings(ctx, store.SecurityFindingFilter{
 		Namespace:         namespace,
+		ScanID:            scanID,
 		ScanName:          req.GetScanName(),
-		RunName:           req.GetRunName(),
+		RunName:           runName,
 		Repository:        req.GetRepository(),
 		Severity:          req.GetSeverity(),
 		Status:            req.GetStatus(),
@@ -323,19 +332,24 @@ func (s *Server) GetSecurityFindingSummary(ctx context.Context, req *platform.Ge
 	if scanName := req.GetScanName(); scanName != "" && !visible(scanName) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, scanName))
 	}
-	if req.GetScanName() == "" {
-		runHidden, err := hiddenScanNameForRun(ctx, sec, visible, namespace, req.GetRunName())
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		if runHidden {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, req.GetRunName()))
-		}
+	rec, runHidden, err := securityScanRecordForRun(ctx, sec, visible, namespace, req.GetRunName())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if runHidden {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security scan %s/%s not found", namespace, req.GetRunName()))
+	}
+	var scanID uuid.UUID
+	runName := req.GetRunName()
+	if rec != nil {
+		scanID = rec.ID
+		runName = ""
 	}
 	counts, err := sec.SummarizeSecurityFindingsScoped(ctx, store.SecurityFindingSummaryScope{
 		Namespace:         namespace,
+		ScanID:            scanID,
 		ScanName:          req.GetScanName(),
-		RunName:           req.GetRunName(),
+		RunName:           runName,
 		IncludeSuppressed: req.GetIncludeSuppressed(),
 		ExcludedScanNames: hidden,
 	})

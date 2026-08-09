@@ -119,8 +119,12 @@ type SecurityFindingRecord struct {
 // fields are not filtered on.
 type SecurityFindingFilter struct {
 	Namespace string
-	ScanName  string
-	RunName   string
+	// ScanID narrows findings to one persisted scan record. This is distinct
+	// from ScanName: deterministic executions share one scan record across
+	// several task AgentRuns, each of which retains its own RunName.
+	ScanID   uuid.UUID
+	ScanName string
+	RunName  string
 	// ExecutionID and TaskName narrow to one deterministic execution and
 	// one task within it; they match across every run of that execution.
 	ExecutionID       string
@@ -386,7 +390,10 @@ func (c SecurityRetentionCounts) IsZero() bool {
 // summaries can be taken per namespace, scan, run, deterministic execution,
 // or a single task inside an execution.
 type SecurityFindingSummaryScope struct {
-	Namespace         string
+	Namespace string
+	// ScanID scopes a summary to one persisted scan record, including all
+	// sibling task runs that reported into a deterministic execution.
+	ScanID            uuid.UUID
 	ScanName          string
 	RunName           string
 	ExecutionID       string
