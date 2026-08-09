@@ -38,6 +38,7 @@ const SLACK_CONNECTION: ProjectConnection = {
 
 function renderDialog({
   trigger = undefined as ProjectTrigger | undefined,
+  duplicateFrom = undefined as ProjectTrigger | undefined,
   connections = [] as ProjectConnection[],
   onSave = vi.fn().mockResolvedValue(undefined),
   onManageConnections = vi.fn(),
@@ -46,6 +47,7 @@ function renderDialog({
   render(
     <ProjectTriggerDialog
       trigger={trigger}
+      duplicateFrom={duplicateFrom}
       open
       onOpenChange={onOpenChange}
       onSave={onSave}
@@ -204,6 +206,44 @@ describe("ProjectTriggerDialog", () => {
     expect(screen.queryByText(/Choose what will start an agent run/)).toBeNull();
     // The details form should be shown directly
     expect(screen.getByLabelText("Repository")).toBeTruthy();
+  });
+
+  it("duplicates a trigger with copied settings and a required new name", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const duplicateFrom: ProjectTrigger = {
+      name: "issues",
+      type: "github",
+      enabled: false,
+      github: {
+        connectionRef: "my-github",
+        owner: "acme",
+        repo: "payments",
+        issues: true,
+        comments: false,
+        triggerKeyword: "@grateful",
+      },
+    };
+    renderDialog({ duplicateFrom, connections: [GITHUB_CONNECTION], onSave });
+
+    expect(screen.getByRole("heading", { name: "Duplicate issues" })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>("Trigger name").value).toBe("");
+    expect(screen.getByLabelText<HTMLInputElement>("Repository").value).toBe("acme/payments");
+
+    fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "issues-copy" } });
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      name: "issues-copy",
+      enabled: false,
+      github: {
+        connectionRef: "my-github",
+        owner: "acme",
+        repo: "payments",
+        issues: true,
+        triggerKeyword: "@grateful",
+      },
+    });
   });
 
   it("creates a cron trigger with correct shape", async () => {

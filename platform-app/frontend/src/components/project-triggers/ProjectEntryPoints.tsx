@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   ArrowRight,
   CalendarClock,
+  Copy,
   GitBranch,
   Layers,
   Loader2,
@@ -236,6 +237,7 @@ export function ProjectEntryPoints({
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState<ProjectTrigger | undefined>();
+  const [duplicating, setDuplicating] = useState<ProjectTrigger | undefined>();
   const [createOpen, setCreateOpen] = useState(false);
   const [deleting, setDeleting] = useState<ProjectTrigger | undefined>();
   const [changing, setChanging] = useState<string | null>(null);
@@ -261,6 +263,15 @@ export function ProjectEntryPoints({
     try {
       await loadConnections();
       setCreateOpen(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to load connections");
+    }
+  }
+
+  async function openDuplicateDialog(trigger: ProjectTrigger) {
+    try {
+      await loadConnections();
+      setDuplicating(trigger);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to load connections");
     }
@@ -411,6 +422,10 @@ export function ProjectEntryPoints({
                         <Pencil />
                         Edit
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => void openDuplicateDialog(trigger)}>
+                        <Copy />
+                        Duplicate
+                      </DropdownMenuItem>
                       <DropdownMenuItem variant="destructive" onClick={() => setDeleting(trigger)}>
                         <Trash2 />
                         Delete
@@ -460,6 +475,16 @@ export function ProjectEntryPoints({
           trigger={editing}
           open
           onOpenChange={(open) => !open && setEditing(undefined)}
+          onSave={save}
+          connections={connections}
+          onManageConnections={() => void openConnections()}
+        />
+      )}
+      {duplicating && (
+        <ProjectTriggerDialog
+          duplicateFrom={duplicating}
+          open
+          onOpenChange={(open) => !open && setDuplicating(undefined)}
           onSave={save}
           connections={connections}
           onManageConnections={() => void openConnections()}

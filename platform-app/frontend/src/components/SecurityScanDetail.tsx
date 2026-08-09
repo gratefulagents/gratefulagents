@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { Download, FileText, SquareArrowOutUpRight, X } from "lucide-react";
+import { Copy, Download, FileText, SquareArrowOutUpRight, X } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -18,6 +18,7 @@ import {
   SEVERITIES, SeverityBadge, severityTone,
 } from "@/components/SecurityScanList";
 import { SecurityScanRunPanel } from "@/components/SecurityScanRunPanel";
+import { SecurityScanFormDialog } from "@/components/SecurityScanFormDialog";
 import { ExecutionProgressPanel } from "@/components/ExecutionProgressPanel";
 import {
   BASELINE_STATES, BaselineBadge, ExpiryBadge, SuppressedBadge, suppressionSummary,
@@ -495,6 +496,18 @@ export function SecurityScanDetail() {
             }
             actions={
               <>
+                {scanConfig && (
+                  <SecurityScanFormDialog
+                    key={`${scanConfig.namespace}/${scanConfig.name}`}
+                    duplicateFrom={scanConfig}
+                    trigger={
+                      <Button variant="outline" size="sm">
+                        <Copy />
+                        Duplicate scan
+                      </Button>
+                    }
+                  />
+                )}
                 <Button
                   variant="outline"
                   size="sm"

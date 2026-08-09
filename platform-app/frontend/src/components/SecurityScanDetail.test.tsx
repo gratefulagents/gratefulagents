@@ -47,6 +47,15 @@ vi.mock("@/components/SecurityScanRunPanel", () => ({
   SecurityScanRunPanel: () => <div data-testid="scan-run-panel" />,
 }));
 
+// The full create/edit form has its own test suite. This detail-page suite
+// only verifies that the current scan config is handed to duplicate mode.
+vi.mock("@/components/SecurityScanFormDialog", () => ({
+  SecurityScanFormDialog: ({ duplicateFrom, trigger }: {
+    duplicateFrom?: { name?: string };
+    trigger: React.ReactElement;
+  }) => <div data-testid={`duplicate-scan-${duplicateFrom?.name ?? "unknown"}`}>{trigger}</div>,
+}));
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -130,6 +139,22 @@ function renderDetail() {
 }
 
 describe("SecurityScanDetail", () => {
+  it("offers to create a new scan from the current scan configuration", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({
+      namespace: "user-alice",
+      name: "nightly",
+      spec: { repoUrl: "https://github.com/acme/payments.git", schedule: "@daily" },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByRole("button", { name: "Duplicate scan" })).toBeTruthy();
+    expect(screen.getByTestId("duplicate-scan-nightly")).toBeTruthy();
+  });
+
   it("renders the scan header, severity summary, and findings table", async () => {
     getSecurityScan.mockResolvedValue(scanFixture());
     getSecurityFindingSummary.mockResolvedValue({ counts: { critical: 1, total: 1, open: 1 } });
