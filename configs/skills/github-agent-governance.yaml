@@ -1,0 +1,17 @@
+# Upstream: https://github.com/github/awesome-copilot/blob/3f0bba475ec40b9680e1d0311b9caffeec5ad4c3/skills/agent-governance/SKILL.md
+# License: MIT, GitHub, Inc.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: github-agent-governance
+spec:
+  version: "0.1.0"
+  description: >-
+    External GitHub skill (MIT): patterns for policy-based tool controls,
+    intent checks, trust scoring, audit trails, and safety governance in
+    agent systems.
+  source:
+    git:
+      url: https://github.com/github/awesome-copilot
+      ref: 3f0bba475ec40b9680e1d0311b9caffeec5ad4c3
+      path: skills/agent-governance/SKILL.md

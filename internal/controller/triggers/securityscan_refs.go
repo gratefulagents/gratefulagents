@@ -9,10 +9,61 @@ import (
 	"fmt"
 	"strings"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func validateSecurityScanTaskSkillRefs(
+	ctx context.Context,
+	c client.Reader,
+	namespace string,
+	defaults []platformv1alpha1.NamedRef,
+	workflow []triggersv1alpha1.SecurityScanTask,
+) error {
+	seen := make(map[string]struct{}, len(defaults))
+	validate := func(ref platformv1alpha1.NamedRef, source string) error {
+		name := strings.TrimSpace(ref.Name)
+		if _, ok := seen[name]; ok {
+			return nil
+		}
+		seen[name] = struct{}{}
+		skill := &platformv1alpha1.Skill{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, skill); err != nil {
+			if apierrors.IsNotFound(err) {
+				return &securityScanRefError{
+					reason:  securityScanReasonUnresolvedReference,
+					message: fmt.Sprintf("Skill %q referenced by %s not found in namespace %q", name, source, namespace),
+				}
+			}
+			return fmt.Errorf("resolving Skill %s/%s referenced by %s: %w", namespace, name, source, err)
+		}
+		if skill.Status.ObservedGeneration != skill.Generation ||
+			!strings.EqualFold(strings.TrimSpace(skill.Status.Phase), "Ready") ||
+			skill.Status.Resolved == nil ||
+			strings.TrimSpace(skill.Status.Resolved.Instructions) == "" {
+			return &securityScanRefError{
+				reason:  securityScanReasonUnresolvedReference,
+				message: fmt.Sprintf("Skill %q referenced by %s is not ready in namespace %q", name, source, namespace),
+			}
+		}
+		return nil
+	}
+	for _, ref := range defaults {
+		if err := validate(ref, "spec.defaults.skillRefs"); err != nil {
+			return err
+		}
+	}
+	for _, task := range workflow {
+		for _, ref := range task.SkillRefs {
+			if err := validate(ref, fmt.Sprintf("workflow task %q", task.Name)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 // Ready=False reasons for reference problems.
 const (

@@ -503,6 +503,9 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 	if errs := triggersv1alpha1.ValidateSecurityWorkflowTasks(workflow); len(errs) != 0 {
 		return recordFailure(&securityScanRefError{reason: securityScanReasonInvalidSpec, message: "workflow is invalid: " + errs[0].Error()})
 	}
+	if err := validateSecurityScanTaskSkillRefs(ctx, r.Client, scan.Namespace, scan.Spec.Defaults.SkillRefs, workflow); err != nil {
+		return recordFailure(err)
+	}
 	// Required or referenced parameters without a value fail the dispatch
 	// non-retryably before any task run exists.
 	if _, err := resolveSecurityScanParameters(resolved); err != nil {
@@ -1949,6 +1952,9 @@ func securityScanSinkTasks(workflow []triggersv1alpha1.SecurityScanTask) map[str
 // timeout, turn/cost limits, tool policy, per-task maxFindings, and the
 // output-schema annotation the worker's submit_task_output tool consumes.
 func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runCtx *securityScanRunContext, exec *triggersv1alpha1.SecurityScanExecutionStatus, task triggersv1alpha1.SecurityScanTask, runName string, inst SecurityScanTaskInstance, firstRun bool) (bool, error) {
+	if err := validateSecurityScanTaskSkillRefs(ctx, r.Client, scan.Namespace, scan.Spec.Defaults.SkillRefs, []triggersv1alpha1.SecurityScanTask{task}); err != nil {
+		return false, err
+	}
 	role, err := r.resolveSecurityScanTaskRole(ctx, task)
 	if err != nil {
 		return false, err
@@ -1958,6 +1964,7 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		return false, err
 	}
 	d := base.defaults
+	d.SkillRefs = mergeSecurityScanTaskSkillRefs(d.SkillRefs, task.SkillRefs)
 	if model := strings.TrimSpace(task.Model); model != "" {
 		d.Model = model
 	} else if roleModel := securityScanRoleModelForProvider(role.spec, d.EffectiveProvider()); roleModel != "" {
@@ -2082,6 +2089,22 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		r.ensureSecurityScanRecord(ctx, scan, securityScanExecutionRecordName(scan.Name, exec.ID), annotations)
 	}
 	return created, err
+}
+
+func mergeSecurityScanTaskSkillRefs(defaults, task []platformv1alpha1.NamedRef) []platformv1alpha1.NamedRef {
+	refs := make([]platformv1alpha1.NamedRef, 0, len(defaults)+len(task))
+	seen := make(map[string]struct{}, cap(refs))
+	for _, candidates := range [][]platformv1alpha1.NamedRef{defaults, task} {
+		for _, ref := range candidates {
+			name := strings.TrimSpace(ref.Name)
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			refs = append(refs, platformv1alpha1.NamedRef{Name: name})
+		}
+	}
+	return refs
 }
 
 // securityScanTaskToolPolicy maps a task's tools narrowing to the run's tool

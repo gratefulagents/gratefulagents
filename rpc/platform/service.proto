@@ -4328,6 +4328,9 @@ message SecurityScanTaskConfig {
   // target_runs splits the complete forEach record inventory across this
   // many task runs. It is mutually exclusive with max_instances.
   int32 target_runs = 17; // Chunk count target (1-50; 0 = disabled)
+  // skill_refs lists Skill names loaded only for this task, in addition to
+  // the SecurityScan defaults.
+  repeated string skill_refs = 18;
 }
 
 // SecurityScanTaskTools narrows which tools a task's run may use in

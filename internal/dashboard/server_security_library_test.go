@@ -23,7 +23,7 @@ func testSecurityWorkflowResource(namespace string) *platform.SecurityWorkflowRe
 		Parallelism: 2,
 		Tasks: []*platform.SecurityScanTaskConfig{
 			{Name: "injection", Objective: "hunt injections in {{params.target_env}}", Category: "injection", MaxFindings: 5,
-				OutputSchema: `{"type":"array","items":{"type":"object"}}`},
+				SkillRefs: []string{"api-authz-hunting"}, OutputSchema: `{"type":"array","items":{"type":"object"}}`},
 			{Name: "triage", Objective: "triage findings", Role: "finding-triager", Model: "gpt-5.2",
 				DependsOn: []string{"injection"}, MaxRetries: &retries, Timeout: "30m", MaxTurns: 40,
 				MaxCostUsd: "1.25", ForEach: "injection", MaxInstances: 8,
@@ -56,6 +56,9 @@ func TestSecurityWorkflowCRUDLifecycle(t *testing.T) {
 	if cr.Spec.Parallelism != 2 || cr.Spec.Tasks[1].Role != "finding-triager" || cr.Spec.Tasks[1].DependsOn[0] != "injection" {
 		t.Fatalf("spec = %+v", cr.Spec)
 	}
+	if refs := cr.Spec.Tasks[0].SkillRefs; len(refs) != 1 || refs[0].Name != "api-authz-hunting" {
+		t.Fatalf("task skillRefs = %+v", refs)
+	}
 	task := cr.Spec.Tasks[1]
 	if task.MaxRetries == nil || *task.MaxRetries != 2 || task.Timeout.Duration != 30*time.Minute ||
 		task.MaxTurns != 40 || task.MaxCostUSD != "1.25" || task.ForEach != "injection" || task.MaxInstances != 8 ||
@@ -73,6 +76,9 @@ func TestSecurityWorkflowCRUDLifecycle(t *testing.T) {
 	}
 	if got.UsageCount != 0 || got.Description != "payments-focused plan" {
 		t.Fatalf("got = %+v", got)
+	}
+	if refs := got.Tasks[0].SkillRefs; len(refs) != 1 || refs[0] != "api-authz-hunting" {
+		t.Fatalf("proto skillRefs = %+v", refs)
 	}
 	pt := got.Tasks[1]
 	if pt.MaxRetries == nil || *pt.MaxRetries != 2 || pt.Timeout != "30m0s" || pt.MaxTurns != 40 ||

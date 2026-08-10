@@ -15,6 +15,12 @@ spec:
     - name: broken-access-control
       role: vulnerability-hunter
       category: authz
+      skillRefs:
+        - name: web-app-hunting
+        - name: api-authz-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for broken access control. Target stack, blank when unspecified: {{params.framework}}. Scope
         hint, blank when the whole repository is in scope: {{params.scope_hint}}. Compare what each route,
@@ -28,6 +34,13 @@ spec:
     - name: injection-and-xss
       role: vulnerability-hunter
       category: injection
+      skillRefs:
+        - name: web-app-hunting
+        - name: trail-of-bits-codeql
+        - name: trail-of-bits-semgrep
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for injection, judging the stack's defaults from its own code and from this hint when it is
         set: {{params.framework}}. Look for SQL and NoSQL queries assembled by string concatenation or
@@ -43,6 +56,12 @@ spec:
     - name: authentication-and-session
       role: vulnerability-hunter
       category: authn
+      skillRefs:
+        - name: web-app-hunting
+        - name: api-authz-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for identification and authentication failures: credential comparison and password storage,
         missing rate limiting or lockout on login, password reset and email-change flows that allow account
@@ -55,6 +74,11 @@ spec:
     - name: ssrf-and-egress
       role: vulnerability-hunter
       category: ssrf
+      skillRefs:
+        - name: web-app-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for server-side request forgery and unsafe outbound traffic: URLs, hostnames, or ports taken
         from requests, webhooks, or stored records and passed to an HTTP client, image or document fetcher,
@@ -67,6 +91,13 @@ spec:
     - name: insecure-deserialization
       role: vulnerability-hunter
       category: deserialization
+      skillRefs:
+        - name: web-app-hunting
+        - name: trail-of-bits-codeql
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for unsafe deserialization and parser abuse: native or language-level deserializers (pickle,
         Marshal, ObjectInputStream, unserialize, YAML loaders that construct objects) fed data from
@@ -79,6 +110,12 @@ spec:
     - name: cryptographic-failures
       role: vulnerability-hunter
       category: crypto
+      skillRefs:
+        - name: trail-of-bits-constant-time-analysis
+        - name: trail-of-bits-wycheproof
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for cryptographic failures: password hashing with fast or unsalted digests, encryption in ECB
         mode or with static, reused, or predictable IVs and nonces, keys derived from constants or
@@ -91,6 +128,12 @@ spec:
     - name: security-misconfiguration
       role: vulnerability-hunter
       category: misconfiguration
+      skillRefs:
+        - name: web-app-hunting
+        - name: cloud-iac-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for security misconfiguration in the application's shipped configuration: debug mode, verbose
         error pages, or development middleware reachable in production builds; CORS policies that reflect
@@ -106,6 +149,11 @@ spec:
     - name: sensitive-data-exposure
       role: vulnerability-hunter
       category: info-leak
+      skillRefs:
+        - name: web-app-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for sensitive data reaching places it should not: API responses and serializers that return
         password hashes, tokens, internal ids, or other users' records; logs, traces, error responses, and
@@ -118,6 +166,11 @@ spec:
     - name: csrf-and-state-changing-requests
       role: vulnerability-hunter
       category: logic-flaw
+      skillRefs:
+        - name: web-app-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for cross-site request forgery and unsafe request handling on state-changing operations: POST,
         PUT, PATCH, DELETE handlers, form posts, and server actions that mutate state without an
@@ -130,6 +183,11 @@ spec:
     - name: vulnerable-components
       role: dependency-auditor
       category: supply-chain
+      skillRefs:
+        - name: trail-of-bits-supply-chain-risk-auditor
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit the dependency surface of this application: read the manifests and lockfiles, identify
         direct and transitive packages with known-vulnerable versions, and confirm for each one that the
@@ -142,6 +200,12 @@ spec:
     - name: triage-and-report
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied:
+          - bash
       objective: >-
         Triage every finding reported by the ten category hunts. Re-read the cited code for each one:
         keep findings whose source-to-sink chain and reachability hold up, delete the ones that assume a

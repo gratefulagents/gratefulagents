@@ -156,6 +156,150 @@ func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) 
 	}
 }
 
+func TestSecurityScanDeterministicTaskSkillRefsMergeAcrossRetriesAndFanOut(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := now
+	oneRetry := int32(1)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{
+			Name:         "source",
+			Objective:    "produce targets",
+			OutputSchema: `{"type":"array"}`,
+			MaxRetries:   &oneRetry,
+			SkillRefs: []platformv1alpha1.NamedRef{
+				{Name: "shared"},
+				{Name: "source-skill"},
+				{Name: "source-skill"},
+			},
+		},
+		{
+			Name:      "fan",
+			Objective: "inspect {{item.target}}",
+			DependsOn: []string{"source"},
+			ForEach:   "source",
+			SkillRefs: []platformv1alpha1.NamedRef{{Name: "fan-skill"}, {Name: "shared"}},
+		},
+	}, 2)
+	scan.Spec.Defaults.SkillRefs = []platformv1alpha1.NamedRef{{Name: "base-skill"}, {Name: "shared"}}
+	scan.Spec.Execution.RetryBackoff = metav1.Duration{Duration: time.Second}
+	objects := []client.Object{scan}
+	for _, name := range []string{"base-skill", "shared", "source-skill", "fan-skill"} {
+		objects = append(objects, readySecurityScanSkill(name, scan.Namespace))
+	}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, objects...)
+	reconciler.Now = func() time.Time { return clock }
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	first := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	assertSkillRefNames(t, first.Spec.SkillRefs, "base-skill", "shared", "source-skill")
+	if slices.ContainsFunc(first.Spec.SkillRefs, func(ref platformv1alpha1.NamedRef) bool { return ref.Name == "security-scan" }) {
+		t.Fatal("task run redundantly hard-codes the security-scan skill supplied by its ModeTemplate")
+	}
+
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, first.Name, platformv1alpha1.AgentRunPhaseFailed, "", "temporary connection timeout")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	clock = clock.Add(time.Second)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	retryName := executionTask(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "source", 0).RunName
+	retry := taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), retryName)
+	assertSkillRefNames(t, retry.Spec.SkillRefs, "base-skill", "shared", "source-skill")
+
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, retry.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[{"target":"a"},{"target":"b"}]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	fanRuns := taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "fan")
+	if len(fanRuns) != 2 {
+		t.Fatalf("fan runs = %d, want 2", len(fanRuns))
+	}
+	for _, run := range fanRuns {
+		assertSkillRefNames(t, run.Spec.SkillRefs, "base-skill", "shared", "fan-skill")
+	}
+}
+
+func TestSecurityScanDeterministicTaskMissingSkillFailsBeforeDispatch(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{
+		Name:      "inspect",
+		Objective: "inspect",
+		SkillRefs: []platformv1alpha1.NamedRef{{Name: "missing-skill"}},
+	}}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if runs := securityScanRuns(t, k8sClient, scan.Namespace); len(runs) != 0 {
+		t.Fatalf("AgentRuns = %d, want none for a missing task Skill", len(runs))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, securityScanReasonUnresolvedReference)
+	if !strings.Contains(updated.Status.LastError, `Skill "missing-skill" referenced by workflow task "inspect" not found`) {
+		t.Fatalf("LastError = %q, want clear missing task Skill message", updated.Status.LastError)
+	}
+}
+
+func TestSecurityScanDeterministicTaskUnreadySkillFailsBeforeDispatch(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{
+		Name:      "inspect",
+		Objective: "inspect",
+		SkillRefs: []platformv1alpha1.NamedRef{{Name: "pending-skill"}},
+	}}, 1)
+	pending := &platformv1alpha1.Skill{ObjectMeta: metav1.ObjectMeta{Name: "pending-skill", Namespace: scan.Namespace}}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan, pending)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if runs := securityScanRuns(t, k8sClient, scan.Namespace); len(runs) != 0 {
+		t.Fatalf("AgentRuns = %d, want none for an unready task Skill", len(runs))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, securityScanReasonUnresolvedReference)
+	if !strings.Contains(updated.Status.LastError, `Skill "pending-skill" referenced by workflow task "inspect" is not ready`) {
+		t.Fatalf("LastError = %q, want clear unready task Skill message", updated.Status.LastError)
+	}
+}
+
+func TestSecurityScanExecutionIgnoresDeletedSkillForCompletedTask(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source", Objective: "source", SkillRefs: []platformv1alpha1.NamedRef{{Name: "source-skill"}}},
+		{Name: "next", Objective: "next", DependsOn: []string{"source"}, SkillRefs: []platformv1alpha1.NamedRef{{Name: "next-skill"}}},
+	}, 1)
+	sourceSkill := readySecurityScanSkill("source-skill", scan.Namespace)
+	nextSkill := readySecurityScanSkill("next-skill", scan.Namespace)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan, sourceSkill, nextSkill)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	sourceRun := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, sourceRun.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	if err := k8sClient.Delete(context.Background(), sourceSkill); err != nil {
+		t.Fatalf("Delete(source Skill): %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	nextRun := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "next")
+	assertSkillRefNames(t, nextRun.Spec.SkillRefs, "next-skill")
+}
+
+func readySecurityScanSkill(name, namespace string) *platformv1alpha1.Skill {
+	return &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Status: platformv1alpha1.SkillStatus{
+			Phase:              "Ready",
+			ObservedGeneration: 0,
+			Resolved:           &platformv1alpha1.SkillResolved{Instructions: "test instructions"},
+		},
+	}
+}
+
+func assertSkillRefNames(t *testing.T, refs []platformv1alpha1.NamedRef, want ...string) {
+	t.Helper()
+	got := make([]string, len(refs))
+	for i := range refs {
+		got[i] = refs[i].Name
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("SkillRefs = %v, want %v", got, want)
+	}
+}
+
 func TestSecurityScanDeterministicExecutionRetriesRetryableFailuresUntilBudgetIsExhausted(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := now

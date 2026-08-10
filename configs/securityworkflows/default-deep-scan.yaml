@@ -8,50 +8,117 @@ spec:
     - name: attack-surface-mapping
       role: threat-modeler
       category: recon
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+      tools:
+        denied:
+          - bash
       objective: "Map the application's attack surface: entry points, exposed endpoints, trust boundaries, privileged operations, and data flows from untrusted input to sensitive sinks."
     - name: authn-authz
       role: vulnerability-hunter
       category: authn
+      skillRefs:
+        - name: api-authz-hunting
+        - name: web-app-hunting
+      tools:
+        denied:
+          - bash
       objective: "Hunt for authentication and authorization flaws: missing or bypassable auth checks, broken session handling, privilege escalation paths, and insecure token validation."
     - name: injection-and-input-handling
       role: vulnerability-hunter
       category: injection
+      skillRefs:
+        - name: web-app-hunting
+        - name: trail-of-bits-codeql
+      tools:
+        denied:
+          - bash
       objective: "Hunt for injection and unsafe input handling: SQL/NoSQL/command/template injection, XSS, path traversal, and unsanitized data reaching interpreters or shells."
     - name: secrets-and-credentials
       role: secrets-auditor
       category: secrets
+      skillRefs:
+        - name: trail-of-bits-zeroize-audit
+      tools:
+        denied:
+          - bash
       objective: Hunt for hardcoded secrets, credentials committed to the repository, secrets leaked into logs or errors, and insecure credential storage or transmission.
     - name: crypto-and-randomness
       role: vulnerability-hunter
       category: crypto
+      skillRefs:
+        - name: trail-of-bits-constant-time-analysis
+        - name: trail-of-bits-wycheproof
+      tools:
+        denied:
+          - bash
       objective: "Hunt for cryptographic weaknesses: weak or misused algorithms, insecure randomness, missing integrity checks, improper key management, and TLS misconfiguration."
     - name: ssrf-and-network
       role: vulnerability-hunter
       category: ssrf
+      skillRefs:
+        - name: web-app-hunting
+      tools:
+        denied:
+          - bash
       objective: "Hunt for server-side request forgery and unsafe network egress: user-controlled URLs, open redirects, DNS rebinding exposure, and missing egress restrictions."
     - name: deserialization-and-parsing
       role: vulnerability-hunter
       category: deserialization
+      skillRefs:
+        - name: trail-of-bits-codeql
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: "Hunt for unsafe deserialization and parser abuse: untrusted data fed to deserializers, XML external entities, prototype pollution, and resource-exhausting parsers."
     - name: access-control-and-multitenancy
       role: vulnerability-hunter
       category: authz
+      skillRefs:
+        - name: api-authz-hunting
+      tools:
+        denied:
+          - bash
       objective: "Hunt for access-control and tenant-isolation flaws: insecure direct object references, missing ownership checks, and cross-tenant data or resource leakage."
     - name: dependency-and-supply-chain
       role: dependency-auditor
       category: supply-chain
+      skillRefs:
+        - name: trail-of-bits-supply-chain-risk-auditor
+        - name: github-agent-supply-chain
+      tools:
+        denied:
+          - bash
       objective: Hunt for vulnerable or malicious dependencies, unpinned versions, typosquatting risk, and insecure build or release pipeline steps.
     - name: infrastructure-and-configuration
       role: vulnerability-hunter
       category: misconfiguration
+      skillRefs:
+        - name: cloud-iac-hunting
+      tools:
+        denied:
+          - bash
       objective: "Hunt for insecure infrastructure and configuration: overly permissive RBAC or IAM, exposed debug endpoints, missing security headers, and unsafe container or deployment settings."
     - name: business-logic
       role: vulnerability-hunter
       category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-sharp-edges
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: "Hunt for business-logic flaws: race conditions, state-machine bypasses, abuse of workflows (payments, quotas, invites), and missing server-side enforcement of invariants."
     - name: triage-and-report
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied:
+          - bash
       objective: "Triage every reported finding: verify exploitability, remove false positives and duplicates, apply the ranking rules, then assemble and submit the final scan report."
       dependsOn:
         - attack-surface-mapping

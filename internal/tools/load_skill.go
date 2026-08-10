@@ -160,7 +160,7 @@ func (t *LoadSkillTool) Execute(ctx context.Context, input json.RawMessage, _ st
 	}
 
 	t.mu.Lock()
-	t.loaded[name] = instructions
+	t.loaded[name] = skillInstructionsWithProvenance(skill, instructions)
 	t.mu.Unlock()
 	return Result{Content: fmt.Sprintf("Skill %q loaded into the current context.", name)}, nil
 }
@@ -170,7 +170,7 @@ func skillDescription(skill *platformv1alpha1.Skill) string {
 		return ""
 	}
 	description := strings.TrimSpace(skill.Spec.Description)
-	if skill.Status.Resolved != nil {
+	if description == "" && skill.Status.Resolved != nil {
 		if resolved := strings.TrimSpace(skill.Status.Resolved.Description); resolved != "" {
 			description = resolved
 		}
@@ -180,6 +180,32 @@ func skillDescription(skill *platformv1alpha1.Skill) string {
 		description = string(runes[:maxSkillDescriptionLength]) + "…"
 	}
 	return description
+}
+
+func skillInstructionsWithProvenance(skill *platformv1alpha1.Skill, instructions string) string {
+	if skill == nil || skill.Spec.Source.Git == nil {
+		return instructions
+	}
+	git := skill.Spec.Source.Git
+	var b strings.Builder
+	b.WriteString("Upstream source: ")
+	b.WriteString(git.URL)
+	if git.Ref != "" {
+		b.WriteString(" @ ")
+		b.WriteString(git.Ref)
+	}
+	if git.Path != "" {
+		b.WriteString(" (path: ")
+		b.WriteString(git.Path)
+		b.WriteString(")")
+	}
+	if attribution := strings.TrimSpace(skill.Spec.Description); attribution != "" {
+		b.WriteString("\nCatalog attribution and license: ")
+		b.WriteString(attribution)
+	}
+	b.WriteString("\n\n")
+	b.WriteString(instructions)
+	return b.String()
 }
 
 func skillInstructions(skill *platformv1alpha1.Skill) string {

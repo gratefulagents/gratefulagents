@@ -8,6 +8,12 @@ spec:
     - name: reentrancy-and-external-calls
       role: vulnerability-hunter
       category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-secure-workflow-guide
+        - name: trail-of-bits-entry-point-analyzer
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for reentrancy and unsafe external-call handling. Enumerate every external call in the
         contracts (call, delegatecall, staticcall, transfer and send, ERC-20 and ERC-721 transfers with
@@ -24,6 +30,12 @@ spec:
     - name: access-control-and-privileged-operations
       role: vulnerability-hunter
       category: authz
+      skillRefs:
+        - name: trail-of-bits-entry-point-analyzer
+        - name: trail-of-bits-secure-workflow-guide
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit who may perform each privileged operation. List every state-changing function and classify
         it: open to anyone, restricted to a role or owner, or restricted to another contract. Then hunt for
@@ -39,6 +51,12 @@ spec:
     - name: oracle-and-price-manipulation
       role: vulnerability-hunter
       category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-dimensional-analysis
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for price and oracle manipulation. Identify every source of external value the contracts trust
         - AMM spot prices and reserves, balanceOf and totalSupply of a pool or vault, share-price
@@ -54,6 +72,12 @@ spec:
     - name: arithmetic-and-rounding
       role: vulnerability-hunter
       category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-dimensional-analysis
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for arithmetic defects that move value. Examine every fee, share, interest, reward, and
         collateral computation for rounding that favors the user rather than the protocol, division before
@@ -69,6 +93,12 @@ spec:
     - name: upgradeability-and-storage-layout
       role: vulnerability-hunter
       category: misconfiguration
+      skillRefs:
+        - name: trail-of-bits-guidelines-advisor
+        - name: trail-of-bits-secure-workflow-guide
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit the upgrade machinery and storage layout. For proxy-based systems, check that the
         implementation cannot be initialized or self-destructed by a third party, that the upgrade function
@@ -85,6 +115,11 @@ spec:
     - name: token-integration-assumptions
       role: vulnerability-hunter
       category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-token-integration-analyzer
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for broken assumptions about the tokens and contracts this system integrates with. Check how
         the code handles tokens that take a fee on transfer or rebase (accounting from the requested amount
@@ -101,6 +136,12 @@ spec:
     - name: triage-and-report
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied:
+          - bash
       objective: >-
         Triage the contract findings by value at risk. Re-read the cited code for each report and confirm
         that the attack is economically real: that the caller reaches the function, that the sequence fits

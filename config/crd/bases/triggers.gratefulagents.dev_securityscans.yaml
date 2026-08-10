@@ -1081,6 +1081,20 @@ spec:
                       description: role is the RoleInstruction name assumed by this
                         task's sub-agent.
                       type: string
+                    skillRefs:
+                      description: |-
+                        skillRefs lists Skill resources in the same namespace to inject into
+                        this task's AgentRuns in addition to spec.defaults.skillRefs.
+                      items:
+                        description: NamedRef references another namespaced resource by name.
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
                     targetRuns:
                       description: |-
                         targetRuns sets the desired number of AgentRuns used to process a

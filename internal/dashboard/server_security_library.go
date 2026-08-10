@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/security"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
@@ -148,6 +149,7 @@ func securityWorkflowTasksFromProto(
 			MaxTurns:     t.GetMaxTurns(),
 			MaxCostUSD:   strings.TrimSpace(t.GetMaxCostUsd()),
 			Tools:        securityScanTaskToolsFromProto(t.GetTools()),
+			SkillRefs:    securityScanTaskSkillRefsFromProto(t.GetSkillRefs()),
 			OutputSchema: strings.TrimSpace(t.GetOutputSchema()),
 			ForEach:      strings.TrimSpace(t.GetForEach()),
 			MaxInstances: t.GetMaxInstances(),
@@ -198,6 +200,7 @@ func securityScanTaskToProto(t triggersv1alpha1.SecurityScanTask) *platform.Secu
 		MaxInstances: t.MaxInstances,
 		TargetRuns:   t.TargetRuns,
 		Repeats:      t.Repeats,
+		SkillRefs:    securityScanTaskSkillRefsToProto(t.SkillRefs),
 	}
 	if t.MaxRetries != nil {
 		retries := *t.MaxRetries
@@ -213,6 +216,25 @@ func securityScanTaskToProto(t triggersv1alpha1.SecurityScanTask) *platform.Secu
 		}
 	}
 	return pb
+}
+
+func securityScanTaskSkillRefsFromProto(names []string) []platformv1alpha1.NamedRef {
+	trimmed := trimmedNonEmpty(names)
+	refs := make([]platformv1alpha1.NamedRef, 0, len(trimmed))
+	for _, name := range trimmed {
+		refs = append(refs, platformv1alpha1.NamedRef{Name: name})
+	}
+	return refs
+}
+
+func securityScanTaskSkillRefsToProto(refs []platformv1alpha1.NamedRef) []string {
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if name := strings.TrimSpace(ref.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func securityWorkflowParametersFromProto(pbParams []*platform.SecurityWorkflowParameter) []triggersv1alpha1.SecurityWorkflowParameter {

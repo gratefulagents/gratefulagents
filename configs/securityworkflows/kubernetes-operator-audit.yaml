@@ -8,6 +8,12 @@ spec:
     - name: rbac-over-grant
       role: vulnerability-hunter
       category: misconfiguration
+      skillRefs:
+        - name: kubernetes-operator-hunting
+        - name: cloud-iac-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit what this operator is allowed to do against what it actually needs. Read the RBAC markers in
         the controller source and the generated ClusterRole and Role manifests, and compare them with the
@@ -23,6 +29,12 @@ spec:
     - name: unvalidated-cr-fields
       role: vulnerability-hunter
       category: injection
+      skillRefs:
+        - name: kubernetes-operator-hunting
+        - name: trail-of-bits-codeql
+      tools:
+        denied:
+          - bash
       objective: >-
         Trace every custom-resource field from the API type definition into what the controller builds with
         it. A namespace user who can create the CR controls these fields, so find the ones that reach
@@ -43,6 +55,12 @@ spec:
     - name: privilege-escalation-via-owned-resources
       role: vulnerability-hunter
       category: authz
+      skillRefs:
+        - name: kubernetes-operator-hunting
+        - name: cloud-iac-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for privilege escalation through the resources this controller creates on a user's behalf. The
         controller acts with its own service account, so any user-influenced creation is a confused-deputy
@@ -58,6 +76,12 @@ spec:
     - name: admission-and-webhook-bypass
       role: vulnerability-hunter
       category: authz
+      skillRefs:
+        - name: kubernetes-operator-hunting
+        - name: cloud-iac-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit the admission path this operator relies on. For each validating or mutating webhook, compare
         the registration (rules, resources, subresources, apiVersions, operations, scope, namespace and
@@ -74,6 +98,11 @@ spec:
     - name: secret-handling-and-logging
       role: secrets-auditor
       category: secrets
+      skillRefs:
+        - name: kubernetes-operator-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit how this operator handles credential material: secrets read during reconciliation and then
         copied into status, events, annotations, configmaps, or error messages; secret values or tokens
@@ -88,6 +117,12 @@ spec:
     - name: cross-namespace-access
       role: vulnerability-hunter
       category: authz
+      skillRefs:
+        - name: kubernetes-operator-hunting
+        - name: cloud-iac-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for namespace-boundary violations in the reconcile logic: informers and clients built without
         a namespace restriction where the CRD is namespaced, list and get calls that use a
@@ -101,6 +136,12 @@ spec:
     - name: triage-and-report
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied:
+          - bash
       objective: >-
         Triage every finding from the controller hunts against one question: what can a user who only holds
         rights in one namespace (or who can create one custom resource) actually do with it? Re-read the

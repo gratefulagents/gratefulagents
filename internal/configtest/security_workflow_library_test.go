@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -89,6 +90,14 @@ func TestSecurityWorkflowLibraryAssets(t *testing.T) {
 				role := task.EffectiveRole()
 				if _, err := os.Stat(repoPath("configs", "roleinstructions", role+".yaml")); err != nil {
 					t.Errorf("task %q references role %q with no shipped RoleInstruction asset: %v", task.Name, role, err)
+				}
+				for _, ref := range task.SkillRefs {
+					if _, err := os.Stat(repoPath("configs", "skills", ref.Name+".yaml")); err != nil {
+						t.Errorf("task %q references skill %q with no shipped Skill asset: %v", task.Name, ref.Name, err)
+					}
+				}
+				if task.Tools == nil || !slices.Contains(task.Tools.Denied, "bash") {
+					t.Errorf("task %q must deny bash so loaded skills cannot execute untrusted repository code", task.Name)
 				}
 				// A task only gets the submit_task_output tool when it
 				// declares outputSchema, so interpolating the output of a

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -181,7 +182,7 @@ func TestSecurityScanDeepCopyCoversNewTypes(t *testing.T) {
 			RepoURL:         "https://github.com/example/repo.git",
 			AdditionalRepos: []string{"https://github.com/example/dep.git"},
 			Scope:           &SecurityScanScope{IncludePaths: []string{"internal/"}},
-			Workflow:        []SecurityScanTask{{Name: "a", Objective: "x", DependsOn: []string{"b"}}},
+			Workflow:        []SecurityScanTask{{Name: "a", Objective: "x", DependsOn: []string{"b"}, SkillRefs: []platformv1alpha1.NamedRef{{Name: "security-scan"}}}},
 			SeverityRankers: []SecurityScanRanker{{Name: "r", Rules: "min-severity: high"}},
 			PostScripts:     []SecurityScanPostScript{{Name: "p", Prompt: "validate"}},
 			Dedupe:          &SecurityScanDedupe{Enabled: &enabled},
@@ -193,10 +194,14 @@ func TestSecurityScanDeepCopyCoversNewTypes(t *testing.T) {
 	}
 	clone := scan.DeepCopy()
 	clone.Spec.Workflow[0].DependsOn[0] = "changed"
+	clone.Spec.Workflow[0].SkillRefs[0].Name = "changed"
 	clone.Status.Findings.Critical = 9
 	*clone.Spec.Dedupe.Enabled = false
 	if scan.Spec.Workflow[0].DependsOn[0] != "b" {
 		t.Fatal("DeepCopy() shares workflow dependsOn slice")
+	}
+	if scan.Spec.Workflow[0].SkillRefs[0].Name != "security-scan" {
+		t.Fatal("DeepCopy() shares workflow skillRefs slice")
 	}
 	if scan.Status.Findings.Critical != 1 {
 		t.Fatal("DeepCopy() shares findings counts")
