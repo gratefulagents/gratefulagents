@@ -116,25 +116,6 @@ func TestBuildSecurityScanPromptIncludesConfiguredScope(t *testing.T) {
 	}
 }
 
-func TestBuildSecurityScanTaskPromptStatesTaskAndScanFindingBudgetsSeparately(t *testing.T) {
-	spec := securityScanPromptSpec()
-	spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 40}
-	task := triggersv1alpha1.SecurityScanTask{Name: "session-review", Objective: "Trace sessions.", MaxFindings: 5}
-
-	prompt := BuildSecurityScanTaskPrompt(spec, nil, task, SecurityScanTaskInstance{Total: 2}, nil)
-
-	if !strings.Contains(prompt, "this task may report at most 5 findings in total, counted across all of its parallel instances") {
-		t.Fatalf("prompt does not state the per-task budget truthfully:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "every task of this execution shares one scan-wide cap of 40 findings") {
-		t.Fatalf("prompt does not state the scan-wide budget:\n%s", prompt)
-	}
-	// The coordinator prompt keeps its single scan-wide budget statement.
-	if coordinator := BuildSecurityScanPrompt(spec); !strings.Contains(coordinator, "Finding budget: report at most 40 findings in total") {
-		t.Fatalf("coordinator prompt budget line changed:\n%s", coordinator)
-	}
-}
-
 func TestBuildSecurityScanTaskPromptStatesResolvedRoleContract(t *testing.T) {
 	spec := securityScanPromptSpec()
 	task := triggersv1alpha1.SecurityScanTask{Name: "model", Objective: "Map trust boundaries.", Role: "threat-modeler"}

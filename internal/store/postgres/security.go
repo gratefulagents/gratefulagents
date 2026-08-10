@@ -286,10 +286,6 @@ func securitySeverityRank(s string) int {
 }
 
 func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFindingRecord) (*store.SecurityFindingRecord, bool, error) {
-	return s.UpsertSecurityFindingWithBudget(ctx, rec, store.SecurityFindingBudget{})
-}
-
-func (s *Store) UpsertSecurityFindingWithBudget(ctx context.Context, rec *store.SecurityFindingRecord, budget store.SecurityFindingBudget) (*store.SecurityFindingRecord, bool, error) {
 	status := rec.Status
 	if status == "" {
 		status = store.SecurityFindingStatusOpen
@@ -325,19 +321,7 @@ func (s *Store) UpsertSecurityFindingWithBudget(ctx context.Context, rec *store.
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Sibling runs of one execution report concurrently, so counting rows
-	// against a cap is only meaningful while nobody else can insert into
-	// the same execution: serialize those transactions on the execution key
-	// before the count. Unbudgeted callers skip the lock entirely and keep
-	// their previous concurrency.
-	if !budget.IsZero() {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
-			rec.Namespace+"/"+rec.ScanName+"/"+rec.ExecutionID); err != nil {
-			return nil, false, fmt.Errorf("locking security finding budget scope: %w", err)
-		}
-	}
-
-	out, created, err := s.upsertSecurityFindingTx(ctx, tx, rec, status, occurrences, cwe, references, raw, sourceKind, correlated, budget)
+	out, created, err := s.upsertSecurityFindingTx(ctx, tx, rec, status, occurrences, cwe, references, raw, sourceKind, correlated)
 	if err != nil {
 		return nil, false, err
 	}
@@ -368,11 +352,10 @@ const selectSecurityFindingForUpdateSQL = `
 // upsertSecurityFindingTx locks the finding keyed by (namespace, scan_name,
 // repository, fingerprint) and either inserts a fresh row (baseline "new")
 // or merges the reobservation into it, classifying the baseline state and
-// appending the matching audit event. A budget only gates the insert path:
-// merging costs no row, so a known fingerprint is always accepted.
+// appending the matching audit event.
 func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *store.SecurityFindingRecord,
 	status string, occurrences int32, cwe, references []string, raw json.RawMessage,
-	sourceKind string, correlated []string, budget store.SecurityFindingBudget) (*store.SecurityFindingRecord, bool, error) {
+	sourceKind string, correlated []string) (*store.SecurityFindingRecord, bool, error) {
 	existing, err := scanSecurityFindingRow(tx.QueryRow(ctx, selectSecurityFindingForUpdateSQL,
 		rec.Namespace, rec.ScanName, rec.Repository, rec.Fingerprint))
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -380,9 +363,6 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 	}
 
 	if existing == nil {
-		if err := checkSecurityFindingBudgetTx(ctx, tx, rec, budget); err != nil {
-			return nil, false, err
-		}
 		// ON CONFLICT DO NOTHING guards the race where a concurrent
 		// transaction inserts the same key between our lock probe and this
 		// insert: we then re-probe (blocking on their lock) and merge.
@@ -426,7 +406,7 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 	// fingerprint implies the same source identity). execution_id and
 	// task_name then behave differently, because the uniqueness key is global
 	// across executions while every read path (listing, post-script matrix,
-	// summaries, budgets, reports) is scoped to one execution:
+	// summaries, reports) is scoped to one execution:
 	//   - execution_id is always re-stamped from the reporting run. A
 	//     reobservation is a finding OF the current execution; keeping the
 	//     first execution would update a row that the current execution can
@@ -434,9 +414,8 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 	//     from its report.
 	//   - task_name keeps its first non-empty value only WITHIN the same
 	//     execution: inside one execution a re-report from another task must
-	//     not move the row off the task that created it, which would free
-	//     that task's per-task budget headroom. Once the row enters a new
-	//     execution the old task attribution is meaningless, so it is
+	//     not move the row off the task that created it. Once the row enters
+	//     a new execution the old task attribution is meaningless, so it is
 	//     re-stamped from the reporting run.
 	// A reporter that carries no execution id cannot re-attribute anything,
 	// so an empty incoming execution_id leaves both columns alone.
@@ -508,57 +487,6 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 		return nil, false, fmt.Errorf("recording %s event: %w", merge.eventType, err)
 	}
 	return out, false, nil
-}
-
-// checkSecurityFindingBudgetTx counts the non-duplicate findings already
-// recorded in the record's execution and task scopes and reports a
-// *store.SecurityFindingBudgetError when either has reached its cap. The
-// caller holds the execution advisory lock and aborts the transaction on
-// error, so a rejected finding leaves nothing behind. An empty execution_id
-// or task_name is not used as a predicate: the scope simply widens to what
-// the record does identify.
-//
-// Only inserts are budgeted; merges skip this check because they create no
-// row. A finding recurring from an earlier execution is therefore admitted
-// unconditionally into the new execution, and — since the merge re-stamps
-// execution_id — it then counts against that execution's scan and task
-// budgets for every LATER finding of the same execution. This is
-// intentional: the budget caps how many findings one execution reports, and
-// a recurring finding is one of them, but a known finding is never dropped
-// just because the cap was already reached.
-func checkSecurityFindingBudgetTx(ctx context.Context, tx pgx.Tx, rec *store.SecurityFindingRecord, budget store.SecurityFindingBudget) error {
-	count := func(scope string, max int32, byTask bool) error {
-		conds := []string{"namespace = $1", "scan_name = $2", "duplicate_of IS NULL"}
-		args := []any{rec.Namespace, rec.ScanName}
-		if rec.ExecutionID != "" {
-			args = append(args, rec.ExecutionID)
-			conds = append(conds, fmt.Sprintf("execution_id = $%d", len(args)))
-		}
-		if byTask && rec.TaskName != "" {
-			args = append(args, rec.TaskName)
-			conds = append(conds, fmt.Sprintf("task_name = $%d", len(args)))
-		}
-		var n int64
-		if err := tx.QueryRow(ctx, `
-			SELECT COUNT(*) FROM security_findings WHERE `+strings.Join(conds, " AND "), args...).Scan(&n); err != nil {
-			return fmt.Errorf("counting security findings for %s budget: %w", scope, err)
-		}
-		if n >= int64(max) {
-			return &store.SecurityFindingBudgetError{Scope: scope, Count: int32(n), Max: max}
-		}
-		return nil
-	}
-	if budget.ScanMax > 0 {
-		if err := count("scan", budget.ScanMax, false); err != nil {
-			return err
-		}
-	}
-	if budget.TaskMax > 0 {
-		if err := count("task", budget.TaskMax, true); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // securityFindingMerge is the outcome of classifying one reobservation of an

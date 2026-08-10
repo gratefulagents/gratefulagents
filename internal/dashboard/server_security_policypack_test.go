@@ -41,7 +41,6 @@ func testSecurityPolicyPackResource(namespace string) *platform.SecurityPolicyPa
 			MaxCostUsd:        "5",
 			MaxTokens:         100000,
 			MaxRuntime:        "1h",
-			MaxFindings:       50,
 			MaxValidationJobs: 8,
 		},
 		Suppressions: []*platform.SecurityPolicySuppressionConfig{{
@@ -90,7 +89,7 @@ func testSecurityPolicyPackCreateAndRead(t *testing.T, srv *Server, c client.Cli
 		t.Fatalf("retention = %+v", cr.Spec.Retention)
 	}
 	if cr.Spec.Budgets == nil || cr.Spec.Budgets.MaxCostUSD != "5" || cr.Spec.Budgets.MaxTokens != 100000 ||
-		cr.Spec.Budgets.MaxRuntime.Duration != time.Hour || cr.Spec.Budgets.MaxFindings != 50 {
+		cr.Spec.Budgets.MaxRuntime.Duration != time.Hour {
 		t.Fatalf("budgets = %+v", cr.Spec.Budgets)
 	}
 
@@ -171,10 +170,6 @@ func TestCreateSecurityPolicyPackValidationErrors(t *testing.T) {
 		"negative budget tokens": func(p *platform.SecurityPolicyPackResource) {
 			p.Budgets.MaxTokens = -5
 		},
-		"enforced budgets without budgets": func(p *platform.SecurityPolicyPackResource) {
-			p.Enforced = []string{"budgets"}
-			p.Budgets = nil
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			pack := testSecurityPolicyPackResource("")
@@ -184,6 +179,17 @@ func TestCreateSecurityPolicyPackValidationErrors(t *testing.T) {
 				t.Fatalf("CreateSecurityPolicyPack(%s) error = %v, want InvalidArgument", name, err)
 			}
 		})
+	}
+}
+
+func TestCreateSecurityPolicyPackAllowsEmptyEnforcedBudgets(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	pack := testSecurityPolicyPackResource("")
+	pack.Enforced = []string{"budgets"}
+	pack.Budgets = nil
+
+	if _, err := srv.CreateSecurityPolicyPack(projectActorCtx(), &platform.CreateSecurityPolicyPackRequest{PolicyPack: pack}); err != nil {
+		t.Fatalf("CreateSecurityPolicyPack() error = %v, want legacy empty enforced budgets to remain valid", err)
 	}
 }
 

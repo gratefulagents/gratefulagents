@@ -1949,8 +1949,8 @@ func securityScanSinkTasks(workflow []triggersv1alpha1.SecurityScanTask) map[str
 // coordinator's run construction (labels, owner ref, defaults, event
 // context, policy annotations, resolved-refs snapshot) and layers the
 // per-task overrides on top: task mode template, per-task model, folded
-// timeout, turn/cost limits, tool policy, per-task maxFindings, and the
-// output-schema annotation the worker's submit_task_output tool consumes.
+// timeout, turn/cost limits, tool policy, and the output-schema annotation
+// the worker's submit_task_output tool consumes.
 func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec, runCtx *securityScanRunContext, exec *triggersv1alpha1.SecurityScanExecutionStatus, task triggersv1alpha1.SecurityScanTask, runName string, inst SecurityScanTaskInstance, firstRun bool) (bool, error) {
 	if err := validateSecurityScanTaskSkillRefs(ctx, r.Client, scan.Namespace, scan.Spec.Defaults.SkillRefs, []triggersv1alpha1.SecurityScanTask{task}); err != nil {
 		return false, err
@@ -2032,15 +2032,6 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	annotations[triggersv1alpha1.SecurityScanRecordNameAnnotation] = securityScanExecutionRecordName(scan.Name, exec.ID)
 	annotations[triggersv1alpha1.SecurityScanTaskNameAnnotation] = task.Name
 	annotations[triggersv1alpha1.SecurityScanTaskRoleAnnotation] = role.name
-	if task.MaxFindings > 0 {
-		// The two budgets are SEPARATE ceilings, not one folded number: the
-		// scan-wide budgets.maxFindings stamped by buildScanRunBase bounds the
-		// whole execution, while the per-task cap is counted per task across
-		// that task's fan-out instances and retries. Folding them (smaller
-		// wins) would silently shrink the scan-wide budget every other task
-		// shares down to one task's cap.
-		annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation] = strconv.Itoa(int(task.MaxFindings))
-	}
 	if schema := securityScanTaskOutputSchema(task, inst); schema != "" {
 		annotations[securityScanTaskOutputSchemaAnnotation] = schema
 	}

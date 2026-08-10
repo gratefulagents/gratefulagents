@@ -84,19 +84,6 @@ spec:
                       metrics.
                     pattern: ^([0-9]+(\.[0-9]+)?)?$
                     type: string
-                  maxFindings:
-                    description: |-
-                      maxFindings caps how many findings ONE execution of the scan may
-                      persist: every task run of a deterministic execution (and the single
-                      run of a coordinator-mode execution) shares this budget, and a later
-                      execution of the same scan starts from a fresh allowance rather than
-                      inheriting the scan's whole history. Enforced transactionally at the
-                      persistence boundary, so no model output can raise it (the cap is
-                      also stated in the run prompt, purely as guidance). A per-task cap is
-                      configured separately with SecurityScanTask.maxFindings.
-                    format: int32
-                    minimum: 0
-                    type: integer
                   maxModelJobs:
                     description: |-
                       maxModelJobs caps how many sub-agent runs (child AgentRuns) the scan

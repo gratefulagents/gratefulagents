@@ -22,7 +22,7 @@ func testSecurityWorkflowResource(namespace string) *platform.SecurityWorkflowRe
 		Description: "payments-focused plan",
 		Parallelism: 2,
 		Tasks: []*platform.SecurityScanTaskConfig{
-			{Name: "injection", Objective: "hunt injections in {{params.target_env}}", Category: "injection", MaxFindings: 5,
+			{Name: "injection", Objective: "hunt injections in {{params.target_env}}", Category: "injection",
 				SkillRefs: []string{"api-authz-hunting"}, OutputSchema: `{"type":"array","items":{"type":"object"}}`},
 			{Name: "triage", Objective: "triage findings", Role: "finding-triager", Model: "gpt-5.2",
 				DependsOn: []string{"injection"}, MaxRetries: &retries, Timeout: "30m", MaxTurns: 40,
@@ -133,7 +133,6 @@ func TestCreateSecurityWorkflowValidationErrors(t *testing.T) {
 		},
 		"invalid name":         func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Name = "Bad Name!" },
 		"missing objective":    func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Objective = " " },
-		"negative maxFindings": func(w *platform.SecurityWorkflowResource) { w.Tasks[0].MaxFindings = -1 },
 		"invalid role":         func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Role = "Not A Role" },
 		"invalid parallelism":  func(w *platform.SecurityWorkflowResource) { w.Parallelism = 42 },
 		"bad timeout":          func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Timeout = "banana" },

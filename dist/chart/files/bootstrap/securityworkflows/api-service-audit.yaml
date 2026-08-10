@@ -24,7 +24,6 @@ spec:
         actually does: an interpolated query, a spawned process, a filesystem path, a template, an
         allocation sized by the caller. Report only reachable defects with file:line evidence for the
         binding site and the sink.
-      maxFindings: 8
     - name: endpoint-authorization
       role: vulnerability-hunter
       category: authz
@@ -43,7 +42,6 @@ spec:
         interceptors, resolvers, or route groups where the guard is registered for some methods and not
         others; and GraphQL fields exposed through nested paths that skip the top-level check. Prove each
         report by naming the handler and the data-access call at file:line and the request that succeeds.
-      maxFindings: 8
     - name: mass-assignment
       role: vulnerability-hunter
       category: logic-flaw
@@ -61,7 +59,6 @@ spec:
         verification and approval flags, timestamps used for ordering or billing) and show which of them a
         caller can set today. Also check the response direction for the same models leaking server-only
         fields. Report with the binding call at file:line and the field an attacker escalates through.
-      maxFindings: 6
     - name: tenant-isolation
       role: vulnerability-hunter
       category: authz
@@ -79,7 +76,6 @@ spec:
         and rate-limit keys that omit the tenant, cross-tenant references accepted by id, and any place the
         tenant is taken from a client-supplied value rather than the authenticated principal. Report with
         file:line evidence and describe the cross-tenant read or write it enables.
-      maxFindings: 6
     - name: rate-limiting-and-resource-exhaustion
       role: vulnerability-hunter
       category: dos
@@ -98,7 +94,6 @@ spec:
         with catastrophic backtracking on user input, per-request goroutine, thread, or connection creation,
         and expensive operations (crypto, export, report, image work) reachable before authentication.
         Report with file:line evidence and state the request pattern and the resource it exhausts.
-      maxFindings: 6
     - name: error-and-info-leakage
       role: vulnerability-hunter
       category: info-leak
@@ -116,7 +111,6 @@ spec:
         credentials, or personal data written to logs and traces. Distinguish leakage that materially helps
         an attacker (enumeration, credentials, internal topology) from cosmetic verbosity, and report the
         former with file:line evidence.
-      maxFindings: 5
     - name: pagination-and-filter-injection
       role: vulnerability-hunter
       category: injection
@@ -135,7 +129,6 @@ spec:
         arithmetic or allocation; and GraphQL filter arguments assembled into raw predicates. For each,
         trace the parameter from the request to the query construction at file:line and give the value that
         changes the query's meaning or reads data the caller may not see.
-      maxFindings: 6
     - name: triage-and-report
       role: finding-triager
       category: triage

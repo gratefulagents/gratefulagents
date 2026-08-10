@@ -26,7 +26,6 @@ spec:
         user-supplied addresses, delegatecall targets that can be set by a caller, gas assumptions in
         transfer and send, and callbacks invoked before the effects are recorded. Cite the call site and the
         state write at file:line and describe the sequence of transactions that drains or corrupts state.
-      maxFindings: 6
     - name: access-control-and-privileged-operations
       role: vulnerability-hunter
       category: authz
@@ -47,7 +46,6 @@ spec:
         results not checked against the zero address; and trusted-caller checks comparing against a value
         the caller can influence. Report each with file:line evidence and the transaction an unauthorized
         account sends.
-      maxFindings: 6
     - name: oracle-and-price-manipulation
       role: vulnerability-hunter
       category: logic-flaw
@@ -68,7 +66,6 @@ spec:
         collateral logic priced from a manipulable source, and swap paths without slippage or deadline
         protection. Cite the price read and its consumer at file:line and outline the flash-loan or
         sandwich sequence that profits.
-      maxFindings: 6
     - name: arithmetic-and-rounding
       role: vulnerability-hunter
       category: logic-flaw
@@ -89,7 +86,6 @@ spec:
         can be repeated, zero-amount or dust operations that mint shares or claim rewards, and invariants
         (sum of shares, total supply, accounted balance) that the code never re-checks. Cite the expression
         at file:line and quantify what an attacker extracts per repetition.
-      maxFindings: 6
     - name: upgradeability-and-storage-layout
       role: vulnerability-hunter
       category: misconfiguration
@@ -111,7 +107,6 @@ spec:
         run twice, and that delegatecall into a library never writes the caller's slots unintentionally.
         Report with file:line evidence and describe the state an upgrade or a hostile initialization
         corrupts or takes over.
-      maxFindings: 5
     - name: token-integration-assumptions
       role: vulnerability-hunter
       category: logic-flaw
@@ -132,7 +127,6 @@ spec:
         over a user-extensible list, ETH handling in contracts that can receive it by force, and results of
         external calls used without validating their shape. Report with file:line evidence and the token or
         counterparty behavior that breaks the accounting.
-      maxFindings: 6
     - name: triage-and-report
       role: finding-triager
       category: triage

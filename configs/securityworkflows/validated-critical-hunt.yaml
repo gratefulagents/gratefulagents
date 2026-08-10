@@ -25,7 +25,6 @@ spec:
         evidence: the exact entry point and request, each hop from source to sink with file:line, the
         preconditions the attacker needs, and the payload shape that would execute. Report nothing you
         cannot walk end to end.
-      maxFindings: 5
     - name: authentication-bypass
       role: vulnerability-hunter
       category: authn
@@ -46,7 +45,6 @@ spec:
         enabled. Ignore weaknesses that only matter after a valid session exists. For every candidate record
         the exploitability evidence: the request an unauthenticated attacker sends, the code at file:line
         that accepts it, the identity obtained, and any precondition (known username, leaked id) it needs.
-      maxFindings: 5
     - name: remote-data-exfiltration
       role: vulnerability-hunter
       category: injection
@@ -65,7 +63,6 @@ spec:
         volume and sensitivity: one user's profile is not this task's target, every user's credentials or
         every tenant's records is. For every candidate record the exploitability evidence: the request, the
         query or file access at file:line, what returns to the attacker, and the privilege level required.
-      maxFindings: 5
     - name: ssrf-to-internal-services
       role: vulnerability-hunter
       category: ssrf
@@ -85,7 +82,6 @@ spec:
         rejected, and whether the response body, status, or timing returns to the caller. For every
         candidate record the exploitability evidence: the request, the outbound call at file:line, the
         internal target reached, and what the attacker learns or obtains.
-      maxFindings: 5
     - name: deserialization-to-rce
       role: vulnerability-hunter
       category: deserialization
@@ -105,7 +101,6 @@ spec:
         dependencies actually installed rather than assuming one. For every candidate record the
         exploitability evidence: the untrusted source, the decoding call at file:line, the gadget or
         constructed object, and what execution or state change follows.
-      maxFindings: 5
     - name: credential-exposure-to-takeover
       role: secrets-auditor
       category: secrets
@@ -123,7 +118,6 @@ spec:
         fixtures, expired or local-only values, and anything that grants nothing. For every candidate
         record the exploitability evidence: the location at file:line, what the credential authenticates to,
         who can read it today, and the takeover it enables.
-      maxFindings: 5
     - name: validate-exploitability
       role: exploit-validator
       category: other

@@ -125,20 +125,16 @@ func writeSecurityScanScope(b *strings.Builder, scope *triggersv1alpha1.Security
 	b.WriteString("\n")
 }
 
-// writeSecurityScanReportingPolicy renders the dedupe / minimum-severity /
-// finding-budget policy section shared by the coordinator and per-task
-// prompts. maxFindings <= 0 omits the budget line.
-func writeSecurityScanReportingPolicy(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec, maxFindings int32) {
+// writeSecurityScanReportingPolicy renders the reporting policy shared by
+// the coordinator and per-task prompts.
+func writeSecurityScanReportingPolicy(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec) {
 	b.WriteString("## Reporting policy\n\n")
 	writeSecurityScanReportingRules(b, spec)
-	if maxFindings > 0 {
-		fmt.Fprintf(b, "- Finding budget: report at most %d findings in total; prioritize the most severe, highest-confidence issues. The platform enforces this cap on the persisted findings regardless of what is reported.\n", maxFindings)
-	}
 	b.WriteString("\n")
 }
 
 // writeSecurityScanReportingRules renders the dedupe and minimum-severity
-// rules every scan prompt states, independent of which budgets apply.
+// rules every scan prompt states.
 func writeSecurityScanReportingRules(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec) {
 	if spec.DedupeEnabled() {
 		fmt.Fprintf(b, "- Deduplicate findings: treat findings with similarity of at least %d/1000 as duplicates and report each issue once.\n", spec.DedupeSimilarityThresholdPermille())
@@ -146,24 +142,6 @@ func writeSecurityScanReportingRules(b *strings.Builder, spec triggersv1alpha1.S
 		b.WriteString("- Deduplication is disabled: report every finding, including near-duplicates.\n")
 	}
 	fmt.Fprintf(b, "- Exclude findings below severity %q from the report.\n", spec.EffectiveMinSeverity())
-}
-
-// writeSecurityScanTaskReportingPolicy renders the reporting policy of one
-// deterministic task run, where TWO independent budgets apply: the task's own
-// cap, counted across every parallel instance and retry of that task, and the
-// scan-wide cap every task of the execution shares. Collapsing them into one
-// number would misstate both — a task would either believe it may report the
-// whole scan's budget alone, or that the scan-wide cap is as small as its own.
-func writeSecurityScanTaskReportingPolicy(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec, taskMaxFindings int32) {
-	b.WriteString("## Reporting policy\n\n")
-	writeSecurityScanReportingRules(b, spec)
-	if taskMaxFindings > 0 {
-		fmt.Fprintf(b, "- Task finding budget: this task may report at most %d findings in total, counted across all of its parallel instances and any retries; prioritize the most severe, highest-confidence issues.\n", taskMaxFindings)
-	}
-	if spec.Budgets != nil && spec.Budgets.MaxFindings > 0 {
-		fmt.Fprintf(b, "- Scan finding budget: every task of this execution shares one scan-wide cap of %d findings. The platform enforces both caps on the persisted findings regardless of what is reported.\n", spec.Budgets.MaxFindings)
-	}
-	b.WriteString("\n")
 }
 
 // BuildSecurityScanPrompt renders the complete autonomous task packet seeded
@@ -212,9 +190,6 @@ func BuildSecurityScanPromptWithEvent(spec triggersv1alpha1.SecurityScanSpec, ev
 		if len(task.DependsOn) > 0 {
 			fmt.Fprintf(&b, "   - Depends on: %s\n", strings.Join(task.DependsOn, ", "))
 		}
-		if task.MaxFindings > 0 {
-			fmt.Fprintf(&b, "   - Report at most %d findings\n", task.MaxFindings)
-		}
 	}
 	b.WriteString("\n")
 
@@ -240,11 +215,7 @@ func BuildSecurityScanPromptWithEvent(spec triggersv1alpha1.SecurityScanSpec, ev
 		}
 	}
 
-	var budgetMaxFindings int32
-	if spec.Budgets != nil {
-		budgetMaxFindings = spec.Budgets.MaxFindings
-	}
-	writeSecurityScanReportingPolicy(&b, spec, budgetMaxFindings)
+	writeSecurityScanReportingPolicy(&b, spec)
 
 	b.WriteString("## Final step\n\n")
 	b.WriteString("When every task and post-script has completed and all findings are reported, call submit_security_scan_report exactly once with the scan summary, then finish the run.\n")
@@ -357,7 +328,7 @@ func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *
 	b.WriteString(security.FindingSchemaPrompt())
 	b.WriteString("\n\n")
 
-	writeSecurityScanTaskReportingPolicy(&b, spec, task.MaxFindings)
+	writeSecurityScanReportingPolicy(&b, spec)
 
 	if inst.Chunked {
 		b.WriteString("## Structured output\n\n")

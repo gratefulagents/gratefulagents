@@ -87,7 +87,6 @@ spec:
         - map-abci-methods
       forEach: map-abci-methods
       maxInstances: 16
-      maxFindings: 5
     - name: consensus-non-determinism
       role: vulnerability-hunter
       category: logic-flaw
@@ -129,7 +128,6 @@ spec:
         }
       dependsOn:
         - map-abci-methods
-      maxFindings: 6
     - name: unbounded-gas-and-state-growth
       role: vulnerability-hunter
       category: dos
@@ -171,7 +169,6 @@ spec:
         }
       dependsOn:
         - map-abci-methods
-      maxFindings: 6
     - name: triage-and-report
       role: finding-triager
       category: triage

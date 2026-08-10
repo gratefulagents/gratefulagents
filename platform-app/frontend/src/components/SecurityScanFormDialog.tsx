@@ -78,7 +78,6 @@ type TaskState = {
   role: string;
   model: string;
   dependsOn: string;
-  maxFindings: string;
 };
 
 type RankerState = { name: string; rules: string };
@@ -225,7 +224,6 @@ function initialTasks(config?: SecurityScanConfig): TaskState[] {
     role: t.role,
     model: t.model,
     dependsOn: t.dependsOn.join(", "),
-    maxFindings: t.maxFindings ? String(t.maxFindings) : "",
   }));
 }
 
@@ -475,7 +473,6 @@ export function SecurityScanFormDialog({
               role: t.role.trim(),
               model: t.model.trim(),
               dependsOn: splitList(t.dependsOn, /[,\n]/),
-              maxFindings: t.maxFindings.trim() ? Number(t.maxFindings) : 0,
             }),
           ),
       workflowRef: spec.workflowRef,
@@ -1482,41 +1479,22 @@ export function SecurityScanFormDialog({
                         />
                       </FlowField>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <FlowField
+                    <FlowField
+                      id={`scan-task-depends-${index}`}
+                      label="Depends on"
+                      hint="Comma-separated task names."
+                    >
+                      <Input
                         id={`scan-task-depends-${index}`}
-                        label="Depends on"
-                        hint="Comma-separated task names."
-                      >
-                        <Input
-                          id={`scan-task-depends-${index}`}
-                          value={task.dependsOn}
-                          onChange={(event) =>
-                            setTasks((prev) =>
-                              prev.map((t, i) => (i === index ? { ...t, dependsOn: event.target.value } : t)),
-                            )
-                          }
-                          className="font-mono"
-                        />
-                      </FlowField>
-                      <FlowField
-                        id={`scan-task-max-findings-${index}`}
-                        label="Max findings"
-                        hint="Empty or 0 = unlimited."
-                      >
-                        <Input
-                          id={`scan-task-max-findings-${index}`}
-                          type="number"
-                          min={0}
-                          value={task.maxFindings}
-                          onChange={(event) =>
-                            setTasks((prev) =>
-                              prev.map((t, i) => (i === index ? { ...t, maxFindings: event.target.value } : t)),
-                            )
-                          }
-                        />
-                      </FlowField>
-                    </div>
+                        value={task.dependsOn}
+                        onChange={(event) =>
+                          setTasks((prev) =>
+                            prev.map((t, i) => (i === index ? { ...t, dependsOn: event.target.value } : t)),
+                          )
+                        }
+                        className="font-mono"
+                      />
+                    </FlowField>
                     <Button
                       type="button"
                       variant="ghost"
@@ -1534,7 +1512,7 @@ export function SecurityScanFormDialog({
                   onClick={() =>
                     setTasks((prev) => [
                       ...prev,
-                      { name: "", objective: "", category: "", role: "", model: "", dependsOn: "", maxFindings: "" },
+                      { name: "", objective: "", category: "", role: "", model: "", dependsOn: "" },
                     ])
                   }
                 >

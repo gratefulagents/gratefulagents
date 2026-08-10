@@ -70,8 +70,8 @@ func securityScanPostScriptNames(scan *triggersv1alpha1.SecurityScan, pack *trig
 
 // enforceSecurityBudgets publishes the scan's effective budgets to
 // status.budget and enforces the limits the created run cannot self-limit,
-// entirely from platform-side data: persisted finding counts and the run's
-// status/usage metrics. Model output can never relax a limit — every limit
+// entirely from platform-side data: the run's status/usage metrics. Model
+// output can never relax a limit — every limit
 // derives from the CRD spec merged with the policy pack, and usage comes
 // from the AgentRun resource, never from session content. When a hard limit
 // is exceeded and the run is still active, the run is cancelled the same way
@@ -96,17 +96,6 @@ func (r *SecurityScanReconciler) enforceSecurityBudgets(ctx context.Context, sca
 	}
 
 	var exceeded []string
-	// Findings budget: persisted counts only. Evaluated even without an
-	// active run so an already-exceeded budget warns before the next launch.
-	if effective.MaxFindings > 0 && r.Findings != nil {
-		counts, err := r.Findings.SummarizeSecurityFindings(ctx, scan.Namespace, scan.Name, "", true)
-		if err != nil {
-			log.Error(err, "failed to summarize findings for budget enforcement", "scan", scan.Name)
-		} else if total := counts["total"]; total > effective.MaxFindings {
-			exceeded = append(exceeded, fmt.Sprintf("persisted findings %d exceed budgets.maxFindings %d", total, effective.MaxFindings))
-		}
-	}
-
 	var run *platformv1alpha1.AgentRun
 	runActive := false
 	if scan.Status.LastRunName != "" {

@@ -963,7 +963,7 @@ type PlatformServiceClient interface {
 	DeleteSecurityWorkflow(context.Context, *connect.Request[platform.DeleteSecurityWorkflowRequest]) (*connect.Response[emptypb.Empty], error)
 	// ValidateSecurityWorkflow runs the full server-side workflow validation
 	// (unique task names, acyclic dependencies, resolvable dependsOn entries,
-	// valid roles/models, maxFindings bounds) without persisting anything and
+	// valid roles and models) without persisting anything and
 	// returns structured field errors. Create/Update run the same validation.
 	ValidateSecurityWorkflow(context.Context, *connect.Request[platform.ValidateSecurityWorkflowRequest]) (*connect.Response[platform.ValidateSecurityWorkflowResponse], error)
 	ListSecurityRankers(context.Context, *connect.Request[platform.ListSecurityRankersRequest]) (*connect.Response[platform.ListSecurityRankersResponse], error)
@@ -3837,7 +3837,7 @@ type PlatformServiceHandler interface {
 	DeleteSecurityWorkflow(context.Context, *connect.Request[platform.DeleteSecurityWorkflowRequest]) (*connect.Response[emptypb.Empty], error)
 	// ValidateSecurityWorkflow runs the full server-side workflow validation
 	// (unique task names, acyclic dependencies, resolvable dependsOn entries,
-	// valid roles/models, maxFindings bounds) without persisting anything and
+	// valid roles and models) without persisting anything and
 	// returns structured field errors. Create/Update run the same validation.
 	ValidateSecurityWorkflow(context.Context, *connect.Request[platform.ValidateSecurityWorkflowRequest]) (*connect.Response[platform.ValidateSecurityWorkflowResponse], error)
 	ListSecurityRankers(context.Context, *connect.Request[platform.ListSecurityRankersRequest]) (*connect.Response[platform.ListSecurityRankersResponse], error)

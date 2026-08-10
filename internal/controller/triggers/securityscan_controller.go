@@ -747,9 +747,6 @@ func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *tri
 	if targets := securityScanAuthorizedNetworkTargets(resolved.spec.Scope); targets != "" {
 		annotations[triggersv1alpha1.SecurityScanAuthorizedNetworkTargetsAnnotation] = targets
 	}
-	if budgets := resolved.spec.Budgets; budgets != nil && budgets.MaxFindings > 0 {
-		annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation] = strconv.Itoa(int(budgets.MaxFindings))
-	}
 	if rev := strings.TrimSpace(scan.Spec.Revision); rev != "" {
 		annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] = rev
 	}

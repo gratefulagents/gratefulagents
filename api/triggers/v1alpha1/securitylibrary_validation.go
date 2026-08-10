@@ -75,8 +75,8 @@ func (e SecurityWorkflowFieldError) Error() string {
 // ValidateSecurityWorkflowTasks validates a security workflow task list the
 // same way for the dashboard, the SecurityScan controller, and the library
 // reconcilers: at least one task and at most MaxSecurityWorkflowTasks; unique
-// DNS-1123 label names; non-empty objectives; non-negative maxFindings;
-// DNS-1123 role names; models without whitespace; per-task execution settings
+// DNS-1123 label names; non-empty objectives; DNS-1123 role names; models
+// without whitespace; per-task execution settings
 // (retries, timeout, cost, tools, outputSchema, forEach fan-out, repeats)
 // within bounds; objective template references that resolve to declared
 // dependencies and, for {{tasks.NAME.output}}, to tasks that declare an
@@ -112,9 +112,6 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 		byName[name] = task
 		if strings.TrimSpace(task.Objective) == "" {
 			add(field+".objective", "task %q needs an objective", name)
-		}
-		if task.MaxFindings < 0 {
-			add(field+".maxFindings", "task %q maxFindings must not be negative", name)
 		}
 		if role := task.Role; role != "" {
 			if problems := validation.IsDNS1123Subdomain(role); len(problems) != 0 {

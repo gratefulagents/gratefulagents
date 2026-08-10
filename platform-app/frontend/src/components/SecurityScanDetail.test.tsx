@@ -624,14 +624,13 @@ describe("SecurityScanDetail budgets, retention, and suppression", () => {
       name: "nightly",
       effectiveBudgets: {
         maxCostUsd: "5",
-        maxFindings: 100,
         maxTokens: 0n,
         maxModelJobs: 0,
         maxValidationJobs: 0,
         maxRuntime: "",
       },
       budgetExceeded: true,
-      budgetMessage: "persisted findings 120 exceed budgets.maxFindings 100",
+      budgetMessage: "model spend $6 exceeds budgets.maxCostUsd $5",
       retention: {
         lastSweepTimeUnix: 1770000000n,
         scansPurged: 2n,
@@ -649,10 +648,9 @@ describe("SecurityScanDetail budgets, retention, and suppression", () => {
 
     const warning = await screen.findByTestId("budget-warning");
     expect(warning.textContent).toContain("Budget exceeded");
-    expect(warning.textContent).toContain("persisted findings 120 exceed budgets.maxFindings 100");
+    expect(warning.textContent).toContain("model spend $6 exceeds budgets.maxCostUsd $5");
     const budgets = screen.getByTestId("effective-budgets");
     expect(budgets.textContent).toContain("$5");
-    expect(budgets.textContent).toContain("100 findings");
     const sweep = screen.getByTestId("retention-sweep");
     expect(sweep.textContent).toContain("7 findings");
     expect(sweep.textContent).toContain("4 PoC entries redacted");
