@@ -763,7 +763,7 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 // granting writes — the sink dispatch fails on that role anyway.
 func (r *SecurityScanReconciler) postScriptToolPolicy(ctx context.Context, resolved *resolvedSecurityScanSpec) *platformv1alpha1.AgentRunToolPolicy {
 	policy := &platformv1alpha1.AgentRunToolPolicy{DeniedTools: []string{"submit_security_scan_report"}}
-	workflow := resolved.spec.EffectiveWorkflow()
+	workflow := resolved.spec.Workflow
 	sinks := securityScanSinkTasks(workflow)
 	for _, task := range workflow {
 		if !sinks[task.Name] {

@@ -3,7 +3,7 @@ kind: SecurityWorkflow
 metadata:
   name: default-deep-scan
 spec:
-  description: The platform's default deep scan plan; mirrors the built-in workflow used when a SecurityScan declares no workflow. Eleven parallel specialist hunts fan into a final triage-and-report task.
+  description: The platform's default deep scan plan and sole source of its workflow content. SecurityScans that declare neither workflow nor workflowRef resolve this namespaced resource. Eleven parallel specialist hunts fan into a final triage-and-report task.
   tasks:
     - name: attack-surface-mapping
       role: threat-modeler

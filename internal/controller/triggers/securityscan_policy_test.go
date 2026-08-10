@@ -397,15 +397,15 @@ func TestSecurityScanPolicyPackSnapshotRecorded(t *testing.T) {
 		t.Fatalf("resolved-refs annotation is not JSON: %v", err)
 	}
 	want := resolvedSecurityRef("SecurityPolicyPack", pack.Name, pack.Generation, pack.Spec)
-	if len(refs) != 1 || refs[0] != want {
-		t.Fatalf("resolved refs = %+v, want [%+v]", refs, want)
+	if len(refs) != 2 || refs[0] != want || refs[1].Kind != "SecurityWorkflow" || refs[1].Name != triggersv1alpha1.DefaultSecurityWorkflowName {
+		t.Fatalf("resolved refs = %+v, want policy pack followed by default workflow CRD", refs)
 	}
 	if refs[0].Hash == "" || refs[0].Generation != 7 {
 		t.Fatalf("resolved pack ref has empty hash or wrong generation: %+v", refs[0])
 	}
 
 	updated := getSecurityScan(t, k8sClient, scan)
-	if len(updated.Status.LastResolvedRefs) != 1 || updated.Status.LastResolvedRefs[0] != want {
+	if len(updated.Status.LastResolvedRefs) != 2 || updated.Status.LastResolvedRefs[0] != want || updated.Status.LastResolvedRefs[1] != refs[1] {
 		t.Fatalf("status.lastResolvedRefs = %+v, want [%+v]", updated.Status.LastResolvedRefs, want)
 	}
 }

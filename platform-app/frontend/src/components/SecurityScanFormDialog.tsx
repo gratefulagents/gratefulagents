@@ -1412,8 +1412,8 @@ export function SecurityScanFormDialog({
                 {spec.workflowRef === "" && (
                 <>
                 <p className="text-xs text-muted-foreground">
-                  Leave empty to use the built-in vulnerability-hunting workflow. Custom tasks
-                  replace it entirely; depends_on must reference other task names.
+                  Leave empty to use the default-deep-scan library workflow. Custom tasks replace it
+                  entirely; depends_on must reference other task names.
                 </p>
                 {tasks.map((task, index) => (
                   <div key={index} className="space-y-3 rounded-md border p-3">

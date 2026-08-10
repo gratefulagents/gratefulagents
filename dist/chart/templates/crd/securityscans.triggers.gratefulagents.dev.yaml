@@ -978,9 +978,10 @@ spec:
               workflow:
                 description: |-
                   workflow is the ordered/parallel research plan executed as focused
-                  vulnerability-hunting sub-agents. When empty, the controller uses
-                  DefaultSecurityWorkflow(). Mutually exclusive with workflowRef: setting
-                  both makes the controller report Ready=False with reason InvalidSpec.
+                  vulnerability-hunting sub-agents. When both workflow and workflowRef are
+                  empty, the controller resolves the default-deep-scan SecurityWorkflow in
+                  this scan's namespace. Mutually exclusive with workflowRef: setting both
+                  makes the controller report Ready=False with reason InvalidSpec.
                 items:
                   description: |-
                     SecurityScanTask is one focused research task in the scan workflow, executed

@@ -72,8 +72,8 @@ func TestSecurityScanReconcileOneShotCreatesExactlyOneRun(t *testing.T) {
 
 	sessionID := stateStore.sessions[scan.Namespace+"/"+runs[0].Name]
 	messages := stateStore.messages[sessionID]
-	if len(messages) != 1 || messages[0].Content != BuildSecurityScanPrompt(scan.Spec) {
-		t.Fatalf("seed messages = %#v, want one security scan prompt", messages)
+	if len(messages) != 1 || !strings.Contains(messages[0].Content, `Task "default-review"`) {
+		t.Fatalf("seed messages = %#v, want prompt built from default workflow CRD", messages)
 	}
 }
 
@@ -725,6 +725,31 @@ func TestSecurityScanReconcileDedupeDisabledAnnotatesZeroPermille(t *testing.T) 
 
 func newSecurityScanReconciler(t *testing.T, now time.Time, objects ...client.Object) (*SecurityScanReconciler, client.Client, *seedTestStore) {
 	t.Helper()
+	// Production installs default-deep-scan as a SecurityWorkflow CRD. Keep
+	// controller tests representative without duplicating the production plan.
+	namespaces := map[string]bool{"default": true}
+	defaultPresent := map[string]bool{}
+	for _, object := range objects {
+		switch typed := object.(type) {
+		case *triggersv1alpha1.SecurityScan:
+			namespaces[typed.Namespace] = true
+		case *triggersv1alpha1.SecurityWorkflow:
+			if typed.Name == triggersv1alpha1.DefaultSecurityWorkflowName {
+				defaultPresent[typed.Namespace] = true
+			}
+		}
+	}
+	for namespace := range namespaces {
+		if defaultPresent[namespace] {
+			continue
+		}
+		objects = append(objects, &triggersv1alpha1.SecurityWorkflow{
+			ObjectMeta: metav1.ObjectMeta{Name: triggersv1alpha1.DefaultSecurityWorkflowName, Namespace: namespace},
+			Spec: triggersv1alpha1.SecurityWorkflowSpec{Tasks: []triggersv1alpha1.SecurityScanTask{{
+				Name: "default-review", Objective: "review the repository",
+			}}},
+		})
+	}
 	scheme := runtime.NewScheme()
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme(platform): %v", err)

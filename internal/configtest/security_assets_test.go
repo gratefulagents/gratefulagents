@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -168,16 +167,19 @@ func TestSecurityScanSkillAsset(t *testing.T) {
 	}
 }
 
-// TestDefaultSecurityWorkflowRolesHaveAssets keeps the built-in scan workflow
+// TestDefaultSecurityWorkflowRolesHaveAssets keeps the default workflow CRD
 // and the shipped RoleInstruction assets from drifting apart.
 func TestDefaultSecurityWorkflowRolesHaveAssets(t *testing.T) {
 	t.Parallel()
+
+	var workflow triggersv1alpha1.SecurityWorkflow
+	readBootstrapAsset(t, "securityworkflows", triggersv1alpha1.DefaultSecurityWorkflowName, &workflow)
 
 	available := map[string]bool{triggersv1alpha1.DefaultSecurityScanRole: true}
 	for _, name := range securityScanRoles {
 		available[name] = true
 	}
-	for _, task := range triggersv1alpha1.DefaultSecurityWorkflow() {
+	for _, task := range workflow.Spec.Tasks {
 		role := task.EffectiveRole()
 		if !available[role] {
 			t.Errorf("workflow task %q references role %q with no shipped RoleInstruction asset", task.Name, role)
@@ -188,18 +190,16 @@ func TestDefaultSecurityWorkflowRolesHaveAssets(t *testing.T) {
 	}
 }
 
-// TestDefaultSecurityWorkflowAsset keeps the shipped default-deep-scan
-// workflow asset valid and byte-for-byte in sync with the built-in
-// DefaultSecurityWorkflow() fallback, so the asset and the code path a scan
-// takes without it can never drift apart.
+// TestDefaultSecurityWorkflowAsset validates the CRD that is the sole source
+// of default workflow content.
 func TestDefaultSecurityWorkflowAsset(t *testing.T) {
 	t.Parallel()
 
 	var workflow triggersv1alpha1.SecurityWorkflow
 	readBootstrapAsset(t, "securityworkflows", "default-deep-scan", &workflow)
 
-	if workflow.Name != "default-deep-scan" {
-		t.Fatalf("metadata.name = %q, want default-deep-scan", workflow.Name)
+	if workflow.Name != triggersv1alpha1.DefaultSecurityWorkflowName {
+		t.Fatalf("metadata.name = %q, want %s", workflow.Name, triggersv1alpha1.DefaultSecurityWorkflowName)
 	}
 	if strings.TrimSpace(workflow.Spec.Description) == "" {
 		t.Error("workflow must carry a description")
@@ -209,9 +209,6 @@ func TestDefaultSecurityWorkflowAsset(t *testing.T) {
 	}
 	if p := workflow.Spec.Parallelism; p != 0 && (p < 1 || p > 16) {
 		t.Errorf("parallelism = %d, want unset or 1-16", p)
-	}
-	if want := triggersv1alpha1.DefaultSecurityWorkflow(); !reflect.DeepEqual(workflow.Spec.Tasks, want) {
-		t.Errorf("asset tasks differ from DefaultSecurityWorkflow():\ngot  %+v\nwant %+v", workflow.Spec.Tasks, want)
 	}
 }
 
