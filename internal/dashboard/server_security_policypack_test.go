@@ -41,7 +41,6 @@ func testSecurityPolicyPackResource(namespace string) *platform.SecurityPolicyPa
 			MaxCostUsd:        "5",
 			MaxTokens:         100000,
 			MaxRuntime:        "1h",
-			MaxFindings:       50,
 			MaxValidationJobs: 8,
 		},
 		Suppressions: []*platform.SecurityPolicySuppressionConfig{{
@@ -90,7 +89,7 @@ func testSecurityPolicyPackCreateAndRead(t *testing.T, srv *Server, c client.Cli
 		t.Fatalf("retention = %+v", cr.Spec.Retention)
 	}
 	if cr.Spec.Budgets == nil || cr.Spec.Budgets.MaxCostUSD != "5" || cr.Spec.Budgets.MaxTokens != 100000 ||
-		cr.Spec.Budgets.MaxRuntime.Duration != time.Hour || cr.Spec.Budgets.MaxFindings != 50 {
+		cr.Spec.Budgets.MaxRuntime.Duration != time.Hour {
 		t.Fatalf("budgets = %+v", cr.Spec.Budgets)
 	}
 

@@ -79,7 +79,6 @@ spec:
       dependsOn: [recon]                # waits until "recon" completes
       role: security-reviewer           # RoleInstruction for this task's sub-agent (default "security-reviewer")
       model: claude-opus-4-6            # optional per-task model override
-      maxFindings: 20                   # cap findings from this task; 0 or omitted = unlimited
     - name: authz-hunt
       objective: "Hunt for missing ownership checks, IDOR, and cross-tenant leakage."
       category: authz
@@ -433,7 +432,6 @@ spec:
     maxCostUSD: "5"        # decimal USD ceiling on LLM spend
     maxTokens: 500000      # total tokens (input + output)
     maxRuntime: 2h         # wall-clock cap on the scan run
-    maxFindings: 200       # persisted findings cap
     maxValidationJobs: 8   # post-script (validation/PoC) sub-agent runs
   enforced: ["budgets"]
 ```
@@ -442,13 +440,13 @@ Enforcement is entirely platform-side and model output can never relax it:
 
 - Every limit is computed from the CRD spec merged with the policy pack **before** the run prompt is built; a scan that raises an enforced limit is rejected with `Ready=False` reason `PolicyViolation` and no run is created.
 - What the run can self-limit is written into the created AgentRun's limits: `maxRuntime` (the smallest of `budgets.maxRuntime`, `spec.maxRuntime`, and `defaults.timeout` wins) and `maxCostUSD`.
-- Everything else is monitored by the controller on each reconcile from platform-observed data: cost and tokens from the run's usage metrics, model/validation jobs from the run's child status, and the finding cap from the **persisted** finding count — never from what the model reports. The cap is stated in the prompt as guidance only.
+- Everything else is monitored by the controller on each reconcile from platform-observed data: cost and tokens from the run's usage metrics and model/validation jobs from the run's child status.
 - When a hard limit is exceeded, the controller cancels the run gracefully (the same cancel-requested mechanism the dashboard stop button uses) and sets `Ready=False` with reason `BudgetExceeded`, a message naming the exceeded limit, and a warning event. **Completed work is preserved**: findings already persisted, reports, and the scan's status survive; nothing is deleted.
-- The effective budgets and any already-exceeded state are published on `status.budget` (and through the dashboard API), so an operator can see — before starting the next run — that, for example, the persisted findings already exceed `maxFindings`.
+- The effective budgets and any already-exceeded state are published on `status.budget` (and through the dashboard API), so an operator can inspect the current budget state before starting the next run.
 
 ## Operational guidance
 
-**Cost and models.** A scan is expensive relative to a normal run: every workflow task is its own sub-agent that reads the repository, so cost scales with the number of tasks, repository size, and model choice. The default workflow launches twelve sub-agents. To control spend: narrow `scope.includePaths` and `scope.languages`, replace the default workflow with fewer targeted tasks, cap noisy tasks with `maxFindings`, use a cheaper `defaults.model` and reserve a stronger per-task `model` override for the triage task, and set `maxRuntime` as a hard stop.
+**Cost and models.** A scan is expensive relative to a normal run: every workflow task is its own sub-agent that reads the repository, so cost scales with the number of tasks, repository size, and model choice. The default workflow launches twelve sub-agents. To control spend: narrow `scope.includePaths` and `scope.languages`, replace the default workflow with fewer targeted tasks, use a cheaper `defaults.model` and reserve a stronger per-task `model` override for the triage task, and set `maxRuntime` as a hard stop.
 
 **Parallelism.** `parallelism` (default 4) trades wall-clock time against concurrent load: each in-flight task is a live sub-agent consuming provider rate limits and sandbox resources. Raise it toward 16 for wide, independent workflows when your provider limits allow; lower it to 1–2 on constrained clusters or strict rate limits.
 

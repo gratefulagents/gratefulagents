@@ -72,7 +72,6 @@ spec:
       dependsOn: [map-protocol-surfaces]
       forEach: map-protocol-surfaces
       targetRuns: 16
-      maxFindings: 4
       outputSchema: |-
         {
           "type": "array",
@@ -115,7 +114,6 @@ spec:
         sequence that honest nodes accept differently, commits invalid state, violates finality, or halts
         network progress, with the attacker's role and decisive code at file:line.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 7
 
     - name: rollup-derivation-da-and-fault-proofs
       role: vulnerability-hunter
@@ -137,7 +135,6 @@ spec:
         valid challenge. If absent, report nothing. Cite the crafted L1 event, batch, output, or dispute move,
         the validation defect at file:line, and its safety, liveness, or fund impact.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 7
 
     - name: transaction-crypto-and-accounting
       role: vulnerability-hunter
@@ -160,7 +157,6 @@ spec:
         token/oracle/contract arithmetic to smart-contract-review. Report the attacker-controlled object,
         broken invariant, and verification or accounting defect at file:line.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 7
 
     - name: p2p-sync-mempool-and-rpc
       role: vulnerability-hunter
@@ -181,7 +177,6 @@ spec:
         exposed admin/debug methods. Distinguish clean rejection from measurable node degradation. Report
         the request/message pattern, cost asymmetry or trust bypass, recovery behavior, and sink at file:line.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 7
 
     - name: cross-chain-bridge-and-custody
       role: vulnerability-hunter
@@ -202,7 +197,6 @@ spec:
         off-chain halves present here, but not generic contract vulnerabilities. If no such boundary exists,
         report nothing. Cite acceptance and execution at file:line and the exact message sequence and impact.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 7
 
     - name: execution-vm-and-host-boundaries
       role: vulnerability-hunter
@@ -225,7 +219,6 @@ spec:
         If no execution boundary exists, report nothing. Cite the crafted program or call sequence and the
         consensus, fund, or node-compromise impact at file:line.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 7
 
     - name: signer-policy-quorum-and-hsm
       role: vulnerability-hunter
@@ -248,7 +241,6 @@ spec:
         concrete request that obtains an unauthorized or conflicting signature or bypasses operator policy.
         Report the request, trust boundary, and decisive authorization or state defect at file:line.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 6
 
     - name: key-material-and-operator-secrets
       role: secrets-auditor
@@ -269,7 +261,6 @@ spec:
         or signing authorization here. Discard fixtures and placeholders; report only a concrete disclosure
         path and what key or privilege it compromises, with redacted file:line evidence.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 5
 
     - name: storage-snapshot-reorg-and-concurrency
       role: vulnerability-hunter
@@ -290,7 +281,6 @@ spec:
         transaction, peer, relayer, or RPC path rather than assumed local corruption. Report the trigger,
         interleaving or recovery sequence, and persistent safety/liveness impact at file:line.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 7
 
     - name: native-memory-and-ffi-safety
       role: vulnerability-hunter
@@ -312,7 +302,6 @@ spec:
         only an attacker-reachable crash, corruption, secret disclosure, or code-execution path with source,
         conversion, and unsafe sink at file:line.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 6
 
     - name: genesis-deployment-and-upgrades
       role: vulnerability-hunter
@@ -335,7 +324,6 @@ spec:
         exposes a privileged service, corrupts state, or loses liveness, with file:line evidence and the
         attacker or operator precondition.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 6
 
     - name: dependencies-build-and-release
       role: dependency-auditor
@@ -357,7 +345,6 @@ spec:
         activation correctness here. Report only a concrete path to compromise a shipped artifact or exploit
         a reachable dependency, with file:line evidence and required privilege.
       dependsOn: [map-protocol-surfaces]
-      maxFindings: 6
 
     - name: validate-high-impact-findings
       role: exploit-validator

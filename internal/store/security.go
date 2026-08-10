@@ -44,15 +44,14 @@ type SecurityFindingRecord struct {
 	RunName   string
 	// ExecutionID groups every run of one deterministic execution (fan-out
 	// instances and retries share it) and TaskName identifies the task
-	// inside that execution, so findings can be aggregated and budgeted per
-	// execution instead of per run. On reobservation of an already stored
+	// inside that execution, so findings can be aggregated per execution
+	// instead of per run. On reobservation of an already stored
 	// fingerprint the two behave differently: ExecutionID is always
 	// re-stamped from the reporting run, because a reobservation is a
 	// finding of the CURRENT execution and must appear in its report,
-	// summaries and budget; TaskName keeps its first non-empty value only
-	// within that same execution, so a re-report from a sibling task cannot
-	// move the row and free the creating task's per-task budget headroom,
-	// and is re-stamped whenever the finding enters a new execution.
+	// summaries; TaskName keeps its first non-empty value only within that
+	// same execution and is re-stamped whenever the finding enters a new
+	// execution.
 	ExecutionID  string
 	TaskName     string
 	SessionID    *uuid.UUID
@@ -404,34 +403,6 @@ type SecurityFindingSummaryScope struct {
 	ExcludedScanNames []string
 }
 
-// SecurityFindingBudget caps how many non-duplicate findings may exist
-// when a new finding row would be created. Zero means unlimited.
-type SecurityFindingBudget struct {
-	// ScanMax caps non-duplicate findings across the whole execution
-	// (namespace + scan_name + execution_id). When ExecutionID on the
-	// record is empty the scope degrades to namespace + scan_name.
-	ScanMax int32
-	// TaskMax caps non-duplicate findings of the record's task
-	// (namespace + scan_name + execution_id + task_name) across all of
-	// that task's fan-out instances and retries.
-	TaskMax int32
-}
-
-// IsZero reports whether no cap is configured.
-func (b SecurityFindingBudget) IsZero() bool { return b == SecurityFindingBudget{} }
-
-// SecurityFindingBudgetError reports which cap blocked the insert.
-type SecurityFindingBudgetError struct {
-	// Scope is "scan" or "task".
-	Scope string
-	Count int32
-	Max   int32
-}
-
-func (e *SecurityFindingBudgetError) Error() string {
-	return fmt.Sprintf("security finding %s budget exhausted: %d of %d findings already recorded", e.Scope, e.Count, e.Max)
-}
-
 // SecurityFindingStore persists security scans, findings, and finding events.
 type SecurityFindingStore interface {
 	// UpsertSecurityScan inserts or updates the scan keyed by
@@ -458,15 +429,6 @@ type SecurityFindingStore interface {
 	// reopened) and one observation row is recorded for the run in the same
 	// transaction. The bool reports whether a new row was created.
 	UpsertSecurityFinding(ctx context.Context, rec *SecurityFindingRecord) (*SecurityFindingRecord, bool, error)
-	// UpsertSecurityFindingWithBudget behaves like UpsertSecurityFinding but
-	// refuses to create a NEW finding row once the record's execution or
-	// task has reached its cap, returning a *SecurityFindingBudgetError and
-	// persisting nothing. Merges into an existing fingerprint are always
-	// allowed because they add no row. The count and the insert happen in
-	// one transaction that first takes an advisory lock on the execution
-	// key, so concurrent sibling runs of the same execution cannot both
-	// observe a count below the cap and overshoot it.
-	UpsertSecurityFindingWithBudget(ctx context.Context, rec *SecurityFindingRecord, budget SecurityFindingBudget) (*SecurityFindingRecord, bool, error)
 	// CorrelateSecurityFindings records that the two findings identified by
 	// fingerprint within (namespace, scanName, repository) describe the
 	// same issue: each side's correlated_fingerprints gains the other's

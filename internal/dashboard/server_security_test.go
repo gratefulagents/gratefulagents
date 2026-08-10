@@ -101,10 +101,6 @@ func (m *mockSecurityStore) UpsertSecurityFinding(_ context.Context, rec *store.
 	return rec, true, nil
 }
 
-func (m *mockSecurityStore) UpsertSecurityFindingWithBudget(_ context.Context, rec *store.SecurityFindingRecord, _ store.SecurityFindingBudget) (*store.SecurityFindingRecord, bool, error) {
-	return rec, true, nil
-}
-
 func (m *mockSecurityStore) CorrelateSecurityFindings(context.Context, string, string, string, string, string, string, string) (bool, error) {
 	return false, nil
 }

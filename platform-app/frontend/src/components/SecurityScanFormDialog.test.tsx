@@ -48,7 +48,7 @@ vi.mock("@/lib/client", () => ({
           defaultPostScriptRefs: [],
           enforced: ["minSeverity", "budgets"],
           suppressions: [{ name: "vendored", reason: "r", owner: "o", matcher: { pathGlob: "vendor/**" } }],
-          budgets: { maxCostUsd: "5", maxFindings: 100 },
+          budgets: { maxCostUsd: "5" },
           usageCount: 0,
           referencingScans: [],
         },
@@ -442,8 +442,6 @@ describe("SecurityScanFormDialog policy pack & budgets", () => {
     });
     fireEvent.change(select, { target: { value: "prod-policy" } });
     fireEvent.change(screen.getByLabelText("Max cost (USD)"), { target: { value: "2.50" } });
-    fireEvent.change(screen.getByLabelText("Max findings"), { target: { value: "50" } });
-
     fireEvent.submit(document.querySelector("form") as HTMLFormElement);
 
     await waitFor(() => {
@@ -452,7 +450,6 @@ describe("SecurityScanFormDialog policy pack & budgets", () => {
     const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
     expect(request.spec?.policyPackRef).toBe("prod-policy");
     expect(request.spec?.budgets?.maxCostUsd).toBe("2.50");
-    expect(request.spec?.budgets?.maxFindings).toBe(50);
   });
 
   it("rejects an invalid budget cost client-side", async () => {

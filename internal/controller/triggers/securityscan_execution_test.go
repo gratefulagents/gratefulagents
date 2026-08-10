@@ -109,7 +109,6 @@ func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) 
 		Timeout:      metav1.Duration{Duration: 15 * time.Minute},
 		MaxTurns:     7,
 		MaxCostUSD:   "1.25",
-		MaxFindings:  3,
 		OutputSchema: `{"type":"object"}`,
 		Tools:        &triggersv1alpha1.SecurityScanTaskTools{Allowed: []string{"read_file"}, Denied: []string{"Bash"}},
 	}}, 1)
@@ -142,14 +141,6 @@ func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) 
 	wantDenied := append([]string{"Bash"}, securityScanRoleWriteTools...)
 	if run.Spec.ToolPolicy == nil || strings.Join(run.Spec.ToolPolicy.AllowedTools, ",") != wantAllowed || strings.Join(run.Spec.ToolPolicy.DeniedTools, ",") != strings.Join(wantDenied, ",") {
 		t.Fatalf("ToolPolicy = %#v, want allowed %q and denied %q", run.Spec.ToolPolicy, wantAllowed, strings.Join(wantDenied, ","))
-	}
-	// The scan declares no budgets, so only the task's own cap is stamped —
-	// it must never masquerade as the scan-wide budget.
-	if got, ok := run.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; ok {
-		t.Fatalf("scan max-findings annotation = %q, want unset without scan budgets", got)
-	}
-	if run.Annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation] != "3" {
-		t.Fatalf("task max-findings annotation = %q, want 3", run.Annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation])
 	}
 	if run.Annotations[securityScanTaskOutputSchemaAnnotation] != `{"type":"object"}` {
 		t.Fatalf("output-schema annotation = %q, want task schema", run.Annotations[securityScanTaskOutputSchemaAnnotation])
@@ -1514,13 +1505,13 @@ func TestTruncateSecurityScanErrorCapsAt160Characters(t *testing.T) {
 	}
 }
 
-func TestSecurityScanDeterministicTaskCostCapsNeverLoosenScanBudgetsAndFindingCapsStaySeparate(t *testing.T) {
+func TestSecurityScanDeterministicTaskCostCapsNeverLoosenScanBudgets(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
-		{Name: "looser", Objective: "inspect widely", MaxCostUSD: "5.00", MaxFindings: 40},
-		{Name: "tighter", Objective: "inspect narrowly", MaxCostUSD: "0.50", MaxFindings: 5},
+		{Name: "looser", Objective: "inspect widely", MaxCostUSD: "5.00"},
+		{Name: "tighter", Objective: "inspect narrowly", MaxCostUSD: "0.50"},
 	}, 2)
-	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxCostUSD: "2.00", MaxFindings: 10}
+	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxCostUSD: "2.00"}
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
@@ -1529,23 +1520,9 @@ func TestSecurityScanDeterministicTaskCostCapsNeverLoosenScanBudgetsAndFindingCa
 	if looser.Spec.Limits == nil || looser.Spec.Limits.MaxCostUsd != "2.00" {
 		t.Fatalf("looser task limits = %#v, want scan-wide maxCostUSD 2.00 (task cap must not loosen it)", looser.Spec.Limits)
 	}
-	// The two finding budgets are separate ceilings: the per-task cap lands on
-	// its own annotation unmodified and never rewrites the scan-wide one every
-	// task of the execution shares.
-	for _, run := range []platformv1alpha1.AgentRun{looser, taskRunByTask(t, runs, "tighter")} {
-		if got := run.Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "10" {
-			t.Fatalf("%s scan max-findings annotation = %q, want scan-wide 10", run.Labels[securityScanTaskLabel], got)
-		}
-	}
-	if got := looser.Annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation]; got != "40" {
-		t.Fatalf("looser task max-findings annotation = %q, want unmodified 40", got)
-	}
 	tighter := taskRunByTask(t, runs, "tighter")
 	if tighter.Spec.Limits == nil || tighter.Spec.Limits.MaxCostUsd != "0.50" {
 		t.Fatalf("tighter task limits = %#v, want narrowed maxCostUSD 0.50", tighter.Spec.Limits)
-	}
-	if got := tighter.Annotations[triggersv1alpha1.SecurityScanTaskMaxFindingsAnnotation]; got != "5" {
-		t.Fatalf("tighter task max-findings annotation = %q, want 5", got)
 	}
 }
 

@@ -43,9 +43,6 @@ func ValidateSecurityScanBudgets(prefix string, b *SecurityScanBudgets) []Securi
 	if b.MaxRuntime.Duration < 0 {
 		add("maxRuntime", "must not be negative (0 = unlimited)")
 	}
-	if b.MaxFindings < 0 {
-		add("maxFindings", "must not be negative (0 = unlimited)")
-	}
 	if b.MaxValidationJobs < 0 {
 		add("maxValidationJobs", "must not be negative (0 = unlimited)")
 	}

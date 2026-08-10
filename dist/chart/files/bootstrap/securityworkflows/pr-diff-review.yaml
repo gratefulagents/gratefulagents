@@ -87,7 +87,6 @@ spec:
         - map-changed-risk
       forEach: map-changed-risk
       maxInstances: 10
-      maxFindings: 3
       timeout: 15m
       maxTurns: 40
     - name: triage-and-report

@@ -30,12 +30,6 @@ const (
 	// in permille (DedupeSimilarityThresholdPermille), or "0" when dedupe is
 	// disabled.
 	SecurityScanDedupePermilleAnnotation = "security.gratefulagents.dev/dedupe-permille"
-	// SecurityScanMaxFindingsAnnotation is the scan's effective
-	// budgets.maxFindings (spec merged with the policy pack). Absent or "0"
-	// means unlimited. The agent-side finding tools refuse to persist
-	// findings once this cap is reached, so the platform-authored value is
-	// the hard cap regardless of model output.
-	SecurityScanMaxFindingsAnnotation = "security.gratefulagents.dev/max-findings"
 	// SecurityScanExecutionIDAnnotation is the immutable identifier of the
 	// execution (campaign) the run belongs to. Every task run of one
 	// deterministic execution — and the single coordinator run of a
@@ -53,14 +47,8 @@ const (
 	// the record, preserving the previous behavior.
 	SecurityScanRecordNameAnnotation = "security.gratefulagents.dev/scan-record-name"
 	// SecurityScanTaskNameAnnotation is the workflow task name a
-	// deterministic task run executes. It scopes the per-task findings
-	// budget across all fan-out instances and retries of that task.
+	// deterministic task run executes.
 	SecurityScanTaskNameAnnotation = "security.gratefulagents.dev/task-name"
-	// SecurityScanTaskMaxFindingsAnnotation is the task's own
-	// SecurityScanTask.maxFindings. Unlike the scan-wide cap it is counted
-	// per task (across that task's fan-out instances and retries within the
-	// execution), so parallel tasks never race for one cumulative budget.
-	SecurityScanTaskMaxFindingsAnnotation = "security.gratefulagents.dev/task-max-findings"
 	// SecurityScanTaskRoleAnnotation is the effective RoleInstruction name
 	// resolved for a deterministic task run (SecurityScanTask.EffectiveRole).
 	SecurityScanTaskRoleAnnotation = "security.gratefulagents.dev/task-role"
@@ -506,15 +494,6 @@ type SecurityScanTask struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 
-	// maxFindings caps how many findings this task may report, counted
-	// across every fan-out instance and retry of the task within one
-	// execution. Zero means unlimited. It is a separate scope from
-	// budgets.maxFindings, which every task of the execution shares, so
-	// parallel tasks never race for one cumulative allowance.
-	// +kubebuilder:validation:Minimum=0
-	// +optional
-	MaxFindings int32 `json:"maxFindings,omitempty"`
-
 	// maxRetries is this task's retry budget in deterministic execution:
 	// how many times a failed attempt is rescheduled before the task is
 	// marked Failed. Nil inherits spec.execution.taskMaxRetries (default 1).
@@ -727,18 +706,6 @@ type SecurityScanBudgets struct {
 	// spec.maxRuntime, and defaults.timeout wins.
 	// +optional
 	MaxRuntime metav1.Duration `json:"maxRuntime,omitempty"`
-
-	// maxFindings caps how many findings ONE execution of the scan may
-	// persist: every task run of a deterministic execution (and the single
-	// run of a coordinator-mode execution) shares this budget, and a later
-	// execution of the same scan starts from a fresh allowance rather than
-	// inheriting the scan's whole history. Enforced transactionally at the
-	// persistence boundary, so no model output can raise it (the cap is
-	// also stated in the run prompt, purely as guidance). A per-task cap is
-	// configured separately with SecurityScanTask.maxFindings.
-	// +kubebuilder:validation:Minimum=0
-	// +optional
-	MaxFindings int32 `json:"maxFindings,omitempty"`
 
 	// maxValidationJobs caps how many post-script (validation /
 	// proof-of-concept) sub-agent runs the scan run may spawn. Monitored

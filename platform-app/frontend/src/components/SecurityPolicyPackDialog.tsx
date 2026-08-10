@@ -54,7 +54,6 @@ export type BudgetDraft = {
   maxCostUsd: string;
   maxTokens: string;
   maxRuntime: string;
-  maxFindings: string;
   maxValidationJobs: string;
 };
 
@@ -105,7 +104,7 @@ function splitList(value: string): string[] {
 }
 
 function emptyBudgets(): BudgetDraft {
-  return { maxModelJobs: "", maxCostUsd: "", maxTokens: "", maxRuntime: "", maxFindings: "", maxValidationJobs: "" };
+  return { maxModelJobs: "", maxCostUsd: "", maxTokens: "", maxRuntime: "", maxValidationJobs: "" };
 }
 
 export function budgetDraftIsZero(budgets: BudgetDraft): boolean {
@@ -120,7 +119,6 @@ export function budgetsFromDraft(budgets: BudgetDraft): SecurityScanBudgetsConfi
     maxCostUsd: budgets.maxCostUsd.trim(),
     maxTokens: budgets.maxTokens.trim() ? BigInt(budgets.maxTokens.trim()) : 0n,
     maxRuntime: budgets.maxRuntime.trim(),
-    maxFindings: budgets.maxFindings.trim() ? Number(budgets.maxFindings) : 0,
     maxValidationJobs: budgets.maxValidationJobs.trim() ? Number(budgets.maxValidationJobs) : 0,
   });
 }
@@ -155,7 +153,6 @@ export function budgetsToDraft(budgets?: SecurityScanBudgetsConfig): BudgetDraft
     maxCostUsd: budgets.maxCostUsd,
     maxTokens: budgets.maxTokens ? String(budgets.maxTokens) : "",
     maxRuntime: budgets.maxRuntime,
-    maxFindings: budgets.maxFindings ? String(budgets.maxFindings) : "",
     maxValidationJobs: budgets.maxValidationJobs ? String(budgets.maxValidationJobs) : "",
   };
 }
@@ -225,9 +222,6 @@ export function validateBudgetDraft(prefix: string, budgets: BudgetDraft): PackF
   }
   if (budgets.maxRuntime.trim() && !DURATION_PATTERN.test(budgets.maxRuntime.trim())) {
     errs.push({ field: `${prefix}.maxRuntime`, message: 'must be a duration like "2h" or "90m"' });
-  }
-  if (!nonNegativeInt(budgets.maxFindings)) {
-    errs.push({ field: `${prefix}.maxFindings`, message: "must be a non-negative whole number (0 = unlimited)" });
   }
   if (!nonNegativeInt(budgets.maxValidationJobs)) {
     errs.push({ field: `${prefix}.maxValidationJobs`, message: "must be a non-negative whole number (0 = unlimited)" });
@@ -375,7 +369,6 @@ export function packBudgetSummary(budgets?: SecurityScanBudgetsConfig): string {
   if (budgets.maxModelJobs) parts.push(`${budgets.maxModelJobs} jobs`);
   if (budgets.maxValidationJobs) parts.push(`${budgets.maxValidationJobs} validation jobs`);
   if (budgets.maxRuntime) parts.push(budgets.maxRuntime);
-  if (budgets.maxFindings) parts.push(`${budgets.maxFindings} findings`);
   return parts.join(" · ");
 }
 
@@ -905,9 +898,6 @@ export function BudgetFields({
       </FlowField>
       <FlowField id={`${idPrefix}-validation-jobs`} label="Max validation jobs" hint="Post-script (validation/PoC) runs.">
         <Input id={`${idPrefix}-validation-jobs`} type="number" min={0} value={value.maxValidationJobs} onChange={patch("maxValidationJobs")} disabled={disabled} />
-      </FlowField>
-      <FlowField id={`${idPrefix}-findings`} label="Max findings" hint="Persisted findings cap.">
-        <Input id={`${idPrefix}-findings`} type="number" min={0} value={value.maxFindings} onChange={patch("maxFindings")} disabled={disabled} />
       </FlowField>
     </div>
   );

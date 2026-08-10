@@ -314,13 +314,12 @@ func securityDraftName(name string) string {
 }
 
 type securityWorkflowDraftTask struct {
-	Name        string   `json:"name"`
-	Objective   string   `json:"objective"`
-	Category    string   `json:"category"`
-	DependsOn   []string `json:"dependsOn"`
-	Role        string   `json:"role"`
-	Model       string   `json:"model"`
-	MaxFindings int32    `json:"maxFindings"`
+	Name      string   `json:"name"`
+	Objective string   `json:"objective"`
+	Category  string   `json:"category"`
+	DependsOn []string `json:"dependsOn"`
+	Role      string   `json:"role"`
+	Model     string   `json:"model"`
 }
 
 type securityWorkflowDraft struct {
@@ -341,22 +340,20 @@ func parseSecurityWorkflowDraft(raw string) (*platform.SecurityWorkflowResource,
 	pbTasks := make([]*platform.SecurityScanTaskConfig, 0, len(draft.Tasks))
 	for _, t := range draft.Tasks {
 		tasks = append(tasks, triggersv1alpha1.SecurityScanTask{
-			Name:        strings.TrimSpace(t.Name),
-			Objective:   t.Objective,
-			Category:    strings.TrimSpace(t.Category),
-			DependsOn:   trimmedNonEmpty(t.DependsOn),
-			Role:        strings.TrimSpace(t.Role),
-			Model:       strings.TrimSpace(t.Model),
-			MaxFindings: t.MaxFindings,
+			Name:      strings.TrimSpace(t.Name),
+			Objective: t.Objective,
+			Category:  strings.TrimSpace(t.Category),
+			DependsOn: trimmedNonEmpty(t.DependsOn),
+			Role:      strings.TrimSpace(t.Role),
+			Model:     strings.TrimSpace(t.Model),
 		})
 		pbTasks = append(pbTasks, &platform.SecurityScanTaskConfig{
-			Name:        strings.TrimSpace(t.Name),
-			Objective:   t.Objective,
-			Category:    strings.TrimSpace(t.Category),
-			DependsOn:   trimmedNonEmpty(t.DependsOn),
-			Role:        strings.TrimSpace(t.Role),
-			Model:       strings.TrimSpace(t.Model),
-			MaxFindings: t.MaxFindings,
+			Name:      strings.TrimSpace(t.Name),
+			Objective: t.Objective,
+			Category:  strings.TrimSpace(t.Category),
+			DependsOn: trimmedNonEmpty(t.DependsOn),
+			Role:      strings.TrimSpace(t.Role),
+			Model:     strings.TrimSpace(t.Model),
 		})
 	}
 	errs := triggersv1alpha1.ValidateSecurityWorkflowTasks(tasks)

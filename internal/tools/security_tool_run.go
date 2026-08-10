@@ -1006,18 +1006,12 @@ func (t *runSecurityToolTool) ingest(ctx context.Context, records []security.Sca
 		outcome.notes = append(outcome.notes, fmt.Sprintf("failed to open the scan record: %v", err))
 		return outcome
 	}
-	created, merged, stoppedAt, err := ingestNormalizedScannerFindings(ctx, t.state, scanID, findings, accepted, t.state.findingBudget())
+	created, merged, stoppedAt, err := ingestNormalizedScannerFindings(ctx, t.state, scanID, findings, accepted)
 	outcome.created, outcome.merged = created, merged
 	if err != nil {
 		outcome.failed = true
 		outcome.notIngested += len(findings) - stoppedAt
-		var budgetErr *store.SecurityFindingBudgetError
-		if errors.As(err, &budgetErr) {
-			outcome.notes = append(outcome.notes, fmt.Sprintf("ingestion stopped at record %d: %s %d record(s) were refused",
-				stoppedAt, securityFindingsBudgetMessage(scanCtx, budgetErr), len(findings)-stoppedAt))
-		} else {
-			outcome.notes = append(outcome.notes, fmt.Sprintf("failed to persist finding %d: %v", stoppedAt, err))
-		}
+		outcome.notes = append(outcome.notes, fmt.Sprintf("failed to persist finding %d: %v", stoppedAt, err))
 		return outcome
 	}
 	correlated, err := t.state.correlateScanFindings(ctx)

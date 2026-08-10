@@ -70,42 +70,6 @@ func (s *fakeSecurityFindingStore) UpsertSecurityFinding(_ context.Context, rec 
 	return &copied, true, nil
 }
 
-// UpsertSecurityFindingWithBudget mirrors the store contract closely enough
-// to test budget scoping: merges never consume budget, and the two caps are
-// counted over the record's execution and over its task within it.
-func (s *fakeSecurityFindingStore) UpsertSecurityFindingWithBudget(ctx context.Context, rec *store.SecurityFindingRecord, budget store.SecurityFindingBudget) (*store.SecurityFindingRecord, bool, error) {
-	if !budget.IsZero() && !s.hasFingerprint(rec) {
-		var scanCount, taskCount int32
-		for _, existing := range s.findings {
-			if existing.DuplicateOf != nil || existing.Namespace != rec.Namespace ||
-				existing.ScanName != rec.ScanName || existing.ExecutionID != rec.ExecutionID {
-				continue
-			}
-			scanCount++
-			if existing.TaskName == rec.TaskName {
-				taskCount++
-			}
-		}
-		if budget.ScanMax > 0 && scanCount >= budget.ScanMax {
-			return nil, false, &store.SecurityFindingBudgetError{Scope: "scan", Count: scanCount, Max: budget.ScanMax}
-		}
-		if budget.TaskMax > 0 && taskCount >= budget.TaskMax {
-			return nil, false, &store.SecurityFindingBudgetError{Scope: "task", Count: taskCount, Max: budget.TaskMax}
-		}
-	}
-	return s.UpsertSecurityFinding(ctx, rec)
-}
-
-func (s *fakeSecurityFindingStore) hasFingerprint(rec *store.SecurityFindingRecord) bool {
-	for _, existing := range s.findings {
-		if existing.Namespace == rec.Namespace && existing.ScanName == rec.ScanName &&
-			existing.Repository == rec.Repository && existing.Fingerprint == rec.Fingerprint {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *fakeSecurityFindingStore) CorrelateSecurityFindings(_ context.Context, namespace, scanName, repository, fpA, fpB, reason, actor string) (bool, error) {
 	if namespace == "" {
 		return false, fmt.Errorf("namespace is required")
@@ -476,14 +440,12 @@ func TestSecurityScanContextPolicyAnnotations(t *testing.T) {
 		annotations  map[string]string
 		wantMinSev   string
 		wantPermille int32
-		wantMax      int32
 	}{
 		{
 			name:         "absent means unset",
 			annotations:  map[string]string{SecurityScanNameAnnotation: "scan-a"},
 			wantMinSev:   "",
 			wantPermille: -1,
-			wantMax:      0,
 		},
 		{
 			name: "policy annotations parsed",
@@ -491,11 +453,9 @@ func TestSecurityScanContextPolicyAnnotations(t *testing.T) {
 				SecurityScanNameAnnotation:           "scan-a",
 				SecurityScanMinSeverityAnnotation:    "High",
 				SecurityScanDedupePermilleAnnotation: "820",
-				SecurityScanMaxFindingsAnnotation:    "25",
 			},
 			wantMinSev:   "high",
 			wantPermille: 820,
-			wantMax:      25,
 		},
 		{
 			name: "zero permille means dedupe disabled",
@@ -512,22 +472,18 @@ func TestSecurityScanContextPolicyAnnotations(t *testing.T) {
 				SecurityScanNameAnnotation:           "scan-a",
 				SecurityScanMinSeverityAnnotation:    "apocalyptic",
 				SecurityScanDedupePermilleAnnotation: "not-a-number",
-				SecurityScanMaxFindingsAnnotation:    "not-a-number",
 			},
 			wantMinSev:   "",
 			wantPermille: -1,
-			wantMax:      0,
 		},
 		{
-			name: "negative permille and max-findings treated as unset",
+			name: "negative permille treated as unset",
 			annotations: map[string]string{
 				SecurityScanNameAnnotation:           "scan-a",
 				SecurityScanDedupePermilleAnnotation: "-5",
-				SecurityScanMaxFindingsAnnotation:    "-5",
 			},
 			wantMinSev:   "",
 			wantPermille: -1,
-			wantMax:      0,
 		},
 	}
 	for _, tt := range tests {
@@ -542,9 +498,6 @@ func TestSecurityScanContextPolicyAnnotations(t *testing.T) {
 			}
 			if scanCtx.DedupePermille != tt.wantPermille {
 				t.Errorf("DedupePermille = %d, want %d", scanCtx.DedupePermille, tt.wantPermille)
-			}
-			if scanCtx.MaxFindings != tt.wantMax {
-				t.Errorf("MaxFindings = %d, want %d", scanCtx.MaxFindings, tt.wantMax)
 			}
 		})
 	}
@@ -1698,124 +1651,51 @@ func TestReportSecurityFindingCannotForgeScannerProvenance(t *testing.T) {
 	}
 }
 
-// maxFindingsScanContext is testScanContext with a platform-stamped findings
-// budget.
-func maxFindingsScanContext(maxFindings int32) SecurityScanContext {
-	scanCtx := testScanContext()
-	scanCtx.MaxFindings = maxFindings
-	return scanCtx
-}
-
-func securityBudgetTestFinding(n int) string {
+func securityTestFinding(n int) string {
 	return fmt.Sprintf(`{"title":"Issue %d","category":"injection","severity":"high","description":"finding %d","file_path":"a/b%d.go","start_line":%d}`, n, n, n, n+1)
 }
 
-func TestReportSecurityFindingEnforcesFindingsBudget(t *testing.T) {
-	findingStore := newFakeSecurityFindingStore()
-	registry := newSecurityTestRegistryWithCtx(t, findingStore, nil, maxFindingsScanContext(2))
-
-	for n := 1; n <= 2; n++ {
-		if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(n)); result.IsError {
-			t.Fatalf("finding %d under the cap must persist: %s", n, result.Content)
-		}
-	}
-	result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(3))
-	if !result.IsError {
-		t.Fatalf("reporting past the cap must be refused, got: %s", result.Content)
-	}
-	for _, want := range []string{"findings budget", "budgets.maxFindings = 2", "preserved"} {
-		if !strings.Contains(result.Content, want) {
-			t.Errorf("refusal %q missing %q", result.Content, want)
-		}
-	}
-	if len(findingStore.findings) != 2 {
-		t.Fatalf("stored findings = %d, want exactly the 2 under the cap (never more, never deleted)", len(findingStore.findings))
-	}
-}
-
-func TestReportSecurityFindingBudgetCannotBeRaisedByToolInput(t *testing.T) {
-	findingStore := newFakeSecurityFindingStore()
-	registry := newSecurityTestRegistryWithCtx(t, findingStore, nil, maxFindingsScanContext(1))
-
-	if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
-		t.Fatalf("finding under the cap must persist: %s", result.Content)
-	}
-	// The finding schema has no budget field: any attempt to smuggle one in
-	// is rejected as unknown input, and the cap still holds afterwards.
-	result := execTool(t, registry, "report_security_finding",
-		`{"title":"x","category":"injection","severity":"high","description":"d","max_findings":100}`)
-	if !result.IsError || !strings.Contains(result.Content, "max_findings") {
-		t.Fatalf("unknown budget field must be rejected, got: %s", result.Content)
-	}
-	result = execTool(t, registry, "report_security_finding", securityBudgetTestFinding(2))
-	if !result.IsError || !strings.Contains(result.Content, "budgets.maxFindings = 1") {
-		t.Fatalf("cap must still be the platform-stamped 1, got: %s", result.Content)
-	}
-	if len(findingStore.findings) != 1 {
-		t.Fatalf("stored findings = %d, want 1", len(findingStore.findings))
-	}
-}
-
-func TestReportSecurityFindingEnforcesFindingsBudgetInMemory(t *testing.T) {
-	registry := newSecurityTestRegistryWithCtx(t, nil, nil, maxFindingsScanContext(1))
-
-	if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
-		t.Fatalf("finding under the cap must persist: %s", result.Content)
-	}
-	result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(2))
-	if !result.IsError || !strings.Contains(result.Content, "budgets.maxFindings = 1") {
-		t.Fatalf("in-memory mode must enforce the cap too, got: %s", result.Content)
-	}
-	state := securityTestState(t, registry)
-	if len(state.mem) != 1 {
-		t.Fatalf("in-memory findings = %d, want 1", len(state.mem))
-	}
-}
-
-func TestIngestScannerResultsEnforcesFindingsBudget(t *testing.T) {
-	findingStore := newFakeSecurityFindingStore()
-	registry := newSecurityTestRegistryWithCtx(t, findingStore, nil, maxFindingsScanContext(2))
-
-	record := func(n int) string {
-		return fmt.Sprintf(`{"tool":"gosec","rule_id":"G%d","message":"issue %d","severity":"HIGH","file_path":"a/b%d.go","start_line":%d}`, n, n, n, n+1)
-	}
-	// One batch of 3 against a cap of 2: the batch must stop at the cap.
-	result := execTool(t, registry, "ingest_scanner_results",
-		fmt.Sprintf(`{"records":[%s,%s,%s]}`, record(1), record(2), record(3)))
-	if !result.IsError {
-		t.Fatalf("a batch crossing the cap must return a tool error, got: %s", result.Content)
-	}
-	for _, want := range []string{"findings budget", "budgets.maxFindings = 2", "refused"} {
-		if !strings.Contains(result.Content, want) {
-			t.Errorf("refusal %q missing %q", result.Content, want)
-		}
-	}
-	if len(findingStore.findings) != 2 {
-		t.Fatalf("stored findings = %d, want exactly the 2 under the cap", len(findingStore.findings))
-	}
-
-	// A follow-up batch at the cap is refused outright and persists nothing.
-	result = execTool(t, registry, "ingest_scanner_results",
-		fmt.Sprintf(`{"records":[%s]}`, record(4)))
-	if !result.IsError || !strings.Contains(result.Content, "budgets.maxFindings = 2") {
-		t.Fatalf("ingesting at the cap must be refused, got: %s", result.Content)
-	}
-	if len(findingStore.findings) != 2 {
-		t.Fatalf("stored findings = %d, want still 2 (already-persisted findings are never deleted)", len(findingStore.findings))
-	}
-}
-
-func TestSecurityFindingsBudgetUnsetMeansUnlimited(t *testing.T) {
+func TestReportSecurityFindingRecordsWithoutLimit(t *testing.T) {
 	findingStore := newFakeSecurityFindingStore()
 	registry := newSecurityTestRegistry(t, findingStore, nil)
 
-	for n := 1; n <= 5; n++ {
-		if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(n)); result.IsError {
-			t.Fatalf("without a stamped budget nothing is capped: %s", result.Content)
+	for n := 1; n <= 20; n++ {
+		if result := execTool(t, registry, "report_security_finding", securityTestFinding(n)); result.IsError {
+			t.Fatalf("finding %d must persist: %s", n, result.Content)
 		}
 	}
-	if len(findingStore.findings) != 5 {
-		t.Fatalf("stored findings = %d, want 5", len(findingStore.findings))
+	if len(findingStore.findings) != 20 {
+		t.Fatalf("stored findings = %d, want 20", len(findingStore.findings))
+	}
+}
+
+func TestReportSecurityFindingRecordsWithoutLimitInMemory(t *testing.T) {
+	registry := newSecurityTestRegistry(t, nil, nil)
+
+	for n := 1; n <= 20; n++ {
+		if result := execTool(t, registry, "report_security_finding", securityTestFinding(n)); result.IsError {
+			t.Fatalf("finding %d must persist: %s", n, result.Content)
+		}
+	}
+	if state := securityTestState(t, registry); len(state.mem) != 20 {
+		t.Fatalf("in-memory findings = %d, want 20", len(state.mem))
+	}
+}
+
+func TestIngestScannerResultsRecordsEntireBatch(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	registry := newSecurityTestRegistry(t, findingStore, nil)
+	record := func(n int) string {
+		return fmt.Sprintf(`{"tool":"gosec","rule_id":"G%d","message":"issue %d","severity":"HIGH","file_path":"a/b%d.go","start_line":%d}`, n, n, n, n+1)
+	}
+
+	result := execTool(t, registry, "ingest_scanner_results",
+		fmt.Sprintf(`{"records":[%s,%s,%s]}`, record(1), record(2), record(3)))
+	if result.IsError {
+		t.Fatalf("scanner batch must persist: %s", result.Content)
+	}
+	if len(findingStore.findings) != 3 {
+		t.Fatalf("stored findings = %d, want 3", len(findingStore.findings))
 	}
 }
 
@@ -1887,14 +1767,13 @@ func TestSecurityScanContextFromRunParsesExecutionAnnotations(t *testing.T) {
 		SecurityScanNameAnnotation:            "nightly-scan",
 		SecurityScanExecutionIDAnnotation:     "  exec-1  ",
 		SecurityScanRecordNameAnnotation:      " secscan-nightly-scan-exec-1 ",
-		SecurityScanTaskNameAnnotation:        " recon ",
-		SecurityScanTaskMaxFindingsAnnotation: "7",
+		SecurityScanTaskNameAnnotation:    " recon ",
 	}}}
 	scanCtx, ok := SecurityScanContextFromRun(run, "default", "nightly-scan-recon-0", uuid.New())
 	if !ok {
 		t.Fatalf("scan context not recognized")
 	}
-	if scanCtx.ExecutionID != "exec-1" || scanCtx.TaskName != "recon" || scanCtx.TaskMaxFindings != 7 {
+	if scanCtx.ExecutionID != "exec-1" || scanCtx.TaskName != "recon" {
 		t.Fatalf("parsed context = %+v", scanCtx)
 	}
 	// The shared record key aims every task run's record writes at ONE row.
@@ -1906,14 +1785,6 @@ func TestSecurityScanContextFromRunParsesExecutionAnnotations(t *testing.T) {
 		t.Errorf("record key without annotation = %q, want the run's own name", scanCtx.RecordKey())
 	}
 
-	run.Annotations[SecurityScanTaskMaxFindingsAnnotation] = "not-a-number"
-	if scanCtx, _ := SecurityScanContextFromRun(run, "default", "r", uuid.Nil); scanCtx.TaskMaxFindings != 0 {
-		t.Errorf("garbage per-task budget must fall back to unlimited, got %d", scanCtx.TaskMaxFindings)
-	}
-	run.Annotations[SecurityScanTaskMaxFindingsAnnotation] = "-3"
-	if scanCtx, _ := SecurityScanContextFromRun(run, "default", "r", uuid.Nil); scanCtx.TaskMaxFindings != 0 {
-		t.Errorf("negative per-task budget must fall back to unlimited, got %d", scanCtx.TaskMaxFindings)
-	}
 }
 
 // The deterministic engine runs each task in its own AgentRun, so a sibling
@@ -1954,87 +1825,6 @@ func TestSecurityFindingsAggregatePerExecution(t *testing.T) {
 	}
 	if strings.Contains(report, "Stale execution finding") {
 		t.Errorf("report must not contain another execution's finding:\n%s", report)
-	}
-}
-
-// The scan-wide budget is one cumulative cap for the whole execution: a
-// sibling run cannot spend past what other tasks already recorded.
-func TestSecurityFindingsScanBudgetSpansSiblingRuns(t *testing.T) {
-	findingStore := newFakeSecurityFindingStore()
-	ctxA := executionScanContext("run-a", "exec-1", "recon")
-	ctxA.MaxFindings = 2
-	ctxB := executionScanContext("run-b", "exec-1", "exploit")
-	ctxB.MaxFindings = 2
-	runA := newSecurityTestRegistryWithCtx(t, findingStore, nil, ctxA)
-	runB := newSecurityTestRegistryWithCtx(t, findingStore, nil, ctxB)
-
-	if result := execTool(t, runA, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
-		t.Fatalf("first finding must persist: %s", result.Content)
-	}
-	if result := execTool(t, runB, "report_security_finding", securityBudgetTestFinding(2)); result.IsError {
-		t.Fatalf("second finding must persist: %s", result.Content)
-	}
-	result := execTool(t, runA, "report_security_finding", securityBudgetTestFinding(3))
-	if !result.IsError {
-		t.Fatalf("the execution-wide cap must bind sibling runs, got: %s", result.Content)
-	}
-	for _, want := range []string{"across this execution", "budgets.maxFindings = 2"} {
-		if !strings.Contains(result.Content, want) {
-			t.Errorf("refusal %q missing %q", result.Content, want)
-		}
-	}
-	if len(findingStore.findings) != 2 {
-		t.Fatalf("stored findings = %d, want 2", len(findingStore.findings))
-	}
-}
-
-// The per-task budget is counted per task across that task's fan-out
-// instances, so one exhausted task never starves a parallel one.
-func TestSecurityFindingsTaskBudgetIsPerTask(t *testing.T) {
-	findingStore := newFakeSecurityFindingStore()
-	taskCtx := func(runName, taskName string) SecurityScanContext {
-		scanCtx := executionScanContext(runName, "exec-1", taskName)
-		scanCtx.TaskMaxFindings = 1
-		return scanCtx
-	}
-	reconInstance0 := newSecurityTestRegistryWithCtx(t, findingStore, nil, taskCtx("run-recon-0", "recon"))
-	reconInstance1 := newSecurityTestRegistryWithCtx(t, findingStore, nil, taskCtx("run-recon-1", "recon"))
-	exploit := newSecurityTestRegistryWithCtx(t, findingStore, nil, taskCtx("run-exploit-0", "exploit"))
-
-	if result := execTool(t, reconInstance0, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
-		t.Fatalf("first recon finding must persist: %s", result.Content)
-	}
-	result := execTool(t, reconInstance1, "report_security_finding", securityBudgetTestFinding(2))
-	if !result.IsError {
-		t.Fatalf("a task's budget must span its fan-out instances, got: %s", result.Content)
-	}
-	for _, want := range []string{"across its fan-out instances", `task "recon"`, "maxFindings = 1"} {
-		if !strings.Contains(result.Content, want) {
-			t.Errorf("refusal %q missing %q", result.Content, want)
-		}
-	}
-	if result := execTool(t, exploit, "report_security_finding", securityBudgetTestFinding(3)); result.IsError {
-		t.Fatalf("a parallel task must keep its own budget: %s", result.Content)
-	}
-	if len(findingStore.findings) != 2 {
-		t.Fatalf("stored findings = %d, want 2 (one per task)", len(findingStore.findings))
-	}
-}
-
-func TestSecurityFindingsTaskBudgetInMemory(t *testing.T) {
-	scanCtx := executionScanContext("run-recon-0", "exec-1", "recon")
-	scanCtx.TaskMaxFindings = 1
-	registry := newSecurityTestRegistryWithCtx(t, nil, nil, scanCtx)
-
-	if result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(1)); result.IsError {
-		t.Fatalf("first finding must persist: %s", result.Content)
-	}
-	result := execTool(t, registry, "report_security_finding", securityBudgetTestFinding(2))
-	if !result.IsError || !strings.Contains(result.Content, "across its fan-out instances") {
-		t.Fatalf("in-memory mode must enforce the per-task cap, got: %s", result.Content)
-	}
-	if state := securityTestState(t, registry); len(state.mem) != 1 {
-		t.Fatalf("in-memory findings = %d, want 1", len(state.mem))
 	}
 }
 

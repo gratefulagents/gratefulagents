@@ -51,8 +51,7 @@ spec:
           "category": "e.g. injection, auth, secrets, deps (optional)",
           "dependsOn": ["names of earlier tasks (optional)"],
           "role": "specialist RoleInstruction name (optional)",
-          "model": "model override, no whitespace (optional)",
-          "maxFindings": 0
+          "model": "model override, no whitespace (optional)"
         }
       ]
     }

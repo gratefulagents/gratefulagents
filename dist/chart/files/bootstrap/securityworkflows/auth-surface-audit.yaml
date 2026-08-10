@@ -87,7 +87,6 @@ spec:
         - map-auth-decisions
       forEach: map-auth-decisions
       maxInstances: 16
-      maxFindings: 5
     - name: session-and-identity-integrity
       role: vulnerability-hunter
       category: authn
@@ -127,7 +126,6 @@ spec:
         }
       dependsOn:
         - map-auth-decisions
-      maxFindings: 8
     - name: triage-and-report
       role: finding-triager
       category: triage

@@ -132,16 +132,6 @@ spec:
                         spec.limits.maxCostUsd. Empty means no task-level ceiling.
                       pattern: ^([0-9]+(\.[0-9]+)?)?$
                       type: string
-                    maxFindings:
-                      description: |-
-                        maxFindings caps how many findings this task may report, counted
-                        across every fan-out instance and retry of the task within one
-                        execution. Zero means unlimited. It is a separate scope from
-                        budgets.maxFindings, which every task of the execution shares, so
-                        parallel tasks never race for one cumulative allowance.
-                      format: int32
-                      minimum: 0
-                      type: integer
                     maxInstances:
                       description: maxInstances caps forEach fan-out instances. Zero
                         defaults to 10.
@@ -207,7 +197,8 @@ spec:
                         skillRefs lists Skill resources in the same namespace to inject into
                         this task's AgentRuns in addition to spec.defaults.skillRefs.
                       items:
-                        description: NamedRef references another namespaced resource by name.
+                        description: NamedRef references another namespaced resource
+                          by name.
                         properties:
                           name:
                             type: string

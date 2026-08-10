@@ -44,7 +44,6 @@ func validPolicyPackSpec() SecurityPolicyPackSpec {
 			MaxCostUSD:        "2.50",
 			MaxTokens:         500000,
 			MaxRuntime:        metav1.Duration{Duration: 2 * time.Hour},
-			MaxFindings:       200,
 			MaxValidationJobs: 8,
 		},
 		Suppressions: []SecurityPolicySuppression{{
