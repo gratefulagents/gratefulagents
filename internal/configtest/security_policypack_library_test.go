@@ -33,7 +33,7 @@ func TestSecurityPolicyPackLibraryAssets(t *testing.T) {
 		{
 			name:        "bug-bounty",
 			rankers:     []string{"bug-bounty-triage"},
-			postScripts: []string{"scope-eligibility-check", "false-positive-check", "poc-builder", "report-writer"},
+			postScripts: []string{"scope-eligibility-check", "false-positive-check", "poc-builder", "bounty-worthiness-check", "report-writer"},
 		},
 	}
 
@@ -55,6 +55,11 @@ func TestSecurityPolicyPackLibraryAssets(t *testing.T) {
 			}
 			if len(pack.Spec.Enforced) != 0 {
 				t.Errorf("enforced = %v, want an advisory pack that never silently overrides a scan", pack.Spec.Enforced)
+			}
+			if tc.name == "bug-bounty" {
+				if got := pack.Spec.MinSeverity; got != "high" {
+					t.Errorf("effective minSeverity = %q, want high so bounty reports contain only high and critical findings", got)
+				}
 			}
 
 			assertRefs := func(field, kindDir string, refs []triggersv1alpha1.SecurityResourceRef, want []string) {

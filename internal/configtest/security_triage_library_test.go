@@ -26,6 +26,7 @@ var securityTriagePostScripts = []struct {
 }{
 	{"report-writer", "all"},
 	{"poc-builder", "high-and-above"},
+	{"bounty-worthiness-check", "all"},
 	{"exploitability-score", "all"},
 	{"patched-since-check", "all"},
 	{"resource-exhaustion-classifier", "all"},
@@ -184,6 +185,40 @@ func TestSecurityTriageRankerAssets(t *testing.T) {
 				t.Errorf("severity-floor categories = %v, want %v", floored, tc.floors)
 			}
 		})
+	}
+}
+
+// TestBugBountyAcceptanceGuards pins the policy decisions that keep repository
+// hardening noise out of bounty reports: CI and repository automation need a
+// complete untrusted-trigger-to-impact path.
+func TestBugBountyAcceptanceGuards(t *testing.T) {
+	t.Parallel()
+
+	var ranker triggersv1alpha1.SecurityRanker
+	readBootstrapAsset(t, "securityrankers", "bug-bounty-triage", &ranker)
+	rules := strings.ToLower(strings.Join(ranker.Spec.Rules, "\n"))
+	for _, marker := range []string{"github actions", "untrusted external actor", "production secret", "protected-branch write", "not bounty vulnerabilities"} {
+		if !strings.Contains(rules, marker) {
+			t.Errorf("bug-bounty ranker must contain acceptance guard %q", marker)
+		}
+	}
+
+	var scope triggersv1alpha1.SecurityPostScript
+	readBootstrapAsset(t, "securitypostscripts", "scope-eligibility-check", &scope)
+	prompt := strings.ToLower(scope.Spec.Prompt)
+	for _, marker := range []string{"no asset or vulnerability class is", "essential acceptance fact", "untrusted actor-controlled event", "suspicious interpolation alone are ineligible"} {
+		if !strings.Contains(prompt, marker) {
+			t.Errorf("scope eligibility check must contain conservative guard %q", marker)
+		}
+	}
+
+	var gate triggersv1alpha1.SecurityPostScript
+	readBootstrapAsset(t, "securitypostscripts", "bounty-worthiness-check", &gate)
+	gatePrompt := strings.ToLower(gate.Spec.Prompt)
+	for _, marker := range []string{"final bounty acceptance gate", "severity is high or critical", "prior proof step confirmed", "missing evidence means rejected", "set status `accepted_risk`"} {
+		if !strings.Contains(gatePrompt, marker) {
+			t.Errorf("bounty worthiness check must contain final guard %q", marker)
+		}
 	}
 }
 

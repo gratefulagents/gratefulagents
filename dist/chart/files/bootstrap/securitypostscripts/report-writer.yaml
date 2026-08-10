@@ -11,7 +11,12 @@ spec:
     Re-read the cited code before writing anything; the report must describe
     what the repository actually contains, not what the finding claims.
 
-    Write a Markdown report with exactly these sections:
+    If the persisted status or any earlier pipeline step's proposed status is
+    `false_positive`, `accepted_risk`, or `fixed`, do not create a report:
+    preserve that terminal status and record one rejection sentence with its
+    latest reason, then finish this step.
+
+    Otherwise write a Markdown report with exactly these sections:
 
     1. `## Title` — one line naming the vulnerability class and component.
     2. `## Affected component` — the component plus every relevant

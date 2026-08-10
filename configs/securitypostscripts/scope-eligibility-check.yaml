@@ -3,36 +3,40 @@ kind: SecurityPostScript
 metadata:
   name: scope-eligibility-check
 spec:
-  description: Checks a finding against the stated engagement scope — in-scope paths, excluded components, accepted-risk classes — and marks ineligible findings with the reason.
+  description: Applies a conservative bounty-eligibility gate to scope, affected assets, excluded classes, attacker prerequisites, and repository-automation findings before a report can be accepted.
   runOn: all
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
 
-    Judge this finding against the engagement scope given in the scan
-    objective or policy. If no scope was stated, say so and treat every
-    first-party path in the repository as in scope.
+    Judge this finding against the bounty or engagement scope in the scan
+    objective, SECURITY.md, or policy. Scope means the affected asset and
+    vulnerability class, not merely that a file is stored in the repository.
+    Without an explicit bounty scope, no asset or vulnerability class is
+    presumed bounty-eligible; mark the finding ineligible for bounty submission.
 
-    1. Path: does the cited file fall under an in-scope path? Vendored
-       dependencies, generated code, and third-party bundles are out of
-       scope unless the scope names them.
-    2. Component: is the affected component on the excluded list (staging
-       or demo environments, deprecated services, internal-only tooling)?
-    3. Class: is the vulnerability class explicitly excluded or already an
-       accepted risk (missing security headers, self-inflicted issues,
-       best-practice hardening, rate limiting, version disclosure)?
-    4. Precondition: does exploitation require something the scope rules
-       out, such as physical access, a compromised admin account, or a
-       social-engineering step?
+    1. Path and component: require an in-scope first-party production asset;
+       generated, vendored, demo, deprecated, and internal-only code is out
+       unless the scope expressly includes it.
+    2. Class and preconditions: reject excluded or accepted-risk classes and
+       findings needing physical access, a compromised administrator, or social
+       engineering. Hardening, rate limits, and version disclosure do not qualify.
+    3. Acceptance: require an external or low-privilege attacker to cross a real
+       boundary and gain serious data, privilege, code execution, deployment,
+       publication, or funds. A best-practice gap or hypothetical chain is ineligible.
+    4. Repository automation: for GitHub Actions, CI/CD, release scripts, and
+       repository configuration, require an end-to-end path from an
+       untrusted actor-controlled event to a privileged job and production impact:
+       secret access, protected-branch write, publication, or deployment. Broad
+       permissions, unpinned actions, and suspicious interpolation alone are ineligible.
 
-    State one verdict, eligible or ineligible, and quote the scope rule
-    that decides it. When the scope is ambiguous on this point, say
-    eligible and record the ambiguity rather than silently dropping the
-    finding.
+    State eligible or ineligible and quote the deciding scope rule. When an
+    essential acceptance fact is absent or ambiguous, say ineligible and name
+    it; tolerate ambiguity only in secondary details after the attacker-to-impact
+    path and affected asset are established.
 
-    Finish by calling update_security_finding for this finding with the
-    verdict, the quoted scope rule, and the reason as `note` (the only
-    field this tool writes). A finding that already carries status
-    `false_positive`, `accepted_risk`, or `fixed` keeps it: record your
-    note and leave the status unchanged. Otherwise set status
-    `accepted_risk` for ineligible, `triaged` for eligible, or keep
-    `confirmed` when the finding is already confirmed and eligible.
+    Finish by calling update_security_finding with the verdict, scope rule, and
+    reason as `note` (the only field this tool writes). A finding that already
+    carries status `false_positive`, `accepted_risk`, or `fixed` keeps it: record
+    your note and leave the status unchanged. Otherwise set status `accepted_risk`
+    for ineligible, `triaged` for eligible, or keep `confirmed` when already
+    confirmed and eligible.
