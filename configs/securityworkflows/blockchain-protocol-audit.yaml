@@ -9,6 +9,12 @@ spec:
     - name: map-protocol-surfaces
       role: threat-modeler
       category: recon
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-entry-point-analyzer
+      tools:
+        denied:
+          - bash
       objective: >-
         Map and risk-rank every production protocol surface in this repository: consensus and finality;
         transaction, block, batch, proof, and state-transition validation; rollup derivation and disputes;
@@ -47,6 +53,11 @@ spec:
     - name: review-critical-surface
       role: vulnerability-hunter
       category: other
+      skillRefs:
+        - name: trail-of-bits-secure-workflow-guide
+      tools:
+        denied:
+          - bash
       objective: >-
         Review one risk-ranked protocol surface end to end: {{item.surface_id}} in domain {{item.domain}},
         entering at {{item.entrypoint}} in {{item.file}}. The least-privileged relevant attacker is
@@ -77,6 +88,12 @@ spec:
     - name: consensus-finality-and-state-transition
       role: vulnerability-hunter
       category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-sharp-edges
+      tools:
+        denied:
+          - bash
       objective: >-
         Use {{tasks.map-protocol-surfaces.output}} to audit consensus, finality, and state transitions. Cover
         vote and certificate validation, stake-weighted quorum, validator-set and epoch changes,
@@ -93,6 +110,12 @@ spec:
     - name: rollup-derivation-da-and-fault-proofs
       role: vulnerability-hunter
       category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-sharp-edges
+      tools:
+        denied:
+          - bash
       objective: >-
         Determine from {{tasks.map-protocol-surfaces.output}} whether this is a rollup or supplies a rollup
         component. If applicable, audit L1 origin selection and reorg handling, batch framing, compression and
@@ -109,6 +132,13 @@ spec:
     - name: transaction-crypto-and-accounting
       role: vulnerability-hunter
       category: crypto
+      skillRefs:
+        - name: trail-of-bits-dimensional-analysis
+        - name: trail-of-bits-constant-time-analysis
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit transaction and protocol authorization, proof verification, and value accounting using
         {{tasks.map-protocol-surfaces.output}}. Check signature encoding and recovery, domain and chain
@@ -125,6 +155,11 @@ spec:
     - name: p2p-sync-mempool-and-rpc
       role: vulnerability-hunter
       category: dos
+      skillRefs:
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit unauthenticated peer, discovery, gossip, mempool, synchronization, RPC, API, and binary parser
         surfaces in {{tasks.map-protocol-surfaces.output}}. Check peer identity and handshake binding,
@@ -141,6 +176,12 @@ spec:
     - name: cross-chain-bridge-and-custody
       role: vulnerability-hunter
       category: authz
+      skillRefs:
+        - name: trail-of-bits-sharp-edges
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: >-
         Where {{tasks.map-protocol-surfaces.output}} shows a chain, layer, shard, or custody boundary, trace
         the entire message and value lifecycle. Audit origin, destination, chain-id, emitter, nonce,
@@ -156,6 +197,13 @@ spec:
     - name: execution-vm-and-host-boundaries
       role: vulnerability-hunter
       category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-c-review
+        - name: trail-of-bits-rust-review
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit virtual machines, interpreters, precompiles, system contracts, host functions, plugins, WASM,
         native extensions, and privileged protocol-to-contract calls in {{tasks.map-protocol-surfaces.output}}.
@@ -172,6 +220,13 @@ spec:
     - name: signer-policy-quorum-and-hsm
       role: vulnerability-hunter
       category: authz
+      skillRefs:
+        - name: trail-of-bits-constant-time-analysis
+        - name: trail-of-bits-sharp-edges
+        - name: trail-of-bits-zeroize-audit
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit signing policy, threshold coordination, and remote signer/HSM interfaces identified in
         {{tasks.map-protocol-surfaces.output}}. Check that each signing request binds the authenticated caller,
@@ -188,6 +243,12 @@ spec:
     - name: key-material-and-operator-secrets
       role: secrets-auditor
       category: secrets
+      skillRefs:
+        - name: trail-of-bits-zeroize-audit
+        - name: trail-of-bits-constant-time-analysis
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit generation, derivation, storage, import/export, wrapping, backup, transport, rotation,
         zeroization, logging, and error handling for private keys, seed material, operator credentials, and
@@ -203,6 +264,12 @@ spec:
     - name: storage-snapshot-reorg-and-concurrency
       role: vulnerability-hunter
       category: race-condition
+      skillRefs:
+        - name: trail-of-bits-rust-review
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit persistent state, sync, snapshots, pruning, rollback, reorg, migration, recovery, and concurrent
         processing from {{tasks.map-protocol-surfaces.output}}. Hunt for snapshots or metadata accepted without
@@ -218,6 +285,13 @@ spec:
     - name: native-memory-and-ffi-safety
       role: vulnerability-hunter
       category: memory-safety
+      skillRefs:
+        - name: trail-of-bits-c-review
+        - name: trail-of-bits-rust-review
+        - name: trail-of-bits-address-sanitizer
+      tools:
+        denied:
+          - bash
       objective: >-
         In C, C++, Rust unsafe code, cgo/JNI, cryptographic native libraries, firmware, and FFI exposed by
         {{tasks.map-protocol-surfaces.output}}, trace peer-, transaction-, proof-, and signer-controlled sizes,
@@ -233,6 +307,13 @@ spec:
     - name: genesis-deployment-and-upgrades
       role: vulnerability-hunter
       category: misconfiguration
+      skillRefs:
+        - name: trail-of-bits-guidelines-advisor
+        - name: trail-of-bits-secure-workflow-guide
+        - name: cloud-iac-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit genesis and chain configuration, network and chain IDs, trusted checkpoints, fork and upgrade
         activation, migrations, default service bindings, exposed ports, and deployment wiring associated
@@ -249,6 +330,12 @@ spec:
     - name: dependencies-build-and-release
       role: dependency-auditor
       category: supply-chain
+      skillRefs:
+        - name: trail-of-bits-supply-chain-risk-auditor
+        - name: github-agent-supply-chain
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit consensus-critical dependencies, generated protocol code, build scripts, CI release jobs,
         container images, downloaded tools and binaries, reproducibility, and signed upgrade artifacts tied
@@ -265,6 +352,12 @@ spec:
     - name: validate-high-impact-findings
       role: exploit-validator
       category: other
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - bash
       objective: >-
         Settle every reported critical or high candidate from the per-surface and domain hunts. Re-read the
         full path and confirm the entry point is production-reachable, the attacker has the stated protocol
@@ -308,6 +401,12 @@ spec:
     - name: triage-and-report
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied:
+          - bash
       objective: >-
         Triage the findings and validation results in {{tasks.validate-high-impact-findings.output}} and the
         per-surface coverage results in {{tasks.review-critical-surface.output}} against the risk-ranked

@@ -1,6 +1,22 @@
 import { create, equals, toJson } from "@bufbuild/protobuf";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+
+vi.mock("@/lib/client", () => ({
+  client: {
+    listSkills: vi.fn().mockResolvedValue({
+      skills: [
+        {
+          name: "api-authz-hunting",
+          version: "1",
+          description: "Hunt API authorization flaws",
+          resolvedDescription: "",
+          mcpServerRefs: [],
+        },
+      ],
+    }),
+  },
+}));
 
 import {
   SecurityWorkflowBuilder,
@@ -35,6 +51,7 @@ function advancedProtoTasks(): SecurityScanTaskConfig[] {
       role: "threat-modeler",
       model: "gpt-5.2-pro",
       maxFindings: 3,
+      skillRefs: ["api-authz-hunting"],
     }),
     create(SecurityScanTaskConfigSchema, {
       name: "injection-hunt",
@@ -88,6 +105,14 @@ describe("workflow round-trip", () => {
     const once = workflowTasksFromProto(advancedProtoTasks());
     const twice = workflowTasksFromProto(workflowTasksToProto(once));
     expect(twice).toEqual(once);
+  });
+
+  it("preserves task skill refs in the backend resource shape", () => {
+    const drafts = workflowTasksFromProto(advancedProtoTasks());
+    expect(drafts[0].skillRefs).toEqual(["api-authz-hunting"]);
+
+    const serialized = workflowTasksToProto(drafts);
+    expect(serialized[0].skillRefs).toEqual(["api-authz-hunting"]);
   });
 });
 
@@ -223,6 +248,21 @@ describe("SecurityWorkflowBuilder component", () => {
     });
     expect(latest[0].name).toBe("alpha");
     expect(latest[1].dependsOn).toEqual(["alpha"]);
+  });
+
+  it("adds and removes skills for an individual task", async () => {
+    let latest = [draft({ name: "a" })];
+    const { rerender } = render(
+      <SecurityWorkflowBuilder tasks={latest} onChange={(next) => (latest = next)} />,
+    );
+
+    expect(screen.getByText(/Reusable instructions loaded only for this task/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("switch", { name: "Attach api-authz-hunting" }));
+    expect(latest[0].skillRefs).toEqual(["api-authz-hunting"]);
+
+    rerender(<SecurityWorkflowBuilder tasks={latest} onChange={(next) => (latest = next)} />);
+    fireEvent.click(screen.getByRole("switch", { name: "Attach api-authz-hunting" }));
+    expect(latest[0].skillRefs).toEqual([]);
   });
 });
 

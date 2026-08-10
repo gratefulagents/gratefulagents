@@ -8,6 +8,12 @@ spec:
     - name: unauthenticated-remote-execution
       role: vulnerability-hunter
       category: injection
+      skillRefs:
+        - name: trail-of-bits-codeql
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for remote code execution reachable without valid credentials. Start from the entry points an
         anonymous caller can touch and look for untrusted data reaching an interpreter: shell and subprocess
@@ -23,6 +29,13 @@ spec:
     - name: authentication-bypass
       role: vulnerability-hunter
       category: authn
+      skillRefs:
+        - name: api-authz-hunting
+        - name: web-app-hunting
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for full authentication bypass: reaching an authenticated or administrative identity without
         the credential. Look for token validation that skips signature, algorithm, audience, issuer, or
@@ -37,6 +50,12 @@ spec:
     - name: remote-data-exfiltration
       role: vulnerability-hunter
       category: injection
+      skillRefs:
+        - name: trail-of-bits-codeql
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for mass exfiltration of data an attacker is not entitled to: injection into database, search,
         or storage queries that returns arbitrary rows; identifiers accepted without an ownership or tenant
@@ -50,6 +69,12 @@ spec:
     - name: ssrf-to-internal-services
       role: vulnerability-hunter
       category: ssrf
+      skillRefs:
+        - name: web-app-hunting
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for server-side request forgery that reaches something valuable: cloud instance metadata and
         credential endpoints, internal admin or service APIs, databases and caches speaking text protocols,
@@ -64,6 +89,13 @@ spec:
     - name: deserialization-to-rce
       role: vulnerability-hunter
       category: deserialization
+      skillRefs:
+        - name: trail-of-bits-codeql
+        - name: trail-of-bits-property-based-testing
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for untrusted deserialization that leads to code execution or object injection: native
         deserializers and object-constructing YAML loaders fed request, cookie, cache, or queue data;
@@ -77,6 +109,11 @@ spec:
     - name: credential-exposure-to-takeover
       role: secrets-auditor
       category: secrets
+      skillRefs:
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - bash
       objective: >-
         Hunt for exposed credential material that hands an attacker a production system: live-looking keys,
         tokens, or private keys committed to the repository or embedded in shipped artifacts and client
@@ -90,6 +127,12 @@ spec:
     - name: validate-exploitability
       role: exploit-validator
       category: other
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - bash
       objective: >-
         Settle every candidate reported by the six hunts. Take each finding in turn, re-read the code it
         cites, and reconstruct the attack path from the attacker's position to the impact without skipping
@@ -129,6 +172,12 @@ spec:
     - name: triage-and-report
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied:
+          - bash
       objective: >-
         Assemble the final report from the validation results in {{tasks.validate-exploitability.output}}.
         Apply one admission rule without exception: a finding stays only when the report states a concrete

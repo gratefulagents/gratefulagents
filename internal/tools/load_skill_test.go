@@ -34,8 +34,9 @@ func TestLoadSkillToolProgressivelyLoadsInstructions(t *testing.T) {
 	resolved := &platformv1alpha1.Skill{
 		ObjectMeta: metav1.ObjectMeta{Name: pdfSkillName, Namespace: "ns"},
 		Spec: platformv1alpha1.SkillSpec{
+			Description: "PDF guidance from Example Security (MIT).",
 			Source: platformv1alpha1.SkillSource{
-				Git: &platformv1alpha1.SkillGitSource{URL: "https://github.com/anthropics/skills", Path: "document-skills/pdf"},
+				Git: &platformv1alpha1.SkillGitSource{URL: "https://github.com/anthropics/skills", Ref: "abc123", Path: "document-skills/pdf"},
 			},
 		},
 		Status: platformv1alpha1.SkillStatus{
@@ -62,7 +63,7 @@ func TestLoadSkillToolProgressivelyLoadsInstructions(t *testing.T) {
 	}
 	description := tool.Description()
 	if !strings.Contains(description, "grafana-runbook: Prometheus and Grafana query guidance.") ||
-		!strings.Contains(description, "pdf: Create and inspect PDF documents.") {
+		!strings.Contains(description, "pdf: PDF guidance from Example Security (MIT).") {
 		t.Fatalf("description does not advertise skill summaries: %q", description)
 	}
 	if strings.Contains(description, "histogram_quantile") || strings.Contains(description, "pdfplumber") {
@@ -93,6 +94,10 @@ func TestLoadSkillToolProgressivelyLoadsInstructions(t *testing.T) {
 	loadedInstructions := tool.LoadedInstructions()
 	if !strings.Contains(loadedInstructions, "## Skill: pdf") || !strings.Contains(loadedInstructions, "pdfplumber") {
 		t.Fatalf("loaded skill was not installed into subsequent model context: %q", loadedInstructions)
+	}
+	if !strings.Contains(loadedInstructions, "https://github.com/anthropics/skills @ abc123") ||
+		!strings.Contains(loadedInstructions, "Example Security (MIT)") {
+		t.Fatalf("loaded external skill omitted provenance or license attribution: %q", loadedInstructions)
 	}
 	if strings.Contains(loadedInstructions, "histogram_quantile") {
 		t.Fatalf("unselected skill instructions were loaded: %q", loadedInstructions)

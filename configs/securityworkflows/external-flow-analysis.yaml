@@ -8,6 +8,12 @@ spec:
     - name: map-entrypoints
       role: threat-modeler
       category: recon
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-codeql
+      tools:
+        denied:
+          - bash
       objective: >-
         Enumerate every externally reachable entrypoint of this codebase: HTTP routes, RPC and gRPC methods,
         GraphQL resolvers, webhook receivers, message-queue consumers, and scheduled or CLI entrypoints that
@@ -38,6 +44,13 @@ spec:
     - name: investigate-flow
       role: vulnerability-hunter
       category: other
+      skillRefs:
+        - name: trail-of-bits-codeql
+        - name: trail-of-bits-semgrep
+        - name: trail-of-bits-fp-check
+      tools:
+        denied:
+          - bash
       objective: >-
         Investigate one production flow end to end: the {{item.method}} entrypoint {{item.route}}, handled by
         {{item.handler}} in {{item.file}}. Read the handler and follow every function it calls until
@@ -78,6 +91,12 @@ spec:
     - name: triage-and-report
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied:
+          - bash
       objective: >-
         Call list_security_findings to load every finding the per-flow investigations recorded for this
         scan, and judge reachability against the entrypoint inventory in {{tasks.map-entrypoints.output}};

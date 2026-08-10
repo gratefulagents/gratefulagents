@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FlowField } from "@/components/create-flow/create-flow";
+import { SkillPicker } from "@/components/SkillPicker";
 import {
   DAG_NODE_HEIGHT,
   DAG_NODE_WIDTH,
@@ -59,6 +60,7 @@ export interface WorkflowTaskDraft {
   maxTurns: string;
   /** Decimal USD ceiling, e.g. "2.50"; "" = none. */
   maxCostUsd: string;
+  skillRefs: string[];
   /** Comma-separated tool names; non-empty restricts the task run to these. */
   toolsAllowed: string;
   /** Comma-separated tool names denied to the task run (deny wins). */
@@ -89,6 +91,7 @@ export function emptyWorkflowTask(): WorkflowTaskDraft {
     timeout: "",
     maxTurns: "",
     maxCostUsd: "",
+    skillRefs: [],
     toolsAllowed: "",
     toolsDenied: "",
     outputSchema: "",
@@ -119,6 +122,7 @@ export function workflowTasksFromProto(tasks: SecurityScanTaskConfig[]): Workflo
     timeout: t.timeout,
     maxTurns: t.maxTurns ? String(t.maxTurns) : "",
     maxCostUsd: t.maxCostUsd,
+    skillRefs: [...t.skillRefs],
     toolsAllowed: (t.tools?.allowed ?? []).join(", "),
     toolsDenied: (t.tools?.denied ?? []).join(", "),
     outputSchema: t.outputSchema,
@@ -157,6 +161,7 @@ export function workflowTasksToProto(tasks: WorkflowTaskDraft[]): SecurityScanTa
       forEach: t.forEach.trim(),
       maxInstances: t.maxInstances.trim() ? Number(t.maxInstances) : 0,
       repeats: t.repeats.trim() ? Number(t.repeats) : 0,
+      skillRefs: t.skillRefs.map((name) => name.trim()).filter(Boolean),
     });
   });
 }
@@ -1008,6 +1013,15 @@ export function SecurityWorkflowBuilder({
                 <span className="text-xs text-muted-foreground">No other named tasks yet.</span>
               )}
             </div>
+          </FlowField>
+          <FlowField
+            label="Skills"
+            hint="Reusable instructions loaded only for this task. A skill may also bring required MCP servers."
+          >
+            <SkillPicker
+              selected={task.skillRefs}
+              onChange={(skillRefs) => updateTask(index, { skillRefs })}
+            />
           </FlowField>
           <details className="rounded-md border border-border/70 px-3 py-2">
             <summary className="cursor-pointer text-xs font-medium text-muted-foreground">

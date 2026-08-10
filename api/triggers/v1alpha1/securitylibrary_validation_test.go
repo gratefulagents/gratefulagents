@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -45,6 +46,7 @@ func TestValidateSecurityWorkflowTasksExecutionFieldsHappyPath(t *testing.T) {
 			DependsOn:    []string{"recon"},
 			ForEach:      "recon",
 			MaxInstances: 20,
+			SkillRefs:    []platformv1alpha1.NamedRef{{Name: "web-app-hunting"}},
 		},
 		{
 			Name:      "ensemble",
@@ -137,6 +139,15 @@ func TestValidateSecurityWorkflowTasksExecutionFieldFailures(t *testing.T) {
 			},
 			field:    "tasks[0].tools.allowed",
 			fragment: "twice",
+		},
+		{
+			name: "invalid skill ref name",
+			mutate: func(ts []SecurityScanTask) []SecurityScanTask {
+				ts[0].SkillRefs = []platformv1alpha1.NamedRef{{Name: "Bad Skill"}}
+				return ts
+			},
+			field:    "tasks[0].skillRefs[0].name",
+			fragment: "invalid Skill name",
 		},
 		{
 			name:     "outputSchema not JSON",

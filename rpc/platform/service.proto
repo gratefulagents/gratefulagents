@@ -4325,6 +4325,9 @@ message SecurityScanTaskConfig {
   string for_each = 14;
   int32 max_instances = 15; // forEach fan-out cap (0 = default 10, max 50)
   int32 repeats = 16; // Ensemble instances (0/1 = single, max 5)
+  // skill_refs lists Skill names loaded only for this task, in addition to
+  // the SecurityScan defaults.
+  repeated string skill_refs = 17;
 }
 
 // SecurityScanTaskTools narrows which tools a task's run may use in

@@ -10,6 +10,17 @@ KUBECTL ?= kubectl
 help: ## Show the supported self-hosting commands.
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make <target>\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
+BOOTSTRAP_DIRS := modetemplates roleinstructions securitypolicypacks securitypostscripts securityrankers securityworkflows skills
+
+.PHONY: helm-sync-bootstrap
+helm-sync-bootstrap: ## Mirror shipped configuration assets into the Helm chart.
+	@set -eu; \
+	for dir in $(BOOTSTRAP_DIRS); do \
+		rm -rf "dist/chart/files/bootstrap/$$dir"; \
+		mkdir -p "dist/chart/files/bootstrap/$$dir"; \
+		cp configs/$$dir/*.yaml "dist/chart/files/bootstrap/$$dir/"; \
+	done
+
 .PHONY: k3s-prereqs
 k3s-prereqs: ## Install Debian/Ubuntu prerequisites for k3s management.
 	./scripts/install-k3s-dependencies.sh

@@ -137,6 +137,11 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 			errs = append(errs, validateSecurityWorkflowToolList(field+".tools.allowed", name, task.Tools.Allowed)...)
 			errs = append(errs, validateSecurityWorkflowToolList(field+".tools.denied", name, task.Tools.Denied)...)
 		}
+		for j, ref := range task.SkillRefs {
+			if problems := validation.IsDNS1123Subdomain(ref.Name); len(problems) != 0 {
+				add(fmt.Sprintf("%s.skillRefs[%d].name", field, j), "invalid Skill name %q (want a DNS-1123 subdomain)", ref.Name)
+			}
+		}
 		if schema := strings.TrimSpace(task.OutputSchema); schema != "" {
 			var object map[string]any
 			if err := json.Unmarshal([]byte(schema), &object); err != nil || object == nil {

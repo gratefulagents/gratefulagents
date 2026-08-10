@@ -9,6 +9,12 @@ spec:
     - name: map-changed-risk
       role: security-reviewer
       category: recon
+      skillRefs:
+        - name: trail-of-bits-differential-review
+        - name: trail-of-bits-audit-context-building
+      tools:
+        denied:
+          - bash
       objective: >-
         Identify which files in this change actually carry security risk and rank them. Read the diff first
         (git diff against the merge base, or the changed files listed in the scan scope) and judge each
@@ -42,6 +48,12 @@ spec:
     - name: review-change
       role: vulnerability-hunter
       category: other
+      skillRefs:
+        - name: trail-of-bits-differential-review
+        - name: trail-of-bits-variant-analysis
+      tools:
+        denied:
+          - bash
       objective: >-
         Review one changed file for vulnerabilities introduced or exposed by this change: {{item.file}},
         flagged as {{item.risk_category}} because {{item.reason}}. Read the diff for this file and enough of
@@ -81,6 +93,12 @@ spec:
     - name: triage-and-report
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied:
+          - bash
       objective: >-
         Call list_security_findings to load every finding the per-file reviews recorded for this scan and
         turn them into a pull-request verdict; address each one by its fingerprint with

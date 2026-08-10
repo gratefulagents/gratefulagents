@@ -1,0 +1,17 @@
+# Upstream: https://github.com/trailofbits/skills/tree/7b9bd5f950f89a9ba71b249b9801c1a95be3928e/plugins/testing-handbook-skills/skills/address-sanitizer
+# License: CC-BY-SA-4.0 (Creative Commons Attribution-ShareAlike 4.0), Trail of Bits.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: trail-of-bits-address-sanitizer
+spec:
+  version: "0.1.0"
+  description: >-
+    External Trail of Bits skill (CC-BY-SA-4.0): use when enabling and tuning
+    AddressSanitizer for C/C++ tests or fuzz targets and interpreting reports
+    for buffer errors, use-after-free, leaks, and related memory bugs.
+  source:
+    git:
+      url: https://github.com/trailofbits/skills
+      ref: 7b9bd5f950f89a9ba71b249b9801c1a95be3928e
+      path: plugins/testing-handbook-skills/skills/address-sanitizer

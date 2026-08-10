@@ -1,0 +1,18 @@
+# Upstream: https://github.com/google/skills/tree/092e210b243601797a0fb939040be2b1288e6d39/skills/cloud/google-cloud-waf-security
+# License: Apache-2.0, Google LLC.
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: google-google-cloud-waf-security
+spec:
+  version: "0.1.0"
+  description: >-
+    External Google skill (Apache-2.0): evaluate Google Cloud workloads against
+    the security pillar of the Well-Architected Framework and produce
+    prioritized, actionable guidance for IAM, network security, data
+    protection, compliance, and security operations.
+  source:
+    git:
+      url: https://github.com/google/skills
+      ref: 092e210b243601797a0fb939040be2b1288e6d39
+      path: skills/cloud/google-cloud-waf-security

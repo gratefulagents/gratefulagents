@@ -8,6 +8,12 @@ spec:
     - name: map-auth-decisions
       role: threat-modeler
       category: recon
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: api-authz-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Inventory every place this codebase decides who a caller is or what they may do: authentication
         middleware, session and token validation, permission or policy checks, role and scope comparisons,
@@ -40,6 +46,12 @@ spec:
     - name: investigate-decision-point
       role: vulnerability-hunter
       category: authz
+      skillRefs:
+        - name: api-authz-hunting
+        - name: trail-of-bits-fp-check
+      tools:
+        denied:
+          - bash
       objective: >-
         Attack one access-control decision: {{item.decision_point}} ({{item.kind}}) covering
         {{item.resource}}, defined in {{item.file}} and enforced by {{item.enforced_by}}. Determine what a
@@ -79,6 +91,12 @@ spec:
     - name: session-and-identity-integrity
       role: vulnerability-hunter
       category: authn
+      skillRefs:
+        - name: web-app-hunting
+        - name: api-authz-hunting
+      tools:
+        denied:
+          - bash
       objective: >-
         Audit how identity is established and carried between requests, using the decision inventory in
         {{tasks.map-auth-decisions.output}} as the map of what depends on it. Examine credential
@@ -113,6 +131,12 @@ spec:
     - name: triage-and-report
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied:
+          - bash
       objective: >-
         Call list_security_findings to load everything the per-decision investigations and the identity
         audit recorded for this scan, and triage that set; address each finding by its fingerprint with
