@@ -1,22 +1,34 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { SecurityOverview } from "@/components/SecurityOverview";
 import {
   GetSecurityOverviewResponseSchema,
   SecurityScanSchema,
+  SecuritySkillsStatusSchema,
+  type SecuritySkillsStatus,
 } from "@/rpc/platform/service_pb";
 
-const { getSecurityOverview } = vi.hoisted(() => ({
+const { getSecurityOverview, getSecuritySkillsStatus, installSecuritySkills } = vi.hoisted(() => ({
   getSecurityOverview: vi.fn(),
+  getSecuritySkillsStatus: vi.fn(),
+  installSecuritySkills: vi.fn(),
 }));
 
 vi.mock("@/lib/client", () => ({
-  client: { getSecurityOverview },
+  client: { getSecurityOverview, getSecuritySkillsStatus, installSecuritySkills },
 }));
+
+beforeEach(() => {
+  getSecuritySkillsStatus.mockResolvedValue(create(SecuritySkillsStatusSchema, {
+    state: "installed",
+    installedCount: 55,
+    availableCount: 55,
+  }));
+});
 
 afterEach(() => {
   cleanup();
@@ -169,5 +181,73 @@ describe("SecurityOverview", () => {
     renderOverview();
 
     expect(await screen.findByText("dashboard offline")).toBeTruthy();
+  });
+
+  it("does not install security skills on page load", async () => {
+    getSecurityOverview.mockResolvedValue(overviewFixture());
+    getSecuritySkillsStatus.mockResolvedValue(create(SecuritySkillsStatusSchema, {
+      state: "not_installed",
+      availableCount: 55,
+    }));
+
+    renderOverview();
+
+    expect(await screen.findByRole("button", { name: "Install security skills" })).toBeTruthy();
+    expect(getSecuritySkillsStatus).toHaveBeenCalledTimes(1);
+    expect(installSecuritySkills).not.toHaveBeenCalled();
+  });
+
+  it("installs security skills only after an explicit click", async () => {
+    getSecurityOverview.mockResolvedValue(overviewFixture());
+    getSecuritySkillsStatus.mockResolvedValue(create(SecuritySkillsStatusSchema, {
+      state: "not_installed",
+      availableCount: 55,
+    }));
+    let resolveInstall!: (value: SecuritySkillsStatus) => void;
+    installSecuritySkills.mockImplementation(() => new Promise((resolve) => {
+      resolveInstall = resolve;
+    }));
+
+    renderOverview();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Install security skills" }));
+    const installing = await screen.findByRole("button", { name: "Installing…" });
+    expect((installing as HTMLButtonElement).disabled).toBe(true);
+    expect(installSecuritySkills).toHaveBeenCalledTimes(1);
+
+    resolveInstall(create(SecuritySkillsStatusSchema, {
+      state: "installed",
+      installedCount: 55,
+      availableCount: 55,
+    }));
+    expect(await screen.findByText("Security skills · Installed")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Install security skills" })).toBeNull();
+  });
+
+  it("shows partial installation progress and keeps missing skills actionable", async () => {
+    getSecurityOverview.mockResolvedValue(overviewFixture());
+    getSecuritySkillsStatus.mockResolvedValue(create(SecuritySkillsStatusSchema, {
+      state: "partially_installed",
+      installedCount: 7,
+      availableCount: 10,
+    }));
+
+    renderOverview();
+
+    expect(await screen.findByText("Security skills · 7 of 10 installed")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Install security skills" })).toBeTruthy();
+  });
+
+  it("keeps the overview usable when security skill status is unavailable", async () => {
+    getSecurityOverview.mockResolvedValue(overviewFixture());
+    getSecuritySkillsStatus.mockRejectedValueOnce(new Error("skills offline"));
+
+    renderOverview();
+
+    expect(await screen.findByText("Open critical")).toBeTruthy();
+    expect(screen.getByText("Security skills · Status unavailable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(getSecuritySkillsStatus).toHaveBeenCalledTimes(2));
+    expect(installSecuritySkills).not.toHaveBeenCalled();
   });
 });

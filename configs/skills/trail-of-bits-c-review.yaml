@@ -4,6 +4,8 @@ apiVersion: platform.gratefulagents.dev/v1alpha1
 kind: Skill
 metadata:
   name: trail-of-bits-c-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
 spec:
   version: "0.1.0"
   description: >-
