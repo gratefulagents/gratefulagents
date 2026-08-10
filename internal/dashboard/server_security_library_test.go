@@ -131,9 +131,9 @@ func TestCreateSecurityWorkflowValidationErrors(t *testing.T) {
 		"cycle": func(w *platform.SecurityWorkflowResource) {
 			w.Tasks[0].DependsOn = []string{"triage"}
 		},
-		"invalid name":        func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Name = "Bad Name!" },
-		"missing objective":   func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Objective = " " },
-		"invalid role":        func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Role = "Not A Role" },
+		"invalid name":         func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Name = "Bad Name!" },
+		"missing objective":    func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Objective = " " },
+		"invalid role":         func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Role = "Not A Role" },
 		"invalid parallelism":  func(w *platform.SecurityWorkflowResource) { w.Parallelism = 42 },
 		"bad timeout":          func(w *platform.SecurityWorkflowResource) { w.Tasks[0].Timeout = "banana" },
 		"negative max_turns":   func(w *platform.SecurityWorkflowResource) { w.Tasks[0].MaxTurns = -1 },

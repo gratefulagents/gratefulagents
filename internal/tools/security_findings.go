@@ -68,8 +68,8 @@ type SecurityScanContext struct {
 	// scans-list row; empty (coordinator and legacy runs) falls back to the
 	// run's own name.
 	RecordRunName string
-	TaskName string
-	SessionID uuid.UUID
+	TaskName      string
+	SessionID     uuid.UUID
 }
 
 // RecordKey is the run-name key of the security_scans row this run reports
@@ -107,17 +107,17 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 		}
 	}
 	return SecurityScanContext{
-		ScanName:        scanName,
-		Namespace:       namespace,
-		RunName:         runName,
-		Repository:      strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
-		Revision:        strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
-		MinSeverity:     minSeverity,
-		DedupePermille:  dedupePermille,
-		ExecutionID:     strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),
-		RecordRunName:   strings.TrimSpace(run.Annotations[SecurityScanRecordNameAnnotation]),
-		TaskName:        strings.TrimSpace(run.Annotations[SecurityScanTaskNameAnnotation]),
-		SessionID:       sessionID,
+		ScanName:       scanName,
+		Namespace:      namespace,
+		RunName:        runName,
+		Repository:     strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
+		Revision:       strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
+		MinSeverity:    minSeverity,
+		DedupePermille: dedupePermille,
+		ExecutionID:    strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),
+		RecordRunName:  strings.TrimSpace(run.Annotations[SecurityScanRecordNameAnnotation]),
+		TaskName:       strings.TrimSpace(run.Annotations[SecurityScanTaskNameAnnotation]),
+		SessionID:      sessionID,
 	}, true
 }
 

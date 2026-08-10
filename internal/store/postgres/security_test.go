@@ -793,7 +793,7 @@ func TestSecurityFindingOrdinaryUpsertIsUnlimited(t *testing.T) {
 	s := setupSecurityTestStore(t)
 	ctx := context.Background()
 
-	for n := 0; n < 20; n++ {
+	for n := range 20 {
 		fp := fmt.Sprintf("fp-%d", n)
 		if _, created, err := upsertExecutionFinding(ctx, t, s, "run-1", "exec-1", "task-a", fp); err != nil || !created {
 			t.Fatalf("upsert %s: created=%v err=%v", fp, created, err)
@@ -827,7 +827,7 @@ func TestSecurityFindingConcurrentDuplicateUpsert(t *testing.T) {
 	results := make(chan error, workers)
 	created := make(chan bool, workers)
 	var wg sync.WaitGroup
-	for n := 0; n < workers; n++ {
+	for n := range workers {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
