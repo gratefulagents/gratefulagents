@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	runtimetools "github.com/gratefulagents/gratefulagents/internal/tools"
 )
 
 // workflowTaskOutputRefPattern matches the {{tasks.<name>.output}} references
@@ -96,8 +97,8 @@ func TestSecurityWorkflowLibraryAssets(t *testing.T) {
 						t.Errorf("task %q references skill %q with no shipped Skill asset: %v", task.Name, ref.Name, err)
 					}
 				}
-				if task.Tools == nil || !slices.Contains(task.Tools.Denied, "bash") {
-					t.Errorf("task %q must deny bash so loaded skills cannot execute untrusted repository code", task.Name)
+				if task.Tools == nil || !slices.Contains(task.Tools.Denied, "Bash") {
+					t.Errorf("task %q must deny the registered Bash tool so loaded skills cannot execute untrusted repository code", task.Name)
 				}
 				// A task only gets the submit_task_output tool when it
 				// declares outputSchema, so interpolating the output of a
@@ -139,6 +140,14 @@ func TestSecurityWorkflowLibraryAssets(t *testing.T) {
 				if schema.Type != "array" {
 					t.Errorf("task %q forEach source %q outputSchema type = %q, want array", task.Name, source.Name, schema.Type)
 				}
+			}
+
+			// Connect the shipped policy spelling to the case-sensitive runtime
+			// registry so a typo cannot silently leave the shell registered.
+			first := workflow.Spec.Tasks[0]
+			registry := runtimetools.NewRegistry(t.TempDir(), runtimetools.WithToolNameFilter(nil, first.Tools.Denied))
+			if registry.Get("Bash") != nil {
+				t.Errorf("task %q denial did not remove the registered Bash tool", first.Name)
 			}
 		})
 	}

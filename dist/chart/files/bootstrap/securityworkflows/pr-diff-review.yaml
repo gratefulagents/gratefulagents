@@ -14,7 +14,7 @@ spec:
         - name: trail-of-bits-audit-context-building
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Identify which files in this change actually carry security risk and rank them. Read the diff first
         (git diff against the merge base, or the changed files listed in the scan scope) and judge each
@@ -53,7 +53,7 @@ spec:
         - name: trail-of-bits-variant-analysis
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Review one changed file for vulnerabilities introduced or exposed by this change: {{item.file}},
         flagged as {{item.risk_category}} because {{item.reason}}. Read the diff for this file and enough of
@@ -98,7 +98,7 @@ spec:
         - name: bug-bounty-reporting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Call list_security_findings to load every finding the per-file reviews recorded for this scan and
         turn them into a pull-request verdict; address each one by its fingerprint with

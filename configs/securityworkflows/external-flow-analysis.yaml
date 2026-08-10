@@ -13,7 +13,7 @@ spec:
         - name: trail-of-bits-codeql
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Enumerate every externally reachable entrypoint of this codebase: HTTP routes, RPC and gRPC methods,
         GraphQL resolvers, webhook receivers, message-queue consumers, and scheduled or CLI entrypoints that
@@ -50,7 +50,7 @@ spec:
         - name: trail-of-bits-fp-check
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Investigate one production flow end to end: the {{item.method}} entrypoint {{item.route}}, handled by
         {{item.handler}} in {{item.file}}. Read the handler and follow every function it calls until
@@ -96,7 +96,7 @@ spec:
         - name: bug-bounty-reporting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Call list_security_findings to load every finding the per-flow investigations recorded for this
         scan, and judge reachability against the entrypoint inventory in {{tasks.map-entrypoints.output}};

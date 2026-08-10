@@ -13,7 +13,7 @@ spec:
         - name: trail-of-bits-entry-point-analyzer
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for reentrancy and unsafe external-call handling. Enumerate every external call in the
         contracts (call, delegatecall, staticcall, transfer and send, ERC-20 and ERC-721 transfers with
@@ -35,7 +35,7 @@ spec:
         - name: trail-of-bits-secure-workflow-guide
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit who may perform each privileged operation. List every state-changing function and classify
         it: open to anyone, restricted to a role or owner, or restricted to another contract. Then hunt for
@@ -56,7 +56,7 @@ spec:
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for price and oracle manipulation. Identify every source of external value the contracts trust
         - AMM spot prices and reserves, balanceOf and totalSupply of a pool or vault, share-price
@@ -77,7 +77,7 @@ spec:
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for arithmetic defects that move value. Examine every fee, share, interest, reward, and
         collateral computation for rounding that favors the user rather than the protocol, division before
@@ -98,7 +98,7 @@ spec:
         - name: trail-of-bits-secure-workflow-guide
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit the upgrade machinery and storage layout. For proxy-based systems, check that the
         implementation cannot be initialized or self-destructed by a third party, that the upgrade function
@@ -119,7 +119,7 @@ spec:
         - name: trail-of-bits-token-integration-analyzer
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for broken assumptions about the tokens and contracts this system integrates with. Check how
         the code handles tokens that take a fee on transfer or rebase (accounting from the requested amount
@@ -141,7 +141,7 @@ spec:
         - name: bug-bounty-reporting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Triage the contract findings by value at risk. Re-read the cited code for each report and confirm
         that the attack is economically real: that the caller reaches the function, that the sequence fits
