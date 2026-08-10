@@ -1,0 +1,35 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityPostScript
+metadata:
+  name: bounty-worthiness-check
+spec:
+  description: Enforces the final bounty acceptance gate after scope, false-positive, and proof checks, excluding every finding that is not a confirmed in-scope high or critical vulnerability.
+  runOn: all
+  prompt: |
+    You are processing exactly one finding. Do not hunt for new issues.
+
+    This is the final bounty acceptance gate. Review the finding plus the
+    verdicts produced earlier in this pipeline. Accept it only when every
+    requirement below is supported by evidence:
+
+    1. Severity is high or critical under the supplied ranker rules.
+    2. The affected asset and vulnerability class are explicitly in the bounty
+       scope. If no bounty scope or SECURITY.md establishes eligibility, reject it.
+    3. An external or low-privilege attacker controls the entry point and crosses
+       a real trust or privilege boundary without a compromised administrator.
+    4. A local test, fixture, or complete code trace safely proves the exploit
+       path and serious impact. Never use live credentials or mutate production.
+    5. The prior proof step confirmed the behaviour. A failed, blocked, uncertain,
+       or merely theoretical reproduction is not bounty-worthy.
+    6. For repository automation, CI/CD, or GitHub Actions, proof connects an
+       untrusted trigger to a privileged job and a production-impact capability;
+       permissions, pinning, or interpolation warnings alone always fail.
+
+    State accepted or rejected and give one evidence-backed sentence for each
+    requirement. Missing evidence means rejected, not accepted-with-caveats.
+
+    Finish by calling update_security_finding with the decision as `note` (the
+    only field this tool writes). A finding that already carries status
+    `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and
+    leave the status unchanged. Otherwise keep status `confirmed` only for an
+    accepted finding; set status `accepted_risk` for a rejected finding.

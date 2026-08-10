@@ -3,8 +3,8 @@ kind: SecurityPolicyPack
 metadata:
   name: bug-bounty
 spec:
-  description: Bug-bounty submission policy — triager-calibrated ranking, scope eligibility enforcement, a reproducible proof of concept for high findings, and a submittable report per finding.
-  minSeverity: medium
+  description: Bug-bounty submission policy — only verified, in-scope high and critical vulnerabilities survive triage; hardening noise and unproven repository-automation concerns are rejected before reporting.
+  minSeverity: high
   failOnSeverity: critical
   dedupe:
     enabled: true
@@ -14,6 +14,7 @@ spec:
     - name: scope-eligibility-check
     - name: false-positive-check
     - name: poc-builder
+    - name: bounty-worthiness-check
     - name: report-writer
   budgets:
     maxRuntime: 4h

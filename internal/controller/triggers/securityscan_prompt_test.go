@@ -253,6 +253,15 @@ func TestBuildSecurityPostScriptPipelinePromptIncludesScriptsOnceInOrderAndOneVe
 	if strings.Count(prompt, "call update_security_finding EXACTLY ONCE") != 1 {
 		t.Fatalf("pipeline prompt does not require exactly one aggregate verdict call:\n%s", prompt)
 	}
+	for _, want := range []string{
+		"Later steps must use that proposed state as current",
+		"A proposed `false_positive`, `accepted_risk`, or `fixed` status is terminal",
+		"that terminal status wins the aggregate verdict",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("pipeline prompt does not enforce terminal-status precedence %q:\n%s", want, prompt)
+		}
+	}
 }
 
 func TestBuildSecurityScanTaskPromptSinkStatesPostScriptsAlreadyRanAndDisclosesCoverageGaps(t *testing.T) {

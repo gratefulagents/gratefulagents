@@ -476,7 +476,7 @@ func BuildSecurityPostScriptPipelinePrompt(spec triggersv1alpha1.SecurityScanSpe
 	b.WriteString("\n")
 
 	b.WriteString("## Ordered post-scripts\n\n")
-	b.WriteString("Execute these instructions as pipeline steps. If an individual step asks you to finish by calling `update_security_finding`, retain that step's proposed status and note as an intermediate conclusion instead; do not call the tool until every step is complete. Later steps should consider all earlier evidence and proposed changes.\n\n")
+	b.WriteString("Execute these instructions as pipeline steps. If an individual step asks you to finish by calling `update_security_finding`, retain that step's proposed status and note as the finding's intermediate pipeline state instead; do not call the tool until every step is complete. Later steps must use that proposed state as current. A proposed `false_positive`, `accepted_risk`, or `fixed` status is terminal: later steps must preserve it, skip work intended only for actionable findings, and carry it into the aggregate verdict.\n\n")
 	for i, script := range scripts {
 		fmt.Fprintf(&b, "### %d. %s\n\n", i+1, script.Name)
 		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(script.Prompt))
@@ -486,6 +486,7 @@ func BuildSecurityPostScriptPipelinePrompt(spec triggersv1alpha1.SecurityScanSpe
 	b.WriteString("Before finishing, call update_security_finding EXACTLY ONCE for this finding. That call is the only durable output of this run; a conclusion stated only in your reply does not exist.\n\n")
 	fmt.Fprintf(&b, "- Identify the finding by `fingerprint: \"%s\"` (or `id: \"%s\"`).\n", finding.Fingerprint, finding.ID)
 	b.WriteString("- `status` must be exactly one of: open, triaged, confirmed, false_positive, fixed, accepted_risk.\n")
+	b.WriteString("- If any step proposed false_positive, accepted_risk, or fixed, that terminal status wins the aggregate verdict and no later proposal may replace it.\n")
 	b.WriteString("- `note` carries your evidence and reasoning: what you did, what it proved or disproved, and why the status follows. The tool accepts no other fields, so anything the audit trail must keep belongs in the note.\n")
 	b.WriteString("- Leave the status unchanged (re-state the current one) when your work was inconclusive, and say so in the note.\n\n")
 	b.WriteString("Do NOT call submit_security_scan_report: a separate task submits the scan-wide report after every post-script pipeline has finished, and it reads your verdict from the finding. Do not open, re-scan, or triage other findings; this pipeline owns exactly the finding above.\n")
