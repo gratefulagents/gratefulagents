@@ -7,6 +7,7 @@ import { ExecutionProgressPanel, aggregateState } from "@/components/ExecutionPr
 import {
   SecurityScanExecutionPlanNodeSchema,
   SecurityScanExecutionStateSchema,
+  SecurityScanFanOutStateSchema,
   SecurityScanPostScriptJobStateSchema,
   SecurityScanTaskConfigSchema,
   type SecurityScanExecutionState,
@@ -90,6 +91,35 @@ function workflowFixture(): SecurityScanTaskConfig[] {
 }
 
 describe("ExecutionProgressPanel", () => {
+  it("does not count vacuous or skipped chunk ranges as reviewed", () => {
+    const state = execution();
+    state.tasks = [
+      { ...state.tasks[0], name: "chunk-hunt", state: "Succeeded", recordStart: 0, recordEnd: 0 },
+      { ...state.tasks[0], name: "skipped-hunt", state: "Skipped", recordStart: 0, recordEnd: 12 },
+    ];
+    state.fanOuts = [
+      create(SecurityScanFanOutStateSchema, {
+        name: "chunk-hunt",
+        strategy: "chunk-v1",
+        recordCount: 0,
+        chunkCount: 0,
+      }),
+      create(SecurityScanFanOutStateSchema, {
+        name: "skipped-hunt",
+        strategy: "chunk-v1",
+        recordCount: 12,
+        chunkCount: 1,
+      }),
+    ];
+    renderPanel(state);
+    expect(screen.getByTestId("execution-chunk-progress-chunk-hunt").textContent).toContain(
+      "0/0 records · 0/0 chunks",
+    );
+    expect(screen.getByTestId("execution-chunk-progress-skipped-hunt").textContent).toContain(
+      "0/12 records · 0/1 chunks",
+    );
+  });
+
   it("shows phase, effective parallelism, and timing chips", () => {
     renderPanel();
     const panel = screen.getByTestId("execution-progress");
@@ -115,6 +145,51 @@ describe("ExecutionProgressPanel", () => {
 
     const blocked = screen.getByTestId("execution-task-triage#0");
     expect(blocked.textContent).toContain("Blocked");
+  });
+
+  it("shows complete chunk progress and half-open record ranges", () => {
+    const state = execution();
+    state.tasks = [
+      { ...state.tasks[0], name: "chunk-hunt", instance: 0, state: "Succeeded" },
+      { ...state.tasks[0], name: "chunk-hunt", instance: 1, state: "Running" },
+    ];
+    const chunkedTasks = state.tasks as Array<
+      (typeof state.tasks)[number] & {
+        recordStart: number;
+        recordEnd: number;
+        inputSha256: string;
+      }
+    >;
+    Object.assign(chunkedTasks[0], { recordStart: 0, recordEnd: 30, inputSha256: "chunk-1" });
+    Object.assign(chunkedTasks[1], { recordStart: 30, recordEnd: 60, inputSha256: "chunk-2" });
+    state.fanOuts = [
+      create(SecurityScanFanOutStateSchema, {
+        name: "chunk-hunt",
+        sourceTask: "recon",
+        sourceRunName: "scan-recon-1",
+        strategy: "chunk-v1",
+        sourceOutputSha256: "source-sha",
+        recordCount: 60,
+        chunkCount: 2,
+      }),
+    ];
+    renderPanel(state, [
+      create(SecurityScanTaskConfigSchema, {
+        name: "chunk-hunt",
+        objective: "Hunt every record.",
+        forEach: "recon",
+      }),
+    ]);
+
+    expect(screen.getByTestId("execution-chunk-progress-chunk-hunt").textContent).toContain(
+      "30/60 records · 1/2 chunks",
+    );
+    expect(screen.getByTestId("execution-node-chunk-hunt").textContent).toContain(
+      "30/60 records · 1/2 chunks",
+    );
+    expect(screen.getByTestId("execution-task-chunk-hunt#0").textContent).toContain(
+      "records [0, 30)",
+    );
   });
 
   it("truncates the last error but exposes the full text as a title", () => {

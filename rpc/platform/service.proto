@@ -4325,6 +4325,9 @@ message SecurityScanTaskConfig {
   string for_each = 14;
   int32 max_instances = 15; // forEach fan-out cap (0 = default 10, max 50)
   int32 repeats = 16; // Ensemble instances (0/1 = single, max 5)
+  // target_runs splits the complete forEach record inventory across this
+  // many task runs. It is mutually exclusive with max_instances.
+  int32 target_runs = 17; // Chunk count target (1-50; 0 = disabled)
 }
 
 // SecurityScanTaskTools narrows which tools a task's run may use in
@@ -4471,6 +4474,13 @@ message SecurityScanTaskExecutionState {
   // read from the task's AgentRun status at response time (empty when the
   // run produced no structured output or has been deleted).
   string output_json = 11;
+  // record_start and record_end are the half-open source-record range
+  // assigned to a chunked fan-out task instance.
+  int32 record_start = 12;
+  int32 record_end = 13;
+  // input_sha256 identifies the exact JSON record chunk supplied to this
+  // instance.
+  string input_sha256 = 14;
 }
 
 // SecurityScanExecutionState is the observed state of the most recent
@@ -4504,6 +4514,21 @@ message SecurityScanExecutionState {
   // default workflow). DAG renderers must prefer it over the live library
   // resource, which may have been edited since planning.
   repeated SecurityScanExecutionPlanNode plan = 13;
+  // fan_outs snapshots the source inventory and chunk plan used to expand
+  // each forEach task.
+  repeated SecurityScanFanOutState fan_outs = 14;
+}
+
+// SecurityScanFanOutState is the immutable expansion metadata captured for
+// one forEach task in a deterministic execution.
+message SecurityScanFanOutState {
+  string name = 1; // fan-out workflow task name
+  string source_task = 2;
+  string source_run_name = 3;
+  string strategy = 4; // chunk-v1 for complete chunked fan-out
+  string source_output_sha256 = 5;
+  int32 record_count = 6;
+  int32 chunk_count = 7;
 }
 
 // SecurityScanExecutionPlanNode is one workflow task of an execution's
@@ -4512,6 +4537,7 @@ message SecurityScanExecutionPlanNode {
   string name = 1; // workflow task name; tasks[].name references it
   repeated string depends_on = 2;
   string for_each = 3; // dependency this task fans out over, when set
+  int32 target_runs = 4; // snapshotted chunk-mode setting for this execution
 }
 
 // SecurityScanPostScriptJobState is one durable per-finding post-script

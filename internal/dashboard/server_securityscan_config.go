@@ -938,12 +938,15 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 	}
 	for _, t := range e.Tasks {
 		pbTask := &platform.SecurityScanTaskExecutionState{
-			Name:      t.Name,
-			Instance:  t.Instance,
-			State:     t.State,
-			RunName:   t.RunName,
-			Attempts:  t.Attempts,
-			LastError: t.LastError,
+			Name:        t.Name,
+			Instance:    t.Instance,
+			State:       t.State,
+			RunName:     t.RunName,
+			Attempts:    t.Attempts,
+			LastError:   t.LastError,
+			RecordStart: t.RecordStart,
+			RecordEnd:   t.RecordEnd,
+			InputSha256: t.InputSHA256,
 		}
 		if t.NextRetryTime != nil {
 			pbTask.NextRetryTimeUnix = t.NextRetryTime.Unix()
@@ -970,11 +973,23 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 		}
 		pb.Tasks = append(pb.Tasks, pbTask)
 	}
+	for _, f := range e.FanOuts {
+		pb.FanOuts = append(pb.FanOuts, &platform.SecurityScanFanOutState{
+			Name:               f.Name,
+			SourceTask:         f.SourceTask,
+			SourceRunName:      f.SourceRunName,
+			Strategy:           f.Strategy,
+			SourceOutputSha256: f.SourceOutputSHA256,
+			RecordCount:        f.RecordCount,
+			ChunkCount:         f.ChunkCount,
+		})
+	}
 	for _, p := range e.Plan {
 		pb.Plan = append(pb.Plan, &platform.SecurityScanExecutionPlanNode{
-			Name:      p.Name,
-			DependsOn: append([]string(nil), p.DependsOn...),
-			ForEach:   p.ForEach,
+			Name:       p.Name,
+			DependsOn:  append([]string(nil), p.DependsOn...),
+			ForEach:    p.ForEach,
+			TargetRuns: p.TargetRuns,
 		})
 	}
 	for _, j := range e.PostScriptJobs {

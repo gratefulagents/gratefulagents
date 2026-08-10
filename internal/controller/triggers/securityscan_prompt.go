@@ -264,6 +264,11 @@ type SecurityScanTaskInstance struct {
 	Total    int32
 	// ItemJSON, when non-empty, is the fan-out record this instance handles.
 	ItemJSON string
+	// ItemsJSON and the half-open record range describe a targetRuns chunk.
+	ItemsJSON   string
+	Chunked     bool
+	RecordStart int32
+	RecordEnd   int32
 	// Sink reports that no other task depends on this task. Only sink tasks
 	// are instructed to call submit_security_scan_report: they are the
 	// terminal aggregation points of the DAG, so the scan-wide report is
@@ -342,6 +347,9 @@ func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *
 	if inst.ItemJSON != "" {
 		fmt.Fprintf(&b, "- This instance handles exactly this input record:\n\n```json\n%s\n```\n", inst.ItemJSON)
 	}
+	if inst.Chunked {
+		fmt.Fprintf(&b, "- This instance handles source record indexes [%d,%d). The indexed input available as `{{items}}` is:\n\n```json\n%s\n```\n", inst.RecordStart, inst.RecordEnd, inst.ItemsJSON)
+	}
 	b.WriteString("\n")
 
 	b.WriteString("## Finding contract\n\n")
@@ -351,7 +359,15 @@ func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *
 
 	writeSecurityScanTaskReportingPolicy(&b, spec, task.MaxFindings)
 
-	if strings.TrimSpace(task.OutputSchema) != "" {
+	if inst.Chunked {
+		b.WriteString("## Structured output\n\n")
+		fmt.Fprintf(&b, "Call submit_task_output exactly once with a JSON array containing exactly one entry for every assigned record index from %d through %d, in ascending order. Each entry must have exactly this shape: `{\"recordIndex\": absoluteInteger, \"result\": value}`. Missing, duplicate, non-integer, or out-of-range indexes fail the task.\n\n", inst.RecordStart, inst.RecordEnd-1)
+		if schema := strings.TrimSpace(task.OutputSchema); schema != "" {
+			b.WriteString("The complete output array must also conform to this JSON Schema:\n\n")
+			fmt.Fprintf(&b, "```json\n%s\n```\n\n", schema)
+		}
+		b.WriteString("A run that never submits a conforming output fails its task even when the analysis itself succeeded.\n\n")
+	} else if strings.TrimSpace(task.OutputSchema) != "" {
 		b.WriteString("## Structured output\n\n")
 		b.WriteString("This task has a typed output contract: downstream tasks consume its result as machine-readable data. Before finishing, call submit_task_output exactly once with an output that conforms to this JSON Schema:\n\n")
 		fmt.Fprintf(&b, "```json\n%s\n```\n\n", strings.TrimSpace(task.OutputSchema))
