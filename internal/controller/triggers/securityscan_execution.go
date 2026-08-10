@@ -840,8 +840,9 @@ func (e *securityScanExecutionEngine) advance(ctx context.Context) time.Duration
 	if materializedFanOut {
 		// Chunk entries and their source binding must be durable before any
 		// corresponding AgentRun can exist. The next reconcile dispatches the
-		// frozen plan.
-		e.finalizePhase(e.anyFailed())
+		// frozen plan. Do not finalize here: a vacuous sink fan-out can make all
+		// task entries successful, but post-script pipelines have not yet been
+		// materialized and must still get their own persistence barrier.
 		return e.nextRequeue()
 	}
 

@@ -369,6 +369,17 @@ func TestValidateSecurityWorkflowTasksRequiresOutputSchemaForOutputReferences(t 
 	}
 }
 
+func TestValidateSecurityWorkflowTasksAllowsSchemaLessTargetRunsOutputReference(t *testing.T) {
+	tasks := []SecurityScanTask{
+		{Name: "inventory", Objective: "list", OutputSchema: `{"type":"array"}`},
+		{Name: "chunk", Objective: "inspect {{items}}", DependsOn: []string{"inventory"}, ForEach: "inventory", TargetRuns: 2},
+		{Name: "join", Objective: "combine {{tasks.chunk.output}}", DependsOn: []string{"chunk"}},
+	}
+	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
+		t.Fatalf("schema-less targetRuns output reference should validate, got %v", errs)
+	}
+}
+
 func TestValidateSecurityWorkflowTasksRejectsFieldAccessOnMultiInstanceOutputs(t *testing.T) {
 	tasks := []SecurityScanTask{
 		{Name: "a", Objective: "objective a", Repeats: 3, OutputSchema: `{"type":"object"}`},

@@ -1779,6 +1779,38 @@ func postScriptRun(t *testing.T, runs []platformv1alpha1.AgentRun, scripts, fing
 	return platformv1alpha1.AgentRun{}
 }
 
+func TestSecurityScanVacuousSinkFanOutStillMaterializesPostScripts(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "inventory", Objective: "list targets", OutputSchema: `{"type":"array"}`},
+		{Name: "review", Objective: "review {{items}}", DependsOn: []string{"inventory"}, ForEach: "inventory", TargetRuns: 4},
+	}, 2)
+	scan.Spec.PostScripts = []triggersv1alpha1.SecurityScanPostScript{{Name: "validate", Prompt: "Validate it."}}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	inventory := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "inventory")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, inventory.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning || exec.PostScriptsMaterialized {
+		t.Fatalf("vacuous fan-out materialization = %#v, want Running before post-script barrier", exec)
+	}
+	if len(exec.FanOuts) != 1 || exec.FanOuts[0].ChunkCount != 0 {
+		t.Fatalf("vacuous fan-out plan = %#v, want persisted zero-chunk plan", exec.FanOuts)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning || !exec.PostScriptsMaterialized || len(exec.PostScriptJobs) != 1 {
+		t.Fatalf("post-script materialization after vacuous sink = %#v", exec)
+	}
+}
+
 func TestSecurityScanPostScriptsMaterializeOneOrderedPipelinePerFinding(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{

@@ -221,9 +221,9 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 				add(field+".objective", "task %q references {{tasks.%s}} but does not list %q in dependsOn", task.Name, ref, ref)
 			}
 		}
-		// Only a task that declares an outputSchema is given the
-		// submit_task_output tool, so a reference to a schema-less task's
-		// output can never resolve and fails the dependent task at launch.
+		// A regular task must declare outputSchema to receive the
+		// submit_task_output tool. targetRuns tasks receive the tool and a
+		// generated indexed-envelope schema even without a declared schema.
 		outputReferenced := make(map[string]bool)
 		for _, match := range securityWorkflowTaskOutputRefPattern.FindAllStringSubmatch(task.Objective, -1) {
 			ref := match[1]
@@ -232,7 +232,7 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 			}
 			outputReferenced[ref] = true
 			src, known := byName[ref]
-			if known && ref != task.Name && strings.TrimSpace(src.OutputSchema) == "" {
+			if known && ref != task.Name && strings.TrimSpace(src.OutputSchema) == "" && src.TargetRuns <= 0 {
 				add(field+".objective", "task %q references {{tasks.%s.output}} but task %q declares no outputSchema and therefore never publishes structured output; add an outputSchema to %q or stop interpolating its output", task.Name, ref, ref, ref)
 			}
 		}
