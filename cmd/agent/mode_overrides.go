@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
 	sdkruntime "github.com/gratefulagents/sdk/pkg/agentsdk/runtime"
 )
@@ -158,7 +159,7 @@ func shouldTerminateAfterFinish(run *platformv1alpha1.AgentRun, delegatedChild b
 	if delegatedChild {
 		return true
 	}
-	return run != nil && strings.EqualFold(strings.TrimSpace(run.Spec.Trigger.Kind), "SecurityScan")
+	return run != nil && run.Spec.Trigger.MatchesKind(triggersv1alpha1.SecurityScanTriggerKind)
 }
 
 // autoModeIntent reads the AgentRun CRD intent to use as the first prompt

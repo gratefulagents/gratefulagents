@@ -555,6 +555,29 @@ func TestEffectiveSkillRefsExcludesStandingOverseer(t *testing.T) {
 	}
 }
 
+func TestSecurityScanRunDoesNotInheritNamespaceSkillCatalog(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{Spec: platformv1alpha1.AgentRunSpec{
+		Trigger:   platformv1alpha1.TriggerRef{Kind: " securityscan ", Name: "nightly"},
+		SkillRefs: []platformv1alpha1.NamedRef{{Name: "task-skill"}},
+	}}
+	snapshot := &platformv1alpha1.ModeTemplateSpec{
+		DefaultSkillRefs: []platformv1alpha1.NamedRef{{Name: "security-scan"}},
+	}
+	userSkills := []platformv1alpha1.NamedRef{{Name: "unrelated-user-skill"}}
+
+	got := effectiveSkillRefs(run, snapshot, userSkills)
+	gotNames := make([]string, 0, len(got))
+	for _, ref := range got {
+		gotNames = append(gotNames, ref.Name)
+	}
+	if !slices.Equal(gotNames, []string{"task-skill", "security-scan"}) {
+		t.Fatalf("effectiveSkillRefs() = %v, want only task and mode skills", gotNames)
+	}
+	if refs, err := listUserSkillRefsForRun(context.Background(), nil, run); err != nil || len(refs) != 0 {
+		t.Fatalf("listUserSkillRefsForRun() = %v, %v; want no namespace catalog lookup", refs, err)
+	}
+}
+
 func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	t.Parallel()
 

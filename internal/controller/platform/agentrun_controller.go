@@ -722,7 +722,7 @@ func resolveMCPPolicyForRun(ctx context.Context, c client.Client, run *platformv
 }
 
 func listUserSkillRefsForRun(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) ([]platformv1alpha1.NamedRef, error) {
-	if run == nil || isStandingOverseerRun(run) {
+	if run == nil || isStandingOverseerRun(run) || isSecurityScanRun(run) {
 		return nil, nil
 	}
 	var skills platformv1alpha1.SkillList
@@ -740,6 +740,10 @@ func listUserSkillRefsForRun(ctx context.Context, c client.Client, run *platform
 func isStandingOverseerRun(run *platformv1alpha1.AgentRun) bool {
 	_, supervisedRunName, _ := supervisedIdentityForRun(run)
 	return supervisedRunName != ""
+}
+
+func isSecurityScanRun(run *platformv1alpha1.AgentRun) bool {
+	return run != nil && run.Spec.Trigger.MatchesKind(triggersv1alpha1.SecurityScanTriggerKind)
 }
 
 func effectiveSkillRefs(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha1.ModeTemplateSpec, userSkillRefs []platformv1alpha1.NamedRef) []platformv1alpha1.NamedRef {
@@ -765,7 +769,12 @@ func effectiveSkillRefs(run *platformv1alpha1.AgentRun, snapshot *platformv1alph
 	if snapshot != nil {
 		appendUnique(snapshot.DefaultSkillRefs)
 	}
-	appendUnique(userSkillRefs)
+	// SecurityScan task runs deliberately curate task-specific skills. Appending
+	// the namespace's entire user catalog defeats that scope and bloats the
+	// model-visible skill menu with unrelated guidance.
+	if !isSecurityScanRun(run) {
+		appendUnique(userSkillRefs)
+	}
 	return refs
 }
 
