@@ -7,6 +7,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 package v1alpha1
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -265,6 +267,55 @@ func TestSecurityScanTaskEffectiveMaxInstances(t *testing.T) {
 	task.MaxInstances = 25
 	if got := task.EffectiveMaxInstances(); got != 25 {
 		t.Fatalf("EffectiveMaxInstances() = %d, want 25", got)
+	}
+}
+
+func TestSecurityScanTaskEffectiveTargetRuns(t *testing.T) {
+	var task SecurityScanTask
+	if got := task.EffectiveTargetRuns(); got != 10 {
+		t.Fatalf("EffectiveTargetRuns() legacy default = %d, want 10", got)
+	}
+	task.MaxInstances = 25
+	if got := task.EffectiveTargetRuns(); got != 25 {
+		t.Fatalf("EffectiveTargetRuns() legacy maxInstances = %d, want 25", got)
+	}
+	task.TargetRuns = 4
+	if got := task.EffectiveTargetRuns(); got != 4 {
+		t.Fatalf("EffectiveTargetRuns() targetRuns = %d, want 4", got)
+	}
+	data, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(data), `"targetRuns":4`) {
+		t.Fatalf("Marshal() = %s, want targetRuns field", data)
+	}
+}
+
+func TestSecurityScanFanOutStatusJSONFields(t *testing.T) {
+	execution := SecurityScanExecutionStatus{
+		Tasks: []SecurityScanTaskExecutionStatus{{
+			Name: "hunt", RecordStart: 2, RecordEnd: 5, InputSHA256: "input-sha",
+		}},
+		FanOuts: []SecurityScanFanOutExecutionStatus{{
+			Name: "hunt", SourceTask: "recon", SourceRunName: "scan-recon-0",
+			Strategy: "balanced", SourceOutputSHA256: "source-sha", RecordCount: 8, ChunkCount: 3,
+		}},
+	}
+	data, err := json.Marshal(execution)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	jsonText := string(data)
+	for _, field := range []string{
+		`"recordStart":2`, `"recordEnd":5`, `"inputSHA256":"input-sha"`,
+		`"fanOuts"`, `"sourceTask":"recon"`, `"sourceRunName":"scan-recon-0"`,
+		`"strategy":"balanced"`, `"sourceOutputSHA256":"source-sha"`,
+		`"recordCount":8`, `"chunkCount":3`,
+	} {
+		if !strings.Contains(jsonText, field) {
+			t.Errorf("Marshal() = %s, want field %s", jsonText, field)
+		}
 	}
 }
 

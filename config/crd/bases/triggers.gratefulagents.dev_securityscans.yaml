@@ -1095,6 +1095,16 @@ spec:
                         type: object
                       type: array
                       x-kubernetes-list-type: atomic
+                    targetRuns:
+                      description: |-
+                        targetRuns sets the desired number of AgentRuns used to process a
+                        forEach source. Records are deterministically partitioned across the
+                        runs. Zero preserves the legacy one-run-per-record behavior bounded by
+                        maxInstances.
+                      format: int32
+                      maximum: 50
+                      minimum: 0
+                      type: integer
                     timeout:
                       description: |-
                         timeout is a hard per-task runtime limit in deterministic execution,
@@ -1416,6 +1426,50 @@ spec:
                       effectiveParallelismNote explains how the bound was derived (e.g.
                       clamped by the mode template's sub-agent ceiling).
                     type: string
+                  fanOuts:
+                    description: |-
+                      fanOuts records each forEach task's durable source binding and
+                      partitioning decision.
+                    items:
+                      description: |-
+                        SecurityScanFanOutExecutionStatus records the durable materialization of a
+                        forEach task's source output into task instances.
+                      properties:
+                        chunkCount:
+                          description: |-
+                            chunkCount is the number of task instances materialized from the
+                            source records.
+                          format: int32
+                          type: integer
+                        name:
+                          description: name is the fan-out workflow task name.
+                          type: string
+                        recordCount:
+                          description: recordCount is the number of records in the
+                            source output.
+                          format: int32
+                          type: integer
+                        sourceOutputSHA256:
+                          description: |-
+                            sourceOutputSHA256 identifies the exact source output that was
+                            materialized.
+                          type: string
+                        sourceRunName:
+                          description: sourceRunName is the AgentRun that published
+                            the source output.
+                          type: string
+                        sourceTask:
+                          description: sourceTask is the workflow task whose output
+                            supplied the records.
+                          type: string
+                        strategy:
+                          description: strategy identifies how source records were
+                            partitioned into chunks.
+                          type: string
+                      type: object
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: atomic
                   id:
                     description: |-
                       id is the external id / run-suffix of the scan invocation this
@@ -1465,6 +1519,13 @@ spec:
                           description: name is the workflow task name; tasks[].name
                             values reference it.
                           type: string
+                        targetRuns:
+                          description: |-
+                            targetRuns snapshots whether this execution uses complete chunked
+                            fan-out. Zero keeps pre-upgrade and legacy executions on their original
+                            one-record-per-run path even if the referenced workflow later changes.
+                          format: int32
+                          type: integer
                       type: object
                     maxItems: 64
                     type: array
@@ -1573,6 +1634,11 @@ spec:
                             a terminal state.
                           format: date-time
                           type: string
+                        inputSHA256:
+                          description: |-
+                            inputSHA256 identifies the exact source-record input assigned to this
+                            task instance.
+                          type: string
                         instance:
                           description: |-
                             instance distinguishes forEach fan-out and ensemble-repeat instances
@@ -1591,6 +1657,15 @@ spec:
                             retryable failure.
                           format: date-time
                           type: string
+                        recordEnd:
+                          format: int32
+                          type: integer
+                        recordStart:
+                          description: |-
+                            recordStart and recordEnd identify the half-open source-record range
+                            assigned to this task instance when targetRuns partitions a fan-out.
+                          format: int32
+                          type: integer
                         resumeBaselineAttempts:
                           description: |-
                             resumeBaselineAttempts is the value of attempts when the execution

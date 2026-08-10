@@ -43,7 +43,7 @@ afterEach(() => cleanup());
 
 /** An advanced workflow exercising every optional SecurityScanTask field. */
 function advancedProtoTasks(): SecurityScanTaskConfig[] {
-  return [
+  const tasks = [
     create(SecurityScanTaskConfigSchema, {
       name: "recon",
       objective: "Map the attack surface,\nincluding multi-line notes.",
@@ -82,10 +82,10 @@ function advancedProtoTasks(): SecurityScanTaskConfig[] {
       tools: { allowed: ["read_file", "grep"], denied: ["Bash"] },
       outputSchema: '{"type":"object","properties":{"items":{"type":"array"}}}',
       forEach: "injection-hunt",
-      maxInstances: 12,
       repeats: 3,
     }),
   ];
+  return tasks;
 }
 
 describe("workflow round-trip", () => {
@@ -99,6 +99,16 @@ describe("workflow round-trip", () => {
         `task ${task.name} drifted: ${JSON.stringify(toJson(SecurityScanTaskConfigSchema, roundTripped[i]))}`,
       ).toBe(true);
     });
+  });
+
+  it("round-trips the complete fan-out target run count", () => {
+    const original = create(SecurityScanTaskConfigSchema, {
+      name: "fan",
+      objective: "inspect",
+      targetRuns: 12,
+    });
+    const [roundTripped] = workflowTasksToProto(workflowTasksFromProto([original]));
+    expect(roundTripped.targetRuns).toBe(12);
   });
 
   it("survives a second round-trip (stable fixed point)", () => {
@@ -264,6 +274,22 @@ describe("SecurityWorkflowBuilder component", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Attach api-authz-hunting" }));
     expect(latest[0].skillRefs).toEqual([]);
   });
+
+  it("edits the complete fan-out target run count", () => {
+    let latest: WorkflowTaskDraft[] = [];
+    render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "a", forEach: "source" })]}
+        onChange={(next) => {
+          latest = next;
+        }}
+      />,
+    );
+    fireEvent.change(document.getElementById("wf-task-target-runs-0")!, {
+      target: { value: "8" },
+    });
+    expect(latest[0].targetRuns).toBe("8");
+  });
 });
 
 describe("validateWorkflowTasks advanced fields", () => {
@@ -276,6 +302,7 @@ describe("validateWorkflowTasks advanced fields", () => {
         maxTurns: "-1",
         maxCostUsd: "$5",
         maxInstances: "51",
+        targetRuns: "0",
         repeats: "6",
       }),
     ]);
@@ -285,7 +312,39 @@ describe("validateWorkflowTasks advanced fields", () => {
     expect(fields).toContain("tasks[0].maxTurns");
     expect(fields).toContain("tasks[0].maxCostUsd");
     expect(fields).toContain("tasks[0].maxInstances");
+    expect(fields).toContain("tasks[0].targetRuns");
     expect(fields).toContain("tasks[0].repeats");
+  });
+
+  it("validates complete chunking contracts", () => {
+    const valid = validateWorkflowTasks([
+      draft({ name: "source", outputSchema: '{"type":"array"}' }),
+      draft({
+        name: "fan",
+        dependsOn: ["source"],
+        forEach: "source",
+        targetRuns: "4",
+        outputSchema: '{"type":"array"}',
+      }),
+    ]);
+    expect(valid).toEqual([]);
+
+    const invalid = validateWorkflowTasks([
+      draft({ name: "fan", targetRuns: "4", outputSchema: '{"type":"object"}' }),
+    ]);
+    expect(invalid.some((e) => e.field === "tasks[0].targetRuns")).toBe(true);
+    expect(invalid.some((e) => e.field === "tasks[0].outputSchema")).toBe(true);
+  });
+
+  it("rejects combining complete chunking with the legacy fan-out cap", () => {
+    const errors = validateWorkflowTasks([
+      draft({ name: "a", maxInstances: "10", targetRuns: "4" }),
+    ]);
+    expect(
+      errors.some(
+        (e) => e.field === "tasks[0].targetRuns" && e.message.includes("cannot combine"),
+      ),
+    ).toBe(true);
   });
 
   it("rejects an output schema that is not a JSON object", () => {

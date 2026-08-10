@@ -216,6 +216,16 @@ spec:
                         type: object
                       type: array
                       x-kubernetes-list-type: atomic
+                    targetRuns:
+                      description: |-
+                        targetRuns sets the desired number of AgentRuns used to process a
+                        forEach source. Records are deterministically partitioned across the
+                        runs. Zero preserves the legacy one-run-per-record behavior bounded by
+                        maxInstances.
+                      format: int32
+                      maximum: 50
+                      minimum: 0
+                      type: integer
                     timeout:
                       description: |-
                         timeout is a hard per-task runtime limit in deterministic execution,

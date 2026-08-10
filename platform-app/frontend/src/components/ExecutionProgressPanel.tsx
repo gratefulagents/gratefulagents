@@ -198,6 +198,30 @@ interface TaskGroup {
   done: number;
 }
 
+interface FanOutProgress {
+  name: string;
+  recordCount: number;
+  chunkCount: number;
+  completedRecords: number;
+  completedChunks: number;
+}
+
+type ChunkedTaskExecutionState = SecurityScanTaskExecutionState & {
+  recordStart: number;
+  recordEnd: number;
+  inputSha256: string;
+};
+
+type ExecutionFanOut = {
+  name: string;
+  sourceTask: string;
+  sourceRunName: string;
+  strategy: string;
+  sourceOutputSha256: string;
+  recordCount: number;
+  chunkCount: number;
+};
+
 function groupInstances(execution: SecurityScanExecutionState): TaskGroup[] {
   const byName = new Map<string, SecurityScanTaskExecutionState[]>();
   for (const task of execution.tasks) {
@@ -227,6 +251,7 @@ function ExecutionDagNode({
   name,
   group,
   forEach,
+  fanOutProgress,
   selected,
   onClick,
 }: {
@@ -234,6 +259,7 @@ function ExecutionDagNode({
   group: TaskGroup | undefined;
   /** Fan-out source recorded in the execution plan (or workflow fallback). */
   forEach: string;
+  fanOutProgress?: FanOutProgress;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -267,7 +293,9 @@ function ExecutionDagNode({
       <span className="flex min-w-0 items-center gap-1 text-[10.5px] leading-tight text-muted-foreground">
         <span className="truncate">
           {group
-            ? fanout
+            ? fanOutProgress
+              ? `${state} · ${fanOutProgress.completedRecords}/${fanOutProgress.recordCount} records · ${fanOutProgress.completedChunks}/${fanOutProgress.chunkCount} chunks`
+              : fanout
               ? `${state} · ${group.done}/${group.instances.length} instances`
               : state
             : forEach
@@ -316,6 +344,32 @@ export function ExecutionProgressPanel({
 
   const groups = useMemo(() => groupInstances(execution), [execution]);
   const groupByName = useMemo(() => new Map(groups.map((g) => [g.name, g])), [groups]);
+  const fanOuts =
+    (execution as SecurityScanExecutionState & { fanOuts: ExecutionFanOut[] }).fanOuts ?? [];
+  const chunkedProgress = fanOuts
+    .filter((fanOut) => fanOut.strategy === "chunk-v1")
+    .map((fanOut): FanOutProgress => {
+      const completed = execution.tasks.filter(
+        (task) =>
+          task.name === fanOut.name &&
+          task.state === "Succeeded" &&
+          (task as ChunkedTaskExecutionState).recordEnd >
+            (task as ChunkedTaskExecutionState).recordStart,
+      ) as ChunkedTaskExecutionState[];
+      return {
+        name: fanOut.name,
+        recordCount: fanOut.recordCount,
+        chunkCount: fanOut.chunkCount,
+        completedRecords: completed.reduce(
+          (total, task) => total + Math.max(0, task.recordEnd - task.recordStart),
+          0,
+        ),
+        completedChunks: completed.length,
+      };
+    });
+  const chunkedProgressByName = new Map(
+    chunkedProgress.map((progress) => [progress.name, progress]),
+  );
 
   // The planned workflow supplies the dependency edges; execution state alone
   // has no graph shape. The dependency edges come from the execution's own
@@ -400,6 +454,16 @@ export function ExecutionProgressPanel({
               {donePostScripts}/{postScriptJobs.length} post-script pipelines done
             </span>
           )}
+          {chunkedProgress.map((progress) => (
+            <span
+              key={progress.name}
+              className="rounded-md bg-muted/60 px-2 py-0.5 text-muted-foreground ring-1 ring-inset ring-border/70"
+              data-testid={`execution-chunk-progress-${progress.name}`}
+            >
+              <span className="font-mono">{progress.name}</span>: {progress.completedRecords}/
+              {progress.recordCount} records · {progress.completedChunks}/{progress.chunkCount} chunks
+            </span>
+          ))}
           <span
             className="rounded-md bg-muted/60 px-2 py-0.5 text-muted-foreground ring-1 ring-inset ring-border/70"
             title={execution.effectiveParallelismNote || undefined}
@@ -479,6 +543,7 @@ export function ExecutionProgressPanel({
                     name={node.name}
                     group={groupByName.get(node.name)}
                     forEach={node.forEach}
+                    fanOutProgress={chunkedProgressByName.get(node.name)}
                     selected={focusTask === node.name}
                     onClick={() =>
                       setFocusTask((current) => (current === node.name ? null : node.name))
@@ -526,6 +591,7 @@ export function ExecutionProgressPanel({
           </TableHeader>
           <TableBody>
             {visibleTasks.map((task) => {
+              const chunkedTask = task as ChunkedTaskExecutionState;
               const key = `${task.name}#${task.instance}`;
               const isOpen = expanded.has(key);
               const expandable = task.retries.length > 0 || task.outputJson !== "";
@@ -546,7 +612,14 @@ export function ExecutionProgressPanel({
                         </Button>
                       )}
                     </TableCell>
-                    <TableCell className="font-mono text-[13px]">{instanceLabel(task)}</TableCell>
+                    <TableCell className="font-mono text-[13px]">
+                      <span>{instanceLabel(task)}</span>
+                      {chunkedTask.recordEnd > chunkedTask.recordStart && (
+                        <span className="block text-[11px] text-muted-foreground">
+                          records [{chunkedTask.recordStart}, {chunkedTask.recordEnd})
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <StatePill state={task.state} />
                     </TableCell>

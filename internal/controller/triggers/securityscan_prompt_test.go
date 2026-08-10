@@ -155,6 +155,36 @@ func TestBuildSecurityScanTaskPromptStatesResolvedRoleContract(t *testing.T) {
 	}
 }
 
+func TestBuildSecurityScanTaskPromptStatesChunkInputAndExactOutputContract(t *testing.T) {
+	spec := securityScanPromptSpec()
+	task := triggersv1alpha1.SecurityScanTask{Name: "chunk", Objective: "inspect {{items}}", OutputSchema: `{"type":"array"}`}
+	inst := SecurityScanTaskInstance{
+		Objective:   `inspect [{"recordIndex":7,"item":{"path":"a.go"}}]`,
+		Instance:    1,
+		Total:       3,
+		ItemsJSON:   `[{"recordIndex":7,"item":{"path":"a.go"}}]`,
+		Chunked:     true,
+		RecordStart: 7,
+		RecordEnd:   8,
+	}
+
+	prompt := BuildSecurityScanTaskPrompt(spec, nil, task, inst, nil)
+	for _, want := range []string{
+		"source record indexes [7,8)",
+		inst.ItemsJSON,
+		`{"recordIndex": absoluteInteger, "result": value}`,
+		"exactly one entry for every assigned record index from 7 through 7",
+		"complete output array must also conform",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("chunk prompt does not contain %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "This instance handles exactly this input record") {
+		t.Fatalf("chunk prompt contains the legacy single-record context:\n%s", prompt)
+	}
+}
+
 func TestBuildSecurityPostScriptPromptStatesTheFindingAndVerdictContract(t *testing.T) {
 	spec := securityScanPromptSpec()
 	script := spec.PostScripts[0]

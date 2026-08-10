@@ -551,6 +551,246 @@ func TestSecurityScanDeterministicExecutionExpandsFanOutAndRendersOutputs(t *tes
 	if !strings.Contains(joinSeed, `combine [{"result":"first"},{"result":"second"}]`) {
 		t.Fatalf("join seed = %q, want aggregate fan-out outputs", joinSeed)
 	}
+	if len(getSecurityScan(t, k8sClient, scan).Status.LastExecution.FanOuts) != 0 {
+		t.Fatal("legacy maxInstances fan-out unexpectedly persisted a chunk plan")
+	}
+}
+
+func TestSecurityScanTargetRunsMaterializesBalancedPlanBeforeDispatch(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	records := make([]string, 101)
+	for i := range records {
+		records[i] = fmt.Sprintf(`{"value":%d}`, i)
+	}
+	sourceOutput := " [" + strings.Join(records, ",") + "] "
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source", Objective: "produce targets", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{items}} in [{{range.start}},{{range.end}})", DependsOn: []string{"source"}, ForEach: "source", TargetRuns: 16, OutputSchema: `{"type":"array","items":{"type":"object","properties":{"result":{"type":"object","required":["status"],"properties":{"status":{"type":"string"}}}}}}`},
+	}, 16)
+	reconciler, k8sClient, stateStore := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, sourceOutput, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	if got := len(taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "fan")); got != 0 {
+		t.Fatalf("fan runs in materialization reconcile = %d, want 0", got)
+	}
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if len(exec.FanOuts) != 1 {
+		t.Fatalf("fan-out plans = %#v, want one durable plan", exec.FanOuts)
+	}
+	plan := exec.FanOuts[0]
+	if plan.Name != "fan" || plan.SourceTask != "source" || plan.SourceRunName != source.Name || plan.Strategy != "chunk-v1" ||
+		plan.SourceOutputSHA256 != securityScanSHA256(sourceOutput) || plan.RecordCount != 101 || plan.ChunkCount != 16 {
+		t.Fatalf("fan-out plan = %#v, want exact source-bound 101/16 plan", plan)
+	}
+	entries := make([]triggersv1alpha1.SecurityScanTaskExecutionStatus, 0, 16)
+	for _, entry := range exec.Tasks {
+		if entry.Name == "fan" {
+			entries = append(entries, entry)
+		}
+	}
+	if len(entries) != 16 {
+		t.Fatalf("chunk entries = %d, want 16", len(entries))
+	}
+	start := int32(0)
+	for i, entry := range entries {
+		size := int32(6)
+		if i < 5 {
+			size = 7
+		}
+		if entry.Instance != int32(i) || entry.RecordStart != start || entry.RecordEnd != start+size || entry.InputSHA256 == "" {
+			t.Fatalf("chunk %d = %#v, want contiguous balanced range [%d,%d)", i, entry, start, start+size)
+		}
+		start = entry.RecordEnd
+	}
+	if start != 101 {
+		t.Fatalf("final chunk end = %d, want complete coverage through 101", start)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	fanRuns := taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "fan")
+	if len(fanRuns) != 16 {
+		t.Fatalf("fan runs after persisted plan = %d, want 16", len(fanRuns))
+	}
+	first := fanRuns[0]
+	for _, run := range fanRuns {
+		if run.Labels[securityScanTaskInstanceLabel] == "0" {
+			first = run
+			break
+		}
+	}
+	seed := securityScanSeedMessage(t, stateStore, scan.Namespace, first.Name)
+	if !strings.Contains(seed, `- Objective: inspect [{"recordIndex":0,"item":{"value":0}}`) || !strings.Contains(seed, "source record indexes [0,7)") {
+		t.Fatalf("first chunk prompt does not expose rendered indexed items and range:\n%s", seed)
+	}
+	schema := first.Annotations[securityScanTaskOutputSchemaAnnotation]
+	if strings.Contains(schema, `"allOf"`) || !strings.Contains(schema, `"minItems":7`) || !strings.Contains(schema, `"maximum":6`) ||
+		!strings.Contains(schema, `"required":["status"]`) {
+		t.Fatalf("chunk output-schema annotation = %q, want supported range constraints merged with the declared result schema", schema)
+	}
+}
+
+func TestSecurityScanTargetRunsFlattensChunkResultsForDownstreamTask(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source", Objective: "produce targets", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{items}}", DependsOn: []string{"source"}, ForEach: "source", TargetRuns: 2, OutputSchema: `{"type":"array"}`},
+		{Name: "join", Objective: "combine {{tasks.fan.output}}", DependsOn: []string{"fan"}},
+	}, 2)
+	reconciler, k8sClient, stateStore := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `["a","b","c"]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	for _, run := range taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "fan") {
+		if run.Labels[securityScanTaskInstanceLabel] == "0" {
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[{"recordIndex":1,"result":"B"},{"recordIndex":0,"result":"A"}]`, "")
+		} else {
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[{"recordIndex":2,"result":"C"}]`, "")
+		}
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	join := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "join")
+	if seed := securityScanSeedMessage(t, stateStore, scan.Namespace, join.Name); !strings.Contains(seed, `combine ["A","B","C"]`) {
+		t.Fatalf("join seed = %q, want flattened absolute record order", seed)
+	}
+}
+
+func TestValidateSecurityScanChunkOutputRejectsMalformedIndexes(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{name: "missing", output: `[{"recordIndex":4,"result":true}]`, want: "want exactly 2"},
+		{name: "duplicate", output: `[{"recordIndex":4,"result":true},{"recordIndex":4,"result":false}]`, want: "duplicate recordIndex 4"},
+		{name: "foreign", output: `[{"recordIndex":4,"result":true},{"recordIndex":6,"result":false}]`, want: "foreign recordIndex 6"},
+		{name: "noninteger", output: `[{"recordIndex":4,"result":true},{"recordIndex":5.0,"result":false}]`, want: "must be an integer"},
+		{name: "extra field", output: `[{"recordIndex":4,"result":true},{"recordIndex":5,"result":false,"extra":1}]`, want: "exactly recordIndex and result"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := validateSecurityScanChunkOutput(tc.output, 4, 6); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("validateSecurityScanChunkOutput() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestSecurityScanTargetRunsRejectsSourceOutputDriftBeforeLaunch(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source", Objective: "produce targets", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{items}}", DependsOn: []string{"source"}, ForEach: "source", TargetRuns: 2},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `["a","b"]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[ "a", "b" ]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	if got := len(taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "fan")); got != 0 {
+		t.Fatalf("fan runs after source drift = %d, want 0", got)
+	}
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase = %q, want Failed after exact-byte drift", exec.Phase)
+	}
+	for _, entry := range exec.Tasks {
+		if entry.Name == "fan" && (entry.State != triggersv1alpha1.SecurityScanTaskStateFailed || !strings.Contains(entry.LastError, "output drifted")) {
+			t.Fatalf("drifted chunk entry = %#v, want non-launched drift failure", entry)
+		}
+	}
+}
+
+func TestSecurityScanPreUpgradePlanIsNotReinterpretedAsTargetRuns(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source", Objective: "produce targets", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect", DependsOn: []string{"source"}, ForEach: "source", TargetRuns: 2},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	updated := getSecurityScan(t, k8sClient, scan)
+	for i := range updated.Status.LastExecution.Plan {
+		updated.Status.LastExecution.Plan[i].TargetRuns = 0 // status written by a pre-upgrade controller
+	}
+	if err := k8sClient.Status().Update(context.Background(), updated); err != nil {
+		t.Fatalf("persist pre-upgrade plan: %v", err)
+	}
+	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `["a","b"]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if len(exec.FanOuts) != 0 {
+		t.Fatalf("pre-upgrade execution fan-out plans = %#v, want legacy expansion", exec.FanOuts)
+	}
+	if got := len(taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "fan")); got != 2 {
+		t.Fatalf("legacy fan runs = %d, want one per source record", got)
+	}
+}
+
+func TestSecurityScanTargetRunsZeroRecordsCompletesVacuously(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source", Objective: "produce targets", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{items}}", DependsOn: []string{"source"}, ForEach: "source", TargetRuns: 4, OutputSchema: `{"type":"array"}`},
+		{Name: "join", Objective: "combine {{tasks.fan.output}}", DependsOn: []string{"fan"}},
+	}, 2)
+	reconciler, k8sClient, stateStore := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if got := len(taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "fan")); got != 0 {
+		t.Fatalf("zero-record fan runs = %d, want 0", got)
+	}
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if len(exec.FanOuts) != 1 || exec.FanOuts[0].RecordCount != 0 || exec.FanOuts[0].ChunkCount != 0 {
+		t.Fatalf("zero-record fan-out plan = %#v", exec.FanOuts)
+	}
+	assertExecutionTaskState(t, exec, "fan", 0, triggersv1alpha1.SecurityScanTaskStateSucceeded)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	join := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "join")
+	if seed := securityScanSeedMessage(t, stateStore, scan.Namespace, join.Name); !strings.Contains(seed, "combine []") {
+		t.Fatalf("join seed = %q, want vacuous [] fan-out output", seed)
+	}
+}
+
+func TestSecurityScanTargetRunsMalformedOutputFailsNonRetryably(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source", Objective: "produce targets", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{items}}", DependsOn: []string{"source"}, ForEach: "source", TargetRuns: 1},
+	}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	source := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "source")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, source.Name, platformv1alpha1.AgentRunPhaseSucceeded, `["a","b"]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	fan := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "fan")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, fan.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[{"recordIndex":0,"result":true},{"recordIndex":0,"result":false}]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	entry := executionTask(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "fan", 0)
+	if entry.State != triggersv1alpha1.SecurityScanTaskStateFailed || len(entry.Retries) != 1 || entry.Retries[0].Class != triggersv1alpha1.SecurityScanTaskFailureNonRetryable || !strings.Contains(entry.LastError, "duplicate recordIndex") {
+		t.Fatalf("malformed chunk entry = %#v, want immediate non-retryable contract failure", entry)
+	}
 }
 
 func TestSecurityScanDeterministicExecutionFailsFanOutForNonArrayOutput(t *testing.T) {
@@ -990,6 +1230,31 @@ func (s *executionSideEffectFindingStore) RevokeSecuritySuppressions(context.Con
 	return 0, nil
 }
 
+func TestSecurityScanDeterministicExecutionRejectsForEachSourceDrift(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "source-a", Objective: "list a", OutputSchema: `{"type":"array"}`},
+		{Name: "source-b", Objective: "list b", OutputSchema: `{"type":"array"}`},
+		{Name: "fan", Objective: "inspect {{items}}", DependsOn: []string{"source-a", "source-b"}, ForEach: "source-a", TargetRuns: 2},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Spec.Workflow[2].ForEach = "source-b"
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan) error = %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	final := getSecurityScan(t, k8sClient, scan)
+	exec := final.Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed ||
+		!strings.Contains(final.Status.LastError, `changed forEach from "source-a" to "source-b"`) {
+		t.Fatalf("execution after forEach drift = %#v (scan error %q), want explicit terminal drift failure", exec, final.Status.LastError)
+	}
+}
+
 func TestSecurityScanDeterministicExecutionFailsWhenWorkflowGainsTaskMidExecution(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
@@ -1184,6 +1449,41 @@ func TestSecurityScanExpandFanOutsTruncatesToExecutionEntryCeiling(t *testing.T)
 	}
 	if len(exec.Tasks) != securityScanExecutionMaxTaskEntries {
 		t.Fatalf("total execution entries = %d, want the ceiling %d", len(exec.Tasks), securityScanExecutionMaxTaskEntries)
+	}
+}
+
+func TestSecurityScanTargetRunsFailsInsteadOfTruncatingAtExecutionEntryCeiling(t *testing.T) {
+	now := metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	source := triggersv1alpha1.SecurityScanTask{Name: "source", Objective: "list", OutputSchema: `{"type":"array"}`}
+	fan := triggersv1alpha1.SecurityScanTask{Name: "fan", Objective: "inspect {{items}}", DependsOn: []string{"source"}, ForEach: "source", TargetRuns: 2}
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{source, fan}, 1)
+	reconciler, _, _ := newDeterministicSecurityScanReconciler(t, now.Time, scan)
+
+	exec := &triggersv1alpha1.SecurityScanExecutionStatus{
+		ID: "target-cap", Mode: triggersv1alpha1.SecurityScanExecutionModeDeterministic,
+		Plan: []triggersv1alpha1.SecurityScanExecutionPlanNode{{Name: "source"}, {Name: "fan", ForEach: "source", TargetRuns: 2}},
+	}
+	exec.Tasks = append(exec.Tasks, triggersv1alpha1.SecurityScanTaskExecutionStatus{Name: "source", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "src-run"})
+	for i := range securityScanExecutionMaxTaskEntries - 2 {
+		exec.Tasks = append(exec.Tasks, triggersv1alpha1.SecurityScanTaskExecutionStatus{Name: "pad", Instance: int32(i), State: triggersv1alpha1.SecurityScanTaskStateSucceeded})
+	}
+	exec.Tasks = append(exec.Tasks, triggersv1alpha1.SecurityScanTaskExecutionStatus{Name: "fan", State: triggersv1alpha1.SecurityScanTaskStatePending})
+	engine := &securityScanExecutionEngine{
+		r: reconciler, scan: scan, exec: exec, now: now,
+		order: []triggersv1alpha1.SecurityScanTask{source, fan},
+		tasks: map[string]triggersv1alpha1.SecurityScanTask{"source": source, "fan": fan},
+		runs:  map[string]*platformv1alpha1.AgentRun{"src-run": {ObjectMeta: metav1.ObjectMeta{Name: "src-run"}, Status: platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseSucceeded, StructuredOutput: `[{"n":0},{"n":1}]`}}},
+	}
+
+	if !engine.expandFanOuts(context.Background()) {
+		t.Fatal("targetRuns ceiling failure did not materialize durable source metadata")
+	}
+	entry := engine.taskEntries("fan")[0]
+	if entry.State != triggersv1alpha1.SecurityScanTaskStateFailed || !strings.Contains(entry.LastError, "exceeding the execution cap") {
+		t.Fatalf("targetRuns entry = %#v, want explicit ceiling failure", entry)
+	}
+	if len(exec.Tasks) != securityScanExecutionMaxTaskEntries || len(exec.CoverageGaps) != 0 || len(exec.FanOuts) != 1 || exec.FanOuts[0].ChunkCount != 2 {
+		t.Fatalf("ceiling result tasks=%d gaps=%#v plans=%#v, want no truncation or gap", len(exec.Tasks), exec.CoverageGaps, exec.FanOuts)
 	}
 }
 
@@ -1621,6 +1921,38 @@ func postScriptRun(t *testing.T, runs []platformv1alpha1.AgentRun, scripts, fing
 	}
 	t.Fatalf("post-script run %s/%s missing from %#v", scripts, fingerprint, runs)
 	return platformv1alpha1.AgentRun{}
+}
+
+func TestSecurityScanVacuousSinkFanOutStillMaterializesPostScripts(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "inventory", Objective: "list targets", OutputSchema: `{"type":"array"}`},
+		{Name: "review", Objective: "review {{items}}", DependsOn: []string{"inventory"}, ForEach: "inventory", TargetRuns: 4},
+	}, 2)
+	scan.Spec.PostScripts = []triggersv1alpha1.SecurityScanPostScript{{Name: "validate", Prompt: "Validate it."}}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconciler.Findings = &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+		postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical"),
+	}}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	inventory := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "inventory")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, inventory.Name, platformv1alpha1.AgentRunPhaseSucceeded, `[]`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning || exec.PostScriptsMaterialized {
+		t.Fatalf("vacuous fan-out materialization = %#v, want Running before post-script barrier", exec)
+	}
+	if len(exec.FanOuts) != 1 || exec.FanOuts[0].ChunkCount != 0 {
+		t.Fatalf("vacuous fan-out plan = %#v, want persisted zero-chunk plan", exec.FanOuts)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning || !exec.PostScriptsMaterialized || len(exec.PostScriptJobs) != 1 {
+		t.Fatalf("post-script materialization after vacuous sink = %#v", exec)
+	}
 }
 
 func TestSecurityScanPostScriptsMaterializeOneOrderedPipelinePerFinding(t *testing.T) {
