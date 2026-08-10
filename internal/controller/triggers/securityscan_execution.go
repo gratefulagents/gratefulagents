@@ -499,7 +499,7 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 	if err != nil {
 		return recordFailure(err)
 	}
-	workflow := resolved.spec.EffectiveWorkflow()
+	workflow := resolved.spec.Workflow
 	if errs := triggersv1alpha1.ValidateSecurityWorkflowTasks(workflow); len(errs) != 0 {
 		return recordFailure(&securityScanRefError{reason: securityScanReasonInvalidSpec, message: "workflow is invalid: " + errs[0].Error()})
 	}
@@ -819,7 +819,7 @@ type securityScanExecutionEngine struct {
 // the default poll interval).
 func (e *securityScanExecutionEngine) advance(ctx context.Context) time.Duration {
 	exec := e.exec
-	e.order = e.resolved.spec.EffectiveWorkflow()
+	e.order = e.resolved.spec.Workflow
 	e.tasks = make(map[string]triggersv1alpha1.SecurityScanTask, len(e.order))
 	for _, task := range e.order {
 		e.tasks[task.Name] = task
@@ -2524,7 +2524,7 @@ func resolveSecurityScanParameters(resolved *resolvedSecurityScanSpec) (map[stri
 			seen[param.Name] = true
 		}
 	}
-	for _, task := range resolved.spec.EffectiveWorkflow() {
+	for _, task := range resolved.spec.Workflow {
 		for _, match := range securityScanTemplateRefPattern.FindAllStringSubmatch(task.Objective, -1) {
 			name, ok := strings.CutPrefix(match[1], "params.")
 			if !ok {

@@ -195,7 +195,7 @@ func BuildSecurityScanPromptWithEvent(spec triggersv1alpha1.SecurityScanSpec, ev
 	writeSecurityScanEvent(&b, event)
 	writeSecurityScanScope(&b, spec.Scope)
 
-	workflow := spec.EffectiveWorkflow()
+	workflow := spec.Workflow
 	b.WriteString("## Research plan (sub-agent DAG)\n\n")
 	fmt.Fprintf(&b, "Spawn one sub-agent per task below. Run tasks whose dependencies are all complete in parallel, but never more than %d at a time. A task must not start until every task it depends on has finished.\n\n", parallelism)
 	for i, task := range workflow {

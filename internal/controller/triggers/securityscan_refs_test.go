@@ -157,6 +157,30 @@ func TestSecurityScanUnresolvedReferenceCreatesNoRun(t *testing.T) {
 	}
 }
 
+func TestSecurityScanMissingDefaultWorkflowCreatesNoRun(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+	defaultWorkflow := &triggersv1alpha1.SecurityWorkflow{
+		ObjectMeta: metav1.ObjectMeta{Name: triggersv1alpha1.DefaultSecurityWorkflowName, Namespace: scan.Namespace},
+	}
+	if err := k8sClient.Delete(context.Background(), defaultWorkflow); err != nil {
+		t.Fatalf("Delete(default workflow): %v", err)
+	}
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if runs := securityScanRuns(t, k8sClient, scan.Namespace); len(runs) != 0 {
+		t.Fatalf("AgentRuns = %d, want 0", len(runs))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, "UnresolvedReference")
+	if !strings.Contains(updated.Status.LastError, `SecurityWorkflow "default-deep-scan" not found`) {
+		t.Fatalf("LastError = %q, want missing default workflow message", updated.Status.LastError)
+	}
+}
+
 func TestSecurityScanWorkflowRefWithInlineWorkflowIsInvalidSpec(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanTestScan()

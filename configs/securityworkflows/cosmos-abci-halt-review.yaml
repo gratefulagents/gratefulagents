@@ -13,7 +13,7 @@ spec:
         - name: trail-of-bits-audit-context-building
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Enumerate every production-reachable ABCI method in this Go codebase and the application code it
         drives: InitChain, PrepareProposal, ProcessProposal, VoteExtension handling, FinalizeBlock (or
@@ -48,7 +48,7 @@ spec:
         - name: trail-of-bits-cosmos-vulnerability-scanner
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Investigate one ABCI entry point for maliciously triggerable panic paths that could halt the chain:
         {{item.method}}, implemented by {{item.handler}} in {{item.file}}. Read the handler and everything it
@@ -96,7 +96,7 @@ spec:
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for non-determinism in the state-machine code reached from the ABCI entry points listed in
         {{tasks.map-abci-methods.output}}. Any value that can differ between honest validators executing the
@@ -138,7 +138,7 @@ spec:
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for work an attacker can force the chain to do without paying proportionally, starting from the
         entry points in {{tasks.map-abci-methods.output}}. Look for unmetered or under-metered loops:
@@ -180,7 +180,7 @@ spec:
         - name: bug-bounty-reporting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Call list_security_findings to load every halt candidate this scan recorded - the per-entry-point
         panic hunts, the non-determinism audit, and the gas and state-growth audit all write there - and

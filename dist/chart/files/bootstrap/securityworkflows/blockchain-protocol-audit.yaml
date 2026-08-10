@@ -14,7 +14,7 @@ spec:
         - name: trail-of-bits-entry-point-analyzer
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Map and risk-rank every production protocol surface in this repository: consensus and finality;
         transaction, block, batch, proof, and state-transition validation; rollup derivation and disputes;
@@ -56,7 +56,7 @@ spec:
         - name: trail-of-bits-secure-workflow-guide
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Process the indexed array in {{items}}, reviewing every risk-ranked protocol surface it contains end
         to end. For each input, use its surface_id, domain, entrypoint, file, attacker, asset_or_invariant, and
@@ -103,7 +103,7 @@ spec:
         - name: trail-of-bits-sharp-edges
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Use {{tasks.map-protocol-surfaces.output}} to audit consensus, finality, and state transitions. Cover
         vote and certificate validation, stake-weighted quorum, validator-set and epoch changes,
@@ -125,7 +125,7 @@ spec:
         - name: trail-of-bits-sharp-edges
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Determine from {{tasks.map-protocol-surfaces.output}} whether this is a rollup or supplies a rollup
         component. If applicable, audit L1 origin selection and reorg handling, batch framing, compression and
@@ -148,7 +148,7 @@ spec:
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit transaction and protocol authorization, proof verification, and value accounting using
         {{tasks.map-protocol-surfaces.output}}. Check signature encoding and recovery, domain and chain
@@ -169,7 +169,7 @@ spec:
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit unauthenticated peer, discovery, gossip, mempool, synchronization, RPC, API, and binary parser
         surfaces in {{tasks.map-protocol-surfaces.output}}. Check peer identity and handshake binding,
@@ -191,7 +191,7 @@ spec:
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Where {{tasks.map-protocol-surfaces.output}} shows a chain, layer, shard, or custody boundary, trace
         the entire message and value lifecycle. Audit origin, destination, chain-id, emitter, nonce,
@@ -213,7 +213,7 @@ spec:
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit virtual machines, interpreters, precompiles, system contracts, host functions, plugins, WASM,
         native extensions, and privileged protocol-to-contract calls in {{tasks.map-protocol-surfaces.output}}.
@@ -236,7 +236,7 @@ spec:
         - name: trail-of-bits-zeroize-audit
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit signing policy, threshold coordination, and remote signer/HSM interfaces identified in
         {{tasks.map-protocol-surfaces.output}}. Check that each signing request binds the authenticated caller,
@@ -258,7 +258,7 @@ spec:
         - name: trail-of-bits-constant-time-analysis
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit generation, derivation, storage, import/export, wrapping, backup, transport, rotation,
         zeroization, logging, and error handling for private keys, seed material, operator credentials, and
@@ -279,7 +279,7 @@ spec:
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit persistent state, sync, snapshots, pruning, rollback, reorg, migration, recovery, and concurrent
         processing from {{tasks.map-protocol-surfaces.output}}. Hunt for snapshots or metadata accepted without
@@ -301,7 +301,7 @@ spec:
         - name: trail-of-bits-address-sanitizer
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         In C, C++, Rust unsafe code, cgo/JNI, cryptographic native libraries, firmware, and FFI exposed by
         {{tasks.map-protocol-surfaces.output}}, trace peer-, transaction-, proof-, and signer-controlled sizes,
@@ -323,7 +323,7 @@ spec:
         - name: cloud-iac-hunting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit genesis and chain configuration, network and chain IDs, trusted checkpoints, fork and upgrade
         activation, migrations, default service bindings, exposed ports, and deployment wiring associated
@@ -345,7 +345,7 @@ spec:
         - name: github-agent-supply-chain
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit consensus-critical dependencies, generated protocol code, build scripts, CI release jobs,
         container images, downloaded tools and binaries, reproducibility, and signed upgrade artifacts tied
@@ -367,7 +367,7 @@ spec:
         - name: exploit-poc-discipline
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Settle every reported critical or high candidate from the per-surface and domain hunts. Re-read the
         full path and confirm the entry point is production-reachable, the attacker has the stated protocol
@@ -416,7 +416,7 @@ spec:
         - name: bug-bounty-reporting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Triage the findings and validation results in {{tasks.validate-high-impact-findings.output}} and the
         per-surface coverage results in {{tasks.review-critical-surface.output}} against the risk-ranked

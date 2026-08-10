@@ -206,7 +206,7 @@ func applySecurityPolicyPack(
 			}
 		case triggersv1alpha1.SecurityPolicyFieldRequiredCategories:
 			covered := map[string]bool{}
-			for _, task := range out.EffectiveWorkflow() {
+			for _, task := range out.Workflow {
 				covered[task.Category] = true
 			}
 			var missing []string

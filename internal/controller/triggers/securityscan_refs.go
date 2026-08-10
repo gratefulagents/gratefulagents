@@ -194,7 +194,11 @@ func resolveSecurityScanRefs(
 		resolved.refs = append(resolved.refs, resolvedSecurityRef("SecurityPolicyPack", pack.Name, pack.Generation, pack.Spec))
 	}
 
-	if ref := scan.Spec.WorkflowRef; ref != nil {
+	workflowRef := scan.Spec.WorkflowRef
+	if workflowRef == nil && len(scan.Spec.Workflow) == 0 {
+		workflowRef = &triggersv1alpha1.SecurityResourceRef{Name: triggersv1alpha1.DefaultSecurityWorkflowName}
+	}
+	if ref := workflowRef; ref != nil {
 		workflow := &triggersv1alpha1.SecurityWorkflow{}
 		if err := getSecurityScanRef(ctx, c, scan.Namespace, ref.Name, "SecurityWorkflow", workflow); err != nil {
 			return nil, err

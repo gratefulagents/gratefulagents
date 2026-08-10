@@ -12,7 +12,7 @@ spec:
         - name: trail-of-bits-codeql
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit how this service validates what callers send. Locate the schema or validation layer for every
         transport in use (REST body and query binding, protobuf messages and their hand-written checks,
@@ -32,7 +32,7 @@ spec:
         - name: api-authz-hunting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for broken object-level and function-level authorization (BOLA and BFLA) across every endpoint,
         RPC method, and GraphQL field. For each operation that reads or mutates a resource, determine
@@ -51,7 +51,7 @@ spec:
         - name: api-authz-hunting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for mass assignment and over-permissive field binding: request payloads deserialized directly
         into persistence models, update handlers that copy an entire decoded map onto an existing record,
@@ -69,7 +69,7 @@ spec:
         - name: api-authz-hunting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Audit multi-tenant isolation from the data layer upward. Establish how tenant scope is derived
         (token claim, header, subdomain, session) and how it is applied (query predicate, row-level policy,
@@ -87,7 +87,7 @@ spec:
         - name: api-authz-hunting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for ways one caller can exhaust this service. Check whether rate limiting exists at all, and
         whether its keys can be forged or trivially rotated (client-supplied headers, unauthenticated
@@ -106,7 +106,7 @@ spec:
         - name: web-app-hunting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for information disclosure through this service's responses, errors, and telemetry: internal
         exception text, database errors, stack traces, or gRPC status details returned to callers;
@@ -125,7 +125,7 @@ spec:
         - name: trail-of-bits-codeql
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Hunt for injection through the query surface that APIs expose on purpose: sort, order, filter,
         fields, include, expand, and search parameters interpolated into SQL, ORM fragments, or search
@@ -144,7 +144,7 @@ spec:
         - name: bug-bounty-reporting
       tools:
         denied:
-          - bash
+          - Bash
       objective: >-
         Triage every finding reported by the endpoint hunts. Re-read the handler and the data-access code
         behind each report before keeping it: authorization and tenancy reports are frequently invalidated
