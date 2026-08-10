@@ -153,10 +153,6 @@ func TestValidateSecurityPolicyPackSpecErrors(t *testing.T) {
 			mutate:    func(s *SecurityPolicyPackSpec) { s.Budgets.MaxRuntime = metav1.Duration{Duration: -time.Minute} },
 			wantField: "budgets.maxRuntime",
 		},
-		"enforced budgets without values": {
-			mutate:    func(s *SecurityPolicyPackSpec) { s.Budgets = nil },
-			wantField: "enforced[5]",
-		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -180,5 +176,14 @@ func TestValidateSecurityPolicyPackSpecErrors(t *testing.T) {
 				t.Fatalf("errors = %v, want one addressed to %q", strings.Join(got, "; "), tt.wantField)
 			}
 		})
+	}
+}
+
+func TestValidateSecurityPolicyPackSpecAllowsEmptyEnforcedBudgets(t *testing.T) {
+	spec := validPolicyPackSpec()
+	spec.Budgets = nil
+
+	if errs := ValidateSecurityPolicyPackSpec(spec); len(errs) != 0 {
+		t.Fatalf("ValidateSecurityPolicyPackSpec() = %v, want legacy empty enforced budgets to remain valid", errs)
 	}
 }

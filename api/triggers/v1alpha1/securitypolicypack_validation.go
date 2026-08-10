@@ -137,9 +137,10 @@ func ValidateSecurityPolicyPackSpec(spec SecurityPolicyPackSpec) []SecurityWorkf
 				add(path, "enforcing allowedRuntimeProfiles requires a non-empty allowedRuntimeProfiles list")
 			}
 		case SecurityPolicyFieldBudgets:
-			if spec.Budgets == nil || spec.Budgets.IsZero() {
-				add(path, "enforcing budgets requires at least one budget limit to be set")
-			}
+			// An empty enforced budgets block is a harmless no-op. Keep accepting
+			// it so policy packs that enforced only the removed maxFindings limit
+			// remain valid after an upgrade instead of blocking every referencing
+			// scan with PolicyViolation.
 		}
 	}
 

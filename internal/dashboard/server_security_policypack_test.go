@@ -170,10 +170,6 @@ func TestCreateSecurityPolicyPackValidationErrors(t *testing.T) {
 		"negative budget tokens": func(p *platform.SecurityPolicyPackResource) {
 			p.Budgets.MaxTokens = -5
 		},
-		"enforced budgets without budgets": func(p *platform.SecurityPolicyPackResource) {
-			p.Enforced = []string{"budgets"}
-			p.Budgets = nil
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			pack := testSecurityPolicyPackResource("")
@@ -183,6 +179,17 @@ func TestCreateSecurityPolicyPackValidationErrors(t *testing.T) {
 				t.Fatalf("CreateSecurityPolicyPack(%s) error = %v, want InvalidArgument", name, err)
 			}
 		})
+	}
+}
+
+func TestCreateSecurityPolicyPackAllowsEmptyEnforcedBudgets(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	pack := testSecurityPolicyPackResource("")
+	pack.Enforced = []string{"budgets"}
+	pack.Budgets = nil
+
+	if _, err := srv.CreateSecurityPolicyPack(projectActorCtx(), &platform.CreateSecurityPolicyPackRequest{PolicyPack: pack}); err != nil {
+		t.Fatalf("CreateSecurityPolicyPack() error = %v, want legacy empty enforced budgets to remain valid", err)
 	}
 }
 

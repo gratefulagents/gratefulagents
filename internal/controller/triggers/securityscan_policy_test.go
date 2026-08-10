@@ -352,6 +352,24 @@ func TestSecurityScanInvalidPolicyPackFailsClosed(t *testing.T) {
 	assertSecurityScanCondition(t, getSecurityScan(t, k8sClient, scan), metav1.ConditionFalse, securityScanReasonPolicyViolation)
 }
 
+func TestSecurityScanLegacyEmptyEnforcedBudgetsRemainRunnable(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.PolicyPackRef = &triggersv1alpha1.SecurityResourceRef{Name: "org-policy"}
+	pack := securityTestPolicyPack(scan.Namespace)
+	pack.Spec.Enforced = []string{triggersv1alpha1.SecurityPolicyFieldBudgets}
+	pack.Spec.Budgets = nil
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, pack)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if runs := securityScanRuns(t, k8sClient, scan.Namespace); len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1: a pack that only enforced removed maxFindings must remain runnable", len(runs))
+	}
+	assertSecurityScanCondition(t, getSecurityScan(t, k8sClient, scan), metav1.ConditionTrue, "ScanStarted")
+}
+
 func TestSecurityScanMissingPolicyPackIsUnresolvedReference(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanTestScan()
