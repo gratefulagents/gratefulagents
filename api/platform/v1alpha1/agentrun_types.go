@@ -7,6 +7,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 package v1alpha1
 
 import (
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -172,6 +174,13 @@ type TriggerRef struct {
 	Type string `json:"type,omitempty"`
 	// +optional
 	ExternalRef *ExternalRef `json:"externalRef,omitempty"`
+}
+
+// MatchesKind reports whether the trigger kind matches the canonical kind.
+// Kind values originate in extensible CRDs, so comparison normalizes legacy
+// casing and surrounding whitespace at this shared API boundary.
+func (r TriggerRef) MatchesKind(kind string) bool {
+	return strings.EqualFold(strings.TrimSpace(r.Kind), strings.TrimSpace(kind))
 }
 
 // RepositoryContext identifies the target repo state.

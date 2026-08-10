@@ -743,7 +743,7 @@ func isStandingOverseerRun(run *platformv1alpha1.AgentRun) bool {
 }
 
 func isSecurityScanRun(run *platformv1alpha1.AgentRun) bool {
-	return run != nil && run.Spec.Trigger.Kind == "SecurityScan"
+	return run != nil && run.Spec.Trigger.MatchesKind(triggersv1alpha1.SecurityScanTriggerKind)
 }
 
 func effectiveSkillRefs(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha1.ModeTemplateSpec, userSkillRefs []platformv1alpha1.NamedRef) []platformv1alpha1.NamedRef {

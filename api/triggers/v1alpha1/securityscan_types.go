@@ -1410,6 +1410,10 @@ const (
 	SecurityScanConcurrencyForbid SecurityScanConcurrencyPolicy = "Forbid"
 )
 
+// SecurityScanTriggerKind is the canonical AgentRun trigger kind for runs
+// created by a SecurityScan.
+const SecurityScanTriggerKind = "SecurityScan"
+
 // DefaultSecurityScanRole is the RoleInstruction assumed by workflow tasks
 // that do not set one.
 const DefaultSecurityScanRole = "security-reviewer"

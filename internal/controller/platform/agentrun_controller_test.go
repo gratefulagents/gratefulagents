@@ -557,7 +557,7 @@ func TestEffectiveSkillRefsExcludesStandingOverseer(t *testing.T) {
 
 func TestSecurityScanRunDoesNotInheritNamespaceSkillCatalog(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{Spec: platformv1alpha1.AgentRunSpec{
-		Trigger:   platformv1alpha1.TriggerRef{Kind: "SecurityScan", Name: "nightly"},
+		Trigger:   platformv1alpha1.TriggerRef{Kind: " securityscan ", Name: "nightly"},
 		SkillRefs: []platformv1alpha1.NamedRef{{Name: "task-skill"}},
 	}}
 	snapshot := &platformv1alpha1.ModeTemplateSpec{

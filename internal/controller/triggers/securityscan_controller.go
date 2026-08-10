@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	securityScanKind = "SecurityScan"
+	securityScanKind = triggersv1alpha1.SecurityScanTriggerKind
 
 	// securityScanModeTemplate is the ModeTemplate applied to scan runs when
 	// spec.defaults.modeRef is not set.

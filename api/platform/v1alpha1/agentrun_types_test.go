@@ -9,6 +9,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestTriggerRefMatchesKind(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind string
+		want bool
+	}{
+		{name: "exact", kind: "SecurityScan", want: true},
+		{name: "case insensitive", kind: "securityscan", want: true},
+		{name: "surrounding whitespace", kind: "  SECURITYSCAN\t", want: true},
+		{name: "different kind", kind: "GitHubRepository", want: false},
+		{name: "empty", kind: "", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ref := TriggerRef{Kind: tc.kind}
+			if got := ref.MatchesKind("SecurityScan"); got != tc.want {
+				t.Fatalf("MatchesKind() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRoleInstructionRoutingDeepCopy(t *testing.T) {
 	role := &RoleInstruction{Spec: RoleInstructionSpec{
 		ModelsByProvider: map[string]string{"openai": "gpt-5.6-sol"}, ReasoningLevel: ReasoningMax,

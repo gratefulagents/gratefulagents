@@ -407,7 +407,7 @@ func RuntimeTriggerName(run *platformv1alpha1.AgentRun) string {
 }
 
 func TriggerRunMatches(run *platformv1alpha1.AgentRun, kind, runtimeName string) bool {
-	return run != nil && run.Spec.Trigger.Kind == kind && RuntimeTriggerName(run) == runtimeName
+	return run != nil && run.Spec.Trigger.MatchesKind(kind) && RuntimeTriggerName(run) == runtimeName
 }
 
 func validateTriggerRunDefaults(spec TriggerRunSpec) error {
