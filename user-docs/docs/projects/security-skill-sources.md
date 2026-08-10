@@ -6,7 +6,7 @@ Grateful Agents ships a curated security skill catalog for repository security s
 
 The shipped library currently contains 12 security workflows with 89 executable tasks. The review that introduced this catalog expansion found that specialist skills existed but were not attached to individual workflow tasks. Security workflow tasks now support `skillRefs`; deterministic task runs combine those references with the scan's default skills and reject missing references before dispatch.
 
-Task-level selection is intentional. Loading the whole catalog into every run would waste context and mix unrelated guidance. For example, API authorization tasks load API authorization guidance, native memory-safety tasks load C/Rust and sanitizer guidance, and triage tasks load only validation and triage skills. Every shipped workflow task denies the `bash` tool, so operational guidance cannot compile or execute code from an untrusted repository; active analyzers remain isolated behind the typed security-tool runner.
+Task-level selection is intentional. Loading the whole catalog into every run would waste context and mix unrelated guidance. For example, API authorization tasks load API authorization guidance, native memory-safety tasks load C/Rust and sanitizer guidance, and triage tasks load only validation and triage skills. Every shipped workflow task denies the registered `Bash` tool, so operational guidance cannot compile or execute code from an untrusted repository; active analyzers remain isolated behind the typed security-tool runner.
 
 ## Imported sources
 
