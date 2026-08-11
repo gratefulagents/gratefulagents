@@ -2,6 +2,8 @@
 
 Grateful Agents ships a curated security skill catalog for repository security scans. External skills are not copied into this repository: each `Skill` resource points to an immutable upstream commit and folder containing a `SKILL.md`. The controller validates the skill frontmatter before making its instructions available to runs.
 
+The catalog is opt-in for each user. Open **Security** and select **Install security skills** to copy the curated bundle into your personal namespace. Merely opening the Security page only checks installation status; it never installs anything. Existing personal skills with the same name, including modified copies from an older bundle, are preserved rather than overwritten.
+
 ## Workflow review
 
 The shipped library currently contains 12 security workflows with 89 executable tasks. The review that introduced this catalog expansion found that specialist skills existed but were not attached to individual workflow tasks. Security workflow tasks now support `skillRefs`; deterministic task runs combine those references with the scan's default skills and reject missing references before dispatch.

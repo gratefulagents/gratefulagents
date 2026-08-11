@@ -35,15 +35,16 @@ func bootstrapMeta(name string) metav1.ObjectMeta {
 	}
 }
 
-func TestEnsureUserNamespaceSeedsBootstrapSkillsAndSecurityLibrary(t *testing.T) {
+func TestEnsureUserNamespaceSeedsSecurityLibraryButNotSkills(t *testing.T) {
 	t.Setenv("POD_NAMESPACE", "system")
 	scheme := testProjectScheme(t)
 	objects := []client.Object{
 		bootstrapReadyMarker("v1"),
+		bundledSecuritySkill("security-scan", "scan carefully"),
 		&platformv1alpha1.Skill{
-			ObjectMeta: bootstrapMeta("security-scan"),
+			ObjectMeta: bootstrapMeta("grafana"),
 			Spec: platformv1alpha1.SkillSpec{Source: platformv1alpha1.SkillSource{
-				Inline: &platformv1alpha1.SkillInlineSource{Instructions: "scan carefully"},
+				Inline: &platformv1alpha1.SkillInlineSource{Instructions: "observe carefully"},
 			}},
 		},
 		&platformv1alpha1.Skill{
@@ -84,25 +85,15 @@ func TestEnsureUserNamespaceSeedsBootstrapSkillsAndSecurityLibrary(t *testing.T)
 	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, personalNamespace); err != nil {
 		t.Fatalf("get personal Namespace: %v", err)
 	}
-	if got := personalNamespace.Annotations[bootstrapSyncedVersionAnnotation]; got != "v2:v1" {
-		t.Fatalf("bootstrap synced version = %q, want v2:v1", got)
+	if got := personalNamespace.Annotations[bootstrapSyncedVersionAnnotation]; got != "v3:v1" {
+		t.Fatalf("bootstrap synced version = %q, want v3:v1", got)
 	}
 
-	seededSkill := &platformv1alpha1.Skill{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "security-scan"}, seededSkill); err != nil {
-		t.Fatalf("get seeded Skill: %v", err)
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "security-scan"}, &platformv1alpha1.Skill{}); err == nil {
+		t.Fatal("security Skill was copied without explicit opt-in")
 	}
-	if seededSkill.Spec.Source.Inline == nil || seededSkill.Spec.Source.Inline.Instructions != "scan carefully" {
-		t.Fatalf("seeded Skill spec = %+v", seededSkill.Spec)
-	}
-	if seededSkill.Annotations[bootstrapSourceAnnotation] != "system" {
-		t.Fatalf("bootstrap source annotation = %q", seededSkill.Annotations[bootstrapSourceAnnotation])
-	}
-	if seededSkill.Annotations["helm.sh/hook"] != "" {
-		t.Fatalf("Helm hook annotation leaked to seeded resource: %+v", seededSkill.Annotations)
-	}
-	if seededSkill.Annotations["example.gratefulagents.dev/value"] != "preserved" {
-		t.Fatalf("source annotation was not preserved: %+v", seededSkill.Annotations)
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "grafana"}, &platformv1alpha1.Skill{}); err != nil {
+		t.Fatalf("unrelated bootstrap Skill was not seeded: %v", err)
 	}
 
 	for name, object := range map[string]client.Object{
@@ -125,14 +116,12 @@ func TestEnsureUserNamespaceSeedsBootstrapSkillsAndSecurityLibrary(t *testing.T)
 	}
 }
 
-func TestBootstrapSeedWaitsForBundleReadinessMarker(t *testing.T) {
+func TestBootstrapSecurityLibraryWaitsForBundleReadinessMarker(t *testing.T) {
 	t.Setenv("POD_NAMESPACE", "system")
 	scheme := testProjectScheme(t)
-	source := &platformv1alpha1.Skill{
-		ObjectMeta: bootstrapMeta("security-scan"),
-		Spec: platformv1alpha1.SkillSpec{Source: platformv1alpha1.SkillSource{
-			Inline: &platformv1alpha1.SkillInlineSource{Instructions: "bootstrap"},
-		}},
+	source := &triggersv1alpha1.SecurityRanker{
+		ObjectMeta: bootstrapMeta("default-ranker"),
+		Spec:       triggersv1alpha1.SecurityRankerSpec{Rules: []string{"critical first"}},
 	}
 	targetNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alice"}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(source, targetNamespace).Build()
@@ -141,9 +130,9 @@ func TestBootstrapSeedWaitsForBundleReadinessMarker(t *testing.T) {
 	if err := srv.syncBootstrapResources(context.Background(), "alice"); err != nil {
 		t.Fatalf("sync without readiness marker: %v", err)
 	}
-	key := client.ObjectKey{Namespace: "alice", Name: "security-scan"}
-	if err := c.Get(context.Background(), key, &platformv1alpha1.Skill{}); err == nil {
-		t.Fatal("Skill was seeded before the bundle readiness marker existed")
+	key := client.ObjectKey{Namespace: "alice", Name: "default-ranker"}
+	if err := c.Get(context.Background(), key, &triggersv1alpha1.SecurityRanker{}); err == nil {
+		t.Fatal("SecurityRanker was seeded before the bundle readiness marker existed")
 	}
 	if err := c.Create(context.Background(), bootstrapReadyMarker("v1")); err != nil {
 		t.Fatal(err)
@@ -151,26 +140,24 @@ func TestBootstrapSeedWaitsForBundleReadinessMarker(t *testing.T) {
 	if err := srv.syncBootstrapResources(context.Background(), "alice"); err != nil {
 		t.Fatalf("sync after readiness marker: %v", err)
 	}
-	if err := c.Get(context.Background(), key, &platformv1alpha1.Skill{}); err != nil {
-		t.Fatalf("Skill was not seeded after bundle became ready: %v", err)
+	if err := c.Get(context.Background(), key, &triggersv1alpha1.SecurityRanker{}); err != nil {
+		t.Fatalf("SecurityRanker was not seeded after bundle became ready: %v", err)
 	}
 }
 
 func TestBootstrapUpgradeRefreshesOnlyUnmodifiedResources(t *testing.T) {
 	t.Setenv("POD_NAMESPACE", "system")
 	scheme := testProjectScheme(t)
-	makeSkill := func(name, instructions string) *platformv1alpha1.Skill {
-		return &platformv1alpha1.Skill{
+	makeRanker := func(name, rule string) *triggersv1alpha1.SecurityRanker {
+		return &triggersv1alpha1.SecurityRanker{
 			ObjectMeta: bootstrapMeta(name),
-			Spec: platformv1alpha1.SkillSpec{Source: platformv1alpha1.SkillSource{
-				Inline: &platformv1alpha1.SkillInlineSource{Instructions: instructions},
-			}},
+			Spec:       triggersv1alpha1.SecurityRankerSpec{Rules: []string{rule}},
 		}
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		bootstrapReadyMarker("v1"),
-		makeSkill("unmodified", "version one"),
-		makeSkill("customized", "version one"),
+		makeRanker("unmodified", "version one"),
+		makeRanker("customized", "version one"),
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alice"}},
 	).Build()
 	srv := &Server{k8sClient: c, apiReader: c, scheme: scheme}
@@ -179,20 +166,20 @@ func TestBootstrapUpgradeRefreshesOnlyUnmodifiedResources(t *testing.T) {
 		t.Fatalf("initial sync: %v", err)
 	}
 
-	customized := &platformv1alpha1.Skill{}
+	customized := &triggersv1alpha1.SecurityRanker{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: "alice", Name: "customized"}, customized); err != nil {
 		t.Fatal(err)
 	}
-	customized.Spec.Source.Inline.Instructions = "my customization"
+	customized.Spec.Rules = []string{"my customization"}
 	if err := c.Update(ctx, customized); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"unmodified", "customized"} {
-		source := &platformv1alpha1.Skill{}
+		source := &triggersv1alpha1.SecurityRanker{}
 		if err := c.Get(ctx, client.ObjectKey{Namespace: "system", Name: name}, source); err != nil {
 			t.Fatal(err)
 		}
-		source.Spec.Source.Inline.Instructions = "version two"
+		source.Spec.Rules = []string{"version two"}
 		if err := c.Update(ctx, source); err != nil {
 			t.Fatal(err)
 		}
@@ -213,12 +200,12 @@ func TestBootstrapUpgradeRefreshesOnlyUnmodifiedResources(t *testing.T) {
 		"unmodified": "version two",
 		"customized": "my customization",
 	} {
-		got := &platformv1alpha1.Skill{}
+		got := &triggersv1alpha1.SecurityRanker{}
 		if err := c.Get(ctx, client.ObjectKey{Namespace: "alice", Name: name}, got); err != nil {
 			t.Fatal(err)
 		}
-		if instructions := got.Spec.Source.Inline.Instructions; instructions != want {
-			t.Errorf("%s instructions = %q, want %q", name, instructions, want)
+		if rule := got.Spec.Rules[0]; rule != want {
+			t.Errorf("%s rule = %q, want %q", name, rule, want)
 		}
 	}
 }

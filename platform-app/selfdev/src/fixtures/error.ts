@@ -250,6 +250,7 @@ export const errorScenario: Scenario = {
   securityScans: [],
   securityScanConfigs: [],
   securityWorkflows: [],
+  securitySkillsInstalled: false,
 
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),

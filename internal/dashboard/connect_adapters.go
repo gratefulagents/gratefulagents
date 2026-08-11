@@ -250,6 +250,22 @@ func (h *PlatformServiceConnectHandler) ListSkills(ctx context.Context, req *con
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) GetSecuritySkillsStatus(ctx context.Context, req *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error) {
+	resp, err := h.srv.GetSecuritySkillsStatus(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) InstallSecuritySkills(ctx context.Context, req *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error) {
+	resp, err := h.srv.InstallSecuritySkills(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) ListSkillCatalog(ctx context.Context, req *connect.Request[platform.ListSkillCatalogRequest]) (*connect.Response[platform.ListSkillCatalogResponse], error) {
 	resp, err := h.srv.ListSkillCatalog(ctx, req.Msg)
 	if err != nil {

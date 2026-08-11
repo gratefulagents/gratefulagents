@@ -375,6 +375,11 @@ service PlatformService {
   // GetSecurityScanReport returns a report artifact (Markdown or SARIF)
   // written by a finished security scan run.
   rpc GetSecurityScanReport(GetSecurityScanReportRequest) returns (GetSecurityScanReportResponse);
+
+  // Security Skills are intentionally opt-in per user. Status is a pure read;
+  // installation copies or refreshes only untouched curated bundle members.
+  rpc GetSecuritySkillsStatus(google.protobuf.Empty) returns (SecuritySkillsStatus);
+  rpc InstallSecuritySkills(google.protobuf.Empty) returns (SecuritySkillsStatus);
 }
 
 message ListAgentRunsRequest {
@@ -5242,4 +5247,16 @@ message GetSecurityScanReportResponse {
   // filename is a suggested download filename for the artifact.
   string filename = 3;
   google.protobuf.Timestamp updated_at = 4;
+}
+
+// SecuritySkillsStatus is the aggregate state of the curated security skill
+// bundle in the authenticated user's namespace. State is one of not_installed,
+// partially_installed, installed, or unavailable. Conflicts are same-name user
+// resources that the installer deliberately preserves.
+message SecuritySkillsStatus {
+  string namespace = 1;
+  string state = 2;
+  int32 installed_count = 3;
+  int32 available_count = 4;
+  int32 conflict_count = 5;
 }

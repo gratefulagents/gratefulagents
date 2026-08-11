@@ -659,6 +659,12 @@ const (
 	// PlatformServiceGetSecurityScanReportProcedure is the fully-qualified name of the
 	// PlatformService's GetSecurityScanReport RPC.
 	PlatformServiceGetSecurityScanReportProcedure = "/platform.v1.PlatformService/GetSecurityScanReport"
+	// PlatformServiceGetSecuritySkillsStatusProcedure is the fully-qualified name of the
+	// PlatformService's GetSecuritySkillsStatus RPC.
+	PlatformServiceGetSecuritySkillsStatusProcedure = "/platform.v1.PlatformService/GetSecuritySkillsStatus"
+	// PlatformServiceInstallSecuritySkillsProcedure is the fully-qualified name of the
+	// PlatformService's InstallSecuritySkills RPC.
+	PlatformServiceInstallSecuritySkillsProcedure = "/platform.v1.PlatformService/InstallSecuritySkills"
 )
 
 // PlatformServiceClient is a client for the platform.v1.PlatformService service.
@@ -1018,6 +1024,10 @@ type PlatformServiceClient interface {
 	// GetSecurityScanReport returns a report artifact (Markdown or SARIF)
 	// written by a finished security scan run.
 	GetSecurityScanReport(context.Context, *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error)
+	// Security Skills are intentionally opt-in per user. Status is a pure read;
+	// installation copies or refreshes only untouched curated bundle members.
+	GetSecuritySkillsStatus(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
+	InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
 }
 
 // NewPlatformServiceClient constructs a client for the platform.v1.PlatformService service. By
@@ -2285,6 +2295,18 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetSecurityScanReport")),
 			connect.WithClientOptions(opts...),
 		),
+		getSecuritySkillsStatus: connect.NewClient[emptypb.Empty, platform.SecuritySkillsStatus](
+			httpClient,
+			baseURL+PlatformServiceGetSecuritySkillsStatusProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecuritySkillsStatus")),
+			connect.WithClientOptions(opts...),
+		),
+		installSecuritySkills: connect.NewClient[emptypb.Empty, platform.SecuritySkillsStatus](
+			httpClient,
+			baseURL+PlatformServiceInstallSecuritySkillsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("InstallSecuritySkills")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -2499,6 +2521,8 @@ type platformServiceClient struct {
 	getSecurityOverview                    *connect.Client[platform.GetSecurityOverviewRequest, platform.GetSecurityOverviewResponse]
 	getSecurityConfigPostures              *connect.Client[platform.GetSecurityConfigPosturesRequest, platform.GetSecurityConfigPosturesResponse]
 	getSecurityScanReport                  *connect.Client[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse]
+	getSecuritySkillsStatus                *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
+	installSecuritySkills                  *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
 }
 
 // ListAgentRuns calls platform.v1.PlatformService.ListAgentRuns.
@@ -3551,6 +3575,16 @@ func (c *platformServiceClient) GetSecurityScanReport(ctx context.Context, req *
 	return c.getSecurityScanReport.CallUnary(ctx, req)
 }
 
+// GetSecuritySkillsStatus calls platform.v1.PlatformService.GetSecuritySkillsStatus.
+func (c *platformServiceClient) GetSecuritySkillsStatus(ctx context.Context, req *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error) {
+	return c.getSecuritySkillsStatus.CallUnary(ctx, req)
+}
+
+// InstallSecuritySkills calls platform.v1.PlatformService.InstallSecuritySkills.
+func (c *platformServiceClient) InstallSecuritySkills(ctx context.Context, req *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error) {
+	return c.installSecuritySkills.CallUnary(ctx, req)
+}
+
 // PlatformServiceHandler is an implementation of the platform.v1.PlatformService service.
 type PlatformServiceHandler interface {
 	ListAgentRuns(context.Context, *connect.Request[platform.ListAgentRunsRequest]) (*connect.Response[platform.ListAgentRunsResponse], error)
@@ -3908,6 +3942,10 @@ type PlatformServiceHandler interface {
 	// GetSecurityScanReport returns a report artifact (Markdown or SARIF)
 	// written by a finished security scan run.
 	GetSecurityScanReport(context.Context, *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error)
+	// Security Skills are intentionally opt-in per user. Status is a pure read;
+	// installation copies or refreshes only untouched curated bundle members.
+	GetSecuritySkillsStatus(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
+	InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
 }
 
 // NewPlatformServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -5171,6 +5209,18 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetSecurityScanReport")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceGetSecuritySkillsStatusHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecuritySkillsStatusProcedure,
+		svc.GetSecuritySkillsStatus,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecuritySkillsStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceInstallSecuritySkillsHandler := connect.NewUnaryHandler(
+		PlatformServiceInstallSecuritySkillsProcedure,
+		svc.InstallSecuritySkills,
+		connect.WithSchema(platformServiceMethods.ByName("InstallSecuritySkills")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/platform.v1.PlatformService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PlatformServiceListAgentRunsProcedure:
@@ -5591,6 +5641,10 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceGetSecurityConfigPosturesHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanReportProcedure:
 			platformServiceGetSecurityScanReportHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecuritySkillsStatusProcedure:
+			platformServiceGetSecuritySkillsStatusHandler.ServeHTTP(w, r)
+		case PlatformServiceInstallSecuritySkillsProcedure:
+			platformServiceInstallSecuritySkillsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -6434,4 +6488,12 @@ func (UnimplementedPlatformServiceHandler) GetSecurityConfigPostures(context.Con
 
 func (UnimplementedPlatformServiceHandler) GetSecurityScanReport(context.Context, *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityScanReport is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecuritySkillsStatus(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecuritySkillsStatus is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.InstallSecuritySkills is not implemented"))
 }

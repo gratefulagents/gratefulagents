@@ -103,6 +103,22 @@ describe("fake backend", () => {
     expect(original!.conversation.some((m) => m.content === "hi from test")).toBe(false);
   });
 
+  it("installs the security skill bundle only after the mutation", async () => {
+    const before = await platform.getSecuritySkillsStatus({});
+    expect(before.state).toBe("not_installed");
+    expect(before.installedCount).toBe(0);
+    expect(before.availableCount).toBeGreaterThan(0);
+
+    const installed = await platform.installSecuritySkills({});
+    expect(installed.state).toBe("installed");
+    expect(installed.installedCount).toBe(installed.availableCount);
+
+    const after = await platform.getSecuritySkillsStatus({});
+    expect(after.state).toBe("installed");
+    // The backend clones fixtures; interactive mutation must not leak back.
+    expect(defaultScenario.securitySkillsInstalled).toBe(false);
+  });
+
   it("creates, updates, and deletes inline skills", async () => {
     const name = "selfdev-inline-skill";
 
