@@ -497,6 +497,63 @@ describe("SecurityScanDetail", () => {
     }
   });
 
+  it("stops polling when filtering removes the selected finding", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings
+      .mockResolvedValueOnce({ findings: [findingFixture()] })
+      .mockResolvedValue({ findings: [] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
+    getSecurityFindingSubmissionBundle.mockResolvedValue({
+      status: "generating",
+      content: new Uint8Array(),
+    });
+
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
+      expect(await screen.findByText(/download will start automatically/)).toBeTruthy();
+
+      fireEvent.change(screen.getByLabelText("Filter by severity"), { target: { value: "high" } });
+      await waitFor(() => expect(screen.queryByText("Full database read access.")).toBeNull());
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(getSecurityFindingSubmissionBundle).toHaveBeenCalledTimes(1);
+      expect(downloadBlob).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears a generating notice when the selected finding changes", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
+    getSecurityFindingSubmissionBundle.mockResolvedValue({
+      status: "generating",
+      content: new Uint8Array(),
+    });
+
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
+      expect(await screen.findByText(/download will start automatically/)).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Close finding details" }));
+      fireEvent.click(screen.getByRole("button", { name: "SQL injection in payment lookup" }));
+
+      expect(screen.queryByText(/download will start automatically/)).toBeNull();
+      expect(await screen.findByRole("button", { name: "Download bounty bundle" })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("explains that reports arrive after the run finishes for running scans", async () => {
     const running = scanFixture();
     running.status = "running";

@@ -133,6 +133,8 @@ export function SecurityScanDetail() {
   );
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = findings.find((finding) => finding.id === selectedId) ?? null;
+  const selectedPresent = selected !== null;
   const [statusSaving, setStatusSaving] = useState(false);
 
   const [reportBusy, setReportBusy] = useState<"markdown" | "sarif" | null>(null);
@@ -141,7 +143,10 @@ export function SecurityScanDetail() {
   const [bundleNotice, setBundleNotice] = useState<string | null>(null);
   const bundleAbortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => () => bundleAbortRef.current?.abort(), [selectedId]);
+  useEffect(() => {
+    setBundleNotice(null);
+    return () => bundleAbortRef.current?.abort();
+  }, [selectedId, selectedPresent]);
 
   // Multi-select bulk triage.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -293,8 +298,6 @@ export function SecurityScanDetail() {
     if (category) set.add(category);
     return [...set].sort();
   }, [findings, category]);
-
-  const selected = findings.find((f) => f.id === selectedId) ?? null;
 
   // When the linked AgentRun transitions into a terminal phase, re-fetch the
   // persisted scan row, summary, and findings so no stale state lingers on
