@@ -266,7 +266,6 @@ fi
 manager_image_repository="$IMAGE_REGISTRY/controller"
 worker_image="$IMAGE_REGISTRY/worker:$IMAGE_TAG"
 injector_image="$IMAGE_REGISTRY/injector:$IMAGE_TAG"
-security_tools_image="$IMAGE_REGISTRY/security-tools:$IMAGE_TAG"
 
 log "Installing gratefulagents $IMAGE_TAG from $IMAGE_REGISTRY"
 helm lint "$CHART_DIR" --values "$VALUES_FILE" \
@@ -276,9 +275,7 @@ helm lint "$CHART_DIR" --values "$VALUES_FILE" \
   --set-string "manager.image.tag=$IMAGE_TAG" \
   --set manager.image.pullPolicy=IfNotPresent \
   --set-string "agentImages.worker=$worker_image" \
-  --set-string "agentImages.injector=$injector_image" \
-  --set-string "agentImages.securityTools=$security_tools_image" \
-  --set securityTools.allowUnpinnedImage=true
+  --set-string "agentImages.injector=$injector_image"
 helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --namespace "$NAMESPACE" --create-namespace \
   --values "$VALUES_FILE" \
@@ -289,8 +286,6 @@ helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --set manager.image.pullPolicy=IfNotPresent \
   --set-string "agentImages.worker=$worker_image" \
   --set-string "agentImages.injector=$injector_image" \
-  --set-string "agentImages.securityTools=$security_tools_image" \
-  --set securityTools.allowUnpinnedImage=true \
   --atomic --wait --wait-for-jobs --timeout "$TIMEOUT" --history-max 10
 
 manager_deployment="$(kubectl -n "$NAMESPACE" get deployment \

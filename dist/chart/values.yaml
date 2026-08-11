@@ -95,8 +95,10 @@ agentImages:
   worker: ghcr.io/gratefulagents/worker:latest
   injector: ghcr.io/gratefulagents/injector:latest
   ## Image running deterministic security tools in SecurityToolRun Jobs.
-  ## Must be digest pinned (repo@sha256:...) unless
-  ## securityTools.allowUnpinnedImage is set.
+  ## When empty, the chart replaces the trailing "controller" in
+  ## manager.image.repository with "security-tools" and uses manager.image.tag,
+  ## keeping both release images on the same version. Set this explicitly to
+  ## use a digest-pinned production image (repo@sha256:...).
   securityTools: ""
 
 ## Deterministic security-tool execution (SecurityToolRun Jobs).
@@ -104,8 +106,9 @@ agentImages:
 securityTools:
   ## Seconds a finished execution Job is kept before Kubernetes deletes it.
   jobTTLSeconds: 600
-  ## Allow a tag-based securityTools image. Off by default: replaying a scan
-  ## requires the exact bytes that produced it.
+  ## Allow an explicitly configured tag-based securityTools image. The
+  ## manager-derived release image is allowed automatically. Explicit images
+  ## remain digest-only by default for reproducible scans.
   allowUnpinnedImage: false
 
 ## PostgreSQL connection.

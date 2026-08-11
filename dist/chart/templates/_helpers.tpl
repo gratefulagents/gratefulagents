@@ -50,6 +50,27 @@ Dynamically calculates safe truncation to ensure total name length <= 63 chars.
 {{- end }}
 
 {{/*
+Security-tools image: use an explicit override when supplied. Otherwise derive
+the sibling security-tools repository and reuse the manager image tag. Release
+automation publishes both images with the same tags.
+*/}}
+{{- define "gratefulagents.securityToolsImage" -}}
+{{- if .Values.agentImages.securityTools -}}
+{{- .Values.agentImages.securityTools -}}
+{{- else -}}
+{{- $repository := .Values.manager.image.repository -}}
+{{- if eq $repository "controller" -}}
+{{- $repository = "security-tools" -}}
+{{- else if hasSuffix "/controller" $repository -}}
+{{- $repository = printf "%s/security-tools" (trimSuffix "/controller" $repository) -}}
+{{- else -}}
+{{- fail "cannot derive agentImages.securityTools: manager.image.repository must end in 'controller', or set agentImages.securityTools explicitly" -}}
+{{- end -}}
+{{- printf "%s:%s" $repository (toString .Values.manager.image.tag) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 PostgreSQL connection URL: explicit database.url, otherwise the bundled
 Postgres. Fails template rendering when neither is configured.
 */}}
