@@ -24,7 +24,14 @@ func requireGit(t *testing.T) {
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_PARAMETERS", "")
-	t.Setenv("GIT_CONFIG_COUNT", "0")
+	// Checkpoint tests create commits in throwaway clones. Git's background
+	// auto-gc/maintenance can still be writing into .git when t.TempDir()
+	// removes the directory, which fails the test with "directory not empty".
+	t.Setenv("GIT_CONFIG_COUNT", "2")
+	t.Setenv("GIT_CONFIG_KEY_0", "gc.auto")
+	t.Setenv("GIT_CONFIG_VALUE_0", "0")
+	t.Setenv("GIT_CONFIG_KEY_1", "maintenance.auto")
+	t.Setenv("GIT_CONFIG_VALUE_1", "false")
 }
 
 func testCtx(t *testing.T) context.Context {

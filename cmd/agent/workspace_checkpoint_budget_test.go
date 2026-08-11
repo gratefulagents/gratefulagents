@@ -45,12 +45,52 @@ func TestUploadContextInheritsCancellationWhenBudgetRemains(t *testing.T) {
 }
 
 func TestShutdownCheckpointBudgetFitsTerminationGrace(t *testing.T) {
-	budget := shutdownCheckpointBudget()
-	if budget.prepare > shutdownWorkspaceCheckpointPrepareTimeout || budget.upload > shutdownWorkspaceCheckpointUploadTimeout {
+	start := time.Now()
+	hardDeadline := start.Add(workspaceCheckpointTimeout + shutdownWorkspaceCheckpointUploadTimeout)
+	budget := shutdownCheckpointBudget(hardDeadline)
+	cappedPrepare := budget.prepare > shutdownWorkspaceCheckpointPrepareTimeout
+	if cappedPrepare || budget.upload > shutdownWorkspaceCheckpointUploadTimeout {
 		t.Fatalf("shutdown budget %+v exceeds the capped stage timeouts", budget)
 	}
-	if total := budget.prepare + budget.upload + metaHarnessFinalizeTimeout; total >= 60*time.Second {
+	total := hardDeadline.Sub(start) + metaHarnessFinalizeTimeout
+	if total >= 60*time.Second {
 		t.Fatalf("shutdown checkpoint plus trace finalization = %s, want inside the 60s grace period", total)
+	}
+}
+
+// A shutdown checkpoint uploads an anchor, a bundle and a manifest. Each upload
+// may detach an exhausted caller deadline, so the absolute deadline must keep
+// the sequence inside the termination grace period.
+func TestShutdownUploadsCannotExtendPastHardDeadline(t *testing.T) {
+	hardDeadline := time.Now().Add(300 * time.Millisecond)
+	budget := shutdownCheckpointBudget(hardDeadline)
+	parent, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+
+	for i := range 3 {
+		uploadCtx, cancelUpload := budget.uploadContext(parent)
+		deadline, ok := uploadCtx.Deadline()
+		cancelUpload()
+		if !ok {
+			t.Fatalf("upload %d has no deadline", i)
+		}
+		if deadline.After(hardDeadline) {
+			t.Fatalf("upload %d deadline %s is past the shutdown hard deadline %s", i, deadline, hardDeadline)
+		}
+	}
+	prepCtx, cancelPrep := budget.prepareContext(context.Background())
+	defer cancelPrep()
+	if deadline, ok := prepCtx.Deadline(); !ok || deadline.After(hardDeadline) {
+		t.Fatalf("preparation deadline %v (ok=%v) is past the shutdown hard deadline %s", deadline, ok, hardDeadline)
+	}
+
+	// Once the hard deadline has passed, further stages are already expired
+	// instead of silently buying another budget.
+	time.Sleep(320 * time.Millisecond)
+	expired, cancelExpired := budget.uploadContext(context.Background())
+	defer cancelExpired()
+	if err := expired.Err(); err == nil {
+		t.Fatal("upload after the shutdown hard deadline got a fresh budget")
 	}
 }
 
@@ -69,9 +109,11 @@ func TestCheckpointBudgetHonoursEnvironmentOverrides(t *testing.T) {
 
 func TestNextCheckpointDelayJittersAndBacksOff(t *testing.T) {
 	seen := make(map[time.Duration]struct{})
-	for i := 0; i < 64; i++ {
+	for range 64 {
 		delay := nextCheckpointDelay(0)
-		if delay < workspaceCheckpointInterval-workspaceCheckpointInterval/4 || delay > workspaceCheckpointInterval+workspaceCheckpointInterval/4 {
+		low := workspaceCheckpointInterval - workspaceCheckpointInterval/4
+		high := workspaceCheckpointInterval + workspaceCheckpointInterval/4
+		if delay < low || delay > high {
 			t.Fatalf("delay %s outside +/-25%% of %s", delay, workspaceCheckpointInterval)
 		}
 		seen[delay] = struct{}{}
@@ -131,7 +173,10 @@ func (s *slowWorkspaceObjectStore) Put(ctx context.Context, key string, body []b
 func TestWorkspaceCheckpointUploadsAfterPreparationDrainsBudget(t *testing.T) {
 	requireGit(t)
 	origin := newOriginWithSeed(t)
-	store := &slowWorkspaceObjectStore{memoryWorkspaceObjectStore: newMemoryWorkspaceObjectStore(), firstPutSleep: 3 * time.Second}
+	store := &slowWorkspaceObjectStore{
+		memoryWorkspaceObjectStore: newMemoryWorkspaceObjectStore(),
+		firstPutSleep:              3 * time.Second,
+	}
 	work := cloneAndCheckout(t, origin, false)
 	writeFile(t, work, "notes.md", "wip\n")
 

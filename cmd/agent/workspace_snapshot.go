@@ -615,7 +615,9 @@ func (s *workspaceSnapshotter) snapshotRepo(ctx context.Context, repo extraRepo,
 
 // putCheckpointObject uploads one payload under the upload budget, which is
 // independent of whatever the Git preparation stages already consumed.
-func (s *workspaceSnapshotter) putCheckpointObject(ctx context.Context, budget checkpointBudget, stage, id, key string, body []byte) error {
+func (s *workspaceSnapshotter) putCheckpointObject(
+	ctx context.Context, budget checkpointBudget, stage, id, key string, body []byte,
+) error {
 	uploadCtx, cancel := budget.uploadContext(ctx)
 	defer cancel()
 	start := time.Now()
@@ -1166,8 +1168,12 @@ func finalizeWorkspaceSnapshot(result runResult, s *workspaceSnapshotter) error 
 		return nil
 	}
 	// The shutdown checkpoint runs inside the pod termination grace period, so
-	// it swaps in the capped stage budgets before taking the last snapshot.
-	s.setBudget(shutdownCheckpointBudget())
+	// it swaps in the capped stage budgets before taking the last snapshot. The
+	// absolute deadline lets one in-flight upload outlive the caller context by
+	// at most a single upload budget; a sequence of uploads can never extend
+	// the shutdown beyond it.
+	hardDeadline := time.Now().Add(workspaceCheckpointTimeout + shutdownWorkspaceCheckpointUploadTimeout)
+	s.setBudget(shutdownCheckpointBudget(hardDeadline))
 	ctx, cancel := context.WithTimeout(context.Background(), workspaceCheckpointTimeout)
 	defer cancel()
 	if result.Status == "succeeded" {

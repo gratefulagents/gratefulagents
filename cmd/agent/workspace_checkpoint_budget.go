@@ -39,6 +39,11 @@ const (
 type checkpointBudget struct {
 	prepare time.Duration
 	upload  time.Duration
+	// hardDeadline, when set, is an absolute end-to-end bound that no stage may
+	// extend. The shutdown path sets it so a sequence of detached upload
+	// contexts cannot push the final checkpoint past the pod termination grace
+	// period.
+	hardDeadline time.Time
 }
 
 func defaultCheckpointBudget() checkpointBudget {
@@ -48,9 +53,10 @@ func defaultCheckpointBudget() checkpointBudget {
 	}
 }
 
-// shutdownCheckpointBudget caps the configured budgets so the final checkpoint
-// always fits inside the pod termination grace period.
-func shutdownCheckpointBudget() checkpointBudget {
+// shutdownCheckpointBudget caps the configured budgets and pins an absolute
+// deadline so the final checkpoint always fits inside the pod termination
+// grace period, however many payloads it has to upload.
+func shutdownCheckpointBudget(hardDeadline time.Time) checkpointBudget {
 	budget := defaultCheckpointBudget()
 	if budget.prepare > shutdownWorkspaceCheckpointPrepareTimeout {
 		budget.prepare = shutdownWorkspaceCheckpointPrepareTimeout
@@ -58,24 +64,39 @@ func shutdownCheckpointBudget() checkpointBudget {
 	if budget.upload > shutdownWorkspaceCheckpointUploadTimeout {
 		budget.upload = shutdownWorkspaceCheckpointUploadTimeout
 	}
+	budget.hardDeadline = hardDeadline
 	return budget
 }
 
 // prepareContext bounds local Git work. It never extends the caller's deadline.
 func (b checkpointBudget) prepareContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, b.prepare)
+	return context.WithDeadline(ctx, b.stageDeadline(b.prepare))
 }
 
 // uploadContext gives an object-store upload its own budget. When Git
 // preparation consumed most of the caller's deadline the remaining time is
 // detached, because starting a PutObject with a few milliseconds left only
 // produces a guaranteed "context deadline exceeded". Explicit cancellation of
-// the caller is preserved when there is still budget to inherit.
+// the caller is preserved when there is still budget to inherit, and a hard
+// deadline (shutdown) always wins over the detached budget.
 func (b checkpointBudget) uploadContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < b.upload {
-		return context.WithTimeout(context.WithoutCancel(ctx), b.upload)
+	deadline := b.stageDeadline(b.upload)
+	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
+		return context.WithDeadline(context.WithoutCancel(ctx), deadline)
 	}
-	return context.WithTimeout(ctx, b.upload)
+	return context.WithDeadline(ctx, deadline)
+}
+
+// stageDeadline clamps one stage budget to the absolute end-to-end deadline,
+// when the budget carries one. Once that deadline has passed the stage context
+// is already expired, which is the correct outcome: no stage may buy another
+// budget beyond the shutdown bound.
+func (b checkpointBudget) stageDeadline(stage time.Duration) time.Time {
+	deadline := time.Now().Add(stage)
+	if !b.hardDeadline.IsZero() && b.hardDeadline.Before(deadline) {
+		return b.hardDeadline
+	}
+	return deadline
 }
 
 // logCheckpointStage records how long a checkpoint stage took and how much of
@@ -91,7 +112,8 @@ func logCheckpointStage(ctx context.Context, stage, id string, started time.Time
 		remaining = time.Until(deadline).Truncate(time.Millisecond).String()
 	}
 	if err != nil {
-		log.Printf("WARN: workspace checkpoint stage %s (%s) failed after %s with %s of budget left: %v", stage, id, elapsed, remaining, err)
+		log.Printf("WARN: workspace checkpoint stage %s (%s) failed after %s with %s of budget left: %v",
+			stage, id, elapsed, remaining, err)
 		return
 	}
 	log.Printf("Workspace checkpoint stage %s (%s) took %s with %s of budget left", stage, id, elapsed, remaining)
