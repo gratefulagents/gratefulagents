@@ -44,9 +44,25 @@ var sha256DigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // project tree. A staged target arrives as an archive and is extracted into a
 // directory before the runner sees it, so the archive media type recorded in
 // the spec would make those tools unrunnable.
-var stagedDirectoryMediaTypes = map[string]string{
-	"aderyn":               "application/vnd.gratefulagents.solidity-project.v1+directory",
-	"forge-security-tests": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+type stagedTargetContract struct {
+	mediaType  string
+	singleFile bool
+}
+
+var stagedTargetContracts = map[string]map[string]stagedTargetContract{
+	"aderyn": {
+		"solidity_project": {mediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
+	},
+	"forge-security-tests": {
+		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
+	},
+	"echidna": {
+		"solidity_project": {mediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
+	},
+	"mythril": {
+		"solidity_contract": {mediaType: "application/vnd.gratefulagents.solidity-contract.v1+source", singleFile: true},
+		"evm_bytecode":      {mediaType: "application/vnd.gratefulagents.evm-bytecode.v1+hex", singleFile: true},
+	},
 }
 
 // objectStore is the slice of blob storage the Job needs; the fake in the
@@ -122,10 +138,28 @@ func stageRunAndPublish(ctx context.Context, deps jobDeps) (securitytoolrun.Mani
 		if err != nil {
 			return securitytoolrun.Manifest{}, err
 		}
-		config.Target.Locator = locator
-		if media := stagedDirectoryMediaTypes[config.Tool]; media != "" {
-			config.Target.MediaType = media
+		contract := stagedTargetContracts[config.Tool][config.Target.Type]
+		if contract.singleFile {
+			locator, err = stagedSingleFile(locator)
+			if err != nil {
+				return securitytoolrun.Manifest{}, err
+			}
 		}
+		config.Target.Locator = locator
+		if contract.mediaType != "" {
+			config.Target.MediaType = contract.mediaType
+		}
+		// The control plane authenticates the staged tarball. After that
+		// verified archive is extracted, the runner authenticates the exact
+		// file or directory representation it executes, not the tar encoding.
+		extractedDigest, exists, err := securitytoolpacks.DigestPath(locator)
+		if err != nil {
+			return securitytoolrun.Manifest{}, fmt.Errorf("digest extracted target: %w", err)
+		}
+		if !exists {
+			return securitytoolrun.Manifest{}, errors.New("extracted target is unavailable")
+		}
+		config.Target.Digest = extractedDigest
 	}
 
 	result, err := deps.run(ctx, config)
@@ -187,6 +221,17 @@ func stageTarget(ctx context.Context, store objectStore, settings jobSettings) (
 		return "", fmt.Errorf("extract target %q: %w", settings.targetKey, err)
 	}
 	return targetDir, nil
+}
+
+func stagedSingleFile(targetDir string) (string, error) {
+	entries, err := os.ReadDir(targetDir)
+	if err != nil {
+		return "", fmt.Errorf("read staged single-file target: %w", err)
+	}
+	if len(entries) != 1 || !entries[0].Type().IsRegular() {
+		return "", errors.New("staged single-file target must contain exactly one regular file")
+	}
+	return filepath.Join(targetDir, entries[0].Name()), nil
 }
 
 func publishResult(ctx context.Context, store objectStore, prefix, outputDir, tool string,

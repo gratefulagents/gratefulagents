@@ -1,0 +1,196 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: evm-economic-and-mev-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    EVM protocol economics review: system-wide accounting and solvency,
+    governance and privileged controls, auctions and liquidations, incentives
+    and bad debt, MEV and transaction ordering, gas and liveness failure modes,
+    and safe use of time and randomness.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill for EVM systems whose safety depends on value moving
+        across several contracts or across time. Trace economic state as a
+        hostile sequence of transactions, not as isolated Solidity functions.
+
+        ## Build the economic model
+
+        - Inventory every asset, liability, share token, receipt, debt position,
+          reward balance, escrow, fee accumulator, and off-chain obligation.
+          Record its unit, decimals, price source, and which contract is the
+          source of truth.
+        - Map all state-changing entry points, including callbacks, hooks,
+          liquidation and settlement paths, governance execution, keepers, and
+          permissionless maintenance. Mark every point where value crosses a
+          trust boundary or accounting representation.
+        - Write explicit invariants before hunting: assets cover redeemable
+          liabilities; value is conserved except for named fees, yield, losses,
+          minting, and burning; a user's claim cannot increase by splitting or
+          merging operations; and bad debt is recognized rather than hidden.
+        - Check invariants over the whole transaction sequence. A local balance
+          update can be correct while a vault, market, or bridge remains
+          insolvent because another component uses stale totals.
+
+        ## Accounting, shares, and solvency
+
+        - Reconcile internal ledgers with actual token balances after deposits,
+          withdrawals, transfers, fees, liquidation, settlement, and emergency
+          recovery. Forced ETH, direct token transfers, rebases, and asynchronous
+          callbacks must not create withdrawable credit without a matching rule.
+        - Follow every conversion between assets, shares, debt units, prices,
+          rates, and decimal scales. Test rounding direction at one-unit values,
+          empty and nearly empty pools, maximum values, and repeated small
+          operations; protocol-favorable rounding can still accumulate into
+          theft or permanently strand the final claimant.
+        - For ERC-4626-style vaults, test first-depositor and donation attacks,
+          inflation of exchange rates, preview/execution disagreement, virtual
+          shares or offsets, fee treatment, and whether `totalAssets` includes
+          inaccessible, pending, borrowed, or manipulable balances.
+        - Exercise fee-on-transfer, rebasing, callback-capable, missing-return,
+          and unusually-decimaled tokens. Account from observed balance deltas
+          where the protocol cannot safely assume the requested amount arrived.
+        - Model insolvency explicitly: oracle shocks, loss socialization,
+          withdrawal ordering, reserve depletion, paused markets, abandoned
+          positions, and cascades where one market's bad debt is collateral or
+          backing elsewhere.
+        - Check staking, restaking, and liquid-staking derivatives for slashing,
+          delayed exits, exchange-rate updates, validator failure, withdrawal
+          queues, and double-counting of pending or delegated stake.
+
+        ## Governance and privileged transitions
+
+        - Build a role matrix for owner, admin, guardian, pauser, upgrader,
+          proposer, executor, canceller, oracle, keeper, fee recipient, and
+          multisig signers. Include indirect power through upgradeable modules,
+          registries, factories, and external governance executors.
+        - Trace proposal creation, voting power snapshots, delegation, quorum,
+          timelock queueing, execution, cancellation, and expiry. Look for
+          same-block borrowing or delegation, flash-loan voting, repeated
+          counting, stale checkpoints, and parameter changes that alter a live
+          proposal's eligibility.
+        - Verify timelocks cover every privileged route and bind the full target,
+          value, calldata, predecessor, and salt. Bypasses include direct admin
+          calls, short-delay role changes, batch subcalls, upgrade initialization,
+          emergency modes, and a privileged executor that can call itself.
+        - Treat emergency powers as an adversarial state machine. Pausing one
+          entry point must not leave an equivalent router or callback open, and
+          unpause, rescue, shutdown, and migration must preserve user exits and
+          cannot silently confiscate claims.
+        - Assess multisig threshold, signer independence, modules, guards,
+          fallback handlers, signer rotation, and whether one compromised actor
+          can lower the threshold or replace signers before a delay applies.
+
+        ## Auctions, liquidations, rewards, and incentives
+
+        - For liquidations, recompute health, close factor, seized collateral,
+          bonus, protocol fee, and residual debt at boundary prices and decimal
+          combinations. Check self-liquidation, partial liquidation loops, dust,
+          stale prices, and whether profitable liquidation remains possible
+          during congestion and sharp price moves.
+        - For auctions, inspect start price, decay, bidding increments, refunds,
+          cancellation, restart, finalization, and no-bid behavior. A malicious
+          bidder or reverting recipient must not block later bids or settlement.
+        - Derive interest and reward formulas from elapsed time and principal.
+          Test delayed updates, zero supply, extreme utilization, rate changes,
+          precision loss, index overflow, and whether joining immediately before
+          distribution captures rewards earned by earlier participants.
+        - Stress parameter combinations rather than reviewing each bound alone.
+          Individually valid fees, collateral factors, caps, and incentives can
+          combine into negative equity, free borrowing, impossible repayment,
+          or liquidation that costs more than its reward.
+        - Look for griefing with little attacker profit: forcing victims to pay
+          gas, resetting cooldowns, filling queues, creating dust positions,
+          consuming caps, withholding settlement, or repeatedly triggering
+          slippage and cancellation penalties.
+        - For intents, routers, hooks, and settlement systems, bind the solver,
+          input and minimum output, recipient, deadline, nonce, fees, and chain.
+          Check partial fills, duplicate fills, callback reentrancy, and who owns
+          surplus created between signed intent and execution.
+
+        ## MEV and transaction ordering
+
+        - Identify every operation whose result depends on a public mempool
+          observation: swaps, deposits against a manipulable share price,
+          liquidations, oracle updates, auctions, NFT mints, reward claims, and
+          governance actions. Model an attacker transaction before and after it.
+        - Check sandwich resistance through enforceable slippage limits,
+          deadlines, oracle bounds, and user-selected routes. A frontend default
+          is not protection if the contract accepts zero minimum output or a
+          stale deadline.
+        - Test back-running of oracle updates, interest accrual, rebases, batch
+          settlement, and administrative parameter changes. A correct new price
+          can still reveal a risk-free liquidation or redemption opportunity.
+        - Analyze just-in-time liquidity and short-lived deposits that collect
+          fees or rewards without sharing inventory risk. Snapshots must occur
+          before the attacker can observe and enter for the same distribution.
+        - Liquidation races and keeper exclusivity can centralize extraction or
+          leave bad debt during censorship. Verify multiple actors can progress
+          the state and that duplicate attempts fail without corrupting totals.
+        - For batches, solvers, and sequencers, inspect ordering authority,
+          tie-breaking, omitted operations, partial batch failure, and whether
+          the operator can censor exits or selectively settle favorable orders.
+        - Commit/reveal hides content only when commitments bind caller, action,
+          parameters, domain, and nonce. Analyze copy/replay, early reveal,
+          withheld reveals, last-revealer advantage, deposits, and recovery when
+          participants disappear.
+
+        ## Gas, liveness, and denial of service
+
+        - Find loops over user-controlled or ever-growing arrays, mappings with
+          enumerable side lists, on-chain history, pending withdrawals, voters,
+          markets, and reward recipients. Prove a bounded progress mechanism
+          exists after maximum realistic growth.
+        - Prefer pull-based claims where one recipient can revert. Inspect batch
+          calls, refund loops, token hooks, ETH sends, and external view calls:
+          one revert or out-of-gas callee must not freeze unrelated users.
+        - Check revert-data and return-data amplification in arbitrary external
+          calls. Copying or bubbling unbounded returndata can consume the
+          caller's remaining gas even when the callee receives a gas cap.
+        - Model queue starvation: insertion faster than processing, strict FIFO
+          blocked by one invalid head item, underfunded keeper rewards, repeated
+          reprioritization, and work that becomes more expensive as it waits.
+        - Account for storage growth and refunds, cold-access costs, callback gas,
+          and block gas limits. An operation that succeeds in small tests may be
+          permanently uncallable at production state size.
+        - Verify pause and failure modes retain a bounded path to repay, withdraw,
+          cancel, claim, or migrate. Liveness that depends on one keeper, oracle,
+          sequencer, admin, or relayer needs an explicit timeout or fallback.
+
+        ## Time, block fields, and randomness
+
+        - Treat `block.timestamp`, `block.number`, `blockhash`, `prevrandao`,
+          transaction order, and future block producers as attacker-influenced,
+          not secret randomness. Small timestamp control matters at auction,
+          expiry, interest, snapshot, and reward boundaries.
+        - Check unit conversions between seconds, blocks, epochs, and oracle
+          timestamps. On L2s, block number and timestamp semantics may follow a
+          sequencer or an L1 reference rather than Ethereum mainnet assumptions.
+        - For commit/reveal randomness, test missing reveals, selective aborts,
+          commitment reuse, reveal windows, blockhash expiry after 256 blocks,
+          and whether the last revealer can choose among outcomes.
+        - For VRF, bind each request ID to an immutable consumer operation and
+          validate the authorized coordinator. Handle delayed, duplicate, and
+          out-of-order fulfillment without letting a stale callback overwrite
+          newer state or strand funds.
+        - Consider reorgs and censorship around finalization. An outcome that is
+          economically final after one block may be replayed, reordered, or
+          invalidated before the application's assumed confirmation depth.
+
+        ## Validate and report
+
+        - Turn each candidate into a minimal local sequence with attacker and
+          victim balances before and after. Use invariant or stateful fuzz tests
+          for accounting claims and adversarial ordering tests for MEV claims.
+        - State assumptions about prices, liquidity, governance power, ordering,
+          gas, and privileged cooperation. Distinguish exploitable loss from
+          centralization, hardening, and an unavailable-but-required actor.
+        - Report the violated invariant, exact transaction sequence, affected
+          entry points, value at risk, and the state from which users cannot
+          recover. A bounded run with no violation is coverage evidence, not a
+          claim that the economics are safe.

@@ -662,6 +662,27 @@ func TestRunSecurityToolNetworkTargetIsNotStaged(t *testing.T) {
 	}
 }
 
+func TestRunSecurityToolStagesMythrilSingleFileTarget(t *testing.T) {
+	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
+	contractPath := filepath.Join(fixture.workspace, "Token.sol")
+	if err := os.WriteFile(contractPath, []byte("contract Token {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
+
+	result, _ := fixture.exec(t, `{"tool":"mythril","target":{"type":"solidity_contract","locator":"Token.sol","revision":"abc1234"},"timeout_seconds":60}`)
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	created := fixture.client.created
+	if created == nil || created.Spec.Target.StagedObjectKey == "" || created.Spec.Target.MediaType != stagedTargetMediaType {
+		t.Fatalf("Mythril target was not staged: %+v", created)
+	}
+	if names := archiveEntryNames(t, fixture.blobs.objects[created.Spec.Target.StagedObjectKey]); len(names) != 1 || names[0] != "Token.sol" {
+		t.Fatalf("staged entries = %v, want Token.sol", names)
+	}
+}
+
 func TestRunSecurityToolRejectsLocatorsOutsideTheWorkspace(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -52,9 +52,20 @@ var securityToolRunLocatorDigestPattern = regexp.MustCompile(`@(sha256:[0-9a-f]{
 // securitytoolpacks.Registry.BuildInvocation requires inside the Job. Only a
 // staged archive can produce them — the Job sets them when it extracts the
 // archive — so these tools cannot run against an unstaged target.
-var securityToolDirectoryMediaTypes = map[string]string{
-	"aderyn":               "application/vnd.gratefulagents.solidity-project.v1+directory",
-	"forge-security-tests": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+var securityToolStagedMediaTypes = map[string]map[string]string{
+	"aderyn": {
+		"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+	},
+	"forge-security-tests": {
+		"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+	},
+	"echidna": {
+		"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+	},
+	"mythril": {
+		"solidity_contract": "application/vnd.gratefulagents.solidity-contract.v1+source",
+		"evm_bytecode":      "application/vnd.gratefulagents.evm-bytecode.v1+hex",
+	},
 }
 
 var securityToolRunLabelValuePattern = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`)
@@ -223,8 +234,8 @@ func (t *runSecurityToolTool) Execute(ctx context.Context, input json.RawMessage
 	if failure != nil {
 		return *failure, nil
 	}
-	if media := securityToolDirectoryMediaTypes[tool.Name]; media != "" && spec.Target.StagedObjectKey == "" {
-		return errorResultf("tool %s requires target media type %s, which only exists after the platform extracts a staged archive; point the locator at the project directory in this run's workspace instead of %q",
+	if media := securityToolStagedMediaTypes[tool.Name][spec.Target.Type]; media != "" && spec.Target.StagedObjectKey == "" {
+		return errorResultf("tool %s requires target media type %s, which only exists after the platform extracts a staged archive; point the locator at the target in this run's workspace instead of %q",
 			tool.Name, media, in.Target.Locator), nil
 	}
 	config, err := securitytoolrun.RunConfigFor(spec)

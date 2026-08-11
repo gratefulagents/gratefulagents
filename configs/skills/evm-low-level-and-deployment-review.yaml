@@ -1,0 +1,258 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: evm-low-level-and-deployment-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    Low-level EVM and deployment review: signatures, ERC-1271, EIP-712,
+    permits, account abstraction and EIP-7702, CREATE2 and clones, Yul and ABI
+    hazards, precompiles and compiler behavior, proxies and diamonds, deployed
+    artifact verification, and hard-fork semantics.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill where correctness depends on EVM representation rather
+        than only Solidity control flow: signed messages, raw bytes and assembly,
+        deterministic deployment, delegatecall, upgrade layouts, compiler output,
+        or assumptions about a deployed chain and hard fork.
+
+        ## Inventory code, artifacts, and execution contexts
+
+        - Record every source root, compiler version, optimizer and `viaIR`
+          setting, EVM target, remapping, linked library, generated artifact,
+          deployment script, network address, proxy, implementation, beacon,
+          facet, factory, and privileged deployment account.
+        - Map each function's execution context: direct call, delegatecall,
+          staticcall, constructor, clone, proxy, diamond facet, callback, or
+          account-abstraction validation. Track who supplies `msg.sender`, value,
+          calldata, storage, and code in each context.
+        - Compare source assumptions with deployed bytecode and configuration.
+          Repository code is not evidence that the same implementation, linked
+          libraries, constructor arguments, proxy slots, or initialization data
+          are live on the target chain.
+
+        ## Signatures and replay domains
+
+        - For raw ECDSA recovery, require a valid `v`, low-`s` canonical form,
+          expected signature length, and a nonzero recovered signer. Never treat
+          a malformed signature that returns `address(0)` as authorization.
+        - Reconstruct the exact signed digest and compare every field against the
+          action. Bind signer, target, function or type, parameters, recipient,
+          value, nonce, deadline, chain, and verifying contract as applicable;
+          omitted fields become attacker-selected after signing.
+        - EIP-712 domains need deliberate `name`, `version`, `chainId`, and
+          `verifyingContract` handling. Check cached separators across proxy
+          upgrades and chain-id changes, cross-contract and cross-chain replay,
+          type-hash collisions, nested struct and array encoding, and accidental
+          use of `abi.encodePacked` where canonical encoding is required.
+        - Nonces must be consumed atomically in the same state transition as the
+          authorized action and scoped to the signer and intended operation.
+          Inspect cancellation, unordered nonce bitmaps, batch partial failure,
+          signature reuse after ownership transfer, and reentrancy before nonce
+          consumption.
+        - Do not assume signatures remain secret in the mempool. A relayer or
+          observer must not redirect value, change fees, choose the recipient,
+          or replay the authorization merely by submitting it first.
+
+        ## ERC-1271, permits, ERC-4337, and EIP-7702
+
+        - ERC-1271 validation must call the intended signer contract, normally
+          with `staticcall`, and accept only the exact magic value for the
+          implemented overload. Handle revert, short return data, and arbitrary
+          bytes without falling back to insecure ECDSA behavior.
+        - A contract signature's validity can change when owners, thresholds,
+          modules, or code change. Identify protocols that assume a once-valid
+          order remains valid forever, cache validation, or cannot invalidate
+          orders after a smart-account ownership change.
+        - For EIP-2612 and permit variants, verify owner, spender, value or
+          permitted token and amount, nonce, deadline, and domain. Distinguish
+          DAI-style permits, Permit2 allowances and signature transfers, and
+          token-specific return/revert behavior rather than assuming one ABI.
+        - Check permit front-running and denial of service: workflows should
+          remain correct if another party consumes a valid permit first. A
+          permit followed by an action must not allow the action to use an old,
+          broader allowance or a different owner's approval.
+        - For ERC-4337, review `validateUserOp`, EntryPoint trust, nonce lanes,
+          signature and aggregator validation, validation-data packing, prefund,
+          deposits, gas limits, paymaster context, post-operation behavior, and
+          reentrancy between validation and execution.
+        - Ensure account and paymaster validation does not depend on forbidden or
+          mutable state, and that simulation cannot diverge from inclusion.
+          Sponsored operations must bind fee policy and cannot drain a paymaster
+          through cheap validation failures, oversized calldata, or repeated
+          post-operation reverts.
+        - For EIP-7702 authorization tuples, bind chain ID, delegate address, and
+          account nonce; inspect replay policy when chain ID is zero. Model an
+          EOA as code-bearing before and after delegation, including replacement
+          and revocation, initialization, storage ownership, and interaction
+          with existing account nonces and signatures.
+        - Delegated EOAs break assumptions based on `extcodesize`, `address.code`,
+          `tx.origin == msg.sender`, constructor-only code absence, and the idea
+          that an EOA cannot execute callbacks. Trace authorization and storage
+          in the delegated account's context, not the delegate contract's.
+
+        ## CREATE, CREATE2, factories, and clones
+
+        - For CREATE addresses, include deployer nonce and failed/dependent
+          deployments. For CREATE2, independently derive the address from the
+          factory, salt, and `keccak256(init_code)`; constructor arguments are
+          part of init code, while final runtime bytecode is not.
+        - Check whether salts are caller-controlled, predictable, reused across
+          tenants or chains, or insufficiently bound to initialization. Address
+          squatting, frontrunning, griefing failed deployments, and prefunded
+          counterfactual addresses can violate assumptions even without taking
+          ownership of the intended contract.
+        - Initialization must be atomic with deployment or inaccessible to
+          untrusted callers. Review factory callbacks, constructor reentrancy,
+          implementation initialization, clone initialization races, default
+          admin assignment, and failure paths that leave a usable but unowned
+          instance.
+        - For EIP-1167 and custom clones, decode the runtime bytecode to confirm
+          the implementation address and forwarding behavior. Validate immutable
+          argument offsets, calldata and returndata forwarding, receive paths,
+          and that the implementation is deployed and compatible.
+        - Do not rely on redeploying different code to an address without proving
+          the target fork's `SELFDESTRUCT` rules. After EIP-6780, destruction
+          generally does not delete old code or storage unless creation and
+          destruction occur in the same transaction, invalidating many
+          metamorphic-contract patterns and tests based on older semantics.
+        - Treat deterministic addresses as identities only when factory code,
+          salt derivation, init code, initialization, and chain are all bound.
+          An address alone says nothing about current proxy implementation or
+          mutable state.
+
+        ## Yul, assembly, ABI, memory, and storage
+
+        - Review every assembly block instruction by instruction with stack,
+          memory, storage, calldata, and returndata provenance. Solidity's type,
+          bounds, memory-safety, and dirty-bit guarantees do not automatically
+          apply inside Yul.
+        - Validate memory allocation around the free-memory pointer at `0x40`,
+          scratch space, zero slot at `0x60`, alignment, length words, and
+          overlapping copies. Marking assembly as memory-safe is a compiler
+          promise; a false annotation can make optimizer transformations unsound.
+        - Before `calldatacopy`, `returndatacopy`, `mload`, or `mstore`, prove
+          offsets and lengths cannot wrap, exceed available data, alias live
+          objects, or trigger memory expansion that exhausts gas. Never copy
+          unbounded returndata merely to bubble a revert.
+        - For low-level calls, validate success and return-data length before
+          decoding. Empty success from an EOA, short data, noncanonical booleans
+          or addresses, and a revert carrying huge data must not be interpreted
+          as a valid typed return.
+        - Recompute ABI head/tail offsets for nested dynamic arrays, tuples,
+          bytes, callbacks, and multicalls. Inspect `abi.encodePacked` ambiguity,
+          selector construction, trailing calldata, hash collisions between
+          dynamic fields, and differences among `call`, `staticcall`, and
+          `delegatecall` forwarding.
+        - Track narrowing and widening casts, sign extension, high dirty bits,
+          enum and boolean validity, and address truncation. Compare before
+          converting when the discarded bits are security-relevant.
+        - Recompute packed storage slots, offsets, mapping and dynamic-array
+          roots, bytes/string short encoding, and namespaced slots. Assembly
+          writes must mask adjacent packed fields and must not confuse memory
+          pointers with storage references.
+
+        ## Precompiles and chain-specific EVM behavior
+
+        - Review precompile calls using the target chain's address set, input
+          format, gas schedule, and fork activation. A call to an absent
+          precompile may succeed as an empty account, while L2s and alternate
+          EVM chains can add, remove, or price precompiles differently.
+        - For `ecrecover`, handle failure returning zero and enforce canonical
+          signatures. For elliptic-curve and pairing precompiles, validate input
+          lengths, field ranges, point validity, identity points, subgroup
+          requirements where applicable, and the meaning of empty input.
+        - Check return status and exact output length for hashing, modular
+          exponentiation, identity/copy, pairing, and chain-specific precompiles.
+          Gas estimates must account for attacker-controlled input sizes and the
+          active fork's pricing.
+        - Do not generalize Ethereum opcode behavior to rollups. Review address
+          aliasing, system contracts, deposit transactions, fee fields, block
+          attributes, predeploys, unsupported opcodes, and L1/L2 message context
+          for each actual deployment environment.
+
+        ## Compiler, optimizer, and artifact review
+
+        - Pin the exact Solidity compiler rather than trusting a broad pragma.
+          Rebuild with repository settings and inspect compiler warnings, known
+          bugs affecting that version and feature set, optimizer runs, metadata,
+          library linking, `viaIR`, and the selected `evmVersion`.
+        - Treat optimizer-sensitive or compiler-version-sensitive behavior as a
+          concrete hypothesis. Minimize it and compare bytecode or execution
+          across relevant settings; do not report a compiler bug solely because
+          assembly is difficult to read.
+        - Inspect unchecked arithmetic, inline assembly, ABI coder boundaries,
+          immutable encoding, function-pointer handling, and optimizer removal
+          of security-sensitive writes. Reproduce suspected miscompilation with
+          the exact production compiler and configuration.
+        - Compare creation and runtime bytecode separately. Normalize only known
+          metadata and linked-library placeholders, then verify constructor
+          arguments, immutable values, and source maps rather than accepting a
+          block explorer's source label as proof.
+
+        ## Proxies, diamonds, and storage evolution
+
+        - Classify each proxy as transparent, UUPS, beacon, clone, diamond, or
+          custom. Identify the real upgrade authority and every route that can
+          change implementation, beacon, facets, admin, or initialization state.
+        - Ensure implementations disable direct initialization and each proxy is
+          initialized exactly once with atomic deployment calldata. Reinitializer
+          versions must be monotonic and upgrade initialization must not be
+          callable independently or through an unintended implementation.
+        - For transparent proxies, inspect admin fallback separation and selector
+          clashes. For UUPS, verify authorization, proxy-only execution,
+          compatibility checks, implementation-slot writes, and that an upgrade
+          cannot remove future upgrade or rollback capability unintentionally.
+        - Diff storage layouts across every upgrade: inheritance order, inserted
+          bases, packed fields, structs, enums, mapping roots, gaps, immutables,
+          and namespaced storage. A declaration-level diff is insufficient when
+          assembly or libraries derive slots manually.
+        - For diamonds, enumerate selector-to-facet routing and all diamond-cut
+          permissions. Check selector replacement and removal, duplicate or
+          shadowed selectors, initialization delegatecalls, facet self-calls,
+          loupe disagreement, and shared or colliding storage namespaces.
+        - Model migration failure and rollback with real old state. New code must
+          tolerate partially migrated records or make partial execution
+          impossible, and rollback must not reinterpret already transformed
+          storage under an incompatible old layout.
+
+        ## Deployment and fork-state validation
+
+        - Read deployment scripts as privileged production code. Verify network
+          and chain ID, deployer, nonces and salts, linked addresses, constructor
+          and initializer arguments, operation ordering, confirmations, ownership
+          transfer, role renunciation, multisig and timelock setup, and post-deploy
+          assertions.
+        - Check for windows where implementations or proxies are uninitialized,
+          a temporary deployer retains power, guardians are unset, allowlists are
+          empty, or public operations begin before caps and oracle sources are
+          configured. Verify emitted and recorded addresses match actual code.
+        - Pin fork tests to a chain and block number and record the RPC state
+          assumptions. Forks are useful for real token behavior, storage, and
+          integration paths, but impersonation, arbitrary balances, storage
+          writes, mocked oracles, and disabled gas costs can make an impossible
+          exploit appear valid or conceal a required precondition.
+        - Select the hard-fork rules used in production. Explicitly consider
+          `PUSH0`, `PREVRANDAO`, transient storage, `MCOPY`, blob-related fields,
+          cold access and refund schedules, base fee, and `SELFDESTRUCT`; code
+          compiled or tested for the wrong EVM version can deploy differently or
+          fail at runtime.
+        - Re-run source-to-artifact, proxy-slot, implementation-code, role, and
+          initialization checks against the deployment or pinned fork. A passing
+          local test against freshly deployed contracts does not validate live
+          migration state or production configuration.
+
+        ## Validate and report
+
+        - Build minimal local reproductions for low-level claims and state the
+          compiler, optimizer, EVM fork, chain, block, proxy context, and exact
+          byte sequence. Show decoded slots, digest fields, addresses, or runtime
+          bytecode rather than relying on source-level intuition.
+        - Separate a source bug, deployment/configuration bug, historical-fork
+          mismatch, and chain-specific incompatibility. Report the attacker path,
+          affected artifact or address, violated invariant, and whether the
+          result was reproduced against local deployment or pinned fork state.

@@ -106,6 +106,8 @@ var inlineSecuritySkills = []string{
 	"api-authz-hunting",
 	"bug-bounty-reporting",
 	"cloud-iac-hunting",
+	"evm-economic-and-mev-review",
+	"evm-low-level-and-deployment-review",
 	"exploit-poc-discipline",
 	"kubernetes-operator-hunting",
 	"web-app-hunting",

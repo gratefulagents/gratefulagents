@@ -89,11 +89,22 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 	if !slices.Contains(t.TargetTypes, cfg.Target.Type) {
 		return Invocation{}, Tool{}, &ApplicabilityError{Tool: t.Name, TargetType: cfg.Target.Type}
 	}
-	expectedMedia := map[string]string{
-		"aderyn":               "application/vnd.gratefulagents.solidity-project.v1+directory",
-		"forge-security-tests": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+	expectedMedia := map[string]map[string]string{
+		"aderyn": {
+			"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+		},
+		"forge-security-tests": {
+			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+		},
+		"echidna": {
+			"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+		},
+		"mythril": {
+			"solidity_contract": "application/vnd.gratefulagents.solidity-contract.v1+source",
+			"evm_bytecode":      "application/vnd.gratefulagents.evm-bytecode.v1+hex",
+		},
 	}
-	if media := expectedMedia[t.Name]; media != "" && cfg.Target.MediaType != media {
+	if media := expectedMedia[t.Name][cfg.Target.Type]; media != "" && cfg.Target.MediaType != media {
 		return Invocation{}, Tool{}, fmt.Errorf("tool %s requires target media type %s", t.Name, media)
 	}
 	if cfg.Target.Revision == "" || !digestPattern.MatchString(cfg.Target.Digest) {
@@ -198,6 +209,14 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		}
 		if strings.Contains(argv[i], "{{") {
 			return Invocation{}, Tool{}, fmt.Errorf("unresolved invocation token %q", argv[i])
+		}
+	}
+	if t.Name == "mythril" && cfg.Target.Type == "evm_bytecode" {
+		for i, token := range argv {
+			if token == cfg.Target.Locator {
+				argv = slices.Insert(argv, i, "--codefile")
+				break
+			}
 		}
 	}
 	return Invocation{Image: t.Image, Digest: t.ImageDigest, Argv: argv, Budgets: t.Budgets, Network: t.Requirements.Network, Privilege: t.Requirements.Privilege}, t, nil
@@ -710,17 +729,22 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("naabu", DomainNetwork, "2.6.1", "naabu-jsonl", "application/x-ndjson", []string{"address_scope"}, []string{"naabu", "-host", "{{target}}", "-p", "{{ports}}", "-rate", "{{rate}}", "-c", "4", "-scan-type", "c", "-retries", "1", "-json", "-silent", "-disable-update-check"}),
 		base("aderyn", DomainBlockchain, "0.6.8", "sarif", "application/sarif+json", []string{"solidity_project"}, []string{"aderyn", "{{target}}", "--output", "report.sarif", "--stdout", "--skip-update-check"}),
 		base("forge-security-tests", DomainBlockchain, "1.7.1", "junit", "application/junit+xml", []string{"foundry_project"}, []string{"forge", "test", "--root", "{{target}}", "--junit", "--fuzz-seed", "{{seed}}", "--offline", "--threads", "1"}),
-		base("slither", DomainBlockchain, "0.11.3", "json-records", "application/json", []string{"solidity_project"}, []string{"slither", "{{target}}", "--json", "-"}),
-		base("mythril", DomainBlockchain, "0.24.8", "json-records", "application/json", []string{"evm_bytecode", "solidity_contract"}, []string{"myth", "analyze", "{{target}}", "-o", "json"}),
-		base("echidna", DomainBlockchain, "2.3.0", "json-records", "application/x-ndjson", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}"}),
+		base("slither", DomainBlockchain, "0.11.3", "slither-json", "application/json", []string{"solidity_project"}, []string{"slither", "{{target}}", "--json", "-"}),
+		base("mythril", DomainBlockchain, "0.24.8", "mythril-json", "application/json", []string{"evm_bytecode", "solidity_contract"}, []string{"myth", "analyze", "{{target}}", "-o", "json", "--strategy", "bfs", "--max-depth", "64", "--call-depth-limit", "3", "--loop-bound", "3", "--transaction-count", "2", "--execution-timeout", "240", "--solver-timeout", "10000", "--create-timeout", "30", "--no-onchain-data"}),
+		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
+		base("halmos", DomainBlockchain, "0.3.3", "halmos-json", "application/json", []string{"foundry_project"}, []string{"halmos", "--root", "{{target}}", "--json-output"}),
 	}
 	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu"}
 	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz"}
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "mythril"}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
+	packagingBlockers := map[string]string{
+		"slither": "catalog-only: upstream publishes Slither through Python package indexes without a verified multi-architecture runtime closure",
+		"halmos":  "catalog-only: upstream publishes Halmos as Python/source distributions and a floating OCI tag without a verified multi-architecture runtime closure",
+	}
 	ociTools := map[string]struct{ image, digest, amd64, arm64, root, executable, output string }{
 		"owasp-zap":    {"docker.io/zaproxy/zap-stable", "sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab", "sha256:65f8bee15a648ca4a0b6a25e1096fc76af6eea42ab2d75f2a9649981225f30b8", "sha256:7d6bc478bd0750a094349b2e9710a4e33b84e003ae4341f2f2ae7245ec1c5065", "owasp-zap", "/zap/zap.sh", "/work/zap-report.json"},
 		"schemathesis": {"docker.io/schemathesis/schemathesis", "sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2", "sha256:7f507383fc96256c1de89e8ac2fd9e00525cd46fee0be39d29dac286315fa414", "sha256:99f0b99bb8a44beb22d97fd12643d0990a28b13a8e0dd91d2ace054500373271", "schemathesis", "/usr/local/bin/schemathesis", "/work/result.xml"},
@@ -728,6 +752,7 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		"nmap":         {"docker.io/instrumentisto/nmap", "sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4416fa36e1891e8c33623cfc845", "sha256:42dc1d797c6f716ef192ac49426a19506bd6d27fc4002b7ca686796452c0b050", "sha256:6b200daa02b7b1a6628df3d815744fba596230137237e270640e788c4a0a65cb", "nmap", "/usr/bin/nmap", ""},
 		"zeek":         {"docker.io/zeek/zeek", "sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a", "sha256:c01e13d3bb837fdbccb26cddfab73c0cf8a9f3dba1eb9d181b00f412530bb4f6", "sha256:e53b6b22aaa753010ea356c5a691435a80a9aa0935721dcfd582dc76dd38572b", "zeek", "/usr/local/zeek/bin/zeek", "/work/notice.log"},
 		"suricata":     {"docker.io/jasonish/suricata", "sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a", "sha256:559a07fcccae439ffdabd05a4969e1feb74cc43f88ea456cc544a20b9b148123", "sha256:6a0b4d02f9174a74e52c904bbd10d344d024bbebc86283866f92096c09be31b0", "suricata", "/usr/bin/suricata", "/work/eve.json"},
+		"mythril":      {"docker.io/mythril/myth", "sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff", "sha256:ca947a2a79204667ae2ae93ea6aaaca0cea669f61bc4db6958e7556ea263bd80", "sha256:831577a2cf58deb5df758911e6b2e75b2aeb3a59c8c29f15127c2cedf992617d", "mythril", "/usr/local/bin/myth", ""},
 	}
 	for i := range tools {
 		if digest := lockedToolArtifactDigest(tools[i].Name, runtime.GOARCH); digest != "" {
@@ -742,7 +767,7 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			tools[i].OCIExecutable = oci.executable
 			tools[i].OCIOutputPath = oci.output
 			tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
-			if tools[i].Name == "schemathesis" {
+			if tools[i].Name == "schemathesis" || tools[i].Name == "mythril" {
 				tools[i].ExitCodes[1] = StatusFindings
 			}
 			if tools[i].Name == "zeek" || tools[i].Name == "suricata" {
@@ -773,9 +798,19 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 				tools[i].Invocation = append(tools[i].Invocation, "--seed", "{{seed}}")
 			}
 		}
+		if tools[i].Name == "echidna" {
+			tools[i].Budgets.Requests = 10000
+			tools[i].Budgets.Concurrency = 1
+		}
+		if tools[i].Name == "mythril" {
+			tools[i].Budgets.Concurrency = 1
+		}
 		if !slices.Contains(executable, tools[i].Name) {
 			tools[i].Enabled = false
-			tools[i].DisabledReason = "catalog-only: executable wrapper is not implemented"
+			tools[i].DisabledReason = packagingBlockers[tools[i].Name]
+			if tools[i].DisabledReason == "" {
+				tools[i].DisabledReason = "catalog-only: executable wrapper is not implemented"
+			}
 		}
 	}
 	return Manifest{SchemaVersion: "security-tool-registry/v1", Tools: tools}
@@ -789,6 +824,7 @@ func lockedToolArtifactDigest(name, arch string) string {
 		"naabu":                {"amd64": "sha256:6c0aac4253aebe95bbc13d4712a5f8caf7db9c9b62d6bc1fb4c56594cfa45165", "arm64": "sha256:635d93e16b2e6423434b361c017d8fd12f354eaebbf04bcf062c97a9d4e2addc"},
 		"aderyn":               {"amd64": "sha256:a268d616826901e17717b1bc6368d8b2c063045a46fb99a0c0f657f102d977ca", "arm64": "sha256:773033830116d7628c01f105a4bd0691d1034fc285f37652e8868c8dc14d97e0"},
 		"forge-security-tests": {"amd64": "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "arm64": "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988"},
+		"echidna":              {"amd64": "sha256:b5db2b36cd95c70b84fde5cde73b004485decc7a07b6bfd65d7d6a6695294cc3", "arm64": "sha256:ede4024e5cdc8112716b726c9951a69c709d428a649d994fa952fc7e38f6f662"},
 	}
 	return pins[name][arch]
 }

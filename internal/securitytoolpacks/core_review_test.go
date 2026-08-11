@@ -147,7 +147,7 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		}
 		dockerfiles += string(data)
 	}
-	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata"} {
+	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata", "mythril"} {
 		tool, ok := registry.Tool(name)
 		if !ok || !tool.Enabled {
 			t.Fatalf("%s is not executable: %+v", name, tool)
@@ -158,7 +158,7 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		if strings.Count(dockerfiles, tool.Image) != 1 {
 			t.Fatalf("%s pin is not present exactly once in the security-tools Dockerfile", name)
 		}
-		if name != "schemathesis" && tool.ExitCodes[1] != StatusError {
+		if name != "schemathesis" && name != "mythril" && tool.ExitCodes[1] != StatusError {
 			t.Fatalf("%s exit 1 must be operational error", name)
 		}
 	}
@@ -186,7 +186,7 @@ func TestExecutableToolArtifactPinsMatchRuntimeLock(t *testing.T) {
 	}
 	manifest := DefaultManifest(sha256Digest([]byte("image")), map[string]string{"nuclei": sha256Digest([]byte("templates"))})
 	aliases := map[string]string{"forge-security-tests": "forge"}
-	for _, name := range []string{"nuclei", "naabu", "aderyn", "forge-security-tests"} {
+	for _, name := range []string{"nuclei", "naabu", "aderyn", "forge-security-tests", "echidna"} {
 		lockName := name
 		if aliases[name] != "" {
 			lockName = aliases[name]
@@ -254,6 +254,28 @@ func TestStableRecordsUsesTotalSerializedTieBreaker(t *testing.T) {
 	}
 }
 
+func TestEVMToolsHaveReviewedExecutionOrPackagingContracts(t *testing.T) {
+	registry, err := NewRegistry(DefaultManifest(sha256Digest([]byte("wrapper")), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"echidna", "mythril"} {
+		tool, ok := registry.Tool(name)
+		if !ok || !tool.Enabled {
+			t.Fatalf("%s must be executable: %+v", name, tool)
+		}
+	}
+	for _, name := range []string{"slither", "halmos"} {
+		tool, ok := registry.Tool(name)
+		if !ok || tool.Enabled || !strings.Contains(tool.DisabledReason, "verified multi-architecture runtime closure") {
+			t.Fatalf("%s must fail closed with its reproducible packaging blocker: %+v", name, tool)
+		}
+	}
+	if halmos, _ := registry.Tool("halmos"); halmos.Adapter != "halmos-json" {
+		t.Fatalf("Halmos adapter = %q", halmos.Adapter)
+	}
+}
+
 func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 	registry, err := NewRegistry(DefaultManifest(sha256Digest([]byte("wrapper")), nil))
 	if err != nil {
@@ -285,6 +307,21 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 			config: RunConfig{Tool: "forge-security-tests", Target: Target{Type: "foundry_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("forge")), MediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"}, Seed: &seed},
 			want:   []string{"forge", "test", "--root", "/workspace/project", "--junit", "--fuzz-seed", "42", "--offline", "--threads", "1"},
 		},
+		{
+			name:   "echidna",
+			config: RunConfig{Tool: "echidna", Target: Target{Type: "solidity_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("echidna")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"}, Seed: &seed},
+			want:   []string{"echidna", "/workspace/project", "--format", "json", "--seed", "42", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"},
+		},
+		{
+			name:   "mythril solidity source",
+			config: RunConfig{Tool: "mythril", Target: Target{Type: "solidity_contract", Locator: "/workspace/Token.sol", Revision: "fixture-v1", Digest: sha256Digest([]byte("source")), MediaType: "application/vnd.gratefulagents.solidity-contract.v1+source"}},
+			want:   []string{"myth", "analyze", "/workspace/Token.sol", "-o", "json", "--strategy", "bfs", "--max-depth", "64", "--call-depth-limit", "3", "--loop-bound", "3", "--transaction-count", "2", "--execution-timeout", "240", "--solver-timeout", "10000", "--create-timeout", "30", "--no-onchain-data"},
+		},
+		{
+			name:   "mythril EVM bytecode",
+			config: RunConfig{Tool: "mythril", Target: Target{Type: "evm_bytecode", Locator: "/workspace/Token.hex", Revision: "fixture-v1", Digest: sha256Digest([]byte("bytecode")), MediaType: "application/vnd.gratefulagents.evm-bytecode.v1+hex"}},
+			want:   []string{"myth", "analyze", "--codefile", "/workspace/Token.hex", "-o", "json", "--strategy", "bfs", "--max-depth", "64", "--call-depth-limit", "3", "--loop-bound", "3", "--transaction-count", "2", "--execution-timeout", "240", "--solver-timeout", "10000", "--create-timeout", "30", "--no-onchain-data"},
+		},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -296,5 +333,25 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 				t.Fatalf("argv=%q, want %q", invocation.Argv, test.want)
 			}
 		})
+	}
+}
+
+func TestEVMToolsRejectMissingSeedsAndMismatchedMediaTypes(t *testing.T) {
+	registry, err := NewRegistry(DefaultManifest(sha256Digest([]byte("wrapper")), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := int64(42)
+	base := Target{Locator: "/workspace/target", Revision: "fixture-v1", Digest: sha256Digest([]byte("target"))}
+	tests := []RunConfig{
+		{Tool: "echidna", Target: Target{Type: "solidity_project", Locator: base.Locator, Revision: base.Revision, Digest: base.Digest, MediaType: "application/gzip"}, Seed: &seed},
+		{Tool: "echidna", Target: Target{Type: "solidity_project", Locator: base.Locator, Revision: base.Revision, Digest: base.Digest, MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"}},
+		{Tool: "mythril", Target: Target{Type: "solidity_contract", Locator: base.Locator, Revision: base.Revision, Digest: base.Digest, MediaType: "application/vnd.gratefulagents.evm-bytecode.v1+hex"}},
+		{Tool: "mythril", Target: Target{Type: "evm_bytecode", Locator: base.Locator, Revision: base.Revision, Digest: base.Digest, MediaType: "application/vnd.gratefulagents.solidity-contract.v1+source"}},
+	}
+	for _, config := range tests {
+		if _, _, err := registry.BuildInvocation(config); err == nil {
+			t.Errorf("BuildInvocation accepted invalid %s config: %+v", config.Tool, config)
+		}
 	}
 }
