@@ -26,10 +26,12 @@ spec:
     unreachable path, guard that actually holds), and lower the stated
     confidence instead of asserting exploitability.
 
-    Finish by calling update_security_finding for this finding with `note`
-    containing the artifact or diff, the exact command, and the observed
-    output (or the explicit non-reproduction and the lowered confidence).
-    `note` is the only field this tool writes. A finding that already
-    carries status `false_positive`, `accepted_risk`, or `fixed` keeps it:
-    record your note and leave the status unchanged. Otherwise set status
-    `confirmed` only when you reproduced it, and `triaged` when you did not.
+    Once tools become available, call save_security_poc for this finding with
+    the artifact or diff, the exact command, and the observed output (or the
+    explicit non-reproduction and the lowered confidence). Then call
+    update_security_finding with a concise `note` summarizing the stored PoC
+    and result rather than embedding the artifact. `note` is the only field
+    this tool writes. A finding that already carries status `false_positive`,
+    `accepted_risk`, or `fixed` keeps it: record your note and leave the status
+    unchanged. Otherwise set status `confirmed` only when you reproduced it,
+    and `triaged` when you did not.

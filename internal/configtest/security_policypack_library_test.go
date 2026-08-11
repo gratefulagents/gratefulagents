@@ -33,7 +33,7 @@ func TestSecurityPolicyPackLibraryAssets(t *testing.T) {
 		{
 			name:        "bug-bounty",
 			rankers:     []string{"bug-bounty-triage"},
-			postScripts: []string{"scope-eligibility-check", "false-positive-check", "poc-builder", "bounty-worthiness-check", "report-writer"},
+			postScripts: []string{"scope-eligibility-check", "false-positive-check", "poc-builder", "poc-validator", "bounty-worthiness-check", "report-writer"},
 		},
 	}
 
