@@ -773,13 +773,15 @@ spec:
         {{tasks.map-architecture-assets-roles-entrypoints.output}}, and invariants
         {{tasks.define-security-invariants.output}}. Emit deduplicated records for every repository,
         deployment, entry-point class, and invariant domain. Use only examined, skipped, unsupported, or
-        inconclusive status; preserve missing evidence and limitations as gaps and never infer safety.
+        inconclusive status; preserve missing evidence and limitations as gaps and never infer safety. Carry
+        execution_status, tool_run, seed, bounds, harnesses, and artifacts on every record; use not_applicable,
+        seed 0, plus empty string and array values only because these foundation records have no executable tool.
       dependsOn:
         - inventory-scope-repositories-deployments
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-build-and-static-coverage
       role: security-reviewer
@@ -794,12 +796,15 @@ spec:
         {{tasks.deterministic-forge-tests-and-invariants.output}}. Emit deduplicated records for every build,
         artifact, deployment comparison, and tool target. Use only examined, skipped, unsupported, or
         inconclusive status; preserve errors, timeouts, partial runs, absent roots or harnesses, and artifacts.
+        Carry each exact execution_status, tool_run, seed, bounds, harnesses, and artifact reference; use
+        not_applicable for build records with no executable tool, use seed 0 when the upstream result exposes
+        no seed, and leave string or array metadata empty only when the upstream result does not expose it.
       dependsOn:
         - reproducible-build-artifact-deployment-review
         - aderyn-static-analysis
         - deterministic-forge-tests-and-invariants
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-fuzz-and-formal-coverage
       role: security-reviewer
@@ -814,12 +819,15 @@ spec:
         {{tasks.symbolic-and-formal-applicability.output}}. Emit deduplicated records for every target,
         property, and formal method. Use only examined, skipped, unsupported, or inconclusive status; preserve
         errors, timeouts, bounds, partial runs, absent harnesses, and unsupported provers as explicit gaps.
+        Carry each exact execution_status, tool_run, seed, bounds, harnesses, and artifacts; use not_applicable
+        for formal records with no executable tool, use seed 0 when the upstream result exposes no seed, and
+        leave string or array metadata empty only when the upstream result does not expose it.
       dependsOn:
         - echidna-stateful-property-fuzzing
         - bounded-mythril-symbolic-analysis
         - symbolic-and-formal-applicability
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-calls-auth-accounting-coverage
       role: security-reviewer
@@ -833,13 +841,15 @@ spec:
         {{tasks.authorization-signatures-and-account-abstraction.output}}, and accounting and token review
         {{tasks.accounting-arithmetic-and-token-integrations.output}}. Emit deduplicated records with only
         examined, skipped, unsupported, or inconclusive status, preserving limitations and unvalidated
-        candidates as explicit gaps. Never infer safety from a pass or no finding.
+        candidates as explicit gaps. Never infer safety from a pass or no finding. Carry execution_status,
+        tool_run, seed, bounds, harnesses, and artifacts on every record; use not_applicable, seed 0, plus empty
+        string and array values when no executable tool applies.
       dependsOn:
         - external-calls-reentrancy-and-atomicity
         - authorization-signatures-and-account-abstraction
         - accounting-arithmetic-and-token-integrations
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-economics-oracle-liveness-coverage
       role: security-reviewer
@@ -853,13 +863,15 @@ spec:
         {{tasks.oracles-randomness-time-and-ordering.output}}, and gas, liveness, returndata and state growth
         {{tasks.gas-liveness-returndata-and-state-growth.output}}. Emit deduplicated records with only examined,
         skipped, unsupported, or inconclusive status, preserving limitations and unvalidated candidates as
-        explicit gaps. Never infer safety from a pass or no finding.
+        explicit gaps. Never infer safety from a pass or no finding. Carry execution_status, tool_run, seed,
+        bounds, harnesses, and artifacts on every record; use not_applicable, seed 0, plus empty string and
+        array values when no executable tool applies.
       dependsOn:
         - governance-liquidations-auctions-and-mev
         - oracles-randomness-time-and-ordering
         - gas-liveness-returndata-and-state-growth
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-low-level-and-configuration-coverage
       role: security-reviewer
@@ -873,11 +885,13 @@ spec:
         {{tasks.deployment-and-privileged-configuration.output}}. Emit deduplicated records for every relevant
         low-level topic, deployment, and configuration area with only examined, skipped, unsupported, or
         inconclusive status. Preserve missing evidence, partial review, and unvalidated candidates as gaps.
+        Carry execution_status, tool_run, seed, bounds, harnesses, and artifacts on every record; use
+        not_applicable, seed 0, plus empty string and array values when no executable tool applies.
       dependsOn:
         - low-level-factories-proxies-and-storage
         - deployment-and-privileged-configuration
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-scope-and-tool-coverage
       role: security-reviewer
@@ -896,7 +910,8 @@ spec:
         repository, deployment, entry-point class, invariant domain, tool, and formal method. Status must be
         exactly examined, skipped, unsupported, or inconclusive. Preserve errors, timeouts, partial runs,
         missing artifacts or deployments, absent harnesses, and unsupported provers as explicit gaps. Never
-        turn a pass or no-finding result into broader coverage or safety.
+        turn a pass or no-finding result into broader coverage or safety. Copy execution_status, tool_run,
+        seed, bounds, harnesses, and artifacts from the leaf ledgers verbatim through this merge.
       dependsOn:
         - account-foundation-coverage
         - account-build-and-static-coverage
@@ -906,11 +921,16 @@ spec:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["area", "status", "basis", "summary"],
+            "required": ["area", "status", "basis", "execution_status", "tool_run", "seed", "bounds", "harnesses", "artifacts", "summary"],
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "basis": {"type": "array", "items": {"type": "string"}},
+              "execution_status": {"type": "string", "enum": ["not_run", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "tool_run": {"type": "string"},
+              "seed": {"type": "integer"},
+              "bounds": {"type": "array", "items": {"type": "string"}},
+              "harnesses": {"type": "array", "items": {"type": "string"}},
               "artifacts": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
             }
@@ -934,6 +954,8 @@ spec:
         every specialist topic and deployment/configuration area. Status must be exactly examined, skipped,
         unsupported, or inconclusive. Preserve missing evidence, tool limitations, unvalidated candidates,
         and partial review as explicit gaps. Never turn pass or no-finding into broader coverage or safety.
+        Copy execution_status, tool_run, seed, bounds, harnesses, and artifacts from the leaf ledgers verbatim
+        through this merge.
       dependsOn:
         - account-calls-auth-accounting-coverage
         - account-economics-oracle-liveness-coverage
@@ -943,11 +965,16 @@ spec:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["area", "status", "basis", "summary"],
+            "required": ["area", "status", "basis", "execution_status", "tool_run", "seed", "bounds", "harnesses", "artifacts", "summary"],
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "basis": {"type": "array", "items": {"type": "string"}},
+              "execution_status": {"type": "string", "enum": ["not_run", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "tool_run": {"type": "string"},
+              "seed": {"type": "integer"},
+              "bounds": {"type": "array", "items": {"type": "string"}},
+              "harnesses": {"type": "array", "items": {"type": "string"}},
               "artifacts": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
             }
@@ -972,6 +999,9 @@ spec:
         target. Status must be exactly examined, skipped, unsupported, or inconclusive. Preserve tool errors,
         timeouts, partial runs, missing artifacts/deployments, absent harnesses, unsupported RPC forks/provers,
         and unvalidated candidates as gaps. Never upgrade pass/no-finding into broader coverage or safety.
+        Preserve exact execution_status, tool_run, seed, bounds, harnesses, and artifacts from the compact
+        ledgers; for validation-only records, map the validation execution evidence without inventing a run,
+        and use seed 0 when that evidence exposes no seed.
       dependsOn:
         - account-scope-and-tool-coverage
         - account-specialist-coverage
@@ -981,11 +1011,16 @@ spec:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["area", "status", "basis", "summary"],
+            "required": ["area", "status", "basis", "execution_status", "tool_run", "seed", "bounds", "harnesses", "artifacts", "summary"],
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "basis": {"type": "array", "items": {"type": "string"}},
+              "execution_status": {"type": "string", "enum": ["not_run", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "tool_run": {"type": "string"},
+              "seed": {"type": "integer"},
+              "bounds": {"type": "array", "items": {"type": "string"}},
+              "harnesses": {"type": "array", "items": {"type": "string"}},
               "artifacts": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
             }

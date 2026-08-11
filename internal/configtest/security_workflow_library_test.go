@@ -263,6 +263,38 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		if !slices.Equal(task.DependsOn, want) {
 			t.Errorf("%s dependencies = %v, want %v", name, task.DependsOn, want)
 		}
+
+		var schema struct {
+			Items struct {
+				Required   []string `json:"required"`
+				Properties map[string]struct {
+					Type string `json:"type"`
+				} `json:"properties"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal([]byte(task.OutputSchema), &schema); err != nil {
+			t.Errorf("%s output schema: %v", name, err)
+			continue
+		}
+		metadataTypes := map[string]string{
+			"execution_status": "string",
+			"tool_run":         "string",
+			"seed":             "integer",
+			"bounds":           "array",
+			"harnesses":        "array",
+			"artifacts":        "array",
+		}
+		for field, wantType := range metadataTypes {
+			if !slices.Contains(schema.Items.Required, field) {
+				t.Errorf("%s output schema must require executable-tool metadata field %q", name, field)
+			}
+			if gotType := schema.Items.Properties[field].Type; gotType != wantType {
+				t.Errorf("%s output schema field %q type = %q, want %q", name, field, gotType, wantType)
+			}
+			if !strings.Contains(task.Objective, field) {
+				t.Errorf("%s objective must explicitly preserve executable-tool metadata field %q", name, field)
+			}
+		}
 	}
 
 	for name, tool := range map[string]string{
