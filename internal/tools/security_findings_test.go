@@ -243,6 +243,10 @@ func (s *fakeSecurityFindingStore) SummarizeSecurityFindings(_ context.Context, 
 	return out, nil
 }
 
+func (s *fakeSecurityFindingStore) ListSecurityConfigPostures(context.Context, string, int32, []string) ([]store.SecurityConfigPosture, error) {
+	return nil, nil
+}
+
 func (s *fakeSecurityFindingStore) SummarizeSecurityFindingsScoped(_ context.Context, scope store.SecurityFindingSummaryScope) (map[string]int32, error) {
 	out := map[string]int32{
 		"total": 0, "open": 0,

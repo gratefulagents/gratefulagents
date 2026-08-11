@@ -6,16 +6,18 @@ import { MemoryRouter } from "react-router-dom";
 
 import { SecurityOverview } from "@/components/SecurityOverview";
 import {
+  GetSecurityConfigPosturesResponseSchema,
   GetSecurityOverviewResponseSchema,
   SecurityScanSchema,
 } from "@/rpc/platform/service_pb";
 
-const { getSecurityOverview } = vi.hoisted(() => ({
+const { getSecurityOverview, getSecurityConfigPostures } = vi.hoisted(() => ({
   getSecurityOverview: vi.fn(),
+  getSecurityConfigPostures: vi.fn(),
 }));
 
 vi.mock("@/lib/client", () => ({
-  client: { getSecurityOverview },
+  client: { getSecurityOverview, getSecurityConfigPostures },
 }));
 
 afterEach(() => {
@@ -70,6 +72,20 @@ function renderOverview() {
 describe("SecurityOverview", () => {
   it("renders counts, active and recent scans, and config issues", async () => {
     getSecurityOverview.mockResolvedValue(overviewFixture());
+    getSecurityConfigPostures.mockResolvedValue(
+      create(GetSecurityConfigPosturesResponseSchema, {
+        storeSupported: true,
+        postures: [
+          {
+            scanName: "nightly",
+            findingCounts: { total: 3, open: 3, open_critical: 2 },
+            repository: "github.com/acme/payments",
+            lastRunName: "nightly-1",
+            lastRunStatus: "completed",
+          },
+        ],
+      }),
+    );
 
     renderOverview();
 
@@ -82,6 +98,21 @@ describe("SecurityOverview", () => {
     expect(
       screen.getByRole("link", { name: "nightly-1" }).getAttribute("href"),
     ).toBe("/security/user-alice/nightly-1");
+    // The per-configuration posture section renders from its own RPC.
+    expect(
+      await screen.findByText("Per-configuration posture across recent runs."),
+    ).toBeTruthy();
+    // Both scan tables surface the owning configuration in a dedicated column
+    // (the postures table adds a third "Configuration" header).
+    expect(screen.getAllByText("Configuration").length).toBe(3);
+    expect(screen.getAllByText("nightly").length).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getByRole("link", { name: "nightly" }).getAttribute("href"),
+    ).toBe("/security/configs");
+    expect(getSecurityConfigPostures).toHaveBeenCalledWith({
+      namespace: "",
+      activityLimit: 0,
+    });
     // Failing configuration surfaces with its reason.
     expect(screen.getByText("RunCreationFailed")).toBeTruthy();
     expect(screen.getByText("run creation failed")).toBeTruthy();
