@@ -237,19 +237,19 @@ func (slitherAdapter) Normalize(tool Tool, target Target, native []byte, r Redac
 	}
 	if !document.Success {
 		if document.Error == "" {
-			return nil, fmt.Errorf("Slither reported unsuccessful analysis without an error")
+			return nil, fmt.Errorf("slither reported unsuccessful analysis without an error")
 		}
-		return nil, fmt.Errorf("Slither analysis failed: %s", r.Text(document.Error))
+		return nil, fmt.Errorf("slither analysis failed: %s", r.Text(document.Error))
 	}
 	var records []securityRecord
 	for i, detector := range document.Results.Detectors {
 		if detector.Check == "" || detector.Description == "" || len(detector.Elements) == 0 {
-			return nil, fmt.Errorf("Slither detector %d requires check, description, and elements", i)
+			return nil, fmt.Errorf("slither detector %d requires check, description, and elements", i)
 		}
 		element := detector.Elements[0]
 		path := element.SourceMapping.FilenameRelative
 		if path == "" {
-			return nil, fmt.Errorf("Slither detector %d requires a source filename", i)
+			return nil, fmt.Errorf("slither detector %d requires a source filename", i)
 		}
 		start, end := 0, 0
 		if len(element.SourceMapping.Lines) > 0 {
@@ -281,6 +281,7 @@ type echidnaDocument struct {
 		Status       string          `json:"status"`
 		Error        json.RawMessage `json:"error"`
 		Type         string          `json:"type"`
+		TestType     string          `json:"testType"`
 		Transactions []struct {
 			Contract  string   `json:"contract"`
 			Function  string   `json:"function"`
@@ -300,13 +301,17 @@ func (echidnaAdapter) Normalize(tool Tool, target Target, native []byte, r Redac
 		return nil, err
 	}
 	if !document.Success {
-		return nil, fmt.Errorf("Echidna analysis failed: %s", r.Text(strings.TrimSpace(string(document.Error))))
+		return nil, fmt.Errorf("echidna analysis failed: %s", r.Text(strings.TrimSpace(string(document.Error))))
 	}
 	var records []securityRecord
 	var testErrors []string
 	for i, test := range document.Tests {
-		if test.Status == "" || test.Type == "" {
-			return nil, fmt.Errorf("Echidna test %d requires status and type", i)
+		testType := test.Type
+		if testType == "" {
+			testType = test.TestType
+		}
+		if test.Status == "" || testType == "" {
+			return nil, fmt.Errorf("echidna test %d requires status and type", i)
 		}
 		if test.Status == "error" {
 			testErrors = append(testErrors, fmt.Sprintf("test %d (%s) ended in error: %s", i, test.Name, strings.TrimSpace(string(test.Error))))
@@ -317,15 +322,15 @@ func (echidnaAdapter) Normalize(tool Tool, target Target, native []byte, r Redac
 		}
 		name := test.Name
 		if name == "" {
-			name = fmt.Sprintf("%s-%d", test.Type, i+1)
+			name = fmt.Sprintf("%s-%d", testType, i+1)
 		}
 		evidence, _ := json.Marshal(test.Transactions)
-		message := fmt.Sprintf("Echidna %s %s", test.Type, test.Status)
+		message := fmt.Sprintf("Echidna %s %s", testType, test.Status)
 		if len(test.Error) > 0 && string(test.Error) != "null" {
 			message += ": " + string(test.Error)
 		}
 		records = append(records, securityRecord{Asset: target.Locator, Record: ScannerRecord{
-			Tool: tool.Name, ToolVersion: tool.Version, RuleID: "ECHIDNA-" + strings.ToUpper(test.Type), RuleName: name,
+			Tool: tool.Name, ToolVersion: tool.Version, RuleID: "ECHIDNA-" + strings.ToUpper(testType), RuleName: name,
 			Message: r.Text(message), Severity: "high", Category: "logic-flaw", FilePath: r.Text(target.Locator), Symbol: r.Text(name),
 			RawEvidence: r.Text(string(evidence)), Extra: map[string]string{"status": test.Status, "seed": strconv.FormatInt(document.Seed, 10)},
 		}})
@@ -333,7 +338,7 @@ func (echidnaAdapter) Normalize(tool Tool, target Target, native []byte, r Redac
 	sortSecurityRecords(records)
 	if len(testErrors) > 0 {
 		sort.Strings(testErrors)
-		return records, fmt.Errorf("Echidna incomplete coverage: %s", r.Text(strings.Join(testErrors, "; ")))
+		return records, fmt.Errorf("echidna incomplete coverage: %s", r.Text(strings.Join(testErrors, "; ")))
 	}
 	return records, nil
 }
@@ -366,14 +371,14 @@ func (mythrilAdapter) Normalize(tool Tool, target Target, native []byte, r Redac
 	}
 	if !document.Success {
 		if document.Error == "" {
-			return nil, fmt.Errorf("Mythril reported unsuccessful analysis without an error")
+			return nil, fmt.Errorf("mythril reported unsuccessful analysis without an error")
 		}
-		return nil, fmt.Errorf("Mythril analysis failed: %s", r.Text(document.Error))
+		return nil, fmt.Errorf("mythril analysis failed: %s", r.Text(document.Error))
 	}
 	var records []securityRecord
 	for i, issue := range document.Issues {
 		if issue.Title == "" || issue.SWC == "" || issue.Description == "" {
-			return nil, fmt.Errorf("Mythril issue %d requires title, swc-id, and description", i)
+			return nil, fmt.Errorf("mythril issue %d requires title, swc-id, and description", i)
 		}
 		path := issue.Filename
 		if path == "" {
@@ -411,13 +416,13 @@ func (halmosAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 		return nil, err
 	}
 	if document.TestResults == nil {
-		return nil, fmt.Errorf("Halmos JSON requires test_results")
+		return nil, fmt.Errorf("halmos JSON requires test_results")
 	}
 	var records []securityRecord
 	for suite, tests := range document.TestResults {
 		for i, test := range tests {
 			if test.Name == "" {
-				return nil, fmt.Errorf("Halmos test %s[%d] requires name", suite, i)
+				return nil, fmt.Errorf("halmos test %s[%d] requires name", suite, i)
 			}
 			if test.ExitCode == 0 {
 				continue
@@ -431,7 +436,7 @@ func (halmosAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 		}
 	}
 	if document.ExitCode != 0 && len(records) == 0 {
-		return nil, fmt.Errorf("Halmos exited %d without a test counterexample", document.ExitCode)
+		return nil, fmt.Errorf("halmos exited %d without a test counterexample", document.ExitCode)
 	}
 	sortSecurityRecords(records)
 	return records, nil

@@ -683,6 +683,49 @@ func TestRunSecurityToolStagesMythrilSingleFileTarget(t *testing.T) {
 	}
 }
 
+func TestRunSecurityToolRejectsImportedMythrilSourceBeforeCreatingRun(t *testing.T) {
+	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
+	contractPath := filepath.Join(fixture.workspace, "Token.sol")
+	if err := os.WriteFile(contractPath, []byte("import {Base} from './Base.sol';\ncontract Token is Base {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := fixture.tool.Execute(context.Background(), json.RawMessage(
+		`{"tool":"mythril","target":{"type":"solidity_contract","locator":"Token.sol","revision":"abc1234"}}`,
+	), "")
+	if err != nil {
+		t.Fatalf("validation must not return a Go error: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "imports other sources") {
+		t.Fatalf("result = %+v, want imported-source rejection", result)
+	}
+	if fixture.client.created != nil || len(fixture.blobs.objects) != 0 {
+		t.Fatal("imported source must be rejected before staging or creating a SecurityToolRun")
+	}
+}
+
+func TestContainsSolidityImportIgnoresCommentsAndStrings(t *testing.T) {
+	for _, source := range []string{
+		"// import './Comment.sol';\ncontract Token {}",
+		"/* import './Comment.sol'; */ contract Token {}",
+		`contract Token { string constant note = "import './String.sol';"; }`,
+		"contract importable {}",
+	} {
+		if containsSolidityImport([]byte(source)) {
+			t.Errorf("false import detection in %q", source)
+		}
+	}
+	for _, source := range []string{
+		"import './Base.sol'; contract Token {}",
+		"import {Base} from './Base.sol'; contract Token is Base {}",
+		"import * as Base from './Base.sol'; contract Token {}",
+	} {
+		if !containsSolidityImport([]byte(source)) {
+			t.Errorf("missed import in %q", source)
+		}
+	}
+}
+
 func TestRunSecurityToolRejectsLocatorsOutsideTheWorkspace(t *testing.T) {
 	tests := []struct {
 		name    string

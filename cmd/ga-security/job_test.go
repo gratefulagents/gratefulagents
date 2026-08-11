@@ -438,7 +438,8 @@ func TestJobStagesVerifiedTargetAndRewritesLocator(t *testing.T) {
 		t.Fatalf("digest staged target: exists=%t err=%v", exists, err)
 	}
 	if fixture.config.Target.Digest != extractedDigest || fixture.config.Target.Digest == digestBytes(archive) {
-		t.Fatalf("runtime digest = %q, want extracted content %q (not archive digest)", fixture.config.Target.Digest, extractedDigest)
+		t.Fatalf("runtime digest = %q, want extracted content %q (not archive digest)",
+			fixture.config.Target.Digest, extractedDigest)
 	}
 }
 
@@ -480,7 +481,10 @@ func TestJobSetsTheMediaTypeTheRegistryExpectsForExtractedTargets(t *testing.T) 
 			fixture := newJobFixture(t, securitytoolpacks.RunConfig{
 				Tool: testCase.tool,
 				Target: securitytoolpacks.Target{
-					Type: testCase.targetType, Locator: "staged/target.tar.gz", Digest: digestBytes(archive), MediaType: testCase.media,
+					Type:      testCase.targetType,
+					Locator:   "staged/target.tar.gz",
+					Digest:    digestBytes(archive),
+					MediaType: testCase.media,
 				},
 			})
 			fixture.store.objects["staged/target.tar.gz"] = archive
@@ -526,7 +530,10 @@ func TestJobResolvesStagedSingleFileTargets(t *testing.T) {
 			fixture := newJobFixture(t, securitytoolpacks.RunConfig{
 				Tool: "mythril",
 				Target: securitytoolpacks.Target{
-					Type: testCase.targetType, Locator: "staged/target.tar.gz", Digest: digestBytes(archive), MediaType: "application/gzip",
+					Type:      testCase.targetType,
+					Locator:   "staged/target.tar.gz",
+					Digest:    digestBytes(archive),
+					MediaType: "application/gzip",
 				},
 			})
 			fixture.store.objects["staged/target.tar.gz"] = archive
@@ -550,14 +557,18 @@ func TestJobRejectsMultiFileArchiveForSingleFileTarget(t *testing.T) {
 		tarEntry{name: "Other.sol", body: "contract Other {}\n"},
 	)
 	fixture := newJobFixture(t, securitytoolpacks.RunConfig{
-		Tool:   "mythril",
-		Target: securitytoolpacks.Target{Type: "solidity_contract", Locator: "staged/target.tar.gz", Digest: digestBytes(archive)},
+		Tool: "mythril",
+		Target: securitytoolpacks.Target{
+			Type: "solidity_contract", Locator: "staged/target.tar.gz", Digest: digestBytes(archive),
+		},
 	})
 	fixture.store.objects["staged/target.tar.gz"] = archive
 	fixture.env["GA_JOB_TARGET_KEY"] = "staged/target.tar.gz"
 	fixture.env["GA_JOB_TARGET_DIGEST"] = digestBytes(archive)
 
-	if code := fixture.run(t); code == 0 || fixture.runs != 0 || !strings.Contains(fixture.stderr.String(), "exactly one regular file") {
+	code := fixture.run(t)
+	if code == 0 || fixture.runs != 0 ||
+		!strings.Contains(fixture.stderr.String(), "exactly one regular file") {
 		t.Fatalf("exit=%d runs=%d stderr=%q", code, fixture.runs, fixture.stderr.String())
 	}
 }

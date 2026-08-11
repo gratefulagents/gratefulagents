@@ -58,6 +58,19 @@ func TestEVMNativeAdapters(t *testing.T) {
 	}
 }
 
+func TestEchidnaAdapterAcceptsLegacyTestTypeKey(t *testing.T) {
+	native := []byte(`{"success":true,"error":null,"seed":42,"tests":[{"name":"solvency","status":"solved","testType":"property","transactions":[]}]}`)
+	records, err := DefaultAdapters()["echidna-json"].Normalize(
+		Tool{Name: "echidna", Version: "2.3.0"}, Target{Locator: "fixture"}, native, NewRedactor(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Record.RuleID != "ECHIDNA-PROPERTY" {
+		t.Fatalf("records=%+v", records)
+	}
+}
+
 func TestEVMNativeAdaptersRejectToolErrors(t *testing.T) {
 	for name, native := range map[string]string{
 		"slither-json": `{"success":false,"error":"compile failed","results":{"detectors":[]}}`,
