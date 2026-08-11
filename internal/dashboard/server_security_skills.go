@@ -2,10 +2,12 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -169,7 +171,7 @@ func (s *Server) installSecuritySkill(ctx context.Context, namespace, ownerID st
 	}
 	desired.Annotations[bootstrapSpecHashAnnotation] = desiredHash
 
-	created := false
+	var created *platformv1alpha1.Skill
 	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		current := &platformv1alpha1.Skill{}
 		key := client.ObjectKey{Namespace: namespace, Name: source.Name}
@@ -177,13 +179,14 @@ func (s *Server) installSecuritySkill(ctx context.Context, namespace, ownerID st
 			if !k8serrors.IsNotFound(err) {
 				return err
 			}
-			if err := s.k8sClient.Create(ctx, desired.DeepCopy()); err != nil {
+			candidate := desired.DeepCopy()
+			if err := s.k8sClient.Create(ctx, candidate); err != nil {
 				if k8serrors.IsAlreadyExists(err) {
 					return nil // A concurrent creator wins; status will report a conflict if needed.
 				}
 				return err
 			}
-			created = true
+			created = candidate
 			return nil
 		}
 		if current.Annotations[bootstrapSourceAnnotation] != source.Namespace {
@@ -211,11 +214,24 @@ func (s *Server) installSecuritySkill(ctx context.Context, namespace, ownerID st
 	if err != nil {
 		return mapK8sError(fmt.Sprintf("install security Skill %s", source.Name), err)
 	}
-	if created && s.stateStore != nil && strings.TrimSpace(ownerID) != "" {
-		if err := s.stateStore.SetResourceOwner(ctx, skillResourceType, desired.Name, desired.Namespace, ownerID); err != nil {
-			_ = s.k8sClient.Delete(ctx, desired)
-			return connect.NewError(connect.CodeInternal, fmt.Errorf("record ownership for Skill %s/%s: %w", desired.Namespace, desired.Name, err))
+	if created != nil && s.stateStore != nil && strings.TrimSpace(ownerID) != "" {
+		if err := s.stateStore.SetResourceOwner(ctx, skillResourceType, created.Name, created.Namespace, ownerID); err != nil {
+			rollbackErr := s.rollbackSecuritySkillCreate(ctx, created)
+			if rollbackErr != nil {
+				err = errors.Join(err, rollbackErr)
+			}
+			return connect.NewError(connect.CodeInternal, fmt.Errorf("record ownership for Skill %s/%s: %w", created.Namespace, created.Name, err))
 		}
+	}
+	return nil
+}
+
+func (s *Server) rollbackSecuritySkillCreate(ctx context.Context, created *platformv1alpha1.Skill) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	preconditions := client.Preconditions{UID: &created.UID, ResourceVersion: &created.ResourceVersion}
+	if err := s.k8sClient.Delete(cleanupCtx, created, preconditions); err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("roll back unowned Skill %s/%s: %w", created.Namespace, created.Name, err)
 	}
 	return nil
 }

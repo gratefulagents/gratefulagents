@@ -3,12 +3,14 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/emptypb"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -30,6 +32,51 @@ func (c *patchHookClient) Patch(ctx context.Context, object client.Object, patch
 	return c.Client.Patch(ctx, object, patch, opts...)
 }
 
+type contextAwareDeleteClient struct{ client.Client }
+
+func (c *contextAwareDeleteClient) Delete(ctx context.Context, object client.Object, opts ...client.DeleteOption) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.Client.Delete(ctx, object, opts...)
+}
+
+type replacementOnDeleteClient struct {
+	client.Client
+	replacement *platformv1alpha1.Skill
+	replaced    bool
+}
+
+func (c *replacementOnDeleteClient) Delete(ctx context.Context, object client.Object, opts ...client.DeleteOption) error {
+	if !c.replaced {
+		c.replaced = true
+		if err := c.Client.Delete(ctx, object); err != nil {
+			return err
+		}
+		if err := c.Client.Create(ctx, c.replacement); err != nil {
+			return err
+		}
+	}
+	current := &platformv1alpha1.Skill{}
+	if err := c.Client.Get(ctx, client.ObjectKeyFromObject(object), current); err != nil {
+		return err
+	}
+	deleteOptions := (&client.DeleteOptions{}).ApplyOptions(opts)
+	if deleteOptions.Preconditions != nil && deleteOptions.Preconditions.UID != nil && *deleteOptions.Preconditions.UID != current.UID {
+		return errors.New("UID precondition failed")
+	}
+	return c.Client.Delete(ctx, current)
+}
+
+type deleteErrorClient struct {
+	client.Client
+	err error
+}
+
+func (c *deleteErrorClient) Delete(context.Context, client.Object, ...client.DeleteOption) error {
+	return c.err
+}
+
 type securitySkillOwnerCall struct {
 	resourceType string
 	resourceID   string
@@ -39,11 +86,15 @@ type securitySkillOwnerCall struct {
 
 type securitySkillOwnerStore struct {
 	store.StateStore
-	calls []securitySkillOwnerCall
-	err   error
+	calls  []securitySkillOwnerCall
+	err    error
+	cancel context.CancelFunc
 }
 
 func (s *securitySkillOwnerStore) SetResourceOwner(_ context.Context, resourceType, resourceID, namespace, ownerID string) error {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	if s.err != nil {
 		return s.err
 	}
@@ -130,23 +181,60 @@ func TestInstallSecuritySkillsOwnershipFailureRollsBack(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		bootstrapReadyMarker("v1"), source,
 	).Build()
+	ctx, cancel := context.WithCancel(credActorCtx("alice-id", "Alice"))
+	owners := &securitySkillOwnerStore{err: errors.New("ownership unavailable"), cancel: cancel}
 	srv := &Server{
-		k8sClient: c,
-		apiReader: c,
-		scheme:    scheme,
-		stateStore: &securitySkillOwnerStore{
-			err: errors.New("ownership unavailable"),
-		},
+		k8sClient:  &contextAwareDeleteClient{Client: c},
+		apiReader:  c,
+		scheme:     scheme,
+		stateStore: owners,
 	}
-	ctx := credActorCtx("alice-id", "Alice")
 	namespace := deriveUserNamespaceName("Alice", "alice-id")
 
 	_, err := srv.InstallSecuritySkills(ctx, &emptypb.Empty{})
 	if connect.CodeOf(err) != connect.CodeInternal {
 		t.Fatalf("InstallSecuritySkills() error = %v, want Internal", err)
 	}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: source.Name}, &platformv1alpha1.Skill{}); err == nil {
-		t.Fatal("Skill remained after ownership recording failed")
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: source.Name}, &platformv1alpha1.Skill{}); err == nil {
+		t.Fatal("Skill remained after ownership recording failed and canceled the request")
+	}
+}
+
+func TestRollbackSecuritySkillCreatePreservesReplacement(t *testing.T) {
+	scheme := testProjectScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	created := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: "security-scan", Namespace: "alice", UID: types.UID("created-uid")},
+	}
+	if err := c.Create(context.Background(), created); err != nil {
+		t.Fatal(err)
+	}
+	replacement := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: created.Name, Namespace: created.Namespace, UID: types.UID("replacement-uid")},
+	}
+	guarded := &replacementOnDeleteClient{Client: c, replacement: replacement}
+	srv := &Server{k8sClient: guarded, scheme: scheme}
+	if err := srv.rollbackSecuritySkillCreate(context.Background(), created); err == nil {
+		t.Fatal("rollback unexpectedly deleted a same-name replacement")
+	}
+	got := &platformv1alpha1.Skill{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(replacement), got); err != nil {
+		t.Fatalf("replacement was deleted: %v", err)
+	}
+	if got.UID != replacement.UID {
+		t.Fatalf("got replacement UID %q, want %q", got.UID, replacement.UID)
+	}
+}
+
+func TestRollbackSecuritySkillCreateReportsDeleteFailure(t *testing.T) {
+	scheme := testProjectScheme(t)
+	base := fake.NewClientBuilder().WithScheme(scheme).Build()
+	srv := &Server{k8sClient: &deleteErrorClient{Client: base, err: errors.New("delete unavailable")}, scheme: scheme}
+	created := &platformv1alpha1.Skill{ObjectMeta: metav1.ObjectMeta{
+		Name: "security-scan", Namespace: "alice", UID: types.UID("created-uid"), ResourceVersion: "1",
+	}}
+	if err := srv.rollbackSecuritySkillCreate(context.Background(), created); err == nil || !strings.Contains(err.Error(), "delete unavailable") {
+		t.Fatalf("rollback error = %v", err)
 	}
 }
 
