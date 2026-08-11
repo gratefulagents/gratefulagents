@@ -147,19 +147,66 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		}
 		dockerfiles += string(data)
 	}
-	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata", "mythril"} {
+	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata", "mythril", "slither", "semgrep", "halmos"} {
 		tool, ok := registry.Tool(name)
 		if !ok || !tool.Enabled {
 			t.Fatalf("%s is not executable: %+v", name, tool)
 		}
-		if tool.OCIRoot != name || !strings.Contains(tool.Image, "@"+tool.ImageDigest) || tool.ToolArtifactDigest != tool.ImageDigest || tool.WrapperDigest != pin || tool.PlatformDigests["amd64"] == "" || tool.PlatformDigests["arm64"] == "" || tool.OCIExecutable == "" {
+		artifactPinned := tool.ToolArtifactDigest == tool.ImageDigest
+		if name == "halmos" {
+			artifactPinned = tool.ToolArtifactDigest == "sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f"
+		}
+		if tool.OCIRoot != name || !strings.Contains(tool.Image, "@"+tool.ImageDigest) || !artifactPinned || tool.WrapperDigest != pin || tool.PlatformDigests["amd64"] == "" || tool.PlatformDigests["arm64"] == "" || tool.OCIExecutable == "" {
 			t.Fatalf("%s has incomplete OCI provenance: %+v", name, tool)
 		}
 		if strings.Count(dockerfiles, tool.Image) != 1 {
 			t.Fatalf("%s pin is not present exactly once in the security-tools Dockerfile", name)
 		}
-		if name != "schemathesis" && name != "mythril" && tool.ExitCodes[1] != StatusError {
+		if slices.Contains([]string{"slither", "halmos"}, name) && (!tool.OCIWritableTarget || tool.OCIPath == "") {
+			t.Fatalf("%s requires an ephemeral writable build target and explicit root PATH: %+v", name, tool)
+		}
+		if name != "schemathesis" && name != "mythril" && name != "semgrep" && name != "halmos" && tool.ExitCodes[1] != StatusError {
 			t.Fatalf("%s exit 1 must be operational error", name)
+		}
+	}
+}
+
+func TestHalmosClosureDigestMatchesReviewedInputs(t *testing.T) {
+	deps, err := os.ReadFile("../../security-tool-requirements/halmos-deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := os.ReadFile("../../security-tool-requirements/halmos.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	material := []byte("python@sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3\n")
+	material = append(material, deps...)
+	material = append(material, pkg...)
+	material = append(material, []byte("forge-amd64=sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c\nforge-arm64=sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988\n")...)
+	material = append(material, []byte("slither-index=sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978\n")...)
+	const want = "sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f"
+	if got := sha256Digest(material); got != want {
+		t.Fatalf("Halmos closure digest = %s, want %s; update registry and Docker provenance marker after reviewing lock changes", got, want)
+	}
+	platforms := map[string]struct{ python, forge, solcRoot, want string }{
+		"amd64": {"sha256:77923445c077d8eb971b14b2b114a1d9cd4a87edb4c75654820ca4832ee8cb15", "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "sha256:28ce0f9b27312f6ed1137495aef70744dc2d6ff8e6d5c9147ec9e31a63ff86a8", "sha256:a80b8016e9a409a38d54ff300af5aa37cbb0ae281faaa37afab7fa6a63c87340"},
+		"arm64": {"sha256:ecb0ac954790dd64a0d518d699b9c61a91780c42b0d877c802dbaffd04db66f9", "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988", "sha256:98b90a826a996507e6b1015a7850b2e8de30a3d80f4ec7deaddbf00e050d5152", "sha256:32bb55c125446b2aa95ac8bb3968701ee05b740ea0c06ccdd5b73e081d5bce98"},
+	}
+	registry, err := NewRegistry(DefaultManifest(sha256Digest([]byte("wrapper")), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	halmos, _ := registry.Tool("halmos")
+	for arch, platform := range platforms {
+		platformMaterial := []byte("halmos-0.3.3\narch=" + arch + "\npython=" + platform.python + "\nforge=" + platform.forge + "\nsolc-root=" + platform.solcRoot + "\n")
+		platformMaterial = append(platformMaterial, deps...)
+		platformMaterial = append(platformMaterial, pkg...)
+		if got := sha256Digest(platformMaterial); got != platform.want {
+			t.Fatalf("Halmos %s closure digest = %s, want %s", arch, got, platform.want)
+		}
+		if halmos.PlatformDigests[arch] != platform.want {
+			t.Fatalf("registry Halmos %s digest = %s, want closure %s", arch, halmos.PlatformDigests[arch], platform.want)
 		}
 	}
 }
@@ -259,16 +306,10 @@ func TestEVMToolsHaveReviewedExecutionOrPackagingContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"echidna", "mythril"} {
+	for _, name := range []string{"echidna", "mythril", "slither", "semgrep", "halmos"} {
 		tool, ok := registry.Tool(name)
 		if !ok || !tool.Enabled {
 			t.Fatalf("%s must be executable: %+v", name, tool)
-		}
-	}
-	for _, name := range []string{"slither", "halmos"} {
-		tool, ok := registry.Tool(name)
-		if !ok || tool.Enabled || !strings.Contains(tool.DisabledReason, "verified multi-architecture runtime closure") {
-			t.Fatalf("%s must fail closed with its reproducible packaging blocker: %+v", name, tool)
 		}
 	}
 	if halmos, _ := registry.Tool("halmos"); halmos.Adapter != "halmos-json" {
@@ -311,6 +352,21 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 			name:   "echidna",
 			config: RunConfig{Tool: "echidna", Target: Target{Type: "solidity_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("echidna")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"}, Seed: &seed},
 			want:   []string{"echidna", "/workspace/project", "--format", "json", "--seed", "42", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"},
+		},
+		{
+			name:   "slither",
+			config: RunConfig{Tool: "slither", Target: Target{Type: "solidity_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("slither")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"}},
+			want:   []string{"slither", "/workspace/project", "--json", "-"},
+		},
+		{
+			name:   "semgrep",
+			config: RunConfig{Tool: "semgrep", Target: Target{Type: "semgrep_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("semgrep")), MediaType: "application/vnd.gratefulagents.semgrep-project.v1+directory"}},
+			want:   []string{"semgrep", "scan", "--config", "/tmp/input/.semgrep.yml", "--sarif", "--metrics", "off", "/workspace/project"},
+		},
+		{
+			name:   "halmos",
+			config: RunConfig{Tool: "halmos", Target: Target{Type: "foundry_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("halmos")), MediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"}},
+			want:   []string{"halmos", "--root", "/workspace/project", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"},
 		},
 		{
 			name:   "mythril solidity source",

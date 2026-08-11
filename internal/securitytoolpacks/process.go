@@ -104,7 +104,18 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 	cmd.Stderr = stderr
 	var err error
 	if ociWork != "" {
-		err = runWithDirectoryLimit(cmd, ociWork, limit)
+		quotaDirectories := []string{ociWork}
+		quotaLimit, quotaEntries := limit, 4096
+		if req.Tool.OCIWritableTarget {
+			baselineBytes, baselineEntries, usageErr := directoryUsage(executionTarget)
+			if usageErr != nil {
+				return NativeResult{ExitCode: -1, Err: usageErr}
+			}
+			quotaLimit += baselineBytes
+			quotaEntries += baselineEntries
+			quotaDirectories = append(quotaDirectories, executionTarget)
+		}
+		err = runWithDirectoryLimits(cmd, quotaDirectories, quotaLimit, quotaEntries)
 	} else {
 		err = cmd.Run()
 	}
@@ -197,7 +208,11 @@ func zapReportExaminedTarget(output []byte, baseURL string, scopes []string) boo
 }
 
 func runWithDirectoryLimit(cmd *exec.Cmd, directory string, limit int64) error {
-	if err := checkDirectoryQuota(directory, limit, 4096); err != nil {
+	return runWithDirectoryLimits(cmd, []string{directory}, limit, 4096)
+}
+
+func runWithDirectoryLimits(cmd *exec.Cmd, directories []string, limit int64, maxEntries int) error {
+	if err := checkDirectoriesQuota(directories, limit, maxEntries); err != nil {
 		return err
 	}
 	if err := cmd.Start(); err != nil {
@@ -215,7 +230,7 @@ func runWithDirectoryLimit(cmd *exec.Cmd, directory string, limit int64) error {
 			case <-stop:
 				return
 			case <-ticker.C:
-				if err := checkDirectoryQuota(directory, limit, 4096); err != nil {
+				if err := checkDirectoriesQuota(directories, limit, maxEntries); err != nil {
 					select {
 					case violation <- err:
 					default:
@@ -233,14 +248,14 @@ func runWithDirectoryLimit(cmd *exec.Cmd, directory string, limit int64) error {
 	case quotaErr := <-violation:
 		return quotaErr
 	default:
-		if quotaErr := checkDirectoryQuota(directory, limit, 4096); quotaErr != nil {
+		if quotaErr := checkDirectoriesQuota(directories, limit, maxEntries); quotaErr != nil {
 			return quotaErr
 		}
 		return err
 	}
 }
 
-func checkDirectoryQuota(root string, limit int64, maxEntries int) error {
+func directoryUsage(root string) (int64, int, error) {
 	var total int64
 	entries := 0
 	err := filepath.WalkDir(root, func(_ string, entry os.DirEntry, walkErr error) error {
@@ -248,26 +263,55 @@ func checkDirectoryQuota(root string, limit int64, maxEntries int) error {
 			return walkErr
 		}
 		entries++
-		if entries > maxEntries {
-			return fmt.Errorf("OCI work directory exceeds %d entries", maxEntries)
-		}
 		if entry.Type().IsRegular() {
 			info, err := entry.Info()
 			if err != nil {
 				return err
 			}
-			if info.Size() > limit-total {
-				return errOutputTooLarge
-			}
 			total += info.Size()
-		} else if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("OCI work directory contains a symlink")
-		} else if !entry.IsDir() {
-			return fmt.Errorf("OCI work directory contains a special file")
 		}
 		return nil
 	})
-	return err
+	return total, entries, err
+}
+
+func checkDirectoryQuota(root string, limit int64, maxEntries int) error {
+	return checkDirectoriesQuota([]string{root}, limit, maxEntries)
+}
+
+func checkDirectoriesQuota(roots []string, limit int64, maxEntries int) error {
+	var total int64
+	entries := 0
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(_ string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			entries++
+			if entries > maxEntries {
+				return fmt.Errorf("OCI writable directories exceed %d entries", maxEntries)
+			}
+			if entry.Type().IsRegular() {
+				info, err := entry.Info()
+				if err != nil {
+					return err
+				}
+				if info.Size() > limit-total {
+					return errOutputTooLarge
+				}
+				total += info.Size()
+			} else if entry.Type()&os.ModeSymlink != 0 {
+				return fmt.Errorf("OCI writable directory contains a symlink")
+			} else if !entry.IsDir() {
+				return fmt.Errorf("OCI writable directory contains a special file")
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var errOutputTooLarge = errors.New("OCI output exceeds configured limit")
@@ -387,7 +431,14 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 		return nil, "", func() {}, err
 	}
 	cleanup := func() { _ = os.RemoveAll(work) }
-	argv := []string{bwrap, "--die-with-parent", "--new-session", "--unshare-pid", "--ro-bind", toolRoot, "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", work, "/work", "--chdir", "/work", "--clearenv", "--setenv", "HOME", "/work", "--setenv", "LANG", "C.UTF-8", "--setenv", "PATH", "/usr/local/zeek/bin:/opt/venv/bin:/usr/local/bin:/usr/bin:/bin"}
+	path := tool.OCIPath
+	if path == "" {
+		path = "/usr/local/zeek/bin:/opt/venv/bin:/usr/local/bin:/usr/bin:/bin"
+	}
+	argv := []string{bwrap, "--die-with-parent", "--new-session", "--unshare-pid", "--ro-bind", toolRoot, "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", work, "/work", "--chdir", "/work", "--clearenv", "--setenv", "HOME", "/work", "--setenv", "LANG", "C.UTF-8", "--setenv", "PATH", path}
+	if tool.Name == "halmos" {
+		argv = append(argv, "--setenv", "FOUNDRY_OFFLINE", "true", "--setenv", "FOUNDRY_FFI", "false")
+	}
 	if tool.Requirements.Network {
 		for _, hostFile := range []string{"/etc/resolv.conf", "/etc/hosts"} {
 			if _, statErr := os.Stat(filepath.Join(toolRoot, hostFile)); statErr == nil {
@@ -399,7 +450,11 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 	}
 	if info, statErr := os.Stat(executionTarget); statErr == nil {
 		_ = info
-		argv = append(argv, "--ro-bind", executionTarget, "/tmp/input")
+		bindMode := "--ro-bind"
+		if tool.OCIWritableTarget {
+			bindMode = "--bind"
+		}
+		argv = append(argv, bindMode, executionTarget, "/tmp/input")
 		for i := range toolArgv {
 			if toolArgv[i] == executionTarget {
 				toolArgv[i] = "/tmp/input"

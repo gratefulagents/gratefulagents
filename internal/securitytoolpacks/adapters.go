@@ -437,12 +437,17 @@ func (halmosAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 		return nil, fmt.Errorf("halmos JSON requires test_results")
 	}
 	var records []securityRecord
+	var incomplete []string
 	for suite, tests := range document.TestResults {
 		for i, test := range tests {
 			if test.Name == "" {
 				return nil, fmt.Errorf("halmos test %s[%d] requires name", suite, i)
 			}
 			if test.ExitCode == 0 {
+				continue
+			}
+			if test.ExitCode != 1 {
+				incomplete = append(incomplete, fmt.Sprintf("%s.%s(exitcode=%d)", suite, test.Name, test.ExitCode))
 				continue
 			}
 			evidence := fmt.Sprintf("suite=%s exitcode=%d models=%d", suite, test.ExitCode, test.NumModels)
@@ -452,6 +457,11 @@ func (halmosAdapter) Normalize(tool Tool, target Target, native []byte, r Redact
 				FilePath: r.Text(suite), Symbol: r.Text(test.Name), RawEvidence: r.Text(evidence), Extra: map[string]string{"models": strconv.Itoa(test.NumModels)},
 			}})
 		}
+	}
+	if len(incomplete) != 0 {
+		sort.Strings(incomplete)
+		sortSecurityRecords(records)
+		return records, fmt.Errorf("halmos returned incomplete test states: %s", strings.Join(incomplete, ", "))
 	}
 	if document.ExitCode != 0 && len(records) == 0 {
 		return nil, fmt.Errorf("halmos exited %d without a test counterexample", document.ExitCode)

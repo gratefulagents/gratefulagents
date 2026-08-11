@@ -103,6 +103,15 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 			"solidity_contract": "application/vnd.gratefulagents.solidity-contract.v1+source",
 			"evm_bytecode":      "application/vnd.gratefulagents.evm-bytecode.v1+hex",
 		},
+		"slither": {
+			"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+		},
+		"semgrep": {
+			"semgrep_project": "application/vnd.gratefulagents.semgrep-project.v1+directory",
+		},
+		"halmos": {
+			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+		},
 	}
 	if media := expectedMedia[t.Name][cfg.Target.Type]; media != "" && cfg.Target.MediaType != media {
 		return Invocation{}, Tool{}, fmt.Errorf("tool %s requires target media type %s", t.Name, media)
@@ -732,19 +741,17 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("slither", DomainBlockchain, "0.11.3", "slither-json", "application/json", []string{"solidity_project"}, []string{"slither", "{{target}}", "--json", "-"}),
 		base("mythril", DomainBlockchain, "0.24.8", "mythril-json", "application/json", []string{"evm_bytecode", "solidity_contract"}, []string{"myth", "analyze", "{{target}}", "-o", "json", "--strategy", "bfs", "--max-depth", "64", "--call-depth-limit", "3", "--loop-bound", "3", "--transaction-count", "2", "--execution-timeout", "240", "--solver-timeout", "10000", "--create-timeout", "30", "--no-onchain-data"}),
 		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
-		base("halmos", DomainBlockchain, "0.3.3", "halmos-json", "application/json", []string{"foundry_project"}, []string{"halmos", "--root", "{{target}}", "--json-output"}),
+		base("halmos", DomainBlockchain, "0.3.3", "halmos-json", "application/json", []string{"foundry_project"}, []string{"halmos", "--root", "{{target}}", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"}),
+		base("semgrep", DomainBlockchain, "1.172.0", "sarif", "application/sarif+json", []string{"semgrep_project"}, []string{"semgrep", "scan", "--config", "/tmp/input/.semgrep.yml", "--sarif", "--metrics", "off", "{{target}}"}),
 	}
 	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu"}
 	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz"}
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "mythril"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "mythril", "slither", "semgrep", "halmos"}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
-	packagingBlockers := map[string]string{
-		"slither": "catalog-only: upstream publishes Slither through Python package indexes without a verified multi-architecture runtime closure",
-		"halmos":  "catalog-only: upstream publishes Halmos as Python/source distributions and a floating OCI tag without a verified multi-architecture runtime closure",
-	}
+	packagingBlockers := map[string]string{}
 	ociTools := map[string]struct{ image, digest, amd64, arm64, root, executable, output string }{
 		"owasp-zap":    {"docker.io/zaproxy/zap-stable", "sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab", "sha256:65f8bee15a648ca4a0b6a25e1096fc76af6eea42ab2d75f2a9649981225f30b8", "sha256:7d6bc478bd0750a094349b2e9710a4e33b84e003ae4341f2f2ae7245ec1c5065", "owasp-zap", "/zap/zap.sh", "/work/zap-report.json"},
 		"schemathesis": {"docker.io/schemathesis/schemathesis", "sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2", "sha256:7f507383fc96256c1de89e8ac2fd9e00525cd46fee0be39d29dac286315fa414", "sha256:99f0b99bb8a44beb22d97fd12643d0990a28b13a8e0dd91d2ace054500373271", "schemathesis", "/usr/local/bin/schemathesis", "/work/result.xml"},
@@ -753,6 +760,9 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		"zeek":         {"docker.io/zeek/zeek", "sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a", "sha256:c01e13d3bb837fdbccb26cddfab73c0cf8a9f3dba1eb9d181b00f412530bb4f6", "sha256:e53b6b22aaa753010ea356c5a691435a80a9aa0935721dcfd582dc76dd38572b", "zeek", "/usr/local/zeek/bin/zeek", "/work/notice.log"},
 		"suricata":     {"docker.io/jasonish/suricata", "sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a", "sha256:559a07fcccae439ffdabd05a4969e1feb74cc43f88ea456cc544a20b9b148123", "sha256:6a0b4d02f9174a74e52c904bbd10d344d024bbebc86283866f92096c09be31b0", "suricata", "/usr/bin/suricata", "/work/eve.json"},
 		"mythril":      {"docker.io/mythril/myth", "sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff", "sha256:ca947a2a79204667ae2ae93ea6aaaca0cea669f61bc4db6958e7556ea263bd80", "sha256:831577a2cf58deb5df758911e6b2e75b2aeb3a59c8c29f15127c2cedf992617d", "mythril", "/usr/local/bin/myth", ""},
+		"slither":      {"ghcr.io/trailofbits/eth-security-toolbox", "sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978", "sha256:28ce0f9b27312f6ed1137495aef70744dc2d6ff8e6d5c9147ec9e31a63ff86a8", "sha256:98b90a826a996507e6b1015a7850b2e8de30a3d80f4ec7deaddbf00e050d5152", "slither", "/home/ethsec/.local/bin/slither", ""},
+		"semgrep":      {"docker.io/semgrep/semgrep", "sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b", "sha256:a8298d1c09c84b9a0bbc75ec915e37023fc4657360b6dbfa645261d2353a366c", "sha256:318382dd1d95e4e8ae2975be3a52b6847843c73ab49ff21ba29b479cbda8d027", "semgrep", "/usr/local/bin/semgrep", ""},
+		"halmos":       {"docker.io/library/python:3.11-slim-bookworm", "sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3", "sha256:77923445c077d8eb971b14b2b114a1d9cd4a87edb4c75654820ca4832ee8cb15", "sha256:ecb0ac954790dd64a0d518d699b9c61a91780c42b0d877c802dbaffd04db66f9", "halmos", "/opt/halmos/bin/halmos", "/work/halmos.json"},
 	}
 	for i := range tools {
 		if digest := lockedToolArtifactDigest(tools[i].Name, runtime.GOARCH); digest != "" {
@@ -762,13 +772,25 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			tools[i].Image = oci.image + "@" + oci.digest
 			tools[i].ImageDigest = oci.digest
 			tools[i].ToolArtifactDigest = oci.digest
+			if tools[i].Name == "halmos" {
+				tools[i].ToolArtifactDigest = "sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f"
+			}
 			tools[i].PlatformDigests = map[string]string{"amd64": oci.amd64, "arm64": oci.arm64}
+			if tools[i].Name == "halmos" {
+				tools[i].PlatformDigests = map[string]string{
+					"amd64": "sha256:a80b8016e9a409a38d54ff300af5aa37cbb0ae281faaa37afab7fa6a63c87340",
+					"arm64": "sha256:32bb55c125446b2aa95ac8bb3968701ee05b740ea0c06ccdd5b73e081d5bce98",
+				}
+			}
 			tools[i].OCIRoot = oci.root
 			tools[i].OCIExecutable = oci.executable
 			tools[i].OCIOutputPath = oci.output
 			tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
-			if tools[i].Name == "schemathesis" || tools[i].Name == "mythril" {
+			if tools[i].Name == "schemathesis" || tools[i].Name == "mythril" || tools[i].Name == "semgrep" || tools[i].Name == "halmos" {
 				tools[i].ExitCodes[1] = StatusFindings
+			}
+			if tools[i].Name == "slither" {
+				tools[i].ExitCodes[255] = StatusFindings
 			}
 			if tools[i].Name == "zeek" || tools[i].Name == "suricata" {
 				tools[i].KnowledgeDigests = map[string]string{"embedded": oci.digest}
@@ -803,6 +825,16 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			tools[i].Budgets.Concurrency = 1
 		}
 		if tools[i].Name == "mythril" {
+			tools[i].Budgets.Concurrency = 1
+		}
+		if tools[i].Name == "slither" {
+			tools[i].OCIPath = "/home/ethsec/.local/bin:/home/ethsec/.foundry/bin:/usr/local/bin:/usr/bin:/bin"
+			tools[i].OCIWritableTarget = true
+			tools[i].Budgets.Concurrency = 1
+		}
+		if tools[i].Name == "halmos" {
+			tools[i].OCIPath = "/opt/halmos/bin:/usr/local/bin:/usr/bin:/bin"
+			tools[i].OCIWritableTarget = true
 			tools[i].Budgets.Concurrency = 1
 		}
 		if !slices.Contains(executable, tools[i].Name) {

@@ -7,6 +7,21 @@ FROM docker.io/instrumentisto/nmap@sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4
 FROM docker.io/zeek/zeek@sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a AS zeek-root
 FROM docker.io/jasonish/suricata@sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a AS suricata-root
 FROM docker.io/mythril/myth@sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff AS mythril-root
+FROM ghcr.io/trailofbits/eth-security-toolbox@sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978 AS slither-root
+FROM docker.io/semgrep/semgrep@sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b AS semgrep-root
+
+# Halmos' upstream 0.3.3 image is amd64-only. Build the reviewed Z3-only
+# Python closure for both release architectures; hashes in these locks cover
+# every downloaded wheel. The reviewed closure uses Z3 4.13.0.0 (the first
+# compatible release with Linux arm64 wheels) instead of Halmos' amd64-only
+# 4.12.6.0 pin. Pinned Forge and the architecture-matched compiler from the
+# immutable Slither toolbox root are added below.
+FROM docker.io/library/python:3.11-slim-bookworm@sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3 AS halmos-root
+COPY security-tool-requirements/halmos-deps.lock security-tool-requirements/halmos.lock /tmp/
+RUN python -m venv /opt/halmos \
+    && /opt/halmos/bin/pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/halmos-deps.lock \
+    && /opt/halmos/bin/pip install --no-cache-dir --no-deps --require-hashes -r /tmp/halmos.lock \
+    && /opt/halmos/bin/halmos --version
 
 FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce AS bwrap-builder
 ARG BWRAP_VERSION=0.11.2
@@ -51,7 +66,12 @@ COPY --from=nmap-root / /usr/local/share/ga-security/toolroots/nmap/
 COPY --from=zeek-root / /usr/local/share/ga-security/toolroots/zeek/
 COPY --from=suricata-root / /usr/local/share/ga-security/toolroots/suricata/
 COPY --from=mythril-root / /usr/local/share/ga-security/toolroots/mythril/
-RUN for root in owasp-zap schemathesis sslyze nmap zeek suricata mythril; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
+COPY --from=slither-root / /usr/local/share/ga-security/toolroots/slither/
+COPY --from=semgrep-root / /usr/local/share/ga-security/toolroots/semgrep/
+COPY --from=halmos-root / /usr/local/share/ga-security/toolroots/halmos/
+COPY --from=builder /out/tools/forge /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/forge
+RUN cp -L /usr/local/share/ga-security/toolroots/slither/home/ethsec/.local/bin/solc /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/solc \
+    && for root in owasp-zap schemathesis sslyze nmap zeek suricata mythril slither semgrep halmos; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
     && printf '%s\n' 'sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab' > /usr/local/share/ga-security/toolroots/owasp-zap/.ga-oci-digest \
     && printf '%s\n' 'sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2' > /usr/local/share/ga-security/toolroots/schemathesis/.ga-oci-digest \
     && printf '%s\n' 'sha256:e6d59470e380ecb626e831d1c3e006a410f7081266171054c0ce616ee03627d3' > /usr/local/share/ga-security/toolroots/sslyze/.ga-oci-digest \
@@ -59,6 +79,9 @@ RUN for root in owasp-zap schemathesis sslyze nmap zeek suricata mythril; do mkd
     && printf '%s\n' 'sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a' > /usr/local/share/ga-security/toolroots/zeek/.ga-oci-digest \
     && printf '%s\n' 'sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a' > /usr/local/share/ga-security/toolroots/suricata/.ga-oci-digest \
     && printf '%s\n' 'sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff' > /usr/local/share/ga-security/toolroots/mythril/.ga-oci-digest \
+    && printf '%s\n' 'sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978' > /usr/local/share/ga-security/toolroots/slither/.ga-oci-digest \
+    && printf '%s\n' 'sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b' > /usr/local/share/ga-security/toolroots/semgrep/.ga-oci-digest \
+    && printf '%s\n' 'sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f' > /usr/local/share/ga-security/toolroots/halmos/.ga-oci-digest \
     && chown -R 0:0 /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap \
     && chmod -R go-w /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap
 

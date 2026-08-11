@@ -63,6 +63,15 @@ var stagedTargetContracts = map[string]map[string]stagedTargetContract{
 		"solidity_contract": {mediaType: "application/vnd.gratefulagents.solidity-contract.v1+source", singleFile: true},
 		"evm_bytecode":      {mediaType: "application/vnd.gratefulagents.evm-bytecode.v1+hex", singleFile: true},
 	},
+	"slither": {
+		"solidity_project": {mediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
+	},
+	"semgrep": {
+		"semgrep_project": {mediaType: "application/vnd.gratefulagents.semgrep-project.v1+directory"},
+	},
+	"halmos": {
+		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
+	},
 }
 
 // objectStore is the slice of blob storage the Job needs; the fake in the

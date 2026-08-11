@@ -66,6 +66,15 @@ var securityToolStagedMediaTypes = map[string]map[string]string{
 		"solidity_contract": "application/vnd.gratefulagents.solidity-contract.v1+source",
 		"evm_bytecode":      "application/vnd.gratefulagents.evm-bytecode.v1+hex",
 	},
+	"slither": {
+		"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+	},
+	"semgrep": {
+		"semgrep_project": "application/vnd.gratefulagents.semgrep-project.v1+directory",
+	},
+	"halmos": {
+		"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+	},
 }
 
 var securityToolRunLabelValuePattern = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`)

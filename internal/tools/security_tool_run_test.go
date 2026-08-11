@@ -252,6 +252,28 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 	assertAderynSummary(t, fixture, summary)
 }
 
+func TestRunSecurityToolStagesNewEVMDirectoryTools(t *testing.T) {
+	for name, request := range map[string]string{
+		"slither": `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"}}`,
+		"semgrep": `{"tool":"semgrep","target":{"type":"semgrep_project","locator":"repo/contracts","revision":"abc1234"}}`,
+		"halmos":  `{"tool":"halmos","target":{"type":"foundry_project","locator":"repo/contracts","revision":"abc1234"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
+			fixture.writeProject(t)
+			fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
+			result, _ := fixture.exec(t, request)
+			if result.IsError || fixture.client.created == nil {
+				t.Fatalf("staged %s request failed: %+v", name, result)
+			}
+			target := fixture.client.created.Spec.Target
+			if target.StagedObjectKey == "" || target.MediaType != stagedTargetMediaType {
+				t.Fatalf("%s target was not staged as an archive: %+v", name, target)
+			}
+		})
+	}
+}
+
 func assertStagedAderynSpec(t *testing.T, fixture *securityToolRunFixture, created *platformv1alpha1.SecurityToolRun) {
 	t.Helper()
 	if created.Namespace != "default" || created.Spec.Tool != "aderyn" ||
@@ -594,7 +616,7 @@ func TestRunSecurityToolRejectsInvalidRequestsLocally(t *testing.T) {
 		},
 		{
 			name:    "catalog-only tool",
-			input:   `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"}}`,
+			input:   `{"tool":"playwright","target":{"type":"browser_script","locator":"repo/browser","revision":"abc1234"}}`,
 			wantErr: "not executable",
 		},
 		{

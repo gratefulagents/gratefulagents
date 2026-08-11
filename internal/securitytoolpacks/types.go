@@ -76,6 +76,8 @@ type Tool struct {
 	OCIRoot            string            `json:"oci_root,omitempty"`
 	OCIExecutable      string            `json:"oci_executable,omitempty"`
 	OCIOutputPath      string            `json:"oci_output_path,omitempty"`
+	OCIPath            string            `json:"oci_path,omitempty"`
+	OCIWritableTarget  bool              `json:"oci_writable_target,omitempty"`
 	Invocation         []string          `json:"invocation"`
 	Arguments          []Argument        `json:"arguments,omitempty"`
 	TargetTypes        []string          `json:"target_types"`
@@ -203,7 +205,14 @@ func (m Manifest) Validate() error {
 					return fmt.Errorf("tool %s: missing %s OCI manifest digest", t.Name, arch)
 				}
 			}
-		} else if t.OCIExecutable != "" || t.OCIOutputPath != "" {
+			if t.OCIPath != "" {
+				for _, entry := range strings.Split(t.OCIPath, ":") {
+					if !strings.HasPrefix(entry, "/") || filepath.Clean(entry) != entry {
+						return fmt.Errorf("tool %s: invalid OCI PATH entry %q", t.Name, entry)
+					}
+				}
+			}
+		} else if t.OCIExecutable != "" || t.OCIOutputPath != "" || t.OCIPath != "" || t.OCIWritableTarget {
 			return fmt.Errorf("tool %s: OCI fields require oci_root", t.Name)
 		}
 		for name, digest := range t.KnowledgeDigests {

@@ -172,9 +172,14 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		"define-security-invariants",
 		"reproducible-build-artifact-deployment-review",
 		"aderyn-static-analysis",
+		"slither-static-analysis",
+		"semgrep-local-static-analysis",
+		"merge-solidity-static-analysis",
 		"deterministic-forge-tests-and-invariants",
 		"echidna-stateful-property-fuzzing",
 		"bounded-mythril-symbolic-analysis",
+		"bounded-halmos-symbolic-tests",
+		"merge-symbolic-tool-coverage",
 		"symbolic-and-formal-applicability",
 		"deployment-and-privileged-configuration",
 		"validate-high-impact-exploits",
@@ -207,14 +212,23 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 			"map-architecture-assets-roles-entrypoints",
 			"define-security-invariants",
 		},
+		"merge-solidity-static-analysis": {
+			"aderyn-static-analysis",
+			"slither-static-analysis",
+			"semgrep-local-static-analysis",
+		},
 		"account-build-and-static-coverage": {
 			"reproducible-build-artifact-deployment-review",
-			"aderyn-static-analysis",
+			"merge-solidity-static-analysis",
 			"deterministic-forge-tests-and-invariants",
 		},
-		"account-fuzz-and-formal-coverage": {
+		"merge-symbolic-tool-coverage": {
 			"echidna-stateful-property-fuzzing",
 			"bounded-mythril-symbolic-analysis",
+			"bounded-halmos-symbolic-tests",
+		},
+		"account-fuzz-and-formal-coverage": {
+			"merge-symbolic-tool-coverage",
 			"symbolic-and-formal-applicability",
 		},
 		"account-calls-auth-accounting-coverage": {
@@ -297,11 +311,37 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		}
 	}
 
+	validation := byName["validate-high-impact-exploits"]
+	if !slices.Contains(validation.DependsOn, "bounded-halmos-symbolic-tests") || !strings.Contains(validation.Objective, "{{tasks.bounded-halmos-symbolic-tests.output}}") {
+		t.Error("high-impact validation must consume bounded Halmos results directly")
+	}
+	for _, name := range []string{"bounded-halmos-symbolic-tests", "merge-symbolic-tool-coverage"} {
+		var schema struct {
+			Items struct {
+				Required   []string `json:"required"`
+				Properties map[string]struct {
+					Type string `json:"type"`
+				} `json:"properties"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal([]byte(byName[name].OutputSchema), &schema); err != nil {
+			t.Fatalf("decode %s schema: %v", name, err)
+		}
+		for _, field := range []string{"counterexamples", "limitations"} {
+			if !slices.Contains(schema.Items.Required, field) || schema.Items.Properties[field].Type != "array" {
+				t.Errorf("%s must require structured %s array", name, field)
+			}
+		}
+	}
+
 	for name, tool := range map[string]string{
 		"aderyn-static-analysis":                   "aderyn",
+		"slither-static-analysis":                  "slither",
+		"semgrep-local-static-analysis":            "semgrep",
 		"deterministic-forge-tests-and-invariants": "forge-security-tests",
 		"echidna-stateful-property-fuzzing":        "echidna",
 		"bounded-mythril-symbolic-analysis":        "mythril",
+		"bounded-halmos-symbolic-tests":            "halmos",
 	} {
 		task, ok := byName[name]
 		if !ok {

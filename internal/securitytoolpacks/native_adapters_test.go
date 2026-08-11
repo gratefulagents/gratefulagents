@@ -1,6 +1,9 @@
 package securitytoolpacks
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestNativeAdaptersRejectCanonicalScannerRecordArrays(t *testing.T) {
 	adapters := DefaultAdapters()
@@ -101,6 +104,26 @@ func TestEchidnaAdapterMarksErroredPropertiesUncovered(t *testing.T) {
 	}
 	if len(records) != 1 || !records[0].Uncovered || records[0].Asset != "echidna-property:Vault.echidna_solvency" {
 		t.Fatalf("records=%+v", records)
+	}
+}
+
+func TestHalmosIncompleteStatesAreNotCounterexamples(t *testing.T) {
+	for _, exitCode := range []int{2, 3, 4, 5} {
+		native := []byte(fmt.Sprintf(`{"exitcode":%d,"test_results":{"test/Vault.t.sol:VaultTest":[{"name":"check_solvency(uint256)","exitcode":%d,"num_models":0}]}}`, exitCode, exitCode))
+		if _, err := DefaultAdapters()["halmos-json"].Normalize(Tool{Name: "halmos"}, Target{}, native, NewRedactor()); err == nil {
+			t.Fatalf("Halmos exit code %d was accepted as a counterexample", exitCode)
+		}
+	}
+}
+
+func TestHalmosPreservesCounterexamplesFromMixedIncompleteRun(t *testing.T) {
+	native := []byte(`{"exitcode":2,"test_results":{"test/Vault.t.sol:VaultTest":[{"name":"check_counterexample(uint256)","exitcode":1,"num_models":1},{"name":"check_timeout(uint256)","exitcode":2,"num_models":0}]}}`)
+	records, err := DefaultAdapters()["halmos-json"].Normalize(Tool{Name: "halmos"}, Target{}, native, NewRedactor())
+	if err == nil {
+		t.Fatal("mixed incomplete run must return a normalization error")
+	}
+	if len(records) != 1 || records[0].Record.RuleID != "HALMOS-COUNTEREXAMPLE" {
+		t.Fatalf("confirmed counterexample was lost: %+v", records)
 	}
 }
 

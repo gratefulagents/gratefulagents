@@ -469,6 +469,24 @@ func TestJobSetsTheMediaTypeTheRegistryExpectsForExtractedTargets(t *testing.T) 
 			media:      "application/gzip",
 			want:       "application/vnd.gratefulagents.solidity-project.v1+directory",
 		},
+		"slither solidity project": {
+			tool:       "slither",
+			targetType: "solidity_project",
+			media:      "application/gzip",
+			want:       "application/vnd.gratefulagents.solidity-project.v1+directory",
+		},
+		"semgrep project": {
+			tool:       "semgrep",
+			targetType: "semgrep_project",
+			media:      "application/gzip",
+			want:       "application/vnd.gratefulagents.semgrep-project.v1+directory",
+		},
+		"halmos foundry project": {
+			tool:       "halmos",
+			targetType: "foundry_project",
+			media:      "application/gzip",
+			want:       "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+		},
 		"tool without a directory requirement keeps the staged media type": {
 			tool:       "authorization-matrix",
 			targetType: "authorization_matrix",
