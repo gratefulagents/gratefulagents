@@ -1,0 +1,29 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-optimism
+spec:
+  provider: Immunefi
+  displayName: Optimism
+  programURL: https://immunefi.com/bug-bounty/optimism/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-07-27).
+
+    Repository targets:
+    - https://github.com/ethereum-optimism/optimism/tree/develop/op-dispute-mon, explicitly limited to impacts listed in the smart-contract section.
+    - Other production OP Stack assets may qualify through Primacy of Impact, but this snapshot does not convert the entire repository into an asset target.
+    - https://github.com/ethereum-optimism/op-geth is explicitly out of scope because op-geth has reached end of service.
+
+    Rewards:
+    - Blockchain/DLT and smart-contract Critical: up to USD 2,000,042, generally 10% of directly affected funds.
+    - Blockchain/DLT and smart-contract High: USD 15,000 minimum to USD 50,000 maximum.
+
+    Eligible impacts:
+    - Direct loss/theft of user funds, permanent freezing, and protocol insolvency, excluding proposer/challenger bonds and fee vaults. Critical through Medium smart-contract and DLT impacts use Primacy of Impact.
+
+    Out of scope:
+    - Alt-DA, end-of-service clients, custom third-party bridges, tests/mocks, known dispute-game issues, proposer/challenger bonds, fee vaults, privileged assumptions, and best-practice-only reports are excluded.
+
+    Testing and submission:
+    - PoC and KYC required. Use local Dockerized services or local forks only; no mainnet/public-testnet testing, destructive DoS, phishing, traffic generation, or unapproved disclosure.

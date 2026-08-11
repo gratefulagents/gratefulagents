@@ -1,0 +1,33 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-chainlink
+spec:
+  provider: Immunefi
+  displayName: Chainlink
+  programURL: https://immunefi.com/bug-bounty/chainlink/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-07-24).
+
+    Repository targets:
+    - https://github.com/smartcontractkit/chainlink-ccip/tree/main/execute
+    - https://github.com/smartcontractkit/chainlink-ccip/tree/main/commit
+    - https://github.com/smartcontractkit/chainlink-ccip/tree/main/chains/evm/contracts
+    - https://github.com/smartcontractkit/chainlink-ccip/tree/main/chains/solana/contracts
+    - https://github.com/smartcontractkit/chainlink-evm/tree/develop/contracts
+    - https://github.com/smartcontractkit/chainlink-solana/tree/develop/contracts
+    Only these listed branches/subtrees are verified from the supplied repositories; do not infer blanket organization or Aptos scope.
+
+    Rewards:
+    - Smart-contract Critical: USD 100,000 minimum to USD 3,000,000 maximum, at Chainlink Labs' discretion.
+    - Smart-contract High: up to USD 75,000.
+
+    Eligible impacts:
+    - RMN on-chain curse bypass, price/data misreporting, governance manipulation, direct theft, permanent freezing, insolvency, protocol-revenue theft, and rate-limit violations.
+
+    Out of scope:
+    - Tests/configuration, known or dependency issues, documentation-only mitigation, privileged-key assumptions, theoretical impact, and best-practice-only reports are excluded.
+
+    Testing and submission:
+    - A code PoC and suggested fix are required. KYC/KYB and sanctions screening are required. Use local forks only; no live-network testing, destructive DoS, phishing, high-traffic automation, or unapproved disclosure.

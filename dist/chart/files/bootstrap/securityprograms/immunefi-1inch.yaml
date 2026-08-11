@@ -1,0 +1,35 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-1inch
+spec:
+  provider: Immunefi
+  displayName: 1inch Smart Contracts
+  programURL: https://immunefi.com/bug-bounty/1inch-SmartContracts/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-08-07).
+
+    Repository targets:
+    - https://github.com/1inch/limit-order-protocol
+    - https://github.com/1inch/fusion-protocol
+    - https://github.com/1inch/cross-chain-swap
+    - https://github.com/1inch/token-plugins
+    - https://github.com/1inch/farming
+    - https://github.com/1inch/delegating
+    - https://github.com/1inch/solana-crosschain-protocol
+    - https://github.com/1inch/solana-fusion
+    Only the latest tags/releases are eligible. Critical impact additionally requires affected code to be deployed on mainnet.
+
+    Rewards:
+    - Smart-contract Critical: up to USD 500,000.
+    - Smart-contract High: USD 10,000 minimum to USD 30,000 maximum.
+
+    Eligible impacts:
+    - Direct theft, permanent freezing, insolvency, theft/freezing of unclaimed yield, and qualifying temporary freezing.
+
+    Out of scope:
+    - Imported contracts, undeployed code at Critical severity, theoretical impact, tests/configuration, known issues, fee-on-transfer incompatibility, AI-generated reports, privileged assumptions, and best-practice-only reports are excluded.
+
+    Testing and submission:
+    - PoC and KYC required; reports must be submitted within 24 hours of discovery. Use local forks only; no live-network testing, destructive DoS, phishing, traffic generation, or unapproved disclosure.

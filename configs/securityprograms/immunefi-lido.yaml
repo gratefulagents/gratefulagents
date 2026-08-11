@@ -1,0 +1,33 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-lido
+spec:
+  provider: Immunefi
+  displayName: Lido
+  programURL: https://immunefi.com/bug-bounty/lido/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-06-29).
+
+    Repository targets:
+    - https://github.com/lidofinance/core
+    - https://github.com/lidofinance/aave-delivery-infrastructure
+    - https://github.com/lidofinance/governance-crosschain-bridges
+    - https://github.com/lidofinance/lido-l2
+    - https://github.com/lidofinance/lido-l2-with-steth
+    - https://github.com/lidofinance/community-staking-module
+    Scope is limited to deployed contracts associated with releases; latest repository code, develop branches, feature branches, testnet contracts, and undeployed code are not eligible.
+
+    Rewards:
+    - Smart-contract Critical: USD 50,000 minimum to USD 2,000,000 maximum, normally 10% of affected funds.
+    - Smart-contract High: USD 10,000 minimum to USD 250,000 maximum.
+
+    Eligible impacts:
+    - User-fund theft, permanent freezing, insolvency, governance-result manipulation, and theft of tokenized staking yield.
+
+    Out of scope:
+    - Partner contracts are discretionary. Testnets, unreleased code, known/audited issues, privileged assumptions, and best-practice-only reports are excluded. Pausable contracts use a one-hour impact window; upgrade-only contracts use five days for Critical and nine days for other impacts.
+
+    Testing and submission:
+    - PoC required. KYC is not required. Use local forks only; no mainnet/public-testnet or third-party testing, destructive DoS, phishing, high-traffic automation, or unapproved disclosure.

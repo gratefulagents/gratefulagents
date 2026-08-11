@@ -1,7 +1,7 @@
 {{- /*
-Default platform configuration: ModeTemplates and RoleInstructions for the specialist
-sub-agents. Synced from configs/ in the
-source repo via `make helm-sync-bootstrap`.
+Default platform configuration assets, including specialist-agent instructions and
+security libraries. Synced from configs/ in the source repo via
+`make helm-sync-bootstrap`.
 
 Applied as post-install/post-upgrade hooks so the CRDs installed by this chart
 are established before these custom resources are created.

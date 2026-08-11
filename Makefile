@@ -10,7 +10,7 @@ KUBECTL ?= kubectl
 help: ## Show the supported self-hosting commands.
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make <target>\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-BOOTSTRAP_DIRS := modetemplates roleinstructions securitypolicypacks securitypostscripts securityrankers securityworkflows skills
+BOOTSTRAP_DIRS := modetemplates roleinstructions securitypolicypacks securitypostscripts securityprograms securityrankers securityworkflows skills
 
 .PHONY: helm-sync-bootstrap
 helm-sync-bootstrap: ## Mirror shipped configuration assets into the Helm chart.

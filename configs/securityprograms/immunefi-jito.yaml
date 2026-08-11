@@ -1,0 +1,32 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-jito
+spec:
+  provider: Immunefi
+  displayName: Jito
+  programURL: https://immunefi.com/bug-bounty/jito/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2025-02-17).
+
+    Repository targets:
+    - https://github.com/jito-foundation/jito-programs/tree/master/mev-programs
+    - https://github.com/jito-foundation/restaking/tree/master/restaking_core
+    - https://github.com/jito-foundation/restaking/tree/master/restaking_program
+    - https://github.com/jito-foundation/restaking/tree/master/vault_core
+    - https://github.com/jito-foundation/restaking/tree/master/vault_program
+    - https://github.com/jito-foundation/stake-deposit-interceptor is also an explicitly listed repository asset.
+
+    Rewards:
+    - Critical: up to USD 250,000.
+    - High: up to USD 100,000.
+
+    Eligible impacts:
+    - Network shutdown, permanent hard-fork chain split, direct fund loss/theft, permanent freezing, protocol-revenue or yield theft, and qualifying chain split/block delay.
+
+    Out of scope:
+    - jito-programs/example-programs is explicitly excluded. Upstream Agave/Solana-client bugs, undeployed/default-off code, tests, public/known issues, privileged assumptions, and best-practice-only reports are excluded. Contributor eligibility restrictions apply.
+
+    Testing and submission:
+    - PoC and KYC required. Use a local validator/cluster only; no mainnet/public-testnet or third-party testing, destructive DoS, phishing, traffic generation, or unapproved disclosure.
