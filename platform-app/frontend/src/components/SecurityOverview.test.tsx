@@ -101,8 +101,8 @@ describe("SecurityOverview", () => {
 
     renderOverview();
 
-    expect(await screen.findByText("Open critical")).toBeTruthy();
-    expect(screen.getByText("Open high")).toBeTruthy();
+    expect(await screen.findByText("Actionable critical")).toBeTruthy();
+    expect(screen.getByText("Actionable high")).toBeTruthy();
     // Active scan links to its detail page.
     expect(
       screen.getByRole("link", { name: "nightly-2" }).getAttribute("href"),
@@ -177,7 +177,7 @@ describe("SecurityOverview", () => {
       await screen.findByText(/does not support\s+security findings/),
     ).toBeTruthy();
     expect(screen.getByText("All scan configurations are healthy.")).toBeTruthy();
-    expect(screen.queryByText("Open critical")).toBeNull();
+    expect(screen.queryByText("Actionable critical")).toBeNull();
   });
 
   it("shows a partial-failure banner when one aggregation fails", async () => {
@@ -275,7 +275,7 @@ describe("SecurityOverview", () => {
 
     renderOverview();
 
-    expect(await screen.findByText("Open critical")).toBeTruthy();
+    expect(await screen.findByText("Actionable critical")).toBeTruthy();
     expect(screen.getByText("Security skills · Status unavailable")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(getSecuritySkillsStatus).toHaveBeenCalledTimes(2));

@@ -85,7 +85,7 @@ export function SecurityConfigDetail() {
 
   // Filters live in the URL so a shared link reproduces the same view.
   const severity = searchParams.get("severity") ?? "";
-  const status = searchParams.get("status") ?? "";
+  const status = searchParams.get("status") ?? "actionable";
   const category = searchParams.get("category") ?? "";
   const search = searchParams.get("q") ?? "";
 
@@ -141,7 +141,7 @@ export function SecurityConfigDetail() {
           namespace,
           scanName: name,
           severity,
-          status,
+          status: status === "all" ? "" : status,
           category,
           search,
           limit: FINDINGS_PAGE_SIZE,
@@ -295,14 +295,14 @@ export function SecurityConfigDetail() {
 
           <StatBar>
             <Stat label="Total" value={summary["total"] ?? 0} />
-            <Stat label="Open" value={summary["open"] ?? 0} />
+            <Stat label="Actionable" value={summary["actionable"] ?? summary["open"] ?? 0} />
             {SEVERITIES.map((s) => (
               <Stat
                 key={s}
                 label={s}
                 value={
                   <span className={cn(toneSoft[severityTone(s)], "rounded-md px-2 py-0.5")}>
-                    {summary[s] ?? 0}
+                    {summary[`actionable_${s}`] ?? summary[s] ?? 0}
                   </span>
                 }
                 mono={false}
@@ -356,7 +356,8 @@ export function SecurityConfigDetail() {
                 value={status}
                 onChange={(e) => setFilter("status", e.target.value)}
               >
-                <option value="">All statuses</option>
+                <option value="actionable">Actionable</option>
+                <option value="all">All statuses</option>
                 {FINDING_STATUSES.map((s) => (
                   <option key={s} value={s}>{statusLabel(s)}</option>
                 ))}

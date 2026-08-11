@@ -55,18 +55,28 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function configFixture(overrides: { name?: string; suspend?: boolean; securityProgramRef?: string } = {}): SecurityScanConfig {
+function configFixture(overrides: {
+  name?: string;
+  suspend?: boolean;
+  securityProgramRef?: string;
+  schedule?: string;
+  conditionReady?: string;
+  lastScanTimeUnix?: bigint;
+  findingCounts?: Record<string, number>;
+} = {}): SecurityScanConfig {
   return create(SecurityScanConfigSchema, {
     namespace: "user-alice",
     name: overrides.name ?? "nightly",
     spec: create(SecurityScanConfigSpecSchema, {
       repoUrl: "https://github.com/acme/payments.git",
-      schedule: "@daily",
+      schedule: overrides.schedule ?? "@daily",
       suspend: overrides.suspend ?? false,
       securityProgramRef: overrides.securityProgramRef ?? "",
     }),
     phase: "Scheduled",
-    conditionReady: "True",
+    conditionReady: overrides.conditionReady ?? "True",
+    lastScanTimeUnix: overrides.lastScanTimeUnix ?? BigInt(Math.floor(Date.now() / 1000)),
+    findingCounts: overrides.findingCounts ?? {},
   });
 }
 
@@ -143,8 +153,7 @@ describe("SecurityScanConfigList", () => {
     });
     renderList();
 
-    expect(await screen.findByText("acme-bounty")).toBeTruthy();
-    const link = screen.getByRole("link", { name: "https://hackerone.com/acme" });
+    const link = await screen.findByRole("link", { name: "https://hackerone.com/acme" });
     expect(link.getAttribute("href")).toBe("https://hackerone.com/acme");
   });
 
@@ -155,5 +164,63 @@ describe("SecurityScanConfigList", () => {
     await screen.findByText("nightly");
     expect(screen.getByTestId("duplicate-dialog-nightly")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Duplicate nightly" })).toBeTruthy();
+  });
+
+  it("filters configurations by last scan date", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [
+        configFixture({ name: "recent", lastScanTimeUnix: BigInt(now - 60 * 60) }),
+        configFixture({ name: "old", lastScanTimeUnix: BigInt(now - 40 * 24 * 60 * 60) }),
+        configFixture({ name: "never", lastScanTimeUnix: 0n }),
+      ],
+    });
+    renderList();
+
+    await screen.findByText("recent");
+    fireEvent.change(screen.getByRole("combobox", { name: "Last scan" }), { target: { value: "24h" } });
+
+    expect(screen.getByText("recent")).toBeTruthy();
+    expect(screen.queryByText("old")).toBeNull();
+    expect(screen.queryByText("never")).toBeNull();
+    expect(screen.getByText("Showing 1 of 3 configurations")).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Last scan" }), { target: { value: "never" } });
+    expect(screen.getByText("never")).toBeTruthy();
+    expect(screen.queryByText("recent")).toBeNull();
+  });
+
+  it("combines status, findings, schedule, and program filters and clears them", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [
+        configFixture({
+          name: "matching",
+          securityProgramRef: "acme-bounty",
+          findingCounts: { high: 2 },
+        }),
+        configFixture({ name: "paused", suspend: true, findingCounts: { high: 2 } }),
+        configFixture({ name: "clean-once", schedule: "", findingCounts: {} }),
+      ],
+    });
+    listSecurityPrograms.mockResolvedValue({
+      programs: [{ name: "acme-bounty", programUrl: "https://hackerone.com/acme" }],
+    });
+    renderList();
+
+    await screen.findByText("matching");
+    fireEvent.change(screen.getByRole("combobox", { name: "Status" }), { target: { value: "ready" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Findings" }), { target: { value: "high" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Schedule" }), { target: { value: "recurring" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Program" }), { target: { value: "acme-bounty" } });
+
+    expect(screen.getByText("matching")).toBeTruthy();
+    expect(screen.queryByText("paused")).toBeNull();
+    expect(screen.queryByText("clean-once")).toBeNull();
+    expect(screen.getByLabelText("4 active filters")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByText("paused")).toBeTruthy();
+    expect(screen.getByText("clean-once")).toBeTruthy();
+    expect((screen.getByRole("combobox", { name: "Status" }) as HTMLSelectElement).value).toBe("all");
   });
 });

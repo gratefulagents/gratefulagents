@@ -727,7 +727,10 @@ func (b SecurityScanBudgets) IsZero() bool {
 	return b == SecurityScanBudgets{}
 }
 
-// SecurityScanFindingCounts summarizes findings by severity.
+// SecurityScanFindingCounts summarizes actionable findings by severity.
+// Open is retained for API compatibility and counts open, triaged, and
+// confirmed findings; false positives, fixed findings, accepted risks, and
+// governed suppressions are excluded.
 type SecurityScanFindingCounts struct {
 	// +optional
 	Total int32 `json:"total,omitempty"`

@@ -956,15 +956,21 @@ func (r *SecurityScanReconciler) summarizeFindings(ctx context.Context, scan *tr
 		}
 		openBySeverity[severity] = counts[severity]
 	}
+	actionable := func(key, legacyKey string) int32 {
+		if value, ok := counts[key]; ok {
+			return value
+		}
+		return counts[legacyKey]
+	}
 	return &securityScanFindingSummary{
 		counts: &triggersv1alpha1.SecurityScanFindingCounts{
 			Total:    counts["total"],
-			Open:     counts["open"],
-			Critical: counts["critical"],
-			High:     counts["high"],
-			Medium:   counts["medium"],
-			Low:      counts["low"],
-			Info:     counts["info"],
+			Open:     actionable("actionable", "open"),
+			Critical: actionable("actionable_critical", "critical"),
+			High:     actionable("actionable_high", "high"),
+			Medium:   actionable("actionable_medium", "medium"),
+			Low:      actionable("actionable_low", "low"),
+			Info:     actionable("actionable_info", "info"),
 		},
 		openBySeverity: openBySeverity,
 	}

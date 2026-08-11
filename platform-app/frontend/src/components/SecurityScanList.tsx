@@ -61,14 +61,15 @@ export function SeverityBadge({
 
 /** Severity count pills for a counts map; only non-zero severities render. */
 export function SeverityCountBadges({ counts }: { counts: Record<string, number> }) {
-  const present = SEVERITIES.filter((s) => (counts[s] ?? 0) > 0);
+  const countFor = (severity: string) => counts[`actionable_${severity}`] ?? counts[severity] ?? 0;
+  const present = SEVERITIES.filter((severity) => countFor(severity) > 0);
   if (!present.length) {
     return <span className="text-sm text-muted-foreground">—</span>;
   }
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
-      {present.map((s) => (
-        <SeverityBadge key={s} severity={s} count={counts[s]} />
+      {present.map((severity) => (
+        <SeverityBadge key={severity} severity={severity} count={countFor(severity)} />
       ))}
     </span>
   );

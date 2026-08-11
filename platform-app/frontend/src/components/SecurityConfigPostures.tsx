@@ -45,10 +45,10 @@ function lastRunUnix(p: SecurityConfigPosture): bigint {
   return BigInt(Math.floor(timestampDate(ts).getTime() / 1000));
 }
 
-/** Compact horizontal stacked bar of open findings, colored by severity. */
-function OpenSeverityBar({ scanName, counts }: { scanName: string; counts: Record<string, number> }) {
+/** Compact horizontal stacked bar of actionable findings, colored by severity. */
+function ActionableSeverityBar({ scanName, counts }: { scanName: string; counts: Record<string, number> }) {
   const parts = SEVERITIES
-    .map((s) => ({ severity: s, count: counts[`open_${s}`] ?? 0 }))
+    .map((s) => ({ severity: s, count: counts[`actionable_${s}`] ?? counts[`open_${s}`] ?? 0 }))
     .filter((p) => p.count > 0);
   const total = parts.reduce((sum, p) => sum + p.count, 0);
   if (total === 0) return null;
@@ -56,7 +56,7 @@ function OpenSeverityBar({ scanName, counts }: { scanName: string; counts: Recor
   return (
     <div
       role="img"
-      aria-label={`Open findings for ${scanName} by severity: ${label}`}
+      aria-label={`Actionable findings for ${scanName} by severity: ${label}`}
       title={label}
       className="flex h-1.5 w-24 overflow-hidden rounded-full bg-muted/40"
     >
@@ -116,10 +116,14 @@ function TrendSparkline({ scanName, activity }: { scanName: string; activity: Se
 type SortKey = "name" | "open" | "age";
 type SortDir = "asc" | "desc";
 
-/** Default ordering: worst posture first (open critical, then high, then open). */
+/** Default ordering: worst posture first (actionable critical, then high, then total). */
 function severityChain(p: SecurityConfigPosture): [number, number, number] {
   const c = p.findingCounts;
-  return [c["open_critical"] ?? 0, c["open_high"] ?? 0, c["open"] ?? 0];
+  return [
+    c["actionable_critical"] ?? c["open_critical"] ?? 0,
+    c["actionable_high"] ?? c["open_high"] ?? 0,
+    c["actionable"] ?? c["open"] ?? 0,
+  ];
 }
 
 function compare(a: SecurityConfigPosture, b: SecurityConfigPosture, key: SortKey): number {
@@ -197,8 +201,8 @@ function PostureRow({ posture, now }: { posture: SecurityConfigPosture; now: num
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
-          <span className="w-6 text-right font-medium tabular-nums">{counts["open"] ?? 0}</span>
-          <OpenSeverityBar scanName={posture.scanName} counts={counts} />
+          <span className="w-6 text-right font-medium tabular-nums">{counts["actionable"] ?? counts["open"] ?? 0}</span>
+          <ActionableSeverityBar scanName={posture.scanName} counts={counts} />
         </div>
       </TableCell>
       <TableCell>
@@ -335,7 +339,7 @@ export function SecurityConfigPostures() {
                 <TableRow>
                   <SortableHead label="Configuration" sortKey="name" sort={sort} onSort={onSort} />
                   <TableHead>Repository</TableHead>
-                  <SortableHead label="Open" sortKey="open" sort={sort} onSort={onSort} />
+                  <SortableHead label="Actionable" sortKey="open" sort={sort} onSort={onSort} />
                   <TableHead>Changes</TableHead>
                   <SortableHead label="Last run" sortKey="age" sort={sort} onSort={onSort} />
                   <TableHead>Trend</TableHead>

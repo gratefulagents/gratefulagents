@@ -231,7 +231,7 @@ export function SecurityFindingDetail() {
   // Filter context carried over from the scan table keeps prev/next
   // deterministic and lets the back link restore the same view.
   const severity = searchParams.get("severity") ?? "";
-  const status = searchParams.get("status") ?? "";
+  const status = searchParams.get("status") ?? "actionable";
   const category = searchParams.get("category") ?? "";
   const search = searchParams.get("q") ?? "";
   const filterQuery = searchParams.toString();
@@ -261,7 +261,7 @@ export function SecurityFindingDetail() {
           namespace,
           runName,
           severity,
-          status,
+          status: status === "all" ? "" : status,
           category,
           search,
         }),

@@ -126,7 +126,7 @@ describe("SecurityConfigPostures", () => {
 
     expect(
       await screen.findByRole("img", {
-        name: "Open findings for api-scan by severity: 3 critical, 1 high, 1 low",
+        name: "Actionable findings for api-scan by severity: 3 critical, 1 high, 1 low",
       }),
     ).toBeTruthy();
     expect(
@@ -149,10 +149,10 @@ describe("SecurityConfigPostures", () => {
     expect(rowNames()).toEqual(["api-scan", "web-scan"]);
 
     // Default sort is already Open desc, so the first click flips to asc.
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Actionable" }));
     expect(rowNames()).toEqual(["web-scan", "api-scan"]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Actionable" }));
     expect(rowNames()).toEqual(["api-scan", "web-scan"]);
 
     // Last run sorts by recency: desc puts the newest run first.

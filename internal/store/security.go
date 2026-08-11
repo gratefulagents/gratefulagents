@@ -206,7 +206,21 @@ const (
 	SecurityFindingStatusFalsePositive = "false_positive"
 	SecurityFindingStatusFixed         = "fixed"
 	SecurityFindingStatusAcceptedRisk  = "accepted_risk"
+	// SecurityFindingStatusActionable is a read-only list filter that groups
+	// findings still requiring remediation: open, triaged, and confirmed. It
+	// is not a persisted status and must not be accepted by status mutations.
+	SecurityFindingStatusActionable = "actionable"
 )
+
+// SecurityFindingIsActionable reports whether a persisted status represents
+// a real finding that still requires action.
+func SecurityFindingIsActionable(status string) bool {
+	switch status {
+	case SecurityFindingStatusOpen, SecurityFindingStatusTriaged, SecurityFindingStatusConfirmed:
+		return true
+	}
+	return false
+}
 
 // ValidSecurityFindingStatus reports whether s is a known finding status.
 func ValidSecurityFindingStatus(s string) bool {
@@ -602,7 +616,8 @@ type SecurityFindingStore interface {
 	AddSecurityFindingComment(ctx context.Context, namespace string, id uuid.UUID, actor, body string) (*SecurityFindingEvent, error)
 	// SummarizeSecurityFindings returns counts of non-duplicate findings
 	// keyed by severity ("critical", "high", "medium", "low", "info"), plus
-	// "total" (all findings), "open" (findings with status 'open'), and
+	// "total" (all findings), "actionable" (open, triaged, or confirmed),
+	// "open" (findings with status 'open'), and "actionable_<severity>" /
 	// "open_<severity>" keys (open_critical, open_high, open_medium,
 	// open_low, open_info) counting only findings whose status is 'open'.
 	// It also emits "baseline_<state>" keys (baseline_new,
