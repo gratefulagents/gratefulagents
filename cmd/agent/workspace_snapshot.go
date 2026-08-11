@@ -33,11 +33,18 @@ import (
 const (
 	workspaceCheckpointVersion  = 1
 	workspaceCheckpointInterval = 10 * time.Second
-	workspaceCheckpointTimeout  = 30 * time.Second
-	workspaceBundleRef          = "refs/gratefulagents-checkpoint/snapshot"
-	workspaceAnchorMagic        = "GAANCH\x01"
-	workspaceLatestObject       = "latest.json.enc"
-	maxWorkspaceBundleBytes     = maxEncryptedWorkspaceArchiveBytes - (1 << 20)
+	// maxWorkspaceCheckpointInterval caps the exponential backoff applied after
+	// consecutive checkpoint failures.
+	maxWorkspaceCheckpointInterval = 5 * time.Minute
+	// workspaceCheckpointTimeout bounds one complete checkpoint attempt on the
+	// shutdown path, where the pod termination grace period applies. Per-stage
+	// budgets (checkpointBudget) bound Git preparation and object-store uploads
+	// independently.
+	workspaceCheckpointTimeout = 30 * time.Second
+	workspaceBundleRef         = "refs/gratefulagents-checkpoint/snapshot"
+	workspaceAnchorMagic       = "GAANCH\x01"
+	workspaceLatestObject      = "latest.json.enc"
+	maxWorkspaceBundleBytes    = maxEncryptedWorkspaceArchiveBytes - (1 << 20)
 )
 
 var activeWorkspaceSnapshotter atomic.Pointer[workspaceSnapshotter]
@@ -55,8 +62,11 @@ func (h *workspaceCheckpointHooks) OnToolEndError(_ *agent.RunContext, _ *agent.
 		return nil
 	}
 	// Do not acknowledge a mutating tool boundary until its encrypted S3
-	// checkpoint manifest is durably published.
-	ctx, cancel := context.WithTimeout(context.Background(), workspaceCheckpointTimeout)
+	// checkpoint manifest is durably published. Each stage of the checkpoint is
+	// bounded by its own budget, so no shared end-to-end deadline is imposed
+	// here: a large repository must be allowed to finish packing and then
+	// upload with a fresh budget.
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := h.snapshotter.snapshotSync(ctx, "tool:"+tool.Name()); err != nil {
 		return fmt.Errorf("publishing encrypted workspace checkpoint after %s: %w", tool.Name(), err)
@@ -189,12 +199,20 @@ type workspaceSnapshotter struct {
 	sc          *sessionclient.Client
 	snapshotKey []byte
 
-	mu             sync.Mutex
-	asyncMu        sync.Mutex
-	asyncCancel    context.CancelFunc
-	pending        atomic.Bool
-	lastKeys       map[string]string
-	lastEntries    map[string]workspaceCheckpointRepository
+	budget atomic.Pointer[checkpointBudget]
+	// failures counts consecutive checkpoint failures and drives the periodic
+	// backoff.
+	failures atomic.Int64
+
+	mu          sync.Mutex
+	asyncMu     sync.Mutex
+	asyncCancel context.CancelFunc
+	pending     atomic.Bool
+	lastKeys    map[string]string
+	lastEntries map[string]workspaceCheckpointRepository
+	// anchorObjects caches published anchor object keys by anchor commit so a
+	// worker never repacks an anchor tree it has already uploaded.
+	anchorObjects  map[string]string
 	lastGeneration string
 }
 
@@ -205,15 +223,46 @@ func newWorkspaceSnapshotter(cfg runConfig, sc *sessionclient.Client) *workspace
 		store: cfg.WorkspaceCheckpointStore, sc: sc,
 		snapshotKey: append([]byte(nil), cfg.WorkspaceSnapshotKey...),
 		lastKeys:    make(map[string]string), lastEntries: make(map[string]workspaceCheckpointRepository),
+		anchorObjects: make(map[string]string),
 	}
+	budget := defaultCheckpointBudget()
+	s.budget.Store(&budget)
 	if cfg.WorkspaceCheckpoint != nil {
 		s.lastGeneration = cfg.WorkspaceCheckpoint.Generation
 		for _, entry := range cfg.WorkspaceCheckpoint.Repositories {
 			s.lastKeys[entry.ID] = entry.SemanticKey
 			s.lastEntries[entry.ID] = entry
+			if entry.Anchor != "" && entry.AnchorObjectKey != "" {
+				s.anchorObjects[entry.Anchor] = entry.AnchorObjectKey
+			}
 		}
 	}
 	return s
+}
+
+// currentBudget returns the per-stage deadlines in force for the next attempt.
+func (s *workspaceSnapshotter) currentBudget() checkpointBudget {
+	if budget := s.budget.Load(); budget != nil {
+		return *budget
+	}
+	return defaultCheckpointBudget()
+}
+
+func (s *workspaceSnapshotter) setBudget(budget checkpointBudget) {
+	if s == nil {
+		return
+	}
+	s.budget.Store(&budget)
+}
+
+// recordAttempt tracks consecutive failures so the periodic loop can back off
+// instead of retrying an expensive checkpoint every interval.
+func (s *workspaceSnapshotter) recordAttempt(err error) {
+	if err == nil {
+		s.failures.Store(0)
+		return
+	}
+	s.failures.Add(1)
 }
 
 func (s *workspaceSnapshotter) SnapshotAsync(reason string) {
@@ -224,7 +273,9 @@ func (s *workspaceSnapshotter) SnapshotAsync(reason string) {
 	if !s.mu.TryLock() {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), workspaceCheckpointTimeout)
+	// Stage budgets bound Git preparation and uploads separately; an
+	// end-to-end deadline here would starve the upload of a large repository.
+	ctx, cancel := context.WithCancel(context.Background())
 	s.asyncMu.Lock()
 	s.asyncCancel = cancel
 	s.asyncMu.Unlock()
@@ -237,7 +288,12 @@ func (s *workspaceSnapshotter) SnapshotAsync(reason string) {
 			cancel()
 		}()
 		for s.pending.Swap(false) {
-			if err := s.snapshotLocked(ctx, reason); err != nil && !errors.Is(err, context.Canceled) {
+			err := s.snapshotLocked(ctx, reason)
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			s.recordAttempt(err)
+			if err != nil {
 				log.Printf("WARN: workspace checkpoint (%s) failed: %v", reason, err)
 				return
 			}
@@ -251,14 +307,15 @@ func (s *workspaceSnapshotter) StartPeriodic(parent context.Context) context.Can
 		return cancel
 	}
 	go func() {
-		ticker := time.NewTicker(workspaceCheckpointInterval)
-		defer ticker.Stop()
+		timer := time.NewTimer(nextCheckpointDelay(0))
+		defer timer.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
+			case <-timer.C:
 				s.SnapshotAsync("periodic")
+				timer.Reset(nextCheckpointDelay(int(s.failures.Load())))
 			}
 		}
 	}()
@@ -279,7 +336,11 @@ func (s *workspaceSnapshotter) snapshotSync(ctx context.Context, reason string) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pending.Store(false)
-	return s.snapshotLocked(ctx, reason)
+	err := s.snapshotLocked(ctx, reason)
+	if !errors.Is(err, context.Canceled) {
+		s.recordAttempt(err)
+	}
+	return err
 }
 
 func (s *workspaceSnapshotter) cancelAsyncSnapshot() {
@@ -314,7 +375,7 @@ func (s *workspaceSnapshotter) Cleanup(ctx context.Context) error {
 		repos = append(repos, extra.dir)
 	}
 	for _, dir := range repos {
-		opCtx, cancel := context.WithTimeout(ctx, workspaceCheckpointTimeout)
+		opCtx, cancel := s.currentBudget().prepareContext(ctx)
 		safe, err := repoSafeForSnapshotCleanup(opCtx, dir)
 		cancel()
 		if err != nil || !safe {
@@ -430,7 +491,12 @@ func (s *workspaceSnapshotter) snapshotLocked(ctx context.Context, reason string
 		Version: workspaceCheckpointVersion, Generation: generation,
 		CreatedAt: time.Now().UTC(), Repositories: entries,
 	}
-	if err := saveWorkspaceCheckpoint(ctx, s.store, s.prefix, s.snapshotKey, manifest); err != nil {
+	uploadCtx, cancelUpload := s.currentBudget().uploadContext(ctx)
+	manifestStart := time.Now()
+	err = saveWorkspaceCheckpoint(uploadCtx, s.store, s.prefix, s.snapshotKey, manifest)
+	logCheckpointStage(uploadCtx, "manifest upload", "latest", manifestStart, err)
+	cancelUpload()
+	if err != nil {
 		return err
 	}
 	s.lastKeys, s.lastEntries, s.lastGeneration = keys, entryMap, generation
@@ -446,15 +512,23 @@ func (s *workspaceSnapshotter) snapshotLocked(ctx context.Context, reason string
 
 func (s *workspaceSnapshotter) snapshotRepo(ctx context.Context, repo extraRepo, primary bool, reason string) (workspaceCheckpointRepository, error) {
 	dir := repo.dir
-	head, err := gitOutput(ctx, dir, nil, "rev-parse", "HEAD")
+	budget := s.currentBudget()
+	// Local Git work (staging, archiving, bundling, packing) runs under the
+	// preparation budget. Uploads below get their own budget so a slow pack
+	// never hands an exhausted context to the object store.
+	prepCtx, cancelPrep := budget.prepareContext(ctx)
+	defer cancelPrep()
+	prepStart := time.Now()
+
+	head, err := gitOutput(prepCtx, dir, nil, "rev-parse", "HEAD")
 	if err != nil {
 		return workspaceCheckpointRepository{}, fmt.Errorf("resolving HEAD: %w", err)
 	}
-	tree, err := writeWorkingTree(ctx, dir, head)
+	tree, err := writeWorkingTree(prepCtx, dir, head)
 	if err != nil {
 		return workspaceCheckpointRepository{}, err
 	}
-	archive, archiveHash, archiveFiles, err := buildUntrackedWorkspaceArchive(ctx, dir)
+	archive, archiveHash, archiveFiles, err := buildUntrackedWorkspaceArchive(prepCtx, dir)
 	if err != nil {
 		return workspaceCheckpointRepository{}, fmt.Errorf("building untracked-file checkpoint: %w", err)
 	}
@@ -463,12 +537,12 @@ func (s *workspaceSnapshotter) snapshotRepo(ctx context.Context, repo extraRepo,
 	}
 
 	id := workspaceRepoID(repo, primary)
-	urlValue, err := gitOutput(ctx, dir, nil, "remote", "get-url", "origin")
+	urlValue, err := gitOutput(prepCtx, dir, nil, "remote", "get-url", "origin")
 	if err != nil {
 		return workspaceCheckpointRepository{}, fmt.Errorf("resolving origin URL: %w", err)
 	}
-	branch, _ := gitOutput(ctx, dir, nil, "rev-parse", "--abbrev-ref", "HEAD")
-	upstream, _ := gitOutput(ctx, dir, nil, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	branch, _ := gitOutput(prepCtx, dir, nil, "rev-parse", "--abbrev-ref", "HEAD")
+	upstream, _ := gitOutput(prepCtx, dir, nil, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
 	semanticKey := tree + "|" + head + "|" + archiveHash
 	if semanticKey == s.lastKeys[id] {
 		if entry, ok := s.lastEntries[id]; ok {
@@ -484,25 +558,27 @@ func (s *workspaceSnapshotter) snapshotRepo(ctx context.Context, repo extraRepo,
 	}
 	commitArgs := []string{"commit-tree", tree, "-p", head}
 	if len(archive) > 0 {
-		archiveCommit, err := createEncryptedWorkspaceArchiveCommit(ctx, dir, s.snapshotKey, archive, ident)
+		archiveCommit, err := createEncryptedWorkspaceArchiveCommit(prepCtx, dir, s.snapshotKey, archive, ident)
 		if err != nil {
 			return workspaceCheckpointRepository{}, fmt.Errorf("creating untracked-file checkpoint: %w", err)
 		}
 		commitArgs = append(commitArgs, "-p", archiveCommit)
 	}
 	commitArgs = append(commitArgs, "-m", fmt.Sprintf("gratefulagents: object-store workspace checkpoint (%s)", reason))
-	snap, err := gitOutput(ctx, dir, ident, commitArgs...)
+	snap, err := gitOutput(prepCtx, dir, ident, commitArgs...)
 	if err != nil {
 		return workspaceCheckpointRepository{}, fmt.Errorf("creating checkpoint commit: %w", err)
 	}
 
-	bundle, anchor, err := createWorkspaceBundle(ctx, dir, head, snap)
+	bundle, anchor, err := createWorkspaceBundle(prepCtx, dir, head, snap)
 	if err != nil {
 		return workspaceCheckpointRepository{}, err
 	}
 	anchorObjectKey := s.cachedAnchorObject(anchor)
 	if anchor != "" && anchorObjectKey == "" {
-		anchorPayload, err := createWorkspaceAnchorPayload(ctx, dir, anchor)
+		packStart := time.Now()
+		anchorPayload, err := createWorkspaceAnchorPayload(prepCtx, dir, anchor)
+		logCheckpointStage(prepCtx, "anchor pack", id, packStart, err)
 		if err != nil {
 			return workspaceCheckpointRepository{}, err
 		}
@@ -512,9 +588,10 @@ func (s *workspaceSnapshotter) snapshotRepo(ctx context.Context, repo extraRepo,
 		}
 		anchorDigest := sha256.Sum256(anchorPayload)
 		anchorObjectKey = path.Join(s.prefix, "anchors", hex.EncodeToString(anchorDigest[:])+".pack.enc")
-		if err := s.store.Put(ctx, anchorObjectKey, encryptedAnchor); err != nil {
+		if err := s.putCheckpointObject(ctx, budget, "anchor upload", id, anchorObjectKey, encryptedAnchor); err != nil {
 			return workspaceCheckpointRepository{}, fmt.Errorf("uploading repository checkpoint anchor: %w", err)
 		}
+		s.rememberAnchorObject(anchor, anchorObjectKey)
 	}
 	encrypted, err := encryptWorkspaceArchive(s.snapshotKey, bundle)
 	if err != nil {
@@ -522,9 +599,10 @@ func (s *workspaceSnapshotter) snapshotRepo(ctx context.Context, repo extraRepo,
 	}
 	digest := sha256.Sum256(bundle)
 	objectKey := path.Join(s.prefix, "objects", id, hex.EncodeToString(digest[:])+".bundle.enc")
-	if err := s.store.Put(ctx, objectKey, encrypted); err != nil {
+	if err := s.putCheckpointObject(ctx, budget, "bundle upload", id, objectKey, encrypted); err != nil {
 		return workspaceCheckpointRepository{}, fmt.Errorf("uploading repository checkpoint: %w", err)
 	}
+	logCheckpointStage(prepCtx, "repository checkpoint", id, prepStart, nil)
 
 	entry := workspaceCheckpointRepository{
 		ID: id, Alias: repo.alias, URL: urlValue, Branch: branch, Upstream: upstream,
@@ -533,6 +611,19 @@ func (s *workspaceSnapshotter) snapshotRepo(ctx context.Context, repo extraRepo,
 	}
 	log.Printf("Workspace repository checkpoint uploaded (%s): %s (%d encrypted untracked files)", id, shortSHA(snap), archiveFiles)
 	return entry, nil
+}
+
+// putCheckpointObject uploads one payload under the upload budget, which is
+// independent of whatever the Git preparation stages already consumed.
+func (s *workspaceSnapshotter) putCheckpointObject(
+	ctx context.Context, budget checkpointBudget, stage, id, key string, body []byte,
+) error {
+	uploadCtx, cancel := budget.uploadContext(ctx)
+	defer cancel()
+	start := time.Now()
+	err := s.store.Put(uploadCtx, key, body)
+	logCheckpointStage(uploadCtx, stage, id, start, err)
+	return err
 }
 
 func workspaceRepoID(repo extraRepo, primary bool) string {
@@ -545,9 +636,25 @@ func workspaceRepoID(repo extraRepo, primary bool) string {
 	return "store-" + repo.alias
 }
 
+// rememberAnchorObject records a published anchor payload so later checkpoints
+// in this run reuse it instead of repacking the same tree. Anchor payloads are
+// content-addressed, so the mapping stays valid for the life of the run.
+func (s *workspaceSnapshotter) rememberAnchorObject(anchor, objectKey string) {
+	if anchor == "" || objectKey == "" {
+		return
+	}
+	if s.anchorObjects == nil {
+		s.anchorObjects = make(map[string]string)
+	}
+	s.anchorObjects[anchor] = objectKey
+}
+
 func (s *workspaceSnapshotter) cachedAnchorObject(anchor string) string {
 	if anchor == "" {
 		return ""
+	}
+	if key, ok := s.anchorObjects[anchor]; ok && key != "" {
+		return key
 	}
 	for _, entry := range s.lastEntries {
 		if entry.Anchor == anchor && entry.AnchorObjectKey != "" {
@@ -735,9 +842,14 @@ func restorePrimaryWorkspaceCheckpoint(cfg runConfig, branchWasPushed bool) erro
 }
 
 func restoreWorkspaceCheckpointRepo(ctx context.Context, cfg runConfig, dest string, entry workspaceCheckpointRepository, branchWasPushed bool) error {
-	ctx, cancel := context.WithTimeout(ctx, workspaceCheckpointTimeout)
+	// Restoring a large repository unbundles locally after downloading, so the
+	// two stages get the same independent budgets used when publishing.
+	budget := defaultCheckpointBudget()
+	ctx, cancel := context.WithTimeout(ctx, budget.prepare+2*budget.upload)
 	defer cancel()
-	payload, found, err := cfg.WorkspaceCheckpointStore.Get(ctx, entry.ObjectKey)
+	downloadCtx, cancelDownload := budget.uploadContext(ctx)
+	payload, found, err := cfg.WorkspaceCheckpointStore.Get(downloadCtx, entry.ObjectKey)
+	cancelDownload()
 	if err != nil {
 		return fmt.Errorf("downloading repository checkpoint: %w", err)
 	}
@@ -1055,6 +1167,13 @@ func finalizeWorkspaceSnapshot(result runResult, s *workspaceSnapshotter) error 
 	if s == nil {
 		return nil
 	}
+	// The shutdown checkpoint runs inside the pod termination grace period, so
+	// it swaps in the capped stage budgets before taking the last snapshot. The
+	// absolute deadline lets one in-flight upload outlive the caller context by
+	// at most a single upload budget; a sequence of uploads can never extend
+	// the shutdown beyond it.
+	hardDeadline := time.Now().Add(workspaceCheckpointTimeout + shutdownWorkspaceCheckpointUploadTimeout)
+	s.setBudget(shutdownCheckpointBudget(hardDeadline))
 	ctx, cancel := context.WithTimeout(context.Background(), workspaceCheckpointTimeout)
 	defer cancel()
 	if result.Status == "succeeded" {
