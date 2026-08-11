@@ -5,6 +5,8 @@ import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 
 import { RunTabs } from "@/components/shell/RunTabs";
 import { openRunTab } from "@/hooks/useRunTabs";
+
+const SCOPE = "ws-test:user-test";
 import { AgentRunSchema, type AgentRun } from "@/rpc/platform/service_pb";
 
 const runs: AgentRun[] = [
@@ -30,7 +32,7 @@ function LocationProbe() {
 function renderTabs(initialPath = "/runs/demo/run-a") {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
-      <RunTabs runs={runs} />
+      <RunTabs runs={runs} scope={SCOPE} />
       <Routes>
         <Route path="*" element={<LocationProbe />} />
       </Routes>
@@ -54,8 +56,8 @@ describe("RunTabs", () => {
   });
 
   it("shows open tabs with run display names and marks the active one", () => {
-    openRunTab("/runs/demo/run-a");
-    openRunTab("/runs/demo/run-b");
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
     renderTabs("/runs/demo/run-a");
 
     const tabs = screen.getAllByRole("tab");
@@ -67,14 +69,14 @@ describe("RunTabs", () => {
   });
 
   it("falls back to the run name when the run is unknown", () => {
-    openRunTab("/runs/demo/run-mystery");
+    openRunTab(SCOPE, "/runs/demo/run-mystery");
     renderTabs("/runs/demo/run-mystery");
     expect(screen.getByRole("tab", { name: "run-mystery" })).toBeTruthy();
   });
 
   it("clicking a tab navigates to its run", () => {
-    openRunTab("/runs/demo/run-a");
-    openRunTab("/runs/demo/run-b");
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
     renderTabs("/runs/demo/run-a");
 
     fireEvent.click(screen.getByRole("tab", { name: "Ship tabs" }));
@@ -82,8 +84,8 @@ describe("RunTabs", () => {
   });
 
   it("closing the active tab navigates to a neighbor", () => {
-    openRunTab("/runs/demo/run-a");
-    openRunTab("/runs/demo/run-b");
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
     renderTabs("/runs/demo/run-a");
 
     fireEvent.click(screen.getByRole("button", { name: "Close Fix login flow" }));
@@ -92,7 +94,7 @@ describe("RunTabs", () => {
   });
 
   it("closing the last tab falls back to /runs and hides the strip", () => {
-    openRunTab("/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-a");
     renderTabs("/runs/demo/run-a");
 
     fireEvent.click(screen.getByRole("button", { name: "Close Fix login flow" }));
@@ -101,8 +103,8 @@ describe("RunTabs", () => {
   });
 
   it("closing an inactive tab does not navigate", () => {
-    openRunTab("/runs/demo/run-a");
-    openRunTab("/runs/demo/run-b");
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
     renderTabs("/runs/demo/run-a");
 
     fireEvent.click(screen.getByRole("button", { name: "Close Ship tabs" }));
@@ -111,8 +113,8 @@ describe("RunTabs", () => {
   });
 
   it("middle-click closes a tab", () => {
-    openRunTab("/runs/demo/run-a");
-    openRunTab("/runs/demo/run-b");
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
     renderTabs("/runs/demo/run-a");
 
     const tab = screen.getByRole("tab", { name: "Ship tabs" });
@@ -124,8 +126,8 @@ describe("RunTabs", () => {
   });
 
   it("cycles tabs with mod+alt+brackets", () => {
-    openRunTab("/runs/demo/run-a");
-    openRunTab("/runs/demo/run-b");
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
     renderTabs("/runs/demo/run-a");
 
     fireEvent.keyDown(window, { code: "BracketRight", metaKey: true, altKey: true });
@@ -137,8 +139,8 @@ describe("RunTabs", () => {
   });
 
   it("closes the active tab with mod+alt+W", () => {
-    openRunTab("/runs/demo/run-a");
-    openRunTab("/runs/demo/run-b");
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
     renderTabs("/runs/demo/run-b");
 
     fireEvent.keyDown(window, { code: "KeyW", metaKey: true, altKey: true });
@@ -146,8 +148,64 @@ describe("RunTabs", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(1);
   });
 
+  it("ignores AltGr keystrokes (reported as Ctrl+Alt on Windows layouts)", () => {
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
+    renderTabs("/runs/demo/run-b");
+
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", {
+        code: "KeyW",
+        ctrlKey: true,
+        altKey: true,
+        // EventModifierInit flag jsdom maps to getModifierState("AltGraph").
+        modifierAltGraph: true,
+      } as KeyboardEventInit),
+    );
+    expect(screen.getByTestId("location").textContent).toBe("/runs/demo/run-b");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
+
+  it("ignores tab shortcuts while typing in an editable field", () => {
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
+    const { container } = renderTabs("/runs/demo/run-b");
+
+    const input = document.createElement("textarea");
+    container.appendChild(input);
+    fireEvent.keyDown(input, { code: "KeyW", metaKey: true, altKey: true });
+    fireEvent.keyDown(input, { code: "BracketRight", metaKey: true, altKey: true });
+    expect(screen.getByTestId("location").textContent).toBe("/runs/demo/run-b");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
+
+  it("close-others on an inactive tab navigates to the surviving tab", () => {
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
+    renderTabs("/runs/demo/run-a");
+
+    // ⌥-right-click on the inactive "Ship tabs" tab closes the others,
+    // including the tab for the current route — so we must move to B.
+    fireEvent.contextMenu(screen.getByRole("tab", { name: "Ship tabs" }), { altKey: true });
+    expect(screen.getByTestId("location").textContent).toBe("/runs/demo/run-b");
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("close-others on the active tab stays put", () => {
+    openRunTab(SCOPE, "/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-b");
+    renderTabs("/runs/demo/run-a");
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: "Fix login flow" }), { altKey: true });
+    expect(screen.getByTestId("location").textContent).toBe("/runs/demo/run-a");
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+  });
+
   it("keeps the strip visible on non-run routes", () => {
-    openRunTab("/runs/demo/run-a");
+    openRunTab(SCOPE, "/runs/demo/run-a");
     renderTabs("/settings");
     const tab = screen.getByRole("tab", { name: "Fix login flow" });
     expect(tab.getAttribute("aria-selected")).toBe("false");

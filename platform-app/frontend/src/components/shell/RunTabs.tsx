@@ -24,8 +24,8 @@ import type { AgentRun } from "@/rpc/platform/service_pb";
  * state. Tabs show a live status dot (attention tone wins over phase tone),
  * close on middle-click or via the × button, and drag to reorder.
  */
-export function RunTabs({ runs }: { runs: AgentRun[] }) {
-  const tabs = useRunTabs();
+export function RunTabs({ runs, scope }: { runs: AgentRun[]; scope: string }) {
+  const tabs = useRunTabs(scope);
   const navigate = useNavigate();
   const location = useLocation();
   const listRef = React.useRef<HTMLDivElement | null>(null);
@@ -43,12 +43,12 @@ export function RunTabs({ runs }: { runs: AgentRun[] }) {
 
   const close = React.useCallback(
     (tab: RunTab) => {
-      const nextPath = closeRunTab(tab.path);
+      const nextPath = closeRunTab(scope, tab.path);
       if (tab.path === activePath) {
         navigate(nextPath ?? "/runs");
       }
     },
-    [activePath, navigate],
+    [scope, activePath, navigate],
   );
 
   // ⌥⌘] / ⌥⌘[ cycle tabs, ⌥⌘W closes the active tab. Uses e.code so macOS
@@ -57,6 +57,20 @@ export function RunTabs({ runs }: { runs: AgentRun[] }) {
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey) || !e.altKey || e.shiftKey) return;
+      // Windows layouts report AltGr as Ctrl+Alt; AltGr+letter is normal text
+      // entry (e.g. Polish ż via AltGr+Z), never a tab command.
+      if (e.getModifierState?.("AltGraph")) return;
+      // Never steal keystrokes from editable targets — closing a tab while
+      // typing in the run composer would discard draft state.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
       if (tabs.length === 0) return;
       if (e.code === "BracketRight" || e.code === "BracketLeft") {
         e.preventDefault();
@@ -103,9 +117,16 @@ export function RunTabs({ runs }: { runs: AgentRun[] }) {
             dropTarget={dropIndex === i}
             onActivate={() => navigate(tab.path)}
             onClose={() => close(tab)}
-            onCloseOthers={() => closeOtherRunTabs(tab.path)}
+            onCloseOthers={() => {
+              closeOtherRunTabs(scope, tab.path);
+              // Close-others can remove the tab for the current route; move
+              // to the surviving tab so the strip and URL stay coherent.
+              if (activeIndex !== -1 && tab.path !== activePath) {
+                navigate(tab.path);
+              }
+            }}
             onCloseAll={() => {
-              closeAllRunTabs();
+              closeAllRunTabs(scope);
               if (activeIndex !== -1) navigate("/runs");
             }}
             onDragStart={() => {
@@ -118,7 +139,7 @@ export function RunTabs({ runs }: { runs: AgentRun[] }) {
             }}
             onDrop={() => {
               if (dragFrom.current !== null && dragFrom.current !== i) {
-                moveRunTab(dragFrom.current, i);
+                moveRunTab(scope, dragFrom.current, i);
               }
               dragFrom.current = null;
               setDropIndex(null);
