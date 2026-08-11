@@ -129,7 +129,7 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 
 func splitTrimmedNonEmpty(value string) []string {
 	var out []string
-	for _, item := range strings.Split(value, ",") {
+	for item := range strings.SplitSeq(value, ",") {
 		if item = strings.TrimSpace(item); item != "" {
 			out = append(out, item)
 		}

@@ -121,6 +121,9 @@ func validatePoCFiles(files []securityPoCFile) error {
 		if name == "" || clean == "." || clean != name || strings.HasPrefix(clean, "/") || clean == ".." || strings.HasPrefix(clean, "../") {
 			return fmt.Errorf("file %d has unsafe relative path %q", i, files[i].Path)
 		}
+		if strings.EqualFold(clean, "README.md") {
+			return fmt.Errorf("PoC file path %q is reserved for the generated reproduction transcript", clean)
+		}
 		if seen[clean] {
 			return fmt.Errorf("duplicate PoC file path %q", clean)
 		}
@@ -138,13 +141,13 @@ func validatePoCFiles(files []securityPoCFile) error {
 	return nil
 }
 
-func upsertFindingArtifact(ctx context.Context, artifacts store.SecurityFindingArtifactStore, namespace string, findingID uuid.UUID, executionID, kind string, content any, actor, status string) (*store.SecurityFindingArtifact, error) {
+func upsertFindingArtifact(ctx context.Context, artifacts store.SecurityFindingArtifactStore, namespace string, findingID uuid.UUID, executionID, kind string, content any, actor, status string) error {
 	raw, err := json.Marshal(content)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	digest := sha256.Sum256(raw)
-	return artifacts.UpsertSecurityFindingArtifact(ctx, namespace, &store.SecurityFindingArtifact{
+	_, err = artifacts.UpsertSecurityFindingArtifact(ctx, namespace, &store.SecurityFindingArtifact{
 		FindingID:   findingID,
 		ExecutionID: strings.TrimSpace(executionID),
 		Kind:        kind,
@@ -153,6 +156,7 @@ func upsertFindingArtifact(ctx context.Context, artifacts store.SecurityFindingA
 		ActorRun:    actor,
 		Status:      status,
 	})
+	return err
 }
 
 type saveSecurityPoCTool struct {
@@ -198,7 +202,7 @@ func (t *saveSecurityPoCTool) Execute(ctx context.Context, input json.RawMessage
 	}); err != nil {
 		return Result{Content: "invalidating prior bundle metadata: " + err.Error(), IsError: true}, nil
 	}
-	if _, err := upsertFindingArtifact(ctx, t.artifacts, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactPoCCandidate, candidate, t.state.scanCtx.RunName, "candidate"); err != nil {
+	if err := upsertFindingArtifact(ctx, t.artifacts, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactPoCCandidate, candidate, t.state.scanCtx.RunName, "candidate"); err != nil {
 		return Result{Content: "saving PoC candidate: " + err.Error(), IsError: true}, nil
 	}
 	return Result{Content: fmt.Sprintf("PoC candidate saved for finding %s; a separate validator must reproduce it before submission packaging.", finding.Fingerprint)}, nil
@@ -291,7 +295,7 @@ func (t *validateSecurityPoCTool) Execute(ctx context.Context, input json.RawMes
 	if validation.Confirmed {
 		status, findingStatus = "confirmed", store.SecurityFindingStatusConfirmed
 	}
-	if _, err := upsertFindingArtifact(ctx, t.artifacts, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactPoCValidation, validation, t.state.scanCtx.RunName, status); err != nil {
+	if err := upsertFindingArtifact(ctx, t.artifacts, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactPoCValidation, validation, t.state.scanCtx.RunName, status); err != nil {
 		return Result{Content: "saving PoC validation: " + err.Error(), IsError: true}, nil
 	}
 	if err := t.state.setFindingStatus(ctx, finding.ID, findingStatus, "PoC validator: "+validation.Reason); err != nil {
@@ -350,7 +354,7 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 	if json.Unmarshal(candidateArtifact.Content, &candidate) != nil || json.Unmarshal(validationArtifact.Content, &validation) != nil || !validation.Confirmed || !strings.EqualFold(validation.CandidateSHA256, candidateArtifact.SHA256) {
 		return Result{Content: "stored PoC artifacts are invalid or validation does not bind the current candidate", IsError: true}, nil
 	}
-	if _, err := upsertFindingArtifact(ctx, t.artifacts, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactBountySubmission, submission, t.state.scanCtx.RunName, "ready"); err != nil {
+	if err := upsertFindingArtifact(ctx, t.artifacts, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactBountySubmission, submission, t.state.scanCtx.RunName, "ready"); err != nil {
 		return Result{Content: "saving bounty submission: " + err.Error(), IsError: true}, nil
 	}
 	filename := fmt.Sprintf("%s-%s-bounty-submission.zip", finding.ScanName, finding.Fingerprint)
@@ -415,8 +419,7 @@ func buildSecuritySubmissionBundle(finding *store.SecurityFindingRecord, scanCtx
 	}
 	slices.Sort(names)
 	for _, name := range names {
-		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
-		header.SetModTime(time.Unix(0, 0).UTC())
+		header := &zip.FileHeader{Name: name, Method: zip.Deflate, Modified: time.Unix(0, 0).UTC()}
 		header.SetMode(0o600)
 		writer, err := zw.CreateHeader(header)
 		if err != nil {

@@ -13,7 +13,7 @@ import (
 )
 
 func TestValidatePoCFilesRejectsTraversalAndOversize(t *testing.T) {
-	for _, name := range []string{"../secret", "/etc/passwd", "poc/../secret", `..\\secret`} {
+	for _, name := range []string{"../secret", "/etc/passwd", "poc/../secret", `..\\secret`, "README.md", "readme.MD"} {
 		if err := validatePoCFiles([]securityPoCFile{{Path: name, Content: "x"}}); err == nil {
 			t.Fatalf("validatePoCFiles(%q) accepted an unsafe path", name)
 		}
@@ -25,8 +25,8 @@ func TestValidatePoCFilesRejectsTraversalAndOversize(t *testing.T) {
 
 func TestBuildSecuritySubmissionBundleIsDeterministicAndScoped(t *testing.T) {
 	finding := &store.SecurityFindingRecord{
-		ID: uuid.MustParse("00000000-0000-0000-0000-000000000011"),
-		ScanID: uuid.MustParse("00000000-0000-0000-0000-000000000022"),
+		ID:          uuid.MustParse("00000000-0000-0000-0000-000000000011"),
+		ScanID:      uuid.MustParse("00000000-0000-0000-0000-000000000022"),
 		Fingerprint: "fp-canary", Repository: "https://example.invalid/repo", Revision: "abc123", ScanName: "bounty",
 	}
 	candidate := securityPoCCandidate{
@@ -36,23 +36,39 @@ func TestBuildSecuritySubmissionBundleIsDeterministicAndScoped(t *testing.T) {
 	validation := securityPoCValidation{Confirmed: true, Command: candidate.Command, ObservedOutput: "CANARY", Reason: "reproduced"}
 	ctx := SecurityScanContext{ScanName: "bounty", RunName: "report-run", ExecutionID: "exec-1"}
 	first, err := buildSecuritySubmissionBundle(finding, ctx, candidate, validation, "## Title\nCanary", "builder-run", "validator-run")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	second, err := buildSecuritySubmissionBundle(finding, ctx, candidate, validation, "## Title\nCanary", "builder-run", "validator-run")
-	if err != nil { t.Fatal(err) }
-	if !bytes.Equal(first, second) { t.Fatal("bundle is not deterministic") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("bundle is not deterministic")
+	}
 
 	reader, err := zip.NewReader(bytes.NewReader(first), int64(len(first)))
-	if err != nil { t.Fatal(err) }
-	var names []string
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(reader.File))
 	for _, file := range reader.File {
 		names = append(names, file.Name)
 		body, err := file.Open()
-		if err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
 		data, err := io.ReadAll(body)
 		_ = body.Close()
-		if err != nil { t.Fatal(err) }
-		if bytes.Contains(data, []byte("unrelated-workspace-secret")) { t.Fatal("bundle leaked unrelated workspace content") }
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(data, []byte("unrelated-workspace-secret")) {
+			t.Fatal("bundle leaked unrelated workspace content")
+		}
 	}
 	want := []string{"manifest.json", "poc/README.md", "poc/repro_test.go", "submission.md", "validation.json"}
-	if !slices.Equal(names, want) { t.Fatalf("bundle entries = %v, want %v", names, want) }
+	if !slices.Equal(names, want) {
+		t.Fatalf("bundle entries = %v, want %v", names, want)
+	}
 }
