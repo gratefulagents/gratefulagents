@@ -114,6 +114,26 @@ type SecurityFindingRecord struct {
 	SuppressedAt         *time.Time
 }
 
+// SecurityFindingArtifact is one persisted artifact attached to a finding,
+// unique by kind within one scan execution.
+type SecurityFindingArtifact struct {
+	ID          uuid.UUID
+	FindingID   uuid.UUID
+	ExecutionID string
+	Kind        string
+	Content     json.RawMessage
+	S3Key       string
+	SHA256      string
+	SizeBytes   int64
+	MediaType   string
+	Filename    string
+	Status      string
+	Error       string
+	ActorRun    string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 // SecurityFindingFilter selects findings for listing. Zero-value string
 // fields are not filtered on.
 type SecurityFindingFilter struct {
@@ -429,6 +449,23 @@ type SecurityFindingSummaryScope struct {
 	// ExcludedScanNames omits findings belonging to any of the named scans,
 	// so a namespace-wide summary can respect per-user scan visibility.
 	ExcludedScanNames []string
+}
+
+const (
+	SecurityFindingArtifactPoCCandidate     = "poc_candidate"
+	SecurityFindingArtifactPoCValidation    = "poc_validation"
+	SecurityFindingArtifactBountySubmission = "bounty_submission"
+	SecurityFindingArtifactSubmissionBundle = "submission_bundle"
+)
+
+// SecurityFindingArtifactStore is optional so existing in-memory and test
+// SecurityFindingStore implementations do not need to persist sensitive
+// artifacts. Every operation is namespace-scoped to prevent object-level
+// cross-tenant access.
+type SecurityFindingArtifactStore interface {
+	UpsertSecurityFindingArtifact(ctx context.Context, namespace string, artifact *SecurityFindingArtifact) (*SecurityFindingArtifact, error)
+	GetSecurityFindingArtifact(ctx context.Context, namespace string, findingID uuid.UUID, executionID, kind string) (*SecurityFindingArtifact, error)
+	ListSecurityFindingArtifacts(ctx context.Context, namespace string, findingID uuid.UUID, executionID string) ([]SecurityFindingArtifact, error)
 }
 
 // SecurityFindingStore persists security scans, findings, and finding events.

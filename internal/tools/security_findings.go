@@ -32,9 +32,11 @@ const (
 	SecurityScanDedupePermilleAnnotation = triggersv1alpha1.SecurityScanDedupePermilleAnnotation
 	// The deterministic scan engine gives every task run its own AgentRun,
 	// so these identify the execution a run belongs to and the task it executes.
-	SecurityScanExecutionIDAnnotation = triggersv1alpha1.SecurityScanExecutionIDAnnotation
-	SecurityScanRecordNameAnnotation  = triggersv1alpha1.SecurityScanRecordNameAnnotation
-	SecurityScanTaskNameAnnotation    = triggersv1alpha1.SecurityScanTaskNameAnnotation
+	SecurityScanExecutionIDAnnotation       = triggersv1alpha1.SecurityScanExecutionIDAnnotation
+	SecurityScanRecordNameAnnotation        = triggersv1alpha1.SecurityScanRecordNameAnnotation
+	SecurityScanTaskNameAnnotation          = triggersv1alpha1.SecurityScanTaskNameAnnotation
+	SecurityScanPostScriptAnnotation        = triggersv1alpha1.SecurityScanPostScriptAnnotation
+	SecurityScanPostScriptFindingAnnotation = triggersv1alpha1.SecurityScanPostScriptFindingAnnotation
 )
 
 // Session artifact kinds written by submit_security_scan_report, aliased from
@@ -67,9 +69,11 @@ type SecurityScanContext struct {
 	// execution carries the same value so the execution surfaces as ONE
 	// scans-list row; empty (coordinator and legacy runs) falls back to the
 	// run's own name.
-	RecordRunName string
-	TaskName      string
-	SessionID     uuid.UUID
+	RecordRunName         string
+	TaskName              string
+	PostScripts           []string
+	PostScriptFingerprint string
+	SessionID             uuid.UUID
 }
 
 // RecordKey is the run-name key of the security_scans row this run reports
@@ -107,18 +111,30 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 		}
 	}
 	return SecurityScanContext{
-		ScanName:       scanName,
-		Namespace:      namespace,
-		RunName:        runName,
-		Repository:     strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
-		Revision:       strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
-		MinSeverity:    minSeverity,
-		DedupePermille: dedupePermille,
-		ExecutionID:    strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),
-		RecordRunName:  strings.TrimSpace(run.Annotations[SecurityScanRecordNameAnnotation]),
-		TaskName:       strings.TrimSpace(run.Annotations[SecurityScanTaskNameAnnotation]),
-		SessionID:      sessionID,
+		ScanName:              scanName,
+		Namespace:             namespace,
+		RunName:               runName,
+		Repository:            strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
+		Revision:              strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
+		MinSeverity:           minSeverity,
+		DedupePermille:        dedupePermille,
+		ExecutionID:           strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),
+		RecordRunName:         strings.TrimSpace(run.Annotations[SecurityScanRecordNameAnnotation]),
+		TaskName:              strings.TrimSpace(run.Annotations[SecurityScanTaskNameAnnotation]),
+		PostScripts:           splitTrimmedNonEmpty(run.Annotations[SecurityScanPostScriptAnnotation]),
+		PostScriptFingerprint: strings.TrimSpace(run.Annotations[SecurityScanPostScriptFindingAnnotation]),
+		SessionID:             sessionID,
 	}, true
+}
+
+func splitTrimmedNonEmpty(value string) []string {
+	var out []string
+	for item := range strings.SplitSeq(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // RegisterSecurityScanTools registers the security finding tools for a scan
@@ -977,6 +993,10 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 	rec, err := t.state.resolveFinding(ctx, strings.TrimSpace(in.ID), strings.TrimSpace(in.Fingerprint))
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	if t.state.scanCtx.PostScriptFingerprint != "" &&
+		(rec.Status == store.SecurityFindingStatusFalsePositive || rec.Status == store.SecurityFindingStatusAcceptedRisk || rec.Status == store.SecurityFindingStatusFixed) && status != rec.Status {
+		return Result{Content: fmt.Sprintf("terminal finding status %s is preserved during finding post-processing", rec.Status), IsError: true}, nil
 	}
 	if err := t.state.setFindingStatus(ctx, rec.ID, status, note); err != nil {
 		if errors.Is(err, store.ErrSecurityFindingNotFound) {

@@ -256,6 +256,7 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		if securityBlobsErr == nil {
 			deps.Blobs = securityBlobs
 		}
+		tools.RegisterSecurityBountyArtifactTools(toolRegistry, scanState, securityBlobs, securityBlobsErr)
 		tools.RegisterSecurityToolRunTool(toolRegistry, scanState, deps)
 		if securityBlobsErr != nil {
 			log.Printf("WARN: run_security_tool cannot stage targets or read results: %v", securityBlobsErr)

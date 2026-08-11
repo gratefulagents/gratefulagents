@@ -518,6 +518,9 @@ const (
 	// PlatformServiceGetSecurityFindingProcedure is the fully-qualified name of the PlatformService's
 	// GetSecurityFinding RPC.
 	PlatformServiceGetSecurityFindingProcedure = "/platform.v1.PlatformService/GetSecurityFinding"
+	// PlatformServiceGetSecurityFindingSubmissionBundleProcedure is the fully-qualified name of the
+	// PlatformService's GetSecurityFindingSubmissionBundle RPC.
+	PlatformServiceGetSecurityFindingSubmissionBundleProcedure = "/platform.v1.PlatformService/GetSecurityFindingSubmissionBundle"
 	// PlatformServiceUpdateSecurityFindingStatusProcedure is the fully-qualified name of the
 	// PlatformService's UpdateSecurityFindingStatus RPC.
 	PlatformServiceUpdateSecurityFindingStatusProcedure = "/platform.v1.PlatformService/UpdateSecurityFindingStatus"
@@ -916,6 +919,9 @@ type PlatformServiceClient interface {
 	GetSecurityScan(context.Context, *connect.Request[platform.GetSecurityScanRequest]) (*connect.Response[platform.SecurityScan], error)
 	ListSecurityFindings(context.Context, *connect.Request[platform.ListSecurityFindingsRequest]) (*connect.Response[platform.ListSecurityFindingsResponse], error)
 	GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error)
+	// GetSecurityFindingSubmissionBundle returns a private, platform-generated
+	// bounty submission ZIP after applying finding and scan visibility checks.
+	GetSecurityFindingSubmissionBundle(context.Context, *connect.Request[platform.GetSecurityFindingSubmissionBundleRequest]) (*connect.Response[platform.GetSecurityFindingSubmissionBundleResponse], error)
 	UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error)
 	GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error)
 	// ListSecurityFindingEvents returns a finding's audit trail (status
@@ -2036,6 +2042,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetSecurityFinding")),
 			connect.WithClientOptions(opts...),
 		),
+		getSecurityFindingSubmissionBundle: connect.NewClient[platform.GetSecurityFindingSubmissionBundleRequest, platform.GetSecurityFindingSubmissionBundleResponse](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityFindingSubmissionBundleProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityFindingSubmissionBundle")),
+			connect.WithClientOptions(opts...),
+		),
 		updateSecurityFindingStatus: connect.NewClient[platform.UpdateSecurityFindingStatusRequest, platform.SecurityFinding](
 			httpClient,
 			baseURL+PlatformServiceUpdateSecurityFindingStatusProcedure,
@@ -2527,6 +2539,7 @@ type platformServiceClient struct {
 	getSecurityScan                        *connect.Client[platform.GetSecurityScanRequest, platform.SecurityScan]
 	listSecurityFindings                   *connect.Client[platform.ListSecurityFindingsRequest, platform.ListSecurityFindingsResponse]
 	getSecurityFinding                     *connect.Client[platform.GetSecurityFindingRequest, platform.GetSecurityFindingResponse]
+	getSecurityFindingSubmissionBundle     *connect.Client[platform.GetSecurityFindingSubmissionBundleRequest, platform.GetSecurityFindingSubmissionBundleResponse]
 	updateSecurityFindingStatus            *connect.Client[platform.UpdateSecurityFindingStatusRequest, platform.SecurityFinding]
 	getSecurityFindingSummary              *connect.Client[platform.GetSecurityFindingSummaryRequest, platform.GetSecurityFindingSummaryResponse]
 	listSecurityFindingEvents              *connect.Client[platform.ListSecurityFindingEventsRequest, platform.ListSecurityFindingEventsResponse]
@@ -3397,6 +3410,12 @@ func (c *platformServiceClient) GetSecurityFinding(ctx context.Context, req *con
 	return c.getSecurityFinding.CallUnary(ctx, req)
 }
 
+// GetSecurityFindingSubmissionBundle calls
+// platform.v1.PlatformService.GetSecurityFindingSubmissionBundle.
+func (c *platformServiceClient) GetSecurityFindingSubmissionBundle(ctx context.Context, req *connect.Request[platform.GetSecurityFindingSubmissionBundleRequest]) (*connect.Response[platform.GetSecurityFindingSubmissionBundleResponse], error) {
+	return c.getSecurityFindingSubmissionBundle.CallUnary(ctx, req)
+}
+
 // UpdateSecurityFindingStatus calls platform.v1.PlatformService.UpdateSecurityFindingStatus.
 func (c *platformServiceClient) UpdateSecurityFindingStatus(ctx context.Context, req *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error) {
 	return c.updateSecurityFindingStatus.CallUnary(ctx, req)
@@ -3902,6 +3921,9 @@ type PlatformServiceHandler interface {
 	GetSecurityScan(context.Context, *connect.Request[platform.GetSecurityScanRequest]) (*connect.Response[platform.SecurityScan], error)
 	ListSecurityFindings(context.Context, *connect.Request[platform.ListSecurityFindingsRequest]) (*connect.Response[platform.ListSecurityFindingsResponse], error)
 	GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error)
+	// GetSecurityFindingSubmissionBundle returns a private, platform-generated
+	// bounty submission ZIP after applying finding and scan visibility checks.
+	GetSecurityFindingSubmissionBundle(context.Context, *connect.Request[platform.GetSecurityFindingSubmissionBundleRequest]) (*connect.Response[platform.GetSecurityFindingSubmissionBundleResponse], error)
 	UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error)
 	GetSecurityFindingSummary(context.Context, *connect.Request[platform.GetSecurityFindingSummaryRequest]) (*connect.Response[platform.GetSecurityFindingSummaryResponse], error)
 	// ListSecurityFindingEvents returns a finding's audit trail (status
@@ -5018,6 +5040,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetSecurityFinding")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceGetSecurityFindingSubmissionBundleHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityFindingSubmissionBundleProcedure,
+		svc.GetSecurityFindingSubmissionBundle,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityFindingSubmissionBundle")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceUpdateSecurityFindingStatusHandler := connect.NewUnaryHandler(
 		PlatformServiceUpdateSecurityFindingStatusProcedure,
 		svc.UpdateSecurityFindingStatus,
@@ -5668,6 +5696,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceListSecurityFindingsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityFindingProcedure:
 			platformServiceGetSecurityFindingHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityFindingSubmissionBundleProcedure:
+			platformServiceGetSecurityFindingSubmissionBundleHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateSecurityFindingStatusProcedure:
 			platformServiceUpdateSecurityFindingStatusHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityFindingSummaryProcedure:
@@ -6431,6 +6461,10 @@ func (UnimplementedPlatformServiceHandler) ListSecurityFindings(context.Context,
 
 func (UnimplementedPlatformServiceHandler) GetSecurityFinding(context.Context, *connect.Request[platform.GetSecurityFindingRequest]) (*connect.Response[platform.GetSecurityFindingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityFinding is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityFindingSubmissionBundle(context.Context, *connect.Request[platform.GetSecurityFindingSubmissionBundleRequest]) (*connect.Response[platform.GetSecurityFindingSubmissionBundleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityFindingSubmissionBundle is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) UpdateSecurityFindingStatus(context.Context, *connect.Request[platform.UpdateSecurityFindingStatusRequest]) (*connect.Response[platform.SecurityFinding], error) {

@@ -26,6 +26,7 @@ var securityTriagePostScripts = []struct {
 }{
 	{"report-writer", "all"},
 	{"poc-builder", "high-and-above"},
+	{"poc-validator", "high-and-above"},
 	{"bounty-worthiness-check", "all"},
 	{"exploitability-score", "all"},
 	{"patched-since-check", "all"},

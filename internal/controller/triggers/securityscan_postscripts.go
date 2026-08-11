@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -302,6 +303,18 @@ func (e *securityScanExecutionEngine) postScriptPipelineChunks(all []triggersv1a
 	var pipeline []triggersv1alpha1.SecurityScanPostScript
 	for _, name := range selected {
 		script := byName[name]
+		// Built-in bounty artifact stages must cross an AgentRun boundary so
+		// builder, validator, and report provenance are independently durable.
+		// Other post-scripts retain the normal prompt-packing behavior.
+		if name == "poc-builder" || name == "poc-validator" || name == "report-writer" {
+			if len(names) > 0 {
+				chunks = append(chunks, append([]string(nil), names...))
+			}
+			chunks = append(chunks, []string{name})
+			names = nil
+			pipeline = nil
+			continue
+		}
 		candidate := append(append([]triggersv1alpha1.SecurityScanPostScript(nil), pipeline...), script)
 		prompt := BuildSecurityPostScriptPipelinePromptWithProgram(e.resolved.spec, securityScanPromptEvent(e.runCtx), candidate, securityPostScriptFinding(finding), e.resolved.program)
 		if len(pipeline) > 0 && len(prompt) > securityScanMaxPostScriptPipelinePromptBytes {
@@ -727,6 +740,12 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 		modeRef = &platformv1alpha1.ModeRef{Name: securityScanTaskModeTemplate}
 	}
 
+	toolPolicy := r.postScriptToolPolicy(ctx, resolved)
+	if slices.Contains(names, "poc-validator") {
+		toolPolicy.DeniedTools = append(toolPolicy.DeniedTools,
+			"Browser", "WebFetch", "run_security_tool", "git_push", "create_pull_request")
+	}
+
 	created, _, err := CreateTriggerRun(ctx, r.Client, r.StateStore, TriggerRunSpec{
 		RunName:            runName,
 		Namespace:          scan.Namespace,
@@ -746,7 +765,7 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 		},
 		ModeRef:       modeRef,
 		Limits:        base.limits,
-		ToolPolicy:    r.postScriptToolPolicy(ctx, resolved),
+		ToolPolicy:    toolPolicy,
 		SeedLogPrefix: "securityscan",
 	})
 	return created, err

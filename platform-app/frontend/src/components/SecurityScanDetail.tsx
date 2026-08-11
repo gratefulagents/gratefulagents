@@ -116,6 +116,8 @@ export function SecurityScanDetail() {
 
   const [reportBusy, setReportBusy] = useState<"markdown" | "sarif" | null>(null);
   const [reportNotice, setReportNotice] = useState<string | null>(null);
+  const [bundleBusy, setBundleBusy] = useState(false);
+  const [bundleNotice, setBundleNotice] = useState<string | null>(null);
 
   // Multi-select bulk triage.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -296,6 +298,32 @@ export function SecurityScanDetail() {
       setReportNotice(e instanceof Error ? e.message : "Failed to fetch the scan report");
     } finally {
       setReportBusy(null);
+    }
+  }
+
+  async function downloadSubmissionBundle(finding: SecurityFinding) {
+    if (!namespace) return;
+    setBundleNotice(null);
+    setBundleBusy(true);
+    try {
+      const resp = await client.getSecurityFindingSubmissionBundle({
+        namespace,
+        findingId: finding.id,
+      });
+      if (resp.status !== "ready" || resp.content.length === 0) {
+        setBundleNotice(resp.error || `Bundle is ${resp.status || "unavailable"}.`);
+        return;
+      }
+      downloadBlob(
+        resp.filename || `${finding.fingerprint}-bounty-submission.zip`,
+        resp.content,
+        "application/zip",
+      );
+      setBundleNotice(resp.sha256 ? `Downloaded. SHA-256: ${resp.sha256}` : "Downloaded.");
+    } catch (e: unknown) {
+      setBundleNotice(e instanceof Error ? e.message : "Failed to fetch the bounty bundle");
+    } finally {
+      setBundleBusy(false);
     }
   }
 
@@ -1088,6 +1116,23 @@ export function SecurityScanDetail() {
                         <option key={s} value={s}>{statusLabel(s)}</option>
                       ))}
                     </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={bundleBusy}
+                      onClick={() => void downloadSubmissionBundle(selected)}
+                    >
+                      <Download />
+                      {bundleBusy ? "Fetching bundle…" : "Download bounty bundle"}
+                    </Button>
+                    {bundleNotice && (
+                      <p role="status" className="break-all text-[11px] text-muted-foreground">
+                        {bundleNotice}
+                      </p>
+                    )}
                   </div>
 
                   {selected.suppressedBy && (

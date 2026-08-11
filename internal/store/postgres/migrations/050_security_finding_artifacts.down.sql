@@ -1,0 +1,3 @@
+DROP TRIGGER IF EXISTS update_security_finding_artifacts_updated_at ON security_finding_artifacts;
+DROP INDEX IF EXISTS idx_security_finding_artifacts_finding;
+DROP TABLE IF EXISTS security_finding_artifacts;

@@ -246,6 +246,9 @@ service PlatformService {
   rpc GetSecurityScan(GetSecurityScanRequest) returns (SecurityScan);
   rpc ListSecurityFindings(ListSecurityFindingsRequest) returns (ListSecurityFindingsResponse);
   rpc GetSecurityFinding(GetSecurityFindingRequest) returns (GetSecurityFindingResponse);
+  // GetSecurityFindingSubmissionBundle returns a private, platform-generated
+  // bounty submission ZIP after applying finding and scan visibility checks.
+  rpc GetSecurityFindingSubmissionBundle(GetSecurityFindingSubmissionBundleRequest) returns (GetSecurityFindingSubmissionBundleResponse);
   rpc UpdateSecurityFindingStatus(UpdateSecurityFindingStatusRequest) returns (SecurityFinding);
   rpc GetSecurityFindingSummary(GetSecurityFindingSummaryRequest) returns (GetSecurityFindingSummaryResponse);
   // ListSecurityFindingEvents returns a finding's audit trail (status
@@ -4131,6 +4134,22 @@ message SecurityFindingEvent {
 message GetSecurityFindingResponse {
   SecurityFinding finding = 1;
   repeated SecurityFindingEvent events = 2; // Newest first
+}
+
+message GetSecurityFindingSubmissionBundleRequest {
+  string namespace = 1;
+  string finding_id = 2;
+}
+
+message GetSecurityFindingSubmissionBundleResponse {
+  // status is ready, generating, unavailable, or error.
+  string status = 1;
+  string error = 2;
+  bytes content = 3;
+  string filename = 4;
+  string sha256 = 5;
+  int64 size_bytes = 6;
+  google.protobuf.Timestamp created_at = 7;
 }
 
 message UpdateSecurityFindingStatusRequest {
