@@ -113,7 +113,8 @@ func (s *Store) ListSecurityConfigPostures(ctx context.Context, namespace string
 	// Per-run observed finding counts over each configuration's newest
 	// completed runs. The LEFT JOIN keeps clean runs (zero observations) in
 	// the series so a drop to zero findings is visible.
-	actArgs := []any{namespace}
+	actArgs := make([]any, 0, 3)
+	actArgs = append(actArgs, namespace)
 	actWhere := "WHERE namespace = $1 AND completed_at IS NOT NULL" + exclude("scan_name", &actArgs)
 	actArgs = append(actArgs, activityLimit)
 	rows, err = s.pool.Query(ctx, `

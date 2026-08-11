@@ -54,24 +54,8 @@ func posturesTestSeed(ctx context.Context, t *testing.T, s *Store) (alpha1Done, 
 	return alpha1Done, alpha2Done
 }
 
-func TestListSecurityConfigPostures(t *testing.T) {
-	s := setupSecurityTestStore(t)
-	ctx := context.Background()
-	alpha1Done, alpha2Done := posturesTestSeed(ctx, t, s)
-
-	if _, err := s.ListSecurityConfigPostures(ctx, "", 0, nil); err == nil {
-		t.Error("ListSecurityConfigPostures(empty namespace) = nil error, want error")
-	}
-
-	postures, err := s.ListSecurityConfigPostures(ctx, "default", 10, []string{"hidden"})
-	if err != nil {
-		t.Fatalf("ListSecurityConfigPostures: %v", err)
-	}
-	if len(postures) != 2 || postures[0].ScanName != "alpha" || postures[1].ScanName != "beta" {
-		t.Fatalf("postures = %+v, want [alpha beta]", postures)
-	}
-
-	alpha := postures[0]
+func verifyAlphaPosture(t *testing.T, alpha store.SecurityConfigPosture, alpha1Done, alpha2Done time.Time) {
+	t.Helper()
 	if alpha.LastRunName != "alpha-2" || alpha.LastRunStatus != "completed" ||
 		alpha.Repository != "https://github.com/acme/api.git" {
 		t.Errorf("alpha last run = %q %q %q", alpha.LastRunName, alpha.LastRunStatus, alpha.Repository)
@@ -99,16 +83,38 @@ func TestListSecurityConfigPostures(t *testing.T) {
 		alpha.Activity[1].SeverityCounts["critical"] != 1 || alpha.Activity[1].SeverityCounts["high"] != 1 {
 		t.Errorf("alpha activity[1] = %+v", alpha.Activity[1])
 	}
+}
 
+func verifyBetaPosture(t *testing.T, beta store.SecurityConfigPosture) {
+	t.Helper()
 	// A configuration with runs but no findings still gets a posture row,
 	// and its clean run stays in the series with an explicit zero.
-	beta := postures[1]
 	if beta.Counts["total"] != 0 || beta.LastRunName != "beta-1" {
 		t.Errorf("beta posture = %+v", beta)
 	}
 	if len(beta.Activity) != 1 || beta.Activity[0].Total != 0 || len(beta.Activity[0].SeverityCounts) != 0 {
 		t.Errorf("beta activity = %+v, want one zero point", beta.Activity)
 	}
+}
+
+func TestListSecurityConfigPostures(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+	alpha1Done, alpha2Done := posturesTestSeed(ctx, t, s)
+
+	if _, err := s.ListSecurityConfigPostures(ctx, "", 0, nil); err == nil {
+		t.Error("ListSecurityConfigPostures(empty namespace) = nil error, want error")
+	}
+
+	postures, err := s.ListSecurityConfigPostures(ctx, "default", 10, []string{"hidden"})
+	if err != nil {
+		t.Fatalf("ListSecurityConfigPostures: %v", err)
+	}
+	if len(postures) != 2 || postures[0].ScanName != "alpha" || postures[1].ScanName != "beta" {
+		t.Fatalf("postures = %+v, want [alpha beta]", postures)
+	}
+	verifyAlphaPosture(t, postures[0], alpha1Done, alpha2Done)
+	verifyBetaPosture(t, postures[1])
 
 	// The per-configuration activity series honors the limit, keeping the
 	// NEWEST runs.

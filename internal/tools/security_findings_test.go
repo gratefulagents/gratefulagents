@@ -1768,9 +1768,9 @@ func TestSecurityScanSiblingRunsShareOneScanRecord(t *testing.T) {
 
 func TestSecurityScanContextFromRunParsesExecutionAnnotations(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
-		SecurityScanNameAnnotation:            "nightly-scan",
-		SecurityScanExecutionIDAnnotation:     "  exec-1  ",
-		SecurityScanRecordNameAnnotation:      " secscan-nightly-scan-exec-1 ",
+		SecurityScanNameAnnotation:        "nightly-scan",
+		SecurityScanExecutionIDAnnotation: "  exec-1  ",
+		SecurityScanRecordNameAnnotation:  " secscan-nightly-scan-exec-1 ",
 		SecurityScanTaskNameAnnotation:    " recon ",
 	}}}
 	scanCtx, ok := SecurityScanContextFromRun(run, "default", "nightly-scan-recon-0", uuid.New())
