@@ -13,7 +13,8 @@ import (
 
 // GetSecurityConfigPostures aggregates the namespace's persisted security
 // posture grouped per scan configuration: current finding counts, the latest
-// run, and recent completed-run activity for trend visualization. A state
+// run, and recent completed-run activity for trend visualization (one point
+// per completed run, deduplicated per finding). A state
 // store without security support degrades to store_supported=false instead
 // of failing; aggregation failures degrade to warnings (partial result).
 // Postures follow the SecurityScan CR's ownership: configurations hidden
