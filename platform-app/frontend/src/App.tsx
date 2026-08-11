@@ -63,6 +63,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { useProjects } from "@/hooks/useWatchedList";
 import { useRecentsTracker } from "@/hooks/useRecents";
+import { useRunTabsTracker } from "@/hooks/useRunTabs";
+import { RunTabs } from "@/components/shell/RunTabs";
 import { useDesktopUpdateCheck } from "@/hooks/useDesktopUpdateCheck";
 import { writeLastProject } from "@/lib/lastProject";
 import { getRunAttention } from "@/lib/agentOps";
@@ -340,6 +342,7 @@ function AuthenticatedShell() {
     () => typeof navigator !== "undefined" && /Mac/.test(navigator.platform ?? ""),
   );
   useRecentsTracker();
+  useRunTabsTracker();
   useDesktopUpdateCheck();
 
   React.useEffect(() => {
@@ -500,6 +503,7 @@ function AuthenticatedShell() {
             }
           />
           <TitleBarDivider />
+          <RunTabs runs={runs} />
           <OfflineBanner />
 
           <main
