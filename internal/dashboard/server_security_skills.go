@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/emptypb"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/util/retry"
@@ -39,7 +40,8 @@ func (s *Server) GetSecuritySkillsStatus(ctx context.Context, _ *emptypb.Empty) 
 // authenticated user's namespace. Replays are safe. A same-name user resource,
 // or a previously seeded resource the user changed, is preserved as a conflict.
 func (s *Server) InstallSecuritySkills(ctx context.Context, _ *emptypb.Empty) (*platform.SecuritySkillsStatus, error) {
-	namespace, err := s.ensureUserNamespace(ctx, requestActorFromContext(ctx))
+	actor := requestActorFromContext(ctx)
+	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +53,7 @@ func (s *Server) InstallSecuritySkills(ctx context.Context, _ *emptypb.Empty) (*
 		return securitySkillsUnavailable(namespace), nil
 	}
 	for i := range sources {
-		if err := s.installSecuritySkill(ctx, namespace, &sources[i]); err != nil {
+		if err := s.installSecuritySkill(ctx, namespace, actor.Subject, &sources[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -156,7 +158,7 @@ func (s *Server) securitySkillState(ctx context.Context, namespace string, sourc
 	return false, false, nil // An untouched older bundle version can be refreshed.
 }
 
-func (s *Server) installSecuritySkill(ctx context.Context, namespace string, source *platformv1alpha1.Skill) error {
+func (s *Server) installSecuritySkill(ctx context.Context, namespace, ownerID string, source *platformv1alpha1.Skill) error {
 	desired := &platformv1alpha1.Skill{
 		ObjectMeta: bootstrapObjectMeta(source, namespace),
 		Spec:       source.DeepCopy().Spec,
@@ -167,6 +169,7 @@ func (s *Server) installSecuritySkill(ctx context.Context, namespace string, sou
 	}
 	desired.Annotations[bootstrapSpecHashAnnotation] = desiredHash
 
+	created := false
 	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		current := &platformv1alpha1.Skill{}
 		key := client.ObjectKey{Namespace: namespace, Name: source.Name}
@@ -180,6 +183,7 @@ func (s *Server) installSecuritySkill(ctx context.Context, namespace string, sou
 				}
 				return err
 			}
+			created = true
 			return nil
 		}
 		if current.Annotations[bootstrapSourceAnnotation] != source.Namespace {
@@ -206,6 +210,12 @@ func (s *Server) installSecuritySkill(ctx context.Context, namespace string, sou
 	})
 	if err != nil {
 		return mapK8sError(fmt.Sprintf("install security Skill %s", source.Name), err)
+	}
+	if created && s.stateStore != nil && strings.TrimSpace(ownerID) != "" {
+		if err := s.stateStore.SetResourceOwner(ctx, skillResourceType, desired.Name, desired.Namespace, ownerID); err != nil {
+			_ = s.k8sClient.Delete(ctx, desired)
+			return connect.NewError(connect.CodeInternal, fmt.Errorf("record ownership for Skill %s/%s: %w", desired.Namespace, desired.Name, err))
+		}
 	}
 	return nil
 }

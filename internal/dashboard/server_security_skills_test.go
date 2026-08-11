@@ -2,8 +2,10 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/emptypb"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/store"
 )
 
 type patchHookClient struct {
@@ -25,6 +28,27 @@ func (c *patchHookClient) Patch(ctx context.Context, object client.Object, patch
 		hook(ctx)
 	}
 	return c.Client.Patch(ctx, object, patch, opts...)
+}
+
+type securitySkillOwnerCall struct {
+	resourceType string
+	resourceID   string
+	namespace    string
+	ownerID      string
+}
+
+type securitySkillOwnerStore struct {
+	store.StateStore
+	calls []securitySkillOwnerCall
+	err   error
+}
+
+func (s *securitySkillOwnerStore) SetResourceOwner(_ context.Context, resourceType, resourceID, namespace, ownerID string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.calls = append(s.calls, securitySkillOwnerCall{resourceType, resourceID, namespace, ownerID})
+	return nil
 }
 
 func bundledSecuritySkill(name, instructions string) *platformv1alpha1.Skill {
@@ -47,7 +71,8 @@ func TestSecuritySkillsRequireExplicitInstall(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		bootstrapReadyMarker("v1"), source, unrelated,
 	).Build()
-	srv := &Server{k8sClient: c, apiReader: c, scheme: scheme}
+	owners := &securitySkillOwnerStore{}
+	srv := &Server{k8sClient: c, apiReader: c, scheme: scheme, stateStore: owners}
 	ctx := credActorCtx("alice-id", "Alice")
 	namespace := deriveUserNamespaceName("Alice", "alice-id")
 
@@ -69,6 +94,9 @@ func TestSecuritySkillsRequireExplicitInstall(t *testing.T) {
 	if status.State != securitySkillsStateInstalled || status.InstalledCount != 1 {
 		t.Fatalf("status after install = %+v", status)
 	}
+	if len(owners.calls) != 1 || owners.calls[0] != (securitySkillOwnerCall{skillResourceType, source.Name, namespace, "alice-id"}) {
+		t.Fatalf("ownership calls = %+v", owners.calls)
+	}
 	installed := &platformv1alpha1.Skill{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: source.Name}, installed); err != nil {
 		t.Fatalf("get installed Skill: %v", err)
@@ -89,6 +117,36 @@ func TestSecuritySkillsRequireExplicitInstall(t *testing.T) {
 	status, err = srv.InstallSecuritySkills(ctx, &emptypb.Empty{})
 	if err != nil || status.InstalledCount != 1 {
 		t.Fatalf("repeated install = %+v, %v", status, err)
+	}
+	if len(owners.calls) != 1 {
+		t.Fatalf("repeated install recorded ownership again: %+v", owners.calls)
+	}
+}
+
+func TestInstallSecuritySkillsOwnershipFailureRollsBack(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "system")
+	scheme := testProjectScheme(t)
+	source := bundledSecuritySkill("security-scan", "scan carefully")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		bootstrapReadyMarker("v1"), source,
+	).Build()
+	srv := &Server{
+		k8sClient: c,
+		apiReader: c,
+		scheme:    scheme,
+		stateStore: &securitySkillOwnerStore{
+			err: errors.New("ownership unavailable"),
+		},
+	}
+	ctx := credActorCtx("alice-id", "Alice")
+	namespace := deriveUserNamespaceName("Alice", "alice-id")
+
+	_, err := srv.InstallSecuritySkills(ctx, &emptypb.Empty{})
+	if connect.CodeOf(err) != connect.CodeInternal {
+		t.Fatalf("InstallSecuritySkills() error = %v, want Internal", err)
+	}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: source.Name}, &platformv1alpha1.Skill{}); err == nil {
+		t.Fatal("Skill remained after ownership recording failed")
 	}
 }
 
