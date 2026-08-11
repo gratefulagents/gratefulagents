@@ -114,6 +114,11 @@ func (s *Server) CreateSecurityScan(
 	if err != nil {
 		return nil, err
 	}
+	if ref := spec.SecurityProgramRef; ref != nil {
+		if err := s.requireResourceAccess(ctx, securityProgramResourceType, ref.Name, namespace, AccessViewer, "use this security program"); err != nil {
+			return nil, err
+		}
+	}
 	if req.GetUseSavedCredentials() {
 		secrets := triggersv1alpha1.AgentRunSecrets{}
 		if err := s.applyProjectSavedCredentials(ctx, namespace, provider, authMode, &secrets); err != nil {
@@ -199,6 +204,11 @@ func (s *Server) UpdateSecurityScan(
 	spec, provider, authMode, err := securityScanSpecFromRequest(req.GetSpec())
 	if err != nil {
 		return nil, err
+	}
+	if ref := spec.SecurityProgramRef; ref != nil {
+		if err := s.requireResourceAccess(ctx, securityProgramResourceType, ref.Name, namespace, AccessViewer, "use this security program"); err != nil {
+			return nil, err
+		}
 	}
 	if req.GetUseSavedCredentials() {
 		secrets := triggersv1alpha1.AgentRunSecrets{}

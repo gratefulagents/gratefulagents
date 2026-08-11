@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
 
@@ -29,6 +31,8 @@ func testSecurityProgramResource(namespace string) *platform.SecurityProgramReso
 
 func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	srv, c := newCronTestServer(t)
+	ms := newMockStateStore()
+	srv.stateStore = ms
 	ctx := projectActorCtx()
 	ns := testUserNS()
 
@@ -38,6 +42,10 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	}
 	if created.Namespace != ns || created.Name != "acme-bounty" || created.Provider != "HackerOne" {
 		t.Fatalf("created = %+v", created)
+	}
+	owner, err := ms.GetResourceOwner(context.Background(), securityProgramResourceType, created.Name, created.Namespace)
+	if err != nil || owner == nil || owner.OwnerID != testProjectSubject {
+		t.Fatalf("SecurityProgram owner = %+v, %v", owner, err)
 	}
 	cr := &triggersv1alpha1.SecurityProgram{}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "acme-bounty"}, cr); err != nil {
@@ -86,6 +94,84 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	}
 	if _, err := srv.GetSecurityProgram(ctx, &platform.GetSecurityProgramRequest{Name: "acme-bounty"}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("GetSecurityProgram after delete = %v, want NotFound", err)
+	}
+}
+
+func TestSecurityProgramOwnershipFailureRollsBack(t *testing.T) {
+	srv, c := newCronTestServer(t)
+	ms := newMockStateStore()
+	ms.setResourceOwnerErr = errors.New("ownership unavailable")
+	srv.stateStore = ms
+
+	_, err := srv.CreateSecurityProgram(projectActorCtx(), &platform.CreateSecurityProgramRequest{Program: testSecurityProgramResource("")})
+	if connect.CodeOf(err) != connect.CodeInternal {
+		t.Fatalf("CreateSecurityProgram() error = %v, want Internal", err)
+	}
+	got := &triggersv1alpha1.SecurityProgram{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: testUserNS(), Name: "acme-bounty"}, got); err == nil {
+		t.Fatal("unowned SecurityProgram remained after ownership failure")
+	}
+}
+
+func TestSecurityProgramVisibilityAndAccess(t *testing.T) {
+	ns := testUserNS()
+	program := &triggersv1alpha1.SecurityProgram{
+		ObjectMeta: metav1.ObjectMeta{Name: "acme-bounty", Namespace: ns},
+		Spec: triggersv1alpha1.SecurityProgramSpec{
+			Provider: "Immunefi", DisplayName: "Acme", ProgramURL: "https://immunefi.com/bug-bounty/acme/scope/",
+			ScopePolicy: "Production assets are in scope.", VerifiedAt: metav1.NewTime(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)),
+		},
+	}
+	privateScan := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "private-scan", Namespace: ns},
+		Spec: triggersv1alpha1.SecurityScanSpec{
+			RepoURL: "https://github.com/acme/private.git", SecurityProgramRef: &triggersv1alpha1.SecurityResourceRef{Name: program.Name},
+		},
+	}
+	srv, _ := newCronTestServer(t, program, privateScan)
+	ms := newCollaborationStateStore()
+	srv.stateStore = ms
+	if err := ms.SetResourceOwner(context.Background(), securityProgramResourceType, program.Name, ns, "other-user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ms.SetResourceOwner(context.Background(), securityScanResourceType, privateScan.Name, ns, "other-user"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := projectActorCtx()
+
+	list, err := srv.ListSecurityPrograms(ctx, &platform.ListSecurityProgramsRequest{})
+	if err != nil || len(list.Programs) != 0 {
+		t.Fatalf("non-owner list = %+v, %v", list, err)
+	}
+	if _, err := srv.GetSecurityProgram(ctx, &platform.GetSecurityProgramRequest{Name: program.Name}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("non-owner GetSecurityProgram() error = %v, want PermissionDenied", err)
+	}
+	if _, err := srv.GetSecurityProgram(actorContext("admin", "admin", "", ""), &platform.GetSecurityProgramRequest{Namespace: ns, Name: program.Name}); err != nil {
+		t.Fatalf("admin GetSecurityProgram() error = %v", err)
+	}
+
+	if _, err := ms.ShareResource(context.Background(), &store.ResourceShare{
+		ID: "program-share", ResourceType: securityProgramResourceType, ResourceID: program.Name,
+		ResourceNamespace: ns, SharedWithUserID: testProjectSubject, SharedByUserID: "other-user", Permission: "collaborator",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	list, err = srv.ListSecurityPrograms(ctx, &platform.ListSecurityProgramsRequest{})
+	if err != nil || len(list.Programs) != 1 || list.Programs[0].UsageCount != 0 || len(list.Programs[0].ReferencingScans) != 0 {
+		t.Fatalf("shared-user list = %+v, %v", list, err)
+	}
+	update := testSecurityProgramResource("")
+	update.DisplayName = "Shared update"
+	updated, err := srv.UpdateSecurityProgram(ctx, &platform.UpdateSecurityProgramRequest{Program: update})
+	if err != nil {
+		t.Fatalf("shared collaborator UpdateSecurityProgram() error = %v", err)
+	}
+	if updated.UsageCount != 0 || len(updated.ReferencingScans) != 0 {
+		t.Fatalf("update leaked private scan references: %+v", updated)
+	}
+	_, err = srv.DeleteSecurityProgram(ctx, &platform.DeleteSecurityProgramRequest{Name: program.Name})
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || strings.Contains(err.Error(), privateScan.Name) {
+		t.Fatalf("DeleteSecurityProgram() leaked private scan name: %v", err)
 	}
 }
 
