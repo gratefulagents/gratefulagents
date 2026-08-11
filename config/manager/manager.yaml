@@ -119,8 +119,8 @@ spec:
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
         resources:
           limits:
-            cpu: "2"
-            memory: 2Gi
+            cpu: "4"
+            memory: 4Gi
             ephemeral-storage: 256Mi
           requests:
             cpu: 10m
