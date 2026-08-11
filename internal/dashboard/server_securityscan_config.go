@@ -114,6 +114,11 @@ func (s *Server) CreateSecurityScan(
 	if err != nil {
 		return nil, err
 	}
+	if ref := spec.SecurityProgramRef; ref != nil {
+		if err := s.requireResourceAccess(ctx, securityProgramResourceType, ref.Name, namespace, AccessViewer, "use this security program"); err != nil {
+			return nil, err
+		}
+	}
 	if req.GetUseSavedCredentials() {
 		secrets := triggersv1alpha1.AgentRunSecrets{}
 		if err := s.applyProjectSavedCredentials(ctx, namespace, provider, authMode, &secrets); err != nil {
@@ -199,6 +204,11 @@ func (s *Server) UpdateSecurityScan(
 	spec, provider, authMode, err := securityScanSpecFromRequest(req.GetSpec())
 	if err != nil {
 		return nil, err
+	}
+	if ref := spec.SecurityProgramRef; ref != nil {
+		if err := s.requireResourceAccess(ctx, securityProgramResourceType, ref.Name, namespace, AccessViewer, "use this security program"); err != nil {
+			return nil, err
+		}
 	}
 	if req.GetUseSavedCredentials() {
 		secrets := triggersv1alpha1.AgentRunSecrets{}
@@ -584,6 +594,10 @@ func securityScanSpecFromRequest(
 	if err != nil {
 		return nil, "", "", err
 	}
+	securityProgramRef, err := securityResourceRefFromProto("security_program_ref", pb.GetSecurityProgramRef())
+	if err != nil {
+		return nil, "", "", err
+	}
 	rankers, err := securityScanRankersFromProto(pb.GetSeverityRankers())
 	if err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
@@ -635,34 +649,35 @@ func securityScanSpecFromRequest(
 	}
 
 	spec := &triggersv1alpha1.SecurityScanSpec{
-		RepoURL:           repoURL,
-		BaseBranch:        strings.TrimSpace(pb.GetBaseBranch()),
-		Revision:          strings.TrimSpace(pb.GetRevision()),
-		AdditionalRepos:   trimmedNonEmpty(pb.GetAdditionalRepos()),
-		Scope:             securityScanScopeFromProto(pb.GetScope()),
-		Workflow:          workflow,
-		WorkflowRef:       workflowRef,
-		Parallelism:       pb.GetParallelism(),
-		Execution:         execution,
-		ParameterValues:   parameterValues,
-		SeverityRankers:   rankers,
-		RankerRefs:        rankerRefs,
-		PostScripts:       postScripts,
-		PostScriptRefs:    postScriptRefs,
-		PolicyPackRef:     policyPackRef,
-		Dedupe:            dedupe,
-		MinSeverity:       strings.TrimSpace(pb.GetMinSeverity()),
-		FailOnSeverity:    strings.TrimSpace(pb.GetFailOnSeverity()),
-		Schedule:          strings.TrimSpace(pb.GetSchedule()),
-		TimeZone:          strings.TrimSpace(pb.GetTimeZone()),
-		Suspend:           pb.GetSuspend(),
-		ConcurrencyPolicy: policy,
-		Defaults:          defaults,
-		MaxRuntime:        maxRuntime,
-		Budgets:           budgets,
-		Triggers:          triggers,
-		Checks:            checks,
-		Notifications:     notifications,
+		RepoURL:            repoURL,
+		BaseBranch:         strings.TrimSpace(pb.GetBaseBranch()),
+		Revision:           strings.TrimSpace(pb.GetRevision()),
+		AdditionalRepos:    trimmedNonEmpty(pb.GetAdditionalRepos()),
+		Scope:              securityScanScopeFromProto(pb.GetScope()),
+		Workflow:           workflow,
+		WorkflowRef:        workflowRef,
+		Parallelism:        pb.GetParallelism(),
+		Execution:          execution,
+		ParameterValues:    parameterValues,
+		SeverityRankers:    rankers,
+		RankerRefs:         rankerRefs,
+		PostScripts:        postScripts,
+		PostScriptRefs:     postScriptRefs,
+		SecurityProgramRef: securityProgramRef,
+		PolicyPackRef:      policyPackRef,
+		Dedupe:             dedupe,
+		MinSeverity:        strings.TrimSpace(pb.GetMinSeverity()),
+		FailOnSeverity:     strings.TrimSpace(pb.GetFailOnSeverity()),
+		Schedule:           strings.TrimSpace(pb.GetSchedule()),
+		TimeZone:           strings.TrimSpace(pb.GetTimeZone()),
+		Suspend:            pb.GetSuspend(),
+		ConcurrencyPolicy:  policy,
+		Defaults:           defaults,
+		MaxRuntime:         maxRuntime,
+		Budgets:            budgets,
+		Triggers:           triggers,
+		Checks:             checks,
+		Notifications:      notifications,
 	}
 	return spec, provider, authMode, nil
 }
@@ -1044,6 +1059,9 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 	}
 	if spec.PolicyPackRef != nil {
 		pb.PolicyPackRef = spec.PolicyPackRef.Name
+	}
+	if spec.SecurityProgramRef != nil {
+		pb.SecurityProgramRef = spec.SecurityProgramRef.Name
 	}
 	if scope := spec.Scope; scope != nil {
 		pb.Scope = &platform.SecurityScanScopeConfig{

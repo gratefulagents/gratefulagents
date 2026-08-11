@@ -12,6 +12,8 @@ import (
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -145,16 +147,20 @@ type resolvedSecurityScanSpec struct {
 	// inline entries.
 	spec triggersv1alpha1.SecurityScanSpec
 	// refs records generation and content hash per resolved resource, in
-	// spec order (policyPackRef, workflowRef, rankerRefs, postScriptRefs).
+	// spec order (securityProgramRef, policyPackRef, workflowRef, rankerRefs,
+	// postScriptRefs).
 	refs []triggersv1alpha1.SecurityScanResolvedRef
+	// program is the validated snapshot rendered into every run prompt.
+	program *triggersv1alpha1.SecurityProgramSpec
 	// workflowParams are the referenced SecurityWorkflow's declared
 	// scan-time parameters; empty for inline workflows, whose {{params.*}}
 	// references are free-form.
 	workflowParams []triggersv1alpha1.SecurityWorkflowParameter
 }
 
-// resolveSecurityScanRefs resolves spec.policyPackRef, spec.workflowRef,
-// spec.rankerRefs, and spec.postScriptRefs against the scan's namespace at
+// resolveSecurityScanRefs resolves spec.securityProgramRef,
+// spec.policyPackRef, spec.workflowRef, spec.rankerRefs, and
+// spec.postScriptRefs against the scan's namespace at
 // run-creation time. The resolved content is inlined into the returned spec
 // so the run prompt is built from a snapshot: later edits to the referenced
 // resources never change runs that were already created. The policy pack is
@@ -173,9 +179,36 @@ func resolveSecurityScanRefs(
 
 	resolved := &resolvedSecurityScanSpec{spec: *scan.Spec.DeepCopy()}
 	resolved.spec.WorkflowRef = nil
+	resolved.spec.SecurityProgramRef = nil
 	resolved.spec.PolicyPackRef = nil
 	resolved.spec.RankerRefs = nil
 	resolved.spec.PostScriptRefs = nil
+
+	if ref := scan.Spec.SecurityProgramRef; ref != nil {
+		program := &triggersv1alpha1.SecurityProgram{}
+		if err := getSecurityScanRef(ctx, c, scan.Namespace, ref.Name, "SecurityProgram", program); err != nil {
+			return nil, err
+		}
+		if errs := triggersv1alpha1.ValidateSecurityProgramSpec(program.Spec); len(errs) != 0 {
+			return nil, &securityScanRefError{
+				reason:  securityScanReasonInvalidSpec,
+				message: fmt.Sprintf("SecurityProgram %q is invalid: %s", program.Name, errs[0].Error()),
+			}
+		}
+		digest := securitySpecHash(program.Spec)
+		ready := meta.FindStatusCondition(program.Status.Conditions, triggersv1alpha1.ConditionSecurityLibraryReady)
+		if program.Status.ObservedGeneration != program.Generation ||
+			program.Status.ContentDigest != digest || ready == nil ||
+			ready.Status != metav1.ConditionTrue || ready.ObservedGeneration != program.Generation {
+			return nil, &securityScanRefError{
+				reason:  securityScanReasonUnresolvedReference,
+				message: fmt.Sprintf("SecurityProgram %q is not ready in namespace %q", program.Name, scan.Namespace),
+			}
+		}
+		programSpec := program.Spec
+		resolved.program = &programSpec
+		resolved.refs = append(resolved.refs, resolvedSecurityRef("SecurityProgram", program.Name, program.Generation, program.Spec))
+	}
 
 	var pack *triggersv1alpha1.SecurityPolicyPack
 	if ref := scan.Spec.PolicyPackRef; ref != nil {

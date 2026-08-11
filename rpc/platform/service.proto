@@ -343,6 +343,15 @@ service PlatformService {
   rpc UpdateSecurityPolicyPack(UpdateSecurityPolicyPackRequest) returns (SecurityPolicyPackResource);
   rpc DeleteSecurityPolicyPack(DeleteSecurityPolicyPackRequest) returns (google.protobuf.Empty);
 
+  // SecurityProgram CRs are operator-verified scope snapshots referenced by
+  // SecurityScan configurations via security_program_ref. The program URL is
+  // provenance only and is never fetched or treated as network authorization.
+  rpc ListSecurityPrograms(ListSecurityProgramsRequest) returns (ListSecurityProgramsResponse);
+  rpc GetSecurityProgram(GetSecurityProgramRequest) returns (SecurityProgramResource);
+  rpc CreateSecurityProgram(CreateSecurityProgramRequest) returns (SecurityProgramResource);
+  rpc UpdateSecurityProgram(UpdateSecurityProgramRequest) returns (SecurityProgramResource);
+  rpc DeleteSecurityProgram(DeleteSecurityProgramRequest) returns (google.protobuf.Empty);
+
   // AI-assisted authoring. GenerateSecurityDraft launches a bounded,
   // repo-less draft-generation AgentRun that uses only the caller's saved
   // provider credentials (no repository, GitHub token, or other secrets);
@@ -4622,6 +4631,10 @@ message SecurityScanConfigSpec {
   // task objectives; accepted names are declared by the referenced
   // SecurityWorkflow's parameters (free-form for inline workflows).
   map<string, string> parameter_values = 28;
+  // security_program_ref names an operator-verified SecurityProgram in the
+  // scan's namespace. Its scope policy is snapshotted into run prompts as
+  // quoted data; its URL is provenance only.
+  string security_program_ref = 29;
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.
@@ -5009,6 +5022,51 @@ message UpdateSecurityPolicyPackRequest {
 }
 
 message DeleteSecurityPolicyPackRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+// SecurityProgramResource is one operator-verified SecurityProgram CR. The
+// program_url is provenance only; the platform never fetches it and it grants
+// no authorization to contact a network target.
+message SecurityProgramResource {
+  string namespace = 1;
+  string name = 2;
+  string provider = 3;
+  string display_name = 4;
+  string program_url = 5;
+  string scope_policy = 6;
+  google.protobuf.Timestamp verified_at = 7;
+  int32 usage_count = 10;
+  repeated string referencing_scans = 11;
+  int64 generation = 12;
+  int64 created_at_unix = 13;
+  string condition_ready = 14;
+  string content_digest = 15;
+}
+
+message ListSecurityProgramsRequest {
+  string namespace = 1;
+}
+
+message ListSecurityProgramsResponse {
+  repeated SecurityProgramResource programs = 1;
+}
+
+message GetSecurityProgramRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CreateSecurityProgramRequest {
+  SecurityProgramResource program = 1;
+}
+
+message UpdateSecurityProgramRequest {
+  SecurityProgramResource program = 1;
+}
+
+message DeleteSecurityProgramRequest {
   string namespace = 1;
   string name = 2;
 }

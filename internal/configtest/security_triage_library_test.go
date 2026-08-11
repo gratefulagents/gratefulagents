@@ -206,7 +206,7 @@ func TestBugBountyAcceptanceGuards(t *testing.T) {
 	var scope triggersv1alpha1.SecurityPostScript
 	readBootstrapAsset(t, "securitypostscripts", "scope-eligibility-check", &scope)
 	prompt := strings.ToLower(scope.Spec.Prompt)
-	for _, marker := range []string{"no asset or vulnerability class is", "essential acceptance fact", "untrusted actor-controlled event", "suspicious interpolation alone are ineligible"} {
+	for _, marker := range []string{"attached security program scope snapshot", "eligibility is unknown", "program url by itself is provenance only", "must not be fetched", "essential acceptance fact", "untrusted actor-controlled event", "suspicious interpolation alone are ineligible"} {
 		if !strings.Contains(prompt, marker) {
 			t.Errorf("scope eligibility check must contain conservative guard %q", marker)
 		}

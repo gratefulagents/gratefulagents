@@ -1,4 +1,5 @@
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -8,6 +9,7 @@ import { SecurityLibraryPage } from "@/components/SecurityLibraryPage";
 import {
   SecurityPolicyPackResourceSchema,
   SecurityPostScriptResourceSchema,
+  SecurityProgramResourceSchema,
   SecurityRankerResourceSchema,
   SecurityWorkflowResourceSchema,
 } from "@/rpc/platform/service_pb";
@@ -17,6 +19,7 @@ const {
   listSecurityRankers,
   listSecurityPostScripts,
   listSecurityPolicyPacks,
+  listSecurityPrograms,
   deleteSecurityWorkflow,
   validateSecurityWorkflow,
   createSecurityWorkflow,
@@ -30,11 +33,13 @@ const {
   createSecurityPolicyPack,
   updateSecurityPolicyPack,
   deleteSecurityPolicyPack,
+  deleteSecurityProgram,
 } = vi.hoisted(() => ({
   listSecurityWorkflows: vi.fn(),
   listSecurityRankers: vi.fn(),
   listSecurityPostScripts: vi.fn(),
   listSecurityPolicyPacks: vi.fn(),
+  listSecurityPrograms: vi.fn(),
   deleteSecurityWorkflow: vi.fn(),
   validateSecurityWorkflow: vi.fn(),
   createSecurityWorkflow: vi.fn(),
@@ -48,6 +53,7 @@ const {
   createSecurityPolicyPack: vi.fn(),
   updateSecurityPolicyPack: vi.fn(),
   deleteSecurityPolicyPack: vi.fn(),
+  deleteSecurityProgram: vi.fn(),
 }));
 
 vi.mock("@/lib/client", () => ({
@@ -56,6 +62,7 @@ vi.mock("@/lib/client", () => ({
     listSecurityRankers,
     listSecurityPostScripts,
     listSecurityPolicyPacks,
+    listSecurityPrograms,
     deleteSecurityWorkflow,
     validateSecurityWorkflow,
     createSecurityWorkflow,
@@ -69,6 +76,7 @@ vi.mock("@/lib/client", () => ({
     createSecurityPolicyPack,
     updateSecurityPolicyPack,
     deleteSecurityPolicyPack,
+    deleteSecurityProgram,
   },
 }));
 
@@ -131,6 +139,21 @@ function seedLists() {
         ],
         retention: { findingDays: 90 },
         budgets: { maxCostUsd: "5" },
+        usageCount: 1,
+        referencingScans: ["scan-a"],
+      }),
+    ],
+  });
+  listSecurityPrograms.mockResolvedValue({
+    programs: [
+      create(SecurityProgramResourceSchema, {
+        namespace: "user-alice",
+        name: "acme-bounty",
+        provider: "HackerOne",
+        displayName: "Acme public bug bounty",
+        programUrl: "https://hackerone.com/acme",
+        scopePolicy: "In scope: api.example.com\nOut of scope: denial-of-service testing",
+        verifiedAt: timestampFromDate(new Date("2026-03-01T12:00:00Z")),
         usageCount: 1,
         referencingScans: ["scan-a"],
       }),
@@ -247,6 +270,47 @@ describe("SecurityLibraryPage", () => {
     expect(row.textContent).toContain("findings 90d");
     expect(row.textContent).toContain("$5");
     expect(row.textContent).toContain("1 scan");
+  });
+
+  it("lists verified security programs with provenance and scope", async () => {
+    seedLists();
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("tab", { name: /Programs/ }));
+
+    const row = await screen.findByTestId("program-row-acme-bounty");
+    expect(row.textContent).toContain("Acme public bug bounty");
+    expect(row.textContent).toContain("HackerOne");
+    expect(row.textContent).toContain("https://hackerone.com/acme");
+    expect(row.textContent).toContain("api.example.com");
+    expect(row.textContent).toContain("1 scan");
+    expect(screen.getByText(/provenance only and does not authorize network testing/i)).toBeTruthy();
+  });
+
+  it("keeps existing library resources visible when programs are unavailable", async () => {
+    seedLists();
+    listSecurityPrograms.mockRejectedValue(new Error("program API unavailable"));
+    renderPage();
+
+    expect(await screen.findByTestId("workflow-row-payments-workflow")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /Programs/ }));
+    expect((await screen.findByRole("alert")).textContent).toContain("program API unavailable");
+  });
+
+  it("deletes an unused security program", async () => {
+    seedLists();
+    deleteSecurityProgram.mockResolvedValue({});
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("tab", { name: /Programs/ }));
+    await screen.findByTestId("program-row-acme-bounty");
+    fireEvent.click(screen.getByRole("button", { name: "Delete acme-bounty" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteSecurityProgram).toHaveBeenCalledWith({
+      namespace: "",
+      name: "acme-bounty",
+    }));
   });
 
   it("creates a policy pack from the dialog", async () => {

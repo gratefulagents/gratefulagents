@@ -202,6 +202,7 @@ rules:
   - projects
   - securitypolicypacks
   - securitypostscripts
+  - securityprograms
   - securityrankers
   - securityscans
   - securityworkflows
@@ -227,6 +228,7 @@ rules:
   - pullrequestmonitors/status
   - securitypolicypacks/status
   - securitypostscripts/status
+  - securityprograms/status
   - securityrankers/status
   - securityscans/status
   - securityworkflows/status

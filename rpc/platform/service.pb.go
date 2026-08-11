@@ -32568,8 +32568,12 @@ type SecurityScanConfigSpec struct {
 	// task objectives; accepted names are declared by the referenced
 	// SecurityWorkflow's parameters (free-form for inline workflows).
 	ParameterValues map[string]string `protobuf:"bytes,28,rep,name=parameter_values,json=parameterValues,proto3" json:"parameter_values,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// security_program_ref names an operator-verified SecurityProgram in the
+	// scan's namespace. Its scope policy is snapshotted into run prompts as
+	// quoted data; its URL is provenance only.
+	SecurityProgramRef string `protobuf:"bytes,29,opt,name=security_program_ref,json=securityProgramRef,proto3" json:"security_program_ref,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SecurityScanConfigSpec) Reset() {
@@ -32796,6 +32800,13 @@ func (x *SecurityScanConfigSpec) GetParameterValues() map[string]string {
 		return x.ParameterValues
 	}
 	return nil
+}
+
+func (x *SecurityScanConfigSpec) GetSecurityProgramRef() string {
+	if x != nil {
+		return x.SecurityProgramRef
+	}
+	return ""
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.
@@ -35829,6 +35840,429 @@ func (x *DeleteSecurityPolicyPackRequest) GetName() string {
 	return ""
 }
 
+// SecurityProgramResource is one operator-verified SecurityProgram CR. The
+// program_url is provenance only; the platform never fetches it and it grants
+// no authorization to contact a network target.
+type SecurityProgramResource struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Namespace        string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Provider         string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
+	DisplayName      string                 `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	ProgramUrl       string                 `protobuf:"bytes,5,opt,name=program_url,json=programUrl,proto3" json:"program_url,omitempty"`
+	ScopePolicy      string                 `protobuf:"bytes,6,opt,name=scope_policy,json=scopePolicy,proto3" json:"scope_policy,omitempty"`
+	VerifiedAt       *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=verified_at,json=verifiedAt,proto3" json:"verified_at,omitempty"`
+	UsageCount       int32                  `protobuf:"varint,10,opt,name=usage_count,json=usageCount,proto3" json:"usage_count,omitempty"`
+	ReferencingScans []string               `protobuf:"bytes,11,rep,name=referencing_scans,json=referencingScans,proto3" json:"referencing_scans,omitempty"`
+	Generation       int64                  `protobuf:"varint,12,opt,name=generation,proto3" json:"generation,omitempty"`
+	CreatedAtUnix    int64                  `protobuf:"varint,13,opt,name=created_at_unix,json=createdAtUnix,proto3" json:"created_at_unix,omitempty"`
+	ConditionReady   string                 `protobuf:"bytes,14,opt,name=condition_ready,json=conditionReady,proto3" json:"condition_ready,omitempty"`
+	ContentDigest    string                 `protobuf:"bytes,15,opt,name=content_digest,json=contentDigest,proto3" json:"content_digest,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SecurityProgramResource) Reset() {
+	*x = SecurityProgramResource{}
+	mi := &file_rpc_platform_service_proto_msgTypes[439]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecurityProgramResource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecurityProgramResource) ProtoMessage() {}
+
+func (x *SecurityProgramResource) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[439]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecurityProgramResource.ProtoReflect.Descriptor instead.
+func (*SecurityProgramResource) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{439}
+}
+
+func (x *SecurityProgramResource) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *SecurityProgramResource) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SecurityProgramResource) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *SecurityProgramResource) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *SecurityProgramResource) GetProgramUrl() string {
+	if x != nil {
+		return x.ProgramUrl
+	}
+	return ""
+}
+
+func (x *SecurityProgramResource) GetScopePolicy() string {
+	if x != nil {
+		return x.ScopePolicy
+	}
+	return ""
+}
+
+func (x *SecurityProgramResource) GetVerifiedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.VerifiedAt
+	}
+	return nil
+}
+
+func (x *SecurityProgramResource) GetUsageCount() int32 {
+	if x != nil {
+		return x.UsageCount
+	}
+	return 0
+}
+
+func (x *SecurityProgramResource) GetReferencingScans() []string {
+	if x != nil {
+		return x.ReferencingScans
+	}
+	return nil
+}
+
+func (x *SecurityProgramResource) GetGeneration() int64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *SecurityProgramResource) GetCreatedAtUnix() int64 {
+	if x != nil {
+		return x.CreatedAtUnix
+	}
+	return 0
+}
+
+func (x *SecurityProgramResource) GetConditionReady() string {
+	if x != nil {
+		return x.ConditionReady
+	}
+	return ""
+}
+
+func (x *SecurityProgramResource) GetContentDigest() string {
+	if x != nil {
+		return x.ContentDigest
+	}
+	return ""
+}
+
+type ListSecurityProgramsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSecurityProgramsRequest) Reset() {
+	*x = ListSecurityProgramsRequest{}
+	mi := &file_rpc_platform_service_proto_msgTypes[440]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSecurityProgramsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSecurityProgramsRequest) ProtoMessage() {}
+
+func (x *ListSecurityProgramsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[440]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSecurityProgramsRequest.ProtoReflect.Descriptor instead.
+func (*ListSecurityProgramsRequest) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{440}
+}
+
+func (x *ListSecurityProgramsRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+type ListSecurityProgramsResponse struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Programs      []*SecurityProgramResource `protobuf:"bytes,1,rep,name=programs,proto3" json:"programs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSecurityProgramsResponse) Reset() {
+	*x = ListSecurityProgramsResponse{}
+	mi := &file_rpc_platform_service_proto_msgTypes[441]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSecurityProgramsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSecurityProgramsResponse) ProtoMessage() {}
+
+func (x *ListSecurityProgramsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[441]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSecurityProgramsResponse.ProtoReflect.Descriptor instead.
+func (*ListSecurityProgramsResponse) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{441}
+}
+
+func (x *ListSecurityProgramsResponse) GetPrograms() []*SecurityProgramResource {
+	if x != nil {
+		return x.Programs
+	}
+	return nil
+}
+
+type GetSecurityProgramRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSecurityProgramRequest) Reset() {
+	*x = GetSecurityProgramRequest{}
+	mi := &file_rpc_platform_service_proto_msgTypes[442]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSecurityProgramRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSecurityProgramRequest) ProtoMessage() {}
+
+func (x *GetSecurityProgramRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[442]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSecurityProgramRequest.ProtoReflect.Descriptor instead.
+func (*GetSecurityProgramRequest) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{442}
+}
+
+func (x *GetSecurityProgramRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *GetSecurityProgramRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type CreateSecurityProgramRequest struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Program       *SecurityProgramResource `protobuf:"bytes,1,opt,name=program,proto3" json:"program,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateSecurityProgramRequest) Reset() {
+	*x = CreateSecurityProgramRequest{}
+	mi := &file_rpc_platform_service_proto_msgTypes[443]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateSecurityProgramRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateSecurityProgramRequest) ProtoMessage() {}
+
+func (x *CreateSecurityProgramRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[443]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateSecurityProgramRequest.ProtoReflect.Descriptor instead.
+func (*CreateSecurityProgramRequest) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{443}
+}
+
+func (x *CreateSecurityProgramRequest) GetProgram() *SecurityProgramResource {
+	if x != nil {
+		return x.Program
+	}
+	return nil
+}
+
+type UpdateSecurityProgramRequest struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Program       *SecurityProgramResource `protobuf:"bytes,1,opt,name=program,proto3" json:"program,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateSecurityProgramRequest) Reset() {
+	*x = UpdateSecurityProgramRequest{}
+	mi := &file_rpc_platform_service_proto_msgTypes[444]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateSecurityProgramRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateSecurityProgramRequest) ProtoMessage() {}
+
+func (x *UpdateSecurityProgramRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[444]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateSecurityProgramRequest.ProtoReflect.Descriptor instead.
+func (*UpdateSecurityProgramRequest) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{444}
+}
+
+func (x *UpdateSecurityProgramRequest) GetProgram() *SecurityProgramResource {
+	if x != nil {
+		return x.Program
+	}
+	return nil
+}
+
+type DeleteSecurityProgramRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSecurityProgramRequest) Reset() {
+	*x = DeleteSecurityProgramRequest{}
+	mi := &file_rpc_platform_service_proto_msgTypes[445]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSecurityProgramRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSecurityProgramRequest) ProtoMessage() {}
+
+func (x *DeleteSecurityProgramRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[445]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSecurityProgramRequest.ProtoReflect.Descriptor instead.
+func (*DeleteSecurityProgramRequest) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{445}
+}
+
+func (x *DeleteSecurityProgramRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *DeleteSecurityProgramRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
 type GenerateSecurityDraftRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -35847,7 +36281,7 @@ type GenerateSecurityDraftRequest struct {
 
 func (x *GenerateSecurityDraftRequest) Reset() {
 	*x = GenerateSecurityDraftRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[439]
+	mi := &file_rpc_platform_service_proto_msgTypes[446]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35859,7 +36293,7 @@ func (x *GenerateSecurityDraftRequest) String() string {
 func (*GenerateSecurityDraftRequest) ProtoMessage() {}
 
 func (x *GenerateSecurityDraftRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[439]
+	mi := &file_rpc_platform_service_proto_msgTypes[446]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35872,7 +36306,7 @@ func (x *GenerateSecurityDraftRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateSecurityDraftRequest.ProtoReflect.Descriptor instead.
 func (*GenerateSecurityDraftRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{439}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{446}
 }
 
 func (x *GenerateSecurityDraftRequest) GetNamespace() string {
@@ -35915,7 +36349,7 @@ type GenerateSecurityDraftResponse struct {
 
 func (x *GenerateSecurityDraftResponse) Reset() {
 	*x = GenerateSecurityDraftResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[440]
+	mi := &file_rpc_platform_service_proto_msgTypes[447]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35927,7 +36361,7 @@ func (x *GenerateSecurityDraftResponse) String() string {
 func (*GenerateSecurityDraftResponse) ProtoMessage() {}
 
 func (x *GenerateSecurityDraftResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[440]
+	mi := &file_rpc_platform_service_proto_msgTypes[447]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35940,7 +36374,7 @@ func (x *GenerateSecurityDraftResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateSecurityDraftResponse.ProtoReflect.Descriptor instead.
 func (*GenerateSecurityDraftResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{440}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{447}
 }
 
 func (x *GenerateSecurityDraftResponse) GetNamespace() string {
@@ -35967,7 +36401,7 @@ type GetSecurityDraftRequest struct {
 
 func (x *GetSecurityDraftRequest) Reset() {
 	*x = GetSecurityDraftRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[441]
+	mi := &file_rpc_platform_service_proto_msgTypes[448]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35979,7 +36413,7 @@ func (x *GetSecurityDraftRequest) String() string {
 func (*GetSecurityDraftRequest) ProtoMessage() {}
 
 func (x *GetSecurityDraftRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[441]
+	mi := &file_rpc_platform_service_proto_msgTypes[448]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35992,7 +36426,7 @@ func (x *GetSecurityDraftRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityDraftRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityDraftRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{441}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{448}
 }
 
 func (x *GetSecurityDraftRequest) GetNamespace() string {
@@ -36031,7 +36465,7 @@ type GetSecurityDraftResponse struct {
 
 func (x *GetSecurityDraftResponse) Reset() {
 	*x = GetSecurityDraftResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[442]
+	mi := &file_rpc_platform_service_proto_msgTypes[449]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36043,7 +36477,7 @@ func (x *GetSecurityDraftResponse) String() string {
 func (*GetSecurityDraftResponse) ProtoMessage() {}
 
 func (x *GetSecurityDraftResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[442]
+	mi := &file_rpc_platform_service_proto_msgTypes[449]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36056,7 +36490,7 @@ func (x *GetSecurityDraftResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityDraftResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityDraftResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{442}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{449}
 }
 
 func (x *GetSecurityDraftResponse) GetStatus() SecurityDraftStatus {
@@ -36117,7 +36551,7 @@ type ExportSecurityPackRequest struct {
 
 func (x *ExportSecurityPackRequest) Reset() {
 	*x = ExportSecurityPackRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[443]
+	mi := &file_rpc_platform_service_proto_msgTypes[450]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36129,7 +36563,7 @@ func (x *ExportSecurityPackRequest) String() string {
 func (*ExportSecurityPackRequest) ProtoMessage() {}
 
 func (x *ExportSecurityPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[443]
+	mi := &file_rpc_platform_service_proto_msgTypes[450]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36142,7 +36576,7 @@ func (x *ExportSecurityPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportSecurityPackRequest.ProtoReflect.Descriptor instead.
 func (*ExportSecurityPackRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{443}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{450}
 }
 
 func (x *ExportSecurityPackRequest) GetNamespace() string {
@@ -36200,7 +36634,7 @@ type ExportSecurityPackResponse struct {
 
 func (x *ExportSecurityPackResponse) Reset() {
 	*x = ExportSecurityPackResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[444]
+	mi := &file_rpc_platform_service_proto_msgTypes[451]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36212,7 +36646,7 @@ func (x *ExportSecurityPackResponse) String() string {
 func (*ExportSecurityPackResponse) ProtoMessage() {}
 
 func (x *ExportSecurityPackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[444]
+	mi := &file_rpc_platform_service_proto_msgTypes[451]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36225,7 +36659,7 @@ func (x *ExportSecurityPackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportSecurityPackResponse.ProtoReflect.Descriptor instead.
 func (*ExportSecurityPackResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{444}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{451}
 }
 
 func (x *ExportSecurityPackResponse) GetData() []byte {
@@ -36264,7 +36698,7 @@ type ImportSecurityPackRequest struct {
 
 func (x *ImportSecurityPackRequest) Reset() {
 	*x = ImportSecurityPackRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[445]
+	mi := &file_rpc_platform_service_proto_msgTypes[452]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36276,7 +36710,7 @@ func (x *ImportSecurityPackRequest) String() string {
 func (*ImportSecurityPackRequest) ProtoMessage() {}
 
 func (x *ImportSecurityPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[445]
+	mi := &file_rpc_platform_service_proto_msgTypes[452]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36289,7 +36723,7 @@ func (x *ImportSecurityPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportSecurityPackRequest.ProtoReflect.Descriptor instead.
 func (*ImportSecurityPackRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{445}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{452}
 }
 
 func (x *ImportSecurityPackRequest) GetNamespace() string {
@@ -36337,7 +36771,7 @@ type SecurityPackItemResult struct {
 
 func (x *SecurityPackItemResult) Reset() {
 	*x = SecurityPackItemResult{}
-	mi := &file_rpc_platform_service_proto_msgTypes[446]
+	mi := &file_rpc_platform_service_proto_msgTypes[453]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36349,7 +36783,7 @@ func (x *SecurityPackItemResult) String() string {
 func (*SecurityPackItemResult) ProtoMessage() {}
 
 func (x *SecurityPackItemResult) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[446]
+	mi := &file_rpc_platform_service_proto_msgTypes[453]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36362,7 +36796,7 @@ func (x *SecurityPackItemResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityPackItemResult.ProtoReflect.Descriptor instead.
 func (*SecurityPackItemResult) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{446}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{453}
 }
 
 func (x *SecurityPackItemResult) GetKind() string {
@@ -36422,7 +36856,7 @@ type ImportSecurityPackResponse struct {
 
 func (x *ImportSecurityPackResponse) Reset() {
 	*x = ImportSecurityPackResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[447]
+	mi := &file_rpc_platform_service_proto_msgTypes[454]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36434,7 +36868,7 @@ func (x *ImportSecurityPackResponse) String() string {
 func (*ImportSecurityPackResponse) ProtoMessage() {}
 
 func (x *ImportSecurityPackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[447]
+	mi := &file_rpc_platform_service_proto_msgTypes[454]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36447,7 +36881,7 @@ func (x *ImportSecurityPackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportSecurityPackResponse.ProtoReflect.Descriptor instead.
 func (*ImportSecurityPackResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{447}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{454}
 }
 
 func (x *ImportSecurityPackResponse) GetApplied() bool {
@@ -36503,7 +36937,7 @@ type GetSecurityOverviewRequest struct {
 
 func (x *GetSecurityOverviewRequest) Reset() {
 	*x = GetSecurityOverviewRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[448]
+	mi := &file_rpc_platform_service_proto_msgTypes[455]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36515,7 +36949,7 @@ func (x *GetSecurityOverviewRequest) String() string {
 func (*GetSecurityOverviewRequest) ProtoMessage() {}
 
 func (x *GetSecurityOverviewRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[448]
+	mi := &file_rpc_platform_service_proto_msgTypes[455]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36528,7 +36962,7 @@ func (x *GetSecurityOverviewRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityOverviewRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityOverviewRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{448}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{455}
 }
 
 func (x *GetSecurityOverviewRequest) GetNamespace() string {
@@ -36564,7 +36998,7 @@ type SecurityScanConfigIssue struct {
 
 func (x *SecurityScanConfigIssue) Reset() {
 	*x = SecurityScanConfigIssue{}
-	mi := &file_rpc_platform_service_proto_msgTypes[449]
+	mi := &file_rpc_platform_service_proto_msgTypes[456]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36576,7 +37010,7 @@ func (x *SecurityScanConfigIssue) String() string {
 func (*SecurityScanConfigIssue) ProtoMessage() {}
 
 func (x *SecurityScanConfigIssue) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[449]
+	mi := &file_rpc_platform_service_proto_msgTypes[456]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36589,7 +37023,7 @@ func (x *SecurityScanConfigIssue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanConfigIssue.ProtoReflect.Descriptor instead.
 func (*SecurityScanConfigIssue) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{449}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{456}
 }
 
 func (x *SecurityScanConfigIssue) GetNamespace() string {
@@ -36671,7 +37105,7 @@ type GetSecurityOverviewResponse struct {
 
 func (x *GetSecurityOverviewResponse) Reset() {
 	*x = GetSecurityOverviewResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[450]
+	mi := &file_rpc_platform_service_proto_msgTypes[457]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36683,7 +37117,7 @@ func (x *GetSecurityOverviewResponse) String() string {
 func (*GetSecurityOverviewResponse) ProtoMessage() {}
 
 func (x *GetSecurityOverviewResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[450]
+	mi := &file_rpc_platform_service_proto_msgTypes[457]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36696,7 +37130,7 @@ func (x *GetSecurityOverviewResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityOverviewResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityOverviewResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{450}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{457}
 }
 
 func (x *GetSecurityOverviewResponse) GetStoreSupported() bool {
@@ -36809,7 +37243,7 @@ type GetSecurityConfigPosturesRequest struct {
 
 func (x *GetSecurityConfigPosturesRequest) Reset() {
 	*x = GetSecurityConfigPosturesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[451]
+	mi := &file_rpc_platform_service_proto_msgTypes[458]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36821,7 +37255,7 @@ func (x *GetSecurityConfigPosturesRequest) String() string {
 func (*GetSecurityConfigPosturesRequest) ProtoMessage() {}
 
 func (x *GetSecurityConfigPosturesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[451]
+	mi := &file_rpc_platform_service_proto_msgTypes[458]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36834,7 +37268,7 @@ func (x *GetSecurityConfigPosturesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityConfigPosturesRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityConfigPosturesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{451}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{458}
 }
 
 func (x *GetSecurityConfigPosturesRequest) GetNamespace() string {
@@ -36868,7 +37302,7 @@ type SecurityRunActivityPoint struct {
 
 func (x *SecurityRunActivityPoint) Reset() {
 	*x = SecurityRunActivityPoint{}
-	mi := &file_rpc_platform_service_proto_msgTypes[452]
+	mi := &file_rpc_platform_service_proto_msgTypes[459]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36880,7 +37314,7 @@ func (x *SecurityRunActivityPoint) String() string {
 func (*SecurityRunActivityPoint) ProtoMessage() {}
 
 func (x *SecurityRunActivityPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[452]
+	mi := &file_rpc_platform_service_proto_msgTypes[459]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36893,7 +37327,7 @@ func (x *SecurityRunActivityPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityRunActivityPoint.ProtoReflect.Descriptor instead.
 func (*SecurityRunActivityPoint) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{452}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{459}
 }
 
 func (x *SecurityRunActivityPoint) GetRunName() string {
@@ -36949,7 +37383,7 @@ type SecurityConfigPosture struct {
 
 func (x *SecurityConfigPosture) Reset() {
 	*x = SecurityConfigPosture{}
-	mi := &file_rpc_platform_service_proto_msgTypes[453]
+	mi := &file_rpc_platform_service_proto_msgTypes[460]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36961,7 +37395,7 @@ func (x *SecurityConfigPosture) String() string {
 func (*SecurityConfigPosture) ProtoMessage() {}
 
 func (x *SecurityConfigPosture) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[453]
+	mi := &file_rpc_platform_service_proto_msgTypes[460]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36974,7 +37408,7 @@ func (x *SecurityConfigPosture) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityConfigPosture.ProtoReflect.Descriptor instead.
 func (*SecurityConfigPosture) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{453}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{460}
 }
 
 func (x *SecurityConfigPosture) GetScanName() string {
@@ -37050,7 +37484,7 @@ type GetSecurityConfigPosturesResponse struct {
 
 func (x *GetSecurityConfigPosturesResponse) Reset() {
 	*x = GetSecurityConfigPosturesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[454]
+	mi := &file_rpc_platform_service_proto_msgTypes[461]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37062,7 +37496,7 @@ func (x *GetSecurityConfigPosturesResponse) String() string {
 func (*GetSecurityConfigPosturesResponse) ProtoMessage() {}
 
 func (x *GetSecurityConfigPosturesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[454]
+	mi := &file_rpc_platform_service_proto_msgTypes[461]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37075,7 +37509,7 @@ func (x *GetSecurityConfigPosturesResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetSecurityConfigPosturesResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityConfigPosturesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{454}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{461}
 }
 
 func (x *GetSecurityConfigPosturesResponse) GetStoreSupported() bool {
@@ -37111,7 +37545,7 @@ type GetSecurityScanReportRequest struct {
 
 func (x *GetSecurityScanReportRequest) Reset() {
 	*x = GetSecurityScanReportRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[455]
+	mi := &file_rpc_platform_service_proto_msgTypes[462]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37123,7 +37557,7 @@ func (x *GetSecurityScanReportRequest) String() string {
 func (*GetSecurityScanReportRequest) ProtoMessage() {}
 
 func (x *GetSecurityScanReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[455]
+	mi := &file_rpc_platform_service_proto_msgTypes[462]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37136,7 +37570,7 @@ func (x *GetSecurityScanReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityScanReportRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityScanReportRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{455}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{462}
 }
 
 func (x *GetSecurityScanReportRequest) GetNamespace() string {
@@ -37173,7 +37607,7 @@ type GetSecurityScanReportResponse struct {
 
 func (x *GetSecurityScanReportResponse) Reset() {
 	*x = GetSecurityScanReportResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[456]
+	mi := &file_rpc_platform_service_proto_msgTypes[463]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37185,7 +37619,7 @@ func (x *GetSecurityScanReportResponse) String() string {
 func (*GetSecurityScanReportResponse) ProtoMessage() {}
 
 func (x *GetSecurityScanReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[456]
+	mi := &file_rpc_platform_service_proto_msgTypes[463]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37198,7 +37632,7 @@ func (x *GetSecurityScanReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityScanReportResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityScanReportResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{456}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{463}
 }
 
 func (x *GetSecurityScanReportResponse) GetContent() string {
@@ -37246,7 +37680,7 @@ type SecuritySkillsStatus struct {
 
 func (x *SecuritySkillsStatus) Reset() {
 	*x = SecuritySkillsStatus{}
-	mi := &file_rpc_platform_service_proto_msgTypes[457]
+	mi := &file_rpc_platform_service_proto_msgTypes[464]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37258,7 +37692,7 @@ func (x *SecuritySkillsStatus) String() string {
 func (*SecuritySkillsStatus) ProtoMessage() {}
 
 func (x *SecuritySkillsStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[457]
+	mi := &file_rpc_platform_service_proto_msgTypes[464]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37271,7 +37705,7 @@ func (x *SecuritySkillsStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecuritySkillsStatus.ProtoReflect.Descriptor instead.
 func (*SecuritySkillsStatus) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{457}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{464}
 }
 
 func (x *SecuritySkillsStatus) GetNamespace() string {
@@ -40263,7 +40697,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x0fstarted_at_unix\x18\n" +
 	" \x01(\x03R\rstartedAtUnix\x12(\n" +
 	"\x10finished_at_unix\x18\v \x01(\x03R\x0efinishedAtUnix\x12\x18\n" +
-	"\ascripts\x18\f \x03(\tR\ascripts\"\xe0\v\n" +
+	"\ascripts\x18\f \x03(\tR\ascripts\"\x92\f\n" +
 	"\x16SecurityScanConfigSpec\x12\x19\n" +
 	"\brepo_url\x18\x01 \x01(\tR\arepoUrl\x12\x1f\n" +
 	"\vbase_branch\x18\x02 \x01(\tR\n" +
@@ -40296,7 +40730,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x0fpolicy_pack_ref\x18\x19 \x01(\tR\rpolicyPackRef\x12@\n" +
 	"\abudgets\x18\x1a \x01(\v2&.platform.v1.SecurityScanBudgetsConfigR\abudgets\x12F\n" +
 	"\texecution\x18\x1b \x01(\v2(.platform.v1.SecurityScanExecutionConfigR\texecution\x12c\n" +
-	"\x10parameter_values\x18\x1c \x03(\v28.platform.v1.SecurityScanConfigSpec.ParameterValuesEntryR\x0fparameterValues\x1aB\n" +
+	"\x10parameter_values\x18\x1c \x03(\v28.platform.v1.SecurityScanConfigSpec.ParameterValuesEntryR\x0fparameterValues\x120\n" +
+	"\x14security_program_ref\x18\x1d \x01(\tR\x12securityProgramRef\x1aB\n" +
 	"\x14ParameterValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdf\t\n" +
@@ -40545,6 +40980,40 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"policyPack\"S\n" +
 	"\x1fDeleteSecurityPolicyPackRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xf1\x03\n" +
+	"\x17SecurityProgramResource\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
+	"\bprovider\x18\x03 \x01(\tR\bprovider\x12!\n" +
+	"\fdisplay_name\x18\x04 \x01(\tR\vdisplayName\x12\x1f\n" +
+	"\vprogram_url\x18\x05 \x01(\tR\n" +
+	"programUrl\x12!\n" +
+	"\fscope_policy\x18\x06 \x01(\tR\vscopePolicy\x12;\n" +
+	"\vverified_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"verifiedAt\x12\x1f\n" +
+	"\vusage_count\x18\n" +
+	" \x01(\x05R\n" +
+	"usageCount\x12+\n" +
+	"\x11referencing_scans\x18\v \x03(\tR\x10referencingScans\x12\x1e\n" +
+	"\n" +
+	"generation\x18\f \x01(\x03R\n" +
+	"generation\x12&\n" +
+	"\x0fcreated_at_unix\x18\r \x01(\x03R\rcreatedAtUnix\x12'\n" +
+	"\x0fcondition_ready\x18\x0e \x01(\tR\x0econditionReady\x12%\n" +
+	"\x0econtent_digest\x18\x0f \x01(\tR\rcontentDigest\";\n" +
+	"\x1bListSecurityProgramsRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"`\n" +
+	"\x1cListSecurityProgramsResponse\x12@\n" +
+	"\bprograms\x18\x01 \x03(\v2$.platform.v1.SecurityProgramResourceR\bprograms\"M\n" +
+	"\x19GetSecurityProgramRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"^\n" +
+	"\x1cCreateSecurityProgramRequest\x12>\n" +
+	"\aprogram\x18\x01 \x01(\v2$.platform.v1.SecurityProgramResourceR\aprogram\"^\n" +
+	"\x1cUpdateSecurityProgramRequest\x12>\n" +
+	"\aprogram\x18\x01 \x01(\v2$.platform.v1.SecurityProgramResourceR\aprogram\"P\n" +
+	"\x1cDeleteSecurityProgramRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"\xa9\x01\n" +
 	"\x1cGenerateSecurityDraftRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x122\n" +
@@ -40690,7 +41159,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"*SECURITY_PACK_COLLISION_POLICY_UNSPECIFIED\x10\x00\x12'\n" +
 	"#SECURITY_PACK_COLLISION_POLICY_FAIL\x10\x01\x12'\n" +
 	"#SECURITY_PACK_COLLISION_POLICY_SKIP\x10\x02\x12)\n" +
-	"%SECURITY_PACK_COLLISION_POLICY_RENAME\x10\x032\xfe\x9e\x01\n" +
+	"%SECURITY_PACK_COLLISION_POLICY_RENAME\x10\x032\xff\xa2\x01\n" +
 	"\x0fPlatformService\x12V\n" +
 	"\rListAgentRuns\x12!.platform.v1.ListAgentRunsRequest\x1a\".platform.v1.ListAgentRunsResponse\x12E\n" +
 	"\vGetAgentRun\x12\x1f.platform.v1.GetAgentRunRequest\x1a\x15.platform.v1.AgentRun\x12R\n" +
@@ -40900,7 +41369,12 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x15GetSecurityPolicyPack\x12).platform.v1.GetSecurityPolicyPackRequest\x1a'.platform.v1.SecurityPolicyPackResource\x12q\n" +
 	"\x18CreateSecurityPolicyPack\x12,.platform.v1.CreateSecurityPolicyPackRequest\x1a'.platform.v1.SecurityPolicyPackResource\x12q\n" +
 	"\x18UpdateSecurityPolicyPack\x12,.platform.v1.UpdateSecurityPolicyPackRequest\x1a'.platform.v1.SecurityPolicyPackResource\x12`\n" +
-	"\x18DeleteSecurityPolicyPack\x12,.platform.v1.DeleteSecurityPolicyPackRequest\x1a\x16.google.protobuf.Empty\x12n\n" +
+	"\x18DeleteSecurityPolicyPack\x12,.platform.v1.DeleteSecurityPolicyPackRequest\x1a\x16.google.protobuf.Empty\x12k\n" +
+	"\x14ListSecurityPrograms\x12(.platform.v1.ListSecurityProgramsRequest\x1a).platform.v1.ListSecurityProgramsResponse\x12b\n" +
+	"\x12GetSecurityProgram\x12&.platform.v1.GetSecurityProgramRequest\x1a$.platform.v1.SecurityProgramResource\x12h\n" +
+	"\x15CreateSecurityProgram\x12).platform.v1.CreateSecurityProgramRequest\x1a$.platform.v1.SecurityProgramResource\x12h\n" +
+	"\x15UpdateSecurityProgram\x12).platform.v1.UpdateSecurityProgramRequest\x1a$.platform.v1.SecurityProgramResource\x12Z\n" +
+	"\x15DeleteSecurityProgram\x12).platform.v1.DeleteSecurityProgramRequest\x1a\x16.google.protobuf.Empty\x12n\n" +
 	"\x15GenerateSecurityDraft\x12).platform.v1.GenerateSecurityDraftRequest\x1a*.platform.v1.GenerateSecurityDraftResponse\x12_\n" +
 	"\x10GetSecurityDraft\x12$.platform.v1.GetSecurityDraftRequest\x1a%.platform.v1.GetSecurityDraftResponse\x12e\n" +
 	"\x12ExportSecurityPack\x12&.platform.v1.ExportSecurityPackRequest\x1a'.platform.v1.ExportSecurityPackResponse\x12e\n" +
@@ -40924,7 +41398,7 @@ func file_rpc_platform_service_proto_rawDescGZIP() []byte {
 }
 
 var file_rpc_platform_service_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_rpc_platform_service_proto_msgTypes = make([]protoimpl.MessageInfo, 473)
+var file_rpc_platform_service_proto_msgTypes = make([]protoimpl.MessageInfo, 480)
 var file_rpc_platform_service_proto_goTypes = []any{
 	(AgentRunMessageMode)(0),                              // 0: platform.v1.AgentRunMessageMode
 	(SecurityDraftKind)(0),                                // 1: platform.v1.SecurityDraftKind
@@ -41369,42 +41843,49 @@ var file_rpc_platform_service_proto_goTypes = []any{
 	(*CreateSecurityPolicyPackRequest)(nil),               // 440: platform.v1.CreateSecurityPolicyPackRequest
 	(*UpdateSecurityPolicyPackRequest)(nil),               // 441: platform.v1.UpdateSecurityPolicyPackRequest
 	(*DeleteSecurityPolicyPackRequest)(nil),               // 442: platform.v1.DeleteSecurityPolicyPackRequest
-	(*GenerateSecurityDraftRequest)(nil),                  // 443: platform.v1.GenerateSecurityDraftRequest
-	(*GenerateSecurityDraftResponse)(nil),                 // 444: platform.v1.GenerateSecurityDraftResponse
-	(*GetSecurityDraftRequest)(nil),                       // 445: platform.v1.GetSecurityDraftRequest
-	(*GetSecurityDraftResponse)(nil),                      // 446: platform.v1.GetSecurityDraftResponse
-	(*ExportSecurityPackRequest)(nil),                     // 447: platform.v1.ExportSecurityPackRequest
-	(*ExportSecurityPackResponse)(nil),                    // 448: platform.v1.ExportSecurityPackResponse
-	(*ImportSecurityPackRequest)(nil),                     // 449: platform.v1.ImportSecurityPackRequest
-	(*SecurityPackItemResult)(nil),                        // 450: platform.v1.SecurityPackItemResult
-	(*ImportSecurityPackResponse)(nil),                    // 451: platform.v1.ImportSecurityPackResponse
-	(*GetSecurityOverviewRequest)(nil),                    // 452: platform.v1.GetSecurityOverviewRequest
-	(*SecurityScanConfigIssue)(nil),                       // 453: platform.v1.SecurityScanConfigIssue
-	(*GetSecurityOverviewResponse)(nil),                   // 454: platform.v1.GetSecurityOverviewResponse
-	(*GetSecurityConfigPosturesRequest)(nil),              // 455: platform.v1.GetSecurityConfigPosturesRequest
-	(*SecurityRunActivityPoint)(nil),                      // 456: platform.v1.SecurityRunActivityPoint
-	(*SecurityConfigPosture)(nil),                         // 457: platform.v1.SecurityConfigPosture
-	(*GetSecurityConfigPosturesResponse)(nil),             // 458: platform.v1.GetSecurityConfigPosturesResponse
-	(*GetSecurityScanReportRequest)(nil),                  // 459: platform.v1.GetSecurityScanReportRequest
-	(*GetSecurityScanReportResponse)(nil),                 // 460: platform.v1.GetSecurityScanReportResponse
-	(*SecuritySkillsStatus)(nil),                          // 461: platform.v1.SecuritySkillsStatus
-	nil,                                                   // 462: platform.v1.IntegrationCredentialUpdate.EntriesEntry
-	nil,                                                   // 463: platform.v1.MCPServerInfo.EnvEntry
-	nil,                                                   // 464: platform.v1.UpsertMCPServerRequest.EnvEntry
-	nil,                                                   // 465: platform.v1.RuntimeProfile.CommandEnvEntry
-	nil,                                                   // 466: platform.v1.RuntimeProfile.ResourceRequestsEntry
-	nil,                                                   // 467: platform.v1.RuntimeProfile.ResourceLimitsEntry
-	nil,                                                   // 468: platform.v1.RoleInstruction.ModelsByProviderEntry
-	nil,                                                   // 469: platform.v1.SecurityScan.CountsEntry
-	nil,                                                   // 470: platform.v1.GetSecurityFindingSummaryResponse.CountsEntry
-	nil,                                                   // 471: platform.v1.SecurityScanConfigSpec.ParameterValuesEntry
-	nil,                                                   // 472: platform.v1.SecurityScanConfig.FindingCountsEntry
-	nil,                                                   // 473: platform.v1.RunSecurityScanNowRequest.ParameterValuesEntry
-	nil,                                                   // 474: platform.v1.GetSecurityOverviewResponse.FindingCountsEntry
-	nil,                                                   // 475: platform.v1.SecurityRunActivityPoint.SeverityCountsEntry
-	nil,                                                   // 476: platform.v1.SecurityConfigPosture.FindingCountsEntry
-	(*timestamppb.Timestamp)(nil),                         // 477: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),                                 // 478: google.protobuf.Empty
+	(*SecurityProgramResource)(nil),                       // 443: platform.v1.SecurityProgramResource
+	(*ListSecurityProgramsRequest)(nil),                   // 444: platform.v1.ListSecurityProgramsRequest
+	(*ListSecurityProgramsResponse)(nil),                  // 445: platform.v1.ListSecurityProgramsResponse
+	(*GetSecurityProgramRequest)(nil),                     // 446: platform.v1.GetSecurityProgramRequest
+	(*CreateSecurityProgramRequest)(nil),                  // 447: platform.v1.CreateSecurityProgramRequest
+	(*UpdateSecurityProgramRequest)(nil),                  // 448: platform.v1.UpdateSecurityProgramRequest
+	(*DeleteSecurityProgramRequest)(nil),                  // 449: platform.v1.DeleteSecurityProgramRequest
+	(*GenerateSecurityDraftRequest)(nil),                  // 450: platform.v1.GenerateSecurityDraftRequest
+	(*GenerateSecurityDraftResponse)(nil),                 // 451: platform.v1.GenerateSecurityDraftResponse
+	(*GetSecurityDraftRequest)(nil),                       // 452: platform.v1.GetSecurityDraftRequest
+	(*GetSecurityDraftResponse)(nil),                      // 453: platform.v1.GetSecurityDraftResponse
+	(*ExportSecurityPackRequest)(nil),                     // 454: platform.v1.ExportSecurityPackRequest
+	(*ExportSecurityPackResponse)(nil),                    // 455: platform.v1.ExportSecurityPackResponse
+	(*ImportSecurityPackRequest)(nil),                     // 456: platform.v1.ImportSecurityPackRequest
+	(*SecurityPackItemResult)(nil),                        // 457: platform.v1.SecurityPackItemResult
+	(*ImportSecurityPackResponse)(nil),                    // 458: platform.v1.ImportSecurityPackResponse
+	(*GetSecurityOverviewRequest)(nil),                    // 459: platform.v1.GetSecurityOverviewRequest
+	(*SecurityScanConfigIssue)(nil),                       // 460: platform.v1.SecurityScanConfigIssue
+	(*GetSecurityOverviewResponse)(nil),                   // 461: platform.v1.GetSecurityOverviewResponse
+	(*GetSecurityConfigPosturesRequest)(nil),              // 462: platform.v1.GetSecurityConfigPosturesRequest
+	(*SecurityRunActivityPoint)(nil),                      // 463: platform.v1.SecurityRunActivityPoint
+	(*SecurityConfigPosture)(nil),                         // 464: platform.v1.SecurityConfigPosture
+	(*GetSecurityConfigPosturesResponse)(nil),             // 465: platform.v1.GetSecurityConfigPosturesResponse
+	(*GetSecurityScanReportRequest)(nil),                  // 466: platform.v1.GetSecurityScanReportRequest
+	(*GetSecurityScanReportResponse)(nil),                 // 467: platform.v1.GetSecurityScanReportResponse
+	(*SecuritySkillsStatus)(nil),                          // 468: platform.v1.SecuritySkillsStatus
+	nil,                                                   // 469: platform.v1.IntegrationCredentialUpdate.EntriesEntry
+	nil,                                                   // 470: platform.v1.MCPServerInfo.EnvEntry
+	nil,                                                   // 471: platform.v1.UpsertMCPServerRequest.EnvEntry
+	nil,                                                   // 472: platform.v1.RuntimeProfile.CommandEnvEntry
+	nil,                                                   // 473: platform.v1.RuntimeProfile.ResourceRequestsEntry
+	nil,                                                   // 474: platform.v1.RuntimeProfile.ResourceLimitsEntry
+	nil,                                                   // 475: platform.v1.RoleInstruction.ModelsByProviderEntry
+	nil,                                                   // 476: platform.v1.SecurityScan.CountsEntry
+	nil,                                                   // 477: platform.v1.GetSecurityFindingSummaryResponse.CountsEntry
+	nil,                                                   // 478: platform.v1.SecurityScanConfigSpec.ParameterValuesEntry
+	nil,                                                   // 479: platform.v1.SecurityScanConfig.FindingCountsEntry
+	nil,                                                   // 480: platform.v1.RunSecurityScanNowRequest.ParameterValuesEntry
+	nil,                                                   // 481: platform.v1.GetSecurityOverviewResponse.FindingCountsEntry
+	nil,                                                   // 482: platform.v1.SecurityRunActivityPoint.SeverityCountsEntry
+	nil,                                                   // 483: platform.v1.SecurityConfigPosture.FindingCountsEntry
+	(*timestamppb.Timestamp)(nil),                         // 484: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),                                 // 485: google.protobuf.Empty
 }
 var file_rpc_platform_service_proto_depIdxs = []int32{
 	48,  // 0: platform.v1.ListAgentRunsResponse.runs:type_name -> platform.v1.AgentRun
@@ -41418,9 +41899,9 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	24,  // 8: platform.v1.AgentRunUsageResponse.top_level_tasks:type_name -> platform.v1.UsageTask
 	24,  // 9: platform.v1.AgentRunUsageResponse.subagent_tasks:type_name -> platform.v1.UsageTask
 	25,  // 10: platform.v1.AgentRunUsageResponse.phases:type_name -> platform.v1.UsagePhase
-	477, // 11: platform.v1.GetObservabilityOverviewRequest.start:type_name -> google.protobuf.Timestamp
-	477, // 12: platform.v1.GetObservabilityOverviewRequest.end:type_name -> google.protobuf.Timestamp
-	477, // 13: platform.v1.ObservabilityBucket.start:type_name -> google.protobuf.Timestamp
+	484, // 11: platform.v1.GetObservabilityOverviewRequest.start:type_name -> google.protobuf.Timestamp
+	484, // 12: platform.v1.GetObservabilityOverviewRequest.end:type_name -> google.protobuf.Timestamp
+	484, // 13: platform.v1.ObservabilityBucket.start:type_name -> google.protobuf.Timestamp
 	28,  // 14: platform.v1.ObservabilityBucket.totals:type_name -> platform.v1.ObservabilityTotals
 	28,  // 15: platform.v1.ObservabilityOverviewResponse.totals:type_name -> platform.v1.ObservabilityTotals
 	29,  // 16: platform.v1.ObservabilityOverviewResponse.buckets:type_name -> platform.v1.ObservabilityBucket
@@ -41469,17 +41950,17 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	311, // 59: platform.v1.CreateAgentRunRequest.overseer:type_name -> platform.v1.AgentRunOverseerConfig
 	71,  // 60: platform.v1.MyCredentials.integrations:type_name -> platform.v1.IntegrationCredentialState
 	320, // 61: platform.v1.MyCredentials.secrets:type_name -> platform.v1.UserSecretState
-	462, // 62: platform.v1.IntegrationCredentialUpdate.entries:type_name -> platform.v1.IntegrationCredentialUpdate.EntriesEntry
+	469, // 62: platform.v1.IntegrationCredentialUpdate.entries:type_name -> platform.v1.IntegrationCredentialUpdate.EntriesEntry
 	72,  // 63: platform.v1.UpdateMyCredentialsRequest.integrations:type_name -> platform.v1.IntegrationCredentialUpdate
-	463, // 64: platform.v1.MCPServerInfo.env:type_name -> platform.v1.MCPServerInfo.EnvEntry
+	470, // 64: platform.v1.MCPServerInfo.env:type_name -> platform.v1.MCPServerInfo.EnvEntry
 	79,  // 65: platform.v1.MCPServerInfo.secret_env:type_name -> platform.v1.MCPServerSecretEnv
 	78,  // 66: platform.v1.ListMCPServersResponse.servers:type_name -> platform.v1.MCPServerInfo
-	464, // 67: platform.v1.UpsertMCPServerRequest.env:type_name -> platform.v1.UpsertMCPServerRequest.EnvEntry
+	471, // 67: platform.v1.UpsertMCPServerRequest.env:type_name -> platform.v1.UpsertMCPServerRequest.EnvEntry
 	79,  // 68: platform.v1.UpsertMCPServerRequest.secret_env:type_name -> platform.v1.MCPServerSecretEnv
 	84,  // 69: platform.v1.ListSkillsResponse.skills:type_name -> platform.v1.SkillInfo
-	465, // 70: platform.v1.RuntimeProfile.command_env:type_name -> platform.v1.RuntimeProfile.CommandEnvEntry
-	466, // 71: platform.v1.RuntimeProfile.resource_requests:type_name -> platform.v1.RuntimeProfile.ResourceRequestsEntry
-	467, // 72: platform.v1.RuntimeProfile.resource_limits:type_name -> platform.v1.RuntimeProfile.ResourceLimitsEntry
+	472, // 70: platform.v1.RuntimeProfile.command_env:type_name -> platform.v1.RuntimeProfile.CommandEnvEntry
+	473, // 71: platform.v1.RuntimeProfile.resource_requests:type_name -> platform.v1.RuntimeProfile.ResourceRequestsEntry
+	474, // 72: platform.v1.RuntimeProfile.resource_limits:type_name -> platform.v1.RuntimeProfile.ResourceLimitsEntry
 	89,  // 73: platform.v1.RuntimeProfile.resource_claims:type_name -> platform.v1.RuntimeResourceClaim
 	90,  // 74: platform.v1.ListRuntimeProfilesResponse.profiles:type_name -> platform.v1.RuntimeProfile
 	90,  // 75: platform.v1.CreateRuntimeProfileRequest.profile:type_name -> platform.v1.RuntimeProfile
@@ -41496,7 +41977,7 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	190, // 86: platform.v1.ListModeTemplatesResponse.templates:type_name -> platform.v1.ModeTemplate
 	190, // 87: platform.v1.CreateModeTemplateRequest.template:type_name -> platform.v1.ModeTemplate
 	190, // 88: platform.v1.UpdateModeTemplateRequest.template:type_name -> platform.v1.ModeTemplate
-	468, // 89: platform.v1.RoleInstruction.models_by_provider:type_name -> platform.v1.RoleInstruction.ModelsByProviderEntry
+	475, // 89: platform.v1.RoleInstruction.models_by_provider:type_name -> platform.v1.RoleInstruction.ModelsByProviderEntry
 	116, // 90: platform.v1.ListRoleInstructionsResponse.instructions:type_name -> platform.v1.RoleInstruction
 	116, // 91: platform.v1.CreateRoleInstructionRequest.instruction:type_name -> platform.v1.RoleInstruction
 	116, // 92: platform.v1.UpdateRoleInstructionRequest.instruction:type_name -> platform.v1.RoleInstruction
@@ -41505,11 +41986,11 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	77,  // 95: platform.v1.ListSlackAgentsResponse.agents:type_name -> platform.v1.SlackAgent
 	129, // 96: platform.v1.ListSlackDraftsResponse.drafts:type_name -> platform.v1.SlackDraft
 	133, // 97: platform.v1.ListSlackWorkspacesResponse.workspaces:type_name -> platform.v1.SlackWorkspace
-	477, // 98: platform.v1.Soul.updated_at:type_name -> google.protobuf.Timestamp
+	484, // 98: platform.v1.Soul.updated_at:type_name -> google.protobuf.Timestamp
 	141, // 99: platform.v1.RoleModelPreferences.preferences:type_name -> platform.v1.RoleModelPreference
-	477, // 100: platform.v1.RoleModelPreferences.updated_at:type_name -> google.protobuf.Timestamp
+	484, // 100: platform.v1.RoleModelPreferences.updated_at:type_name -> google.protobuf.Timestamp
 	141, // 101: platform.v1.UpdateMyRoleModelPreferencesRequest.preferences:type_name -> platform.v1.RoleModelPreference
-	477, // 102: platform.v1.GitIdentity.updated_at:type_name -> google.protobuf.Timestamp
+	484, // 102: platform.v1.GitIdentity.updated_at:type_name -> google.protobuf.Timestamp
 	148, // 103: platform.v1.CreateTeamChildRunRequest.parent:type_name -> platform.v1.TeamParentRef
 	148, // 104: platform.v1.ListTeamChildRunsRequest.parent:type_name -> platform.v1.TeamParentRef
 	150, // 105: platform.v1.ListTeamChildRunsResponse.children:type_name -> platform.v1.TeamChildRunStatus
@@ -41542,14 +42023,14 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	225, // 132: platform.v1.ListProjectsResponse.projects:type_name -> platform.v1.Project
 	225, // 133: platform.v1.ProjectEvent.project:type_name -> platform.v1.Project
 	49,  // 134: platform.v1.UpdateProjectRequest.provider_keys:type_name -> platform.v1.ProviderKeyRef
-	477, // 135: platform.v1.ProjectTriggerCondition.last_transition_time:type_name -> google.protobuf.Timestamp
+	484, // 135: platform.v1.ProjectTriggerCondition.last_transition_time:type_name -> google.protobuf.Timestamp
 	206, // 136: platform.v1.ProjectTrigger.github:type_name -> platform.v1.GitHubProjectTrigger
 	207, // 137: platform.v1.ProjectTrigger.slack:type_name -> platform.v1.SlackProjectTrigger
 	208, // 138: platform.v1.ProjectTrigger.cron:type_name -> platform.v1.CronProjectTrigger
 	209, // 139: platform.v1.ProjectTrigger.linear:type_name -> platform.v1.LinearProjectTrigger
 	205, // 140: platform.v1.ProjectTrigger.conditions:type_name -> platform.v1.ProjectTriggerCondition
-	477, // 141: platform.v1.ProjectTrigger.last_activity_time:type_name -> google.protobuf.Timestamp
-	477, // 142: platform.v1.ProjectTrigger.next_activity_time:type_name -> google.protobuf.Timestamp
+	484, // 141: platform.v1.ProjectTrigger.last_activity_time:type_name -> google.protobuf.Timestamp
+	484, // 142: platform.v1.ProjectTrigger.next_activity_time:type_name -> google.protobuf.Timestamp
 	233, // 143: platform.v1.ProjectTrigger.maintainer_status:type_name -> platform.v1.GitHubRepositoryMaintainerStatus
 	210, // 144: platform.v1.CreateProjectTriggerRequest.trigger:type_name -> platform.v1.ProjectTrigger
 	210, // 145: platform.v1.UpdateProjectTriggerRequest.trigger:type_name -> platform.v1.ProjectTrigger
@@ -41624,11 +42105,11 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	296, // 214: platform.v1.ListSharedWithMeResponse.resources:type_name -> platform.v1.SharedResource
 	286, // 215: platform.v1.ResourceShareInfo.shared_with:type_name -> platform.v1.ResourceOwner
 	286, // 216: platform.v1.ResourceShareInfo.shared_by:type_name -> platform.v1.ResourceOwner
-	477, // 217: platform.v1.ResourceShareInfo.created_at:type_name -> google.protobuf.Timestamp
+	484, // 217: platform.v1.ResourceShareInfo.created_at:type_name -> google.protobuf.Timestamp
 	295, // 218: platform.v1.SharedResource.share:type_name -> platform.v1.ResourceShareInfo
 	300, // 219: platform.v1.ListNotificationsResponse.notifications:type_name -> platform.v1.NotificationInfo
 	286, // 220: platform.v1.NotificationInfo.actor:type_name -> platform.v1.ResourceOwner
-	477, // 221: platform.v1.NotificationInfo.created_at:type_name -> google.protobuf.Timestamp
+	484, // 221: platform.v1.NotificationInfo.created_at:type_name -> google.protobuf.Timestamp
 	286, // 222: platform.v1.GetPresenceResponse.viewers:type_name -> platform.v1.ResourceOwner
 	307, // 223: platform.v1.GetAgentRunPullRequestsResponse.pull_requests:type_name -> platform.v1.PullRequestDetails
 	308, // 224: platform.v1.PullRequestDetails.checks:type_name -> platform.v1.PullRequestCheck
@@ -41643,28 +42124,28 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	341, // 233: platform.v1.MyOpenAIUsage.limits:type_name -> platform.v1.OpenAIUsageLimit
 	344, // 234: platform.v1.MyCopilotUsage.quotas:type_name -> platform.v1.CopilotUsageQuota
 	347, // 235: platform.v1.MyAnthropicUsage.limits:type_name -> platform.v1.AnthropicUsageLimit
-	477, // 236: platform.v1.SecurityScan.started_at:type_name -> google.protobuf.Timestamp
-	477, // 237: platform.v1.SecurityScan.completed_at:type_name -> google.protobuf.Timestamp
-	469, // 238: platform.v1.SecurityScan.counts:type_name -> platform.v1.SecurityScan.CountsEntry
+	484, // 236: platform.v1.SecurityScan.started_at:type_name -> google.protobuf.Timestamp
+	484, // 237: platform.v1.SecurityScan.completed_at:type_name -> google.protobuf.Timestamp
+	476, // 238: platform.v1.SecurityScan.counts:type_name -> platform.v1.SecurityScan.CountsEntry
 	348, // 239: platform.v1.ListSecurityScansResponse.scans:type_name -> platform.v1.SecurityScan
-	477, // 240: platform.v1.SecurityFinding.first_seen_at:type_name -> google.protobuf.Timestamp
-	477, // 241: platform.v1.SecurityFinding.last_seen_at:type_name -> google.protobuf.Timestamp
-	477, // 242: platform.v1.SecurityFinding.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
-	477, // 243: platform.v1.SecurityFinding.resolved_at:type_name -> google.protobuf.Timestamp
-	477, // 244: platform.v1.SecurityFinding.triaged_at:type_name -> google.protobuf.Timestamp
-	477, // 245: platform.v1.SecurityFinding.suppression_expires_at:type_name -> google.protobuf.Timestamp
-	477, // 246: platform.v1.SecurityFinding.suppressed_at:type_name -> google.protobuf.Timestamp
+	484, // 240: platform.v1.SecurityFinding.first_seen_at:type_name -> google.protobuf.Timestamp
+	484, // 241: platform.v1.SecurityFinding.last_seen_at:type_name -> google.protobuf.Timestamp
+	484, // 242: platform.v1.SecurityFinding.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
+	484, // 243: platform.v1.SecurityFinding.resolved_at:type_name -> google.protobuf.Timestamp
+	484, // 244: platform.v1.SecurityFinding.triaged_at:type_name -> google.protobuf.Timestamp
+	484, // 245: platform.v1.SecurityFinding.suppression_expires_at:type_name -> google.protobuf.Timestamp
+	484, // 246: platform.v1.SecurityFinding.suppressed_at:type_name -> google.protobuf.Timestamp
 	352, // 247: platform.v1.ListSecurityFindingsResponse.findings:type_name -> platform.v1.SecurityFinding
-	477, // 248: platform.v1.SecurityFindingEvent.created_at:type_name -> google.protobuf.Timestamp
+	484, // 248: platform.v1.SecurityFindingEvent.created_at:type_name -> google.protobuf.Timestamp
 	352, // 249: platform.v1.GetSecurityFindingResponse.finding:type_name -> platform.v1.SecurityFinding
 	356, // 250: platform.v1.GetSecurityFindingResponse.events:type_name -> platform.v1.SecurityFindingEvent
-	477, // 251: platform.v1.UpdateSecurityFindingStatusRequest.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
-	470, // 252: platform.v1.GetSecurityFindingSummaryResponse.counts:type_name -> platform.v1.GetSecurityFindingSummaryResponse.CountsEntry
+	484, // 251: platform.v1.UpdateSecurityFindingStatusRequest.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
+	477, // 252: platform.v1.GetSecurityFindingSummaryResponse.counts:type_name -> platform.v1.GetSecurityFindingSummaryResponse.CountsEntry
 	361, // 253: platform.v1.GetSecurityFindingSummaryResponse.trends:type_name -> platform.v1.SecurityFindingTrends
-	477, // 254: platform.v1.BulkUpdateSecurityFindingStatusRequest.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
+	484, // 254: platform.v1.BulkUpdateSecurityFindingStatusRequest.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
 	366, // 255: platform.v1.BulkUpdateSecurityFindingStatusResponse.results:type_name -> platform.v1.BulkUpdateSecurityFindingOutcome
-	477, // 256: platform.v1.SecuritySavedFilter.created_at:type_name -> google.protobuf.Timestamp
-	477, // 257: platform.v1.SecuritySavedFilter.updated_at:type_name -> google.protobuf.Timestamp
+	484, // 256: platform.v1.SecuritySavedFilter.created_at:type_name -> google.protobuf.Timestamp
+	484, // 257: platform.v1.SecuritySavedFilter.updated_at:type_name -> google.protobuf.Timestamp
 	368, // 258: platform.v1.ListSecuritySavedFiltersResponse.filters:type_name -> platform.v1.SecuritySavedFilter
 	356, // 259: platform.v1.ListSecurityFindingEventsResponse.events:type_name -> platform.v1.SecurityFindingEvent
 	380, // 260: platform.v1.SecurityScanTaskConfig.tools:type_name -> platform.v1.SecurityScanTaskTools
@@ -41684,9 +42165,9 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	386, // 274: platform.v1.SecurityScanConfigSpec.notifications:type_name -> platform.v1.SecurityScanNotificationRuleConfig
 	434, // 275: platform.v1.SecurityScanConfigSpec.budgets:type_name -> platform.v1.SecurityScanBudgetsConfig
 	389, // 276: platform.v1.SecurityScanConfigSpec.execution:type_name -> platform.v1.SecurityScanExecutionConfig
-	471, // 277: platform.v1.SecurityScanConfigSpec.parameter_values:type_name -> platform.v1.SecurityScanConfigSpec.ParameterValuesEntry
+	478, // 277: platform.v1.SecurityScanConfigSpec.parameter_values:type_name -> platform.v1.SecurityScanConfigSpec.ParameterValuesEntry
 	396, // 278: platform.v1.SecurityScanConfig.spec:type_name -> platform.v1.SecurityScanConfigSpec
-	472, // 279: platform.v1.SecurityScanConfig.finding_counts:type_name -> platform.v1.SecurityScanConfig.FindingCountsEntry
+	479, // 279: platform.v1.SecurityScanConfig.finding_counts:type_name -> platform.v1.SecurityScanConfig.FindingCountsEntry
 	286, // 280: platform.v1.SecurityScanConfig.owner:type_name -> platform.v1.ResourceOwner
 	387, // 281: platform.v1.SecurityScanConfig.last_check:type_name -> platform.v1.SecurityScanCheckState
 	388, // 282: platform.v1.SecurityScanConfig.last_notifications:type_name -> platform.v1.SecurityScanNotificationState
@@ -41698,7 +42179,7 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	262, // 288: platform.v1.CreateSecurityScanRequest.policies:type_name -> platform.v1.TriggerPolicies
 	396, // 289: platform.v1.UpdateSecurityScanRequest.spec:type_name -> platform.v1.SecurityScanConfigSpec
 	262, // 290: platform.v1.UpdateSecurityScanRequest.policies:type_name -> platform.v1.TriggerPolicies
-	473, // 291: platform.v1.RunSecurityScanNowRequest.parameter_values:type_name -> platform.v1.RunSecurityScanNowRequest.ParameterValuesEntry
+	480, // 291: platform.v1.RunSecurityScanNowRequest.parameter_values:type_name -> platform.v1.RunSecurityScanNowRequest.ParameterValuesEntry
 	379, // 292: platform.v1.SecurityWorkflowResource.tasks:type_name -> platform.v1.SecurityScanTaskConfig
 	408, // 293: platform.v1.SecurityWorkflowResource.parameters:type_name -> platform.v1.SecurityWorkflowParameter
 	407, // 294: platform.v1.ListSecurityWorkflowsResponse.workflows:type_name -> platform.v1.SecurityWorkflowResource
@@ -41714,7 +42195,7 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	425, // 304: platform.v1.CreateSecurityPostScriptRequest.post_script:type_name -> platform.v1.SecurityPostScriptResource
 	425, // 305: platform.v1.UpdateSecurityPostScriptRequest.post_script:type_name -> platform.v1.SecurityPostScriptResource
 	432, // 306: platform.v1.SecurityPolicySuppressionConfig.matcher:type_name -> platform.v1.SecuritySuppressionMatcherConfig
-	477, // 307: platform.v1.SecurityPolicySuppressionConfig.expires_at:type_name -> google.protobuf.Timestamp
+	484, // 307: platform.v1.SecurityPolicySuppressionConfig.expires_at:type_name -> google.protobuf.Timestamp
 	383, // 308: platform.v1.SecurityPolicyPackResource.dedupe:type_name -> platform.v1.SecurityScanDedupeConfig
 	433, // 309: platform.v1.SecurityPolicyPackResource.suppressions:type_name -> platform.v1.SecurityPolicySuppressionConfig
 	435, // 310: platform.v1.SecurityPolicyPackResource.retention:type_name -> platform.v1.SecurityPolicyPackRetentionConfig
@@ -41722,454 +42203,468 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	436, // 312: platform.v1.ListSecurityPolicyPacksResponse.policy_packs:type_name -> platform.v1.SecurityPolicyPackResource
 	436, // 313: platform.v1.CreateSecurityPolicyPackRequest.policy_pack:type_name -> platform.v1.SecurityPolicyPackResource
 	436, // 314: platform.v1.UpdateSecurityPolicyPackRequest.policy_pack:type_name -> platform.v1.SecurityPolicyPackResource
-	1,   // 315: platform.v1.GenerateSecurityDraftRequest.kind:type_name -> platform.v1.SecurityDraftKind
-	2,   // 316: platform.v1.GetSecurityDraftResponse.status:type_name -> platform.v1.SecurityDraftStatus
-	407, // 317: platform.v1.GetSecurityDraftResponse.workflow:type_name -> platform.v1.SecurityWorkflowResource
-	425, // 318: platform.v1.GetSecurityDraftResponse.post_script:type_name -> platform.v1.SecurityPostScriptResource
-	415, // 319: platform.v1.GetSecurityDraftResponse.validation_errors:type_name -> platform.v1.SecurityWorkflowValidationError
-	3,   // 320: platform.v1.ImportSecurityPackRequest.collision_policy:type_name -> platform.v1.SecurityPackCollisionPolicy
-	415, // 321: platform.v1.SecurityPackItemResult.validation_errors:type_name -> platform.v1.SecurityWorkflowValidationError
-	450, // 322: platform.v1.ImportSecurityPackResponse.items:type_name -> platform.v1.SecurityPackItemResult
-	348, // 323: platform.v1.GetSecurityOverviewResponse.active_scans:type_name -> platform.v1.SecurityScan
-	348, // 324: platform.v1.GetSecurityOverviewResponse.recent_scans:type_name -> platform.v1.SecurityScan
-	474, // 325: platform.v1.GetSecurityOverviewResponse.finding_counts:type_name -> platform.v1.GetSecurityOverviewResponse.FindingCountsEntry
-	453, // 326: platform.v1.GetSecurityOverviewResponse.config_issues:type_name -> platform.v1.SecurityScanConfigIssue
-	361, // 327: platform.v1.GetSecurityOverviewResponse.trends:type_name -> platform.v1.SecurityFindingTrends
-	477, // 328: platform.v1.SecurityRunActivityPoint.completed_at:type_name -> google.protobuf.Timestamp
-	475, // 329: platform.v1.SecurityRunActivityPoint.severity_counts:type_name -> platform.v1.SecurityRunActivityPoint.SeverityCountsEntry
-	476, // 330: platform.v1.SecurityConfigPosture.finding_counts:type_name -> platform.v1.SecurityConfigPosture.FindingCountsEntry
-	477, // 331: platform.v1.SecurityConfigPosture.last_started_at:type_name -> google.protobuf.Timestamp
-	477, // 332: platform.v1.SecurityConfigPosture.last_completed_at:type_name -> google.protobuf.Timestamp
-	456, // 333: platform.v1.SecurityConfigPosture.activity:type_name -> platform.v1.SecurityRunActivityPoint
-	457, // 334: platform.v1.GetSecurityConfigPosturesResponse.postures:type_name -> platform.v1.SecurityConfigPosture
-	477, // 335: platform.v1.GetSecurityScanReportResponse.updated_at:type_name -> google.protobuf.Timestamp
-	4,   // 336: platform.v1.PlatformService.ListAgentRuns:input_type -> platform.v1.ListAgentRunsRequest
-	6,   // 337: platform.v1.PlatformService.GetAgentRun:input_type -> platform.v1.GetAgentRunRequest
-	15,  // 338: platform.v1.PlatformService.WatchAgentRuns:input_type -> platform.v1.WatchAgentRunsRequest
-	16,  // 339: platform.v1.PlatformService.WatchAgentRun:input_type -> platform.v1.WatchAgentRunRequest
-	18,  // 340: platform.v1.PlatformService.GetActivityLog:input_type -> platform.v1.GetActivityLogRequest
-	19,  // 341: platform.v1.PlatformService.GetActivityEntryDetail:input_type -> platform.v1.GetActivityEntryDetailRequest
-	18,  // 342: platform.v1.PlatformService.WatchActivityLog:input_type -> platform.v1.GetActivityLogRequest
-	21,  // 343: platform.v1.PlatformService.GetAgentRunUsage:input_type -> platform.v1.GetAgentRunUsageRequest
-	27,  // 344: platform.v1.PlatformService.GetObservabilityOverview:input_type -> platform.v1.GetObservabilityOverviewRequest
-	305, // 345: platform.v1.PlatformService.GetAgentRunPullRequests:input_type -> platform.v1.GetAgentRunPullRequestsRequest
-	55,  // 346: platform.v1.PlatformService.ListLinearProjects:input_type -> platform.v1.ListLinearProjectsRequest
-	57,  // 347: platform.v1.PlatformService.WatchLinearProjects:input_type -> platform.v1.WatchLinearProjectsRequest
-	65,  // 348: platform.v1.PlatformService.SendAgentRunMessage:input_type -> platform.v1.SendAgentRunMessageRequest
-	67,  // 349: platform.v1.PlatformService.CancelAgentRunMessage:input_type -> platform.v1.CancelAgentRunMessageRequest
-	69,  // 350: platform.v1.PlatformService.CreateAgentRun:input_type -> platform.v1.CreateAgentRunRequest
-	73,  // 351: platform.v1.PlatformService.ListMyCredentials:input_type -> platform.v1.ListMyCredentialsRequest
-	74,  // 352: platform.v1.PlatformService.UpdateMyCredentials:input_type -> platform.v1.UpdateMyCredentialsRequest
-	334, // 353: platform.v1.PlatformService.StartProviderOAuth:input_type -> platform.v1.StartProviderOAuthRequest
-	336, // 354: platform.v1.PlatformService.CompleteProviderOAuth:input_type -> platform.v1.CompleteProviderOAuthRequest
-	337, // 355: platform.v1.PlatformService.PollProviderOAuth:input_type -> platform.v1.PollProviderOAuthRequest
-	75,  // 356: platform.v1.PlatformService.ShareMyCredentials:input_type -> platform.v1.ShareMyCredentialsRequest
-	126, // 357: platform.v1.PlatformService.ListSlackAgents:input_type -> platform.v1.ListSlackAgentsRequest
-	128, // 358: platform.v1.PlatformService.UpdateSlackAgent:input_type -> platform.v1.UpdateSlackAgentRequest
-	132, // 359: platform.v1.PlatformService.DeleteSlackAgent:input_type -> platform.v1.DeleteSlackAgentRequest
-	134, // 360: platform.v1.PlatformService.ListSlackWorkspaces:input_type -> platform.v1.ListSlackWorkspacesRequest
-	136, // 361: platform.v1.PlatformService.UpdateSlackWorkspace:input_type -> platform.v1.UpdateSlackWorkspaceRequest
-	137, // 362: platform.v1.PlatformService.DeleteSlackWorkspace:input_type -> platform.v1.DeleteSlackWorkspaceRequest
-	130, // 363: platform.v1.PlatformService.ListSlackDrafts:input_type -> platform.v1.ListSlackDraftsRequest
-	80,  // 364: platform.v1.PlatformService.ListMCPServers:input_type -> platform.v1.ListMCPServersRequest
-	82,  // 365: platform.v1.PlatformService.UpsertMCPServer:input_type -> platform.v1.UpsertMCPServerRequest
-	83,  // 366: platform.v1.PlatformService.DeleteMCPServer:input_type -> platform.v1.DeleteMCPServerRequest
-	85,  // 367: platform.v1.PlatformService.ListSkills:input_type -> platform.v1.ListSkillsRequest
-	317, // 368: platform.v1.PlatformService.ListSkillCatalog:input_type -> platform.v1.ListSkillCatalogRequest
-	319, // 369: platform.v1.PlatformService.InstallSkillFromCatalog:input_type -> platform.v1.InstallSkillFromCatalogRequest
-	87,  // 370: platform.v1.PlatformService.UpsertSkill:input_type -> platform.v1.UpsertSkillRequest
-	88,  // 371: platform.v1.PlatformService.DeleteSkill:input_type -> platform.v1.DeleteSkillRequest
-	91,  // 372: platform.v1.PlatformService.ListRuntimeProfiles:input_type -> platform.v1.ListRuntimeProfilesRequest
-	93,  // 373: platform.v1.PlatformService.CreateRuntimeProfile:input_type -> platform.v1.CreateRuntimeProfileRequest
-	94,  // 374: platform.v1.PlatformService.UpdateRuntimeProfile:input_type -> platform.v1.UpdateRuntimeProfileRequest
-	95,  // 375: platform.v1.PlatformService.DeleteRuntimeProfile:input_type -> platform.v1.DeleteRuntimeProfileRequest
-	99,  // 376: platform.v1.PlatformService.ListMCPPolicies:input_type -> platform.v1.ListMCPPoliciesRequest
-	101, // 377: platform.v1.PlatformService.CreateMCPPolicy:input_type -> platform.v1.CreateMCPPolicyRequest
-	102, // 378: platform.v1.PlatformService.UpdateMCPPolicy:input_type -> platform.v1.UpdateMCPPolicyRequest
-	103, // 379: platform.v1.PlatformService.DeleteMCPPolicy:input_type -> platform.v1.DeleteMCPPolicyRequest
-	106, // 380: platform.v1.PlatformService.ListGuardrailPolicies:input_type -> platform.v1.ListGuardrailPoliciesRequest
-	108, // 381: platform.v1.PlatformService.CreateGuardrailPolicy:input_type -> platform.v1.CreateGuardrailPolicyRequest
-	109, // 382: platform.v1.PlatformService.UpdateGuardrailPolicy:input_type -> platform.v1.UpdateGuardrailPolicyRequest
-	110, // 383: platform.v1.PlatformService.DeleteGuardrailPolicy:input_type -> platform.v1.DeleteGuardrailPolicyRequest
-	111, // 384: platform.v1.PlatformService.ListModeTemplates:input_type -> platform.v1.ListModeTemplatesRequest
-	113, // 385: platform.v1.PlatformService.CreateModeTemplate:input_type -> platform.v1.CreateModeTemplateRequest
-	114, // 386: platform.v1.PlatformService.UpdateModeTemplate:input_type -> platform.v1.UpdateModeTemplateRequest
-	115, // 387: platform.v1.PlatformService.DeleteModeTemplate:input_type -> platform.v1.DeleteModeTemplateRequest
-	117, // 388: platform.v1.PlatformService.ListRoleInstructions:input_type -> platform.v1.ListRoleInstructionsRequest
-	119, // 389: platform.v1.PlatformService.CreateRoleInstruction:input_type -> platform.v1.CreateRoleInstructionRequest
-	120, // 390: platform.v1.PlatformService.UpdateRoleInstruction:input_type -> platform.v1.UpdateRoleInstructionRequest
-	121, // 391: platform.v1.PlatformService.DeleteRoleInstruction:input_type -> platform.v1.DeleteRoleInstructionRequest
-	124, // 392: platform.v1.PlatformService.ListRuntimeImages:input_type -> platform.v1.ListRuntimeImagesRequest
-	139, // 393: platform.v1.PlatformService.GetMySoul:input_type -> platform.v1.GetMySoulRequest
-	140, // 394: platform.v1.PlatformService.UpdateMySoul:input_type -> platform.v1.UpdateMySoulRequest
-	143, // 395: platform.v1.PlatformService.GetMyRoleModelPreferences:input_type -> platform.v1.GetMyRoleModelPreferencesRequest
-	144, // 396: platform.v1.PlatformService.UpdateMyRoleModelPreferences:input_type -> platform.v1.UpdateMyRoleModelPreferencesRequest
-	146, // 397: platform.v1.PlatformService.GetMyGitIdentity:input_type -> platform.v1.GetMyGitIdentityRequest
-	147, // 398: platform.v1.PlatformService.UpdateMyGitIdentity:input_type -> platform.v1.UpdateMyGitIdentityRequest
-	7,   // 399: platform.v1.PlatformService.DeleteAgentRun:input_type -> platform.v1.DeleteAgentRunRequest
-	8,   // 400: platform.v1.PlatformService.CancelAgentRun:input_type -> platform.v1.CancelAgentRunRequest
-	9,   // 401: platform.v1.PlatformService.PromoteAgentRun:input_type -> platform.v1.PromoteAgentRunRequest
-	10,  // 402: platform.v1.PlatformService.InterruptAgentRun:input_type -> platform.v1.InterruptAgentRunRequest
-	12,  // 403: platform.v1.PlatformService.RetryAgentRun:input_type -> platform.v1.RetryAgentRunRequest
-	13,  // 404: platform.v1.PlatformService.RenameAgentRun:input_type -> platform.v1.RenameAgentRunRequest
-	14,  // 405: platform.v1.PlatformService.UpdateAgentRunRuntimeConfig:input_type -> platform.v1.UpdateAgentRunRuntimeConfigRequest
-	313, // 406: platform.v1.PlatformService.AttachAgentRunOverseer:input_type -> platform.v1.AttachAgentRunOverseerRequest
-	314, // 407: platform.v1.PlatformService.UpdateAgentRunOverseer:input_type -> platform.v1.UpdateAgentRunOverseerRequest
-	315, // 408: platform.v1.PlatformService.DetachAgentRunOverseer:input_type -> platform.v1.DetachAgentRunOverseerRequest
-	304, // 409: platform.v1.PlatformService.ExtendAgentRunRuntime:input_type -> platform.v1.ExtendAgentRunRuntimeRequest
-	151, // 410: platform.v1.PlatformService.CreateTeamChildRun:input_type -> platform.v1.CreateTeamChildRunRequest
-	152, // 411: platform.v1.PlatformService.ListTeamChildRuns:input_type -> platform.v1.ListTeamChildRunsRequest
-	154, // 412: platform.v1.PlatformService.GetTeamChildRunStatus:input_type -> platform.v1.GetTeamChildRunStatusRequest
-	155, // 413: platform.v1.PlatformService.GetTeamChildRunLogs:input_type -> platform.v1.GetTeamChildRunLogsRequest
-	157, // 414: platform.v1.PlatformService.GetTeamChildRunArtifact:input_type -> platform.v1.GetTeamChildRunArtifactRequest
-	159, // 415: platform.v1.PlatformService.SendTeamChildMessage:input_type -> platform.v1.SendTeamChildMessageRequest
-	160, // 416: platform.v1.PlatformService.GetAgentRunTeamStatus:input_type -> platform.v1.GetAgentRunTeamStatusRequest
-	161, // 417: platform.v1.PlatformService.WaitForTeamRunChange:input_type -> platform.v1.WaitForTeamRunChangeRequest
-	163, // 418: platform.v1.PlatformService.CancelTeamChildRun:input_type -> platform.v1.CancelTeamChildRunRequest
-	164, // 419: platform.v1.PlatformService.RetryTeamChildRun:input_type -> platform.v1.RetryTeamChildRunRequest
-	165, // 420: platform.v1.PlatformService.GetTeamApprovalStatus:input_type -> platform.v1.GetTeamApprovalStatusRequest
-	60,  // 421: platform.v1.PlatformService.GetLinearProject:input_type -> platform.v1.GetLinearProjectRequest
-	183, // 422: platform.v1.PlatformService.GetTeamRuntime:input_type -> platform.v1.GetTeamRuntimeRequest
-	184, // 423: platform.v1.PlatformService.WatchTeamRuntime:input_type -> platform.v1.WatchTeamRuntimeRequest
-	61,  // 424: platform.v1.PlatformService.ListAvailableModels:input_type -> platform.v1.ListAvailableModelsRequest
-	167, // 425: platform.v1.PlatformService.GetDiff:input_type -> platform.v1.GetDiffRequest
-	167, // 426: platform.v1.PlatformService.WatchDiff:input_type -> platform.v1.GetDiffRequest
-	169, // 427: platform.v1.PlatformService.ListFiles:input_type -> platform.v1.ListFilesRequest
-	172, // 428: platform.v1.PlatformService.ListWorkspaceFiles:input_type -> platform.v1.ListWorkspaceFilesRequest
-	175, // 429: platform.v1.PlatformService.CloneRepository:input_type -> platform.v1.CloneRepositoryRequest
-	177, // 430: platform.v1.PlatformService.ListRepositories:input_type -> platform.v1.ListRepositoriesRequest
-	179, // 431: platform.v1.PlatformService.ReadFile:input_type -> platform.v1.ReadFileRequest
-	181, // 432: platform.v1.PlatformService.UpdateLinearProjectInstructions:input_type -> platform.v1.UpdateLinearProjectInstructionsRequest
-	264, // 433: platform.v1.PlatformService.CreateLinearProject:input_type -> platform.v1.CreateLinearProjectRequest
-	265, // 434: platform.v1.PlatformService.UpdateLinearProject:input_type -> platform.v1.UpdateLinearProjectRequest
-	197, // 435: platform.v1.PlatformService.ListProjects:input_type -> platform.v1.ListProjectsRequest
-	199, // 436: platform.v1.PlatformService.GetProject:input_type -> platform.v1.GetProjectRequest
-	200, // 437: platform.v1.PlatformService.WatchProjects:input_type -> platform.v1.WatchProjectsRequest
-	203, // 438: platform.v1.PlatformService.CreateProject:input_type -> platform.v1.CreateProjectRequest
-	204, // 439: platform.v1.PlatformService.UpdateProject:input_type -> platform.v1.UpdateProjectRequest
-	211, // 440: platform.v1.PlatformService.CreateProjectTrigger:input_type -> platform.v1.CreateProjectTriggerRequest
-	212, // 441: platform.v1.PlatformService.UpdateProjectTrigger:input_type -> platform.v1.UpdateProjectTriggerRequest
-	213, // 442: platform.v1.PlatformService.DeleteProjectTrigger:input_type -> platform.v1.DeleteProjectTriggerRequest
-	214, // 443: platform.v1.PlatformService.SetProjectTriggerEnabled:input_type -> platform.v1.SetProjectTriggerEnabledRequest
-	215, // 444: platform.v1.PlatformService.DeleteProject:input_type -> platform.v1.DeleteProjectRequest
-	220, // 445: platform.v1.PlatformService.ListConnections:input_type -> platform.v1.ListConnectionsRequest
-	222, // 446: platform.v1.PlatformService.CreateConnection:input_type -> platform.v1.CreateConnectionRequest
-	223, // 447: platform.v1.PlatformService.UpdateConnection:input_type -> platform.v1.UpdateConnectionRequest
-	224, // 448: platform.v1.PlatformService.DeleteConnection:input_type -> platform.v1.DeleteConnectionRequest
-	323, // 449: platform.v1.PlatformService.ListProjectContent:input_type -> platform.v1.ListProjectContentRequest
-	325, // 450: platform.v1.PlatformService.GetProjectContent:input_type -> platform.v1.GetProjectContentRequest
-	327, // 451: platform.v1.PlatformService.CreateProjectContent:input_type -> platform.v1.CreateProjectContentRequest
-	328, // 452: platform.v1.PlatformService.UpdateProjectContent:input_type -> platform.v1.UpdateProjectContentRequest
-	329, // 453: platform.v1.PlatformService.DuplicateProjectContent:input_type -> platform.v1.DuplicateProjectContentRequest
-	330, // 454: platform.v1.PlatformService.ListProjectContentVersions:input_type -> platform.v1.ListProjectContentVersionsRequest
-	332, // 455: platform.v1.PlatformService.RestoreProjectContentVersion:input_type -> platform.v1.RestoreProjectContentVersionRequest
-	333, // 456: platform.v1.PlatformService.DeleteProjectContent:input_type -> platform.v1.DeleteProjectContentRequest
-	227, // 457: platform.v1.PlatformService.ListGitHubRepositories:input_type -> platform.v1.ListGitHubRepositoriesRequest
-	229, // 458: platform.v1.PlatformService.GetGitHubRepository:input_type -> platform.v1.GetGitHubRepositoryRequest
-	234, // 459: platform.v1.PlatformService.ListMaintainerWorkItems:input_type -> platform.v1.ListMaintainerWorkItemsRequest
-	250, // 460: platform.v1.PlatformService.IssueMaintainerCommand:input_type -> platform.v1.IssueMaintainerCommandRequest
-	230, // 461: platform.v1.PlatformService.WatchGitHubRepositories:input_type -> platform.v1.WatchGitHubRepositoriesRequest
-	478, // 462: platform.v1.PlatformService.GetGitHubAppConfig:input_type -> google.protobuf.Empty
-	478, // 463: platform.v1.PlatformService.ListGitHubAppInstallations:input_type -> google.protobuf.Empty
-	256, // 464: platform.v1.PlatformService.ListGitHubAppInstallationRepositories:input_type -> platform.v1.ListGitHubAppInstallationRepositoriesRequest
-	259, // 465: platform.v1.PlatformService.CreateGitHubRepositoryFromInstallation:input_type -> platform.v1.CreateGitHubRepositoryFromInstallationRequest
-	260, // 466: platform.v1.PlatformService.CreateGitHubRepositoryFromToken:input_type -> platform.v1.CreateGitHubRepositoryFromTokenRequest
-	263, // 467: platform.v1.PlatformService.UpdateGitHubRepository:input_type -> platform.v1.UpdateGitHubRepositoryRequest
-	266, // 468: platform.v1.PlatformService.ListCrons:input_type -> platform.v1.ListCronsRequest
-	268, // 469: platform.v1.PlatformService.GetCron:input_type -> platform.v1.GetCronRequest
-	269, // 470: platform.v1.PlatformService.WatchCrons:input_type -> platform.v1.WatchCronsRequest
-	271, // 471: platform.v1.PlatformService.CreateCron:input_type -> platform.v1.CreateCronRequest
-	272, // 472: platform.v1.PlatformService.UpdateCron:input_type -> platform.v1.UpdateCronRequest
-	273, // 473: platform.v1.PlatformService.DeleteCron:input_type -> platform.v1.DeleteCronRequest
-	191, // 474: platform.v1.PlatformService.ListAvailableModes:input_type -> platform.v1.ListAvailableModesRequest
-	193, // 475: platform.v1.PlatformService.GetModeTemplate:input_type -> platform.v1.GetModeTemplateRequest
-	194, // 476: platform.v1.PlatformService.SwitchAgentRunMode:input_type -> platform.v1.SwitchAgentRunModeRequest
-	275, // 477: platform.v1.PlatformService.GetAgentTrace:input_type -> platform.v1.GetAgentTraceRequest
-	275, // 478: platform.v1.PlatformService.WatchAgentTrace:input_type -> platform.v1.GetAgentTraceRequest
-	277, // 479: platform.v1.PlatformService.GetAgentRunErrors:input_type -> platform.v1.GetAgentRunErrorsRequest
-	280, // 480: platform.v1.PlatformService.GetAgentRunLogs:input_type -> platform.v1.GetAgentRunLogsRequest
-	284, // 481: platform.v1.PlatformService.ExportAgentRunArchive:input_type -> platform.v1.ExportAgentRunArchiveRequest
-	287, // 482: platform.v1.PlatformService.ShareResource:input_type -> platform.v1.ShareResourceRequest
-	289, // 483: platform.v1.PlatformService.RevokeShare:input_type -> platform.v1.RevokeShareRequest
-	290, // 484: platform.v1.PlatformService.UpdateSharePermission:input_type -> platform.v1.UpdateSharePermissionRequest
-	291, // 485: platform.v1.PlatformService.ListShares:input_type -> platform.v1.ListSharesRequest
-	293, // 486: platform.v1.PlatformService.ListSharedWithMe:input_type -> platform.v1.ListSharedWithMeRequest
-	297, // 487: platform.v1.PlatformService.ListNotifications:input_type -> platform.v1.ListNotificationsRequest
-	299, // 488: platform.v1.PlatformService.MarkNotificationRead:input_type -> platform.v1.MarkNotificationReadRequest
-	301, // 489: platform.v1.PlatformService.SendPresenceHeartbeat:input_type -> platform.v1.PresenceHeartbeatRequest
-	302, // 490: platform.v1.PlatformService.GetPresence:input_type -> platform.v1.GetPresenceRequest
-	339, // 491: platform.v1.PlatformService.GetMyOpenAIUsage:input_type -> platform.v1.GetMyOpenAIUsageRequest
-	342, // 492: platform.v1.PlatformService.GetMyCopilotUsage:input_type -> platform.v1.GetMyCopilotUsageRequest
-	345, // 493: platform.v1.PlatformService.GetMyAnthropicUsage:input_type -> platform.v1.GetMyAnthropicUsageRequest
-	349, // 494: platform.v1.PlatformService.ListSecurityScans:input_type -> platform.v1.ListSecurityScansRequest
-	351, // 495: platform.v1.PlatformService.GetSecurityScan:input_type -> platform.v1.GetSecurityScanRequest
-	353, // 496: platform.v1.PlatformService.ListSecurityFindings:input_type -> platform.v1.ListSecurityFindingsRequest
-	355, // 497: platform.v1.PlatformService.GetSecurityFinding:input_type -> platform.v1.GetSecurityFindingRequest
-	358, // 498: platform.v1.PlatformService.UpdateSecurityFindingStatus:input_type -> platform.v1.UpdateSecurityFindingStatusRequest
-	359, // 499: platform.v1.PlatformService.GetSecurityFindingSummary:input_type -> platform.v1.GetSecurityFindingSummaryRequest
-	375, // 500: platform.v1.PlatformService.ListSecurityFindingEvents:input_type -> platform.v1.ListSecurityFindingEventsRequest
-	377, // 501: platform.v1.PlatformService.AddSecurityFindingComment:input_type -> platform.v1.AddSecurityFindingCommentRequest
-	362, // 502: platform.v1.PlatformService.UpdateSecurityFindingAssignee:input_type -> platform.v1.UpdateSecurityFindingAssigneeRequest
-	363, // 503: platform.v1.PlatformService.UpdateSecurityFindingTicket:input_type -> platform.v1.UpdateSecurityFindingTicketRequest
-	364, // 504: platform.v1.PlatformService.CreateSecurityFindingTicket:input_type -> platform.v1.CreateSecurityFindingTicketRequest
-	365, // 505: platform.v1.PlatformService.BulkUpdateSecurityFindingStatus:input_type -> platform.v1.BulkUpdateSecurityFindingStatusRequest
-	369, // 506: platform.v1.PlatformService.ListSecuritySavedFilters:input_type -> platform.v1.ListSecuritySavedFiltersRequest
-	371, // 507: platform.v1.PlatformService.SaveSecuritySavedFilter:input_type -> platform.v1.SaveSecuritySavedFilterRequest
-	372, // 508: platform.v1.PlatformService.DeleteSecuritySavedFilter:input_type -> platform.v1.DeleteSecuritySavedFilterRequest
-	373, // 509: platform.v1.PlatformService.ExportSecurityFindingAuditLog:input_type -> platform.v1.ExportSecurityFindingAuditLogRequest
-	399, // 510: platform.v1.PlatformService.ListSecurityScanConfigs:input_type -> platform.v1.ListSecurityScanConfigsRequest
-	401, // 511: platform.v1.PlatformService.GetSecurityScanConfig:input_type -> platform.v1.GetSecurityScanConfigRequest
-	402, // 512: platform.v1.PlatformService.CreateSecurityScan:input_type -> platform.v1.CreateSecurityScanRequest
-	403, // 513: platform.v1.PlatformService.UpdateSecurityScan:input_type -> platform.v1.UpdateSecurityScanRequest
-	404, // 514: platform.v1.PlatformService.DeleteSecurityScan:input_type -> platform.v1.DeleteSecurityScanRequest
-	405, // 515: platform.v1.PlatformService.RunSecurityScanNow:input_type -> platform.v1.RunSecurityScanNowRequest
-	406, // 516: platform.v1.PlatformService.ResumeSecurityScan:input_type -> platform.v1.ResumeSecurityScanRequest
-	409, // 517: platform.v1.PlatformService.ListSecurityWorkflows:input_type -> platform.v1.ListSecurityWorkflowsRequest
-	411, // 518: platform.v1.PlatformService.GetSecurityWorkflow:input_type -> platform.v1.GetSecurityWorkflowRequest
-	412, // 519: platform.v1.PlatformService.CreateSecurityWorkflow:input_type -> platform.v1.CreateSecurityWorkflowRequest
-	413, // 520: platform.v1.PlatformService.UpdateSecurityWorkflow:input_type -> platform.v1.UpdateSecurityWorkflowRequest
-	414, // 521: platform.v1.PlatformService.DeleteSecurityWorkflow:input_type -> platform.v1.DeleteSecurityWorkflowRequest
-	416, // 522: platform.v1.PlatformService.ValidateSecurityWorkflow:input_type -> platform.v1.ValidateSecurityWorkflowRequest
-	419, // 523: platform.v1.PlatformService.ListSecurityRankers:input_type -> platform.v1.ListSecurityRankersRequest
-	421, // 524: platform.v1.PlatformService.GetSecurityRanker:input_type -> platform.v1.GetSecurityRankerRequest
-	422, // 525: platform.v1.PlatformService.CreateSecurityRanker:input_type -> platform.v1.CreateSecurityRankerRequest
-	423, // 526: platform.v1.PlatformService.UpdateSecurityRanker:input_type -> platform.v1.UpdateSecurityRankerRequest
-	424, // 527: platform.v1.PlatformService.DeleteSecurityRanker:input_type -> platform.v1.DeleteSecurityRankerRequest
-	426, // 528: platform.v1.PlatformService.ListSecurityPostScripts:input_type -> platform.v1.ListSecurityPostScriptsRequest
-	428, // 529: platform.v1.PlatformService.GetSecurityPostScript:input_type -> platform.v1.GetSecurityPostScriptRequest
-	429, // 530: platform.v1.PlatformService.CreateSecurityPostScript:input_type -> platform.v1.CreateSecurityPostScriptRequest
-	430, // 531: platform.v1.PlatformService.UpdateSecurityPostScript:input_type -> platform.v1.UpdateSecurityPostScriptRequest
-	431, // 532: platform.v1.PlatformService.DeleteSecurityPostScript:input_type -> platform.v1.DeleteSecurityPostScriptRequest
-	437, // 533: platform.v1.PlatformService.ListSecurityPolicyPacks:input_type -> platform.v1.ListSecurityPolicyPacksRequest
-	439, // 534: platform.v1.PlatformService.GetSecurityPolicyPack:input_type -> platform.v1.GetSecurityPolicyPackRequest
-	440, // 535: platform.v1.PlatformService.CreateSecurityPolicyPack:input_type -> platform.v1.CreateSecurityPolicyPackRequest
-	441, // 536: platform.v1.PlatformService.UpdateSecurityPolicyPack:input_type -> platform.v1.UpdateSecurityPolicyPackRequest
-	442, // 537: platform.v1.PlatformService.DeleteSecurityPolicyPack:input_type -> platform.v1.DeleteSecurityPolicyPackRequest
-	443, // 538: platform.v1.PlatformService.GenerateSecurityDraft:input_type -> platform.v1.GenerateSecurityDraftRequest
-	445, // 539: platform.v1.PlatformService.GetSecurityDraft:input_type -> platform.v1.GetSecurityDraftRequest
-	447, // 540: platform.v1.PlatformService.ExportSecurityPack:input_type -> platform.v1.ExportSecurityPackRequest
-	449, // 541: platform.v1.PlatformService.ImportSecurityPack:input_type -> platform.v1.ImportSecurityPackRequest
-	452, // 542: platform.v1.PlatformService.GetSecurityOverview:input_type -> platform.v1.GetSecurityOverviewRequest
-	455, // 543: platform.v1.PlatformService.GetSecurityConfigPostures:input_type -> platform.v1.GetSecurityConfigPosturesRequest
-	459, // 544: platform.v1.PlatformService.GetSecurityScanReport:input_type -> platform.v1.GetSecurityScanReportRequest
-	478, // 545: platform.v1.PlatformService.GetSecuritySkillsStatus:input_type -> google.protobuf.Empty
-	478, // 546: platform.v1.PlatformService.InstallSecuritySkills:input_type -> google.protobuf.Empty
-	5,   // 547: platform.v1.PlatformService.ListAgentRuns:output_type -> platform.v1.ListAgentRunsResponse
-	48,  // 548: platform.v1.PlatformService.GetAgentRun:output_type -> platform.v1.AgentRun
-	17,  // 549: platform.v1.PlatformService.WatchAgentRuns:output_type -> platform.v1.AgentRunEvent
-	48,  // 550: platform.v1.PlatformService.WatchAgentRun:output_type -> platform.v1.AgentRun
-	33,  // 551: platform.v1.PlatformService.GetActivityLog:output_type -> platform.v1.GetActivityLogResponse
-	20,  // 552: platform.v1.PlatformService.GetActivityEntryDetail:output_type -> platform.v1.GetActivityEntryDetailResponse
-	33,  // 553: platform.v1.PlatformService.WatchActivityLog:output_type -> platform.v1.GetActivityLogResponse
-	26,  // 554: platform.v1.PlatformService.GetAgentRunUsage:output_type -> platform.v1.AgentRunUsageResponse
-	32,  // 555: platform.v1.PlatformService.GetObservabilityOverview:output_type -> platform.v1.ObservabilityOverviewResponse
-	306, // 556: platform.v1.PlatformService.GetAgentRunPullRequests:output_type -> platform.v1.GetAgentRunPullRequestsResponse
-	56,  // 557: platform.v1.PlatformService.ListLinearProjects:output_type -> platform.v1.ListLinearProjectsResponse
-	58,  // 558: platform.v1.PlatformService.WatchLinearProjects:output_type -> platform.v1.LinearProjectEvent
-	66,  // 559: platform.v1.PlatformService.SendAgentRunMessage:output_type -> platform.v1.SendAgentRunMessageResponse
-	68,  // 560: platform.v1.PlatformService.CancelAgentRunMessage:output_type -> platform.v1.CancelAgentRunMessageResponse
-	48,  // 561: platform.v1.PlatformService.CreateAgentRun:output_type -> platform.v1.AgentRun
-	70,  // 562: platform.v1.PlatformService.ListMyCredentials:output_type -> platform.v1.MyCredentials
-	70,  // 563: platform.v1.PlatformService.UpdateMyCredentials:output_type -> platform.v1.MyCredentials
-	335, // 564: platform.v1.PlatformService.StartProviderOAuth:output_type -> platform.v1.ProviderOAuthStart
-	338, // 565: platform.v1.PlatformService.CompleteProviderOAuth:output_type -> platform.v1.ProviderOAuthResult
-	338, // 566: platform.v1.PlatformService.PollProviderOAuth:output_type -> platform.v1.ProviderOAuthResult
-	76,  // 567: platform.v1.PlatformService.ShareMyCredentials:output_type -> platform.v1.ShareMyCredentialsResponse
-	127, // 568: platform.v1.PlatformService.ListSlackAgents:output_type -> platform.v1.ListSlackAgentsResponse
-	77,  // 569: platform.v1.PlatformService.UpdateSlackAgent:output_type -> platform.v1.SlackAgent
-	478, // 570: platform.v1.PlatformService.DeleteSlackAgent:output_type -> google.protobuf.Empty
-	135, // 571: platform.v1.PlatformService.ListSlackWorkspaces:output_type -> platform.v1.ListSlackWorkspacesResponse
-	133, // 572: platform.v1.PlatformService.UpdateSlackWorkspace:output_type -> platform.v1.SlackWorkspace
-	478, // 573: platform.v1.PlatformService.DeleteSlackWorkspace:output_type -> google.protobuf.Empty
-	131, // 574: platform.v1.PlatformService.ListSlackDrafts:output_type -> platform.v1.ListSlackDraftsResponse
-	81,  // 575: platform.v1.PlatformService.ListMCPServers:output_type -> platform.v1.ListMCPServersResponse
-	78,  // 576: platform.v1.PlatformService.UpsertMCPServer:output_type -> platform.v1.MCPServerInfo
-	478, // 577: platform.v1.PlatformService.DeleteMCPServer:output_type -> google.protobuf.Empty
-	86,  // 578: platform.v1.PlatformService.ListSkills:output_type -> platform.v1.ListSkillsResponse
-	318, // 579: platform.v1.PlatformService.ListSkillCatalog:output_type -> platform.v1.ListSkillCatalogResponse
-	84,  // 580: platform.v1.PlatformService.InstallSkillFromCatalog:output_type -> platform.v1.SkillInfo
-	84,  // 581: platform.v1.PlatformService.UpsertSkill:output_type -> platform.v1.SkillInfo
-	478, // 582: platform.v1.PlatformService.DeleteSkill:output_type -> google.protobuf.Empty
-	92,  // 583: platform.v1.PlatformService.ListRuntimeProfiles:output_type -> platform.v1.ListRuntimeProfilesResponse
-	90,  // 584: platform.v1.PlatformService.CreateRuntimeProfile:output_type -> platform.v1.RuntimeProfile
-	90,  // 585: platform.v1.PlatformService.UpdateRuntimeProfile:output_type -> platform.v1.RuntimeProfile
-	478, // 586: platform.v1.PlatformService.DeleteRuntimeProfile:output_type -> google.protobuf.Empty
-	100, // 587: platform.v1.PlatformService.ListMCPPolicies:output_type -> platform.v1.ListMCPPoliciesResponse
-	98,  // 588: platform.v1.PlatformService.CreateMCPPolicy:output_type -> platform.v1.MCPPolicy
-	98,  // 589: platform.v1.PlatformService.UpdateMCPPolicy:output_type -> platform.v1.MCPPolicy
-	478, // 590: platform.v1.PlatformService.DeleteMCPPolicy:output_type -> google.protobuf.Empty
-	107, // 591: platform.v1.PlatformService.ListGuardrailPolicies:output_type -> platform.v1.ListGuardrailPoliciesResponse
-	105, // 592: platform.v1.PlatformService.CreateGuardrailPolicy:output_type -> platform.v1.GuardrailPolicy
-	105, // 593: platform.v1.PlatformService.UpdateGuardrailPolicy:output_type -> platform.v1.GuardrailPolicy
-	478, // 594: platform.v1.PlatformService.DeleteGuardrailPolicy:output_type -> google.protobuf.Empty
-	112, // 595: platform.v1.PlatformService.ListModeTemplates:output_type -> platform.v1.ListModeTemplatesResponse
-	190, // 596: platform.v1.PlatformService.CreateModeTemplate:output_type -> platform.v1.ModeTemplate
-	190, // 597: platform.v1.PlatformService.UpdateModeTemplate:output_type -> platform.v1.ModeTemplate
-	478, // 598: platform.v1.PlatformService.DeleteModeTemplate:output_type -> google.protobuf.Empty
-	118, // 599: platform.v1.PlatformService.ListRoleInstructions:output_type -> platform.v1.ListRoleInstructionsResponse
-	116, // 600: platform.v1.PlatformService.CreateRoleInstruction:output_type -> platform.v1.RoleInstruction
-	116, // 601: platform.v1.PlatformService.UpdateRoleInstruction:output_type -> platform.v1.RoleInstruction
-	478, // 602: platform.v1.PlatformService.DeleteRoleInstruction:output_type -> google.protobuf.Empty
-	125, // 603: platform.v1.PlatformService.ListRuntimeImages:output_type -> platform.v1.ListRuntimeImagesResponse
-	138, // 604: platform.v1.PlatformService.GetMySoul:output_type -> platform.v1.Soul
-	138, // 605: platform.v1.PlatformService.UpdateMySoul:output_type -> platform.v1.Soul
-	142, // 606: platform.v1.PlatformService.GetMyRoleModelPreferences:output_type -> platform.v1.RoleModelPreferences
-	142, // 607: platform.v1.PlatformService.UpdateMyRoleModelPreferences:output_type -> platform.v1.RoleModelPreferences
-	145, // 608: platform.v1.PlatformService.GetMyGitIdentity:output_type -> platform.v1.GitIdentity
-	145, // 609: platform.v1.PlatformService.UpdateMyGitIdentity:output_type -> platform.v1.GitIdentity
-	478, // 610: platform.v1.PlatformService.DeleteAgentRun:output_type -> google.protobuf.Empty
-	48,  // 611: platform.v1.PlatformService.CancelAgentRun:output_type -> platform.v1.AgentRun
-	48,  // 612: platform.v1.PlatformService.PromoteAgentRun:output_type -> platform.v1.AgentRun
-	11,  // 613: platform.v1.PlatformService.InterruptAgentRun:output_type -> platform.v1.InterruptAgentRunResponse
-	48,  // 614: platform.v1.PlatformService.RetryAgentRun:output_type -> platform.v1.AgentRun
-	48,  // 615: platform.v1.PlatformService.RenameAgentRun:output_type -> platform.v1.AgentRun
-	48,  // 616: platform.v1.PlatformService.UpdateAgentRunRuntimeConfig:output_type -> platform.v1.AgentRun
-	48,  // 617: platform.v1.PlatformService.AttachAgentRunOverseer:output_type -> platform.v1.AgentRun
-	48,  // 618: platform.v1.PlatformService.UpdateAgentRunOverseer:output_type -> platform.v1.AgentRun
-	48,  // 619: platform.v1.PlatformService.DetachAgentRunOverseer:output_type -> platform.v1.AgentRun
-	48,  // 620: platform.v1.PlatformService.ExtendAgentRunRuntime:output_type -> platform.v1.AgentRun
-	150, // 621: platform.v1.PlatformService.CreateTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
-	153, // 622: platform.v1.PlatformService.ListTeamChildRuns:output_type -> platform.v1.ListTeamChildRunsResponse
-	150, // 623: platform.v1.PlatformService.GetTeamChildRunStatus:output_type -> platform.v1.TeamChildRunStatus
-	156, // 624: platform.v1.PlatformService.GetTeamChildRunLogs:output_type -> platform.v1.TeamChildRunLogs
-	158, // 625: platform.v1.PlatformService.GetTeamChildRunArtifact:output_type -> platform.v1.TeamChildRunArtifact
-	150, // 626: platform.v1.PlatformService.SendTeamChildMessage:output_type -> platform.v1.TeamChildRunStatus
-	46,  // 627: platform.v1.PlatformService.GetAgentRunTeamStatus:output_type -> platform.v1.AgentRunTeamSummary
-	162, // 628: platform.v1.PlatformService.WaitForTeamRunChange:output_type -> platform.v1.WaitForTeamRunChangeResponse
-	150, // 629: platform.v1.PlatformService.CancelTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
-	150, // 630: platform.v1.PlatformService.RetryTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
-	166, // 631: platform.v1.PlatformService.GetTeamApprovalStatus:output_type -> platform.v1.TeamApprovalStatus
-	59,  // 632: platform.v1.PlatformService.GetLinearProject:output_type -> platform.v1.LinearProject
-	185, // 633: platform.v1.PlatformService.GetTeamRuntime:output_type -> platform.v1.TeamRuntime
-	185, // 634: platform.v1.PlatformService.WatchTeamRuntime:output_type -> platform.v1.TeamRuntime
-	62,  // 635: platform.v1.PlatformService.ListAvailableModels:output_type -> platform.v1.ListAvailableModelsResponse
-	168, // 636: platform.v1.PlatformService.GetDiff:output_type -> platform.v1.GetDiffResponse
-	168, // 637: platform.v1.PlatformService.WatchDiff:output_type -> platform.v1.GetDiffResponse
-	170, // 638: platform.v1.PlatformService.ListFiles:output_type -> platform.v1.ListFilesResponse
-	173, // 639: platform.v1.PlatformService.ListWorkspaceFiles:output_type -> platform.v1.ListWorkspaceFilesResponse
-	176, // 640: platform.v1.PlatformService.CloneRepository:output_type -> platform.v1.CloneRepositoryResponse
-	178, // 641: platform.v1.PlatformService.ListRepositories:output_type -> platform.v1.ListRepositoriesResponse
-	180, // 642: platform.v1.PlatformService.ReadFile:output_type -> platform.v1.ReadFileResponse
-	182, // 643: platform.v1.PlatformService.UpdateLinearProjectInstructions:output_type -> platform.v1.UpdateLinearProjectInstructionsResponse
-	59,  // 644: platform.v1.PlatformService.CreateLinearProject:output_type -> platform.v1.LinearProject
-	59,  // 645: platform.v1.PlatformService.UpdateLinearProject:output_type -> platform.v1.LinearProject
-	198, // 646: platform.v1.PlatformService.ListProjects:output_type -> platform.v1.ListProjectsResponse
-	225, // 647: platform.v1.PlatformService.GetProject:output_type -> platform.v1.Project
-	201, // 648: platform.v1.PlatformService.WatchProjects:output_type -> platform.v1.ProjectEvent
-	225, // 649: platform.v1.PlatformService.CreateProject:output_type -> platform.v1.Project
-	225, // 650: platform.v1.PlatformService.UpdateProject:output_type -> platform.v1.Project
-	225, // 651: platform.v1.PlatformService.CreateProjectTrigger:output_type -> platform.v1.Project
-	225, // 652: platform.v1.PlatformService.UpdateProjectTrigger:output_type -> platform.v1.Project
-	478, // 653: platform.v1.PlatformService.DeleteProjectTrigger:output_type -> google.protobuf.Empty
-	225, // 654: platform.v1.PlatformService.SetProjectTriggerEnabled:output_type -> platform.v1.Project
-	478, // 655: platform.v1.PlatformService.DeleteProject:output_type -> google.protobuf.Empty
-	221, // 656: platform.v1.PlatformService.ListConnections:output_type -> platform.v1.ListConnectionsResponse
-	219, // 657: platform.v1.PlatformService.CreateConnection:output_type -> platform.v1.Connection
-	219, // 658: platform.v1.PlatformService.UpdateConnection:output_type -> platform.v1.Connection
-	478, // 659: platform.v1.PlatformService.DeleteConnection:output_type -> google.protobuf.Empty
-	324, // 660: platform.v1.PlatformService.ListProjectContent:output_type -> platform.v1.ListProjectContentResponse
-	326, // 661: platform.v1.PlatformService.GetProjectContent:output_type -> platform.v1.GetProjectContentResponse
-	321, // 662: platform.v1.PlatformService.CreateProjectContent:output_type -> platform.v1.ProjectContent
-	321, // 663: platform.v1.PlatformService.UpdateProjectContent:output_type -> platform.v1.ProjectContent
-	321, // 664: platform.v1.PlatformService.DuplicateProjectContent:output_type -> platform.v1.ProjectContent
-	331, // 665: platform.v1.PlatformService.ListProjectContentVersions:output_type -> platform.v1.ListProjectContentVersionsResponse
-	321, // 666: platform.v1.PlatformService.RestoreProjectContentVersion:output_type -> platform.v1.ProjectContent
-	478, // 667: platform.v1.PlatformService.DeleteProjectContent:output_type -> google.protobuf.Empty
-	228, // 668: platform.v1.PlatformService.ListGitHubRepositories:output_type -> platform.v1.ListGitHubRepositoriesResponse
-	252, // 669: platform.v1.PlatformService.GetGitHubRepository:output_type -> platform.v1.GitHubRepository
-	235, // 670: platform.v1.PlatformService.ListMaintainerWorkItems:output_type -> platform.v1.ListMaintainerWorkItemsResponse
-	251, // 671: platform.v1.PlatformService.IssueMaintainerCommand:output_type -> platform.v1.IssueMaintainerCommandResponse
-	231, // 672: platform.v1.PlatformService.WatchGitHubRepositories:output_type -> platform.v1.GitHubRepositoryEvent
-	253, // 673: platform.v1.PlatformService.GetGitHubAppConfig:output_type -> platform.v1.GitHubAppConfig
-	255, // 674: platform.v1.PlatformService.ListGitHubAppInstallations:output_type -> platform.v1.ListGitHubAppInstallationsResponse
-	258, // 675: platform.v1.PlatformService.ListGitHubAppInstallationRepositories:output_type -> platform.v1.ListGitHubAppInstallationRepositoriesResponse
-	252, // 676: platform.v1.PlatformService.CreateGitHubRepositoryFromInstallation:output_type -> platform.v1.GitHubRepository
-	252, // 677: platform.v1.PlatformService.CreateGitHubRepositoryFromToken:output_type -> platform.v1.GitHubRepository
-	252, // 678: platform.v1.PlatformService.UpdateGitHubRepository:output_type -> platform.v1.GitHubRepository
-	267, // 679: platform.v1.PlatformService.ListCrons:output_type -> platform.v1.ListCronsResponse
-	274, // 680: platform.v1.PlatformService.GetCron:output_type -> platform.v1.Cron
-	270, // 681: platform.v1.PlatformService.WatchCrons:output_type -> platform.v1.CronEvent
-	274, // 682: platform.v1.PlatformService.CreateCron:output_type -> platform.v1.Cron
-	274, // 683: platform.v1.PlatformService.UpdateCron:output_type -> platform.v1.Cron
-	478, // 684: platform.v1.PlatformService.DeleteCron:output_type -> google.protobuf.Empty
-	192, // 685: platform.v1.PlatformService.ListAvailableModes:output_type -> platform.v1.ListAvailableModesResponse
-	190, // 686: platform.v1.PlatformService.GetModeTemplate:output_type -> platform.v1.ModeTemplate
-	195, // 687: platform.v1.PlatformService.SwitchAgentRunMode:output_type -> platform.v1.SwitchAgentRunModeResponse
-	276, // 688: platform.v1.PlatformService.GetAgentTrace:output_type -> platform.v1.GetAgentTraceResponse
-	276, // 689: platform.v1.PlatformService.WatchAgentTrace:output_type -> platform.v1.GetAgentTraceResponse
-	279, // 690: platform.v1.PlatformService.GetAgentRunErrors:output_type -> platform.v1.GetAgentRunErrorsResponse
-	281, // 691: platform.v1.PlatformService.GetAgentRunLogs:output_type -> platform.v1.GetAgentRunLogsResponse
-	285, // 692: platform.v1.PlatformService.ExportAgentRunArchive:output_type -> platform.v1.ExportAgentRunArchiveResponse
-	288, // 693: platform.v1.PlatformService.ShareResource:output_type -> platform.v1.ShareResourceResponse
-	478, // 694: platform.v1.PlatformService.RevokeShare:output_type -> google.protobuf.Empty
-	295, // 695: platform.v1.PlatformService.UpdateSharePermission:output_type -> platform.v1.ResourceShareInfo
-	292, // 696: platform.v1.PlatformService.ListShares:output_type -> platform.v1.ListSharesResponse
-	294, // 697: platform.v1.PlatformService.ListSharedWithMe:output_type -> platform.v1.ListSharedWithMeResponse
-	298, // 698: platform.v1.PlatformService.ListNotifications:output_type -> platform.v1.ListNotificationsResponse
-	478, // 699: platform.v1.PlatformService.MarkNotificationRead:output_type -> google.protobuf.Empty
-	478, // 700: platform.v1.PlatformService.SendPresenceHeartbeat:output_type -> google.protobuf.Empty
-	303, // 701: platform.v1.PlatformService.GetPresence:output_type -> platform.v1.GetPresenceResponse
-	340, // 702: platform.v1.PlatformService.GetMyOpenAIUsage:output_type -> platform.v1.MyOpenAIUsage
-	343, // 703: platform.v1.PlatformService.GetMyCopilotUsage:output_type -> platform.v1.MyCopilotUsage
-	346, // 704: platform.v1.PlatformService.GetMyAnthropicUsage:output_type -> platform.v1.MyAnthropicUsage
-	350, // 705: platform.v1.PlatformService.ListSecurityScans:output_type -> platform.v1.ListSecurityScansResponse
-	348, // 706: platform.v1.PlatformService.GetSecurityScan:output_type -> platform.v1.SecurityScan
-	354, // 707: platform.v1.PlatformService.ListSecurityFindings:output_type -> platform.v1.ListSecurityFindingsResponse
-	357, // 708: platform.v1.PlatformService.GetSecurityFinding:output_type -> platform.v1.GetSecurityFindingResponse
-	352, // 709: platform.v1.PlatformService.UpdateSecurityFindingStatus:output_type -> platform.v1.SecurityFinding
-	360, // 710: platform.v1.PlatformService.GetSecurityFindingSummary:output_type -> platform.v1.GetSecurityFindingSummaryResponse
-	376, // 711: platform.v1.PlatformService.ListSecurityFindingEvents:output_type -> platform.v1.ListSecurityFindingEventsResponse
-	356, // 712: platform.v1.PlatformService.AddSecurityFindingComment:output_type -> platform.v1.SecurityFindingEvent
-	352, // 713: platform.v1.PlatformService.UpdateSecurityFindingAssignee:output_type -> platform.v1.SecurityFinding
-	352, // 714: platform.v1.PlatformService.UpdateSecurityFindingTicket:output_type -> platform.v1.SecurityFinding
-	352, // 715: platform.v1.PlatformService.CreateSecurityFindingTicket:output_type -> platform.v1.SecurityFinding
-	367, // 716: platform.v1.PlatformService.BulkUpdateSecurityFindingStatus:output_type -> platform.v1.BulkUpdateSecurityFindingStatusResponse
-	370, // 717: platform.v1.PlatformService.ListSecuritySavedFilters:output_type -> platform.v1.ListSecuritySavedFiltersResponse
-	368, // 718: platform.v1.PlatformService.SaveSecuritySavedFilter:output_type -> platform.v1.SecuritySavedFilter
-	478, // 719: platform.v1.PlatformService.DeleteSecuritySavedFilter:output_type -> google.protobuf.Empty
-	374, // 720: platform.v1.PlatformService.ExportSecurityFindingAuditLog:output_type -> platform.v1.ExportSecurityFindingAuditLogResponse
-	400, // 721: platform.v1.PlatformService.ListSecurityScanConfigs:output_type -> platform.v1.ListSecurityScanConfigsResponse
-	397, // 722: platform.v1.PlatformService.GetSecurityScanConfig:output_type -> platform.v1.SecurityScanConfig
-	397, // 723: platform.v1.PlatformService.CreateSecurityScan:output_type -> platform.v1.SecurityScanConfig
-	397, // 724: platform.v1.PlatformService.UpdateSecurityScan:output_type -> platform.v1.SecurityScanConfig
-	478, // 725: platform.v1.PlatformService.DeleteSecurityScan:output_type -> google.protobuf.Empty
-	397, // 726: platform.v1.PlatformService.RunSecurityScanNow:output_type -> platform.v1.SecurityScanConfig
-	397, // 727: platform.v1.PlatformService.ResumeSecurityScan:output_type -> platform.v1.SecurityScanConfig
-	410, // 728: platform.v1.PlatformService.ListSecurityWorkflows:output_type -> platform.v1.ListSecurityWorkflowsResponse
-	407, // 729: platform.v1.PlatformService.GetSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
-	407, // 730: platform.v1.PlatformService.CreateSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
-	407, // 731: platform.v1.PlatformService.UpdateSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
-	478, // 732: platform.v1.PlatformService.DeleteSecurityWorkflow:output_type -> google.protobuf.Empty
-	417, // 733: platform.v1.PlatformService.ValidateSecurityWorkflow:output_type -> platform.v1.ValidateSecurityWorkflowResponse
-	420, // 734: platform.v1.PlatformService.ListSecurityRankers:output_type -> platform.v1.ListSecurityRankersResponse
-	418, // 735: platform.v1.PlatformService.GetSecurityRanker:output_type -> platform.v1.SecurityRankerResource
-	418, // 736: platform.v1.PlatformService.CreateSecurityRanker:output_type -> platform.v1.SecurityRankerResource
-	418, // 737: platform.v1.PlatformService.UpdateSecurityRanker:output_type -> platform.v1.SecurityRankerResource
-	478, // 738: platform.v1.PlatformService.DeleteSecurityRanker:output_type -> google.protobuf.Empty
-	427, // 739: platform.v1.PlatformService.ListSecurityPostScripts:output_type -> platform.v1.ListSecurityPostScriptsResponse
-	425, // 740: platform.v1.PlatformService.GetSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
-	425, // 741: platform.v1.PlatformService.CreateSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
-	425, // 742: platform.v1.PlatformService.UpdateSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
-	478, // 743: platform.v1.PlatformService.DeleteSecurityPostScript:output_type -> google.protobuf.Empty
-	438, // 744: platform.v1.PlatformService.ListSecurityPolicyPacks:output_type -> platform.v1.ListSecurityPolicyPacksResponse
-	436, // 745: platform.v1.PlatformService.GetSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
-	436, // 746: platform.v1.PlatformService.CreateSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
-	436, // 747: platform.v1.PlatformService.UpdateSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
-	478, // 748: platform.v1.PlatformService.DeleteSecurityPolicyPack:output_type -> google.protobuf.Empty
-	444, // 749: platform.v1.PlatformService.GenerateSecurityDraft:output_type -> platform.v1.GenerateSecurityDraftResponse
-	446, // 750: platform.v1.PlatformService.GetSecurityDraft:output_type -> platform.v1.GetSecurityDraftResponse
-	448, // 751: platform.v1.PlatformService.ExportSecurityPack:output_type -> platform.v1.ExportSecurityPackResponse
-	451, // 752: platform.v1.PlatformService.ImportSecurityPack:output_type -> platform.v1.ImportSecurityPackResponse
-	454, // 753: platform.v1.PlatformService.GetSecurityOverview:output_type -> platform.v1.GetSecurityOverviewResponse
-	458, // 754: platform.v1.PlatformService.GetSecurityConfigPostures:output_type -> platform.v1.GetSecurityConfigPosturesResponse
-	460, // 755: platform.v1.PlatformService.GetSecurityScanReport:output_type -> platform.v1.GetSecurityScanReportResponse
-	461, // 756: platform.v1.PlatformService.GetSecuritySkillsStatus:output_type -> platform.v1.SecuritySkillsStatus
-	461, // 757: platform.v1.PlatformService.InstallSecuritySkills:output_type -> platform.v1.SecuritySkillsStatus
-	547, // [547:758] is the sub-list for method output_type
-	336, // [336:547] is the sub-list for method input_type
-	336, // [336:336] is the sub-list for extension type_name
-	336, // [336:336] is the sub-list for extension extendee
-	0,   // [0:336] is the sub-list for field type_name
+	484, // 315: platform.v1.SecurityProgramResource.verified_at:type_name -> google.protobuf.Timestamp
+	443, // 316: platform.v1.ListSecurityProgramsResponse.programs:type_name -> platform.v1.SecurityProgramResource
+	443, // 317: platform.v1.CreateSecurityProgramRequest.program:type_name -> platform.v1.SecurityProgramResource
+	443, // 318: platform.v1.UpdateSecurityProgramRequest.program:type_name -> platform.v1.SecurityProgramResource
+	1,   // 319: platform.v1.GenerateSecurityDraftRequest.kind:type_name -> platform.v1.SecurityDraftKind
+	2,   // 320: platform.v1.GetSecurityDraftResponse.status:type_name -> platform.v1.SecurityDraftStatus
+	407, // 321: platform.v1.GetSecurityDraftResponse.workflow:type_name -> platform.v1.SecurityWorkflowResource
+	425, // 322: platform.v1.GetSecurityDraftResponse.post_script:type_name -> platform.v1.SecurityPostScriptResource
+	415, // 323: platform.v1.GetSecurityDraftResponse.validation_errors:type_name -> platform.v1.SecurityWorkflowValidationError
+	3,   // 324: platform.v1.ImportSecurityPackRequest.collision_policy:type_name -> platform.v1.SecurityPackCollisionPolicy
+	415, // 325: platform.v1.SecurityPackItemResult.validation_errors:type_name -> platform.v1.SecurityWorkflowValidationError
+	457, // 326: platform.v1.ImportSecurityPackResponse.items:type_name -> platform.v1.SecurityPackItemResult
+	348, // 327: platform.v1.GetSecurityOverviewResponse.active_scans:type_name -> platform.v1.SecurityScan
+	348, // 328: platform.v1.GetSecurityOverviewResponse.recent_scans:type_name -> platform.v1.SecurityScan
+	481, // 329: platform.v1.GetSecurityOverviewResponse.finding_counts:type_name -> platform.v1.GetSecurityOverviewResponse.FindingCountsEntry
+	460, // 330: platform.v1.GetSecurityOverviewResponse.config_issues:type_name -> platform.v1.SecurityScanConfigIssue
+	361, // 331: platform.v1.GetSecurityOverviewResponse.trends:type_name -> platform.v1.SecurityFindingTrends
+	484, // 332: platform.v1.SecurityRunActivityPoint.completed_at:type_name -> google.protobuf.Timestamp
+	482, // 333: platform.v1.SecurityRunActivityPoint.severity_counts:type_name -> platform.v1.SecurityRunActivityPoint.SeverityCountsEntry
+	483, // 334: platform.v1.SecurityConfigPosture.finding_counts:type_name -> platform.v1.SecurityConfigPosture.FindingCountsEntry
+	484, // 335: platform.v1.SecurityConfigPosture.last_started_at:type_name -> google.protobuf.Timestamp
+	484, // 336: platform.v1.SecurityConfigPosture.last_completed_at:type_name -> google.protobuf.Timestamp
+	463, // 337: platform.v1.SecurityConfigPosture.activity:type_name -> platform.v1.SecurityRunActivityPoint
+	464, // 338: platform.v1.GetSecurityConfigPosturesResponse.postures:type_name -> platform.v1.SecurityConfigPosture
+	484, // 339: platform.v1.GetSecurityScanReportResponse.updated_at:type_name -> google.protobuf.Timestamp
+	4,   // 340: platform.v1.PlatformService.ListAgentRuns:input_type -> platform.v1.ListAgentRunsRequest
+	6,   // 341: platform.v1.PlatformService.GetAgentRun:input_type -> platform.v1.GetAgentRunRequest
+	15,  // 342: platform.v1.PlatformService.WatchAgentRuns:input_type -> platform.v1.WatchAgentRunsRequest
+	16,  // 343: platform.v1.PlatformService.WatchAgentRun:input_type -> platform.v1.WatchAgentRunRequest
+	18,  // 344: platform.v1.PlatformService.GetActivityLog:input_type -> platform.v1.GetActivityLogRequest
+	19,  // 345: platform.v1.PlatformService.GetActivityEntryDetail:input_type -> platform.v1.GetActivityEntryDetailRequest
+	18,  // 346: platform.v1.PlatformService.WatchActivityLog:input_type -> platform.v1.GetActivityLogRequest
+	21,  // 347: platform.v1.PlatformService.GetAgentRunUsage:input_type -> platform.v1.GetAgentRunUsageRequest
+	27,  // 348: platform.v1.PlatformService.GetObservabilityOverview:input_type -> platform.v1.GetObservabilityOverviewRequest
+	305, // 349: platform.v1.PlatformService.GetAgentRunPullRequests:input_type -> platform.v1.GetAgentRunPullRequestsRequest
+	55,  // 350: platform.v1.PlatformService.ListLinearProjects:input_type -> platform.v1.ListLinearProjectsRequest
+	57,  // 351: platform.v1.PlatformService.WatchLinearProjects:input_type -> platform.v1.WatchLinearProjectsRequest
+	65,  // 352: platform.v1.PlatformService.SendAgentRunMessage:input_type -> platform.v1.SendAgentRunMessageRequest
+	67,  // 353: platform.v1.PlatformService.CancelAgentRunMessage:input_type -> platform.v1.CancelAgentRunMessageRequest
+	69,  // 354: platform.v1.PlatformService.CreateAgentRun:input_type -> platform.v1.CreateAgentRunRequest
+	73,  // 355: platform.v1.PlatformService.ListMyCredentials:input_type -> platform.v1.ListMyCredentialsRequest
+	74,  // 356: platform.v1.PlatformService.UpdateMyCredentials:input_type -> platform.v1.UpdateMyCredentialsRequest
+	334, // 357: platform.v1.PlatformService.StartProviderOAuth:input_type -> platform.v1.StartProviderOAuthRequest
+	336, // 358: platform.v1.PlatformService.CompleteProviderOAuth:input_type -> platform.v1.CompleteProviderOAuthRequest
+	337, // 359: platform.v1.PlatformService.PollProviderOAuth:input_type -> platform.v1.PollProviderOAuthRequest
+	75,  // 360: platform.v1.PlatformService.ShareMyCredentials:input_type -> platform.v1.ShareMyCredentialsRequest
+	126, // 361: platform.v1.PlatformService.ListSlackAgents:input_type -> platform.v1.ListSlackAgentsRequest
+	128, // 362: platform.v1.PlatformService.UpdateSlackAgent:input_type -> platform.v1.UpdateSlackAgentRequest
+	132, // 363: platform.v1.PlatformService.DeleteSlackAgent:input_type -> platform.v1.DeleteSlackAgentRequest
+	134, // 364: platform.v1.PlatformService.ListSlackWorkspaces:input_type -> platform.v1.ListSlackWorkspacesRequest
+	136, // 365: platform.v1.PlatformService.UpdateSlackWorkspace:input_type -> platform.v1.UpdateSlackWorkspaceRequest
+	137, // 366: platform.v1.PlatformService.DeleteSlackWorkspace:input_type -> platform.v1.DeleteSlackWorkspaceRequest
+	130, // 367: platform.v1.PlatformService.ListSlackDrafts:input_type -> platform.v1.ListSlackDraftsRequest
+	80,  // 368: platform.v1.PlatformService.ListMCPServers:input_type -> platform.v1.ListMCPServersRequest
+	82,  // 369: platform.v1.PlatformService.UpsertMCPServer:input_type -> platform.v1.UpsertMCPServerRequest
+	83,  // 370: platform.v1.PlatformService.DeleteMCPServer:input_type -> platform.v1.DeleteMCPServerRequest
+	85,  // 371: platform.v1.PlatformService.ListSkills:input_type -> platform.v1.ListSkillsRequest
+	317, // 372: platform.v1.PlatformService.ListSkillCatalog:input_type -> platform.v1.ListSkillCatalogRequest
+	319, // 373: platform.v1.PlatformService.InstallSkillFromCatalog:input_type -> platform.v1.InstallSkillFromCatalogRequest
+	87,  // 374: platform.v1.PlatformService.UpsertSkill:input_type -> platform.v1.UpsertSkillRequest
+	88,  // 375: platform.v1.PlatformService.DeleteSkill:input_type -> platform.v1.DeleteSkillRequest
+	91,  // 376: platform.v1.PlatformService.ListRuntimeProfiles:input_type -> platform.v1.ListRuntimeProfilesRequest
+	93,  // 377: platform.v1.PlatformService.CreateRuntimeProfile:input_type -> platform.v1.CreateRuntimeProfileRequest
+	94,  // 378: platform.v1.PlatformService.UpdateRuntimeProfile:input_type -> platform.v1.UpdateRuntimeProfileRequest
+	95,  // 379: platform.v1.PlatformService.DeleteRuntimeProfile:input_type -> platform.v1.DeleteRuntimeProfileRequest
+	99,  // 380: platform.v1.PlatformService.ListMCPPolicies:input_type -> platform.v1.ListMCPPoliciesRequest
+	101, // 381: platform.v1.PlatformService.CreateMCPPolicy:input_type -> platform.v1.CreateMCPPolicyRequest
+	102, // 382: platform.v1.PlatformService.UpdateMCPPolicy:input_type -> platform.v1.UpdateMCPPolicyRequest
+	103, // 383: platform.v1.PlatformService.DeleteMCPPolicy:input_type -> platform.v1.DeleteMCPPolicyRequest
+	106, // 384: platform.v1.PlatformService.ListGuardrailPolicies:input_type -> platform.v1.ListGuardrailPoliciesRequest
+	108, // 385: platform.v1.PlatformService.CreateGuardrailPolicy:input_type -> platform.v1.CreateGuardrailPolicyRequest
+	109, // 386: platform.v1.PlatformService.UpdateGuardrailPolicy:input_type -> platform.v1.UpdateGuardrailPolicyRequest
+	110, // 387: platform.v1.PlatformService.DeleteGuardrailPolicy:input_type -> platform.v1.DeleteGuardrailPolicyRequest
+	111, // 388: platform.v1.PlatformService.ListModeTemplates:input_type -> platform.v1.ListModeTemplatesRequest
+	113, // 389: platform.v1.PlatformService.CreateModeTemplate:input_type -> platform.v1.CreateModeTemplateRequest
+	114, // 390: platform.v1.PlatformService.UpdateModeTemplate:input_type -> platform.v1.UpdateModeTemplateRequest
+	115, // 391: platform.v1.PlatformService.DeleteModeTemplate:input_type -> platform.v1.DeleteModeTemplateRequest
+	117, // 392: platform.v1.PlatformService.ListRoleInstructions:input_type -> platform.v1.ListRoleInstructionsRequest
+	119, // 393: platform.v1.PlatformService.CreateRoleInstruction:input_type -> platform.v1.CreateRoleInstructionRequest
+	120, // 394: platform.v1.PlatformService.UpdateRoleInstruction:input_type -> platform.v1.UpdateRoleInstructionRequest
+	121, // 395: platform.v1.PlatformService.DeleteRoleInstruction:input_type -> platform.v1.DeleteRoleInstructionRequest
+	124, // 396: platform.v1.PlatformService.ListRuntimeImages:input_type -> platform.v1.ListRuntimeImagesRequest
+	139, // 397: platform.v1.PlatformService.GetMySoul:input_type -> platform.v1.GetMySoulRequest
+	140, // 398: platform.v1.PlatformService.UpdateMySoul:input_type -> platform.v1.UpdateMySoulRequest
+	143, // 399: platform.v1.PlatformService.GetMyRoleModelPreferences:input_type -> platform.v1.GetMyRoleModelPreferencesRequest
+	144, // 400: platform.v1.PlatformService.UpdateMyRoleModelPreferences:input_type -> platform.v1.UpdateMyRoleModelPreferencesRequest
+	146, // 401: platform.v1.PlatformService.GetMyGitIdentity:input_type -> platform.v1.GetMyGitIdentityRequest
+	147, // 402: platform.v1.PlatformService.UpdateMyGitIdentity:input_type -> platform.v1.UpdateMyGitIdentityRequest
+	7,   // 403: platform.v1.PlatformService.DeleteAgentRun:input_type -> platform.v1.DeleteAgentRunRequest
+	8,   // 404: platform.v1.PlatformService.CancelAgentRun:input_type -> platform.v1.CancelAgentRunRequest
+	9,   // 405: platform.v1.PlatformService.PromoteAgentRun:input_type -> platform.v1.PromoteAgentRunRequest
+	10,  // 406: platform.v1.PlatformService.InterruptAgentRun:input_type -> platform.v1.InterruptAgentRunRequest
+	12,  // 407: platform.v1.PlatformService.RetryAgentRun:input_type -> platform.v1.RetryAgentRunRequest
+	13,  // 408: platform.v1.PlatformService.RenameAgentRun:input_type -> platform.v1.RenameAgentRunRequest
+	14,  // 409: platform.v1.PlatformService.UpdateAgentRunRuntimeConfig:input_type -> platform.v1.UpdateAgentRunRuntimeConfigRequest
+	313, // 410: platform.v1.PlatformService.AttachAgentRunOverseer:input_type -> platform.v1.AttachAgentRunOverseerRequest
+	314, // 411: platform.v1.PlatformService.UpdateAgentRunOverseer:input_type -> platform.v1.UpdateAgentRunOverseerRequest
+	315, // 412: platform.v1.PlatformService.DetachAgentRunOverseer:input_type -> platform.v1.DetachAgentRunOverseerRequest
+	304, // 413: platform.v1.PlatformService.ExtendAgentRunRuntime:input_type -> platform.v1.ExtendAgentRunRuntimeRequest
+	151, // 414: platform.v1.PlatformService.CreateTeamChildRun:input_type -> platform.v1.CreateTeamChildRunRequest
+	152, // 415: platform.v1.PlatformService.ListTeamChildRuns:input_type -> platform.v1.ListTeamChildRunsRequest
+	154, // 416: platform.v1.PlatformService.GetTeamChildRunStatus:input_type -> platform.v1.GetTeamChildRunStatusRequest
+	155, // 417: platform.v1.PlatformService.GetTeamChildRunLogs:input_type -> platform.v1.GetTeamChildRunLogsRequest
+	157, // 418: platform.v1.PlatformService.GetTeamChildRunArtifact:input_type -> platform.v1.GetTeamChildRunArtifactRequest
+	159, // 419: platform.v1.PlatformService.SendTeamChildMessage:input_type -> platform.v1.SendTeamChildMessageRequest
+	160, // 420: platform.v1.PlatformService.GetAgentRunTeamStatus:input_type -> platform.v1.GetAgentRunTeamStatusRequest
+	161, // 421: platform.v1.PlatformService.WaitForTeamRunChange:input_type -> platform.v1.WaitForTeamRunChangeRequest
+	163, // 422: platform.v1.PlatformService.CancelTeamChildRun:input_type -> platform.v1.CancelTeamChildRunRequest
+	164, // 423: platform.v1.PlatformService.RetryTeamChildRun:input_type -> platform.v1.RetryTeamChildRunRequest
+	165, // 424: platform.v1.PlatformService.GetTeamApprovalStatus:input_type -> platform.v1.GetTeamApprovalStatusRequest
+	60,  // 425: platform.v1.PlatformService.GetLinearProject:input_type -> platform.v1.GetLinearProjectRequest
+	183, // 426: platform.v1.PlatformService.GetTeamRuntime:input_type -> platform.v1.GetTeamRuntimeRequest
+	184, // 427: platform.v1.PlatformService.WatchTeamRuntime:input_type -> platform.v1.WatchTeamRuntimeRequest
+	61,  // 428: platform.v1.PlatformService.ListAvailableModels:input_type -> platform.v1.ListAvailableModelsRequest
+	167, // 429: platform.v1.PlatformService.GetDiff:input_type -> platform.v1.GetDiffRequest
+	167, // 430: platform.v1.PlatformService.WatchDiff:input_type -> platform.v1.GetDiffRequest
+	169, // 431: platform.v1.PlatformService.ListFiles:input_type -> platform.v1.ListFilesRequest
+	172, // 432: platform.v1.PlatformService.ListWorkspaceFiles:input_type -> platform.v1.ListWorkspaceFilesRequest
+	175, // 433: platform.v1.PlatformService.CloneRepository:input_type -> platform.v1.CloneRepositoryRequest
+	177, // 434: platform.v1.PlatformService.ListRepositories:input_type -> platform.v1.ListRepositoriesRequest
+	179, // 435: platform.v1.PlatformService.ReadFile:input_type -> platform.v1.ReadFileRequest
+	181, // 436: platform.v1.PlatformService.UpdateLinearProjectInstructions:input_type -> platform.v1.UpdateLinearProjectInstructionsRequest
+	264, // 437: platform.v1.PlatformService.CreateLinearProject:input_type -> platform.v1.CreateLinearProjectRequest
+	265, // 438: platform.v1.PlatformService.UpdateLinearProject:input_type -> platform.v1.UpdateLinearProjectRequest
+	197, // 439: platform.v1.PlatformService.ListProjects:input_type -> platform.v1.ListProjectsRequest
+	199, // 440: platform.v1.PlatformService.GetProject:input_type -> platform.v1.GetProjectRequest
+	200, // 441: platform.v1.PlatformService.WatchProjects:input_type -> platform.v1.WatchProjectsRequest
+	203, // 442: platform.v1.PlatformService.CreateProject:input_type -> platform.v1.CreateProjectRequest
+	204, // 443: platform.v1.PlatformService.UpdateProject:input_type -> platform.v1.UpdateProjectRequest
+	211, // 444: platform.v1.PlatformService.CreateProjectTrigger:input_type -> platform.v1.CreateProjectTriggerRequest
+	212, // 445: platform.v1.PlatformService.UpdateProjectTrigger:input_type -> platform.v1.UpdateProjectTriggerRequest
+	213, // 446: platform.v1.PlatformService.DeleteProjectTrigger:input_type -> platform.v1.DeleteProjectTriggerRequest
+	214, // 447: platform.v1.PlatformService.SetProjectTriggerEnabled:input_type -> platform.v1.SetProjectTriggerEnabledRequest
+	215, // 448: platform.v1.PlatformService.DeleteProject:input_type -> platform.v1.DeleteProjectRequest
+	220, // 449: platform.v1.PlatformService.ListConnections:input_type -> platform.v1.ListConnectionsRequest
+	222, // 450: platform.v1.PlatformService.CreateConnection:input_type -> platform.v1.CreateConnectionRequest
+	223, // 451: platform.v1.PlatformService.UpdateConnection:input_type -> platform.v1.UpdateConnectionRequest
+	224, // 452: platform.v1.PlatformService.DeleteConnection:input_type -> platform.v1.DeleteConnectionRequest
+	323, // 453: platform.v1.PlatformService.ListProjectContent:input_type -> platform.v1.ListProjectContentRequest
+	325, // 454: platform.v1.PlatformService.GetProjectContent:input_type -> platform.v1.GetProjectContentRequest
+	327, // 455: platform.v1.PlatformService.CreateProjectContent:input_type -> platform.v1.CreateProjectContentRequest
+	328, // 456: platform.v1.PlatformService.UpdateProjectContent:input_type -> platform.v1.UpdateProjectContentRequest
+	329, // 457: platform.v1.PlatformService.DuplicateProjectContent:input_type -> platform.v1.DuplicateProjectContentRequest
+	330, // 458: platform.v1.PlatformService.ListProjectContentVersions:input_type -> platform.v1.ListProjectContentVersionsRequest
+	332, // 459: platform.v1.PlatformService.RestoreProjectContentVersion:input_type -> platform.v1.RestoreProjectContentVersionRequest
+	333, // 460: platform.v1.PlatformService.DeleteProjectContent:input_type -> platform.v1.DeleteProjectContentRequest
+	227, // 461: platform.v1.PlatformService.ListGitHubRepositories:input_type -> platform.v1.ListGitHubRepositoriesRequest
+	229, // 462: platform.v1.PlatformService.GetGitHubRepository:input_type -> platform.v1.GetGitHubRepositoryRequest
+	234, // 463: platform.v1.PlatformService.ListMaintainerWorkItems:input_type -> platform.v1.ListMaintainerWorkItemsRequest
+	250, // 464: platform.v1.PlatformService.IssueMaintainerCommand:input_type -> platform.v1.IssueMaintainerCommandRequest
+	230, // 465: platform.v1.PlatformService.WatchGitHubRepositories:input_type -> platform.v1.WatchGitHubRepositoriesRequest
+	485, // 466: platform.v1.PlatformService.GetGitHubAppConfig:input_type -> google.protobuf.Empty
+	485, // 467: platform.v1.PlatformService.ListGitHubAppInstallations:input_type -> google.protobuf.Empty
+	256, // 468: platform.v1.PlatformService.ListGitHubAppInstallationRepositories:input_type -> platform.v1.ListGitHubAppInstallationRepositoriesRequest
+	259, // 469: platform.v1.PlatformService.CreateGitHubRepositoryFromInstallation:input_type -> platform.v1.CreateGitHubRepositoryFromInstallationRequest
+	260, // 470: platform.v1.PlatformService.CreateGitHubRepositoryFromToken:input_type -> platform.v1.CreateGitHubRepositoryFromTokenRequest
+	263, // 471: platform.v1.PlatformService.UpdateGitHubRepository:input_type -> platform.v1.UpdateGitHubRepositoryRequest
+	266, // 472: platform.v1.PlatformService.ListCrons:input_type -> platform.v1.ListCronsRequest
+	268, // 473: platform.v1.PlatformService.GetCron:input_type -> platform.v1.GetCronRequest
+	269, // 474: platform.v1.PlatformService.WatchCrons:input_type -> platform.v1.WatchCronsRequest
+	271, // 475: platform.v1.PlatformService.CreateCron:input_type -> platform.v1.CreateCronRequest
+	272, // 476: platform.v1.PlatformService.UpdateCron:input_type -> platform.v1.UpdateCronRequest
+	273, // 477: platform.v1.PlatformService.DeleteCron:input_type -> platform.v1.DeleteCronRequest
+	191, // 478: platform.v1.PlatformService.ListAvailableModes:input_type -> platform.v1.ListAvailableModesRequest
+	193, // 479: platform.v1.PlatformService.GetModeTemplate:input_type -> platform.v1.GetModeTemplateRequest
+	194, // 480: platform.v1.PlatformService.SwitchAgentRunMode:input_type -> platform.v1.SwitchAgentRunModeRequest
+	275, // 481: platform.v1.PlatformService.GetAgentTrace:input_type -> platform.v1.GetAgentTraceRequest
+	275, // 482: platform.v1.PlatformService.WatchAgentTrace:input_type -> platform.v1.GetAgentTraceRequest
+	277, // 483: platform.v1.PlatformService.GetAgentRunErrors:input_type -> platform.v1.GetAgentRunErrorsRequest
+	280, // 484: platform.v1.PlatformService.GetAgentRunLogs:input_type -> platform.v1.GetAgentRunLogsRequest
+	284, // 485: platform.v1.PlatformService.ExportAgentRunArchive:input_type -> platform.v1.ExportAgentRunArchiveRequest
+	287, // 486: platform.v1.PlatformService.ShareResource:input_type -> platform.v1.ShareResourceRequest
+	289, // 487: platform.v1.PlatformService.RevokeShare:input_type -> platform.v1.RevokeShareRequest
+	290, // 488: platform.v1.PlatformService.UpdateSharePermission:input_type -> platform.v1.UpdateSharePermissionRequest
+	291, // 489: platform.v1.PlatformService.ListShares:input_type -> platform.v1.ListSharesRequest
+	293, // 490: platform.v1.PlatformService.ListSharedWithMe:input_type -> platform.v1.ListSharedWithMeRequest
+	297, // 491: platform.v1.PlatformService.ListNotifications:input_type -> platform.v1.ListNotificationsRequest
+	299, // 492: platform.v1.PlatformService.MarkNotificationRead:input_type -> platform.v1.MarkNotificationReadRequest
+	301, // 493: platform.v1.PlatformService.SendPresenceHeartbeat:input_type -> platform.v1.PresenceHeartbeatRequest
+	302, // 494: platform.v1.PlatformService.GetPresence:input_type -> platform.v1.GetPresenceRequest
+	339, // 495: platform.v1.PlatformService.GetMyOpenAIUsage:input_type -> platform.v1.GetMyOpenAIUsageRequest
+	342, // 496: platform.v1.PlatformService.GetMyCopilotUsage:input_type -> platform.v1.GetMyCopilotUsageRequest
+	345, // 497: platform.v1.PlatformService.GetMyAnthropicUsage:input_type -> platform.v1.GetMyAnthropicUsageRequest
+	349, // 498: platform.v1.PlatformService.ListSecurityScans:input_type -> platform.v1.ListSecurityScansRequest
+	351, // 499: platform.v1.PlatformService.GetSecurityScan:input_type -> platform.v1.GetSecurityScanRequest
+	353, // 500: platform.v1.PlatformService.ListSecurityFindings:input_type -> platform.v1.ListSecurityFindingsRequest
+	355, // 501: platform.v1.PlatformService.GetSecurityFinding:input_type -> platform.v1.GetSecurityFindingRequest
+	358, // 502: platform.v1.PlatformService.UpdateSecurityFindingStatus:input_type -> platform.v1.UpdateSecurityFindingStatusRequest
+	359, // 503: platform.v1.PlatformService.GetSecurityFindingSummary:input_type -> platform.v1.GetSecurityFindingSummaryRequest
+	375, // 504: platform.v1.PlatformService.ListSecurityFindingEvents:input_type -> platform.v1.ListSecurityFindingEventsRequest
+	377, // 505: platform.v1.PlatformService.AddSecurityFindingComment:input_type -> platform.v1.AddSecurityFindingCommentRequest
+	362, // 506: platform.v1.PlatformService.UpdateSecurityFindingAssignee:input_type -> platform.v1.UpdateSecurityFindingAssigneeRequest
+	363, // 507: platform.v1.PlatformService.UpdateSecurityFindingTicket:input_type -> platform.v1.UpdateSecurityFindingTicketRequest
+	364, // 508: platform.v1.PlatformService.CreateSecurityFindingTicket:input_type -> platform.v1.CreateSecurityFindingTicketRequest
+	365, // 509: platform.v1.PlatformService.BulkUpdateSecurityFindingStatus:input_type -> platform.v1.BulkUpdateSecurityFindingStatusRequest
+	369, // 510: platform.v1.PlatformService.ListSecuritySavedFilters:input_type -> platform.v1.ListSecuritySavedFiltersRequest
+	371, // 511: platform.v1.PlatformService.SaveSecuritySavedFilter:input_type -> platform.v1.SaveSecuritySavedFilterRequest
+	372, // 512: platform.v1.PlatformService.DeleteSecuritySavedFilter:input_type -> platform.v1.DeleteSecuritySavedFilterRequest
+	373, // 513: platform.v1.PlatformService.ExportSecurityFindingAuditLog:input_type -> platform.v1.ExportSecurityFindingAuditLogRequest
+	399, // 514: platform.v1.PlatformService.ListSecurityScanConfigs:input_type -> platform.v1.ListSecurityScanConfigsRequest
+	401, // 515: platform.v1.PlatformService.GetSecurityScanConfig:input_type -> platform.v1.GetSecurityScanConfigRequest
+	402, // 516: platform.v1.PlatformService.CreateSecurityScan:input_type -> platform.v1.CreateSecurityScanRequest
+	403, // 517: platform.v1.PlatformService.UpdateSecurityScan:input_type -> platform.v1.UpdateSecurityScanRequest
+	404, // 518: platform.v1.PlatformService.DeleteSecurityScan:input_type -> platform.v1.DeleteSecurityScanRequest
+	405, // 519: platform.v1.PlatformService.RunSecurityScanNow:input_type -> platform.v1.RunSecurityScanNowRequest
+	406, // 520: platform.v1.PlatformService.ResumeSecurityScan:input_type -> platform.v1.ResumeSecurityScanRequest
+	409, // 521: platform.v1.PlatformService.ListSecurityWorkflows:input_type -> platform.v1.ListSecurityWorkflowsRequest
+	411, // 522: platform.v1.PlatformService.GetSecurityWorkflow:input_type -> platform.v1.GetSecurityWorkflowRequest
+	412, // 523: platform.v1.PlatformService.CreateSecurityWorkflow:input_type -> platform.v1.CreateSecurityWorkflowRequest
+	413, // 524: platform.v1.PlatformService.UpdateSecurityWorkflow:input_type -> platform.v1.UpdateSecurityWorkflowRequest
+	414, // 525: platform.v1.PlatformService.DeleteSecurityWorkflow:input_type -> platform.v1.DeleteSecurityWorkflowRequest
+	416, // 526: platform.v1.PlatformService.ValidateSecurityWorkflow:input_type -> platform.v1.ValidateSecurityWorkflowRequest
+	419, // 527: platform.v1.PlatformService.ListSecurityRankers:input_type -> platform.v1.ListSecurityRankersRequest
+	421, // 528: platform.v1.PlatformService.GetSecurityRanker:input_type -> platform.v1.GetSecurityRankerRequest
+	422, // 529: platform.v1.PlatformService.CreateSecurityRanker:input_type -> platform.v1.CreateSecurityRankerRequest
+	423, // 530: platform.v1.PlatformService.UpdateSecurityRanker:input_type -> platform.v1.UpdateSecurityRankerRequest
+	424, // 531: platform.v1.PlatformService.DeleteSecurityRanker:input_type -> platform.v1.DeleteSecurityRankerRequest
+	426, // 532: platform.v1.PlatformService.ListSecurityPostScripts:input_type -> platform.v1.ListSecurityPostScriptsRequest
+	428, // 533: platform.v1.PlatformService.GetSecurityPostScript:input_type -> platform.v1.GetSecurityPostScriptRequest
+	429, // 534: platform.v1.PlatformService.CreateSecurityPostScript:input_type -> platform.v1.CreateSecurityPostScriptRequest
+	430, // 535: platform.v1.PlatformService.UpdateSecurityPostScript:input_type -> platform.v1.UpdateSecurityPostScriptRequest
+	431, // 536: platform.v1.PlatformService.DeleteSecurityPostScript:input_type -> platform.v1.DeleteSecurityPostScriptRequest
+	437, // 537: platform.v1.PlatformService.ListSecurityPolicyPacks:input_type -> platform.v1.ListSecurityPolicyPacksRequest
+	439, // 538: platform.v1.PlatformService.GetSecurityPolicyPack:input_type -> platform.v1.GetSecurityPolicyPackRequest
+	440, // 539: platform.v1.PlatformService.CreateSecurityPolicyPack:input_type -> platform.v1.CreateSecurityPolicyPackRequest
+	441, // 540: platform.v1.PlatformService.UpdateSecurityPolicyPack:input_type -> platform.v1.UpdateSecurityPolicyPackRequest
+	442, // 541: platform.v1.PlatformService.DeleteSecurityPolicyPack:input_type -> platform.v1.DeleteSecurityPolicyPackRequest
+	444, // 542: platform.v1.PlatformService.ListSecurityPrograms:input_type -> platform.v1.ListSecurityProgramsRequest
+	446, // 543: platform.v1.PlatformService.GetSecurityProgram:input_type -> platform.v1.GetSecurityProgramRequest
+	447, // 544: platform.v1.PlatformService.CreateSecurityProgram:input_type -> platform.v1.CreateSecurityProgramRequest
+	448, // 545: platform.v1.PlatformService.UpdateSecurityProgram:input_type -> platform.v1.UpdateSecurityProgramRequest
+	449, // 546: platform.v1.PlatformService.DeleteSecurityProgram:input_type -> platform.v1.DeleteSecurityProgramRequest
+	450, // 547: platform.v1.PlatformService.GenerateSecurityDraft:input_type -> platform.v1.GenerateSecurityDraftRequest
+	452, // 548: platform.v1.PlatformService.GetSecurityDraft:input_type -> platform.v1.GetSecurityDraftRequest
+	454, // 549: platform.v1.PlatformService.ExportSecurityPack:input_type -> platform.v1.ExportSecurityPackRequest
+	456, // 550: platform.v1.PlatformService.ImportSecurityPack:input_type -> platform.v1.ImportSecurityPackRequest
+	459, // 551: platform.v1.PlatformService.GetSecurityOverview:input_type -> platform.v1.GetSecurityOverviewRequest
+	462, // 552: platform.v1.PlatformService.GetSecurityConfigPostures:input_type -> platform.v1.GetSecurityConfigPosturesRequest
+	466, // 553: platform.v1.PlatformService.GetSecurityScanReport:input_type -> platform.v1.GetSecurityScanReportRequest
+	485, // 554: platform.v1.PlatformService.GetSecuritySkillsStatus:input_type -> google.protobuf.Empty
+	485, // 555: platform.v1.PlatformService.InstallSecuritySkills:input_type -> google.protobuf.Empty
+	5,   // 556: platform.v1.PlatformService.ListAgentRuns:output_type -> platform.v1.ListAgentRunsResponse
+	48,  // 557: platform.v1.PlatformService.GetAgentRun:output_type -> platform.v1.AgentRun
+	17,  // 558: platform.v1.PlatformService.WatchAgentRuns:output_type -> platform.v1.AgentRunEvent
+	48,  // 559: platform.v1.PlatformService.WatchAgentRun:output_type -> platform.v1.AgentRun
+	33,  // 560: platform.v1.PlatformService.GetActivityLog:output_type -> platform.v1.GetActivityLogResponse
+	20,  // 561: platform.v1.PlatformService.GetActivityEntryDetail:output_type -> platform.v1.GetActivityEntryDetailResponse
+	33,  // 562: platform.v1.PlatformService.WatchActivityLog:output_type -> platform.v1.GetActivityLogResponse
+	26,  // 563: platform.v1.PlatformService.GetAgentRunUsage:output_type -> platform.v1.AgentRunUsageResponse
+	32,  // 564: platform.v1.PlatformService.GetObservabilityOverview:output_type -> platform.v1.ObservabilityOverviewResponse
+	306, // 565: platform.v1.PlatformService.GetAgentRunPullRequests:output_type -> platform.v1.GetAgentRunPullRequestsResponse
+	56,  // 566: platform.v1.PlatformService.ListLinearProjects:output_type -> platform.v1.ListLinearProjectsResponse
+	58,  // 567: platform.v1.PlatformService.WatchLinearProjects:output_type -> platform.v1.LinearProjectEvent
+	66,  // 568: platform.v1.PlatformService.SendAgentRunMessage:output_type -> platform.v1.SendAgentRunMessageResponse
+	68,  // 569: platform.v1.PlatformService.CancelAgentRunMessage:output_type -> platform.v1.CancelAgentRunMessageResponse
+	48,  // 570: platform.v1.PlatformService.CreateAgentRun:output_type -> platform.v1.AgentRun
+	70,  // 571: platform.v1.PlatformService.ListMyCredentials:output_type -> platform.v1.MyCredentials
+	70,  // 572: platform.v1.PlatformService.UpdateMyCredentials:output_type -> platform.v1.MyCredentials
+	335, // 573: platform.v1.PlatformService.StartProviderOAuth:output_type -> platform.v1.ProviderOAuthStart
+	338, // 574: platform.v1.PlatformService.CompleteProviderOAuth:output_type -> platform.v1.ProviderOAuthResult
+	338, // 575: platform.v1.PlatformService.PollProviderOAuth:output_type -> platform.v1.ProviderOAuthResult
+	76,  // 576: platform.v1.PlatformService.ShareMyCredentials:output_type -> platform.v1.ShareMyCredentialsResponse
+	127, // 577: platform.v1.PlatformService.ListSlackAgents:output_type -> platform.v1.ListSlackAgentsResponse
+	77,  // 578: platform.v1.PlatformService.UpdateSlackAgent:output_type -> platform.v1.SlackAgent
+	485, // 579: platform.v1.PlatformService.DeleteSlackAgent:output_type -> google.protobuf.Empty
+	135, // 580: platform.v1.PlatformService.ListSlackWorkspaces:output_type -> platform.v1.ListSlackWorkspacesResponse
+	133, // 581: platform.v1.PlatformService.UpdateSlackWorkspace:output_type -> platform.v1.SlackWorkspace
+	485, // 582: platform.v1.PlatformService.DeleteSlackWorkspace:output_type -> google.protobuf.Empty
+	131, // 583: platform.v1.PlatformService.ListSlackDrafts:output_type -> platform.v1.ListSlackDraftsResponse
+	81,  // 584: platform.v1.PlatformService.ListMCPServers:output_type -> platform.v1.ListMCPServersResponse
+	78,  // 585: platform.v1.PlatformService.UpsertMCPServer:output_type -> platform.v1.MCPServerInfo
+	485, // 586: platform.v1.PlatformService.DeleteMCPServer:output_type -> google.protobuf.Empty
+	86,  // 587: platform.v1.PlatformService.ListSkills:output_type -> platform.v1.ListSkillsResponse
+	318, // 588: platform.v1.PlatformService.ListSkillCatalog:output_type -> platform.v1.ListSkillCatalogResponse
+	84,  // 589: platform.v1.PlatformService.InstallSkillFromCatalog:output_type -> platform.v1.SkillInfo
+	84,  // 590: platform.v1.PlatformService.UpsertSkill:output_type -> platform.v1.SkillInfo
+	485, // 591: platform.v1.PlatformService.DeleteSkill:output_type -> google.protobuf.Empty
+	92,  // 592: platform.v1.PlatformService.ListRuntimeProfiles:output_type -> platform.v1.ListRuntimeProfilesResponse
+	90,  // 593: platform.v1.PlatformService.CreateRuntimeProfile:output_type -> platform.v1.RuntimeProfile
+	90,  // 594: platform.v1.PlatformService.UpdateRuntimeProfile:output_type -> platform.v1.RuntimeProfile
+	485, // 595: platform.v1.PlatformService.DeleteRuntimeProfile:output_type -> google.protobuf.Empty
+	100, // 596: platform.v1.PlatformService.ListMCPPolicies:output_type -> platform.v1.ListMCPPoliciesResponse
+	98,  // 597: platform.v1.PlatformService.CreateMCPPolicy:output_type -> platform.v1.MCPPolicy
+	98,  // 598: platform.v1.PlatformService.UpdateMCPPolicy:output_type -> platform.v1.MCPPolicy
+	485, // 599: platform.v1.PlatformService.DeleteMCPPolicy:output_type -> google.protobuf.Empty
+	107, // 600: platform.v1.PlatformService.ListGuardrailPolicies:output_type -> platform.v1.ListGuardrailPoliciesResponse
+	105, // 601: platform.v1.PlatformService.CreateGuardrailPolicy:output_type -> platform.v1.GuardrailPolicy
+	105, // 602: platform.v1.PlatformService.UpdateGuardrailPolicy:output_type -> platform.v1.GuardrailPolicy
+	485, // 603: platform.v1.PlatformService.DeleteGuardrailPolicy:output_type -> google.protobuf.Empty
+	112, // 604: platform.v1.PlatformService.ListModeTemplates:output_type -> platform.v1.ListModeTemplatesResponse
+	190, // 605: platform.v1.PlatformService.CreateModeTemplate:output_type -> platform.v1.ModeTemplate
+	190, // 606: platform.v1.PlatformService.UpdateModeTemplate:output_type -> platform.v1.ModeTemplate
+	485, // 607: platform.v1.PlatformService.DeleteModeTemplate:output_type -> google.protobuf.Empty
+	118, // 608: platform.v1.PlatformService.ListRoleInstructions:output_type -> platform.v1.ListRoleInstructionsResponse
+	116, // 609: platform.v1.PlatformService.CreateRoleInstruction:output_type -> platform.v1.RoleInstruction
+	116, // 610: platform.v1.PlatformService.UpdateRoleInstruction:output_type -> platform.v1.RoleInstruction
+	485, // 611: platform.v1.PlatformService.DeleteRoleInstruction:output_type -> google.protobuf.Empty
+	125, // 612: platform.v1.PlatformService.ListRuntimeImages:output_type -> platform.v1.ListRuntimeImagesResponse
+	138, // 613: platform.v1.PlatformService.GetMySoul:output_type -> platform.v1.Soul
+	138, // 614: platform.v1.PlatformService.UpdateMySoul:output_type -> platform.v1.Soul
+	142, // 615: platform.v1.PlatformService.GetMyRoleModelPreferences:output_type -> platform.v1.RoleModelPreferences
+	142, // 616: platform.v1.PlatformService.UpdateMyRoleModelPreferences:output_type -> platform.v1.RoleModelPreferences
+	145, // 617: platform.v1.PlatformService.GetMyGitIdentity:output_type -> platform.v1.GitIdentity
+	145, // 618: platform.v1.PlatformService.UpdateMyGitIdentity:output_type -> platform.v1.GitIdentity
+	485, // 619: platform.v1.PlatformService.DeleteAgentRun:output_type -> google.protobuf.Empty
+	48,  // 620: platform.v1.PlatformService.CancelAgentRun:output_type -> platform.v1.AgentRun
+	48,  // 621: platform.v1.PlatformService.PromoteAgentRun:output_type -> platform.v1.AgentRun
+	11,  // 622: platform.v1.PlatformService.InterruptAgentRun:output_type -> platform.v1.InterruptAgentRunResponse
+	48,  // 623: platform.v1.PlatformService.RetryAgentRun:output_type -> platform.v1.AgentRun
+	48,  // 624: platform.v1.PlatformService.RenameAgentRun:output_type -> platform.v1.AgentRun
+	48,  // 625: platform.v1.PlatformService.UpdateAgentRunRuntimeConfig:output_type -> platform.v1.AgentRun
+	48,  // 626: platform.v1.PlatformService.AttachAgentRunOverseer:output_type -> platform.v1.AgentRun
+	48,  // 627: platform.v1.PlatformService.UpdateAgentRunOverseer:output_type -> platform.v1.AgentRun
+	48,  // 628: platform.v1.PlatformService.DetachAgentRunOverseer:output_type -> platform.v1.AgentRun
+	48,  // 629: platform.v1.PlatformService.ExtendAgentRunRuntime:output_type -> platform.v1.AgentRun
+	150, // 630: platform.v1.PlatformService.CreateTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
+	153, // 631: platform.v1.PlatformService.ListTeamChildRuns:output_type -> platform.v1.ListTeamChildRunsResponse
+	150, // 632: platform.v1.PlatformService.GetTeamChildRunStatus:output_type -> platform.v1.TeamChildRunStatus
+	156, // 633: platform.v1.PlatformService.GetTeamChildRunLogs:output_type -> platform.v1.TeamChildRunLogs
+	158, // 634: platform.v1.PlatformService.GetTeamChildRunArtifact:output_type -> platform.v1.TeamChildRunArtifact
+	150, // 635: platform.v1.PlatformService.SendTeamChildMessage:output_type -> platform.v1.TeamChildRunStatus
+	46,  // 636: platform.v1.PlatformService.GetAgentRunTeamStatus:output_type -> platform.v1.AgentRunTeamSummary
+	162, // 637: platform.v1.PlatformService.WaitForTeamRunChange:output_type -> platform.v1.WaitForTeamRunChangeResponse
+	150, // 638: platform.v1.PlatformService.CancelTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
+	150, // 639: platform.v1.PlatformService.RetryTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
+	166, // 640: platform.v1.PlatformService.GetTeamApprovalStatus:output_type -> platform.v1.TeamApprovalStatus
+	59,  // 641: platform.v1.PlatformService.GetLinearProject:output_type -> platform.v1.LinearProject
+	185, // 642: platform.v1.PlatformService.GetTeamRuntime:output_type -> platform.v1.TeamRuntime
+	185, // 643: platform.v1.PlatformService.WatchTeamRuntime:output_type -> platform.v1.TeamRuntime
+	62,  // 644: platform.v1.PlatformService.ListAvailableModels:output_type -> platform.v1.ListAvailableModelsResponse
+	168, // 645: platform.v1.PlatformService.GetDiff:output_type -> platform.v1.GetDiffResponse
+	168, // 646: platform.v1.PlatformService.WatchDiff:output_type -> platform.v1.GetDiffResponse
+	170, // 647: platform.v1.PlatformService.ListFiles:output_type -> platform.v1.ListFilesResponse
+	173, // 648: platform.v1.PlatformService.ListWorkspaceFiles:output_type -> platform.v1.ListWorkspaceFilesResponse
+	176, // 649: platform.v1.PlatformService.CloneRepository:output_type -> platform.v1.CloneRepositoryResponse
+	178, // 650: platform.v1.PlatformService.ListRepositories:output_type -> platform.v1.ListRepositoriesResponse
+	180, // 651: platform.v1.PlatformService.ReadFile:output_type -> platform.v1.ReadFileResponse
+	182, // 652: platform.v1.PlatformService.UpdateLinearProjectInstructions:output_type -> platform.v1.UpdateLinearProjectInstructionsResponse
+	59,  // 653: platform.v1.PlatformService.CreateLinearProject:output_type -> platform.v1.LinearProject
+	59,  // 654: platform.v1.PlatformService.UpdateLinearProject:output_type -> platform.v1.LinearProject
+	198, // 655: platform.v1.PlatformService.ListProjects:output_type -> platform.v1.ListProjectsResponse
+	225, // 656: platform.v1.PlatformService.GetProject:output_type -> platform.v1.Project
+	201, // 657: platform.v1.PlatformService.WatchProjects:output_type -> platform.v1.ProjectEvent
+	225, // 658: platform.v1.PlatformService.CreateProject:output_type -> platform.v1.Project
+	225, // 659: platform.v1.PlatformService.UpdateProject:output_type -> platform.v1.Project
+	225, // 660: platform.v1.PlatformService.CreateProjectTrigger:output_type -> platform.v1.Project
+	225, // 661: platform.v1.PlatformService.UpdateProjectTrigger:output_type -> platform.v1.Project
+	485, // 662: platform.v1.PlatformService.DeleteProjectTrigger:output_type -> google.protobuf.Empty
+	225, // 663: platform.v1.PlatformService.SetProjectTriggerEnabled:output_type -> platform.v1.Project
+	485, // 664: platform.v1.PlatformService.DeleteProject:output_type -> google.protobuf.Empty
+	221, // 665: platform.v1.PlatformService.ListConnections:output_type -> platform.v1.ListConnectionsResponse
+	219, // 666: platform.v1.PlatformService.CreateConnection:output_type -> platform.v1.Connection
+	219, // 667: platform.v1.PlatformService.UpdateConnection:output_type -> platform.v1.Connection
+	485, // 668: platform.v1.PlatformService.DeleteConnection:output_type -> google.protobuf.Empty
+	324, // 669: platform.v1.PlatformService.ListProjectContent:output_type -> platform.v1.ListProjectContentResponse
+	326, // 670: platform.v1.PlatformService.GetProjectContent:output_type -> platform.v1.GetProjectContentResponse
+	321, // 671: platform.v1.PlatformService.CreateProjectContent:output_type -> platform.v1.ProjectContent
+	321, // 672: platform.v1.PlatformService.UpdateProjectContent:output_type -> platform.v1.ProjectContent
+	321, // 673: platform.v1.PlatformService.DuplicateProjectContent:output_type -> platform.v1.ProjectContent
+	331, // 674: platform.v1.PlatformService.ListProjectContentVersions:output_type -> platform.v1.ListProjectContentVersionsResponse
+	321, // 675: platform.v1.PlatformService.RestoreProjectContentVersion:output_type -> platform.v1.ProjectContent
+	485, // 676: platform.v1.PlatformService.DeleteProjectContent:output_type -> google.protobuf.Empty
+	228, // 677: platform.v1.PlatformService.ListGitHubRepositories:output_type -> platform.v1.ListGitHubRepositoriesResponse
+	252, // 678: platform.v1.PlatformService.GetGitHubRepository:output_type -> platform.v1.GitHubRepository
+	235, // 679: platform.v1.PlatformService.ListMaintainerWorkItems:output_type -> platform.v1.ListMaintainerWorkItemsResponse
+	251, // 680: platform.v1.PlatformService.IssueMaintainerCommand:output_type -> platform.v1.IssueMaintainerCommandResponse
+	231, // 681: platform.v1.PlatformService.WatchGitHubRepositories:output_type -> platform.v1.GitHubRepositoryEvent
+	253, // 682: platform.v1.PlatformService.GetGitHubAppConfig:output_type -> platform.v1.GitHubAppConfig
+	255, // 683: platform.v1.PlatformService.ListGitHubAppInstallations:output_type -> platform.v1.ListGitHubAppInstallationsResponse
+	258, // 684: platform.v1.PlatformService.ListGitHubAppInstallationRepositories:output_type -> platform.v1.ListGitHubAppInstallationRepositoriesResponse
+	252, // 685: platform.v1.PlatformService.CreateGitHubRepositoryFromInstallation:output_type -> platform.v1.GitHubRepository
+	252, // 686: platform.v1.PlatformService.CreateGitHubRepositoryFromToken:output_type -> platform.v1.GitHubRepository
+	252, // 687: platform.v1.PlatformService.UpdateGitHubRepository:output_type -> platform.v1.GitHubRepository
+	267, // 688: platform.v1.PlatformService.ListCrons:output_type -> platform.v1.ListCronsResponse
+	274, // 689: platform.v1.PlatformService.GetCron:output_type -> platform.v1.Cron
+	270, // 690: platform.v1.PlatformService.WatchCrons:output_type -> platform.v1.CronEvent
+	274, // 691: platform.v1.PlatformService.CreateCron:output_type -> platform.v1.Cron
+	274, // 692: platform.v1.PlatformService.UpdateCron:output_type -> platform.v1.Cron
+	485, // 693: platform.v1.PlatformService.DeleteCron:output_type -> google.protobuf.Empty
+	192, // 694: platform.v1.PlatformService.ListAvailableModes:output_type -> platform.v1.ListAvailableModesResponse
+	190, // 695: platform.v1.PlatformService.GetModeTemplate:output_type -> platform.v1.ModeTemplate
+	195, // 696: platform.v1.PlatformService.SwitchAgentRunMode:output_type -> platform.v1.SwitchAgentRunModeResponse
+	276, // 697: platform.v1.PlatformService.GetAgentTrace:output_type -> platform.v1.GetAgentTraceResponse
+	276, // 698: platform.v1.PlatformService.WatchAgentTrace:output_type -> platform.v1.GetAgentTraceResponse
+	279, // 699: platform.v1.PlatformService.GetAgentRunErrors:output_type -> platform.v1.GetAgentRunErrorsResponse
+	281, // 700: platform.v1.PlatformService.GetAgentRunLogs:output_type -> platform.v1.GetAgentRunLogsResponse
+	285, // 701: platform.v1.PlatformService.ExportAgentRunArchive:output_type -> platform.v1.ExportAgentRunArchiveResponse
+	288, // 702: platform.v1.PlatformService.ShareResource:output_type -> platform.v1.ShareResourceResponse
+	485, // 703: platform.v1.PlatformService.RevokeShare:output_type -> google.protobuf.Empty
+	295, // 704: platform.v1.PlatformService.UpdateSharePermission:output_type -> platform.v1.ResourceShareInfo
+	292, // 705: platform.v1.PlatformService.ListShares:output_type -> platform.v1.ListSharesResponse
+	294, // 706: platform.v1.PlatformService.ListSharedWithMe:output_type -> platform.v1.ListSharedWithMeResponse
+	298, // 707: platform.v1.PlatformService.ListNotifications:output_type -> platform.v1.ListNotificationsResponse
+	485, // 708: platform.v1.PlatformService.MarkNotificationRead:output_type -> google.protobuf.Empty
+	485, // 709: platform.v1.PlatformService.SendPresenceHeartbeat:output_type -> google.protobuf.Empty
+	303, // 710: platform.v1.PlatformService.GetPresence:output_type -> platform.v1.GetPresenceResponse
+	340, // 711: platform.v1.PlatformService.GetMyOpenAIUsage:output_type -> platform.v1.MyOpenAIUsage
+	343, // 712: platform.v1.PlatformService.GetMyCopilotUsage:output_type -> platform.v1.MyCopilotUsage
+	346, // 713: platform.v1.PlatformService.GetMyAnthropicUsage:output_type -> platform.v1.MyAnthropicUsage
+	350, // 714: platform.v1.PlatformService.ListSecurityScans:output_type -> platform.v1.ListSecurityScansResponse
+	348, // 715: platform.v1.PlatformService.GetSecurityScan:output_type -> platform.v1.SecurityScan
+	354, // 716: platform.v1.PlatformService.ListSecurityFindings:output_type -> platform.v1.ListSecurityFindingsResponse
+	357, // 717: platform.v1.PlatformService.GetSecurityFinding:output_type -> platform.v1.GetSecurityFindingResponse
+	352, // 718: platform.v1.PlatformService.UpdateSecurityFindingStatus:output_type -> platform.v1.SecurityFinding
+	360, // 719: platform.v1.PlatformService.GetSecurityFindingSummary:output_type -> platform.v1.GetSecurityFindingSummaryResponse
+	376, // 720: platform.v1.PlatformService.ListSecurityFindingEvents:output_type -> platform.v1.ListSecurityFindingEventsResponse
+	356, // 721: platform.v1.PlatformService.AddSecurityFindingComment:output_type -> platform.v1.SecurityFindingEvent
+	352, // 722: platform.v1.PlatformService.UpdateSecurityFindingAssignee:output_type -> platform.v1.SecurityFinding
+	352, // 723: platform.v1.PlatformService.UpdateSecurityFindingTicket:output_type -> platform.v1.SecurityFinding
+	352, // 724: platform.v1.PlatformService.CreateSecurityFindingTicket:output_type -> platform.v1.SecurityFinding
+	367, // 725: platform.v1.PlatformService.BulkUpdateSecurityFindingStatus:output_type -> platform.v1.BulkUpdateSecurityFindingStatusResponse
+	370, // 726: platform.v1.PlatformService.ListSecuritySavedFilters:output_type -> platform.v1.ListSecuritySavedFiltersResponse
+	368, // 727: platform.v1.PlatformService.SaveSecuritySavedFilter:output_type -> platform.v1.SecuritySavedFilter
+	485, // 728: platform.v1.PlatformService.DeleteSecuritySavedFilter:output_type -> google.protobuf.Empty
+	374, // 729: platform.v1.PlatformService.ExportSecurityFindingAuditLog:output_type -> platform.v1.ExportSecurityFindingAuditLogResponse
+	400, // 730: platform.v1.PlatformService.ListSecurityScanConfigs:output_type -> platform.v1.ListSecurityScanConfigsResponse
+	397, // 731: platform.v1.PlatformService.GetSecurityScanConfig:output_type -> platform.v1.SecurityScanConfig
+	397, // 732: platform.v1.PlatformService.CreateSecurityScan:output_type -> platform.v1.SecurityScanConfig
+	397, // 733: platform.v1.PlatformService.UpdateSecurityScan:output_type -> platform.v1.SecurityScanConfig
+	485, // 734: platform.v1.PlatformService.DeleteSecurityScan:output_type -> google.protobuf.Empty
+	397, // 735: platform.v1.PlatformService.RunSecurityScanNow:output_type -> platform.v1.SecurityScanConfig
+	397, // 736: platform.v1.PlatformService.ResumeSecurityScan:output_type -> platform.v1.SecurityScanConfig
+	410, // 737: platform.v1.PlatformService.ListSecurityWorkflows:output_type -> platform.v1.ListSecurityWorkflowsResponse
+	407, // 738: platform.v1.PlatformService.GetSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
+	407, // 739: platform.v1.PlatformService.CreateSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
+	407, // 740: platform.v1.PlatformService.UpdateSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
+	485, // 741: platform.v1.PlatformService.DeleteSecurityWorkflow:output_type -> google.protobuf.Empty
+	417, // 742: platform.v1.PlatformService.ValidateSecurityWorkflow:output_type -> platform.v1.ValidateSecurityWorkflowResponse
+	420, // 743: platform.v1.PlatformService.ListSecurityRankers:output_type -> platform.v1.ListSecurityRankersResponse
+	418, // 744: platform.v1.PlatformService.GetSecurityRanker:output_type -> platform.v1.SecurityRankerResource
+	418, // 745: platform.v1.PlatformService.CreateSecurityRanker:output_type -> platform.v1.SecurityRankerResource
+	418, // 746: platform.v1.PlatformService.UpdateSecurityRanker:output_type -> platform.v1.SecurityRankerResource
+	485, // 747: platform.v1.PlatformService.DeleteSecurityRanker:output_type -> google.protobuf.Empty
+	427, // 748: platform.v1.PlatformService.ListSecurityPostScripts:output_type -> platform.v1.ListSecurityPostScriptsResponse
+	425, // 749: platform.v1.PlatformService.GetSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
+	425, // 750: platform.v1.PlatformService.CreateSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
+	425, // 751: platform.v1.PlatformService.UpdateSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
+	485, // 752: platform.v1.PlatformService.DeleteSecurityPostScript:output_type -> google.protobuf.Empty
+	438, // 753: platform.v1.PlatformService.ListSecurityPolicyPacks:output_type -> platform.v1.ListSecurityPolicyPacksResponse
+	436, // 754: platform.v1.PlatformService.GetSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
+	436, // 755: platform.v1.PlatformService.CreateSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
+	436, // 756: platform.v1.PlatformService.UpdateSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
+	485, // 757: platform.v1.PlatformService.DeleteSecurityPolicyPack:output_type -> google.protobuf.Empty
+	445, // 758: platform.v1.PlatformService.ListSecurityPrograms:output_type -> platform.v1.ListSecurityProgramsResponse
+	443, // 759: platform.v1.PlatformService.GetSecurityProgram:output_type -> platform.v1.SecurityProgramResource
+	443, // 760: platform.v1.PlatformService.CreateSecurityProgram:output_type -> platform.v1.SecurityProgramResource
+	443, // 761: platform.v1.PlatformService.UpdateSecurityProgram:output_type -> platform.v1.SecurityProgramResource
+	485, // 762: platform.v1.PlatformService.DeleteSecurityProgram:output_type -> google.protobuf.Empty
+	451, // 763: platform.v1.PlatformService.GenerateSecurityDraft:output_type -> platform.v1.GenerateSecurityDraftResponse
+	453, // 764: platform.v1.PlatformService.GetSecurityDraft:output_type -> platform.v1.GetSecurityDraftResponse
+	455, // 765: platform.v1.PlatformService.ExportSecurityPack:output_type -> platform.v1.ExportSecurityPackResponse
+	458, // 766: platform.v1.PlatformService.ImportSecurityPack:output_type -> platform.v1.ImportSecurityPackResponse
+	461, // 767: platform.v1.PlatformService.GetSecurityOverview:output_type -> platform.v1.GetSecurityOverviewResponse
+	465, // 768: platform.v1.PlatformService.GetSecurityConfigPostures:output_type -> platform.v1.GetSecurityConfigPosturesResponse
+	467, // 769: platform.v1.PlatformService.GetSecurityScanReport:output_type -> platform.v1.GetSecurityScanReportResponse
+	468, // 770: platform.v1.PlatformService.GetSecuritySkillsStatus:output_type -> platform.v1.SecuritySkillsStatus
+	468, // 771: platform.v1.PlatformService.InstallSecuritySkills:output_type -> platform.v1.SecuritySkillsStatus
+	556, // [556:772] is the sub-list for method output_type
+	340, // [340:556] is the sub-list for method input_type
+	340, // [340:340] is the sub-list for extension type_name
+	340, // [340:340] is the sub-list for extension extendee
+	0,   // [0:340] is the sub-list for field type_name
 }
 
 func init() { file_rpc_platform_service_proto_init() }
@@ -42198,7 +42693,7 @@ func file_rpc_platform_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_rpc_platform_service_proto_rawDesc), len(file_rpc_platform_service_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   473,
+			NumMessages:   480,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

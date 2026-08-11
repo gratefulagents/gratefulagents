@@ -51,6 +51,10 @@ var requiredCRDs = []struct {
 		base:  "triggers.gratefulagents.dev_securityscans.yaml",
 		chart: "securityscans.triggers.gratefulagents.dev.yaml",
 	},
+	{
+		base:  "triggers.gratefulagents.dev_securityprograms.yaml",
+		chart: "securityprograms.triggers.gratefulagents.dev.yaml",
+	},
 }
 
 func TestRequiredCRDsAreGeneratedAndShipped(t *testing.T) {

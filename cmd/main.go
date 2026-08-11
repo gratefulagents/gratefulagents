@@ -436,6 +436,12 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityPolicyPack")
 		os.Exit(1)
 	}
+	if err := (&triggercontroller.SecurityProgramReconciler{
+		SecurityLibraryReconciler: securityLibrary,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SecurityProgram")
+		os.Exit(1)
+	}
 
 	if err := (&triggercontroller.SlackAgentReconciler{
 		Client: mgr.GetClient(),

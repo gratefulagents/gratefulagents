@@ -116,7 +116,7 @@ describe("SecurityOverview", () => {
     ).toBeTruthy();
     // Both scan tables surface the owning configuration in a dedicated column
     // (the postures table adds a third "Configuration" header).
-    expect(screen.getAllByText("Configuration").length).toBe(3);
+    await waitFor(() => expect(screen.getAllByText("Configuration").length).toBe(3));
     expect(screen.getAllByText("nightly").length).toBeGreaterThanOrEqual(2);
     expect(
       screen.getByRole("link", { name: "nightly" }).getAttribute("href"),

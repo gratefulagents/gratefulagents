@@ -21,6 +21,7 @@ var dashboardManagedResources = []string{
 	"githubrepositories",
 	"projects",
 	"securitypolicypacks",
+	"securityprograms",
 	"securitypostscripts",
 	"securityrankers",
 	"securityscans",

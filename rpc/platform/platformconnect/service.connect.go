@@ -638,6 +638,21 @@ const (
 	// PlatformServiceDeleteSecurityPolicyPackProcedure is the fully-qualified name of the
 	// PlatformService's DeleteSecurityPolicyPack RPC.
 	PlatformServiceDeleteSecurityPolicyPackProcedure = "/platform.v1.PlatformService/DeleteSecurityPolicyPack"
+	// PlatformServiceListSecurityProgramsProcedure is the fully-qualified name of the PlatformService's
+	// ListSecurityPrograms RPC.
+	PlatformServiceListSecurityProgramsProcedure = "/platform.v1.PlatformService/ListSecurityPrograms"
+	// PlatformServiceGetSecurityProgramProcedure is the fully-qualified name of the PlatformService's
+	// GetSecurityProgram RPC.
+	PlatformServiceGetSecurityProgramProcedure = "/platform.v1.PlatformService/GetSecurityProgram"
+	// PlatformServiceCreateSecurityProgramProcedure is the fully-qualified name of the
+	// PlatformService's CreateSecurityProgram RPC.
+	PlatformServiceCreateSecurityProgramProcedure = "/platform.v1.PlatformService/CreateSecurityProgram"
+	// PlatformServiceUpdateSecurityProgramProcedure is the fully-qualified name of the
+	// PlatformService's UpdateSecurityProgram RPC.
+	PlatformServiceUpdateSecurityProgramProcedure = "/platform.v1.PlatformService/UpdateSecurityProgram"
+	// PlatformServiceDeleteSecurityProgramProcedure is the fully-qualified name of the
+	// PlatformService's DeleteSecurityProgram RPC.
+	PlatformServiceDeleteSecurityProgramProcedure = "/platform.v1.PlatformService/DeleteSecurityProgram"
 	// PlatformServiceGenerateSecurityDraftProcedure is the fully-qualified name of the
 	// PlatformService's GenerateSecurityDraft RPC.
 	PlatformServiceGenerateSecurityDraftProcedure = "/platform.v1.PlatformService/GenerateSecurityDraft"
@@ -994,6 +1009,14 @@ type PlatformServiceClient interface {
 	CreateSecurityPolicyPack(context.Context, *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
 	UpdateSecurityPolicyPack(context.Context, *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
 	DeleteSecurityPolicyPack(context.Context, *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error)
+	// SecurityProgram CRs are operator-verified scope snapshots referenced by
+	// SecurityScan configurations via security_program_ref. The program URL is
+	// provenance only and is never fetched or treated as network authorization.
+	ListSecurityPrograms(context.Context, *connect.Request[platform.ListSecurityProgramsRequest]) (*connect.Response[platform.ListSecurityProgramsResponse], error)
+	GetSecurityProgram(context.Context, *connect.Request[platform.GetSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error)
+	CreateSecurityProgram(context.Context, *connect.Request[platform.CreateSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error)
+	UpdateSecurityProgram(context.Context, *connect.Request[platform.UpdateSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error)
+	DeleteSecurityProgram(context.Context, *connect.Request[platform.DeleteSecurityProgramRequest]) (*connect.Response[emptypb.Empty], error)
 	// AI-assisted authoring. GenerateSecurityDraft launches a bounded,
 	// repo-less draft-generation AgentRun that uses only the caller's saved
 	// provider credentials (no repository, GitHub token, or other secrets);
@@ -2253,6 +2276,36 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPolicyPack")),
 			connect.WithClientOptions(opts...),
 		),
+		listSecurityPrograms: connect.NewClient[platform.ListSecurityProgramsRequest, platform.ListSecurityProgramsResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityProgramsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityPrograms")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityProgram: connect.NewClient[platform.GetSecurityProgramRequest, platform.SecurityProgramResource](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityProgramProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityProgram")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityProgram: connect.NewClient[platform.CreateSecurityProgramRequest, platform.SecurityProgramResource](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityProgramProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityProgram")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityProgram: connect.NewClient[platform.UpdateSecurityProgramRequest, platform.SecurityProgramResource](
+			httpClient,
+			baseURL+PlatformServiceUpdateSecurityProgramProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityProgram")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSecurityProgram: connect.NewClient[platform.DeleteSecurityProgramRequest, emptypb.Empty](
+			httpClient,
+			baseURL+PlatformServiceDeleteSecurityProgramProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityProgram")),
+			connect.WithClientOptions(opts...),
+		),
 		generateSecurityDraft: connect.NewClient[platform.GenerateSecurityDraftRequest, platform.GenerateSecurityDraftResponse](
 			httpClient,
 			baseURL+PlatformServiceGenerateSecurityDraftProcedure,
@@ -2514,6 +2567,11 @@ type platformServiceClient struct {
 	createSecurityPolicyPack               *connect.Client[platform.CreateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource]
 	updateSecurityPolicyPack               *connect.Client[platform.UpdateSecurityPolicyPackRequest, platform.SecurityPolicyPackResource]
 	deleteSecurityPolicyPack               *connect.Client[platform.DeleteSecurityPolicyPackRequest, emptypb.Empty]
+	listSecurityPrograms                   *connect.Client[platform.ListSecurityProgramsRequest, platform.ListSecurityProgramsResponse]
+	getSecurityProgram                     *connect.Client[platform.GetSecurityProgramRequest, platform.SecurityProgramResource]
+	createSecurityProgram                  *connect.Client[platform.CreateSecurityProgramRequest, platform.SecurityProgramResource]
+	updateSecurityProgram                  *connect.Client[platform.UpdateSecurityProgramRequest, platform.SecurityProgramResource]
+	deleteSecurityProgram                  *connect.Client[platform.DeleteSecurityProgramRequest, emptypb.Empty]
 	generateSecurityDraft                  *connect.Client[platform.GenerateSecurityDraftRequest, platform.GenerateSecurityDraftResponse]
 	getSecurityDraft                       *connect.Client[platform.GetSecurityDraftRequest, platform.GetSecurityDraftResponse]
 	exportSecurityPack                     *connect.Client[platform.ExportSecurityPackRequest, platform.ExportSecurityPackResponse]
@@ -3540,6 +3598,31 @@ func (c *platformServiceClient) DeleteSecurityPolicyPack(ctx context.Context, re
 	return c.deleteSecurityPolicyPack.CallUnary(ctx, req)
 }
 
+// ListSecurityPrograms calls platform.v1.PlatformService.ListSecurityPrograms.
+func (c *platformServiceClient) ListSecurityPrograms(ctx context.Context, req *connect.Request[platform.ListSecurityProgramsRequest]) (*connect.Response[platform.ListSecurityProgramsResponse], error) {
+	return c.listSecurityPrograms.CallUnary(ctx, req)
+}
+
+// GetSecurityProgram calls platform.v1.PlatformService.GetSecurityProgram.
+func (c *platformServiceClient) GetSecurityProgram(ctx context.Context, req *connect.Request[platform.GetSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error) {
+	return c.getSecurityProgram.CallUnary(ctx, req)
+}
+
+// CreateSecurityProgram calls platform.v1.PlatformService.CreateSecurityProgram.
+func (c *platformServiceClient) CreateSecurityProgram(ctx context.Context, req *connect.Request[platform.CreateSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error) {
+	return c.createSecurityProgram.CallUnary(ctx, req)
+}
+
+// UpdateSecurityProgram calls platform.v1.PlatformService.UpdateSecurityProgram.
+func (c *platformServiceClient) UpdateSecurityProgram(ctx context.Context, req *connect.Request[platform.UpdateSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error) {
+	return c.updateSecurityProgram.CallUnary(ctx, req)
+}
+
+// DeleteSecurityProgram calls platform.v1.PlatformService.DeleteSecurityProgram.
+func (c *platformServiceClient) DeleteSecurityProgram(ctx context.Context, req *connect.Request[platform.DeleteSecurityProgramRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteSecurityProgram.CallUnary(ctx, req)
+}
+
 // GenerateSecurityDraft calls platform.v1.PlatformService.GenerateSecurityDraft.
 func (c *platformServiceClient) GenerateSecurityDraft(ctx context.Context, req *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {
 	return c.generateSecurityDraft.CallUnary(ctx, req)
@@ -3912,6 +3995,14 @@ type PlatformServiceHandler interface {
 	CreateSecurityPolicyPack(context.Context, *connect.Request[platform.CreateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
 	UpdateSecurityPolicyPack(context.Context, *connect.Request[platform.UpdateSecurityPolicyPackRequest]) (*connect.Response[platform.SecurityPolicyPackResource], error)
 	DeleteSecurityPolicyPack(context.Context, *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error)
+	// SecurityProgram CRs are operator-verified scope snapshots referenced by
+	// SecurityScan configurations via security_program_ref. The program URL is
+	// provenance only and is never fetched or treated as network authorization.
+	ListSecurityPrograms(context.Context, *connect.Request[platform.ListSecurityProgramsRequest]) (*connect.Response[platform.ListSecurityProgramsResponse], error)
+	GetSecurityProgram(context.Context, *connect.Request[platform.GetSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error)
+	CreateSecurityProgram(context.Context, *connect.Request[platform.CreateSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error)
+	UpdateSecurityProgram(context.Context, *connect.Request[platform.UpdateSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error)
+	DeleteSecurityProgram(context.Context, *connect.Request[platform.DeleteSecurityProgramRequest]) (*connect.Response[emptypb.Empty], error)
 	// AI-assisted authoring. GenerateSecurityDraft launches a bounded,
 	// repo-less draft-generation AgentRun that uses only the caller's saved
 	// provider credentials (no repository, GitHub token, or other secrets);
@@ -5167,6 +5258,36 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityPolicyPack")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListSecurityProgramsHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityProgramsProcedure,
+		svc.ListSecurityPrograms,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityPrograms")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityProgramHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityProgramProcedure,
+		svc.GetSecurityProgram,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityProgram")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityProgramHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityProgramProcedure,
+		svc.CreateSecurityProgram,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityProgram")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateSecurityProgramHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateSecurityProgramProcedure,
+		svc.UpdateSecurityProgram,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateSecurityProgram")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceDeleteSecurityProgramHandler := connect.NewUnaryHandler(
+		PlatformServiceDeleteSecurityProgramProcedure,
+		svc.DeleteSecurityProgram,
+		connect.WithSchema(platformServiceMethods.ByName("DeleteSecurityProgram")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceGenerateSecurityDraftHandler := connect.NewUnaryHandler(
 		PlatformServiceGenerateSecurityDraftProcedure,
 		svc.GenerateSecurityDraft,
@@ -5627,6 +5748,16 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceUpdateSecurityPolicyPackHandler.ServeHTTP(w, r)
 		case PlatformServiceDeleteSecurityPolicyPackProcedure:
 			platformServiceDeleteSecurityPolicyPackHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityProgramsProcedure:
+			platformServiceListSecurityProgramsHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityProgramProcedure:
+			platformServiceGetSecurityProgramHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityProgramProcedure:
+			platformServiceCreateSecurityProgramHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateSecurityProgramProcedure:
+			platformServiceUpdateSecurityProgramHandler.ServeHTTP(w, r)
+		case PlatformServiceDeleteSecurityProgramProcedure:
+			platformServiceDeleteSecurityProgramHandler.ServeHTTP(w, r)
 		case PlatformServiceGenerateSecurityDraftProcedure:
 			platformServiceGenerateSecurityDraftHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityDraftProcedure:
@@ -6460,6 +6591,26 @@ func (UnimplementedPlatformServiceHandler) UpdateSecurityPolicyPack(context.Cont
 
 func (UnimplementedPlatformServiceHandler) DeleteSecurityPolicyPack(context.Context, *connect.Request[platform.DeleteSecurityPolicyPackRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityPolicyPack is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityPrograms(context.Context, *connect.Request[platform.ListSecurityProgramsRequest]) (*connect.Response[platform.ListSecurityProgramsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityPrograms is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityProgram(context.Context, *connect.Request[platform.GetSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityProgram is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityProgram(context.Context, *connect.Request[platform.CreateSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityProgram is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateSecurityProgram(context.Context, *connect.Request[platform.UpdateSecurityProgramRequest]) (*connect.Response[platform.SecurityProgramResource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateSecurityProgram is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) DeleteSecurityProgram(context.Context, *connect.Request[platform.DeleteSecurityProgramRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteSecurityProgram is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GenerateSecurityDraft(context.Context, *connect.Request[platform.GenerateSecurityDraftRequest]) (*connect.Response[platform.GenerateSecurityDraftResponse], error) {

@@ -190,6 +190,13 @@ type SecurityScanSpec struct {
 	// +optional
 	PostScriptRefs []SecurityResourceRef `json:"postScriptRefs,omitempty"`
 
+	// securityProgramRef references an operator-verified SecurityProgram in
+	// the scan's namespace. Its scope policy is resolved before dispatch and
+	// snapshotted into prompts as quoted, untrusted data. Its program URL is
+	// provenance only and never grants network authorization.
+	// +optional
+	SecurityProgramRef *SecurityResourceRef `json:"securityProgramRef,omitempty"`
+
 	// policyPackRef references a SecurityPolicyPack in the scan's namespace.
 	// The pack supplies defaults (precedence: platform defaults < policy
 	// pack < scan configuration), enforced floors the scan may not relax,
@@ -1075,6 +1082,17 @@ type SecurityScanExecutionStatus struct {
 	// +optional
 	Plan []SecurityScanExecutionPlanNode `json:"plan,omitempty"`
 
+	// securityProgramSnapshot is the exact verified program policy used by
+	// this execution. It keeps tasks and post-scripts dispatched later in the
+	// same execution independent of subsequent SecurityProgram edits.
+	// +optional
+	SecurityProgramSnapshot *SecurityProgramSpec `json:"securityProgramSnapshot,omitempty"`
+
+	// securityProgramResolvedRef records the generation and digest paired
+	// with securityProgramSnapshot for run provenance annotations.
+	// +optional
+	SecurityProgramResolvedRef *SecurityScanResolvedRef `json:"securityProgramResolvedRef,omitempty"`
+
 	// startedAt is when the execution started.
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
@@ -1211,7 +1229,8 @@ type SecurityScanStatus struct {
 	Budget *SecurityScanBudgetStatus `json:"budget,omitempty"`
 
 	// lastResolvedRefs records the reusable security resources
-	// (SecurityWorkflow, SecurityRanker, SecurityPostScript) that were
+	// (SecurityWorkflow, SecurityRanker, SecurityPostScript,
+	// SecurityPolicyPack, and SecurityProgram) that were
 	// resolved and snapshotted into the most recently created run, including
 	// the resource generation and a content hash of the resolved spec. Later
 	// edits to the referenced resources never change historical runs.

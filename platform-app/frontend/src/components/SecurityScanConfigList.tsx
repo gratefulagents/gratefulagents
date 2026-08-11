@@ -26,11 +26,13 @@ import { useNow } from "@/hooks/useNow";
 import {
   SecurityScanConfigSpecSchema,
   UpdateSecurityScanRequestSchema,
+  type SecurityProgramResource,
   type SecurityScanConfig,
 } from "@/rpc/platform/service_pb";
 
 export function SecurityScanConfigList() {
   const [configs, setConfigs] = useState<SecurityScanConfig[]>([]);
+  const [programs, setPrograms] = useState<SecurityProgramResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -45,6 +47,12 @@ export function SecurityScanConfigList() {
     try {
       const resp = await client.listSecurityScanConfigs({ namespace: "" });
       setConfigs(resp.configs);
+      try {
+        const programList = await client.listSecurityPrograms({ namespace: "" });
+        setPrograms(programList.programs);
+      } catch {
+        setPrograms([]);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load security scan configurations");
     } finally {
@@ -100,11 +108,14 @@ export function SecurityScanConfigList() {
     }
   }
 
+  const programUrls = new Map(programs.map((program) => [program.name, program.programUrl]));
   const filtered = filterByQuery(configs, query, (config) => [
     config.name,
     config.namespace,
     config.spec?.repoUrl ?? "",
     config.spec?.schedule ?? "",
+    config.spec?.securityProgramRef ?? "",
+    programUrls.get(config.spec?.securityProgramRef ?? "") ?? "",
     config.phase,
   ]);
 
@@ -151,6 +162,7 @@ export function SecurityScanConfigList() {
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Repository</TableHead>
+            <TableHead>Program</TableHead>
             <TableHead>Schedule</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Findings</TableHead>
@@ -171,6 +183,24 @@ export function SecurityScanConfigList() {
               </TableCell>
               <TableCell className="font-mono text-sm text-muted-foreground">
                 {config.spec?.repoUrl || "—"}
+              </TableCell>
+              <TableCell className="max-w-64 text-sm text-muted-foreground">
+                {config.spec?.securityProgramRef ? (
+                  <div className="space-y-0.5">
+                    <div className="font-mono text-[12px]">{config.spec.securityProgramRef}</div>
+                    {programUrls.has(config.spec.securityProgramRef) && (
+                      <a
+                        href={programUrls.get(config.spec.securityProgramRef)}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={programUrls.get(config.spec.securityProgramRef)}
+                        className="block truncate font-mono text-[11px] underline underline-offset-2"
+                      >
+                        {programUrls.get(config.spec.securityProgramRef)}
+                      </a>
+                    )}
+                  </div>
+                ) : "—"}
               </TableCell>
               <TableCell className="font-mono text-sm text-muted-foreground">
                 {config.spec?.schedule || "once"}

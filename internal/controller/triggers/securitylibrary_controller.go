@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -14,14 +15,15 @@ import (
 )
 
 // SecurityLibraryReconciler validates the reusable security library resources
-// (SecurityWorkflow, SecurityRanker, SecurityPostScript) and keeps their
+// (SecurityWorkflow, SecurityRanker, SecurityPostScript, SecurityPolicyPack,
+// SecurityProgram) and keeps their
 // status current: observedGeneration, a Ready condition, and how many
 // SecurityScans in the namespace reference them.
 type SecurityLibraryReconciler struct {
 	client.Client
 }
 
-// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows/status;securityrankers/status;securitypostscripts/status;securitypolicypacks/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows/status;securityrankers/status;securitypostscripts/status;securitypolicypacks/status;securityprograms/status,verbs=get;update;patch
 
 // securityScanRefNames extracts the names a scan references for one library
 // kind.
@@ -46,6 +48,10 @@ func securityScanRefNames(scan *triggersv1alpha1.SecurityScan, kind string) []st
 	case "SecurityPolicyPack":
 		if scan.Spec.PolicyPackRef != nil {
 			return []string{scan.Spec.PolicyPackRef.Name}
+		}
+	case "SecurityProgram":
+		if scan.Spec.SecurityProgramRef != nil {
+			return []string{scan.Spec.SecurityProgramRef.Name}
 		}
 	}
 	return nil
@@ -198,5 +204,50 @@ func (r *SecurityPolicyPackReconciler) SetupWithManager(mgr ctrl.Manager) error 
 		For(&triggersv1alpha1.SecurityPolicyPack{}).
 		Watches(&triggersv1alpha1.SecurityScan{}, handler.EnqueueRequestsFromMapFunc(mapScanToSecurityLibrary("SecurityPolicyPack"))).
 		Named("securitypolicypack").
+		Complete(r)
+}
+
+// SecurityProgramReconciler validates SecurityProgram resources and records
+// the digest scans must match before dispatch.
+type SecurityProgramReconciler struct{ SecurityLibraryReconciler }
+
+func (r *SecurityProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	program := &triggersv1alpha1.SecurityProgram{}
+	if err := r.Get(ctx, req.NamespacedName, program); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	referencing, err := countSecurityLibraryReferences(ctx, r.Client, program.Namespace, "SecurityProgram", program.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	previousStatus := program.Status.DeepCopy()
+	errs := triggersv1alpha1.ValidateSecurityProgramSpec(program.Spec)
+	program.Status.ObservedGeneration = program.Generation
+	program.Status.ContentDigest = securitySpecHash(program.Spec)
+	program.Status.ReferencedBy = int32(len(referencing)) //nolint:gosec // scan counts stay far below int32 bounds
+	condition := metav1.Condition{
+		Type:               triggersv1alpha1.ConditionSecurityLibraryReady,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: program.Generation,
+		Reason:             "Validated",
+		Message:            "spec is valid",
+	}
+	if len(errs) != 0 {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = securityScanReasonInvalidSpec
+		condition.Message = errs[0].Error()
+	}
+	meta.SetStatusCondition(&program.Status.Conditions, condition)
+	if apiequality.Semantic.DeepEqual(previousStatus, &program.Status) {
+		return ctrl.Result{}, nil
+	}
+	return ctrl.Result{}, client.IgnoreNotFound(r.Status().Update(ctx, program))
+}
+
+func (r *SecurityProgramReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&triggersv1alpha1.SecurityProgram{}).
+		Watches(&triggersv1alpha1.SecurityScan{}, handler.EnqueueRequestsFromMapFunc(mapScanToSecurityLibrary("SecurityProgram"))).
+		Named("securityprogram").
 		Complete(r)
 }

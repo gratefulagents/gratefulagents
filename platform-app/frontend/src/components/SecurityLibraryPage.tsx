@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { Copy, Pencil, Plus, Trash2, Workflow } from "lucide-react";
 
 import {
@@ -45,6 +46,7 @@ import {
   packBudgetSummary,
   packRetentionSummary,
 } from "@/components/SecurityPolicyPackDialog";
+import { SecurityProgramDialog } from "@/components/SecurityProgramDialog";
 import { client } from "@/lib/client";
 import {
   CreateSecurityPostScriptRequestSchema,
@@ -58,6 +60,7 @@ import {
   UpdateSecurityWorkflowRequestSchema,
   type SecurityPolicyPackResource,
   type SecurityPostScriptResource,
+  type SecurityProgramResource,
   type SecurityRankerResource,
   type SecurityWorkflowResource,
 } from "@/rpc/platform/service_pb";
@@ -557,6 +560,8 @@ export function SecurityLibraryPage() {
   const [rankers, setRankers] = useState<SecurityRankerResource[]>([]);
   const [postScripts, setPostScripts] = useState<SecurityPostScriptResource[]>([]);
   const [policyPacks, setPolicyPacks] = useState<SecurityPolicyPackResource[]>([]);
+  const [programs, setPrograms] = useState<SecurityProgramResource[]>([]);
+  const [programsError, setProgramsError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -572,6 +577,7 @@ export function SecurityLibraryPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError("");
+    setProgramsError("");
     try {
       const [wf, rk, ps, pp] = await Promise.all([
         client.listSecurityWorkflows({ namespace: "" }),
@@ -583,6 +589,15 @@ export function SecurityLibraryPage() {
       setRankers(rk.rankers);
       setPostScripts(ps.postScripts);
       setPolicyPacks(pp.policyPacks);
+      // Programs were added after the original library API. Keep the existing
+      // library usable during rolling upgrades or a program-specific outage.
+      try {
+        const programList = await client.listSecurityPrograms({ namespace: "" });
+        setPrograms(programList.programs);
+      } catch (programError: unknown) {
+        setPrograms([]);
+        setProgramsError(programError instanceof Error ? programError.message : "Failed to load security programs");
+      }
       // Scan configurations are only needed for pack export; a failure there
       // must not blank the library itself.
       try {
@@ -612,6 +627,8 @@ export function SecurityLibraryPage() {
         await client.deleteSecurityRanker({ namespace: "", name: pendingDelete.name });
       } else if (pendingDelete.kind === "policy-pack") {
         await client.deleteSecurityPolicyPack({ namespace: "", name: pendingDelete.name });
+      } else if (pendingDelete.kind === "program") {
+        await client.deleteSecurityProgram({ namespace: "", name: pendingDelete.name });
       } else {
         await client.deleteSecurityPostScript({ namespace: "", name: pendingDelete.name });
       }
@@ -657,11 +674,18 @@ export function SecurityLibraryPage() {
   const visibleRankers = filterByQuery(rankers, query, (r) => [r.name, r.description]);
   const visiblePostScripts = filterByQuery(postScripts, query, (p) => [p.name, p.description]);
   const visiblePolicyPacks = filterByQuery(policyPacks, query, (p) => [p.name, p.description]);
+  const visiblePrograms = filterByQuery(programs, query, (program) => [
+    program.name,
+    program.provider,
+    program.displayName,
+    program.programUrl,
+    program.scopePolicy,
+  ]);
 
   return (
     <ResourceListPage
       title="Security library"
-      description="Reusable workflows, severity rankers, and post-scripts that security scans reference. Referenced content is snapshotted per run, so edits never rewrite past runs."
+      description="Reusable workflows, severity rankers, post-scripts, policy packs, and verified program scope snapshots that security scans reference. Referenced content is snapshotted per run, so edits never rewrite past runs."
       query={query}
       onQuery={setQuery}
       searchPlaceholder="Search the library…"
@@ -715,6 +739,7 @@ export function SecurityLibraryPage() {
           <TabsTrigger value="rankers">Rankers ({rankers.length})</TabsTrigger>
           <TabsTrigger value="post-scripts">Post-scripts ({postScripts.length})</TabsTrigger>
           <TabsTrigger value="policy-packs">Policy packs ({policyPacks.length})</TabsTrigger>
+          <TabsTrigger value="programs">Programs ({programs.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="workflows" className="space-y-3 pt-3">
@@ -1044,6 +1069,98 @@ export function SecurityLibraryPage() {
                   </TableRow>
                 );
               })}
+            </TableBody>
+          </Table>
+        </TabsContent>
+
+        <TabsContent value="programs" className="space-y-3 pt-3">
+          <SecurityProgramDialog
+            onSaved={onSaved}
+            trigger={
+              <Button size="sm">
+                <Plus className="size-3.5" /> New security program
+              </Button>
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Programs preserve an operator-verified scope policy snapshot for scan prompts. A
+            program URL records provenance only and does not authorize network testing.
+          </p>
+          {programsError && (
+            <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              Security programs are unavailable: {programsError}
+            </div>
+          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Program</TableHead>
+                <TableHead>Provider</TableHead>
+                <TableHead>Provenance URL</TableHead>
+                <TableHead>Scope policy snapshot</TableHead>
+                <TableHead>Verified</TableHead>
+                <TableHead>Used by</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visiblePrograms.length === 0 && !loading && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
+                    No security programs yet.
+                  </TableCell>
+                </TableRow>
+              )}
+              {visiblePrograms.map((program) => (
+                <TableRow key={program.name} data-testid={`program-row-${program.name}`}>
+                  <TableCell className="font-mono text-[13px]">{program.name}</TableCell>
+                  <TableCell className="font-medium">{program.displayName}</TableCell>
+                  <TableCell>{program.provider}</TableCell>
+                  <TableCell className="max-w-64">
+                    <a
+                      href={program.programUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block truncate font-mono text-[12px] underline underline-offset-2"
+                      title={program.programUrl}
+                    >
+                      {program.programUrl}
+                    </a>
+                  </TableCell>
+                  <TableCell
+                    className="max-w-72 whitespace-pre-line text-[12px] text-muted-foreground"
+                    title={program.scopePolicy}
+                  >
+                    <span className="line-clamp-2">{program.scopePolicy}</span>
+                  </TableCell>
+                  <TableCell className="text-[12px] text-muted-foreground">
+                    {program.verifiedAt ? timestampDate(program.verifiedAt).toLocaleString() : "—"}
+                  </TableCell>
+                  <TableCell>{usageBadge(program.usageCount, program.referencingScans)}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <SecurityProgramDialog
+                        source={program}
+                        onSaved={onSaved}
+                        trigger={
+                          <Button variant="ghost" size="icon-sm" aria-label={`Edit ${program.name}`}>
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        }
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete ${program.name}`}
+                        onClick={() => setPendingDelete({ kind: "program", name: program.name })}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </TabsContent>

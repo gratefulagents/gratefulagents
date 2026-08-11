@@ -18,11 +18,11 @@ package triggers
 // +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=crons;githubrepositories;linearprojects;securityscans,verbs=get;list;watch;create;update;patch;delete
 
 // The dashboard also manages the reusable security library resources
-// (SecurityWorkflow, SecurityRanker, SecurityPostScript) and
-// SecurityPolicyPack through its List/Get/Create/Update/Delete RPCs. The
+// (SecurityWorkflow, SecurityRanker, SecurityPostScript, SecurityPolicyPack,
+// and SecurityProgram) through its List/Get/Create/Update/Delete RPCs. The
 // library reconcilers' own markers only cover reads and status writes, so
 // grant the write verbs here.
-// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows;securityrankers;securitypostscripts;securitypolicypacks,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=triggers.gratefulagents.dev,resources=securityworkflows;securityrankers;securitypostscripts;securitypolicypacks;securityprograms,verbs=get;list;watch;create;update;patch;delete
 
 // The dashboard also manages Connection resources (shared GitHub/Slack/Linear
 // credential references used by project triggers) through its

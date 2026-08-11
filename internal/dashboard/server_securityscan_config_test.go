@@ -50,7 +50,8 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 			TaskMaxRetries: &execRetries,
 			RetryBackoff:   "45s",
 		},
-		ParameterValues: map[string]string{"target_env": "staging"},
+		ParameterValues:    map[string]string{"target_env": "staging"},
+		SecurityProgramRef: "acme-bounty",
 		SeverityRankers: []*platform.SecurityRankerConfig{
 			{Name: "payments", Rules: "auth bypass is always critical"},
 		},
@@ -122,6 +123,9 @@ func TestCreateSecurityScanHappyPathFullSpec(t *testing.T) {
 	if ps.ParameterValues["target_env"] != "staging" {
 		t.Fatalf("proto parameter values = %+v", ps.ParameterValues)
 	}
+	if ps.SecurityProgramRef != "acme-bounty" {
+		t.Fatalf("proto security_program_ref = %q", ps.SecurityProgramRef)
+	}
 	pt := ps.Workflow[1]
 	if pt.MaxRetries == nil || *pt.MaxRetries != 2 || pt.Timeout != "45m0s" || pt.MaxTurns != 30 ||
 		pt.MaxCostUsd != "2.50" || pt.ForEach != "injection" || pt.TargetRuns != 5 ||
@@ -191,6 +195,9 @@ func assertFullScanAdvancedSpec(t *testing.T, spec triggersv1alpha1.SecurityScan
 	}
 	if len(spec.ParameterValues) != 1 || spec.ParameterValues["target_env"] != "staging" {
 		t.Fatalf("ParameterValues = %+v", spec.ParameterValues)
+	}
+	if spec.SecurityProgramRef == nil || spec.SecurityProgramRef.Name != "acme-bounty" {
+		t.Fatalf("SecurityProgramRef = %+v", spec.SecurityProgramRef)
 	}
 	if len(spec.SeverityRankers) != 1 || spec.SeverityRankers[0].Name != "payments" {
 		t.Fatalf("SeverityRankers = %+v", spec.SeverityRankers)
