@@ -126,7 +126,7 @@ Foundry can exercise repository-supplied local allocs or full-genesis fixtures t
 - a fixed pcap and prerecorded Zeek, Suricata, scoped Nmap, and Naabu native outputs using IANA TEST-NET addresses;
 - Aderyn SARIF and a seeded failing Foundry invariant JUnit result for a local smart-contract project.
 
-Unit tests use a fake sandbox and validate exact argv construction, pins, status precedence, redaction, coverage, replay equivalence, adapters, and flow into the existing security reporting pipeline. The security-tools image job additionally loads the built amd64 image, executes each packaged EVM runtime with networking disabled, and runs local offline Semgrep and Mythril smoke analyses. It never accesses public or production scan targets.
+Unit tests use a fake sandbox and validate exact argv construction, pins, status precedence, redaction, coverage, replay equivalence, adapters, and flow into the existing security reporting pipeline. The security-tools image jobs additionally load the built amd64 and arm64 images, execute each packaged EVM runtime with networking disabled, and run local offline Semgrep and Mythril smoke analyses. It never accesses public or production scan targets.
 
 ## Adding a wrapper
 
