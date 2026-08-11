@@ -248,6 +248,7 @@ export const errorScenario: Scenario = {
   slackDrafts: [],
 
   securityScans: [],
+  securityFindings: [],
   securityScanConfigs: [],
   securityWorkflows: [],
   securitySkillsInstalled: false,

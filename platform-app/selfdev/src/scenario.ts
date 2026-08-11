@@ -26,6 +26,7 @@ import type {
   ResourceOwner,
   ResourceShareInfo,
   RuntimeImageOption,
+  SecurityFinding,
   SecurityScan,
   SecurityScanConfig,
   SecurityWorkflowResource,
@@ -95,6 +96,8 @@ export interface Scenario {
 
   /** Persisted security scan RESULT rows (getSecurityScan / listSecurityScans). */
   securityScans: SecurityScan[];
+  /** Deduplicated finding rows (listSecurityFindings / getSecurityFindingSummary). */
+  securityFindings: SecurityFinding[];
   /** Configured SecurityScan triggers, including lastExecution state. */
   securityScanConfigs: SecurityScanConfig[];
   /** Reusable SecurityWorkflow library resources (workflowRef targets). */

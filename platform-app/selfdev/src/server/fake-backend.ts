@@ -43,6 +43,8 @@ import {
   ListProjectsResponseSchema,
   ListRepositoriesResponseSchema,
   ListRuntimeImagesResponseSchema,
+  GetSecurityFindingSummaryResponseSchema,
+  ListSecurityFindingsResponseSchema,
   ListSecurityScanConfigsResponseSchema,
   ListSecurityScansResponseSchema,
   ListSecurityWorkflowsResponseSchema,
@@ -390,6 +392,55 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     },
     listSecurityScanConfigs: async () =>
       create(ListSecurityScanConfigsResponseSchema, { configs: s.securityScanConfigs }),
+    listSecurityFindings: async (req: {
+      namespace: string;
+      scanName?: string;
+      runName?: string;
+      severity?: string;
+      status?: string;
+      category?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const query = (req.search ?? "").toLowerCase();
+      const findings = s.securityFindings.filter(
+        (f) =>
+          (!req.namespace || f.namespace === req.namespace) &&
+          (!req.scanName || f.scanName === req.scanName) &&
+          (!req.runName || f.runName === req.runName) &&
+          (!req.severity || f.severity === req.severity) &&
+          (!req.status || f.status === req.status) &&
+          (!req.category || f.category === req.category) &&
+          (!query ||
+            `${f.title} ${f.filePath} ${f.description}`.toLowerCase().includes(query)),
+      );
+      // Mirror the Postgres store: an omitted limit defaults to 200 rows.
+      const offset = Math.max(req.offset ?? 0, 0);
+      const limit = req.limit && req.limit > 0 ? req.limit : 200;
+      return create(ListSecurityFindingsResponseSchema, {
+        findings: findings.slice(offset, offset + limit),
+      });
+    },
+    getSecurityFindingSummary: async (req: {
+      namespace: string;
+      scanName?: string;
+      runName?: string;
+    }) => {
+      const counts: Record<string, number> = {};
+      for (const f of s.securityFindings) {
+        if (req.namespace && f.namespace !== req.namespace) continue;
+        if (req.scanName && f.scanName !== req.scanName) continue;
+        if (req.runName && f.runName !== req.runName) continue;
+        counts["total"] = (counts["total"] ?? 0) + 1;
+        counts[f.severity] = (counts[f.severity] ?? 0) + 1;
+        if (f.status === "open" || f.status === "triaged" || f.status === "confirmed") {
+          counts["open"] = (counts["open"] ?? 0) + 1;
+          counts[`open_${f.severity}`] = (counts[`open_${f.severity}`] ?? 0) + 1;
+        }
+      }
+      return create(GetSecurityFindingSummaryResponseSchema, { counts });
+    },
     getSecurityScanConfig: async (req: { namespace: string; name: string }) => {
       const config = s.securityScanConfigs.find(
         (x) => x.namespace === req.namespace && x.name === req.name,

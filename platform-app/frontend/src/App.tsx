@@ -28,6 +28,7 @@ const SecurityScanList = React.lazy(() => import("@/components/SecurityScanList"
 const SecurityScanConfigList = React.lazy(() => import("@/components/SecurityScanConfigList").then((m) => ({ default: m.SecurityScanConfigList })));
 const SecurityLibraryPage = React.lazy(() => import("@/components/SecurityLibraryPage").then((m) => ({ default: m.SecurityLibraryPage })));
 const SecurityScanDetail = React.lazy(() => import("@/components/SecurityScanDetail").then((m) => ({ default: m.SecurityScanDetail })));
+const SecurityConfigDetail = React.lazy(() => import("@/components/SecurityConfigDetail").then((m) => ({ default: m.SecurityConfigDetail })));
 const SecurityFindingDetail = React.lazy(() => import("@/components/SecurityFindingDetail").then((m) => ({ default: m.SecurityFindingDetail })));
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -528,6 +529,7 @@ function AuthenticatedShell() {
               <Route path="/security" element={<Scroll><SecurityOverview /></Scroll>} />
               <Route path="/security/runs" element={<Scroll><SecurityScanList /></Scroll>} />
               <Route path="/security/configs" element={<Scroll><SecurityScanConfigList /></Scroll>} />
+              <Route path="/security/configs/:namespace/:name" element={<Scroll><SecurityConfigDetail /></Scroll>} />
               <Route path="/security/library" element={<Scroll><SecurityLibraryPage /></Scroll>} />
               <Route path="/security/:namespace/:runName" element={<Scroll><SecurityScanDetail /></Scroll>} />
               <Route path="/security/:namespace/:runName/findings/:findingId" element={<Scroll><SecurityFindingDetail /></Scroll>} />

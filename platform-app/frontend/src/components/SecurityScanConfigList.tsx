@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { clone, create } from "@bufbuild/protobuf";
 import { Copy, Pencil, Play, Plus, ShieldCheck, Trash2 } from "lucide-react";
 
@@ -160,7 +161,14 @@ export function SecurityScanConfigList() {
         <TableBody>
           {filtered.map((config) => (
             <TableRow key={`${config.namespace}/${config.name}`}>
-              <TableCell className="font-medium">{config.name}</TableCell>
+              <TableCell>
+                <Link
+                  to={`/security/configs/${config.namespace}/${config.name}`}
+                  className="font-medium text-primary hover:underline"
+                >
+                  {config.name}
+                </Link>
+              </TableCell>
               <TableCell className="font-mono text-sm text-muted-foreground">
                 {config.spec?.repoUrl || "—"}
               </TableCell>
