@@ -8,50 +8,9 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
-	"github.com/gratefulagents/gratefulagents/internal/store"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-// budgetSummaryFindingStore serves a fixed finding summary and records
-// whether any destructive store call was made, so budget tests can assert
-// findings are preserved.
-type budgetSummaryFindingStore struct {
-	securityScanRecordStubStore
-	total   int32
-	deletes int
-	purges  int
-}
-
-func (s *budgetSummaryFindingStore) SummarizeSecurityFindings(context.Context, string, string, string, bool) (map[string]int32, error) {
-	return map[string]int32{"total": s.total}, nil
-}
-
-func (s *budgetSummaryFindingStore) DeleteSecurityScanData(context.Context, string, string) error {
-	s.deletes++
-	return nil
-}
-
-func (s *budgetSummaryFindingStore) PurgeExpiredSecurityData(context.Context, string, store.SecurityRetentionPolicy, int) (store.SecurityRetentionCounts, bool, error) {
-	s.purges++
-	return store.SecurityRetentionCounts{}, false, nil
-}
-
-func (s *budgetSummaryFindingStore) ExpireSecuritySuppressions(context.Context, string) (int32, error) {
-	return 0, nil
-}
-
-func (s *budgetSummaryFindingStore) RevokeSecuritySuppressions(context.Context, string, string, []store.SecuritySuppressionRule) (int32, error) {
-	return 0, nil
-}
-
-func (s *budgetSummaryFindingStore) ExpireAcceptedRisks(context.Context, string) (int32, error) {
-	return 0, nil
-}
-
-func (s *budgetSummaryFindingStore) FinalizeSecurityScanBaseline(context.Context, string, string) (int32, error) {
-	return 0, nil
-}
 
 // TestApplySecurityPolicyPackBudgetPrecedence pins the budget merge and the
 // enforced-cannot-raise semantics.
@@ -61,7 +20,6 @@ func TestApplySecurityPolicyPackBudgetPrecedence(t *testing.T) {
 		MaxCostUSD:   "5",
 		MaxTokens:    100000,
 		MaxRuntime:   metav1.Duration{Duration: time.Hour},
-		MaxFindings:  50,
 	}
 	tests := []struct {
 		name          string
@@ -71,16 +29,13 @@ func TestApplySecurityPolicyPackBudgetPrecedence(t *testing.T) {
 		wantViolation string
 	}{
 		{
-			name: "pack budgets default unset scan fields",
+			name: "pack budgets default unset scan fields and keep scan fields",
 			pack: triggersv1alpha1.SecurityPolicyPackSpec{Budgets: packBudgets},
-			scan: &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 20},
+			scan: &triggersv1alpha1.SecurityScanBudgets{MaxTokens: 50000},
 			check: func(t *testing.T, out *triggersv1alpha1.SecurityScanBudgets) {
-				if out.MaxModelJobs != 10 || out.MaxCostUSD != "5" || out.MaxTokens != 100000 ||
+				if out.MaxModelJobs != 10 || out.MaxCostUSD != "5" || out.MaxTokens != 50000 ||
 					out.MaxRuntime.Duration != time.Hour {
-					t.Fatalf("budgets = %+v, want unset fields inherited from the pack", out)
-				}
-				if out.MaxFindings != 20 {
-					t.Fatalf("MaxFindings = %d, want the scan's tighter 20", out.MaxFindings)
+					t.Fatalf("budgets = %+v, want unset fields inherited and scan maxTokens kept", out)
 				}
 			},
 		},
@@ -88,7 +43,7 @@ func TestApplySecurityPolicyPackBudgetPrecedence(t *testing.T) {
 			name: "scan without budgets inherits pack entirely",
 			pack: triggersv1alpha1.SecurityPolicyPackSpec{Budgets: packBudgets},
 			check: func(t *testing.T, out *triggersv1alpha1.SecurityScanBudgets) {
-				if out == nil || out.MaxCostUSD != "5" || out.MaxFindings != 50 {
+				if out == nil || out.MaxCostUSD != "5" || out.MaxTokens != 100000 || out.MaxModelJobs != 10 {
 					t.Fatalf("budgets = %+v, want pack budgets", out)
 				}
 			},
@@ -96,9 +51,9 @@ func TestApplySecurityPolicyPackBudgetPrecedence(t *testing.T) {
 		{
 			name: "scan may raise limits when budgets are not enforced",
 			pack: triggersv1alpha1.SecurityPolicyPackSpec{Budgets: packBudgets},
-			scan: &triggersv1alpha1.SecurityScanBudgets{MaxCostUSD: "50", MaxFindings: 500},
+			scan: &triggersv1alpha1.SecurityScanBudgets{MaxCostUSD: "50"},
 			check: func(t *testing.T, out *triggersv1alpha1.SecurityScanBudgets) {
-				if out.MaxCostUSD != "50" || out.MaxFindings != 500 {
+				if out.MaxCostUSD != "50" {
 					t.Fatalf("budgets = %+v, want scan overrides to win when not enforced", out)
 				}
 			},
@@ -113,13 +68,13 @@ func TestApplySecurityPolicyPackBudgetPrecedence(t *testing.T) {
 			wantViolation: "maxCostUSD",
 		},
 		{
-			name: "enforced budgets reject raised counts",
+			name: "enforced budgets reject raised model jobs",
 			pack: triggersv1alpha1.SecurityPolicyPackSpec{
 				Budgets:  packBudgets,
 				Enforced: []string{triggersv1alpha1.SecurityPolicyFieldBudgets},
 			},
-			scan:          &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 51, MaxModelJobs: 11},
-			wantViolation: "maxFindings",
+			scan:          &triggersv1alpha1.SecurityScanBudgets{MaxModelJobs: 11},
+			wantViolation: "maxModelJobs",
 		},
 		{
 			name: "enforced budgets reject a raised runtime",
@@ -137,12 +92,11 @@ func TestApplySecurityPolicyPackBudgetPrecedence(t *testing.T) {
 				Enforced: []string{triggersv1alpha1.SecurityPolicyFieldBudgets},
 			},
 			scan: &triggersv1alpha1.SecurityScanBudgets{
-				MaxCostUSD:  "2.50",
-				MaxFindings: 10,
-				MaxRuntime:  metav1.Duration{Duration: 30 * time.Minute},
+				MaxCostUSD: "2.50",
+				MaxRuntime: metav1.Duration{Duration: 30 * time.Minute},
 			},
 			check: func(t *testing.T, out *triggersv1alpha1.SecurityScanBudgets) {
-				if out.MaxCostUSD != "2.50" || out.MaxFindings != 10 || out.MaxRuntime.Duration != 30*time.Minute {
+				if out.MaxCostUSD != "2.50" || out.MaxRuntime.Duration != 30*time.Minute {
 					t.Fatalf("budgets = %+v, want the scan's tighter limits kept", out)
 				}
 			},
@@ -204,51 +158,6 @@ func TestSecurityScanBudgetsAppliedToCreatedRunLimits(t *testing.T) {
 	}
 }
 
-// TestSecurityScanBudgetExceededCancelsRunAndPreservesFindings pins the
-// controller-side enforcement: when the persisted finding count exceeds the
-// effective maxFindings, the active run is cancelled the same way the
-// dashboard cancel path does, the scan reports Ready=False BudgetExceeded,
-// and no findings are deleted.
-func TestSecurityScanBudgetExceededCancelsRunAndPreservesFindings(t *testing.T) {
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	scan := securityScanTestScan()
-	scan.Generation = 1
-	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 5}
-	run := securityScanPriorRun(scan, platformv1alpha1.AgentRunPhaseRunning)
-	scan.Status.ObservedGeneration = 1
-	scan.Status.LastRunName = run.Name
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, run)
-	findings := &budgetSummaryFindingStore{total: 6}
-	reconciler.Findings = findings
-
-	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
-		t.Fatalf("Reconcile() error = %v", err)
-	}
-
-	fresh := &platformv1alpha1.AgentRun{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: run.Namespace, Name: run.Name}, fresh); err != nil {
-		t.Fatalf("Get(run) error = %v", err)
-	}
-	if fresh.Annotations[cancelRequestedAnnotation] == "" {
-		t.Fatalf("run annotations = %v, want cancel-requested stamped like the dashboard cancel path", fresh.Annotations)
-	}
-
-	updated := getSecurityScan(t, k8sClient, scan)
-	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, securityScanReasonBudgetExceeded)
-	if updated.Status.Budget == nil || !updated.Status.Budget.Exceeded {
-		t.Fatalf("status.budget = %+v, want exceeded", updated.Status.Budget)
-	}
-	if !strings.Contains(updated.Status.Budget.Message, "maxFindings") {
-		t.Fatalf("budget message = %q, want the exceeded limit named", updated.Status.Budget.Message)
-	}
-	if updated.Status.Budget.Effective == nil || updated.Status.Budget.Effective.MaxFindings != 5 {
-		t.Fatalf("effective budgets = %+v, want the spec-derived maxFindings 5", updated.Status.Budget.Effective)
-	}
-	if findings.deletes != 0 || findings.purges != 0 {
-		t.Fatalf("deletes = %d purges = %d, want completed work preserved", findings.deletes, findings.purges)
-	}
-}
-
 // TestSecurityScanBudgetUsesPlatformDataNotModelOutput pins the
 // "model output cannot relax budgets" property: the enforced limit derives
 // from the CRD spec merged with the pack, and usage comes from the AgentRun
@@ -270,7 +179,6 @@ func TestSecurityScanBudgetUsesPlatformDataNotModelOutput(t *testing.T) {
 	scan.Status.ObservedGeneration = 1
 	scan.Status.LastRunName = run.Name
 	reconciler, k8sClient, stateStore := newSecurityScanReconciler(t, now, scan, run, pack)
-	reconciler.Findings = &budgetSummaryFindingStore{}
 	_ = stateStore
 
 	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
@@ -301,13 +209,12 @@ func TestSecurityScanBudgetWithinLimitsDoesNotCancel(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanTestScan()
 	scan.Generation = 1
-	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 100, MaxTokens: 100000}
+	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxTokens: 100000}
 	run := securityScanPriorRun(scan, platformv1alpha1.AgentRunPhaseRunning)
 	run.Status.Metrics = &platformv1alpha1.AgentRunMetrics{InputTokens: 10, OutputTokens: 10}
 	scan.Status.ObservedGeneration = 1
 	scan.Status.LastRunName = run.Name
 	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, run)
-	reconciler.Findings = &budgetSummaryFindingStore{total: 3}
 
 	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
@@ -324,81 +231,7 @@ func TestSecurityScanBudgetWithinLimitsDoesNotCancel(t *testing.T) {
 	if updated.Status.Budget == nil || updated.Status.Budget.Exceeded {
 		t.Fatalf("status.budget = %+v, want published effective budgets with exceeded=false", updated.Status.Budget)
 	}
-	if updated.Status.Budget.Effective == nil || updated.Status.Budget.Effective.MaxFindings != 100 {
-		t.Fatalf("effective budgets = %+v, want maxFindings 100", updated.Status.Budget.Effective)
-	}
-}
-
-// TestSecurityScanPromptStatesFindingBudget pins that the finding cap is
-// reflected in the prompt as guidance (enforcement stays platform-side).
-func TestSecurityScanPromptStatesFindingBudget(t *testing.T) {
-	spec := securityScanTestScan().Spec
-	spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 25}
-	prompt := BuildSecurityScanPrompt(spec)
-	if !strings.Contains(prompt, "at most 25 findings") {
-		t.Fatalf("prompt does not state the finding budget:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "platform enforces this cap") {
-		t.Fatalf("prompt does not state that the platform enforces the cap")
-	}
-}
-
-// TestSecurityScanCreatedRunCarriesMaxFindingsAnnotation pins the
-// persistence-boundary channel for the findings cap: the controller stamps
-// the effective budgets.maxFindings on the created run so the agent-side
-// finding tools refuse to persist findings past it, even when the run
-// reaches a terminal phase before the next reconcile.
-func TestSecurityScanCreatedRunCarriesMaxFindingsAnnotation(t *testing.T) {
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	scan := securityScanTestScan()
-	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 25}
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
-
-	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
-		t.Fatalf("Reconcile() error = %v", err)
-	}
-	runs := securityScanRuns(t, k8sClient, scan.Namespace)
-	if len(runs) != 1 {
-		t.Fatalf("AgentRuns = %d, want 1", len(runs))
-	}
-	if got := runs[0].Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "25" {
-		t.Fatalf("max-findings annotation = %q, want the spec budget 25", got)
-	}
-}
-
-func TestSecurityScanCreatedRunMaxFindingsAnnotationFromPolicyPack(t *testing.T) {
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	scan := securityScanTestScan()
-	scan.Spec.PolicyPackRef = &triggersv1alpha1.SecurityResourceRef{Name: "org-policy"}
-	pack := securityTestPolicyPack(scan.Namespace)
-	pack.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 40}
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, pack)
-
-	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
-		t.Fatalf("Reconcile() error = %v", err)
-	}
-	runs := securityScanRuns(t, k8sClient, scan.Namespace)
-	if len(runs) != 1 {
-		t.Fatalf("AgentRuns = %d, want 1", len(runs))
-	}
-	if got := runs[0].Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; got != "40" {
-		t.Fatalf("max-findings annotation = %q, want the pack-resolved budget 40", got)
-	}
-}
-
-func TestSecurityScanCreatedRunOmitsMaxFindingsAnnotationWhenUnlimited(t *testing.T) {
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	scan := securityScanTestScan()
-	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
-
-	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
-		t.Fatalf("Reconcile() error = %v", err)
-	}
-	runs := securityScanRuns(t, k8sClient, scan.Namespace)
-	if len(runs) != 1 {
-		t.Fatalf("AgentRuns = %d, want 1", len(runs))
-	}
-	if got, ok := runs[0].Annotations[triggersv1alpha1.SecurityScanMaxFindingsAnnotation]; ok {
-		t.Fatalf("max-findings annotation = %q, want absent when no budget is set", got)
+	if updated.Status.Budget.Effective == nil || updated.Status.Budget.Effective.MaxTokens != 100000 {
+		t.Fatalf("effective budgets = %+v, want maxTokens 100000", updated.Status.Budget.Effective)
 	}
 }

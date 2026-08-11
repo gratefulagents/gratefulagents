@@ -319,7 +319,7 @@ service PlatformService {
   rpc DeleteSecurityWorkflow(DeleteSecurityWorkflowRequest) returns (google.protobuf.Empty);
   // ValidateSecurityWorkflow runs the full server-side workflow validation
   // (unique task names, acyclic dependencies, resolvable dependsOn entries,
-  // valid roles/models, maxFindings bounds) without persisting anything and
+  // valid roles and models) without persisting anything and
   // returns structured field errors. Create/Update run the same validation.
   rpc ValidateSecurityWorkflow(ValidateSecurityWorkflowRequest) returns (ValidateSecurityWorkflowResponse);
   rpc ListSecurityRankers(ListSecurityRankersRequest) returns (ListSecurityRankersResponse);
@@ -4307,13 +4307,15 @@ message SecurityScanScopeConfig {
 
 // SecurityScanTaskConfig is one focused research task in the scan workflow.
 message SecurityScanTaskConfig {
+  reserved 7;
+  reserved "max_findings";
+
   string name = 1; // DNS-1123 label; referenced by depends_on
   string objective = 2;
   string category = 3;
   repeated string depends_on = 4;
   string role = 5;  // empty = security-reviewer
   string model = 6; // empty = trigger default model
-  int32 max_findings = 7; // 0 = unlimited
   // max_retries is the task's retry budget in deterministic execution
   // (0-10); absent inherits execution.task_max_retries.
   optional int32 max_retries = 8;
@@ -4652,7 +4654,7 @@ message SecurityScanConfig {
   SecurityScanBudgetsConfig effective_budgets = 25;
   // budget_exceeded reports whether a hard budget limit is exceeded per the
   // controller's platform-side evaluation (also set pre-launch, e.g. when
-  // persisted findings already exceed max_findings), so the dashboard can
+  // persisted usage already exceeds a configured limit), so the dashboard can
   // warn before starting a run.
   bool budget_exceeded = 26;
   // budget_message explains which limit is exceeded, empty otherwise.
@@ -4925,11 +4927,13 @@ message SecurityPolicySuppressionConfig {
 // policy pack and are re-checked against platform-observed usage, so model
 // output can never relax them.
 message SecurityScanBudgetsConfig {
+  reserved 5;
+  reserved "max_findings";
+
   int32 max_model_jobs = 1; // Sub-agent runs the scan run may spawn
   string max_cost_usd = 2; // Decimal USD ceiling, e.g. "5" or "2.50"
   int64 max_tokens = 3; // Total LLM tokens (input + output)
   string max_runtime = 4; // Go duration string, e.g. "2h"
-  int32 max_findings = 5; // Persisted findings cap
   int32 max_validation_jobs = 6; // Post-script (validation/PoC) sub-agent runs
 }
 

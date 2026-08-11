@@ -41,7 +41,7 @@ import {
 
 afterEach(() => cleanup());
 
-/** An advanced workflow exercising every optional SecurityScanTask field. */
+/** An advanced workflow exercising the editable optional SecurityScanTask fields. */
 function advancedProtoTasks(): SecurityScanTaskConfig[] {
   const tasks = [
     create(SecurityScanTaskConfigSchema, {
@@ -50,7 +50,6 @@ function advancedProtoTasks(): SecurityScanTaskConfig[] {
       category: "recon",
       role: "threat-modeler",
       model: "gpt-5.2-pro",
-      maxFindings: 3,
       skillRefs: ["api-authz-hunting"],
     }),
     create(SecurityScanTaskConfigSchema, {
@@ -59,7 +58,6 @@ function advancedProtoTasks(): SecurityScanTaskConfig[] {
       category: "injection",
       role: "vulnerability-hunter",
       dependsOn: ["recon"],
-      maxFindings: 25,
     }),
     create(SecurityScanTaskConfigSchema, {
       name: "authz-hunt",
@@ -144,15 +142,14 @@ describe("validateWorkflowTasks", () => {
     expect(errors.some((e) => e.message.includes("Duplicate task name"))).toBe(true);
   });
 
-  it("rejects invalid names, roles, models, and maxFindings", () => {
+  it("rejects invalid names, roles, and models", () => {
     const errors = validateWorkflowTasks([
-      draft({ name: "Bad Name!", role: "Not A Role", model: "two words", maxFindings: "-2" }),
+      draft({ name: "Bad Name!", role: "Not A Role", model: "two words" }),
     ]);
     const fields = errors.map((e) => e.field);
     expect(fields).toContain("tasks[0].name");
     expect(fields).toContain("tasks[0].role");
     expect(fields).toContain("tasks[0].model");
-    expect(fields).toContain("tasks[0].maxFindings");
   });
 
   it("rejects missing objectives", () => {

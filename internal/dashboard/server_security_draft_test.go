@@ -204,7 +204,7 @@ func TestGetSecurityDraftWorkflowLifecycle(t *testing.T) {
 		srv, _, ms := newSecurityDraftTestServer(t, draftRun(ns, "security-draft-abc123", securityDraftKindWorkflow, platformv1alpha1.AgentRunPhaseSucceeded, ""))
 		seedDraftConversation(t, ms, ns, "security-draft-abc123", "Here is the draft:\n```json\n"+
 			`{"name":"Payments Hunt!","description":"payments focus","parallelism":2,"tasks":[`+
-			`{"name":"injection","objective":"hunt injections","category":"injection","maxFindings":5},`+
+			`{"name":"injection","objective":"hunt injections","category":"injection"},`+
 			`{"name":"triage","objective":"triage","role":"finding-triager","dependsOn":["injection"]}]}`+
 			"\n```\nDone.")
 		resp, err := srv.GetSecurityDraft(ctx, &platform.GetSecurityDraftRequest{RunName: "security-draft-abc123"})

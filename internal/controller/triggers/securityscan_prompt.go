@@ -125,20 +125,16 @@ func writeSecurityScanScope(b *strings.Builder, scope *triggersv1alpha1.Security
 	b.WriteString("\n")
 }
 
-// writeSecurityScanReportingPolicy renders the dedupe / minimum-severity /
-// finding-budget policy section shared by the coordinator and per-task
-// prompts. maxFindings <= 0 omits the budget line.
-func writeSecurityScanReportingPolicy(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec, maxFindings int32) {
+// writeSecurityScanReportingPolicy renders the reporting policy shared by
+// the coordinator and per-task prompts.
+func writeSecurityScanReportingPolicy(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec) {
 	b.WriteString("## Reporting policy\n\n")
 	writeSecurityScanReportingRules(b, spec)
-	if maxFindings > 0 {
-		fmt.Fprintf(b, "- Finding budget: report at most %d findings in total; prioritize the most severe, highest-confidence issues. The platform enforces this cap on the persisted findings regardless of what is reported.\n", maxFindings)
-	}
 	b.WriteString("\n")
 }
 
 // writeSecurityScanReportingRules renders the dedupe and minimum-severity
-// rules every scan prompt states, independent of which budgets apply.
+// rules every scan prompt states.
 func writeSecurityScanReportingRules(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec) {
 	if spec.DedupeEnabled() {
 		fmt.Fprintf(b, "- Deduplicate findings: treat findings with similarity of at least %d/1000 as duplicates and report each issue once.\n", spec.DedupeSimilarityThresholdPermille())
@@ -146,24 +142,6 @@ func writeSecurityScanReportingRules(b *strings.Builder, spec triggersv1alpha1.S
 		b.WriteString("- Deduplication is disabled: report every finding, including near-duplicates.\n")
 	}
 	fmt.Fprintf(b, "- Exclude findings below severity %q from the report.\n", spec.EffectiveMinSeverity())
-}
-
-// writeSecurityScanTaskReportingPolicy renders the reporting policy of one
-// deterministic task run, where TWO independent budgets apply: the task's own
-// cap, counted across every parallel instance and retry of that task, and the
-// scan-wide cap every task of the execution shares. Collapsing them into one
-// number would misstate both — a task would either believe it may report the
-// whole scan's budget alone, or that the scan-wide cap is as small as its own.
-func writeSecurityScanTaskReportingPolicy(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec, taskMaxFindings int32) {
-	b.WriteString("## Reporting policy\n\n")
-	writeSecurityScanReportingRules(b, spec)
-	if taskMaxFindings > 0 {
-		fmt.Fprintf(b, "- Task finding budget: this task may report at most %d findings in total, counted across all of its parallel instances and any retries; prioritize the most severe, highest-confidence issues.\n", taskMaxFindings)
-	}
-	if spec.Budgets != nil && spec.Budgets.MaxFindings > 0 {
-		fmt.Fprintf(b, "- Scan finding budget: every task of this execution shares one scan-wide cap of %d findings. The platform enforces both caps on the persisted findings regardless of what is reported.\n", spec.Budgets.MaxFindings)
-	}
-	b.WriteString("\n")
 }
 
 // BuildSecurityScanPrompt renders the complete autonomous task packet seeded
@@ -212,9 +190,6 @@ func BuildSecurityScanPromptWithEvent(spec triggersv1alpha1.SecurityScanSpec, ev
 		if len(task.DependsOn) > 0 {
 			fmt.Fprintf(&b, "   - Depends on: %s\n", strings.Join(task.DependsOn, ", "))
 		}
-		if task.MaxFindings > 0 {
-			fmt.Fprintf(&b, "   - Report at most %d findings\n", task.MaxFindings)
-		}
 	}
 	b.WriteString("\n")
 
@@ -240,11 +215,7 @@ func BuildSecurityScanPromptWithEvent(spec triggersv1alpha1.SecurityScanSpec, ev
 		}
 	}
 
-	var budgetMaxFindings int32
-	if spec.Budgets != nil {
-		budgetMaxFindings = spec.Budgets.MaxFindings
-	}
-	writeSecurityScanReportingPolicy(&b, spec, budgetMaxFindings)
+	writeSecurityScanReportingPolicy(&b, spec)
 
 	b.WriteString("## Final step\n\n")
 	b.WriteString("When every task and post-script has completed and all findings are reported, call submit_security_scan_report exactly once with the scan summary, then finish the run.\n")
@@ -357,7 +328,7 @@ func BuildSecurityScanTaskPrompt(spec triggersv1alpha1.SecurityScanSpec, event *
 	b.WriteString(security.FindingSchemaPrompt())
 	b.WriteString("\n\n")
 
-	writeSecurityScanTaskReportingPolicy(&b, spec, task.MaxFindings)
+	writeSecurityScanReportingPolicy(&b, spec)
 
 	if inst.Chunked {
 		b.WriteString("## Structured output\n\n")
@@ -476,7 +447,7 @@ func BuildSecurityPostScriptPipelinePrompt(spec triggersv1alpha1.SecurityScanSpe
 	b.WriteString("\n")
 
 	b.WriteString("## Ordered post-scripts\n\n")
-	b.WriteString("Execute these instructions as pipeline steps. If an individual step asks you to finish by calling `update_security_finding`, retain that step's proposed status and note as an intermediate conclusion instead; do not call the tool until every step is complete. Later steps should consider all earlier evidence and proposed changes.\n\n")
+	b.WriteString("Execute these instructions as pipeline steps. If an individual step asks you to finish by calling `update_security_finding`, retain that step's proposed status and note as the finding's intermediate pipeline state instead; do not call the tool until every step is complete. Later steps must use that proposed state as current. A proposed `false_positive`, `accepted_risk`, or `fixed` status is terminal: later steps must preserve it, skip work intended only for actionable findings, and carry it into the aggregate verdict.\n\n")
 	for i, script := range scripts {
 		fmt.Fprintf(&b, "### %d. %s\n\n", i+1, script.Name)
 		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(script.Prompt))
@@ -486,6 +457,7 @@ func BuildSecurityPostScriptPipelinePrompt(spec triggersv1alpha1.SecurityScanSpe
 	b.WriteString("Before finishing, call update_security_finding EXACTLY ONCE for this finding. That call is the only durable output of this run; a conclusion stated only in your reply does not exist.\n\n")
 	fmt.Fprintf(&b, "- Identify the finding by `fingerprint: \"%s\"` (or `id: \"%s\"`).\n", finding.Fingerprint, finding.ID)
 	b.WriteString("- `status` must be exactly one of: open, triaged, confirmed, false_positive, fixed, accepted_risk.\n")
+	b.WriteString("- If any step proposed false_positive, accepted_risk, or fixed, that terminal status wins the aggregate verdict and no later proposal may replace it.\n")
 	b.WriteString("- `note` carries your evidence and reasoning: what you did, what it proved or disproved, and why the status follows. The tool accepts no other fields, so anything the audit trail must keep belongs in the note.\n")
 	b.WriteString("- Leave the status unchanged (re-state the current one) when your work was inconclusive, and say so in the note.\n\n")
 	b.WriteString("Do NOT call submit_security_scan_report: a separate task submits the scan-wide report after every post-script pipeline has finished, and it reads your verdict from the finding. Do not open, re-scan, or triage other findings; this pipeline owns exactly the finding above.\n")

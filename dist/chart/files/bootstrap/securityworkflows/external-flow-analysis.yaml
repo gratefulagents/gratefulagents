@@ -87,7 +87,6 @@ spec:
         - map-entrypoints
       forEach: map-entrypoints
       maxInstances: 20
-      maxFindings: 5
     - name: triage-and-report
       role: finding-triager
       category: triage

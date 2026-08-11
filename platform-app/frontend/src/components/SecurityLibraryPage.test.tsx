@@ -130,7 +130,7 @@ function seedLists() {
           },
         ],
         retention: { findingDays: 90 },
-        budgets: { maxCostUsd: "5", maxFindings: 100 },
+        budgets: { maxCostUsd: "5" },
         usageCount: 1,
         referencingScans: ["scan-a"],
       }),

@@ -30,7 +30,6 @@ spec:
         template instead of the handler, forced browsing to a resource by guessing or incrementing an id,
         and privileged fields (role, plan, owner, is_admin) accepted from user input. Trace every report
         from the request to the data access with file:line evidence and name the request an attacker sends.
-      maxFindings: 8
     - name: injection-and-xss
       role: vulnerability-hunter
       category: injection
@@ -52,7 +51,6 @@ spec:
         where escaping differs, javascript: URLs, and sanitizer configurations that allow event handlers.
         For each report, name the untrusted source, show the sink at file:line, and state the payload that
         proves the interpretation.
-      maxFindings: 8
     - name: authentication-and-session
       role: vulnerability-hunter
       category: authn
@@ -70,7 +68,6 @@ spec:
         "remember me" cookies containing forgeable identity, and multi-factor enforcement that only guards
         one of several session-granting paths. Report only defects reachable through executed code with
         file:line evidence, and state which account an attacker takes over.
-      maxFindings: 6
     - name: ssrf-and-egress
       role: vulnerability-hunter
       category: ssrf
@@ -87,7 +84,6 @@ spec:
         link-local and internal address ranges are blocked, and whether responses or error text are returned
         to the caller. Also cover open redirects and URL parsing mismatches. Report each with the sink at
         file:line and the internal target an attacker would reach.
-      maxFindings: 6
     - name: insecure-deserialization
       role: vulnerability-hunter
       category: deserialization
@@ -106,7 +102,6 @@ spec:
         extraction without path or size limits; and prototype-pollution sinks in deep-merge and
         query-parsing helpers. Report the untrusted source, the decoding call at file:line, and what the
         attacker controls once decoding happens.
-      maxFindings: 5
     - name: cryptographic-failures
       role: vulnerability-hunter
       category: crypto
@@ -124,7 +119,6 @@ spec:
         MAC comparison that is not constant-time or is skipped entirely, and TLS clients configured to skip
         certificate or hostname verification. Report with file:line evidence and state what the weakness
         lets an attacker forge, decrypt, or predict.
-      maxFindings: 6
     - name: security-misconfiguration
       role: vulnerability-hunter
       category: misconfiguration
@@ -145,7 +139,6 @@ spec:
         management, metrics, or profiling endpoints exposed without authentication. Cite the configuration
         at file:line and explain the attack it enables rather than listing an absent header for its own
         sake.
-      maxFindings: 8
     - name: sensitive-data-exposure
       role: vulnerability-hunter
       category: info-leak
@@ -162,7 +155,6 @@ spec:
         headers that let shared caches store per-user responses; and backup, export, or debug endpoints
         that dump data wholesale. Report with file:line evidence and name the data an attacker obtains and
         how they reach it.
-      maxFindings: 6
     - name: csrf-and-state-changing-requests
       role: vulnerability-hunter
       category: logic-flaw
@@ -179,7 +171,6 @@ spec:
         exposed over GET; SameSite settings relied on as the only defense; and JSON endpoints accepting
         simple content types that a cross-origin form can send. Prove reachability by naming the handler at
         file:line and the cross-site request that would succeed.
-      maxFindings: 5
     - name: vulnerable-components
       role: dependency-auditor
       category: supply-chain
@@ -196,7 +187,6 @@ spec:
         authentication, parsing, or cryptography path, packages installed from non-canonical registries or
         git URLs, and lockfiles that disagree with the manifests. Cite the manifest entry at file:line, the
         version in use, and the concrete impact on this application.
-      maxFindings: 8
     - name: triage-and-report
       role: finding-triager
       category: triage

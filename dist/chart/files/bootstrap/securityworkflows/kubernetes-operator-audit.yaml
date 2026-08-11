@@ -25,7 +25,6 @@ spec:
         validating or mutating webhook configurations. Also check the service accounts the operator creates
         for workloads it owns. Cite the marker or manifest at file:line and describe the escalation path
         an attacker gets after compromising the controller pod or a namespace it serves.
-      maxFindings: 8
     - name: unvalidated-cr-fields
       role: vulnerability-hunter
       category: injection
@@ -51,7 +50,6 @@ spec:
         service account selection, or a string interpolated into a script or URL). When no such sink is
         reachable, the missing validation is a hardening note, not a finding. Cite the type field and the
         construction site at file:line and state what a namespace-scoped user achieves.
-      maxFindings: 8
     - name: privilege-escalation-via-owned-resources
       role: vulnerability-hunter
       category: authz
@@ -72,7 +70,6 @@ spec:
         fields written by users influence what the controller does with cluster-scoped objects. Report with
         file:line evidence and name the identity or data the user reaches that they could not reach
         directly.
-      maxFindings: 6
     - name: admission-and-webhook-bypass
       role: vulnerability-hunter
       category: authz
@@ -94,7 +91,6 @@ spec:
         overwrite. Also check the handler itself: decoding errors that fall through to allow, checks on
         the old object instead of the new one, and TLS or authentication settings that let anything call
         the webhook. Report with file:line evidence and the admission request that slips through.
-      maxFindings: 6
     - name: secret-handling-and-logging
       role: secrets-auditor
       category: secrets
@@ -113,7 +109,6 @@ spec:
         check for hardcoded credentials, test fixtures with real-looking keys, and default passwords in
         manifests. Report each with file:line evidence, the sink the material reaches, and who can read
         that sink.
-      maxFindings: 6
     - name: cross-namespace-access
       role: vulnerability-hunter
       category: authz
@@ -132,7 +127,6 @@ spec:
         them, caches or indexers keyed by name alone so two namespaces collide, and reconcilers that write
         objects into a namespace derived from user input. Report with file:line evidence and describe the
         object one tenant reads or writes in another tenant's namespace.
-      maxFindings: 6
     - name: triage-and-report
       role: finding-triager
       category: triage

@@ -493,7 +493,6 @@ func securityScanBudgetsFromProto(pb *platform.SecurityScanBudgetsConfig) (*trig
 		MaxModelJobs:      pb.GetMaxModelJobs(),
 		MaxCostUSD:        strings.TrimSpace(pb.GetMaxCostUsd()),
 		MaxTokens:         pb.GetMaxTokens(),
-		MaxFindings:       pb.GetMaxFindings(),
 		MaxValidationJobs: pb.GetMaxValidationJobs(),
 	}
 	if value := strings.TrimSpace(pb.GetMaxRuntime()); value != "" {
@@ -523,7 +522,6 @@ func securityScanBudgetsToProto(b *triggersv1alpha1.SecurityScanBudgets) *platfo
 		MaxModelJobs:      b.MaxModelJobs,
 		MaxCostUsd:        b.MaxCostUSD,
 		MaxTokens:         b.MaxTokens,
-		MaxFindings:       b.MaxFindings,
 		MaxValidationJobs: b.MaxValidationJobs,
 	}
 	if b.MaxRuntime.Duration != 0 {

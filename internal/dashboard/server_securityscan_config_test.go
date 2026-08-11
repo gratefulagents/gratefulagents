@@ -37,7 +37,7 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 			AuthorizedNetworkTargets: []string{" staging.example.test ", "", "192.0.2.0/24"},
 		},
 		Workflow: []*platform.SecurityScanTaskConfig{
-			{Name: "injection", Objective: "hunt injections", Category: "injection", MaxFindings: 5,
+			{Name: "injection", Objective: "hunt injections", Category: "injection",
 				OutputSchema: `{"type":"array","items":{"type":"object"}}`},
 			{Name: "triage", Objective: "triage findings", Role: "finding-triager", Model: "gpt-5.2",
 				DependsOn: []string{"injection"}, MaxRetries: &taskRetries, Timeout: "45m", MaxTurns: 30,
@@ -71,7 +71,6 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 			MaxCostUsd:        "3.75",
 			MaxTokens:         250000,
 			MaxRuntime:        "90m",
-			MaxFindings:       40,
 			MaxValidationJobs: 4,
 		},
 	}
@@ -113,8 +112,7 @@ func TestCreateSecurityScanHappyPathFullSpec(t *testing.T) {
 		ps.Defaults == nil || ps.Defaults.Model != "claude-sonnet-4-6" {
 		t.Fatalf("proto spec = %+v", ps)
 	}
-	if ps.Budgets == nil || ps.Budgets.MaxCostUsd != "3.75" || ps.Budgets.MaxRuntime != "1h30m0s" ||
-		ps.Budgets.MaxFindings != 40 {
+	if ps.Budgets == nil || ps.Budgets.MaxCostUsd != "3.75" || ps.Budgets.MaxRuntime != "1h30m0s" {
 		t.Fatalf("proto budgets = %+v", ps.Budgets)
 	}
 	if ps.Execution == nil || ps.Execution.Mode != "deterministic" ||
@@ -152,7 +150,7 @@ func assertFullScanSpec(t *testing.T, spec triggersv1alpha1.SecurityScanSpec) {
 	}
 	if spec.Budgets == nil || spec.Budgets.MaxModelJobs != 12 || spec.Budgets.MaxCostUSD != "3.75" ||
 		spec.Budgets.MaxTokens != 250000 || spec.Budgets.MaxRuntime.Duration != 90*time.Minute ||
-		spec.Budgets.MaxFindings != 40 || spec.Budgets.MaxValidationJobs != 4 {
+		spec.Budgets.MaxValidationJobs != 4 {
 		t.Fatalf("Budgets = %+v", spec.Budgets)
 	}
 	if spec.Defaults.RepoURL != "https://github.com/example/payments.git" || spec.Defaults.Model != "claude-sonnet-4-6" {
@@ -170,7 +168,7 @@ func assertFullScanAdvancedSpec(t *testing.T, spec triggersv1alpha1.SecurityScan
 	if !slices.Equal(spec.Scope.AuthorizedNetworkTargets, []string{"staging.example.test", "192.0.2.0/24"}) {
 		t.Fatalf("Scope.AuthorizedNetworkTargets = %#v", spec.Scope.AuthorizedNetworkTargets)
 	}
-	if len(spec.Workflow) != 2 || spec.Workflow[0].Name != "injection" || spec.Workflow[0].MaxFindings != 5 ||
+	if len(spec.Workflow) != 2 || spec.Workflow[0].Name != "injection" ||
 		spec.Workflow[1].Role != "finding-triager" || spec.Workflow[1].DependsOn[0] != "injection" {
 		t.Fatalf("Workflow = %+v", spec.Workflow)
 	}
@@ -369,11 +367,6 @@ func TestCreateSecurityScanValidationFailures(t *testing.T) {
 		{"bad budgets max_cost_usd", func() *platform.SecurityScanConfigSpec {
 			s := base()
 			s.Budgets = &platform.SecurityScanBudgetsConfig{MaxCostUsd: "$5"}
-			return s
-		}()},
-		{"negative budgets max_findings", func() *platform.SecurityScanConfigSpec {
-			s := base()
-			s.Budgets = &platform.SecurityScanBudgetsConfig{MaxFindings: -1}
 			return s
 		}()},
 		{"bad defaults timeout", func() *platform.SecurityScanConfigSpec {
@@ -584,9 +577,9 @@ func TestListAndGetSecurityScanConfigsExposeSpecAndStatus(t *testing.T) {
 			LastError:        "boom",
 			Findings:         &triggersv1alpha1.SecurityScanFindingCounts{Total: 4, Open: 2, Critical: 1, High: 1},
 			Budget: &triggersv1alpha1.SecurityScanBudgetStatus{
-				Effective: &triggersv1alpha1.SecurityScanBudgets{MaxFindings: 3, MaxCostUSD: "5"},
+				Effective: &triggersv1alpha1.SecurityScanBudgets{MaxCostUSD: "5"},
 				Exceeded:  true,
-				Message:   "persisted findings 4 exceed budgets.maxFindings 3",
+				Message:   "model cost exceeds budgets.maxCostUSD",
 			},
 			Retention: &triggersv1alpha1.SecurityScanRetentionStatus{
 				LastSweepTime:  &lastScan,
@@ -620,8 +613,7 @@ func TestListAndGetSecurityScanConfigsExposeSpecAndStatus(t *testing.T) {
 	if got.FindingCounts["total"] != 4 || got.FindingCounts["open"] != 2 || got.FindingCounts["critical"] != 1 {
 		t.Fatalf("FindingCounts = %+v", got.FindingCounts)
 	}
-	if !got.BudgetExceeded || got.BudgetMessage == "" ||
-		got.GetEffectiveBudgets().GetMaxFindings() != 3 || got.GetEffectiveBudgets().GetMaxCostUsd() != "5" {
+	if !got.BudgetExceeded || got.BudgetMessage == "" || got.GetEffectiveBudgets().GetMaxCostUsd() != "5" {
 		t.Fatalf("budget status = exceeded=%v message=%q effective=%+v", got.BudgetExceeded, got.BudgetMessage, got.GetEffectiveBudgets())
 	}
 	if got.GetRetention().GetLastSweepTimeUnix() != lastScan.Unix() ||

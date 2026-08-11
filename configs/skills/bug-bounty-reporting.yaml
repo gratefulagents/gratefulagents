@@ -30,6 +30,16 @@ spec:
         - Reality check: does an attacker who does not already have the privilege
           gain something? "Admin can inject SQL as admin" and "user can break
           their own account" are not vulnerabilities unless a boundary is crossed.
+        - Acceptance gate: keep a High/Critical candidate only when all four are
+          supported: an external or low-privilege attacker, an in-scope production
+          asset or boundary, a traced and reproducible exploit path, and serious
+          concrete impact. Missing one means it is not ready for a bounty report.
+        - Repository automation: GitHub Actions, CI/CD, and release configuration
+          are not bounty-worthy merely because permissions are broad, an action is
+          unpinned, or interpolation looks dangerous. Require an untrusted actor to
+          trigger the privileged path and prove, with a safe local fixture or complete
+          trace, the capability for secret access, protected-branch write, publication,
+          deployment, or equivalent in-scope impact. Never exercise it in production.
 
         ## Structure
 

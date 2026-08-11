@@ -60,9 +60,6 @@ func mergeSecurityScanBudgets(scan, pack *triggersv1alpha1.SecurityScanBudgets) 
 	if out.MaxRuntime.Duration == 0 {
 		out.MaxRuntime = pack.MaxRuntime
 	}
-	if out.MaxFindings == 0 {
-		out.MaxFindings = pack.MaxFindings
-	}
 	if out.MaxValidationJobs == 0 {
 		out.MaxValidationJobs = pack.MaxValidationJobs
 	}
@@ -108,9 +105,6 @@ func securityBudgetViolations(effective, pack *triggersv1alpha1.SecurityScanBudg
 	}
 	if pack.MaxRuntime.Duration > 0 && effective.MaxRuntime.Duration > pack.MaxRuntime.Duration {
 		violate("maxRuntime", effective.MaxRuntime.Duration, pack.MaxRuntime.Duration)
-	}
-	if pack.MaxFindings > 0 && effective.MaxFindings > pack.MaxFindings {
-		violate("maxFindings", effective.MaxFindings, pack.MaxFindings)
 	}
 	if pack.MaxValidationJobs > 0 && effective.MaxValidationJobs > pack.MaxValidationJobs {
 		violate("maxValidationJobs", effective.MaxValidationJobs, pack.MaxValidationJobs)

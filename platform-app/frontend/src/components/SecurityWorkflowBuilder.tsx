@@ -42,8 +42,8 @@ export const SECURITY_SPECIALIST_ROLES = [
 
 /**
  * One task being edited. Number-ish fields stay strings so an untouched
- * draft round-trips through the inputs byte-for-byte (the maxFindings
- * pattern); tool lists are comma-separated for the same reason.
+ * draft round-trips through the inputs byte-for-byte; tool lists are
+ * comma-separated for the same reason.
  */
 export interface WorkflowTaskDraft {
   name: string;
@@ -52,7 +52,6 @@ export interface WorkflowTaskDraft {
   role: string;
   model: string;
   dependsOn: string[];
-  maxFindings: string;
   /** Retry budget in deterministic execution (0-10); "" inherits the scan default. */
   maxRetries: string;
   /** Go duration string, e.g. "30m"; "" = no task limit. */
@@ -88,7 +87,6 @@ export function emptyWorkflowTask(): WorkflowTaskDraft {
     role: "",
     model: "",
     dependsOn: [],
-    maxFindings: "",
     maxRetries: "",
     timeout: "",
     maxTurns: "",
@@ -120,7 +118,6 @@ export function workflowTasksFromProto(tasks: SecurityScanTaskConfig[]): Workflo
     role: t.role,
     model: t.model,
     dependsOn: [...t.dependsOn],
-    maxFindings: t.maxFindings ? String(t.maxFindings) : "",
     maxRetries: t.maxRetries !== undefined ? String(t.maxRetries) : "",
     timeout: t.timeout,
     maxTurns: t.maxTurns ? String(t.maxTurns) : "",
@@ -152,7 +149,6 @@ export function workflowTasksToProto(tasks: WorkflowTaskDraft[]): SecurityScanTa
       role: t.role.trim(),
       model: t.model.trim(),
       dependsOn: t.dependsOn.filter((d) => d.trim() !== ""),
-      maxFindings: t.maxFindings.trim() ? Number(t.maxFindings) : 0,
       maxRetries: t.maxRetries.trim() !== "" ? Number(t.maxRetries) : undefined,
       timeout: t.timeout.trim(),
       maxTurns: t.maxTurns.trim() ? Number(t.maxTurns) : 0,
@@ -246,8 +242,8 @@ function isNonNegativeInt(value: string): boolean {
 /**
  * validateWorkflowTasks mirrors the server-side validation
  * (ValidateSecurityWorkflowTasks in api/triggers/v1alpha1): non-empty
- * workflow, unique DNS-label names, objectives, maxFindings bounds, valid
- * roles/models, resolvable dependsOn entries, execution budgets, forEach
+ * workflow, unique DNS-label names, objectives, valid roles/models,
+ * resolvable dependsOn entries, execution budgets, forEach
  * fan-out, and an acyclic graph. Editors must refuse to save while this
  * returns errors.
  */
@@ -268,10 +264,6 @@ export function validateWorkflowTasks(tasks: WorkflowTaskDraft[]): WorkflowField
     names.add(name);
     if (task.objective.trim() === "") {
       errors.push({ field: `${field}.objective`, message: `Task "${name || index + 1}" needs an objective.` });
-    }
-    const maxFindings = task.maxFindings.trim();
-    if (maxFindings !== "" && !isNonNegativeInt(maxFindings)) {
-      errors.push({ field: `${field}.maxFindings`, message: `Task "${name}" max findings must be a non-negative number.` });
     }
     const role = task.role.trim();
     if (role !== "" && !ROLE_PATTERN.test(role)) {
@@ -968,7 +960,7 @@ export function SecurityWorkflowBuilder({
               placeholder="Hunt for SQL injection in the API layer."
             />
           </FlowField>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <FlowField id={`${idPrefix}-task-role-${index}`} label="Specialist role" hint="Empty = security-reviewer.">
               <select
                 id={`${idPrefix}-task-role-${index}`}
@@ -990,19 +982,6 @@ export function SecurityWorkflowBuilder({
                 value={task.model}
                 onChange={(event) => updateTask(index, { model: event.target.value })}
                 className="font-mono"
-              />
-            </FlowField>
-            <FlowField
-              id={`${idPrefix}-task-max-findings-${index}`}
-              label="Max findings"
-              hint="Empty or 0 = unlimited."
-            >
-              <Input
-                id={`${idPrefix}-task-max-findings-${index}`}
-                type="number"
-                min={0}
-                value={task.maxFindings}
-                onChange={(event) => updateTask(index, { maxFindings: event.target.value })}
               />
             </FlowField>
           </div>
