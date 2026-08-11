@@ -71,7 +71,7 @@ COPY --from=semgrep-root / /usr/local/share/ga-security/toolroots/semgrep/
 COPY --from=halmos-root / /usr/local/share/ga-security/toolroots/halmos/
 COPY --from=builder /out/tools/forge /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/forge
 RUN cp -L /usr/local/share/ga-security/toolroots/slither/home/ethsec/.local/bin/solc /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/solc \
-    && for root in owasp-zap schemathesis sslyze nmap zeek suricata mythril slither semgrep halmos; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
+    && for root in owasp-zap schemathesis sslyze nmap zeek suricata mythril slither semgrep halmos; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc" "/usr/local/share/ga-security/toolroots/${root}/dev/shm"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
     && printf '%s\n' 'sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab' > /usr/local/share/ga-security/toolroots/owasp-zap/.ga-oci-digest \
     && printf '%s\n' 'sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2' > /usr/local/share/ga-security/toolroots/schemathesis/.ga-oci-digest \
     && printf '%s\n' 'sha256:e6d59470e380ecb626e831d1c3e006a410f7081266171054c0ce616ee03627d3' > /usr/local/share/ga-security/toolroots/sslyze/.ga-oci-digest \
@@ -83,7 +83,8 @@ RUN cp -L /usr/local/share/ga-security/toolroots/slither/home/ethsec/.local/bin/
     && printf '%s\n' 'sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b' > /usr/local/share/ga-security/toolroots/semgrep/.ga-oci-digest \
     && printf '%s\n' 'sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f' > /usr/local/share/ga-security/toolroots/halmos/.ga-oci-digest \
     && chown -R 0:0 /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap \
-    && chmod -R go-w /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap
+    && chmod -R go-w /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap \
+    && chmod 1777 /usr/local/share/ga-security/toolroots/*/dev/shm
 
 USER 65532:65532
 ENTRYPOINT ["ga-security"]

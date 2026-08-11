@@ -435,7 +435,7 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 	if path == "" {
 		path = "/usr/local/zeek/bin:/opt/venv/bin:/usr/local/bin:/usr/bin:/bin"
 	}
-	argv := []string{bwrap, "--die-with-parent", "--new-session", "--unshare-pid", "--ro-bind", toolRoot, "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", work, "/work", "--chdir", "/work", "--clearenv", "--setenv", "HOME", "/work", "--setenv", "LANG", "C.UTF-8", "--setenv", "PATH", path}
+	argv := []string{bwrap, "--die-with-parent", "--new-session", "--unshare-pid", "--ro-bind", toolRoot, "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/dev/shm", "--tmpfs", "/tmp", "--bind", work, "/work", "--chdir", "/work", "--clearenv", "--setenv", "HOME", "/work", "--setenv", "LANG", "C.UTF-8", "--setenv", "PATH", path}
 	if tool.Name == "halmos" {
 		argv = append(argv, "--setenv", "FOUNDRY_OFFLINE", "true", "--setenv", "FOUNDRY_FFI", "false")
 	}
