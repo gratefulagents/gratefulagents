@@ -368,6 +368,10 @@ service PlatformService {
   // dashboard overview page: active and recent scan runs, open finding
   // counts, and scan configurations that are failing or blocked.
   rpc GetSecurityOverview(GetSecurityOverviewRequest) returns (GetSecurityOverviewResponse);
+  // GetSecurityConfigPostures aggregates the namespace's persisted security
+  // posture grouped per scan configuration: current finding counts, the
+  // latest run, and recent completed-run activity for trend visualization.
+  rpc GetSecurityConfigPostures(GetSecurityConfigPosturesRequest) returns (GetSecurityConfigPosturesResponse);
   // GetSecurityScanReport returns a report artifact (Markdown or SARIF)
   // written by a finished security scan run.
   rpc GetSecurityScanReport(GetSecurityScanReportRequest) returns (GetSecurityScanReportResponse);
@@ -5177,6 +5181,57 @@ message GetSecurityOverviewResponse {
   SecurityFindingTrends trends = 12;
   int32 regressed_findings = 13;
   int32 reopened_findings = 14;
+}
+
+message GetSecurityConfigPosturesRequest {
+  string namespace = 1;
+  // activity_limit caps how many recent completed-run activity points are
+  // returned per configuration (server default when 0).
+  int32 activity_limit = 2;
+}
+
+// SecurityRunActivityPoint is one completed scan run's observed finding
+// counts for a configuration, used to draw trend sparklines.
+message SecurityRunActivityPoint {
+  string run_name = 1;
+  google.protobuf.Timestamp completed_at = 2;
+  // severity_counts maps severity (critical/high/medium/low/info) to the
+  // number of findings observed by the run.
+  map<string, int32> severity_counts = 3;
+  // total is the number of findings observed by the run.
+  int32 total = 4;
+}
+
+// SecurityConfigPosture is one scan configuration's aggregated stored
+// posture: current deduplicated finding counts, its latest persisted run,
+// and recent completed-run activity (oldest first).
+message SecurityConfigPosture {
+  string scan_name = 1;
+  // finding_counts uses the same keys as GetSecurityFindingSummary:
+  // severity, "total", "open", "open_<severity>", "baseline_<state>",
+  // "baseline_tracked", "suppressed", ...
+  map<string, int32> finding_counts = 2;
+  // repository is the repository of the configuration's latest run.
+  string repository = 3;
+  string last_run_name = 4;
+  string last_run_status = 5;
+  google.protobuf.Timestamp last_started_at = 6;
+  google.protobuf.Timestamp last_completed_at = 7;
+  // activity lists the newest completed runs' observed finding counts,
+  // ordered oldest first.
+  repeated SecurityRunActivityPoint activity = 8;
+}
+
+message GetSecurityConfigPosturesResponse {
+  // store_supported is false when the configured state store cannot persist
+  // security scan data (no Postgres); postures are then empty.
+  bool store_supported = 1;
+  // postures has one entry per scan configuration with persisted data,
+  // ordered by scan name.
+  repeated SecurityConfigPosture postures = 2;
+  // warnings lists aggregation steps that failed; the remaining fields are
+  // still valid (partial result).
+  repeated string warnings = 3;
 }
 
 message GetSecurityScanReportRequest {

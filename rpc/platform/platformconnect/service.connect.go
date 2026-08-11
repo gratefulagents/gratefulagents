@@ -653,6 +653,9 @@ const (
 	// PlatformServiceGetSecurityOverviewProcedure is the fully-qualified name of the PlatformService's
 	// GetSecurityOverview RPC.
 	PlatformServiceGetSecurityOverviewProcedure = "/platform.v1.PlatformService/GetSecurityOverview"
+	// PlatformServiceGetSecurityConfigPosturesProcedure is the fully-qualified name of the
+	// PlatformService's GetSecurityConfigPostures RPC.
+	PlatformServiceGetSecurityConfigPosturesProcedure = "/platform.v1.PlatformService/GetSecurityConfigPostures"
 	// PlatformServiceGetSecurityScanReportProcedure is the fully-qualified name of the
 	// PlatformService's GetSecurityScanReport RPC.
 	PlatformServiceGetSecurityScanReportProcedure = "/platform.v1.PlatformService/GetSecurityScanReport"
@@ -1014,6 +1017,10 @@ type PlatformServiceClient interface {
 	// dashboard overview page: active and recent scan runs, open finding
 	// counts, and scan configurations that are failing or blocked.
 	GetSecurityOverview(context.Context, *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error)
+	// GetSecurityConfigPostures aggregates the namespace's persisted security
+	// posture grouped per scan configuration: current finding counts, the
+	// latest run, and recent completed-run activity for trend visualization.
+	GetSecurityConfigPostures(context.Context, *connect.Request[platform.GetSecurityConfigPosturesRequest]) (*connect.Response[platform.GetSecurityConfigPosturesResponse], error)
 	// GetSecurityScanReport returns a report artifact (Markdown or SARIF)
 	// written by a finished security scan run.
 	GetSecurityScanReport(context.Context, *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error)
@@ -2276,6 +2283,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetSecurityOverview")),
 			connect.WithClientOptions(opts...),
 		),
+		getSecurityConfigPostures: connect.NewClient[platform.GetSecurityConfigPosturesRequest, platform.GetSecurityConfigPosturesResponse](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityConfigPosturesProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityConfigPostures")),
+			connect.WithClientOptions(opts...),
+		),
 		getSecurityScanReport: connect.NewClient[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse](
 			httpClient,
 			baseURL+PlatformServiceGetSecurityScanReportProcedure,
@@ -2506,6 +2519,7 @@ type platformServiceClient struct {
 	exportSecurityPack                     *connect.Client[platform.ExportSecurityPackRequest, platform.ExportSecurityPackResponse]
 	importSecurityPack                     *connect.Client[platform.ImportSecurityPackRequest, platform.ImportSecurityPackResponse]
 	getSecurityOverview                    *connect.Client[platform.GetSecurityOverviewRequest, platform.GetSecurityOverviewResponse]
+	getSecurityConfigPostures              *connect.Client[platform.GetSecurityConfigPosturesRequest, platform.GetSecurityConfigPosturesResponse]
 	getSecurityScanReport                  *connect.Client[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse]
 	getSecuritySkillsStatus                *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
 	installSecuritySkills                  *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
@@ -3551,6 +3565,11 @@ func (c *platformServiceClient) GetSecurityOverview(ctx context.Context, req *co
 	return c.getSecurityOverview.CallUnary(ctx, req)
 }
 
+// GetSecurityConfigPostures calls platform.v1.PlatformService.GetSecurityConfigPostures.
+func (c *platformServiceClient) GetSecurityConfigPostures(ctx context.Context, req *connect.Request[platform.GetSecurityConfigPosturesRequest]) (*connect.Response[platform.GetSecurityConfigPosturesResponse], error) {
+	return c.getSecurityConfigPostures.CallUnary(ctx, req)
+}
+
 // GetSecurityScanReport calls platform.v1.PlatformService.GetSecurityScanReport.
 func (c *platformServiceClient) GetSecurityScanReport(ctx context.Context, req *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error) {
 	return c.getSecurityScanReport.CallUnary(ctx, req)
@@ -3916,6 +3935,10 @@ type PlatformServiceHandler interface {
 	// dashboard overview page: active and recent scan runs, open finding
 	// counts, and scan configurations that are failing or blocked.
 	GetSecurityOverview(context.Context, *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error)
+	// GetSecurityConfigPostures aggregates the namespace's persisted security
+	// posture grouped per scan configuration: current finding counts, the
+	// latest run, and recent completed-run activity for trend visualization.
+	GetSecurityConfigPostures(context.Context, *connect.Request[platform.GetSecurityConfigPosturesRequest]) (*connect.Response[platform.GetSecurityConfigPosturesResponse], error)
 	// GetSecurityScanReport returns a report artifact (Markdown or SARIF)
 	// written by a finished security scan run.
 	GetSecurityScanReport(context.Context, *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error)
@@ -5174,6 +5197,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetSecurityOverview")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceGetSecurityConfigPosturesHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityConfigPosturesProcedure,
+		svc.GetSecurityConfigPostures,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityConfigPostures")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceGetSecurityScanReportHandler := connect.NewUnaryHandler(
 		PlatformServiceGetSecurityScanReportProcedure,
 		svc.GetSecurityScanReport,
@@ -5608,6 +5637,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceImportSecurityPackHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityOverviewProcedure:
 			platformServiceGetSecurityOverviewHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityConfigPosturesProcedure:
+			platformServiceGetSecurityConfigPosturesHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanReportProcedure:
 			platformServiceGetSecurityScanReportHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecuritySkillsStatusProcedure:
@@ -6449,6 +6480,10 @@ func (UnimplementedPlatformServiceHandler) ImportSecurityPack(context.Context, *
 
 func (UnimplementedPlatformServiceHandler) GetSecurityOverview(context.Context, *connect.Request[platform.GetSecurityOverviewRequest]) (*connect.Response[platform.GetSecurityOverviewResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityOverview is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityConfigPostures(context.Context, *connect.Request[platform.GetSecurityConfigPosturesRequest]) (*connect.Response[platform.GetSecurityConfigPosturesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityConfigPostures is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GetSecurityScanReport(context.Context, *connect.Request[platform.GetSecurityScanReportRequest]) (*connect.Response[platform.GetSecurityScanReportResponse], error) {

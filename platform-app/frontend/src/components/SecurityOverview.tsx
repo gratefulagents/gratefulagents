@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toaster";
 import { ListState, ListRowSkeleton } from "@/components/ui/list-state";
 import { DetailSection } from "@/components/detail-page";
+import { SecurityConfigPostures } from "@/components/SecurityConfigPostures";
 import { SecurityNav } from "@/components/SecurityNav";
 import { SeverityCountBadges } from "@/components/SecurityScanList";
 import { BaselineBadge, formatDurationSeconds } from "@/components/security-baseline";
@@ -90,6 +91,9 @@ function ScanRow({ scan, now }: { scan: SecurityScan; now: number }) {
         >
           {scan.runName}
         </Link>
+      </TableCell>
+      <TableCell className="text-sm text-muted-foreground">
+        {scan.scanName || "—"}
       </TableCell>
       <TableCell className="font-mono text-sm text-muted-foreground">
         {scan.repository || "—"}
@@ -333,6 +337,7 @@ export function SecurityOverview() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Scan run</TableHead>
+                      <TableHead>Configuration</TableHead>
                       <TableHead>Repository</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Findings</TableHead>
@@ -394,6 +399,8 @@ export function SecurityOverview() {
               </DetailSection>
             )}
 
+            {overview.storeSupported && <SecurityConfigPostures />}
+
             {overview.storeSupported && (
               <DetailSection
                 title="Recent scans"
@@ -412,6 +419,7 @@ export function SecurityOverview() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Scan run</TableHead>
+                        <TableHead>Configuration</TableHead>
                         <TableHead>Repository</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Findings</TableHead>

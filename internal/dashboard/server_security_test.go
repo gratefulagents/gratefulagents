@@ -55,6 +55,11 @@ type mockSecurityStore struct {
 	lastSummaryExcluded []string
 	lastTrendsExcluded  []string
 
+	postures             []store.SecurityConfigPosture
+	posturesErr          error
+	lastPosturesExcluded []string
+	lastActivityLimit    int32
+
 	appliedSuppressions     []store.SecuritySuppressionRule
 	suppressionExpirySweeps []string
 }
@@ -209,6 +214,26 @@ func (m *mockSecurityStore) SummarizeSecurityFindingsScoped(_ context.Context, s
 	m.summaryIncludeSuppressed = scope.IncludeSuppressed
 	m.lastSummaryExcluded = scope.ExcludedScanNames
 	return m.summary, nil
+}
+
+func (m *mockSecurityStore) ListSecurityConfigPostures(_ context.Context, namespace string, activityLimit int32, excludedScanNames []string) ([]store.SecurityConfigPosture, error) {
+	if m.posturesErr != nil {
+		return nil, m.posturesErr
+	}
+	m.lastActivityLimit = activityLimit
+	m.lastPosturesExcluded = excludedScanNames
+	excluded := make(map[string]bool, len(excludedScanNames))
+	for _, name := range excludedScanNames {
+		excluded[name] = true
+	}
+	var out []store.SecurityConfigPosture
+	for _, p := range m.postures {
+		if !excluded[p.ScanName] {
+			out = append(out, p)
+		}
+	}
+	_ = namespace
+	return out, nil
 }
 
 func (m *mockSecurityStore) DeleteSecurityScanData(context.Context, string, string) error {

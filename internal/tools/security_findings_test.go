@@ -243,6 +243,10 @@ func (s *fakeSecurityFindingStore) SummarizeSecurityFindings(_ context.Context, 
 	return out, nil
 }
 
+func (s *fakeSecurityFindingStore) ListSecurityConfigPostures(context.Context, string, int32, []string) ([]store.SecurityConfigPosture, error) {
+	return nil, nil
+}
+
 func (s *fakeSecurityFindingStore) SummarizeSecurityFindingsScoped(_ context.Context, scope store.SecurityFindingSummaryScope) (map[string]int32, error) {
 	out := map[string]int32{
 		"total": 0, "open": 0,
@@ -1764,9 +1768,9 @@ func TestSecurityScanSiblingRunsShareOneScanRecord(t *testing.T) {
 
 func TestSecurityScanContextFromRunParsesExecutionAnnotations(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
-		SecurityScanNameAnnotation:            "nightly-scan",
-		SecurityScanExecutionIDAnnotation:     "  exec-1  ",
-		SecurityScanRecordNameAnnotation:      " secscan-nightly-scan-exec-1 ",
+		SecurityScanNameAnnotation:        "nightly-scan",
+		SecurityScanExecutionIDAnnotation: "  exec-1  ",
+		SecurityScanRecordNameAnnotation:  " secscan-nightly-scan-exec-1 ",
 		SecurityScanTaskNameAnnotation:    " recon ",
 	}}}
 	scanCtx, ok := SecurityScanContextFromRun(run, "default", "nightly-scan-recon-0", uuid.New())

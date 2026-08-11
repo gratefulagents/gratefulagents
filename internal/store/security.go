@@ -265,6 +265,34 @@ type SecurityFindingTrends struct {
 	MedianTimeToResolutionSeconds float64
 }
 
+// SecurityRunActivityPoint is one completed scan run's observed finding
+// counts for a scan configuration, used for trend visualization.
+type SecurityRunActivityPoint struct {
+	RunName     string
+	CompletedAt time.Time
+	// SeverityCounts maps severity (critical/high/medium/low/info) to the
+	// number of findings the run observed.
+	SeverityCounts map[string]int32
+	// Total is the number of findings the run observed.
+	Total int32
+}
+
+// SecurityConfigPosture aggregates one scan configuration's stored posture:
+// current deduplicated finding counts (same keys as
+// SummarizeSecurityFindings), the latest persisted run's metadata, and
+// recent completed-run activity ordered oldest first.
+type SecurityConfigPosture struct {
+	ScanName string
+	Counts   map[string]int32
+	// Repository is the repository of the configuration's latest run.
+	Repository      string
+	LastRunName     string
+	LastRunStatus   string
+	LastStartedAt   *time.Time
+	LastCompletedAt *time.Time
+	Activity        []SecurityRunActivityPoint
+}
+
 // SecurityFindingBulkUpdate describes the changes a bulk triage operation
 // applies to each selected finding. Nil pointers mean "leave unchanged"; a
 // pointer to the empty string clears the assignee.
@@ -555,6 +583,15 @@ type SecurityFindingStore interface {
 	// execution, and task scope, so a fanned-out execution can be
 	// aggregated across all of its runs.
 	SummarizeSecurityFindingsScoped(ctx context.Context, scope SecurityFindingSummaryScope) (map[string]int32, error)
+	// ListSecurityConfigPostures aggregates the namespace's non-duplicate
+	// findings grouped per scan configuration (scan_name): finding counts
+	// with the same keys as SummarizeSecurityFindings, the latest persisted
+	// run's metadata, and per-run observation counts for the newest
+	// activityLimit completed runs of each configuration (returned oldest
+	// first; a limit <= 0 uses a small default). Configurations named in
+	// excludedScanNames are omitted (per-user scan visibility). Results are
+	// ordered by scan name.
+	ListSecurityConfigPostures(ctx context.Context, namespace string, activityLimit int32, excludedScanNames []string) ([]SecurityConfigPosture, error)
 	// DeleteSecurityScanData removes every scan run, finding, and event for
 	// (namespace, scan_name). Idempotent. It is called when a SecurityScan
 	// resource is deleted.
