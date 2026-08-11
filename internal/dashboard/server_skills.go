@@ -21,6 +21,7 @@ import (
 var skillNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 const (
+	skillResourceType        = "skill"
 	skillsShSourceAnnotation = "platform.gratefulagents.dev/skills-sh-source"
 	skillsShIDAnnotation     = "platform.gratefulagents.dev/skills-sh-id"
 	skillsShURLAnnotation    = "platform.gratefulagents.dev/skills-sh-url"

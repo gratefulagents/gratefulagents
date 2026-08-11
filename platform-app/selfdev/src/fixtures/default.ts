@@ -1567,6 +1567,7 @@ export const defaultScenario: Scenario = {
   securityScans,
   securityScanConfigs,
   securityWorkflows,
+  securitySkillsInstalled: false,
 
   skillPackages: skills,
   runtimeImages: runtimeImageCatalog(),

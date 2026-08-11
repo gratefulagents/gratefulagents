@@ -27,15 +27,15 @@ const (
 	bootstrapBundleVersionKey        = "bundle-version"
 	bootstrapSyncedVersionAnnotation = "platform.gratefulagents.dev/bootstrap-synced-version"
 	bootstrapSpecHashAnnotation      = "platform.gratefulagents.dev/bootstrap-spec-hash"
-	bootstrapSyncProtocolVersion     = "v2"
+	bootstrapSyncProtocolVersion     = "v3"
 )
 
 // syncBootstrapResources makes the chart's namespaced, reusable defaults
 // available where a user's runs can actually reference them. The Helm chart
-// installs these resources in the manager namespace, while Skills and security
-// library references are deliberately namespace-local. Without this copy,
-// personal namespaces start with empty libraries even though the installation
-// ships a full set of defaults.
+// installs these resources in the manager namespace, while security library
+// references are deliberately namespace-local. Curated security Skills are
+// intentionally excluded and installed only after an explicit user action;
+// unrelated bootstrap Skills continue to seed normally.
 //
 // Only explicitly marked chart defaults are copied; arbitrary resources in the
 // manager namespace remain private. Existing resources win so a user can edit
@@ -69,7 +69,7 @@ func (s *Server) syncBootstrapResources(ctx context.Context, targetNamespace str
 	}
 	for i := range skills.Items {
 		source := &skills.Items[i]
-		if !isBootstrapDefault(source) {
+		if !isBootstrapDefault(source) || source.Annotations[securitySkillBundleAnnotation] == "true" {
 			continue
 		}
 		if err := s.createBootstrapResource(ctx, source, &platformv1alpha1.Skill{

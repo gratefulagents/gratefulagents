@@ -99,6 +99,8 @@ export interface Scenario {
   securityScanConfigs: SecurityScanConfig[];
   /** Reusable SecurityWorkflow library resources (workflowRef targets). */
   securityWorkflows: SecurityWorkflowResource[];
+  /** Whether the current user has explicitly installed the curated security bundle. */
+  securitySkillsInstalled: boolean;
 
   skillPackages: SkillInfo[];
   runtimeImages: RuntimeImageOption[];

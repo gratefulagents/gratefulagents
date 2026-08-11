@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"sigs.k8s.io/yaml"
+
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 )
 
@@ -258,6 +260,19 @@ func TestSkillBootstrapInventoryParity(t *testing.T) {
 		}
 		if !bytes.Equal(source, mirror) {
 			t.Errorf("source and chart mirror differ for %s", entry.Name())
+		}
+		var skill platformv1alpha1.Skill
+		if err := yaml.Unmarshal(source, &skill); err != nil {
+			t.Errorf("decode %s: %v", entry.Name(), err)
+			continue
+		}
+		bundleMember := skill.Annotations["platform.gratefulagents.dev/security-skill"] == "true"
+		if entry.Name() == "grafana.yaml" {
+			if bundleMember {
+				t.Error("grafana must not be included in the opt-in security skill bundle")
+			}
+		} else if !bundleMember {
+			t.Errorf("security skill %s is missing the opt-in bundle annotation", entry.Name())
 		}
 	}
 	for _, entry := range mirrorEntries {

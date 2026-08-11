@@ -63,6 +63,7 @@ import {
   ProviderOAuthResultSchema,
   ProviderOAuthStartSchema,
   ReadFileResponseSchema,
+  SecuritySkillsStatusSchema,
   SkillInfoSchema,
   SwitchAgentRunModeResponseSchema,
   type AgentRun,
@@ -404,6 +405,22 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       );
       if (!workflow) throw notFound(`security workflow ${req.namespace}/${req.name}`);
       return workflow;
+    },
+    getSecuritySkillsStatus: async () =>
+      create(SecuritySkillsStatusSchema, {
+        namespace: s.namespace,
+        state: s.securitySkillsInstalled ? "installed" : "not_installed",
+        installedCount: s.securitySkillsInstalled ? 55 : 0,
+        availableCount: 55,
+      }),
+    installSecuritySkills: async () => {
+      s.securitySkillsInstalled = true;
+      return create(SecuritySkillsStatusSchema, {
+        namespace: s.namespace,
+        state: "installed",
+        installedCount: 55,
+        availableCount: 55,
+      });
     },
 
     // ---- Slack ------------------------------------------------------------

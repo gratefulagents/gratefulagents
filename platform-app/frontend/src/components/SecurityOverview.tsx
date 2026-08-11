@@ -2,13 +2,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { Settings2, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Loader2, Settings2, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toaster";
 import { ListState, ListRowSkeleton } from "@/components/ui/list-state";
 import { DetailSection } from "@/components/detail-page";
 import { SecurityNav } from "@/components/SecurityNav";
@@ -19,7 +20,11 @@ import { cn } from "@/lib/utils";
 import { toneColor, toneSoft, toneText, type StatusTone } from "@/lib/status";
 import { formatAge } from "@/lib/format";
 import { useNow } from "@/hooks/useNow";
-import type { GetSecurityOverviewResponse, SecurityScan } from "@/rpc/platform/service_pb";
+import type {
+  GetSecurityOverviewResponse,
+  SecurityScan,
+  SecuritySkillsStatus,
+} from "@/rpc/platform/service_pb";
 
 function scanTone(status: string): StatusTone {
   switch (status.toLowerCase()) {
@@ -108,6 +113,10 @@ export function SecurityOverview() {
   const [overview, setOverview] = useState<GetSecurityOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [skillsStatus, setSkillsStatus] = useState<SecuritySkillsStatus | null>(null);
+  const [skillsLoading, setSkillsLoading] = useState(true);
+  const [skillsError, setSkillsError] = useState(false);
+  const [skillsInstalling, setSkillsInstalling] = useState(false);
   const now = useNow();
 
   const fetchOverview = useCallback(async () => {
@@ -127,6 +136,34 @@ export function SecurityOverview() {
     void fetchOverview();
   }, [fetchOverview]);
 
+  const fetchSkillsStatus = useCallback(async () => {
+    setSkillsLoading(true);
+    setSkillsError(false);
+    try {
+      setSkillsStatus(await client.getSecuritySkillsStatus({}));
+    } catch {
+      setSkillsError(true);
+    } finally {
+      setSkillsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchSkillsStatus();
+  }, [fetchSkillsStatus]);
+
+  async function installSecuritySkills() {
+    setSkillsInstalling(true);
+    try {
+      setSkillsStatus(await client.installSecuritySkills({}));
+      setSkillsError(false);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to install security skills");
+    } finally {
+      setSkillsInstalling(false);
+    }
+  }
+
   const counts = overview?.findingCounts ?? {};
   const empty =
     !!overview &&
@@ -142,6 +179,43 @@ export function SecurityOverview() {
           <p className="text-[13px] text-muted-foreground">
             Repository security posture: scan activity, open findings, and scan configurations that need attention.
           </p>
+        </div>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <Badge
+            variant="outline"
+            className={cn(
+              "border-transparent",
+              skillsStatus?.state === "installed" && toneSoft.success,
+              skillsStatus?.state === "partially_installed" && toneSoft.warning,
+            )}
+          >
+            <span role="status" aria-live="polite">
+              {skillsLoading
+                ? "Security skills · Checking…"
+                : skillsError
+                  ? "Security skills · Status unavailable"
+                  : skillsStatus?.state === "installed"
+                    ? "Security skills · Installed"
+                    : skillsStatus?.state === "partially_installed"
+                      ? `Security skills · ${skillsStatus.installedCount} of ${skillsStatus.availableCount} installed${skillsStatus.conflictCount > 0 ? ` · ${skillsStatus.conflictCount} conflict${skillsStatus.conflictCount === 1 ? "" : "s"}` : ""}`
+                      : skillsStatus?.state === "unavailable"
+                        ? "Security skills · Unavailable"
+                        : "Security skills · Not installed"}
+            </span>
+          </Badge>
+          {skillsError ? (
+            <Button size="sm" variant="outline" onClick={() => void fetchSkillsStatus()}>
+              Retry
+            </Button>
+          ) : skillsStatus &&
+            skillsStatus.state !== "installed" &&
+            skillsStatus.state !== "unavailable" &&
+            skillsStatus.installedCount + skillsStatus.conflictCount < skillsStatus.availableCount ? (
+            <Button size="sm" disabled={skillsInstalling} onClick={() => void installSecuritySkills()}>
+              {skillsInstalling && <Loader2 className="animate-spin" />}
+              {skillsInstalling ? "Installing…" : "Install security skills"}
+            </Button>
+          ) : null}
         </div>
       </div>
       <SecurityNav />
