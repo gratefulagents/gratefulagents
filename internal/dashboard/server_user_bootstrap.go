@@ -27,7 +27,7 @@ const (
 	bootstrapBundleVersionKey        = "bundle-version"
 	bootstrapSyncedVersionAnnotation = "platform.gratefulagents.dev/bootstrap-synced-version"
 	bootstrapSpecHashAnnotation      = "platform.gratefulagents.dev/bootstrap-spec-hash"
-	bootstrapSyncProtocolVersion     = "v3"
+	bootstrapSyncProtocolVersion     = "v4"
 )
 
 // syncBootstrapResources makes the chart's namespaced, reusable defaults
@@ -138,6 +138,21 @@ func (s *Server) syncBootstrapResources(ctx context.Context, targetNamespace str
 			}
 		}
 	}
+
+	var programs triggersv1alpha1.SecurityProgramList
+	if err := reader.List(ctx, &programs, client.InNamespace(sourceNamespace)); err != nil {
+		return mapK8sError("list bootstrap SecurityPrograms", err)
+	}
+	for i := range programs.Items {
+		source := &programs.Items[i]
+		if isBootstrapDefault(source) {
+			if err := s.createBootstrapResource(ctx, source, &triggersv1alpha1.SecurityProgram{
+				ObjectMeta: bootstrapObjectMeta(source, targetNamespace), Spec: source.DeepCopy().Spec,
+			}); err != nil {
+				return err
+			}
+		}
+	}
 	if err := s.markBootstrapSynced(ctx, reader, targetNamespace, bundleVersion); err != nil {
 		return err
 	}
@@ -234,12 +249,22 @@ func (s *Server) createBootstrapResource(ctx context.Context, source, target cli
 	if err != nil {
 		return fmt.Errorf("hash current %T %s: %w", current, current.GetName(), err)
 	}
-	previousSeedHash := current.GetAnnotations()[bootstrapSpecHashAnnotation]
+	currentAnnotations := current.GetAnnotations()
+	previousSeedHash := currentAnnotations[bootstrapSpecHashAnnotation]
 	if previousSeedHash != "" && previousSeedHash != currentHash {
 		return nil // The user changed the previously seeded spec.
 	}
-	if previousSeedHash == "" && currentHash != desiredHash {
-		return nil // A legacy copy differs from the current default; preserve it.
+	if previousSeedHash == "" {
+		// A hashless object is only a legacy bootstrap copy when it carries
+		// bootstrap provenance. Never adopt a user-created resource merely
+		// because its name and spec happen to match a new default.
+		if currentAnnotations[bootstrapDefaultAnnotation] != "true" ||
+			currentAnnotations[bootstrapSourceAnnotation] != source.GetNamespace() {
+			return nil
+		}
+		if currentHash != desiredHash {
+			return nil // The user changed the legacy seeded spec.
+		}
 	}
 
 	before := current.DeepCopyObject().(client.Object)
@@ -278,6 +303,8 @@ func bootstrapSpecHash(object client.Object) (string, error) {
 		spec = typed.Spec
 	case *triggersv1alpha1.SecurityPolicyPack:
 		spec = typed.Spec
+	case *triggersv1alpha1.SecurityProgram:
+		spec = typed.Spec
 	default:
 		return "", fmt.Errorf("unsupported bootstrap resource %T", object)
 	}
@@ -301,6 +328,8 @@ func emptyBootstrapResource(object client.Object) client.Object {
 		return &triggersv1alpha1.SecurityPostScript{}
 	case *triggersv1alpha1.SecurityPolicyPack:
 		return &triggersv1alpha1.SecurityPolicyPack{}
+	case *triggersv1alpha1.SecurityProgram:
+		return &triggersv1alpha1.SecurityProgram{}
 	default:
 		panic(fmt.Sprintf("unsupported bootstrap resource %T", object))
 	}
@@ -318,6 +347,8 @@ func copyBootstrapSpec(destination, source client.Object) {
 		dst.Spec = source.(*triggersv1alpha1.SecurityPostScript).DeepCopy().Spec
 	case *triggersv1alpha1.SecurityPolicyPack:
 		dst.Spec = source.(*triggersv1alpha1.SecurityPolicyPack).DeepCopy().Spec
+	case *triggersv1alpha1.SecurityProgram:
+		dst.Spec = source.(*triggersv1alpha1.SecurityProgram).DeepCopy().Spec
 	default:
 		panic(fmt.Sprintf("unsupported bootstrap resource %T", destination))
 	}
