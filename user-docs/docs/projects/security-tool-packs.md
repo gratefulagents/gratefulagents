@@ -38,16 +38,27 @@ Bash stays available to the agent for exploration, but the scanner binaries are 
 
 ## Operator configuration
 
-The controller reads the image from the `SECURITY_TOOLS_IMAGE` environment variable, set from the `agentImages.securityTools` Helm value:
+The controller reads the image from the `SECURITY_TOOLS_IMAGE` environment variable. By default, the Helm chart derives the image from the manager image: it replaces the trailing `controller` repository name with `security-tools` and reuses `manager.image.tag`. Release automation publishes both images with the same version, so upgrading the manager also upgrades the scanner pack:
+
+```yaml
+manager:
+  image:
+    repository: ghcr.io/gratefulagents/controller
+    tag: v0.7.117
+```
+
+This produces `ghcr.io/gratefulagents/security-tools:v0.7.117`. If the manager repository does not end in `controller`, set `agentImages.securityTools` explicitly. For production replay guarantees, override the derived tag with a digest and disable unpinned images:
 
 ```yaml
 agentImages:
-  worker: ghcr.io/gratefulagents/worker:latest
-  injector: ghcr.io/gratefulagents/injector:latest
   securityTools: ghcr.io/gratefulagents/security-tools@sha256:...
+securityTools:
+  allowUnpinnedImage: false
 ```
 
-Pin it by digest: the value is the trust anchor for every scanner argv, and it is recorded on each `SecurityToolRun` status as the image actually used. `Dockerfile.security-tools` is the reproducible build of that image. `security-tools.lock.json` records exact multi-architecture archive and extracted-binary hashes; the build-time Go installer verifies both before installing a binary and supports tar.gz, tar.xz, and zip without floating package indexes. Entries that cannot be installed reproducibly are disabled with a reason. CI validates the lock and builds the image without contacting scan targets.
+The chart automatically permits its manager-derived release tag. Explicit image overrides remain digest-only by default; set `securityTools.allowUnpinnedImage: true` only when an explicit mutable tag is intentional.
+
+The configured image is the trust anchor for every scanner argv, and it is recorded on each `SecurityToolRun` status as the image actually used. `Dockerfile.security-tools` is the reproducible build of that image. `security-tools.lock.json` records exact multi-architecture archive and extracted-binary hashes; the build-time Go installer verifies both before installing a binary and supports tar.gz, tar.xz, and zip without floating package indexes. Entries that cannot be installed reproducibly are disabled with a reason. CI validates the lock and builds the image without contacting scan targets.
 
 ## Inputs and replay
 

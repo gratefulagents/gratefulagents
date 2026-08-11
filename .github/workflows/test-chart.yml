@@ -44,7 +44,42 @@ jobs:
           grep -q -- '- --enable-agentrun-overseer' "$rendered"
           grep -q -- '- --enable-repo-maintainer' "$rendered"
           grep -A1 -- 'name: ENABLE_BROWSER_TOOLS' "$rendered" | grep -q 'value: "true"'
+          grep -A1 -- 'name: SECURITY_TOOLS_IMAGE' "$rendered" | grep -q 'value: "ghcr.io/gratefulagents/security-tools:latest"'
+          grep -A1 -- 'name: SECURITY_TOOLS_ALLOW_UNPINNED_IMAGE' "$rendered" | grep -q 'value: "true"'
+          grep -A1 -- 'name: SECURITY_TOOLS_JOB_TTL_SECONDS' "$rendered" | grep -q 'value: "600"'
           grep -q -- 'max_connections=500' "$rendered"
+
+      - name: Render security-tools image from manager release
+        run: |
+          rendered="$(mktemp)"
+          helm template test ./dist/chart --namespace gratefulagents-system \
+            --set-string manager.image.repository='registry.example:5000/team/controller' \
+            --set-string manager.image.tag='v1.4.0' > "$rendered"
+          grep -A1 -- 'name: SECURITY_TOOLS_IMAGE' "$rendered" \
+            | grep -q 'value: "registry.example:5000/team/security-tools:v1.4.0"'
+          helm template test ./dist/chart --namespace gratefulagents-system \
+            --set-string manager.image.repository='registry.example/team/controller' \
+            --set manager.image.tag=1 > "$rendered"
+          grep -A1 -- 'name: SECURITY_TOOLS_IMAGE' "$rendered" \
+            | grep -q 'value: "registry.example/team/security-tools:1"'
+
+      - name: Preserve explicit security-tools digest
+        run: |
+          rendered="$(mktemp)"
+          digest='registry.example/security@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+          helm template test ./dist/chart --namespace gratefulagents-system \
+            --set-string manager.image.repository='registry.example/custom-manager' \
+            --set-string agentImages.securityTools="$digest" \
+            --set securityTools.allowUnpinnedImage=false > "$rendered"
+          grep -A1 -- 'name: SECURITY_TOOLS_IMAGE' "$rendered" | grep -Fq "value: \"$digest\""
+          ! grep -q -- 'name: SECURITY_TOOLS_ALLOW_UNPINNED_IMAGE' "$rendered"
+
+      - name: Reject an underivable security-tools repository
+        run: |
+          ! helm template test ./dist/chart --namespace gratefulagents-system \
+            --set-string manager.image.repository='registry.example/custom-controller' \
+            2> render-error.log
+          grep -q -- 'cannot derive agentImages.securityTools' render-error.log
 
       - name: Render with custom PostgreSQL connection capacity
         run: |
