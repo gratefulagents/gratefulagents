@@ -11,7 +11,7 @@ import {
   SecurityScanSchema,
 } from "@/rpc/platform/service_pb";
 
-const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, getSecurityScanConfig, listSecurityFindings, updateSecurityFindingStatus, getSecurityScanReport, resumeSecurityScan, downloadBlob } =
+const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, getSecurityScanConfig, listSecurityFindings, updateSecurityFindingStatus, getSecurityScanReport, getSecurityFindingSubmissionBundle, resumeSecurityScan, downloadBlob } =
   vi.hoisted(() => ({
     getSecurityScan: vi.fn(),
     getSecurityFinding: vi.fn(),
@@ -20,6 +20,7 @@ const { getSecurityScan, getSecurityFinding, getSecurityFindingSummary, getSecur
     listSecurityFindings: vi.fn(),
     updateSecurityFindingStatus: vi.fn(),
     getSecurityScanReport: vi.fn(),
+    getSecurityFindingSubmissionBundle: vi.fn(),
     resumeSecurityScan: vi.fn(),
     downloadBlob: vi.fn(),
   }));
@@ -33,6 +34,7 @@ vi.mock("@/lib/client", () => ({
     listSecurityFindings,
     updateSecurityFindingStatus,
     getSecurityScanReport,
+    getSecurityFindingSubmissionBundle,
     resumeSecurityScan,
   },
 }));
@@ -129,7 +131,7 @@ function findingEventsResponse() {
 }
 
 function renderDetail() {
-  render(
+  return render(
     <MemoryRouter initialEntries={["/security/user-alice/nightly-1"]}>
       <Routes>
         <Route path="/security/:namespace/:runName" element={<SecurityScanDetail />} />
@@ -405,6 +407,151 @@ describe("SecurityScanDetail", () => {
       await screen.findByText(/has no markdown report yet/),
     ).toBeTruthy();
     expect(downloadBlob).not.toHaveBeenCalled();
+  });
+
+  it("downloads a ready bounty submission bundle", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
+    getSecurityFindingSubmissionBundle.mockResolvedValue({
+      status: "ready",
+      filename: "nightly-finding-bounty-submission.zip",
+      content: new Uint8Array([80, 75, 3, 4]),
+      sha256: "abc123",
+    });
+
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
+
+    await waitFor(() => {
+      expect(getSecurityFindingSubmissionBundle.mock.calls[0]?.[0]).toEqual({
+        namespace: "user-alice",
+        findingId: FINDING_ID,
+      });
+      expect(downloadBlob).toHaveBeenCalledWith(
+        "nightly-finding-bounty-submission.zip",
+        new Uint8Array([80, 75, 3, 4]),
+        "application/zip",
+      );
+    });
+    expect(await screen.findByText("Downloaded. SHA-256: abc123")).toBeTruthy();
+  });
+
+  it("waits for a generating bounty bundle and downloads it when ready", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
+    getSecurityFindingSubmissionBundle
+      .mockResolvedValueOnce({ status: "generating", content: new Uint8Array() })
+      .mockResolvedValueOnce({
+        status: "ready",
+        filename: "nightly-finding-bounty-submission.zip",
+        content: new Uint8Array([80, 75, 3, 4]),
+        sha256: "abc123",
+      });
+
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
+
+      expect(await screen.findByText(/download will start automatically/)).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      await waitFor(() => expect(getSecurityFindingSubmissionBundle).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+      expect(await screen.findByText("Downloaded. SHA-256: abc123")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops bundle polling when the finding panel unmounts", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
+    getSecurityFindingSubmissionBundle.mockResolvedValue({
+      status: "generating",
+      content: new Uint8Array(),
+    });
+
+    const view = renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
+      expect(await screen.findByText(/download will start automatically/)).toBeTruthy();
+
+      view.unmount();
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(getSecurityFindingSubmissionBundle).toHaveBeenCalledTimes(1);
+      expect(downloadBlob).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops polling when filtering removes the selected finding", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings
+      .mockResolvedValueOnce({ findings: [findingFixture()] })
+      .mockResolvedValue({ findings: [] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
+    getSecurityFindingSubmissionBundle.mockResolvedValue({
+      status: "generating",
+      content: new Uint8Array(),
+    });
+
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
+      expect(await screen.findByText(/download will start automatically/)).toBeTruthy();
+
+      fireEvent.change(screen.getByLabelText("Filter by severity"), { target: { value: "high" } });
+      await waitFor(() => expect(screen.queryByText("Full database read access.")).toBeNull());
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(getSecurityFindingSubmissionBundle).toHaveBeenCalledTimes(1);
+      expect(downloadBlob).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears a generating notice when the selected finding changes", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
+    getSecurityFindingSubmissionBundle.mockResolvedValue({
+      status: "generating",
+      content: new Uint8Array(),
+    });
+
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
+      expect(await screen.findByText(/download will start automatically/)).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Close finding details" }));
+      fireEvent.click(screen.getByRole("button", { name: "SQL injection in payment lookup" }));
+
+      expect(screen.queryByText(/download will start automatically/)).toBeNull();
+      expect(await screen.findByRole("button", { name: "Download bounty bundle" })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("explains that reports arrive after the run finishes for running scans", async () => {

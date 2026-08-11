@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { Copy, Download, FileText, SquareArrowOutUpRight, X } from "lucide-react";
@@ -64,6 +64,27 @@ function cweUrl(cwe: string): string {
 const filterSelectClass =
   "h-8 rounded-md border border-border/70 bg-background px-2 text-[12.5px] text-foreground capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 
+const bundlePollIntervalMs = 2_000;
+const bundlePollTimeoutMs = 5 * 60_000;
+
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export function SecurityScanDetail() {
   const { namespace, runName } = useParams<{ namespace: string; runName: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -112,12 +133,20 @@ export function SecurityScanDetail() {
   );
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = findings.find((finding) => finding.id === selectedId) ?? null;
+  const selectedPresent = selected !== null;
   const [statusSaving, setStatusSaving] = useState(false);
 
   const [reportBusy, setReportBusy] = useState<"markdown" | "sarif" | null>(null);
   const [reportNotice, setReportNotice] = useState<string | null>(null);
   const [bundleBusy, setBundleBusy] = useState(false);
   const [bundleNotice, setBundleNotice] = useState<string | null>(null);
+  const bundleAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    setBundleNotice(null);
+    return () => bundleAbortRef.current?.abort();
+  }, [selectedId, selectedPresent]);
 
   // Multi-select bulk triage.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -270,8 +299,6 @@ export function SecurityScanDetail() {
     return [...set].sort();
   }, [findings, category]);
 
-  const selected = findings.find((f) => f.id === selectedId) ?? null;
-
   // When the linked AgentRun transitions into a terminal phase, re-fetch the
   // persisted scan row, summary, and findings so no stale state lingers on
   // screen. Background mode is essential: a foreground fetch flips the
@@ -303,15 +330,31 @@ export function SecurityScanDetail() {
 
   async function downloadSubmissionBundle(finding: SecurityFinding) {
     if (!namespace) return;
+    bundleAbortRef.current?.abort();
+    const controller = new AbortController();
+    bundleAbortRef.current = controller;
+    const deadline = Date.now() + bundlePollTimeoutMs;
     setBundleNotice(null);
     setBundleBusy(true);
     try {
-      const resp = await client.getSecurityFindingSubmissionBundle({
-        namespace,
-        findingId: finding.id,
-      });
+      let resp;
+      while (!controller.signal.aborted) {
+        resp = await client.getSecurityFindingSubmissionBundle({
+          namespace,
+          findingId: finding.id,
+        }, { signal: controller.signal });
+        if (resp.status !== "generating") break;
+        setBundleNotice("Bundle is generating. The download will start automatically when it is ready.");
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        await wait(Math.min(bundlePollIntervalMs, remaining), controller.signal);
+      }
+      if (!resp || controller.signal.aborted) return;
       if (resp.status !== "ready" || resp.content.length === 0) {
-        setBundleNotice(resp.error || `Bundle is ${resp.status || "unavailable"}.`);
+        const message = resp.status === "generating"
+          ? "Bundle is still generating. Try again shortly."
+          : resp.error || `Bundle is ${resp.status || "unavailable"}.`;
+        setBundleNotice(message);
         return;
       }
       downloadBlob(
@@ -321,9 +364,14 @@ export function SecurityScanDetail() {
       );
       setBundleNotice(resp.sha256 ? `Downloaded. SHA-256: ${resp.sha256}` : "Downloaded.");
     } catch (e: unknown) {
-      setBundleNotice(e instanceof Error ? e.message : "Failed to fetch the bounty bundle");
+      if (!controller.signal.aborted) {
+        setBundleNotice(e instanceof Error ? e.message : "Failed to fetch the bounty bundle");
+      }
     } finally {
-      setBundleBusy(false);
+      if (bundleAbortRef.current === controller) {
+        bundleAbortRef.current = null;
+        setBundleBusy(false);
+      }
     }
   }
 
@@ -1127,7 +1175,7 @@ export function SecurityScanDetail() {
                       onClick={() => void downloadSubmissionBundle(selected)}
                     >
                       <Download />
-                      {bundleBusy ? "Fetching bundle…" : "Download bounty bundle"}
+                      {bundleBusy ? "Waiting for bundle…" : "Download bounty bundle"}
                     </Button>
                     {bundleNotice && (
                       <p role="status" className="break-all text-[11px] text-muted-foreground">
