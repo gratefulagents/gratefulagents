@@ -181,7 +181,7 @@ export function SecurityOverview() {
         <div className="min-w-0 space-y-0.5">
           <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em]">Security</h1>
           <p className="text-[13px] text-muted-foreground">
-            Repository security posture: scan activity, open findings, and scan configurations that need attention.
+            Repository security posture: scan activity, actionable findings, and configurations that need attention.
           </p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
@@ -267,9 +267,9 @@ export function SecurityOverview() {
                 className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6"
                 data-testid="security-posture"
               >
-                <PostureTile label="Open critical" value={counts["open_critical"] ?? 0} tone="danger" />
-                <PostureTile label="Open high" value={counts["open_high"] ?? 0} tone="warning" />
-                <PostureTile label="Open findings" value={counts["open"] ?? 0} />
+                <PostureTile label="Actionable critical" value={counts["actionable_critical"] ?? counts["open_critical"] ?? 0} tone="danger" />
+                <PostureTile label="Actionable high" value={counts["actionable_high"] ?? counts["open_high"] ?? 0} tone="warning" />
+                <PostureTile label="Actionable findings" value={counts["actionable"] ?? counts["open"] ?? 0} />
                 <PostureTile label="Total findings" value={counts["total"] ?? 0} />
                 <PostureTile label="Active scans" value={overview.activeScans.length} tone={overview.activeScans.length > 0 ? "running" : undefined} />
                 <PostureTile label="Configurations" value={overview.configCount} />

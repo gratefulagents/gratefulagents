@@ -231,7 +231,11 @@ func TestSecurityScanReconcileFailsReadyConditionWhenFindingsMeetThreshold(t *te
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanTestScan()
 	scan.Spec.FailOnSeverity = "high"
-	findings := securityScanFindingStore{counts: map[string]int32{"total": 2, "open": 2, "critical": 1, "high": 1}}
+	findings := securityScanFindingStore{counts: map[string]int32{
+		"total": 5, "open": 1, "open_high": 1,
+		"critical": 3, "high": 2,
+		"actionable": 2, "actionable_critical": 1, "actionable_high": 1,
+	}}
 	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
 	reconciler.Findings = findings
 
@@ -239,8 +243,8 @@ func TestSecurityScanReconcileFailsReadyConditionWhenFindingsMeetThreshold(t *te
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	updated := getSecurityScan(t, k8sClient, scan)
-	if updated.Status.Findings == nil || updated.Status.Findings.Critical != 1 || updated.Status.Findings.High != 1 {
-		t.Fatalf("Findings = %#v, want critical and high counts", updated.Status.Findings)
+	if updated.Status.Findings == nil || updated.Status.Findings.Open != 2 || updated.Status.Findings.Critical != 1 || updated.Status.Findings.High != 1 {
+		t.Fatalf("Findings = %#v, want actionable total, critical, and high counts", updated.Status.Findings)
 	}
 	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, "FindingsExceedThreshold")
 }

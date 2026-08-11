@@ -81,7 +81,7 @@ export function SecurityScanDetail() {
   // Filters live in the URL so a shared link reproduces the same view and
   // the finding detail page can hand the same context back on return.
   const severity = searchParams.get("severity") ?? "";
-  const status = searchParams.get("status") ?? "";
+  const status = searchParams.get("status") ?? "actionable";
   const category = searchParams.get("category") ?? "";
   const search = searchParams.get("q") ?? "";
   const baseline = searchParams.get("baseline") ?? "";
@@ -201,7 +201,7 @@ export function SecurityScanDetail() {
         namespace,
         runName,
         severity,
-        status,
+        status: status === "all" ? "" : status,
         category,
         search,
         baselineState: baseline,
@@ -693,14 +693,14 @@ export function SecurityScanDetail() {
 
           <StatBar>
             <Stat label="Total" value={summary["total"] ?? 0} />
-            <Stat label="Open" value={summary["open"] ?? 0} />
+            <Stat label="Actionable" value={summary["actionable"] ?? summary["open"] ?? 0} />
             {SEVERITIES.map((s) => (
               <Stat
                 key={s}
                 label={s}
                 value={
                   <span className={cn(toneSoft[severityTone(s)], "rounded-md px-2 py-0.5")}>
-                    {summary[s] ?? 0}
+                    {summary[`actionable_${s}`] ?? summary[s] ?? 0}
                   </span>
                 }
                 mono={false}
@@ -781,7 +781,8 @@ export function SecurityScanDetail() {
                 value={status}
                 onChange={(e) => setFilter("status", e.target.value)}
               >
-                <option value="">All statuses</option>
+                <option value="actionable">Actionable</option>
+                <option value="all">All statuses</option>
                 {FINDING_STATUSES.map((s) => (
                   <option key={s} value={s}>{statusLabel(s)}</option>
                 ))}

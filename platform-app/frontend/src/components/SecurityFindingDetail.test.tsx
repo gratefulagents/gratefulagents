@@ -377,7 +377,7 @@ describe("SecurityFindingDetail", () => {
       namespace: "user-alice",
       runName: "nightly-1",
       severity: "critical",
-      status: "",
+      status: "actionable",
       category: "",
       search: "sql",
     });
@@ -391,6 +391,16 @@ describe("SecurityFindingDetail", () => {
     // The back link restores the filtered scan view.
     expect(screen.getByRole("link", { name: /Scan nightly-1/ }).getAttribute("href")).toBe(
       "/security/user-alice/nightly-1?severity=critical&q=sql",
+    );
+  });
+
+  it("translates the all-statuses view into an unfiltered sibling query", async () => {
+    mockHappyPath();
+    renderDetail("?status=all");
+
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+    expect(listSecurityFindings).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "" }),
     );
   });
 

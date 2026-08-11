@@ -81,7 +81,16 @@ func securityFindingFilterSQL(f store.SecurityFindingFilter) (string, []any) {
 		add("severity = $%d", f.Severity)
 	}
 	if f.Status != "" {
-		add("status = $%d", f.Status)
+		if f.Status == store.SecurityFindingStatusActionable {
+			args = append(args, []string{
+				store.SecurityFindingStatusOpen,
+				store.SecurityFindingStatusTriaged,
+				store.SecurityFindingStatusConfirmed,
+			})
+			conds = append(conds, fmt.Sprintf("status = ANY($%d)", len(args)))
+		} else {
+			add("status = $%d", f.Status)
+		}
 	}
 	if f.Search != "" {
 		args = append(args, "%"+escapeSecurityLike(f.Search)+"%")
@@ -823,8 +832,9 @@ func (s *Store) AddSecurityFindingComment(ctx context.Context, namespace string,
 // keys so callers can gate on them even when no findings match.
 func newSecurityFindingSummary() map[string]int32 {
 	return map[string]int32{
-		"total": 0, "open": 0, "suppressed": 0,
+		"total": 0, "open": 0, "actionable": 0, "suppressed": 0,
 		"open_critical": 0, "open_high": 0, "open_medium": 0, "open_low": 0, "open_info": 0,
+		"actionable_critical": 0, "actionable_high": 0, "actionable_medium": 0, "actionable_low": 0, "actionable_info": 0,
 		"baseline_new": 0, "baseline_recurring": 0, "baseline_regressed": 0,
 		"baseline_resolved": 0, "baseline_reopened": 0, "baseline_tracked": 0,
 		"source_agent": 0, "source_scanner": 0, "correlated": 0,
@@ -848,6 +858,10 @@ func addSecurityFindingSummaryCount(summary map[string]int32, severity, status, 
 	if status == store.SecurityFindingStatusOpen {
 		summary["open"] += count
 		summary["open_"+severity] += count
+	}
+	if store.SecurityFindingIsActionable(status) {
+		summary["actionable"] += count
+		summary["actionable_"+severity] += count
 	}
 	if baseline != "" {
 		summary["baseline_"+baseline] += count

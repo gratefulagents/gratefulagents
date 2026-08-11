@@ -31,7 +31,14 @@ function scanFixture() {
     status: "completed",
     startedAt: timestampFromDate(new Date(Date.now() - 60 * 60 * 1000)),
     completedAt: timestampFromDate(new Date(Date.now() - 30 * 60 * 1000)),
-    counts: { critical: 2, high: 1, total: 3, open: 3 },
+    counts: {
+      critical: 2,
+      high: 1,
+      actionable_critical: 1,
+      actionable_high: 0,
+      total: 3,
+      actionable: 1,
+    },
   });
 }
 
@@ -48,8 +55,8 @@ describe("SecurityScanList", () => {
     expect(await screen.findByText("github.com/acme/payments")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     expect(screen.getByText("critical")).toBeTruthy();
-    expect(screen.getByText("2")).toBeTruthy();
-    expect(screen.getByText("high")).toBeTruthy();
+    expect(screen.getByText("1")).toBeTruthy();
+    expect(screen.queryByText("high")).toBeNull();
     expect(screen.queryByText("medium")).toBeNull();
     expect(
       screen.getByRole("link", { name: "nightly-1" }).getAttribute("href"),

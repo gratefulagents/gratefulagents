@@ -17,6 +17,7 @@ export function ResourceListPage({
   searchPlaceholder,
   actions,
   nav,
+  toolbar,
   loading,
   error,
   onRetry,
@@ -36,6 +37,8 @@ export function ResourceListPage({
   actions?: React.ReactNode;
   /** Optional sub-navigation strip rendered between the header and content. */
   nav?: React.ReactNode;
+  /** Optional filters or view controls rendered above the list state. */
+  toolbar?: React.ReactNode;
   loading?: boolean;
   error?: string | null;
   onRetry?: () => void;
@@ -67,6 +70,7 @@ export function ResourceListPage({
         </div>
       </div>
       {nav}
+      {toolbar}
       <ListState
         loading={loading}
         error={error}

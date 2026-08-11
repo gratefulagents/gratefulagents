@@ -80,6 +80,16 @@ func TestSecurityFindingFilterSQL(t *testing.T) {
 			wantArgs:  []any{"ns", uuid.MustParse("11111111-1111-1111-1111-111111111111")},
 		},
 		{
+			name:      "actionable status groups remediation states",
+			filter:    store.SecurityFindingFilter{Namespace: "ns", Status: store.SecurityFindingStatusActionable, IncludeDuplicates: true},
+			wantWhere: "WHERE namespace = $1 AND status = ANY($2) AND suppressed_by IS NULL",
+			wantArgs: []any{"ns", []string{
+				store.SecurityFindingStatusOpen,
+				store.SecurityFindingStatusTriaged,
+				store.SecurityFindingStatusConfirmed,
+			}},
+		},
+		{
 			name:      "search binds one wildcard-wrapped arg",
 			filter:    store.SecurityFindingFilter{Search: "token", IncludeDuplicates: true},
 			wantWhere: "WHERE (title ILIKE $1 OR description ILIKE $1 OR file_path ILIKE $1) AND suppressed_by IS NULL",
@@ -233,7 +243,7 @@ func TestSetSecurityFindingStatusRejectsInvalidStatus(t *testing.T) {
 
 func TestSecurityFindingSummaryKeys(t *testing.T) {
 	summary := newSecurityFindingSummary()
-	for _, key := range []string{"total", "open", "suppressed", "open_critical", "open_high", "open_medium", "open_low", "open_info", "source_agent", "source_scanner", "correlated"} {
+	for _, key := range []string{"total", "open", "actionable", "suppressed", "open_critical", "open_high", "open_medium", "open_low", "open_info", "actionable_critical", "actionable_high", "actionable_medium", "actionable_low", "actionable_info", "source_agent", "source_scanner", "correlated"} {
 		if _, ok := summary[key]; !ok {
 			t.Errorf("newSecurityFindingSummary missing key %q", key)
 		}
@@ -248,6 +258,36 @@ func TestSecurityFindingSummaryKeys(t *testing.T) {
 		if summary[key] != val {
 			t.Errorf("summary[%q] = %d, want %d", key, summary[key], val)
 		}
+	}
+	if summary["actionable"] != 4 || summary["actionable_high"] != 3 || summary["actionable_low"] != 1 {
+		t.Errorf("actionable summary = %+v, want open, triaged, and confirmed findings grouped by severity", summary)
+	}
+	addSecurityFindingSummaryCount(summary, "critical", store.SecurityFindingStatusFalsePositive, "", "agent", false, false, false, 1)
+	if summary["actionable"] != 4 || summary["actionable_critical"] != 0 {
+		t.Errorf("false positive changed actionable summary: %+v", summary)
+	}
+}
+
+func TestActionableFindingSummaryStatuses(t *testing.T) {
+	summary := newSecurityFindingSummary()
+	for _, status := range []string{
+		store.SecurityFindingStatusOpen,
+		store.SecurityFindingStatusTriaged,
+		store.SecurityFindingStatusConfirmed,
+		store.SecurityFindingStatusFalsePositive,
+		store.SecurityFindingStatusFixed,
+		store.SecurityFindingStatusAcceptedRisk,
+	} {
+		addSecurityFindingSummaryCount(summary, "high", status, "", "agent", false, false, false, 1)
+	}
+	if got := summary["actionable"]; got != 3 {
+		t.Errorf("actionable = %d, want 3", got)
+	}
+	if got := summary["actionable_high"]; got != 3 {
+		t.Errorf("actionable_high = %d, want 3", got)
+	}
+	if got := summary["total"]; got != 6 {
+		t.Errorf("total = %d, want 6", got)
 	}
 }
 
