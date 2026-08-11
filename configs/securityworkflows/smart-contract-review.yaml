@@ -761,6 +761,199 @@ spec:
           }
         }
 
+    - name: account-foundation-coverage
+      role: security-reviewer
+      category: triage
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Produce a concise coverage ledger from scope
+        {{tasks.inventory-scope-repositories-deployments.output}}, architecture and entry points
+        {{tasks.map-architecture-assets-roles-entrypoints.output}}, and invariants
+        {{tasks.define-security-invariants.output}}. Emit deduplicated records for every repository,
+        deployment, entry-point class, and invariant domain. Use only examined, skipped, unsupported, or
+        inconclusive status; preserve missing evidence and limitations as gaps and never infer safety.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: account-build-and-static-coverage
+      role: security-reviewer
+      category: triage
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Produce a concise coverage ledger from build and deployment comparison
+        {{tasks.reproducible-build-artifact-deployment-review.output}}, Aderyn
+        {{tasks.aderyn-static-analysis.output}}, and seeded Forge
+        {{tasks.deterministic-forge-tests-and-invariants.output}}. Emit deduplicated records for every build,
+        artifact, deployment comparison, and tool target. Use only examined, skipped, unsupported, or
+        inconclusive status; preserve errors, timeouts, partial runs, absent roots or harnesses, and artifacts.
+      dependsOn:
+        - reproducible-build-artifact-deployment-review
+        - aderyn-static-analysis
+        - deterministic-forge-tests-and-invariants
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: account-fuzz-and-formal-coverage
+      role: security-reviewer
+      category: triage
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Produce a concise coverage ledger from seeded Echidna
+        {{tasks.echidna-stateful-property-fuzzing.output}}, bounded Mythril
+        {{tasks.bounded-mythril-symbolic-analysis.output}}, and formal-method applicability
+        {{tasks.symbolic-and-formal-applicability.output}}. Emit deduplicated records for every target,
+        property, and formal method. Use only examined, skipped, unsupported, or inconclusive status; preserve
+        errors, timeouts, bounds, partial runs, absent harnesses, and unsupported provers as explicit gaps.
+      dependsOn:
+        - echidna-stateful-property-fuzzing
+        - bounded-mythril-symbolic-analysis
+        - symbolic-and-formal-applicability
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: account-calls-auth-accounting-coverage
+      role: security-reviewer
+      category: triage
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Produce a concise specialist coverage ledger from external-call and reentrancy review
+        {{tasks.external-calls-reentrancy-and-atomicity.output}}, authorization and signatures
+        {{tasks.authorization-signatures-and-account-abstraction.output}}, and accounting and token review
+        {{tasks.accounting-arithmetic-and-token-integrations.output}}. Emit deduplicated records with only
+        examined, skipped, unsupported, or inconclusive status, preserving limitations and unvalidated
+        candidates as explicit gaps. Never infer safety from a pass or no finding.
+      dependsOn:
+        - external-calls-reentrancy-and-atomicity
+        - authorization-signatures-and-account-abstraction
+        - accounting-arithmetic-and-token-integrations
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: account-economics-oracle-liveness-coverage
+      role: security-reviewer
+      category: triage
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Produce a concise specialist coverage ledger from economics, governance, liquidations, auctions and
+        MEV {{tasks.governance-liquidations-auctions-and-mev.output}}, oracle, randomness, time and ordering
+        {{tasks.oracles-randomness-time-and-ordering.output}}, and gas, liveness, returndata and state growth
+        {{tasks.gas-liveness-returndata-and-state-growth.output}}. Emit deduplicated records with only examined,
+        skipped, unsupported, or inconclusive status, preserving limitations and unvalidated candidates as
+        explicit gaps. Never infer safety from a pass or no finding.
+      dependsOn:
+        - governance-liquidations-auctions-and-mev
+        - oracles-randomness-time-and-ordering
+        - gas-liveness-returndata-and-state-growth
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: account-low-level-and-configuration-coverage
+      role: security-reviewer
+      category: triage
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Produce a concise specialist coverage ledger from low-level, factory, proxy and storage review
+        {{tasks.low-level-factories-proxies-and-storage.output}} and deployment and privileged configuration
+        {{tasks.deployment-and-privileged-configuration.output}}. Emit deduplicated records for every relevant
+        low-level topic, deployment, and configuration area with only examined, skipped, unsupported, or
+        inconclusive status. Preserve missing evidence, partial review, and unvalidated candidates as gaps.
+      dependsOn:
+        - low-level-factories-proxies-and-storage
+        - deployment-and-privileged-configuration
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","basis","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: account-scope-and-tool-coverage
+      role: security-reviewer
+      category: triage
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-fp-check
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Build a compact coverage ledger by merging the foundation ledger
+        {{tasks.account-foundation-coverage.output}}, build/static ledger
+        {{tasks.account-build-and-static-coverage.output}}, and fuzz/formal ledger
+        {{tasks.account-fuzz-and-formal-coverage.output}}. Emit deduplicated, concise records for every
+        repository, deployment, entry-point class, invariant domain, tool, and formal method. Status must be
+        exactly examined, skipped, unsupported, or inconclusive. Preserve errors, timeouts, partial runs,
+        missing artifacts or deployments, absent harnesses, and unsupported provers as explicit gaps. Never
+        turn a pass or no-finding result into broader coverage or safety.
+      dependsOn:
+        - account-foundation-coverage
+        - account-build-and-static-coverage
+        - account-fuzz-and-formal-coverage
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "basis", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "basis": {"type": "array", "items": {"type": "string"}},
+              "artifacts": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: account-specialist-coverage
+      role: security-reviewer
+      category: triage
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-fp-check
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Build a compact coverage ledger by merging calls/authorization/accounting
+        {{tasks.account-calls-auth-accounting-coverage.output}}, economics/oracle/liveness
+        {{tasks.account-economics-oracle-liveness-coverage.output}}, and low-level/configuration
+        {{tasks.account-low-level-and-configuration-coverage.output}}. Emit one deduplicated, concise record for
+        every specialist topic and deployment/configuration area. Status must be exactly examined, skipped,
+        unsupported, or inconclusive. Preserve missing evidence, tool limitations, unvalidated candidates,
+        and partial review as explicit gaps. Never turn pass or no-finding into broader coverage or safety.
+      dependsOn:
+        - account-calls-auth-accounting-coverage
+        - account-economics-oracle-liveness-coverage
+        - account-low-level-and-configuration-coverage
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "basis", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "basis": {"type": "array", "items": {"type": "string"}},
+              "artifacts": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
     - name: account-lifecycle-coverage
       role: security-reviewer
       category: triage
@@ -771,46 +964,17 @@ spec:
         denied:
           - Bash
       objective: >-
-        Build the authoritative lifecycle coverage ledger from the structured inventory, build, tool,
-        specialist, deployment and validation outputs: scope {{tasks.inventory-scope-repositories-deployments.output}};
-        entry points {{tasks.map-architecture-assets-roles-entrypoints.output}}; invariants
-        {{tasks.define-security-invariants.output}}; build {{tasks.reproducible-build-artifact-deployment-review.output}};
-        Aderyn {{tasks.aderyn-static-analysis.output}}; Forge
-        {{tasks.deterministic-forge-tests-and-invariants.output}}; Echidna
-        {{tasks.echidna-stateful-property-fuzzing.output}}; Mythril
-        {{tasks.bounded-mythril-symbolic-analysis.output}}; calls
-        {{tasks.external-calls-reentrancy-and-atomicity.output}}; authorization
-        {{tasks.authorization-signatures-and-account-abstraction.output}}; accounting
-        {{tasks.accounting-arithmetic-and-token-integrations.output}}; economics/MEV
-        {{tasks.governance-liquidations-auctions-and-mev.output}}; oracle/randomness
-        {{tasks.oracles-randomness-time-and-ordering.output}}; liveness
-        {{tasks.gas-liveness-returndata-and-state-growth.output}}; low-level/deployment
-        {{tasks.low-level-factories-proxies-and-storage.output}}; formal
-        {{tasks.symbolic-and-formal-applicability.output}}; privileged configuration
-        {{tasks.deployment-and-privileged-configuration.output}}; and validation
+        Build the authoritative lifecycle coverage ledger from the compact scope/tool ledger
+        {{tasks.account-scope-and-tool-coverage.output}}, compact specialist ledger
+        {{tasks.account-specialist-coverage.output}}, and validation results
         {{tasks.validate-high-impact-exploits.output}}. Emit one deduplicated record for every repository,
         deployment, entry-point class, invariant domain, specialist topic, tool, formal method and validation
         target. Status must be exactly examined, skipped, unsupported, or inconclusive. Preserve tool errors,
         timeouts, partial runs, missing artifacts/deployments, absent harnesses, unsupported RPC forks/provers,
         and unvalidated candidates as gaps. Never upgrade pass/no-finding into broader coverage or safety.
       dependsOn:
-        - inventory-scope-repositories-deployments
-        - map-architecture-assets-roles-entrypoints
-        - define-security-invariants
-        - reproducible-build-artifact-deployment-review
-        - aderyn-static-analysis
-        - deterministic-forge-tests-and-invariants
-        - echidna-stateful-property-fuzzing
-        - bounded-mythril-symbolic-analysis
-        - external-calls-reentrancy-and-atomicity
-        - authorization-signatures-and-account-abstraction
-        - accounting-arithmetic-and-token-integrations
-        - governance-liquidations-auctions-and-mev
-        - oracles-randomness-time-and-ordering
-        - gas-liveness-returndata-and-state-growth
-        - low-level-factories-proxies-and-storage
-        - symbolic-and-formal-applicability
-        - deployment-and-privileged-configuration
+        - account-scope-and-tool-coverage
+        - account-specialist-coverage
         - validate-high-impact-exploits
       outputSchema: |-
         {
