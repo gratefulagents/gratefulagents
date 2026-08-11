@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -71,6 +72,14 @@ func TestEnsureUserNamespaceSeedsSecurityLibraryButNotSkills(t *testing.T) {
 			ObjectMeta: bootstrapMeta("baseline"),
 			Spec:       triggersv1alpha1.SecurityPolicyPackSpec{Description: "baseline policy"},
 		},
+		&triggersv1alpha1.SecurityProgram{
+			ObjectMeta: bootstrapMeta("bounty-program"),
+			Spec: triggersv1alpha1.SecurityProgramSpec{
+				Provider: "Immunefi", DisplayName: "Bounty Program",
+				ProgramURL: "https://example.com/bounty", ScopePolicy: "authorized scope",
+				VerifiedAt: metav1.NewTime(time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC)),
+			},
+		},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 	srv := &Server{k8sClient: c, scheme: scheme}
@@ -85,8 +94,8 @@ func TestEnsureUserNamespaceSeedsSecurityLibraryButNotSkills(t *testing.T) {
 	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, personalNamespace); err != nil {
 		t.Fatalf("get personal Namespace: %v", err)
 	}
-	if got := personalNamespace.Annotations[bootstrapSyncedVersionAnnotation]; got != "v3:v1" {
-		t.Fatalf("bootstrap synced version = %q, want v3:v1", got)
+	if got := personalNamespace.Annotations[bootstrapSyncedVersionAnnotation]; got != "v4:v1" {
+		t.Fatalf("bootstrap synced version = %q, want v4:v1", got)
 	}
 
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "security-scan"}, &platformv1alpha1.Skill{}); err == nil {
@@ -101,10 +110,12 @@ func TestEnsureUserNamespaceSeedsSecurityLibraryButNotSkills(t *testing.T) {
 		"SecurityRanker":     &triggersv1alpha1.SecurityRanker{},
 		"SecurityPostScript": &triggersv1alpha1.SecurityPostScript{},
 		"SecurityPolicyPack": &triggersv1alpha1.SecurityPolicyPack{},
+		"SecurityProgram":    &triggersv1alpha1.SecurityProgram{},
 	} {
 		resourceName := map[string]string{
 			"SecurityWorkflow": "default-workflow", "SecurityRanker": "default-ranker",
 			"SecurityPostScript": "validate", "SecurityPolicyPack": "baseline",
+			"SecurityProgram": "bounty-program",
 		}[name]
 		if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: resourceName}, object); err != nil {
 			t.Errorf("get seeded %s: %v", name, err)
@@ -113,6 +124,65 @@ func TestEnsureUserNamespaceSeedsSecurityLibraryButNotSkills(t *testing.T) {
 
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "private-skill"}, &platformv1alpha1.Skill{}); err == nil {
 		t.Fatal("unmarked system Skill was copied into the user namespace")
+	}
+}
+
+func TestBootstrapV4MigrationSeedsProgramsWithoutAdoptingPersonalCopies(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "system")
+	scheme := testProjectScheme(t)
+	programSpec := triggersv1alpha1.SecurityProgramSpec{
+		Provider: "Immunefi", DisplayName: "Bounty Program",
+		ProgramURL: "https://example.com/bounty", ScopePolicy: "authorized scope",
+		VerifiedAt: metav1.NewTime(time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC)),
+	}
+	newDefault := &triggersv1alpha1.SecurityProgram{
+		ObjectMeta: bootstrapMeta("new-default"), Spec: programSpec,
+	}
+	manualSource := &triggersv1alpha1.SecurityProgram{
+		ObjectMeta: bootstrapMeta("manual-copy"), Spec: programSpec,
+	}
+	manualCopy := &triggersv1alpha1.SecurityProgram{
+		ObjectMeta: metav1.ObjectMeta{Name: "manual-copy", Namespace: "alice"}, Spec: programSpec,
+	}
+	targetNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "alice", Annotations: map[string]string{bootstrapSyncedVersionAnnotation: "v3:v1"},
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		bootstrapReadyMarker("v1"), newDefault, manualSource, manualCopy, targetNamespace,
+	).Build()
+	srv := &Server{k8sClient: c, apiReader: c, scheme: scheme}
+
+	if err := srv.syncBootstrapResources(context.Background(), "alice"); err != nil {
+		t.Fatalf("v3 to v4 bootstrap migration: %v", err)
+	}
+
+	seeded := &triggersv1alpha1.SecurityProgram{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "alice", Name: "new-default"}, seeded); err != nil {
+		t.Fatalf("get newly seeded SecurityProgram: %v", err)
+	}
+	if seeded.Spec.Provider != programSpec.Provider || seeded.Spec.DisplayName != programSpec.DisplayName ||
+		seeded.Spec.ProgramURL != programSpec.ProgramURL || seeded.Spec.ScopePolicy != programSpec.ScopePolicy ||
+		!seeded.Spec.VerifiedAt.Time.Equal(programSpec.VerifiedAt.Time) {
+		t.Fatalf("seeded SecurityProgram spec = %+v, want %+v", seeded.Spec, programSpec)
+	}
+	if seeded.Annotations[bootstrapSpecHashAnnotation] == "" {
+		t.Fatal("newly seeded SecurityProgram has no bootstrap spec hash")
+	}
+
+	preserved := &triggersv1alpha1.SecurityProgram{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "alice", Name: "manual-copy"}, preserved); err != nil {
+		t.Fatalf("get personal SecurityProgram: %v", err)
+	}
+	if preserved.Annotations[bootstrapSpecHashAnnotation] != "" || preserved.Annotations[bootstrapSourceAnnotation] != "" {
+		t.Fatalf("personal SecurityProgram was adopted by bootstrap: annotations = %v", preserved.Annotations)
+	}
+
+	namespace := &corev1.Namespace{}
+	if err := c.Get(context.Background(), client.ObjectKey{Name: "alice"}, namespace); err != nil {
+		t.Fatal(err)
+	}
+	if got := namespace.Annotations[bootstrapSyncedVersionAnnotation]; got != "v4:v1" {
+		t.Fatalf("bootstrap synced version = %q, want v4:v1", got)
 	}
 }
 
