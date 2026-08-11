@@ -24,7 +24,7 @@ run_root mythril /usr/local/bin/myth version >/dev/null
 run_root slither /usr/bin/env -i HOME=/home/ethsec \
   PATH=/home/ethsec/.local/bin:/home/ethsec/.foundry/bin:/usr/local/bin:/usr/bin:/bin \
   /home/ethsec/.local/bin/slither --version >/dev/null
-run_root semgrep /usr/local/bin/semgrep --version >/dev/null
+run_root semgrep /usr/bin/semgrep --version >/dev/null
 run_root halmos /usr/bin/env -i HOME=/tmp \
   PATH=/opt/halmos/bin:/usr/local/bin:/usr/bin:/bin \
   /opt/halmos/bin/halmos --version >/dev/null
@@ -45,7 +45,7 @@ EOF
 semgrep_json=$(docker run --rm --network none --user 0 \
   --mount "type=bind,src=$case_dir/semgrep,dst=/usr/local/share/ga-security/toolroots/semgrep/tmp/case,readonly" \
   --entrypoint /usr/sbin/chroot "$image" /usr/local/share/ga-security/toolroots/semgrep \
-  /usr/local/bin/semgrep scan --config /tmp/case/.semgrep.yml --json --metrics off /tmp/case)
+  /usr/bin/semgrep scan --config /tmp/case/.semgrep.yml --json --metrics off /tmp/case)
 printf '%s' "$semgrep_json" | grep -q 'gratefulagents.runtime-smoke'
 
 # Prove that the Mythril root performs a bounded bytecode analysis offline.
