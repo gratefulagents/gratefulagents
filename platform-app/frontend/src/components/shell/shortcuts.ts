@@ -30,6 +30,14 @@ export const APP_SHORTCUTS: ShortcutGroup[] = [
     ],
   },
   {
+    group: "Run tabs",
+    items: [
+      { keys: ["⌥", "⌘", "]"], label: "Next run tab" },
+      { keys: ["⌥", "⌘", "["], label: "Previous run tab" },
+      { keys: ["⌥", "⌘", "W"], label: "Close run tab", hint: "middle-click also closes" },
+    ],
+  },
+  {
     group: "Runs",
     items: [
       { keys: ["↑", "↓"], label: "Move selection in palette / lists" },

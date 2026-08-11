@@ -63,6 +63,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { useProjects } from "@/hooks/useWatchedList";
 import { useRecentsTracker } from "@/hooks/useRecents";
+import { useRunTabsTracker, runTabsScope } from "@/hooks/useRunTabs";
+import { RunTabs } from "@/components/shell/RunTabs";
 import { useDesktopUpdateCheck } from "@/hooks/useDesktopUpdateCheck";
 import { writeLastProject } from "@/lib/lastProject";
 import { getRunAttention } from "@/lib/agentOps";
@@ -339,7 +341,12 @@ function AuthenticatedShell() {
   const [isMac, setIsMac] = React.useState(
     () => typeof navigator !== "undefined" && /Mac/.test(navigator.platform ?? ""),
   );
+  const { user, activeWorkspaceId } = useAuth();
+  // Run tabs are per workspace + user: run names/namespaces are resource
+  // metadata and must not leak across identities sharing a browser profile.
+  const tabsScope = runTabsScope(activeWorkspaceId, user?.id);
   useRecentsTracker();
+  useRunTabsTracker(tabsScope);
   useDesktopUpdateCheck();
 
   React.useEffect(() => {
@@ -500,6 +507,7 @@ function AuthenticatedShell() {
             }
           />
           <TitleBarDivider />
+          <RunTabs runs={runs} scope={tabsScope} />
           <OfflineBanner />
 
           <main
