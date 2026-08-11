@@ -313,16 +313,34 @@ func (echidnaAdapter) Normalize(tool Tool, target Target, native []byte, r Redac
 		if test.Status == "" || testType == "" {
 			return nil, fmt.Errorf("echidna test %d requires status and type", i)
 		}
-		if test.Status == "error" {
-			testErrors = append(testErrors, fmt.Sprintf("test %d (%s) ended in error: %s", i, test.Name, strings.TrimSpace(string(test.Error))))
-			continue
-		}
-		if test.Status != "solved" {
-			continue
-		}
 		name := test.Name
 		if name == "" {
 			name = fmt.Sprintf("%s-%d", testType, i+1)
+		}
+		asset := "echidna-property:" + name
+		if test.Contract != "" {
+			asset = "echidna-property:" + test.Contract + "." + name
+		}
+		status := strings.ToLower(strings.TrimSpace(test.Status))
+		switch status {
+		case "passed", "verified":
+			records = append(records, securityRecord{Asset: r.Text(asset), Examined: true})
+			continue
+		case "solved":
+			records = append(records, securityRecord{Asset: r.Text(asset), Examined: true})
+		case "shrinking":
+			// Preserve the current counterexample as a partial finding, but do
+			// not claim complete property coverage until shrinking terminates.
+			records = append(records, securityRecord{Asset: r.Text(asset), Uncovered: true})
+			testErrors = append(testErrors, fmt.Sprintf("test %d (%s) ended while shrinking a counterexample", i, name))
+		case "error", "fuzzing":
+			records = append(records, securityRecord{Asset: r.Text(asset), Uncovered: true})
+			testErrors = append(testErrors, fmt.Sprintf("test %d (%s) ended in %s state: %s", i, name, status, strings.TrimSpace(string(test.Error))))
+			continue
+		default:
+			records = append(records, securityRecord{Asset: r.Text(asset), Uncovered: true})
+			testErrors = append(testErrors, fmt.Sprintf("test %d (%s) returned unsupported status %q", i, name, test.Status))
+			continue
 		}
 		evidence, _ := json.Marshal(test.Transactions)
 		message := fmt.Sprintf("Echidna %s %s", testType, test.Status)
@@ -1345,6 +1363,6 @@ func stringValue(m map[string]any, k string) string {
 func sortSecurityRecords(rs []securityRecord) {
 	sort.Slice(rs, func(i, j int) bool {
 		a, b := rs[i], rs[j]
-		return strings.Join([]string{a.Asset, a.Record.RuleID, a.Record.FilePath, a.Record.Message, strconv.FormatBool(a.Skipped)}, "\x00") < strings.Join([]string{b.Asset, b.Record.RuleID, b.Record.FilePath, b.Record.Message, strconv.FormatBool(b.Skipped)}, "\x00")
+		return strings.Join([]string{a.Asset, a.Record.RuleID, a.Record.FilePath, a.Record.Message, strconv.FormatBool(a.Examined), strconv.FormatBool(a.Skipped), strconv.FormatBool(a.Uncovered)}, "\x00") < strings.Join([]string{b.Asset, b.Record.RuleID, b.Record.FilePath, b.Record.Message, strconv.FormatBool(b.Examined), strconv.FormatBool(b.Skipped), strconv.FormatBool(b.Uncovered)}, "\x00")
 	})
 }

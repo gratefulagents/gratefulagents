@@ -51,8 +51,23 @@ func TestEVMNativeAdapters(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(records) != 1 || records[0].Record.RuleID != tc.wantRuleID {
-				t.Fatalf("records=%+v", records)
+			var gotRule bool
+			for _, record := range records {
+				if record.Record.RuleID == tc.wantRuleID {
+					gotRule = true
+				}
+			}
+			if !gotRule {
+				t.Fatalf("records=%+v, want rule %s", records, tc.wantRuleID)
+			}
+			if tc.name == "echidna-json" {
+				var gotCoverage bool
+				for _, record := range records {
+					gotCoverage = gotCoverage || record.Examined && record.Asset == "echidna-property:Vault.echidna_solvency"
+				}
+				if !gotCoverage {
+					t.Fatalf("echidna records lack property coverage: %+v", records)
+				}
 			}
 		})
 	}
@@ -66,7 +81,25 @@ func TestEchidnaAdapterAcceptsLegacyTestTypeKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Record.RuleID != "ECHIDNA-PROPERTY" {
+	var finding, coverage bool
+	for _, record := range records {
+		finding = finding || record.Record.RuleID == "ECHIDNA-PROPERTY"
+		coverage = coverage || record.Examined && record.Asset == "echidna-property:solvency"
+	}
+	if !finding || !coverage {
+		t.Fatalf("records=%+v", records)
+	}
+}
+
+func TestEchidnaAdapterMarksErroredPropertiesUncovered(t *testing.T) {
+	native := []byte(`{"success":true,"error":null,"seed":42,"tests":[{"contract":"Vault","name":"echidna_solvency","status":"error","type":"property","error":"reproducer failed","transactions":[]}]}`)
+	records, err := DefaultAdapters()["echidna-json"].Normalize(
+		Tool{Name: "echidna", Version: "2.3.0"}, Target{Locator: "fixture"}, native, NewRedactor(),
+	)
+	if err == nil {
+		t.Fatal("expected incomplete coverage error")
+	}
+	if len(records) != 1 || !records[0].Uncovered || records[0].Asset != "echidna-property:Vault.echidna_solvency" {
 		t.Fatalf("records=%+v", records)
 	}
 }

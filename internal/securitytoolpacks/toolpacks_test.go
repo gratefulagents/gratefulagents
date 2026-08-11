@@ -2,6 +2,7 @@ package securitytoolpacks
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -206,6 +207,42 @@ func TestNetworkNaabuAndBlockchainForgeFixtures(t *testing.T) {
 	}
 }
 
+func TestEchidnaTerminalAndIncompleteStatuses(t *testing.T) {
+	seed := int64(42)
+	target := fixtureTarget("solidity_project", "fixtures/blockchain/vault")
+	target.MediaType = "application/vnd.gratefulagents.solidity-project.v1+directory"
+	tests := []struct {
+		status string
+		want   Status
+	}{
+		{status: "passed", want: StatusPass},
+		{status: "fuzzing", want: StatusError},
+		{status: "unknown-new-status", want: StatusError},
+		{status: "shrinking", want: StatusPartial},
+	}
+	for _, tc := range tests {
+		t.Run(tc.status, func(t *testing.T) {
+			output := []byte(fmt.Sprintf(`{"success":true,"error":null,"seed":42,"tests":[{"contract":"Vault","name":"echidna_solvency","status":%q,"error":null,"type":"property","transactions":[{"contract":"Vault","function":"withdraw(uint256)","arguments":["1"]}]}]}`, tc.status))
+			result := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{target.Locator}, Output: output}).Run(
+				context.Background(), RunConfig{Tool: "echidna", Target: target, Seed: &seed},
+			)
+			if result.Status != tc.want {
+				t.Fatalf("status %q result=%+v, want %q", tc.status, result, tc.want)
+			}
+			property := "echidna-property:Vault.echidna_solvency"
+			if tc.status == "passed" && !slices.Contains(result.Coverage.Examined, property) {
+				t.Fatalf("passed property was not examined: %+v", result.Coverage)
+			}
+			if tc.status != "passed" && !slices.Contains(result.Coverage.Uncovered, property) {
+				t.Fatalf("incomplete property was not uncovered: %+v", result.Coverage)
+			}
+			if tc.status == "shrinking" && len(result.Findings) != 1 {
+				t.Fatalf("shrinking counterexample was discarded: %+v", result)
+			}
+		})
+	}
+}
+
 func TestFailureStatusesAndCanonicalReplay(t *testing.T) {
 	cfg := RunConfig{Tool: "zeek", Target: fixtureTarget("pcap", "fixture.pcapng")}
 	timed := runnerFor(t, NativeResult{TimedOut: true, Err: context.DeadlineExceeded}).Run(context.Background(), cfg)
@@ -237,6 +274,9 @@ func TestEVMNativeResultsFlowThroughRunner(t *testing.T) {
 	echidna := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"echidna_solvency"}, Output: echidnaOutput}).Run(context.Background(), RunConfig{Tool: "echidna", Target: echidnaTarget, Seed: &seed})
 	if echidna.Status != StatusFindings || len(echidna.Findings) != 1 || echidna.Replay.Seed == nil || *echidna.Replay.Seed != seed {
 		t.Fatalf("echidna result=%+v", echidna)
+	}
+	if !slices.Contains(echidna.Coverage.Examined, "echidna-property:Vault.echidna_solvency") {
+		t.Fatalf("echidna result lacks normalized property coverage: %+v", echidna.Coverage)
 	}
 
 	mythrilTarget := fixtureTarget("solidity_contract", "fixtures/blockchain/Vault.sol")
