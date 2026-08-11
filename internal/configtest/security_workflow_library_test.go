@@ -178,6 +178,14 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		"symbolic-and-formal-applicability",
 		"deployment-and-privileged-configuration",
 		"validate-high-impact-exploits",
+		"account-foundation-coverage",
+		"account-build-and-static-coverage",
+		"account-fuzz-and-formal-coverage",
+		"account-calls-auth-accounting-coverage",
+		"account-economics-oracle-liveness-coverage",
+		"account-low-level-and-configuration-coverage",
+		"account-scope-and-tool-coverage",
+		"account-specialist-coverage",
 		"account-lifecycle-coverage",
 		"remediation-and-retest",
 		"triage-and-report",
@@ -185,6 +193,107 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 	for _, name := range required {
 		if _, ok := byName[name]; !ok {
 			t.Errorf("required EVM lifecycle task %q is missing", name)
+		}
+	}
+
+	// The lifecycle ledger used to interpolate every upstream output in one
+	// objective. Large multi-repository reviews could therefore exceed the
+	// deterministic engine's 256 KiB rendered-objective limit before the task
+	// started. Keep the aggregation tree to at most three 64 KiB outputs per
+	// hop, including the final validation merge.
+	coverageInputs := map[string][]string{
+		"account-foundation-coverage": {
+			"inventory-scope-repositories-deployments",
+			"map-architecture-assets-roles-entrypoints",
+			"define-security-invariants",
+		},
+		"account-build-and-static-coverage": {
+			"reproducible-build-artifact-deployment-review",
+			"aderyn-static-analysis",
+			"deterministic-forge-tests-and-invariants",
+		},
+		"account-fuzz-and-formal-coverage": {
+			"echidna-stateful-property-fuzzing",
+			"bounded-mythril-symbolic-analysis",
+			"symbolic-and-formal-applicability",
+		},
+		"account-calls-auth-accounting-coverage": {
+			"external-calls-reentrancy-and-atomicity",
+			"authorization-signatures-and-account-abstraction",
+			"accounting-arithmetic-and-token-integrations",
+		},
+		"account-economics-oracle-liveness-coverage": {
+			"governance-liquidations-auctions-and-mev",
+			"oracles-randomness-time-and-ordering",
+			"gas-liveness-returndata-and-state-growth",
+		},
+		"account-low-level-and-configuration-coverage": {
+			"low-level-factories-proxies-and-storage",
+			"deployment-and-privileged-configuration",
+		},
+		"account-scope-and-tool-coverage": {
+			"account-foundation-coverage",
+			"account-build-and-static-coverage",
+			"account-fuzz-and-formal-coverage",
+		},
+		"account-specialist-coverage": {
+			"account-calls-auth-accounting-coverage",
+			"account-economics-oracle-liveness-coverage",
+			"account-low-level-and-configuration-coverage",
+		},
+		"account-lifecycle-coverage": {
+			"account-scope-and-tool-coverage",
+			"account-specialist-coverage",
+			"validate-high-impact-exploits",
+		},
+	}
+	for name, want := range coverageInputs {
+		task, ok := byName[name]
+		if !ok {
+			continue
+		}
+		matches := workflowTaskOutputRefPattern.FindAllStringSubmatch(task.Objective, -1)
+		got := make([]string, 0, len(matches))
+		for _, match := range matches {
+			got = append(got, match[1])
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s output refs = %v, want %v", name, got, want)
+		}
+		if !slices.Equal(task.DependsOn, want) {
+			t.Errorf("%s dependencies = %v, want %v", name, task.DependsOn, want)
+		}
+
+		var schema struct {
+			Items struct {
+				Required   []string `json:"required"`
+				Properties map[string]struct {
+					Type string `json:"type"`
+				} `json:"properties"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal([]byte(task.OutputSchema), &schema); err != nil {
+			t.Errorf("%s output schema: %v", name, err)
+			continue
+		}
+		metadataTypes := map[string]string{
+			"execution_status": "string",
+			"tool_run":         "string",
+			"seed":             "integer",
+			"bounds":           "array",
+			"harnesses":        "array",
+			"artifacts":        "array",
+		}
+		for field, wantType := range metadataTypes {
+			if !slices.Contains(schema.Items.Required, field) {
+				t.Errorf("%s output schema must require executable-tool metadata field %q", name, field)
+			}
+			if gotType := schema.Items.Properties[field].Type; gotType != wantType {
+				t.Errorf("%s output schema field %q type = %q, want %q", name, field, gotType, wantType)
+			}
+			if !strings.Contains(task.Objective, field) {
+				t.Errorf("%s objective must explicitly preserve executable-tool metadata field %q", name, field)
+			}
 		}
 	}
 
