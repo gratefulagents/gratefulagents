@@ -142,6 +142,24 @@ func TestGetSecurityConfigPosturesHiddenFromNonOwner(t *testing.T) {
 		t.Fatalf("excluded scans pushed to store = %v, want [alice-scan]", sec.lastPosturesExcluded)
 	}
 
+	// Sharing alice-scan with bob makes its posture visible again and
+	// removes it from the exclusion pushed into the store query.
+	sec.shares = []store.ResourceShare{{
+		ResourceType: securityScanResourceType, ResourceID: "alice-scan",
+		ResourceNamespace: "default", SharedWithUserID: "bob", Permission: "viewer",
+	}}
+	resp, err = srv.GetSecurityConfigPostures(bob, &platform.GetSecurityConfigPosturesRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatalf("GetSecurityConfigPostures(shared) error = %v", err)
+	}
+	if len(resp.GetPostures()) != 3 {
+		t.Fatalf("shared postures = %+v, want all 3", resp.GetPostures())
+	}
+	if len(sec.lastPosturesExcluded) != 0 {
+		t.Fatalf("excluded scans with share = %v, want none", sec.lastPosturesExcluded)
+	}
+	sec.shares = nil
+
 	// An admin sees every configuration.
 	admin := actorContext("root", "admin", "", "")
 	resp, err = srv.GetSecurityConfigPostures(admin, &platform.GetSecurityConfigPosturesRequest{Namespace: "default"})

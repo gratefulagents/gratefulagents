@@ -45,6 +45,7 @@ func posturesTestSeed(ctx context.Context, t *testing.T, s *Store) (alpha1Done, 
 	upsertFinding("alpha", "alpha-1", "fp-crit", "critical")
 	upsertScan("alpha", "alpha-2", "https://github.com/acme/api.git", base.Add(24*time.Hour), alpha2Done)
 	upsertFinding("alpha", "alpha-2", "fp-crit", "critical") // recurring
+	upsertFinding("alpha", "alpha-2", "fp-crit", "critical") // duplicate submission (retry) in the same run
 	upsertFinding("alpha", "alpha-2", "fp-high", "high")     // new in run 2
 
 	upsertScan("beta", "beta-1", "https://github.com/acme/web.git", base, base.Add(time.Hour))
@@ -79,6 +80,8 @@ func verifyAlphaPosture(t *testing.T, alpha store.SecurityConfigPosture, alpha1D
 		!alpha.Activity[0].CompletedAt.Equal(alpha1Done) {
 		t.Errorf("alpha activity[0] = %+v", alpha.Activity[0])
 	}
+	// The duplicate fp-crit submission in alpha-2 must not inflate the run's
+	// series: observations are deduplicated by (repository, fingerprint).
 	if alpha.Activity[1].RunName != "alpha-2" || alpha.Activity[1].Total != 2 ||
 		alpha.Activity[1].SeverityCounts["critical"] != 1 || alpha.Activity[1].SeverityCounts["high"] != 1 {
 		t.Errorf("alpha activity[1] = %+v", alpha.Activity[1])

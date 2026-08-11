@@ -283,6 +283,7 @@ export function SecurityConfigPostures() {
   }, [resp, sort]);
 
   if (resp && !resp.storeSupported) return null;
+  const warnings = resp?.warnings ?? [];
 
   return (
     <DetailSection
@@ -303,27 +304,51 @@ export function SecurityConfigPostures() {
             Retry
           </Button>
         </div>
-      ) : sorted.length === 0 ? (
-        <p className="text-[12.5px] text-muted-foreground">No persisted scan data yet.</p>
       ) : (
-        <Table>
-          <TableCaption className="sr-only">Per-configuration security posture</TableCaption>
-          <TableHeader>
-            <TableRow>
-              <SortableHead label="Configuration" sortKey="name" sort={sort} onSort={onSort} />
-              <TableHead>Repository</TableHead>
-              <SortableHead label="Open" sortKey="open" sort={sort} onSort={onSort} />
-              <TableHead>Changes</TableHead>
-              <SortableHead label="Last run" sortKey="age" sort={sort} onSort={onSort} />
-              <TableHead>Trend</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sorted.map((posture) => (
-              <PostureRow key={posture.scanName} posture={posture} now={now} />
-            ))}
-          </TableBody>
-        </Table>
+        <div className="space-y-3">
+          {warnings.length > 0 && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12.5px]"
+            >
+              <div className="min-w-0 flex-1 basis-64">
+                <span className="font-medium">Partial data — some posture sources failed to load.</span>
+                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                  {warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => void fetchPostures()}>
+                Retry
+              </Button>
+            </div>
+          )}
+          {sorted.length === 0 ? (
+            warnings.length === 0 && (
+              <p className="text-[12.5px] text-muted-foreground">No persisted scan data yet.</p>
+            )
+          ) : (
+            <Table>
+              <TableCaption className="sr-only">Per-configuration security posture</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <SortableHead label="Configuration" sortKey="name" sort={sort} onSort={onSort} />
+                  <TableHead>Repository</TableHead>
+                  <SortableHead label="Open" sortKey="open" sort={sort} onSort={onSort} />
+                  <TableHead>Changes</TableHead>
+                  <SortableHead label="Last run" sortKey="age" sort={sort} onSort={onSort} />
+                  <TableHead>Trend</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sorted.map((posture) => (
+                  <PostureRow key={posture.scanName} posture={posture} now={now} />
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
       )}
     </DetailSection>
   );

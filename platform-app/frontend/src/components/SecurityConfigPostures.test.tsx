@@ -170,6 +170,29 @@ describe("SecurityConfigPostures", () => {
     expect(await screen.findByText("No persisted scan data yet.")).toBeTruthy();
   });
 
+  it("surfaces server warnings instead of the empty state and offers a retry", async () => {
+    getSecurityConfigPostures.mockResolvedValueOnce(
+      create(GetSecurityConfigPosturesResponseSchema, {
+        storeSupported: true,
+        warnings: ["aggregating security configuration postures: db offline"],
+      }),
+    );
+    getSecurityConfigPostures.mockResolvedValueOnce(fixture());
+
+    renderPostures();
+
+    expect(
+      await screen.findByText("aggregating security configuration postures: db offline"),
+    ).toBeTruthy();
+    // A partial-result outage is not presented as a legitimate empty dataset.
+    expect(screen.queryByText("No persisted scan data yet.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("api-scan")).toBeTruthy();
+    expect(getSecurityConfigPostures).toHaveBeenCalledTimes(2);
+  });
+
   it("shows an inline error with a retry button", async () => {
     getSecurityConfigPostures.mockRejectedValueOnce(new Error("postures offline"));
     getSecurityConfigPostures.mockResolvedValueOnce(fixture());

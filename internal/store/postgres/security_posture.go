@@ -112,7 +112,10 @@ func (s *Store) ListSecurityConfigPostures(ctx context.Context, namespace string
 
 	// Per-run observed finding counts over each configuration's newest
 	// completed runs. The LEFT JOIN keeps clean runs (zero observations) in
-	// the series so a drop to zero findings is visible.
+	// the series so a drop to zero findings is visible, and the DISTINCT on
+	// (repository, fingerprint) collapses repeated submissions of the same
+	// finding within one run (tool retries, sibling execution tasks) so the
+	// series counts deduplicated findings, not submissions.
 	actArgs := make([]any, 0, 3)
 	actArgs = append(actArgs, namespace)
 	actWhere := "WHERE namespace = $1 AND completed_at IS NOT NULL" + exclude("scan_name", &actArgs)
@@ -124,7 +127,8 @@ func (s *Store) ListSecurityConfigPostures(ctx context.Context, namespace string
 			FROM security_scans
 			`+actWhere+`
 		)
-		SELECT r.scan_name, r.run_name, r.completed_at, COALESCE(o.severity, ''), COUNT(o.id)
+		SELECT r.scan_name, r.run_name, r.completed_at, COALESCE(o.severity, ''),
+			COUNT(DISTINCT (o.repository, o.fingerprint)) FILTER (WHERE o.id IS NOT NULL)
 		FROM recent r
 		LEFT JOIN security_finding_observations o
 			ON o.namespace = $1 AND o.scan_name = r.scan_name AND o.run_name = r.run_name
