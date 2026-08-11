@@ -109,7 +109,7 @@ func TestEchidnaAdapterMarksErroredPropertiesUncovered(t *testing.T) {
 
 func TestHalmosIncompleteStatesAreNotCounterexamples(t *testing.T) {
 	for _, exitCode := range []int{2, 3, 4, 5} {
-		native := []byte(fmt.Sprintf(`{"exitcode":%d,"test_results":{"test/Vault.t.sol:VaultTest":[{"name":"check_solvency(uint256)","exitcode":%d,"num_models":0}]}}`, exitCode, exitCode))
+		native := fmt.Appendf(nil, `{"exitcode":%d,"test_results":{"test/Vault.t.sol:VaultTest":[{"name":"check_solvency(uint256)","exitcode":%d,"num_models":0}]}}`, exitCode, exitCode)
 		if _, err := DefaultAdapters()["halmos-json"].Normalize(Tool{Name: "halmos"}, Target{}, native, NewRedactor()); err == nil {
 			t.Fatalf("Halmos exit code %d was accepted as a counterexample", exitCode)
 		}

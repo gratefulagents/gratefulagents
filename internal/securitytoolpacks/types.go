@@ -206,7 +206,7 @@ func (m Manifest) Validate() error {
 				}
 			}
 			if t.OCIPath != "" {
-				for _, entry := range strings.Split(t.OCIPath, ":") {
+				for entry := range strings.SplitSeq(t.OCIPath, ":") {
 					if !strings.HasPrefix(entry, "/") || filepath.Clean(entry) != entry {
 						return fmt.Errorf("tool %s: invalid OCI PATH entry %q", t.Name, entry)
 					}

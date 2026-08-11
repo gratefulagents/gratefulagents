@@ -222,7 +222,7 @@ func TestEchidnaTerminalAndIncompleteStatuses(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.status, func(t *testing.T) {
-			output := []byte(fmt.Sprintf(`{"success":true,"error":null,"seed":42,"tests":[{"contract":"Vault","name":"echidna_solvency","status":%q,"error":null,"type":"property","transactions":[{"contract":"Vault","function":"withdraw(uint256)","arguments":["1"]}]}]}`, tc.status))
+			output := fmt.Appendf(nil, `{"success":true,"error":null,"seed":42,"tests":[{"contract":"Vault","name":"echidna_solvency","status":%q,"error":null,"type":"property","transactions":[{"contract":"Vault","function":"withdraw(uint256)","arguments":["1"]}]}]}`, tc.status)
 			result := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{target.Locator}, Output: output}).Run(
 				context.Background(), RunConfig{Tool: "echidna", Target: target, Seed: &seed},
 			)
