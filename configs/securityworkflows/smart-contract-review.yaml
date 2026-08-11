@@ -2,6 +2,11 @@ apiVersion: triggers.gratefulagents.dev/v1alpha1
 kind: SecurityWorkflow
 metadata:
   name: smart-contract-review
+  annotations:
+    # The prior shipped workflow after the removed maxFindings field is
+    # represented by current API types. Allow this exact untouched version to
+    # advance even though its pre-removal recorded hash no longer matches.
+    platform.gratefulagents.dev/bootstrap-replaces-spec-hashes: 5a9a7929c802fd7f10d418c1f3b08341df62ce7e3fb4f7e073391a2ddfa97386
 spec:
   description: Complete EVM smart-contract review lifecycle covering structured scope and deployment mapping, architecture and entry points, explicit invariants, reproducible builds and source-to-deployment comparison, executable Aderyn and seeded Forge checks, specialist manual review, formal-method applicability, local exploit validation, privileged configuration, coverage accounting, remediation, retesting, and one final triage report.
   parallelism: 6

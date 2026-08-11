@@ -21,13 +21,14 @@ import (
 )
 
 const (
-	bootstrapDefaultAnnotation       = "platform.gratefulagents.dev/bootstrap-default"
-	bootstrapSourceAnnotation        = "platform.gratefulagents.dev/bootstrap-source-namespace"
-	bootstrapReadyLabel              = "platform.gratefulagents.dev/bootstrap-ready"
-	bootstrapBundleVersionKey        = "bundle-version"
-	bootstrapSyncedVersionAnnotation = "platform.gratefulagents.dev/bootstrap-synced-version"
-	bootstrapSpecHashAnnotation      = "platform.gratefulagents.dev/bootstrap-spec-hash"
-	bootstrapSyncProtocolVersion     = "v4"
+	bootstrapDefaultAnnotation        = "platform.gratefulagents.dev/bootstrap-default"
+	bootstrapSourceAnnotation         = "platform.gratefulagents.dev/bootstrap-source-namespace"
+	bootstrapReadyLabel               = "platform.gratefulagents.dev/bootstrap-ready"
+	bootstrapBundleVersionKey         = "bundle-version"
+	bootstrapSyncedVersionAnnotation  = "platform.gratefulagents.dev/bootstrap-synced-version"
+	bootstrapSpecHashAnnotation       = "platform.gratefulagents.dev/bootstrap-spec-hash"
+	bootstrapReplacesHashesAnnotation = "platform.gratefulagents.dev/bootstrap-replaces-spec-hashes"
+	bootstrapSyncProtocolVersion      = "v4"
 )
 
 // syncBootstrapResources makes the chart's namespaced, reusable defaults
@@ -251,7 +252,7 @@ func (s *Server) createBootstrapResource(ctx context.Context, source, target cli
 	}
 	currentAnnotations := current.GetAnnotations()
 	previousSeedHash := currentAnnotations[bootstrapSpecHashAnnotation]
-	if previousSeedHash != "" && previousSeedHash != currentHash {
+	if previousSeedHash != "" && previousSeedHash != currentHash && !bootstrapReplacesSpecHash(source, currentHash) {
 		return nil // The user changed the previously seeded spec.
 	}
 	if previousSeedHash == "" {
@@ -281,6 +282,21 @@ func (s *Server) createBootstrapResource(ctx context.Context, source, target cli
 		return mapK8sError(fmt.Sprintf("refresh seeded %T %s", source, source.GetName()), err)
 	}
 	return nil
+}
+
+// bootstrapReplacesSpecHash reports whether source explicitly supersedes a
+// previously shipped spec after it is represented by the current API types.
+// This is needed when a CRD upgrade removes a field: Kubernetes prunes that
+// field from an untouched seeded object, so its live hash no longer matches
+// the hash recorded before the schema change. The allowlist keeps that
+// migration narrow instead of treating every hash mismatch as safe to replace.
+func bootstrapReplacesSpecHash(source client.Object, currentHash string) bool {
+	for _, hash := range strings.Split(source.GetAnnotations()[bootstrapReplacesHashesAnnotation], ",") {
+		if strings.TrimSpace(hash) == currentHash {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) apiReaderOrClient() client.Reader {

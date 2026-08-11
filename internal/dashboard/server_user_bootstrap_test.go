@@ -280,6 +280,108 @@ func TestBootstrapUpgradeRefreshesOnlyUnmodifiedResources(t *testing.T) {
 	}
 }
 
+func TestBootstrapUpgradeRefreshesExplicitlyReplacedPrunedSpec(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "system")
+	scheme := testProjectScheme(t)
+	old := &triggersv1alpha1.SecurityWorkflow{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "smart-contract-review", Namespace: "alice",
+			Annotations: map[string]string{
+				bootstrapDefaultAnnotation:  "true",
+				bootstrapSourceAnnotation:   "system",
+				bootstrapSpecHashAnnotation: "hash-recorded-before-a-field-was-pruned",
+			},
+		},
+		Spec: triggersv1alpha1.SecurityWorkflowSpec{Tasks: []triggersv1alpha1.SecurityScanTask{{
+			Name: "old-review", Objective: "old workflow",
+		}}},
+	}
+	oldHash, err := bootstrapSpecHash(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &triggersv1alpha1.SecurityWorkflow{
+		ObjectMeta: bootstrapMeta("smart-contract-review"),
+		Spec: triggersv1alpha1.SecurityWorkflowSpec{Tasks: []triggersv1alpha1.SecurityScanTask{{
+			Name: "new-review", Objective: "new workflow",
+		}}},
+	}
+	source.Annotations[bootstrapReplacesHashesAnnotation] = oldHash
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		bootstrapReadyMarker("v2"), source, old,
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alice"}},
+	).Build()
+	srv := &Server{k8sClient: c, apiReader: c, scheme: scheme}
+
+	if err := srv.syncBootstrapResources(context.Background(), "alice"); err != nil {
+		t.Fatalf("upgrade sync: %v", err)
+	}
+	got := &triggersv1alpha1.SecurityWorkflow{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "alice", Name: source.Name}, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Tasks[0].Name != "new-review" {
+		t.Fatalf("workflow task = %q, want new-review", got.Spec.Tasks[0].Name)
+	}
+	desiredHash, err := bootstrapSpecHash(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Annotations[bootstrapSpecHashAnnotation] != desiredHash {
+		t.Fatalf("recorded hash = %q, want %q", got.Annotations[bootstrapSpecHashAnnotation], desiredHash)
+	}
+}
+
+func TestBootstrapReplacementHashDoesNotOverwriteDifferentCustomization(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "system")
+	scheme := testProjectScheme(t)
+	oldDefault := &triggersv1alpha1.SecurityWorkflow{
+		Spec: triggersv1alpha1.SecurityWorkflowSpec{Tasks: []triggersv1alpha1.SecurityScanTask{{
+			Name: "old-review", Objective: "old workflow",
+		}}},
+	}
+	oldHash, err := bootstrapSpecHash(oldDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &triggersv1alpha1.SecurityWorkflow{
+		ObjectMeta: bootstrapMeta("smart-contract-review"),
+		Spec: triggersv1alpha1.SecurityWorkflowSpec{Tasks: []triggersv1alpha1.SecurityScanTask{{
+			Name: "new-review", Objective: "new workflow",
+		}}},
+	}
+	source.Annotations[bootstrapReplacesHashesAnnotation] = oldHash
+	customized := &triggersv1alpha1.SecurityWorkflow{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: source.Name, Namespace: "alice",
+			Annotations: map[string]string{
+				bootstrapDefaultAnnotation:  "true",
+				bootstrapSourceAnnotation:   "system",
+				bootstrapSpecHashAnnotation: "hash-recorded-before-a-field-was-pruned",
+			},
+		},
+		Spec: triggersv1alpha1.SecurityWorkflowSpec{Tasks: []triggersv1alpha1.SecurityScanTask{{
+			Name: "my-review", Objective: "my customization",
+		}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		bootstrapReadyMarker("v2"), source, customized,
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alice"}},
+	).Build()
+	srv := &Server{k8sClient: c, apiReader: c, scheme: scheme}
+
+	if err := srv.syncBootstrapResources(context.Background(), "alice"); err != nil {
+		t.Fatalf("upgrade sync: %v", err)
+	}
+	got := &triggersv1alpha1.SecurityWorkflow{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "alice", Name: source.Name}, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Tasks[0].Name != "my-review" {
+		t.Fatalf("customized workflow was overwritten: %+v", got.Spec)
+	}
+}
+
 func TestBootstrapSeedDoesNotOverwritePersonalResource(t *testing.T) {
 	t.Setenv("POD_NAMESPACE", "system")
 	scheme := testProjectScheme(t)
