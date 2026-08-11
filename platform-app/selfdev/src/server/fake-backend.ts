@@ -400,6 +400,8 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       status?: string;
       category?: string;
       search?: string;
+      limit?: number;
+      offset?: number;
     }) => {
       const query = (req.search ?? "").toLowerCase();
       const findings = s.securityFindings.filter(
@@ -413,7 +415,12 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
           (!query ||
             `${f.title} ${f.filePath} ${f.description}`.toLowerCase().includes(query)),
       );
-      return create(ListSecurityFindingsResponseSchema, { findings });
+      // Mirror the Postgres store: an omitted limit defaults to 200 rows.
+      const offset = Math.max(req.offset ?? 0, 0);
+      const limit = req.limit && req.limit > 0 ? req.limit : 200;
+      return create(ListSecurityFindingsResponseSchema, {
+        findings: findings.slice(offset, offset + limit),
+      });
     },
     getSecurityFindingSummary: async (req: {
       namespace: string;

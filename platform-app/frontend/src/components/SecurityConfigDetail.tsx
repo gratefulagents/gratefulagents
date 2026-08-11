@@ -34,6 +34,10 @@ import type {
 const filterSelectClass =
   "h-8 rounded-md border border-border/70 bg-background px-2 text-[12.5px] text-foreground capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 
+// The findings store caps an omitted limit at 200 rows; page explicitly so a
+// configuration with more findings than one page can still show all of them.
+export const FINDINGS_PAGE_SIZE = 200;
+
 function runStatusTone(status: string): StatusTone {
   switch (status.toLowerCase()) {
     case "completed":
@@ -71,6 +75,9 @@ export function SecurityConfigDetail() {
   const [runs, setRuns] = useState<SecurityScan[]>([]);
   const [loading, setLoading] = useState(true);
   const [findingsLoading, setFindingsLoading] = useState(true);
+  const [loadedPages, setLoadedPages] = useState(1);
+  const [hasMoreFindings, setHasMoreFindings] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [runNowPending, setRunNowPending] = useState(false);
@@ -121,19 +128,32 @@ export function SecurityConfigDetail() {
     }
   }, [namespace, name]);
 
-  const fetchFindings = useCallback(async (background = false) => {
+  const fetchFindings = useCallback(async (background = false, pageCount = 1) => {
     if (!namespace || !name) return;
     if (!background) setFindingsLoading(true);
     try {
-      const resp = await client.listSecurityFindings({
-        namespace,
-        scanName: name,
-        severity,
-        status,
-        category,
-        search,
-      });
-      setFindings(resp.findings);
+      // Offset-paged accumulation: fetch up to pageCount pages, stopping at
+      // the first short page (no further rows on the server).
+      const accumulated: SecurityFinding[] = [];
+      let more = false;
+      for (let page = 0; page < pageCount; page++) {
+        const resp = await client.listSecurityFindings({
+          namespace,
+          scanName: name,
+          severity,
+          status,
+          category,
+          search,
+          limit: FINDINGS_PAGE_SIZE,
+          offset: page * FINDINGS_PAGE_SIZE,
+        });
+        accumulated.push(...resp.findings);
+        more = resp.findings.length === FINDINGS_PAGE_SIZE;
+        if (!more) break;
+      }
+      setFindings(accumulated);
+      setHasMoreFindings(more);
+      setLoadedPages(pageCount);
     } catch (e: unknown) {
       if (!background) {
         setError(e instanceof Error ? e.message : "Failed to load security findings");
@@ -147,9 +167,19 @@ export function SecurityConfigDetail() {
     void fetchConfig();
   }, [fetchConfig]);
 
+  // Filter changes restart from the first page (fetchFindings is recreated).
   useEffect(() => {
     void fetchFindings();
   }, [fetchFindings]);
+
+  async function loadMoreFindings() {
+    setLoadingMore(true);
+    try {
+      await fetchFindings(true, loadedPages + 1);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   // While a run is executing, the summary, findings, and run list keep
   // changing server-side; poll quietly (no loading flicker) until every run
@@ -160,10 +190,10 @@ export function SecurityConfigDetail() {
     const id = window.setInterval(() => {
       if (document.hidden) return;
       void fetchConfig(true);
-      void fetchFindings(true);
+      void fetchFindings(true, loadedPages);
     }, 5_000);
     return () => window.clearInterval(id);
-  }, [anyRunning, fetchConfig, fetchFindings]);
+  }, [anyRunning, fetchConfig, fetchFindings, loadedPages]);
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -173,6 +203,21 @@ export function SecurityConfigDetail() {
     if (category) set.add(category);
     return [...set].sort();
   }, [findings, category]);
+
+  // For deterministic multi-task executions, finding.runName is the task
+  // AgentRun while only the shared execution's scan record exists in the run
+  // routes. Resolve links through the persisted scan run (id == scanId) and
+  // fall back to the reported run name.
+  const runNameByScanId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const run of runs) map.set(run.id, run.runName);
+    return map;
+  }, [runs]);
+
+  const findingRunName = useCallback(
+    (finding: SecurityFinding) => runNameByScanId.get(finding.scanId) ?? finding.runName,
+    [runNameByScanId],
+  );
 
   async function handleRunNow() {
     if (!namespace || !name) return;
@@ -359,7 +404,7 @@ export function SecurityConfigDetail() {
                     <TableRow key={finding.id}>
                       <TableCell>
                         <Link
-                          to={`/security/${finding.namespace}/${finding.runName}/findings/${finding.id}`}
+                          to={`/security/${finding.namespace}/${findingRunName(finding)}/findings/${finding.id}`}
                           className="font-medium text-primary hover:underline"
                         >
                           {finding.title}
@@ -382,10 +427,10 @@ export function SecurityConfigDetail() {
                       </TableCell>
                       <TableCell>
                         <Link
-                          to={`/security/${finding.namespace}/${finding.runName}`}
+                          to={`/security/${finding.namespace}/${findingRunName(finding)}`}
                           className="font-mono text-[11.5px] text-primary hover:underline"
                         >
-                          {finding.runName}
+                          {findingRunName(finding)}
                         </Link>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
@@ -398,6 +443,21 @@ export function SecurityConfigDetail() {
                   ))}
                 </TableBody>
               </Table>
+              {hasMoreFindings && (
+                <div className="mt-3 flex items-center justify-center gap-3">
+                  <span className="text-[12px] text-muted-foreground tabular-nums">
+                    Showing the first {findings.length} findings.
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={loadingMore}
+                    onClick={() => void loadMoreFindings()}
+                  >
+                    {loadingMore ? "Loading…" : "Load more"}
+                  </Button>
+                </div>
+              )}
             </ListState>
           </DetailSection>
 

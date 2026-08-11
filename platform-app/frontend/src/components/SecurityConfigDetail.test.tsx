@@ -78,9 +78,14 @@ function runFixture(runName: string, status = "completed") {
   });
 }
 
-function findingFixture(id: string, runName: string, overrides: Partial<{ title: string; severity: string }> = {}) {
+function findingFixture(
+  id: string,
+  runName: string,
+  overrides: Partial<{ title: string; severity: string; scanId: string }> = {},
+) {
   return create(SecurityFindingSchema, {
     id,
+    scanId: overrides.scanId ?? "",
     namespace: "user-alice",
     scanName: "nightly",
     runName,
@@ -147,6 +152,55 @@ describe("SecurityConfigDetail", () => {
       expect(link.getAttribute("href")).toBe("/security/user-alice/nightly-2");
     }
     expect(screen.getByText("2 total")).toBeTruthy();
+  });
+
+  it("resolves finding links through the owning persisted scan run", async () => {
+    // Deterministic executions report findings from per-task AgentRuns whose
+    // names have no scan record; links must use the run whose id matches the
+    // finding's scanId.
+    getSecurityScanConfig.mockResolvedValue(configFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 1 } });
+    listSecurityFindings.mockResolvedValue({
+      findings: [
+        findingFixture("f-1", "nightly-1-injection-hunt-1-0", { scanId: "id-nightly-1" }),
+      ],
+    });
+    listSecurityScans.mockResolvedValue({ scans: [runFixture("nightly-1")] });
+    renderDetail();
+
+    const title = await screen.findByRole("link", { name: "SQL injection in payment lookup" });
+    expect(title.getAttribute("href")).toBe("/security/user-alice/nightly-1/findings/f-1");
+    // The Run column shows the resolved scan run, not the task AgentRun.
+    expect(screen.queryByText("nightly-1-injection-hunt-1-0")).toBeNull();
+  });
+
+  it("pages findings past the server's 200-row limit via Load more", async () => {
+    getSecurityScanConfig.mockResolvedValue(configFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 201 } });
+    listSecurityScans.mockResolvedValue({ scans: [runFixture("nightly-1")] });
+    const fullPage = Array.from({ length: 200 }, (_, i) =>
+      findingFixture(`f-${i}`, "nightly-1", { title: `Finding ${i}` }),
+    );
+    listSecurityFindings
+      .mockResolvedValueOnce({ findings: fullPage })
+      .mockResolvedValueOnce({ findings: fullPage })
+      .mockResolvedValueOnce({ findings: [findingFixture("f-200", "nightly-1", { title: "Finding 200" })] });
+    renderDetail();
+
+    const loadMore = await screen.findByRole("button", { name: "Load more" });
+    expect(listSecurityFindings).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 200, offset: 0 }),
+    );
+    fireEvent.click(loadMore);
+
+    await waitFor(() => {
+      expect(listSecurityFindings).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 200, offset: 200 }),
+      );
+    });
+    await screen.findByText("Finding 200");
+    // The short second page means there is nothing further to load.
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
   it("re-queries findings when a severity filter is chosen", async () => {
