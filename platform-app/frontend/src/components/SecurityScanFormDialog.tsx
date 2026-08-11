@@ -58,6 +58,7 @@ import {
   type SecurityScanTaskConfig,
   type SecurityPolicyPackResource,
   type SecurityPostScriptResource,
+  type SecurityProgramResource,
   type SecurityRankerResource,
   type SecurityWorkflowResource,
   type TriggerPolicies,
@@ -128,6 +129,7 @@ type SpecState = {
   includeFindingSummaries: boolean;
   uploadSarif: boolean;
   policyPackRef: string;
+  securityProgramRef: string;
   budgets: BudgetDraft;
   /** "" = deterministic default; "coordinator" = single seeded orchestrating run. */
   executionMode: string;
@@ -181,6 +183,7 @@ function initialSpec(config?: SecurityScanConfig): SpecState {
     includeFindingSummaries: spec?.checks?.includeFindingSummaries ?? false,
     uploadSarif: spec?.checks?.uploadSarif ?? false,
     policyPackRef: spec?.policyPackRef ?? "",
+    securityProgramRef: spec?.securityProgramRef ?? "",
     budgets: budgetsToDraft(spec?.budgets),
     executionMode: spec?.execution?.mode ?? "",
     taskMaxRetries:
@@ -270,6 +273,7 @@ function scopeSummary(spec: SpecState): string {
   if (spec.includePaths.trim() || spec.excludePaths.trim()) parts.push("path filters");
   if (spec.languages.trim()) parts.push(spec.languages.trim());
   if (spec.authorizedNetworkTargets.trim()) parts.push("network targets authorized");
+  if (spec.securityProgramRef.trim()) parts.push(`program: ${spec.securityProgramRef.trim()}`);
   return parts.length ? parts.join(" · ") : "Whole repository";
 }
 
@@ -368,6 +372,7 @@ export function SecurityScanFormDialog({
   const [libraryRankers, setLibraryRankers] = useState<SecurityRankerResource[]>([]);
   const [libraryPostScripts, setLibraryPostScripts] = useState<SecurityPostScriptResource[]>([]);
   const [policyPacks, setPolicyPacks] = useState<SecurityPolicyPackResource[]>([]);
+  const [securityPrograms, setSecurityPrograms] = useState<SecurityProgramResource[]>([]);
 
   // The library is optional context: load it when the dialog opens and fall
   // back to empty pickers when it cannot be listed.
@@ -392,6 +397,12 @@ export function SecurityScanFormDialog({
       } catch {
         // The pack picker stays empty; an existing ref still shows as-is.
       }
+      try {
+        const programList = await client.listSecurityPrograms({ namespace: "" });
+        setSecurityPrograms(programList.programs);
+      } catch {
+        // The program picker stays empty; an existing ref still shows as-is.
+      }
     })();
   }, [open]);
 
@@ -401,6 +412,8 @@ export function SecurityScanFormDialog({
 
   const selectedPolicyPack =
     policyPacks.find((pack) => pack.name === spec.policyPackRef.trim()) ?? null;
+  const selectedSecurityProgram =
+    securityPrograms.find((program) => program.name === spec.securityProgramRef.trim()) ?? null;
   const packEnforcesBudgets = selectedPolicyPack?.enforced.includes("budgets") ?? false;
 
   function updateNotification(index: number, patch: Partial<NotificationRuleState>) {
@@ -479,6 +492,7 @@ export function SecurityScanFormDialog({
       rankerRefs: spec.rankerRefs,
       postScriptRefs: spec.postScriptRefs,
       policyPackRef: spec.policyPackRef,
+      securityProgramRef: spec.securityProgramRef,
       budgets: budgetsFromDraft(spec.budgets),
       parallelism: spec.parallelism.trim() ? Number(spec.parallelism) : 0,
       severityRankers: rankers.map((r) =>
@@ -825,9 +839,61 @@ export function SecurityScanFormDialog({
                     spec.includePaths.trim() ||
                     spec.excludePaths.trim() ||
                     spec.languages.trim() ||
-                    spec.authorizedNetworkTargets.trim(),
+                    spec.authorizedNetworkTargets.trim() ||
+                    spec.securityProgramRef.trim(),
                 )}
               >
+                <FlowField
+                  id="scan-security-program-ref"
+                  label="Security program"
+                  hint="Optional operator-verified scope snapshot. The program URL is provenance only and does not authorize network testing."
+                >
+                  <select
+                    id="scan-security-program-ref"
+                    className={selectClass}
+                    value={spec.securityProgramRef}
+                    onChange={(event) => update("securityProgramRef", event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {securityPrograms.map((program) => (
+                      <option key={program.name} value={program.name}>
+                        {program.displayName} ({program.provider})
+                      </option>
+                    ))}
+                    {spec.securityProgramRef !== "" &&
+                      !securityPrograms.some((program) => program.name === spec.securityProgramRef) && (
+                        <option value={spec.securityProgramRef}>{spec.securityProgramRef}</option>
+                      )}
+                  </select>
+                </FlowField>
+                {selectedSecurityProgram && (
+                  <div
+                    className="space-y-1.5 rounded-md border border-border/70 bg-muted/20 p-3 text-xs"
+                    data-testid="security-program-summary"
+                  >
+                    <p className="font-medium text-foreground">
+                      {selectedSecurityProgram.displayName} · {selectedSecurityProgram.provider}
+                    </p>
+                    <p className="text-muted-foreground">
+                      Provenance:{" "}
+                      <a
+                        href={selectedSecurityProgram.programUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono underline underline-offset-2"
+                      >
+                        {selectedSecurityProgram.programUrl}
+                      </a>
+                    </p>
+                    <p className="whitespace-pre-wrap text-muted-foreground">
+                      Scope snapshot: {selectedSecurityProgram.scopePolicy}
+                    </p>
+                    <p className="font-medium text-foreground">
+                      This provenance URL does not authorize network testing. Add every network
+                      target explicitly below.
+                    </p>
+                  </div>
+                )}
                 <FlowField
                   id="scan-focus"
                   label="Focus"

@@ -10,16 +10,17 @@ import {
   type SecurityScanConfig,
 } from "@/rpc/platform/service_pb";
 
-const { listSecurityScanConfigs, runSecurityScanNow, deleteSecurityScan, updateSecurityScan } =
+const { listSecurityScanConfigs, listSecurityPrograms, runSecurityScanNow, deleteSecurityScan, updateSecurityScan } =
   vi.hoisted(() => ({
     listSecurityScanConfigs: vi.fn(),
+    listSecurityPrograms: vi.fn().mockResolvedValue({ programs: [] }),
     runSecurityScanNow: vi.fn(),
     deleteSecurityScan: vi.fn(),
     updateSecurityScan: vi.fn(),
   }));
 
 vi.mock("@/lib/client", () => ({
-  client: { listSecurityScanConfigs, runSecurityScanNow, deleteSecurityScan, updateSecurityScan },
+  client: { listSecurityScanConfigs, listSecurityPrograms, runSecurityScanNow, deleteSecurityScan, updateSecurityScan },
 }));
 
 // The full form dialog is covered by SecurityScanFormDialog.test.tsx; here a
@@ -54,7 +55,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function configFixture(overrides: { name?: string; suspend?: boolean } = {}): SecurityScanConfig {
+function configFixture(overrides: { name?: string; suspend?: boolean; securityProgramRef?: string } = {}): SecurityScanConfig {
   return create(SecurityScanConfigSchema, {
     namespace: "user-alice",
     name: overrides.name ?? "nightly",
@@ -62,6 +63,7 @@ function configFixture(overrides: { name?: string; suspend?: boolean } = {}): Se
       repoUrl: "https://github.com/acme/payments.git",
       schedule: "@daily",
       suspend: overrides.suspend ?? false,
+      securityProgramRef: overrides.securityProgramRef ?? "",
     }),
     phase: "Scheduled",
     conditionReady: "True",
@@ -125,6 +127,25 @@ describe("SecurityScanConfigList", () => {
       expect(screen.getByRole("alert").textContent).toContain("resume it before requesting a run");
     });
     expect((screen.getByRole("button", { name: /Run now/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("shows the linked security program provenance URL", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ securityProgramRef: "acme-bounty" })],
+    });
+    listSecurityPrograms.mockResolvedValue({
+      programs: [
+        {
+          name: "acme-bounty",
+          programUrl: "https://hackerone.com/acme",
+        },
+      ],
+    });
+    renderList();
+
+    expect(await screen.findByText("acme-bounty")).toBeTruthy();
+    const link = screen.getByRole("link", { name: "https://hackerone.com/acme" });
+    expect(link.getAttribute("href")).toBe("https://hackerone.com/acme");
   });
 
   it("offers a duplicate dialog pre-filled from each configuration", async () => {

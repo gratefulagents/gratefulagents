@@ -303,7 +303,7 @@ func (e *securityScanExecutionEngine) postScriptPipelineChunks(all []triggersv1a
 	for _, name := range selected {
 		script := byName[name]
 		candidate := append(append([]triggersv1alpha1.SecurityScanPostScript(nil), pipeline...), script)
-		prompt := BuildSecurityPostScriptPipelinePrompt(e.resolved.spec, securityScanPromptEvent(e.runCtx), candidate, securityPostScriptFinding(finding))
+		prompt := BuildSecurityPostScriptPipelinePromptWithProgram(e.resolved.spec, securityScanPromptEvent(e.runCtx), candidate, securityPostScriptFinding(finding), e.resolved.program)
 		if len(pipeline) > 0 && len(prompt) > securityScanMaxPostScriptPipelinePromptBytes {
 			chunks = append(chunks, append([]string(nil), names...))
 			names = []string{name}
@@ -734,7 +734,7 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 		TriggerName:        scan.Name,
 		ExternalID:         exec.ID,
 		ExternalIdentifier: fmt.Sprintf("%s/post-script-pipeline/%s", exec.ID, rec.ID.String()),
-		SeedMessage:        BuildSecurityPostScriptPipelinePrompt(resolved.spec, securityScanPromptEvent(runCtx), scripts, securityPostScriptFinding(rec)),
+		SeedMessage:        BuildSecurityPostScriptPipelinePromptWithProgram(resolved.spec, securityScanPromptEvent(runCtx), scripts, securityPostScriptFinding(rec), resolved.program),
 		Revision:           base.revision,
 		Defaults:           base.defaults,
 		OwnerRef:           scan,

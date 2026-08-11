@@ -67,6 +67,10 @@ func (s *Server) securityLibraryUsage(ctx context.Context, namespace, kind strin
 			if scan.Spec.PolicyPackRef != nil {
 				refs = []string{scan.Spec.PolicyPackRef.Name}
 			}
+		case "SecurityProgram":
+			if scan.Spec.SecurityProgramRef != nil {
+				refs = []string{scan.Spec.SecurityProgramRef.Name}
+			}
 		}
 		for _, name := range refs {
 			usage[name] = append(usage[name], scan.Name)

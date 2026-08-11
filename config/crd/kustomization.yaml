@@ -28,6 +28,7 @@ resources:
 - bases/triggers.gratefulagents.dev_securityrankers.yaml
 - bases/triggers.gratefulagents.dev_securitypostscripts.yaml
 - bases/triggers.gratefulagents.dev_securitypolicypacks.yaml
+- bases/triggers.gratefulagents.dev_securityprograms.yaml
 - bases/triggers.gratefulagents.dev_slackagents.yaml
 - bases/triggers.gratefulagents.dev_slackworkspaces.yaml
 

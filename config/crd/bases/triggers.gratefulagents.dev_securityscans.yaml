@@ -870,6 +870,21 @@ spec:
                     type: array
                     x-kubernetes-list-type: atomic
                 type: object
+              securityProgramRef:
+                description: |-
+                  securityProgramRef references an operator-verified SecurityProgram in
+                  the scan's namespace. Its scope policy is resolved before dispatch and
+                  snapshotted into prompts as quoted, untrusted data. Its program URL is
+                  provenance only and never grants network authorization.
+                properties:
+                  name:
+                    description: name of the referenced resource.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
               severityRankers:
                 description: |-
                   severityRankers hold operator-authored ranking rule text concatenated
@@ -1576,6 +1591,78 @@ spec:
                       a reconcile that observes zero eligible findings does not recompute
                       it forever.
                     type: boolean
+                  securityProgramResolvedRef:
+                    description: |-
+                      securityProgramResolvedRef records the generation and digest paired
+                      with securityProgramSnapshot for run provenance annotations.
+                    properties:
+                      generation:
+                        description: |-
+                          generation is metadata.generation of the referenced resource when it
+                          was resolved.
+                        format: int64
+                        type: integer
+                      hash:
+                        description: |-
+                          hash is a sha256 hex digest of the referenced resource's resolved spec
+                          content.
+                        type: string
+                      kind:
+                        description: |-
+                          kind of the referenced resource: SecurityWorkflow, SecurityRanker,
+                          SecurityPostScript, SecurityPolicyPack, or SecurityProgram.
+                        type: string
+                      name:
+                        description: name of the referenced resource.
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                  securityProgramSnapshot:
+                    description: |-
+                      securityProgramSnapshot is the exact verified program policy used by
+                      this execution. It keeps tasks and post-scripts dispatched later in the
+                      same execution independent of subsequent SecurityProgram edits.
+                    properties:
+                      displayName:
+                        description: displayName is the human-readable program name.
+                        maxLength: 200
+                        minLength: 1
+                        type: string
+                      programURL:
+                        description: |-
+                          programURL is the HTTPS provenance URL for the program. The controller
+                          never fetches it and it grants no authorization to contact any target.
+                        maxLength: 2048
+                        minLength: 1
+                        pattern: ^https://
+                        type: string
+                      provider:
+                        description: provider identifies the program platform or operator.
+                        maxLength: 100
+                        minLength: 1
+                        type: string
+                      scopePolicy:
+                        description: |-
+                          scopePolicy is the operator-verified scope snapshot supplied to scan
+                          prompts as quoted, untrusted data.
+                        maxLength: 32768
+                        minLength: 1
+                        type: string
+                      verifiedAt:
+                        description: |-
+                          verifiedAt is when an operator last verified scopePolicy against the
+                          program's authoritative source.
+                        format: date-time
+                        type: string
+                    required:
+                    - displayName
+                    - programURL
+                    - provider
+                    - scopePolicy
+                    - verifiedAt
+                    type: object
                   startedAt:
                     description: startedAt is when the execution started.
                     format: date-time
@@ -1729,7 +1816,8 @@ spec:
               lastResolvedRefs:
                 description: |-
                   lastResolvedRefs records the reusable security resources
-                  (SecurityWorkflow, SecurityRanker, SecurityPostScript) that were
+                  (SecurityWorkflow, SecurityRanker, SecurityPostScript,
+                  SecurityPolicyPack, and SecurityProgram) that were
                   resolved and snapshotted into the most recently created run, including
                   the resource generation and a content hash of the resolved spec. Later
                   edits to the referenced resources never change historical runs.
@@ -1752,7 +1840,7 @@ spec:
                     kind:
                       description: |-
                         kind of the referenced resource: SecurityWorkflow, SecurityRanker,
-                        SecurityPostScript, or SecurityPolicyPack.
+                        SecurityPostScript, SecurityPolicyPack, or SecurityProgram.
                       type: string
                     name:
                       description: name of the referenced resource.

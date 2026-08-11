@@ -514,12 +514,24 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 
 	now := metav1.NewTime(r.now())
 	exec := planSecurityScanExecution(workflow, externalID, resolved.spec.EffectiveParallelism(), now)
+	if resolved.program != nil {
+		programSnapshot := *resolved.program
+		exec.SecurityProgramSnapshot = &programSnapshot
+		for i := range resolved.refs {
+			if resolved.refs[i].Kind == "SecurityProgram" {
+				programRef := resolved.refs[i]
+				exec.SecurityProgramResolvedRef = &programRef
+				break
+			}
+		}
+	}
 	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 		fresh.Status.Phase = "Running"
 		fresh.Status.LastRunName = ""
 		fresh.Status.LastScanTime = &now
 		fresh.Status.LastError = ""
 		fresh.Status.LastExecution = exec
+		fresh.Status.LastResolvedRefs = append([]triggersv1alpha1.SecurityScanResolvedRef(nil), resolved.refs...)
 		mutate(fresh)
 	}); err != nil {
 		return ctrl.Result{}, err
@@ -647,7 +659,21 @@ func (r *SecurityScanReconciler) advanceDeterministicExecution(ctx context.Conte
 	scheduleMutate := r.skipDueScheduleTick(ctx, scan)
 
 	var requeue time.Duration
-	resolved, err := resolveSecurityScanRefs(ctx, r.Client, scan)
+	// Program presence as well as program content is part of the execution
+	// snapshot. Always discard the live reference while an execution is active;
+	// otherwise adding a program to a scan that started without one would alter
+	// later task and post-script prompts in that already-running execution.
+	scanForResolution := scan.DeepCopy()
+	scanForResolution.Spec.SecurityProgramRef = nil
+	resolved, err := resolveSecurityScanRefs(ctx, r.Client, scanForResolution)
+	if err == nil && exec.SecurityProgramSnapshot != nil {
+		programSnapshot := *exec.SecurityProgramSnapshot
+		resolved.program = &programSnapshot
+		if exec.SecurityProgramResolvedRef != nil {
+			programRef := *exec.SecurityProgramResolvedRef
+			resolved.refs = append([]triggersv1alpha1.SecurityScanResolvedRef{programRef}, resolved.refs...)
+		}
+	}
 	if err != nil {
 		// Only a deterministic spec/reference failure (missing referenced
 		// resource, invalid spec, policy violation) fails the execution; a
@@ -2048,7 +2074,7 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		TriggerName:        scan.Name,
 		ExternalID:         exec.ID,
 		ExternalIdentifier: fmt.Sprintf("%s/%s[%d]", exec.ID, task.Name, inst.Instance),
-		SeedMessage:        BuildSecurityScanTaskPrompt(resolved.spec, securityScanPromptEvent(runCtx), task, inst, role.promptRole()),
+		SeedMessage:        BuildSecurityScanTaskPromptWithProgram(resolved.spec, securityScanPromptEvent(runCtx), task, inst, role.promptRole(), resolved.program),
 		Revision:           base.revision,
 		Defaults:           d,
 		OwnerRef:           scan,

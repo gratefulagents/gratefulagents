@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,6 +44,28 @@ func securityTestPostScript(namespace string) *triggersv1alpha1.SecurityPostScri
 			RunOn:  "high-and-above",
 		},
 	}
+}
+
+func securityTestProgram(namespace string) *triggersv1alpha1.SecurityProgram {
+	program := &triggersv1alpha1.SecurityProgram{
+		ObjectMeta: metav1.ObjectMeta{Name: "acme-bounty", Namespace: namespace, Generation: 7},
+		Spec: triggersv1alpha1.SecurityProgramSpec{
+			Provider:    "HackerOne",
+			DisplayName: "Acme Bug Bounty",
+			ProgramURL:  "https://hackerone.com/acme",
+			ScopePolicy: "Only acme/widget production code is in scope.",
+			VerifiedAt:  metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+		},
+	}
+	program.Status.ObservedGeneration = program.Generation
+	program.Status.ContentDigest = securitySpecHash(program.Spec)
+	program.Status.Conditions = []metav1.Condition{{
+		Type:               triggersv1alpha1.ConditionSecurityLibraryReady,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: program.Generation,
+		Reason:             "Validated",
+	}}
+	return program
 }
 
 func securityScanSeedMessage(t *testing.T, stateStore *seedTestStore, namespace, runName string) string {
@@ -122,6 +145,173 @@ func TestSecurityScanResolvesRefsAndSnapshotsProvenance(t *testing.T) {
 		}
 	}
 	assertSecurityScanCondition(t, updated, metav1.ConditionTrue, "ScanStarted")
+}
+
+func TestSecurityScanResolvesVerifiedProgramIntoPromptAndProvenance(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.SecurityProgramRef = &triggersv1alpha1.SecurityResourceRef{Name: "acme-bounty"}
+	program := securityTestProgram(scan.Namespace)
+	reconciler, k8sClient, stateStore := newSecurityScanReconciler(t, now, scan, program)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(runs))
+	}
+	prompt := securityScanSeedMessage(t, stateStore, scan.Namespace, runs[0].Name)
+	for _, want := range []string{"Security program scope snapshot", program.Spec.ScopePolicy, "Do not fetch it"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	wantRef := resolvedSecurityRef("SecurityProgram", program.Name, program.Generation, program.Spec)
+	var refs []triggersv1alpha1.SecurityScanResolvedRef
+	if err := json.Unmarshal([]byte(runs[0].Annotations[triggersv1alpha1.SecurityScanResolvedRefsAnnotation]), &refs); err != nil {
+		t.Fatalf("resolved refs annotation: %v", err)
+	}
+	if len(refs) < 1 || refs[0] != wantRef {
+		t.Fatalf("resolved refs = %+v, want first %+v", refs, wantRef)
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if len(updated.Status.LastResolvedRefs) < 1 || updated.Status.LastResolvedRefs[0] != wantRef {
+		t.Fatalf("status.lastResolvedRefs = %+v, want first %+v", updated.Status.LastResolvedRefs, wantRef)
+	}
+}
+
+func TestDeterministicSecurityScanFreezesProgramSnapshot(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.Execution.Mode = triggersv1alpha1.SecurityScanExecutionModeDeterministic
+	scan.Spec.SecurityProgramRef = &triggersv1alpha1.SecurityResourceRef{Name: "acme-bounty"}
+	program := securityTestProgram(scan.Namespace)
+	role := &platformv1alpha1.RoleInstruction{
+		ObjectMeta: metav1.ObjectMeta{Name: "security-reviewer"},
+		Spec:       platformv1alpha1.RoleInstructionSpec{Instructions: "Review security boundaries."},
+	}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, program, role)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	started := getSecurityScan(t, k8sClient, scan)
+	if started.Status.LastExecution == nil || started.Status.LastExecution.SecurityProgramSnapshot == nil {
+		t.Fatalf("lastExecution is missing program snapshot: %+v", started.Status.LastExecution)
+	}
+	if started.Status.LastExecution.SecurityProgramSnapshot.ScopePolicy != program.Spec.ScopePolicy ||
+		started.Status.LastExecution.SecurityProgramResolvedRef == nil ||
+		started.Status.LastExecution.SecurityProgramResolvedRef.Hash != securitySpecHash(program.Spec) {
+		t.Fatalf("program snapshot/ref = %+v / %+v", started.Status.LastExecution.SecurityProgramSnapshot, started.Status.LastExecution.SecurityProgramResolvedRef)
+	}
+	if len(started.Status.LastResolvedRefs) == 0 || started.Status.LastResolvedRefs[0].Kind != "SecurityProgram" {
+		t.Fatalf("status.lastResolvedRefs = %+v", started.Status.LastResolvedRefs)
+	}
+
+	freshProgram := &triggersv1alpha1.SecurityProgram{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(program), freshProgram); err != nil {
+		t.Fatal(err)
+	}
+	freshProgram.Spec.ScopePolicy = "EDITED policy that must not enter the active execution"
+	freshProgram.Generation++
+	if err := k8sClient.Update(context.Background(), freshProgram); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() after program edit error = %v", err)
+	}
+	after := getSecurityScan(t, k8sClient, scan)
+	if after.Status.LastExecution.SecurityProgramSnapshot.ScopePolicy != program.Spec.ScopePolicy {
+		t.Fatalf("active execution snapshot changed: %+v", after.Status.LastExecution.SecurityProgramSnapshot)
+	}
+	if after.Status.LastExecution.Phase == triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("active execution failed after source program edit: %+v", after.Status.LastExecution)
+	}
+}
+
+func TestDeterministicSecurityScanFreezesMissingProgramReference(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.Execution.Mode = triggersv1alpha1.SecurityScanExecutionModeDeterministic
+	role := &platformv1alpha1.RoleInstruction{
+		ObjectMeta: metav1.ObjectMeta{Name: "security-reviewer"},
+		Spec:       platformv1alpha1.RoleInstructionSpec{Instructions: "Review security boundaries."},
+	}
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan, role)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	started := getSecurityScan(t, k8sClient, scan)
+	if started.Status.LastExecution == nil || started.Status.LastExecution.SecurityProgramSnapshot != nil {
+		t.Fatalf("unexpected initial program snapshot: %+v", started.Status.LastExecution)
+	}
+
+	// A newly added, even unresolved, live reference must not affect the active
+	// execution that snapshotted the absence of a program.
+	started.Spec.SecurityProgramRef = &triggersv1alpha1.SecurityResourceRef{Name: "added-later"}
+	if err := k8sClient.Update(context.Background(), started); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() after adding live program reference error = %v", err)
+	}
+	after := getSecurityScan(t, k8sClient, scan)
+	if after.Status.LastExecution.SecurityProgramSnapshot != nil || after.Status.LastExecution.Phase == triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("active execution changed after adding program reference: %+v", after.Status.LastExecution)
+	}
+}
+
+func TestSecurityScanProgramReferenceFailsClosed(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for name, tc := range map[string]struct {
+		program    *triggersv1alpha1.SecurityProgram
+		wantReason string
+	}{
+		"missing": {wantReason: "UnresolvedReference"},
+		"not ready": {
+			program: func() *triggersv1alpha1.SecurityProgram {
+				p := securityTestProgram("default")
+				p.Status.Conditions = nil
+				return p
+			}(),
+			wantReason: "UnresolvedReference",
+		},
+		"digest mismatch": {
+			program: func() *triggersv1alpha1.SecurityProgram {
+				p := securityTestProgram("default")
+				p.Status.ContentDigest = strings.Repeat("0", 64)
+				return p
+			}(),
+			wantReason: "UnresolvedReference",
+		},
+		"invalid": {
+			program: func() *triggersv1alpha1.SecurityProgram {
+				p := securityTestProgram("default")
+				p.Spec.ProgramURL = "http://example.com/program"
+				return p
+			}(),
+			wantReason: "InvalidSpec",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			scan := securityScanTestScan()
+			scan.Spec.SecurityProgramRef = &triggersv1alpha1.SecurityResourceRef{Name: "acme-bounty"}
+			objects := []client.Object{scan}
+			if tc.program != nil {
+				objects = append(objects, tc.program)
+			}
+			reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, objects...)
+			if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+			if runs := securityScanRuns(t, k8sClient, scan.Namespace); len(runs) != 0 {
+				t.Fatalf("AgentRuns = %d, want 0", len(runs))
+			}
+			assertSecurityScanCondition(t, getSecurityScan(t, k8sClient, scan), metav1.ConditionFalse, tc.wantReason)
+		})
+	}
 }
 
 func TestSecurityScanUnresolvedReferenceCreatesNoRun(t *testing.T) {

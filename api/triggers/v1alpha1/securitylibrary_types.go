@@ -29,7 +29,7 @@ type SecurityResourceRef struct {
 // snapshotted into a scan run at run-creation time.
 type SecurityScanResolvedRef struct {
 	// kind of the referenced resource: SecurityWorkflow, SecurityRanker,
-	// SecurityPostScript, or SecurityPolicyPack.
+	// SecurityPostScript, SecurityPolicyPack, or SecurityProgram.
 	Kind string `json:"kind"`
 
 	// name of the referenced resource.
@@ -117,7 +117,7 @@ type SecurityLibraryResourceStatus struct {
 }
 
 // ConditionSecurityLibraryReady is the Ready condition type shared by
-// SecurityWorkflow, SecurityRanker, and SecurityPostScript.
+// reusable security library resources.
 const ConditionSecurityLibraryReady = "Ready"
 
 // +kubebuilder:object:root=true

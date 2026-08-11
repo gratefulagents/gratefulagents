@@ -182,16 +182,19 @@ Sub-agents report vulnerabilities by calling the `report_security_finding` tool 
 
 ## Reusable security resources
 
-Workflows, severity rankers, and post-scripts can be shared across scans as namespace-scoped resources instead of being repeated inline in every `SecurityScan`:
+Workflows, severity rankers, post-scripts, and bounty program scope snapshots can be shared across scans as namespace-scoped resources instead of being repeated inline in every `SecurityScan`:
 
 - **`SecurityWorkflow`** — `spec.description`, `spec.tasks` (the same task schema as `spec.workflow`), and an optional `spec.parallelism` that overrides the referencing scan's parallelism when set.
 - **`SecurityRanker`** — `spec.description` and `spec.rules`, a list of ranking rule lines in the same language as `spec.severityRankers[].rules`.
 - **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, or `high-and-above`).
+- **`SecurityProgram`** — an operator-verified bounty or disclosure-program snapshot: provider, display name, HTTPS provenance URL, the explicit scope policy, and when that policy was verified. The controller never fetches the URL. It does not authorize network access; only `spec.scope.authorizedNetworkTargets` can do that.
 
 A `SecurityScan` references them with:
 
 ```yaml
 spec:
+  securityProgramRef:
+    name: rootstock-immunefi       # quoted eligibility policy for every task
   workflowRef:
     name: payments-deep-dive       # replaces an inline workflow
   rankerRefs:
@@ -206,6 +209,26 @@ spec:
 - `workflowRef` and an inline `workflow` are **mutually exclusive**. Setting both makes the controller report `Ready=False` with reason `InvalidSpec` and never create a run; the dashboard rejects the combination at save time.
 - `rankerRefs` and `postScriptRefs` **append** to the inline `severityRankers` and `postScripts` — inline entries come first, referenced entries follow in spec order.
 - A referenced `SecurityWorkflow` with `spec.parallelism` set overrides the scan's own `parallelism` for runs built from it.
+- A `SecurityProgram` URL without an explicit operator-verified `scopePolicy` is invalid. Eligibility checks fail closed when the reference is missing, stale, or not ready.
+
+For example:
+
+```yaml
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: rootstock-immunefi
+spec:
+  provider: Immunefi
+  displayName: Rootstock Labs Bug Bounty
+  programURL: https://immunefi.com/bug-bounty/rootstocklabs/scope/
+  verifiedAt: "2026-08-11T00:00:00Z"
+  scopePolicy: |
+    Paste the operator-verified in-scope assets, eligible vulnerability
+    classes, exclusions, testing restrictions, and reward requirements here.
+```
+
+Program-page text is quoted to agents as untrusted policy data. Embedded instructions are not executed, and the URL is retained only as provenance. Update `scopePolicy` and `verifiedAt` after reviewing a changed program page; new executions receive the new snapshot while active and historical executions retain the old one.
 
 ### Snapshot semantics (reproducible runs)
 
@@ -213,11 +236,11 @@ References are resolved when each run is **created**, not when it executes or wh
 
 ### Deleting referenced resources
 
-Deleting a workflow, ranker, or post-script through the dashboard is **blocked** while any `SecurityScan` in the namespace still references it; the error lists the referencing scans so you can detach them first. `kubectl delete` cannot be blocked (there is no admission webhook), so a kubectl-deleted resource leaves referencing scans reporting `Ready=False` with reason `UnresolvedReference` at their next run — no run is created until the reference is fixed. Runs that already happened are unaffected either way, because they carry their own snapshot.
+Deleting a workflow, ranker, post-script, or security program through the dashboard is **blocked** while any `SecurityScan` in the namespace still references it; the error lists the referencing scans so you can detach them first. `kubectl delete` cannot be blocked (there is no admission webhook), so a kubectl-deleted resource leaves referencing scans reporting `Ready=False` with reason `UnresolvedReference` at their next run — no run is created until the reference is fixed. Runs that already happened are unaffected either way, because they carry their own snapshot.
 
 ### The library and the visual workflow builder
 
-The dashboard's **Security → Library** page (`/security/library`) lists workflows, rankers, and post-scripts with usage counts, and supports create, edit, duplicate, and guarded delete. Workflows are edited in a visual builder: structured task cards (name, objective, category, specialist role picker, model override, max findings), dependency selection limited to the other task names, and a live read-only graph of the dependency DAG. The builder refuses to save cycles, dangling or self dependencies, duplicate names, invalid roles/models, or an empty workflow — the same validation the server enforces on create/update and exposes through the `ValidateSecurityWorkflow` RPC. The scan form's *Workflow tasks* section lets you pick a library workflow (or keep editing inline), and its *Rankers & post-scripts* section attaches library rankers and post-scripts.
+The dashboard's **Security → Library** page (`/security/library`) lists workflows, rankers, post-scripts, and programs with usage counts, and supports create, edit, duplicate where applicable, and guarded delete. Workflows are edited in a visual builder: structured task cards (name, objective, category, specialist role picker, model override, max findings), dependency selection limited to the other task names, and a live read-only graph of the dependency DAG. The builder refuses to save cycles, dangling or self dependencies, duplicate names, invalid roles/models, or an empty workflow — the same validation the server enforces on create/update and exposes through the `ValidateSecurityWorkflow` RPC. The scan form's *Workflow tasks* section lets you pick a library workflow (or keep editing inline), its *Rankers & post-scripts* section attaches library rankers and post-scripts, and its *Scope* section attaches an optional security program.
 
 ### AI-assisted authoring
 

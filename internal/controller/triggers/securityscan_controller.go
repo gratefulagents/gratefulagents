@@ -584,7 +584,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 		TriggerName:        scan.Name,
 		ExternalID:         externalID,
 		ExternalIdentifier: externalIdentifier,
-		SeedMessage:        BuildSecurityScanPromptWithEvent(resolved.spec, securityScanPromptEvent(runCtx), bound),
+		SeedMessage:        BuildSecurityScanPromptWithProgram(resolved.spec, securityScanPromptEvent(runCtx), bound, resolved.program),
 		Revision:           base.revision,
 		Defaults:           base.defaults,
 		OwnerRef:           scan,

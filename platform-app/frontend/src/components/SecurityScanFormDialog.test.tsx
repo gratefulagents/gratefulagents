@@ -35,6 +35,17 @@ vi.mock("@/lib/client", () => ({
     listSecurityPostScripts: vi.fn().mockResolvedValue({
       postScripts: [{ name: "write-poc", prompt: "p", usageCount: 0, referencingScans: [] }],
     }),
+    listSecurityPrograms: vi.fn().mockResolvedValue({
+      programs: [
+        {
+          name: "acme-bounty",
+          provider: "HackerOne",
+          displayName: "Acme public bug bounty",
+          programUrl: "https://hackerone.com/acme",
+          scopePolicy: "In scope: api.example.com",
+        },
+      ],
+    }),
     listSecurityPolicyPacks: vi.fn().mockResolvedValue({
       policyPacks: [
         {
@@ -117,6 +128,7 @@ describe("SecurityScanFormDialog", () => {
     expect(request.spec?.repoUrl).toBe("https://github.com/acme/payments.git");
     expect(request.spec?.schedule).toBe("@daily");
     expect(request.spec?.workflow).toEqual([]);
+    expect(request.spec?.securityProgramRef).toBe("");
     expect(request.spec?.dedupe?.enabled).toBe(true);
     expect(request.useSavedCredentials).toBe(true);
     expect(request.policies?.configureRuntimeProfile).toBe(true);
@@ -155,6 +167,27 @@ describe("SecurityScanFormDialog", () => {
     ]);
   });
 
+  it("selects a security program while keeping network authorization explicit", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Scope/ }));
+
+    const programSelect = await screen.findByLabelText("Security program");
+    fireEvent.change(programSelect, { target: { value: "acme-bounty" } });
+    const summary = await screen.findByTestId("security-program-summary");
+    expect(summary.textContent).toContain("https://hackerone.com/acme");
+    expect(summary.textContent).toContain("In scope: api.example.com");
+    expect(screen.getAllByText(/does not authorize network testing/i).length).toBeGreaterThan(0);
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.securityProgramRef).toBe("acme-bounty");
+    expect(request.spec?.scope?.authorizedNetworkTargets).toEqual([]);
+  });
+
   it("omits network authorization when the targets field is left empty", async () => {
     renderDialog();
 
@@ -179,6 +212,32 @@ describe("SecurityScanFormDialog", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(client.createSecurityScan).not.toHaveBeenCalled();
+  });
+
+  it("round-trips a security program reference when editing", async () => {
+    vi.mocked(client.updateSecurityScan).mockResolvedValue(
+      create(SecurityScanConfigSchema, { namespace: "user-alice", name: "nightly" }),
+    );
+    const config = create(SecurityScanConfigSchema, {
+      namespace: "user-alice",
+      name: "nightly",
+      spec: create(SecurityScanConfigSpecSchema, {
+        repoUrl: "https://github.com/acme/payments.git",
+        securityProgramRef: "acme-bounty",
+      }),
+    });
+    render(<SecurityScanFormDialog config={config} trigger={<button>Edit</button>} defaultOpen />);
+    fireEvent.click(screen.getByRole("button", { name: /Scope/ }));
+
+    expect((await screen.findByLabelText("Security program") as HTMLSelectElement).value).toBe(
+      "acme-bounty",
+    );
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(client.updateSecurityScan).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(client.updateSecurityScan).mock.calls[0][0].spec?.securityProgramRef).toBe(
+      "acme-bounty",
+    );
   });
 });
 
