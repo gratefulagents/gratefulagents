@@ -1,0 +1,28 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-arbitrum
+spec:
+  provider: Immunefi
+  displayName: Arbitrum
+  programURL: https://immunefi.com/bug-bounty/arbitrum/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-07-30).
+
+    Repository targets:
+    - https://github.com/OffchainLabs/token-bridge-contracts on branch main, limited to individually listed files under contracts/tokenbridge/arbitrum and contracts/tokenbridge/ethereum. Verified groups include messenger, standard/custom token, gateway, gateway-router, and WETH-gateway contracts.
+    - Do not infer blanket scope for OffchainLabs/nitro or OffchainLabs/nitro-contracts from project affiliation; the program enumerates individual assets and active deployments.
+
+    Rewards:
+    - Smart-contract Critical: up to USD 2,000,000, generally capped at 10% of economic damage with a USD 50,000 minimum.
+    - Smart-contract High: USD 10,000 minimum to USD 30,000 maximum.
+
+    Eligible impacts:
+    - Unmitigated direct theft and unupgradeable permanent freezing are Critical. Invalid withdrawals, protocol-delay-mitigated theft/freezing, insolvency, reorg bugs, fast-bridge damage, and network-wide DoS can be High.
+
+    Out of scope:
+    - Security-Council-remediable issues and Nova issues are capped at High. Disabled/non-default features, upgrade-window-only or archive-sync-only effects, upstream geth bugs, partial-node DoS, validator stakes, challenge bonds, protocol fee accounts, tests/configuration, and privileged assumptions are excluded.
+
+    Testing and submission:
+    - PoC and KYC required. Local forks only; no live-network testing, destructive DoS, third-party testing, phishing, automation traffic, or unapproved disclosure.

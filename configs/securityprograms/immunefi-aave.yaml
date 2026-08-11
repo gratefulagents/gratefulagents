@@ -1,0 +1,28 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-aave
+spec:
+  provider: Immunefi
+  displayName: Aave
+  programURL: https://immunefi.com/bug-bounty/aave/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-04-17).
+
+    Repository targets:
+    - https://github.com/aave-dao/aave-v3-origin on branch main, limited to individually listed production files. Verified groups include PoolAddressesProvider.sol, ACLManager.sol, Pool.sol, L2Pool.sol, PoolConfigurator.sol, DefaultReserveInterestRateStrategyV2.sol, upgradeability contracts, ReserveConfiguration.sol, UserConfiguration.sol, and BorrowLogic.sol under src/contracts/.
+    - gho-origin audit links are resources, not proof of repository scope; this snapshot does not include gho-origin.
+
+    Rewards:
+    - Smart-contract Critical: USD 50,000 minimum to USD 1,000,000 maximum, normally 10% of directly affected funds.
+    - Smart-contract High: USD 10,000 minimum to USD 75,000 maximum.
+
+    Eligible impacts:
+    - Principal theft, permanent locking, protocol insolvency, unmitigable governance-result manipulation, treasury theft, and theft/locking of yield.
+
+    Out of scope:
+    - Tests/configuration, non-active features, privileged or leaked-key assumptions, external depegs not caused by code, liquidity/Sybil/centralization-only issues, known issues, and best practices are excluded. Contributor/auditor eligibility restrictions apply.
+
+    Testing and submission:
+    - PoC and KYC required. Use local forks only; no mainnet/public-testnet or third-party testing, destructive DoS, phishing, automation traffic, or unapproved disclosure.

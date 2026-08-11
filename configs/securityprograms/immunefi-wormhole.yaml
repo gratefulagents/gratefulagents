@@ -1,0 +1,29 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-wormhole
+spec:
+  provider: Immunefi
+  displayName: Wormhole
+  programURL: https://immunefi.com/bug-bounty/wormhole/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-07-16).
+
+    Repository targets:
+    - https://github.com/wormhole-foundation/wormhole on branch main, limited to node/, wormchain/, ethereum/, solana/, cosmwasm/, algorand/, aptos/, sui/, and near/.
+    - https://github.com/wormhole-foundation/native-token-transfers, limited to tagged v1.x.x and v2.x.x releases. Forks/modifications are excluded and NTT findings are downgraded one severity.
+    - wormhole-foundation/multigov is not a listed asset.
+
+    Rewards:
+    - Blockchain/DLT and smart-contract Critical: USD 100,000 minimum to USD 1,000,000 maximum, tiered by affected TVL/chain.
+    - High: USD 10,000 minimum to USD 100,000 maximum.
+
+    Eligible impacts:
+    - Portal Token Bridge theft/loss/locking, forged VAAs or verification bypass, loss-causing governance spoofing, Guardian quorum key exposure, multi-Guardian RCE, and unrestricted Accountant bypass.
+
+    Out of scope:
+    - Undeployed code, ICS20/ibc-translator, NFT Bridge, CCQ, Guardian network DoS, known issues, tests, privileged assumptions, and third-party-only bugs are excluded.
+
+    Testing and submission:
+    - PoC and KYC required, with additional payout eligibility terms. Test private/local networks only; no mainnet/public-testnet or third-party testing, DoS, traffic generation, phishing, or unapproved disclosure.

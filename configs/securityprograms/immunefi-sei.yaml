@@ -1,0 +1,27 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-sei
+spec:
+  provider: Immunefi
+  displayName: Sei
+  programURL: https://immunefi.com/bug-bounty/sei/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-08-11).
+
+    Repository targets:
+    - https://github.com/sei-protocol/sei-chain is explicitly listed as a repository-root asset without a branch pin. Eligibility still requires production/default-enabled behavior and an accepted impact.
+
+    Rewards:
+    - Critical: up to USD 500,000.
+    - High: USD 25,000 flat.
+
+    Eligible impacts:
+    - Direct loss or permanent freezing of at least USD 5,000 can be Critical. A halt of at least one-third of validators, permanent hard-fork chain split, or default-configuration RPC-node crash can be High.
+
+    Out of scope:
+    - Only the Giga executor is included among Giga functionality. EVMone, Autobahn consensus, Giga storage, other Giga-gated paths, StateSync-peer assumptions, non-default configurations, tests, known issues, privileged assumptions, and best-practice-only reports are excluded.
+
+    Testing and submission:
+    - PoC and KYC required. Blockchain PoCs must follow the program's local four-node-cluster instructions. No mainnet/public-testnet testing, destructive DoS, third-party testing, phishing, traffic generation, or unapproved disclosure.

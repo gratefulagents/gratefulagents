@@ -1,0 +1,30 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-kamino
+spec:
+  provider: Immunefi
+  displayName: Kamino
+  programURL: https://immunefi.com/bug-bounty/kamino/scope/
+  verifiedAt: 2026-08-11T00:00:00Z
+  scopePolicy: |
+    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-07-10).
+
+    Repository targets:
+    - https://github.com/Kamino-Finance/klend
+    - https://github.com/Kamino-Finance/kvault
+    - https://github.com/Kamino-Finance/kfarms
+    These repository-root assets are explicitly listed without a branch pin. Eligibility still requires deployed/default production code and an in-scope impact.
+
+    Rewards:
+    - Smart-contract Critical: up to USD 1,500,000.
+    - Smart-contract High: up to USD 100,000.
+
+    Eligible impacts:
+    - Governance-result manipulation, direct theft of user funds, permanent freezing, insolvency, theft/permanent freezing of unclaimed yield, and qualifying temporary freezing.
+
+    Out of scope:
+    - Non-loss Token-2022 issues, user-manipulated interest-rate scenarios, protocol-fee loss, disabled referral-fee issues, Solana/RPC infrastructure failures, dependency bugs, non-default/non-deployed configurations, tests, known issues, and privileged assumptions are excluded.
+
+    Testing and submission:
+    - PoC and KYC required. Use local validators/forks only; no mainnet/public-testnet or third-party testing, destructive DoS, phishing, traffic generation, or unapproved disclosure.
