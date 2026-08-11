@@ -152,3 +152,65 @@ func TestSecurityWorkflowLibraryAssets(t *testing.T) {
 		})
 	}
 }
+
+// TestSmartContractReviewLifecycle prevents the EVM workflow from regressing
+// back to a collection of disconnected manual checklists. The lifecycle stages
+// and executable-tool boundary are part of the shipped workflow's contract.
+func TestSmartContractReviewLifecycle(t *testing.T) {
+	t.Parallel()
+
+	var workflow triggersv1alpha1.SecurityWorkflow
+	readBootstrapAsset(t, "securityworkflows", "smart-contract-review", &workflow)
+
+	byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+	for _, task := range workflow.Spec.Tasks {
+		byName[task.Name] = task
+	}
+	required := []string{
+		"inventory-scope-repositories-deployments",
+		"map-architecture-assets-roles-entrypoints",
+		"define-security-invariants",
+		"reproducible-build-artifact-deployment-review",
+		"aderyn-static-analysis",
+		"deterministic-forge-tests-and-invariants",
+		"echidna-stateful-property-fuzzing",
+		"bounded-mythril-symbolic-analysis",
+		"symbolic-and-formal-applicability",
+		"deployment-and-privileged-configuration",
+		"validate-high-impact-exploits",
+		"account-lifecycle-coverage",
+		"remediation-and-retest",
+		"triage-and-report",
+	}
+	for _, name := range required {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("required EVM lifecycle task %q is missing", name)
+		}
+	}
+
+	for name, tool := range map[string]string{
+		"aderyn-static-analysis":                   "aderyn",
+		"deterministic-forge-tests-and-invariants": "forge-security-tests",
+		"echidna-stateful-property-fuzzing":        "echidna",
+		"bounded-mythril-symbolic-analysis":        "mythril",
+	} {
+		task, ok := byName[name]
+		if !ok {
+			continue
+		}
+		objective := strings.ToLower(task.Objective)
+		if !strings.Contains(objective, "run_security_tool") || !strings.Contains(objective, tool) {
+			t.Errorf("task %q must execute %s through run_security_tool", name, tool)
+		}
+	}
+
+	triage, ok := byName["triage-and-report"]
+	if ok {
+		objective := strings.ToLower(triage.Objective)
+		for _, status := range []string{"examined", "skipped", "unsupported", "inconclusive", "retest"} {
+			if !strings.Contains(objective, status) {
+				t.Errorf("triage-and-report must account for %q coverage", status)
+			}
+		}
+	}
+}

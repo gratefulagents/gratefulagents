@@ -3,9 +3,422 @@ kind: SecurityWorkflow
 metadata:
   name: smart-contract-review
 spec:
-  description: Solidity and EVM contract review - reentrancy and external-call assumptions, access control over privileged operations, oracle and price manipulation, arithmetic and rounding, upgradeability and storage layout, and token integration behavior - fanning into a single triage pass.
+  description: Complete EVM smart-contract review lifecycle covering structured scope and deployment mapping, architecture and entry points, explicit invariants, reproducible builds and source-to-deployment comparison, executable Aderyn and seeded Forge checks, specialist manual review, formal-method applicability, local exploit validation, privileged configuration, coverage accounting, remediation, retesting, and one final triage report.
+  parallelism: 6
   tasks:
-    - name: reentrancy-and-external-calls
+    - name: inventory-scope-repositories-deployments
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-entry-point-analyzer
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Establish the exact EVM review scope before hunting. Follow production wiring and publish one
+        structured object containing: the immutable revision and stated inclusions/exclusions; every
+        contract project root and repository component, framework, manifests, source/test/script/artifact
+        roots, dependency locks, compiler configuration, and whether it is production-relevant; and every
+        known deployment from manifests, scripts, address books, explorer metadata, or documentation.
+        Deployment records must include chain id/network, address when available, contract and artifact,
+        proxy/implementation/admin relationship, constructor or initializer source, and an availability
+        status. Distinguish absent information from evidence that no deployment exists. Do not infer that
+        documentation is authoritative and do not report vulnerabilities in this mapping task. Submit the
+        complete inventory for all later stages; use empty arrays plus an explicit limitation rather than
+        silently omitting an unavailable class of data.
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["scope", "repositories", "deployments", "limitations"],
+          "properties": {
+            "scope": {
+              "type": "object",
+              "required": ["revision", "in_scope", "out_of_scope"],
+              "properties": {
+                "revision": {"type": "string"},
+                "in_scope": {"type": "array", "items": {"type": "string"}},
+                "out_of_scope": {"type": "array", "items": {"type": "string"}}
+              }
+            },
+            "repositories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["project_root", "framework", "manifests", "source_roots", "test_roots", "artifact_roots", "production_relevance"],
+                "properties": {
+                  "project_root": {"type": "string"},
+                  "framework": {"type": "string"},
+                  "manifests": {"type": "array", "items": {"type": "string"}},
+                  "source_roots": {"type": "array", "items": {"type": "string"}},
+                  "test_roots": {"type": "array", "items": {"type": "string"}},
+                  "script_roots": {"type": "array", "items": {"type": "string"}},
+                  "artifact_roots": {"type": "array", "items": {"type": "string"}},
+                  "dependency_locks": {"type": "array", "items": {"type": "string"}},
+                  "compiler_config": {"type": "array", "items": {"type": "string"}},
+                  "production_relevance": {"type": "string"}
+                }
+              }
+            },
+            "deployments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["network", "contract", "artifact", "kind", "availability"],
+                "properties": {
+                  "network": {"type": "string"},
+                  "chain_id": {"type": "string"},
+                  "address": {"type": "string"},
+                  "contract": {"type": "string"},
+                  "artifact": {"type": "string"},
+                  "kind": {"type": "string", "enum": ["direct", "proxy", "implementation", "beacon", "diamond", "clone", "factory", "unknown"]},
+                  "implementation": {"type": "string"},
+                  "admin": {"type": "string"},
+                  "initialization_source": {"type": "string"},
+                  "availability": {"type": "string", "enum": ["available", "partial", "unavailable"]}
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+
+    - name: map-architecture-assets-roles-entrypoints
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-entry-point-analyzer
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Using {{tasks.inventory-scope-repositories-deployments.output}}, follow actual inheritance,
+        registration, factory, proxy, diamond, library, hook, callback, and deployment wiring. Publish a
+        structured architecture map of protected assets; actors and roles including owners, multisigs,
+        governance, timelocks, guardians, keepers, relayers, bundlers, token holders, and arbitrary users;
+        trust boundaries and external dependencies; and every production-reachable state-changing entry
+        point. Each entry point must name its contract/symbol and file, caller class and guard, value or
+        state affected, external calls/callbacks, deployment reachability, and risk rank. Include receive,
+        fallback, constructors/initializers, upgrade and migration hooks, token/NFT receiver hooks,
+        signatures/permits, ERC-4337 validation/execution, EIP-7702-sensitive authorization, factories,
+        CREATE/CREATE2, and privileged configuration. Exclude test-only harnesses and publish limitations.
+        This is an inventory, not a finding task.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["assets", "roles", "trust_boundaries", "external_dependencies", "entrypoints", "limitations"],
+          "properties": {
+            "assets": {"type": "array", "items": {"type": "object", "required": ["name", "protection_goal"], "properties": {"name": {"type": "string"}, "protection_goal": {"type": "string"}}}},
+            "roles": {"type": "array", "items": {"type": "object", "required": ["role", "capabilities", "trust"], "properties": {"role": {"type": "string"}, "capabilities": {"type": "array", "items": {"type": "string"}}, "trust": {"type": "string"}}}},
+            "trust_boundaries": {"type": "array", "items": {"type": "string"}},
+            "external_dependencies": {"type": "array", "items": {"type": "object", "required": ["name", "assumption"], "properties": {"name": {"type": "string"}, "assumption": {"type": "string"}}}},
+            "entrypoints": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "contract", "symbol", "file", "caller", "guard", "state_or_value", "external_interactions", "deployment_reachability", "risk_rank"],
+                "properties": {
+                  "id": {"type": "string"},
+                  "contract": {"type": "string"},
+                  "symbol": {"type": "string"},
+                  "file": {"type": "string"},
+                  "caller": {"type": "string"},
+                  "guard": {"type": "string"},
+                  "state_or_value": {"type": "string"},
+                  "external_interactions": {"type": "array", "items": {"type": "string"}},
+                  "deployment_reachability": {"type": "string"},
+                  "risk_rank": {"type": "integer", "minimum": 1}
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+
+    - name: define-security-invariants
+      role: threat-modeler
+      category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-dimensional-analysis
+        - name: evm-economic-and-mev-review
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Derive explicit, falsifiable security properties from
+        {{tasks.inventory-scope-repositories-deployments.output}} and
+        {{tasks.map-architecture-assets-roles-entrypoints.output}}. Cover system-wide conservation and
+        solvency, assets versus liabilities and bad debt, share/asset exchange rates and rounding direction,
+        total supply and per-user accounting, authorization and role separation, nonce/domain/replay rules,
+        lifecycle and initialization, upgrade/storage compatibility, oracle freshness/deviation, liquidation
+        health and incentives, auction settlement, rewards/interest monotonicity, queue progress, bounded
+        work/state growth, callback atomicity, and cross-contract/deployment consistency. For each invariant
+        identify assets, actors, state variables, transitions that may break it, and a concrete assertion or
+        test oracle. Mark assumptions and applicability; do not claim a property was tested here. Submit the
+        invariant portfolio for build, manual, fuzz, formal, validation, and coverage stages.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - map-architecture-assets-roles-entrypoints
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "domain", "property", "assets", "actors", "state", "transitions", "oracle", "applicability"],
+            "properties": {
+              "id": {"type": "string"},
+              "domain": {"type": "string"},
+              "property": {"type": "string"},
+              "assets": {"type": "array", "items": {"type": "string"}},
+              "actors": {"type": "array", "items": {"type": "string"}},
+              "state": {"type": "array", "items": {"type": "string"}},
+              "transitions": {"type": "array", "items": {"type": "string"}},
+              "oracle": {"type": "string"},
+              "assumptions": {"type": "array", "items": {"type": "string"}},
+              "applicability": {"type": "string", "enum": ["applicable", "not_applicable", "unknown"]}
+            }
+          }
+        }
+
+    - name: reproducible-build-artifact-deployment-review
+      role: security-reviewer
+      category: supply-chain
+      skillRefs:
+        - name: trail-of-bits-audit-prep-assistant
+        - name: trail-of-bits-supply-chain-risk-auditor
+        - name: evm-low-level-and-deployment-review
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Review the build and release evidence in {{tasks.inventory-scope-repositories-deployments.output}},
+        architecture in {{tasks.map-architecture-assets-roles-entrypoints.output}}, and properties in
+        {{tasks.define-security-invariants.output}} without pretending that static inspection executed a
+        build. Record exact Solidity/Vyper compiler versions and pragma compatibility, optimizer runs,
+        via-IR, EVM version, metadata settings, remappings, dependency/solc locks, generated sources,
+        libraries, build scripts, CI and verification inputs. Determine whether the repository supplies a
+        reproducible offline build recipe. Where artifacts or deployment data exist, compare source names,
+        ABI/selectors, creation/runtime bytecode metadata, link references, immutables, constructor arguments,
+        proxy implementation slots, and verification metadata as far as available; clearly separate an
+        observed match, mismatch, and unavailable comparison. Report concrete build/deployment defects with
+        file:line evidence. Submit one record per project/deployment with status examined, skipped,
+        unsupported, or inconclusive and never call an unexecuted build successful.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "build_reproducibility", "source_artifact_deployment", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "build_reproducibility": {"type": "string", "enum": ["established", "not_established", "not_attempted", "inconclusive"]},
+              "source_artifact_deployment": {"type": "string", "enum": ["matched", "mismatched", "partial", "unavailable", "inconclusive"]},
+              "compiler": {"type": "string"},
+              "evidence": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: aderyn-static-analysis
+      role: vulnerability-hunter
+      category: other
+      skillRefs:
+        - name: security-scan
+        - name: trail-of-bits-fp-check
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.inventory-scope-repositories-deployments.output}} and
+        {{tasks.reproducible-build-artifact-deployment-review.output}} to identify each applicable Solidity
+        project root. For each applicable root, actually call run_security_tool exactly once with tool
+        `aderyn`, target type `solidity_project`, locator equal to that workspace project root, and target
+        revision equal to the scan's immutable revision. Supply no invented arguments or seed. Correlate
+        normalized Aderyn findings with reachable production code and the entry-point map in
+        {{tasks.map-architecture-assets-roles-entrypoints.output}}; do not re-submit tool findings. If no
+        Solidity project exists, publish skipped/not_applicable. If run_security_tool is absent, rejects the
+        target, errors, or times out, publish unsupported or inconclusive with the exact returned status and
+        limitation; never say Aderyn ran, passed, or found nothing. A completed pass means only that this
+        pinned Aderyn run emitted no findings, not that the contracts are safe. Submit one coverage record per
+        project including execution status and artifact/replay references when returned.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - map-architecture-assets-roles-entrypoints
+        - reproducible-build-artifact-deployment-review
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "execution_status", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "tool_run": {"type": "string"},
+              "artifacts": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: deterministic-forge-tests-and-invariants
+      role: test-engineer
+      category: logic-flaw
+      skillRefs:
+        - name: security-scan
+        - name: trail-of-bits-property-based-testing
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.inventory-scope-repositories-deployments.output}},
+        {{tasks.define-security-invariants.output}}, and
+        {{tasks.reproducible-build-artifact-deployment-review.output}} to identify Foundry project roots and
+        existing unit, fuzz, invariant, fork, differential, and regression tests. For every applicable root,
+        actually call run_security_tool exactly once with tool `forge-security-tests`, target type
+        `foundry_project`, locator equal to that workspace root, target revision equal to the immutable scan
+        revision, and the fixed seed `2062026`. Do not invent raw Forge flags. Record the seed, pinned tool and
+        target references, tests/harnesses discovered, executed result, failures, and coverage limitations.
+        The registered runner is offline and single-threaded: existing fork tests are examined only if their
+        state is already locally reproducible; RPC-dependent or missing fork fixtures are unsupported, not
+        passed. If the tool or a compatible Foundry project is unavailable, publish skipped or unsupported
+        with execution_status not_run/not_applicable. Error, timeout, partial, setup failure, and a bounded
+        fuzz run with no crash remain inconclusive coverage and never prove safety or an invariant not encoded
+        by the harness.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - define-security-invariants
+        - reproducible-build-artifact-deployment-review
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "execution_status", "seed", "harnesses", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "seed": {"type": "integer"},
+              "harnesses": {"type": "array", "items": {"type": "string"}},
+              "invariants_exercised": {"type": "array", "items": {"type": "string"}},
+              "uncovered_targets": {"type": "array", "items": {"type": "string"}},
+              "tool_run": {"type": "string"},
+              "artifacts": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: echidna-stateful-property-fuzzing
+      role: test-engineer
+      category: logic-flaw
+      skillRefs:
+        - name: security-scan
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-coverage-analysis
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.inventory-scope-repositories-deployments.output}},
+        {{tasks.define-security-invariants.output}}, and
+        {{tasks.reproducible-build-artifact-deployment-review.output}} to locate existing Echidna property or
+        assertion harnesses and their configured target contracts. For every applicable project root, actually
+        call run_security_tool with tool `echidna`, target type `solidity_project`, that workspace root and
+        immutable revision, and fixed seed `2062026`. The registered wrapper fixes one worker, 10,000 test
+        sequences, sequence length 32, shrink limit 5,000, JSON output, no Slither subprocess, and no
+        caller-configurable RPC or FFI; do not invent scanner flags. Correlate falsified properties and
+        minimized transaction sequences with the invariant portfolio and preserve replay/artifact references.
+        Record harnesses, properties, seed, targets and coverage limitations. Missing harnesses are skipped,
+        an unavailable compiler/build is unsupported, and error/timeout/partial results are inconclusive. A bounded clean campaign proves only
+        that those harnesses found no violation under that seed and bound; it never proves contract safety.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - define-security-invariants
+        - reproducible-build-artifact-deployment-review
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "execution_status", "seed", "harnesses", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "seed": {"type": "integer"},
+              "harnesses": {"type": "array", "items": {"type": "string"}},
+              "properties_exercised": {"type": "array", "items": {"type": "string"}},
+              "uncovered_targets": {"type": "array", "items": {"type": "string"}},
+              "tool_run": {"type": "string"},
+              "artifacts": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: bounded-mythril-symbolic-analysis
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: security-scan
+        - name: trail-of-bits-fp-check
+        - name: evm-low-level-and-deployment-review
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.inventory-scope-repositories-deployments.output}},
+        {{tasks.map-architecture-assets-roles-entrypoints.output}}, and
+        {{tasks.reproducible-build-artifact-deployment-review.output}} to select production Solidity contract
+        source files or EVM bytecode files for bounded symbolic analysis. For each selected single-file target,
+        actually call run_security_tool with tool `mythril`, target type `solidity_contract` or `evm_bytecode`
+        matching the file, its workspace locator and immutable revision. Do not invent flags: the pinned
+        multi-architecture wrapper runs offline breadth-first search with fixed transaction, depth, call,
+        loop, solver and time bounds. Correlate normalized SWC issues and transaction counterexamples with
+        reachable entry points and manually validate them; do not re-submit tool findings. Record every
+        selected and omitted contract and the bound that limits the claim. A clean bounded result is partial
+        symbolic coverage only. Compiler absence, unsupported multi-file imports, tool error, timeout or
+        native success=false are unsupported/inconclusive rather than passes.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - map-architecture-assets-roles-entrypoints
+        - reproducible-build-artifact-deployment-review
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "execution_status", "bounds", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "target_type": {"type": "string"},
+              "bounds": {"type": "array", "items": {"type": "string"}},
+              "counterexamples": {"type": "array", "items": {"type": "string"}},
+              "tool_run": {"type": "string"},
+              "artifacts": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: external-calls-reentrancy-and-atomicity
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
@@ -15,139 +428,479 @@ spec:
         denied:
           - Bash
       objective: >-
-        Hunt for reentrancy and unsafe external-call handling. Enumerate every external call in the
-        contracts (call, delegatecall, staticcall, transfer and send, ERC-20 and ERC-721 transfers with
-        their receiver hooks, callbacks into user-supplied addresses, flash-loan and router integrations)
-        and for each one determine what state is written after it returns. Report classic single-function
-        reentrancy, cross-function reentrancy through a shared balance or accounting variable,
-        cross-contract and read-only reentrancy where a view function returns stale state mid-call, reentrancy
-        into initialization or claim paths, and guards applied inconsistently across the functions that
-        share state. Also check the calls themselves: unchecked return values, low-level calls to
-        user-supplied addresses, delegatecall targets that can be set by a caller, gas assumptions in
-        transfer and send, and callbacks invoked before the effects are recorded. Cite the call site and the
-        state write at file:line and describe the sequence of transactions that drains or corrupts state.
-    - name: access-control-and-privileged-operations
+        Audit the full call graph from {{tasks.map-architecture-assets-roles-entrypoints.output}} against
+        {{tasks.define-security-invariants.output}} and the reviewed build context in
+        {{tasks.reproducible-build-artifact-deployment-review.output}}. Enumerate call, delegatecall,
+        staticcall, ETH sends, token/NFT transfers, hooks, flash-loan callbacks, routers, settlement callbacks,
+        multicalls, fallback/receive, and user-selected callees. Hunt single-function, cross-function,
+        cross-contract, callback, initialization, and read-only reentrancy; stale-state observations;
+        inconsistent guards; effects after interaction; partial failures; unchecked returns; returndata/revert
+        bombs; gas assumptions; and delegatecall target control. Report only concrete attacker sequences with
+        file:line evidence and the invariant/value impact. Submit coverage for every relevant call class,
+        including explicit skipped, unsupported, or inconclusive areas.
+      dependsOn:
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+        - reproducible-build-artifact-deployment-review
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: authorization-signatures-and-account-abstraction
       role: vulnerability-hunter
       category: authz
       skillRefs:
         - name: trail-of-bits-entry-point-analyzer
         - name: trail-of-bits-secure-workflow-guide
+        - name: evm-low-level-and-deployment-review
       tools:
         denied:
           - Bash
       objective: >-
-        Audit who may perform each privileged operation. List every state-changing function and classify
-        it: open to anyone, restricted to a role or owner, or restricted to another contract. Then hunt for
-        the gaps: missing or misapplied modifiers on mint, burn, pause, upgrade, fee, parameter, treasury,
-        and withdrawal functions; initializers that are unprotected or re-callable, including on
-        implementation contracts; ownership transfer without a two-step handover, or renounce paths that
-        strand privileges; tx.origin used for authorization; signature-based authorization missing nonce,
-        deadline, chain id, or contract address binding, or accepting malleable signatures; ecrecover
-        results not checked against the zero address; and trusted-caller checks comparing against a value
-        the caller can influence. Report each with file:line evidence and the transaction an unauthorized
-        account sends.
-    - name: oracle-and-price-manipulation
+        Audit every caller/guard and role in {{tasks.map-architecture-assets-roles-entrypoints.output}} against
+        {{tasks.define-security-invariants.output}} and deployment context in
+        {{tasks.inventory-scope-repositories-deployments.output}}. Cover missing/misapplied access checks;
+        owner, role, multisig, timelock, guardian and emergency boundaries; initializer and implementation
+        takeover; two-step transfers and dangerous renounce; tx.origin; EOA-versus-contract assumptions;
+        ECDSA malleability/zero recovery; EIP-712 domain, chain, nonce, deadline and contract binding;
+        ERC-1271 return values; permits and Permit2; delegation; replay across forks/proxies/upgrades;
+        ERC-4337 validation, paymasters, bundlers and sponsored transactions; and EIP-7702 delegated-code
+        assumptions. Trace alternate entry points, multicalls and callbacks around each guard. Report only an
+        unauthorized production-reachable transition with file:line evidence and publish complete coverage.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: accounting-arithmetic-and-token-integrations
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: trail-of-bits-dimensional-analysis
+        - name: trail-of-bits-token-integration-analyzer
+        - name: trail-of-bits-property-based-testing
+        - name: evm-economic-and-mev-review
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Test the accounting properties in {{tasks.define-security-invariants.output}} over every value-moving
+        entry point and dependency in {{tasks.map-architecture-assets-roles-entrypoints.output}}. Hunt
+        overflow/underflow in unchecked or assembly code; narrowing and signed casts; decimal/unit mismatch;
+        division-before-multiplication; repeated caller-favorable rounding; dust/zero paths; accumulator drift;
+        fee, reward, interest, collateral and bad-debt errors; donation/first-depositor inflation; and
+        system-wide assets, liabilities, shares, supply and solvency divergence. Cover ERC-4626 preview/action
+        consistency and rounding, fee-on-transfer and rebasing tokens, missing/false returns, unusual decimals,
+        approval behavior, callbacks/hooks, ERC-777, ERC-721/1155, staking derivatives, restaking, intents,
+        routers, settlement systems, force-sent ETH, blacklist/pause behavior, and upgradeable counterparties.
+        Quantify attacker gain or victim loss and cite the precise expression/path. Publish examined and gap
+        records even when no finding survives.
+      dependsOn:
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: governance-liquidations-auctions-and-mev
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: evm-economic-and-mev-review
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
           - Bash
       objective: >-
-        Hunt for price and oracle manipulation. Identify every source of external value the contracts trust
-        - AMM spot prices and reserves, balanceOf and totalSupply of a pool or vault, share-price
-        computations, and external oracle feeds - and judge how expensive it is to move within one
-        transaction. Report spot prices read directly from a pair or pool without a time-weighted or
-        multi-source construction, exchange rates derived from balances that a donation or flash loan can
-        inflate, first-depositor and empty-vault share inflation, missing staleness, sequencer-uptime, and
-        deviation checks on feed data, decimals mismatches between feeds and accounting, liquidation and
-        collateral logic priced from a manipulable source, and swap paths without slippage or deadline
-        protection. Cite the price read and its consumer at file:line and outline the flash-loan or
-        sandwich sequence that profits.
-    - name: arithmetic-and-rounding
+        Apply the economic specialist review to roles/assets in
+        {{tasks.map-architecture-assets-roles-entrypoints.output}} and properties in
+        {{tasks.define-security-invariants.output}}. Cover governance proposal, delegation, quorum, timelock,
+        veto/emergency and execution paths; flash-loan voting, vote buying, multisig concentration and
+        parameter capture; auctions, liquidation eligibility/bonuses/close factors, interest and reward
+        indexes, bad debt, insolvency cascades, keeper incentives and griefing. Model profitable transaction
+        ordering: sandwiches, back-running, JIT liquidity, liquidation/auction races, batch ordering,
+        censorship, intent/solver conflicts, stale oracle windows and cross-domain latency. Stress boundary
+        parameters and distinguish a concrete exploitable incentive failure from accepted market risk.
+        Report actor, capital, sequence, ordering capability, profit/loss and decisive file:line evidence;
+        publish explicit coverage for non-applicable mechanisms.
+      dependsOn:
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: oracles-randomness-time-and-ordering
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: evm-economic-and-mev-review
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
           - Bash
       objective: >-
-        Hunt for arithmetic defects that move value. Examine every fee, share, interest, reward, and
-        collateral computation for rounding that favors the user rather than the protocol, division before
-        multiplication that truncates to zero, precision loss between tokens with different decimals, and
-        accumulator or index math that drifts. Check for unchecked blocks and inline assembly where an
-        overflow or underflow is possible, casts to narrower types that silently truncate, signed and
-        unsigned conversions, and comparisons against a total or cap computed from mutable state. Look for
-        the exploitable patterns specifically: deposits or withdrawals that round in the caller's favor and
-        can be repeated, zero-amount or dust operations that mint shares or claim rewards, and invariants
-        (sum of shares, total supply, accounted balance) that the code never re-checks. Cite the expression
-        at file:line and quantify what an attacker extracts per repetition.
-    - name: upgradeability-and-storage-layout
+        Audit external values and temporal/order assumptions from
+        {{tasks.map-architecture-assets-roles-entrypoints.output}} against
+        {{tasks.define-security-invariants.output}}. Cover AMM spot/reserve/balance/share prices, TWAP and
+        multi-source composition, Chainlink-like freshness/round/deviation/sequencer checks, decimals and
+        inverse pairs, manipulation cost, flash loans, donations, oracle latency and fallback behavior.
+        Review timestamp and block-number dependence, L2 time semantics, prevrandao/blockhash use,
+        commit/reveal timing and withholding, VRF request/fulfillment authorization and replay, callback
+        ordering, deadlines and slippage. Include sandwich/back-run and same-block composition where it makes
+        a price or random outcome profitable. Report the controllable input, consumer, transaction sequence,
+        cost/profit and file:line evidence. Publish coverage gaps when state, liquidity or deployment data is
+        needed but unavailable.
+      dependsOn:
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: gas-liveness-returndata-and-state-growth
+      role: vulnerability-hunter
+      category: dos
+      skillRefs:
+        - name: evm-low-level-and-deployment-review
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-sharp-edges
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Audit liveness and bounded-work properties in {{tasks.define-security-invariants.output}} across the
+        entry points in {{tasks.map-architecture-assets-roles-entrypoints.output}}. Hunt user-growable loops
+        and storage, queue starvation, unbounded batching, expensive retries, push payments, dust/account
+        spam, cold-access amplification, gas-limit-sensitive settlement, block stuffing and griefing. Cover
+        malicious callback reverts, revert bombs, returndata copying/amplification, memory expansion, event or
+        calldata assumptions, failed-call queues, selfdestruct/force-send edge cases, and operations that can
+        become permanently uncallable after growth or an EVM gas repricing. Quantify attacker cost, victim
+        work, block-gas feasibility and recovery; do not report generic gas optimization. Publish status for
+        each relevant queue, loop, callback and storage-growth surface.
+      dependsOn:
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: low-level-factories-proxies-and-storage
       role: vulnerability-hunter
       category: misconfiguration
       skillRefs:
+        - name: evm-low-level-and-deployment-review
         - name: trail-of-bits-guidelines-advisor
         - name: trail-of-bits-secure-workflow-guide
       tools:
         denied:
           - Bash
       objective: >-
-        Audit the upgrade machinery and storage layout. For proxy-based systems, check that the
-        implementation cannot be initialized or self-destructed by a third party, that the upgrade function
-        is protected and follows the pattern's rules (UUPS authorization present, admin and implementation
-        slots at the standard positions), and that the proxy's own function selectors cannot shadow the
-        implementation's. Compare storage layouts across versions and across inherited contracts and
-        libraries: appended state in a base contract, reordered or removed variables, changed types or
-        packing, missing storage gaps, and namespaced or diamond storage slots derived from a colliding
-        string. Also check that initializers set every variable a constructor would have, that they cannot
-        run twice, and that delegatecall into a library never writes the caller's slots unintentionally.
-        Report with file:line evidence and describe the state an upgrade or a hostile initialization
-        corrupts or takes over.
-    - name: token-integration-assumptions
-      role: vulnerability-hunter
-      category: logic-flaw
+        Apply the low-level/deployment specialist skill to the build evidence in
+        {{tasks.reproducible-build-artifact-deployment-review.output}}, deployments in
+        {{tasks.inventory-scope-repositories-deployments.output}}, architecture in
+        {{tasks.map-architecture-assets-roles-entrypoints.output}}, and lifecycle/storage properties in
+        {{tasks.define-security-invariants.output}}. Cover CREATE/CREATE2 salts and address assumptions,
+        factories/clones/minimal proxies, initialization races, metamorphic/redeployable addresses and
+        extcodesize/codehash assumptions. Audit Yul/assembly, ABI encode/decode and packed collisions,
+        calldata/returndata, memory/storage aliasing, casts, precompiles, scratch space, optimizer/via-IR and
+        known compiler-sensitive behavior. Review transparent/UUPS/beacon/diamond proxies, authorization,
+        selector collisions, implementation locking, rollback, migrations, namespaced/diamond storage,
+        inheritance/packing/gaps and storage-layout differentials. Report a concrete state corruption,
+        takeover or deployment substitution path with file:line evidence and publish explicit unsupported
+        status where artifacts or version pairs are absent.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+        - reproducible-build-artifact-deployment-review
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: symbolic-and-formal-applicability
+      role: security-reviewer
+      category: other
       skillRefs:
-        - name: trail-of-bits-token-integration-analyzer
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-sharp-edges
+        - name: evm-low-level-and-deployment-review
       tools:
         denied:
           - Bash
       objective: >-
-        Hunt for broken assumptions about the tokens and contracts this system integrates with. Check how
-        the code handles tokens that take a fee on transfer or rebase (accounting from the requested amount
-        instead of the measured balance delta), tokens that return no boolean or return false instead of
-        reverting, tokens with unusual decimals or a zero-value transfer revert, tokens whose transfer
-        reenters through a receiver hook, approval race conditions and non-standard approve behavior,
-        blacklistable or pausable tokens stranding a settlement path, and permit implementations that
-        silently no-op. Then check the integrations themselves: assumptions that an external contract is
-        immutable or non-upgradeable, arbitrary addresses accepted as a token or callee, unbounded loops
-        over a user-extensible list, ETH handling in contracts that can receive it by force, and results of
-        external calls used without validating their shape. Report with file:line evidence and the token or
-        counterparty behavior that breaks the accounting.
+        Assess every invariant in {{tasks.define-security-invariants.output}} and relevant entry point in
+        {{tasks.map-architecture-assets-roles-entrypoints.output}} for bounded symbolic execution, SMT/model
+        checking, specification checking, equivalence checking, and storage-layout proof. Inventory existing
+        Scribble, Certora, Halmos, hevm, Foundry symbolic, Solidity model-checker, or other specifications and
+        harnesses and judge environment/model completeness, loop/external-call bounds, assumptions and
+        counterexample replayability. Only claim execution if an enabled deterministic run_security_tool
+        integration was actually invoked and returned that status. Consume bounded Mythril records from
+        {{tasks.bounded-mythril-symbolic-analysis.output}} and seeded Echidna records from
+        {{tasks.echidna-stateful-property-fuzzing.output}}; Slither, Halmos and any other catalog-only or absent
+        prover remain unsupported. Do not substitute Bash, manual reasoning, or a skill for tool execution.
+        Record applicable properties, recommended harness/prover, and why each was
+        examined, skipped, unsupported, or inconclusive. Manually inspect existing specs for unsound/vacuous
+        assumptions but label that as manual examination, not a formal proof.
+      dependsOn:
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+        - bounded-mythril-symbolic-analysis
+        - echidna-stateful-property-fuzzing
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "method", "execution_status", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "method": {"type": "string"},
+              "execution_status": {"type": "string", "enum": ["not_run", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "properties": {"type": "array", "items": {"type": "string"}},
+              "limitations": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: deployment-and-privileged-configuration
+      role: security-reviewer
+      category: misconfiguration
+      skillRefs:
+        - name: evm-low-level-and-deployment-review
+        - name: evm-economic-and-mev-review
+        - name: trail-of-bits-guidelines-advisor
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Review each available deployment in {{tasks.inventory-scope-repositories-deployments.output}} using
+        architecture/roles in {{tasks.map-architecture-assets-roles-entrypoints.output}}, build/artifact
+        results in {{tasks.reproducible-build-artifact-deployment-review.output}}, authorization coverage in
+        {{tasks.authorization-signatures-and-account-abstraction.output}}, and low-level coverage in
+        {{tasks.low-level-factories-proxies-and-storage.output}}. Check constructor/initializer parameters,
+        implementation/admin/beacon/diamond pointers, ownership and role grants, multisig threshold/signers,
+        timelock delays and bypasses, guardians/pausers, treasury/fee/oracle/router/keeper allowlists, caps,
+        upgrade rollback and migration sequencing, chain ids/domains, deployment scripts, CREATE2 salts,
+        verification state and stale/deprecated implementations. Compare intended and configured privilege;
+        never contact a live network or assert on-chain state not present in supplied evidence. Report unsafe
+        repository-backed configuration with file:line evidence. Mark each deployment examined, skipped,
+        unsupported, or inconclusive, and name missing RPC/explorer/config evidence explicitly.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - map-architecture-assets-roles-entrypoints
+        - reproducible-build-artifact-deployment-review
+        - authorization-signatures-and-account-abstraction
+        - low-level-factories-proxies-and-storage
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: validate-high-impact-exploits
+      role: exploit-validator
+      category: other
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: exploit-poc-discipline
+        - name: evm-economic-and-mev-review
+        - name: evm-low-level-and-deployment-review
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Validate every critical/high candidate produced after the executable and manual stages, using the
+        entry-point map in {{tasks.map-architecture-assets-roles-entrypoints.output}}, invariants in
+        {{tasks.define-security-invariants.output}}, Aderyn status in
+        {{tasks.aderyn-static-analysis.output}}, and seeded Forge status in
+        {{tasks.deterministic-forge-tests-and-invariants.output}}. Re-read the complete path and settle caller,
+        deployed reachability, state preconditions, guards, transaction ordering/capital, broken invariant,
+        impact and recovery. Use only local repository fixtures and dummy assets; never contact mainnet,
+        public testnets, RPCs or third parties and never modify the target. When an existing Foundry reproducer
+        actually exercises a candidate, call run_security_tool with `forge-security-tests`, target type
+        `foundry_project`, the applicable workspace root and immutable revision, and seed `2062026`; cite the
+        returned run/artifact. Do not call Forge when no candidate-specific harness exists and do not treat the
+        earlier general suite as exploit confirmation. Otherwise provide the smallest transaction/state trace
+        and mark validation inconclusive or unsupported rather than claiming local execution. Publish one
+        verdict per eligible finding fingerprint and an empty array only when no critical/high candidates
+        exist.
+      dependsOn:
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+        - aderyn-static-analysis
+        - deterministic-forge-tests-and-invariants
+        - echidna-stateful-property-fuzzing
+        - bounded-mythril-symbolic-analysis
+        - external-calls-reentrancy-and-atomicity
+        - authorization-signatures-and-account-abstraction
+        - accounting-arithmetic-and-token-integrations
+        - governance-liquidations-auctions-and-mev
+        - oracles-randomness-time-and-ordering
+        - gas-liveness-returndata-and-state-growth
+        - low-level-factories-proxies-and-storage
+        - symbolic-and-formal-applicability
+        - deployment-and-privileged-configuration
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "verdict", "method", "execution_status", "summary"],
+            "properties": {
+              "fingerprint": {"type": "string"},
+              "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "inconclusive", "unsupported"]},
+              "method": {"type": "string", "enum": ["forge_local", "local_trace", "manual_disproof", "none"]},
+              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "tool_run": {"type": "string"},
+              "reproduction": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: account-lifecycle-coverage
+      role: security-reviewer
+      category: triage
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-fp-check
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Build the authoritative lifecycle coverage ledger from the structured inventory, build, tool,
+        specialist, deployment and validation outputs: scope {{tasks.inventory-scope-repositories-deployments.output}};
+        entry points {{tasks.map-architecture-assets-roles-entrypoints.output}}; invariants
+        {{tasks.define-security-invariants.output}}; build {{tasks.reproducible-build-artifact-deployment-review.output}};
+        Aderyn {{tasks.aderyn-static-analysis.output}}; Forge
+        {{tasks.deterministic-forge-tests-and-invariants.output}}; Echidna
+        {{tasks.echidna-stateful-property-fuzzing.output}}; Mythril
+        {{tasks.bounded-mythril-symbolic-analysis.output}}; calls
+        {{tasks.external-calls-reentrancy-and-atomicity.output}}; authorization
+        {{tasks.authorization-signatures-and-account-abstraction.output}}; accounting
+        {{tasks.accounting-arithmetic-and-token-integrations.output}}; economics/MEV
+        {{tasks.governance-liquidations-auctions-and-mev.output}}; oracle/randomness
+        {{tasks.oracles-randomness-time-and-ordering.output}}; liveness
+        {{tasks.gas-liveness-returndata-and-state-growth.output}}; low-level/deployment
+        {{tasks.low-level-factories-proxies-and-storage.output}}; formal
+        {{tasks.symbolic-and-formal-applicability.output}}; privileged configuration
+        {{tasks.deployment-and-privileged-configuration.output}}; and validation
+        {{tasks.validate-high-impact-exploits.output}}. Emit one deduplicated record for every repository,
+        deployment, entry-point class, invariant domain, specialist topic, tool, formal method and validation
+        target. Status must be exactly examined, skipped, unsupported, or inconclusive. Preserve tool errors,
+        timeouts, partial runs, missing artifacts/deployments, absent harnesses, unsupported RPC forks/provers,
+        and unvalidated candidates as gaps. Never upgrade pass/no-finding into broader coverage or safety.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - map-architecture-assets-roles-entrypoints
+        - define-security-invariants
+        - reproducible-build-artifact-deployment-review
+        - aderyn-static-analysis
+        - deterministic-forge-tests-and-invariants
+        - echidna-stateful-property-fuzzing
+        - bounded-mythril-symbolic-analysis
+        - external-calls-reentrancy-and-atomicity
+        - authorization-signatures-and-account-abstraction
+        - accounting-arithmetic-and-token-integrations
+        - governance-liquidations-auctions-and-mev
+        - oracles-randomness-time-and-ordering
+        - gas-liveness-returndata-and-state-growth
+        - low-level-factories-proxies-and-storage
+        - symbolic-and-formal-applicability
+        - deployment-and-privileged-configuration
+        - validate-high-impact-exploits
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "basis", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "basis": {"type": "array", "items": {"type": "string"}},
+              "artifacts": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: remediation-and-retest
+      role: security-reviewer
+      category: other
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: trail-of-bits-property-based-testing
+        - name: exploit-poc-discipline
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Produce remediation and follow-up retest guidance from validation
+        {{tasks.validate-high-impact-exploits.output}} and the lifecycle ledger
+        {{tasks.account-lifecycle-coverage.output}}. For every surviving finding fingerprint, state the root
+        cause and smallest safe fix, affected contracts/deployments/storage or governance migration, invariant
+        restored, compatibility and rollout risks, and a regression test or existing reproducer to rerun.
+        Specify that follow-up deterministic Aderyn uses the revised immutable revision and applicable
+        Solidity root; Forge and Echidna use the revised project roots with seed `2062026`; and bounded
+        Mythril uses the revised single source or bytecode target. Do not claim those future runs occurred. Define expected pass/failure evidence and require source-artifact-deployment comparison,
+        privileged configuration and unresolved coverage gaps to be rechecked. Keep false positives out of
+        remediation but preserve inconclusive/unsupported candidates as explicit investigation items. Submit
+        a structured plan; an empty finding plan is valid while coverage-gap retests remain.
+      dependsOn:
+        - validate-high-impact-exploits
+        - account-lifecycle-coverage
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["findings", "coverage_retests"],
+          "properties": {
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["fingerprint", "root_cause", "remediation", "invariant", "regression_test", "rollout", "expected_evidence"],
+                "properties": {
+                  "fingerprint": {"type": "string"},
+                  "root_cause": {"type": "string"},
+                  "remediation": {"type": "string"},
+                  "invariant": {"type": "string"},
+                  "regression_test": {"type": "string"},
+                  "rollout": {"type": "string"},
+                  "expected_evidence": {"type": "string"}
+                }
+              }
+            },
+            "coverage_retests": {"type": "array", "items": {"type": "object", "required": ["area", "action", "expected_evidence"], "properties": {"area": {"type": "string"}, "action": {"type": "string"}, "expected_evidence": {"type": "string"}}}}
+          }
+        }
+
     - name: triage-and-report
       role: finding-triager
       category: triage
       skillRefs:
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
+        - name: evm-economic-and-mev-review
+        - name: evm-low-level-and-deployment-review
       tools:
         denied:
           - Bash
       objective: >-
-        Triage the contract findings by value at risk. Re-read the cited code for each report and confirm
-        that the attack is economically real: that the caller reaches the function, that the sequence fits
-        in the transactions available (including a flash loan where relevant), and that a modifier, guard,
-        or invariant check elsewhere does not already stop it. Merge duplicates that describe one accounting
-        error surfaced by several functions, drop reports that only restate a design tradeoff the protocol
-        made deliberately, and rank by funds an attacker extracts or freezes and by how many preconditions
-        they need. Then assemble and submit the final scan report.
+        Perform the workflow's only final triage and reporting pass. Load every recorded finding and reconcile
+        it with local validation {{tasks.validate-high-impact-exploits.output}}, lifecycle coverage
+        {{tasks.account-lifecycle-coverage.output}}, and remediation/retest guidance
+        {{tasks.remediation-and-retest.output}}. Re-read cited code and retain only concrete production-reachable
+        attacker paths with file:line evidence, a broken explicit invariant, prerequisites and quantified fund,
+        authorization, integrity or liveness impact. Keep confirmed critical/high findings; retain an
+        inconclusive candidate only as tentative with its blocker prominent; reject scanner noise, impossible
+        state, deliberate trust assumptions and paths stopped by another guard. Merge duplicates by root cause
+        and rank direct fund loss/insolvency, unauthorized control/upgrades, permanent freeze, economic/MEV
+        extraction and sustained liveness failure by realistic prerequisites. The report must include the
+        structured scope and deployment basis, executed Aderyn, Forge, Echidna and Mythril run statuses with
+        seed, bounds and artifact references, formal-method limitations, local-validation evidence,
+        remediation/retest plan, and every examined,
+        skipped, unsupported and inconclusive coverage record. Never describe unavailable or failed tooling
+        as executed or passed. Then assemble and submit exactly one final report.
       dependsOn:
-        - reentrancy-and-external-calls
-        - access-control-and-privileged-operations
-        - oracle-and-price-manipulation
-        - arithmetic-and-rounding
-        - upgradeability-and-storage-layout
-        - token-integration-assumptions
+        - validate-high-impact-exploits
+        - account-lifecycle-coverage
+        - remediation-and-retest

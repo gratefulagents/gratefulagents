@@ -433,29 +433,47 @@ func TestJobStagesVerifiedTargetAndRewritesLocator(t *testing.T) {
 	if err != nil || string(data) != "package main\n" {
 		t.Fatalf("staged target file = %q, %v", data, err)
 	}
+	extractedDigest, exists, err := securitytoolpacks.DigestPath(wantLocator)
+	if err != nil || !exists {
+		t.Fatalf("digest staged target: exists=%t err=%v", exists, err)
+	}
+	if fixture.config.Target.Digest != extractedDigest || fixture.config.Target.Digest == digestBytes(archive) {
+		t.Fatalf("runtime digest = %q, want extracted content %q (not archive digest)",
+			fixture.config.Target.Digest, extractedDigest)
+	}
 }
 
 func TestJobSetsTheMediaTypeTheRegistryExpectsForExtractedTargets(t *testing.T) {
 	archive := buildTarGz(t, tarEntry{name: "src/Token.sol", body: "contract Token {}\n"})
 	tests := map[string]struct {
-		tool  string
-		media string
-		want  string
+		tool       string
+		targetType string
+		media      string
+		want       string
 	}{
 		"solidity project": {
-			tool:  "aderyn",
-			media: "application/gzip",
-			want:  "application/vnd.gratefulagents.solidity-project.v1+directory",
+			tool:       "aderyn",
+			targetType: "solidity_project",
+			media:      "application/gzip",
+			want:       "application/vnd.gratefulagents.solidity-project.v1+directory",
 		},
 		"foundry project": {
-			tool:  "forge-security-tests",
-			media: "application/gzip",
-			want:  "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+			tool:       "forge-security-tests",
+			targetType: "foundry_project",
+			media:      "application/gzip",
+			want:       "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+		},
+		"echidna solidity project": {
+			tool:       "echidna",
+			targetType: "solidity_project",
+			media:      "application/gzip",
+			want:       "application/vnd.gratefulagents.solidity-project.v1+directory",
 		},
 		"tool without a directory requirement keeps the staged media type": {
-			tool:  "authorization-matrix",
-			media: "application/gzip",
-			want:  "application/gzip",
+			tool:       "authorization-matrix",
+			targetType: "authorization_matrix",
+			media:      "application/gzip",
+			want:       "application/gzip",
 		},
 	}
 	for name, testCase := range tests {
@@ -463,7 +481,10 @@ func TestJobSetsTheMediaTypeTheRegistryExpectsForExtractedTargets(t *testing.T) 
 			fixture := newJobFixture(t, securitytoolpacks.RunConfig{
 				Tool: testCase.tool,
 				Target: securitytoolpacks.Target{
-					Locator: "staged/target.tar.gz", Digest: digestBytes(archive), MediaType: testCase.media,
+					Type:      testCase.targetType,
+					Locator:   "staged/target.tar.gz",
+					Digest:    digestBytes(archive),
+					MediaType: testCase.media,
 				},
 			})
 			fixture.store.objects["staged/target.tar.gz"] = archive
@@ -480,6 +501,75 @@ func TestJobSetsTheMediaTypeTheRegistryExpectsForExtractedTargets(t *testing.T) 
 				t.Fatalf("locator = %q, want the extraction directory", fixture.config.Target.Locator)
 			}
 		})
+	}
+}
+
+func TestJobResolvesStagedSingleFileTargets(t *testing.T) {
+	tests := map[string]struct {
+		targetType string
+		fileName   string
+		body       string
+		mediaType  string
+	}{
+		"solidity contract": {
+			targetType: "solidity_contract",
+			fileName:   "Token.sol",
+			body:       "contract Token {}\n",
+			mediaType:  "application/vnd.gratefulagents.solidity-contract.v1+source",
+		},
+		"EVM bytecode": {
+			targetType: "evm_bytecode",
+			fileName:   "Token.hex",
+			body:       "60006000f3\n",
+			mediaType:  "application/vnd.gratefulagents.evm-bytecode.v1+hex",
+		},
+	}
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			archive := buildTarGz(t, tarEntry{name: testCase.fileName, body: testCase.body})
+			fixture := newJobFixture(t, securitytoolpacks.RunConfig{
+				Tool: "mythril",
+				Target: securitytoolpacks.Target{
+					Type:      testCase.targetType,
+					Locator:   "staged/target.tar.gz",
+					Digest:    digestBytes(archive),
+					MediaType: "application/gzip",
+				},
+			})
+			fixture.store.objects["staged/target.tar.gz"] = archive
+			fixture.env["GA_JOB_TARGET_KEY"] = "staged/target.tar.gz"
+			fixture.env["GA_JOB_TARGET_DIGEST"] = digestBytes(archive)
+
+			if code := fixture.run(t); code != 0 {
+				t.Fatalf("exit=%d stderr=%s", code, fixture.stderr.String())
+			}
+			wantLocator := filepath.Join(fixture.workdir, "target", testCase.fileName)
+			if fixture.config.Target.Locator != wantLocator || fixture.config.Target.MediaType != testCase.mediaType {
+				t.Fatalf("target = %+v, want locator %q and media %q", fixture.config.Target, wantLocator, testCase.mediaType)
+			}
+		})
+	}
+}
+
+func TestJobRejectsMultiFileArchiveForSingleFileTarget(t *testing.T) {
+	archive := buildTarGz(t,
+		tarEntry{name: "Token.sol", body: "contract Token {}\n"},
+		tarEntry{name: "Other.sol", body: "contract Other {}\n"},
+	)
+	fixture := newJobFixture(t, securitytoolpacks.RunConfig{
+		Tool: "mythril",
+		Target: securitytoolpacks.Target{
+			Type: "solidity_contract", Locator: "staged/target.tar.gz", Digest: digestBytes(archive),
+		},
+	})
+	fixture.store.objects["staged/target.tar.gz"] = archive
+	fixture.env["GA_JOB_TARGET_KEY"] = "staged/target.tar.gz"
+	fixture.env["GA_JOB_TARGET_DIGEST"] = digestBytes(archive)
+
+	code := fixture.run(t)
+	if code == 0 || fixture.runs != 0 ||
+		!strings.Contains(fixture.stderr.String(), "exactly one regular file") {
+		t.Fatalf("exit=%d runs=%d stderr=%q", code, fixture.runs, fixture.stderr.String())
 	}
 }
 

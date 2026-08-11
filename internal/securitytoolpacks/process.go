@@ -413,7 +413,7 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 }
 
 func isLockedExternalTool(name string) bool {
-	return slices.Contains([]string{"nuclei", "naabu", "aderyn", "forge-security-tests"}, name)
+	return slices.Contains([]string{"nuclei", "naabu", "aderyn", "forge-security-tests", "echidna"}, name)
 }
 
 func trustedToolBinary(binaryName, expectedDigest string) (string, error) {

@@ -52,9 +52,20 @@ var securityToolRunLocatorDigestPattern = regexp.MustCompile(`@(sha256:[0-9a-f]{
 // securitytoolpacks.Registry.BuildInvocation requires inside the Job. Only a
 // staged archive can produce them — the Job sets them when it extracts the
 // archive — so these tools cannot run against an unstaged target.
-var securityToolDirectoryMediaTypes = map[string]string{
-	"aderyn":               "application/vnd.gratefulagents.solidity-project.v1+directory",
-	"forge-security-tests": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+var securityToolStagedMediaTypes = map[string]map[string]string{
+	"aderyn": {
+		"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+	},
+	"forge-security-tests": {
+		"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+	},
+	"echidna": {
+		"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+	},
+	"mythril": {
+		"solidity_contract": "application/vnd.gratefulagents.solidity-contract.v1+source",
+		"evm_bytecode":      "application/vnd.gratefulagents.evm-bytecode.v1+hex",
+	},
 }
 
 var securityToolRunLabelValuePattern = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`)
@@ -223,8 +234,8 @@ func (t *runSecurityToolTool) Execute(ctx context.Context, input json.RawMessage
 	if failure != nil {
 		return *failure, nil
 	}
-	if media := securityToolDirectoryMediaTypes[tool.Name]; media != "" && spec.Target.StagedObjectKey == "" {
-		return errorResultf("tool %s requires target media type %s, which only exists after the platform extracts a staged archive; point the locator at the project directory in this run's workspace instead of %q",
+	if media := securityToolStagedMediaTypes[tool.Name][spec.Target.Type]; media != "" && spec.Target.StagedObjectKey == "" {
+		return errorResultf("tool %s requires target media type %s, which only exists after the platform extracts a staged archive; point the locator at the target in this run's workspace instead of %q",
 			tool.Name, media, in.Target.Locator), nil
 	}
 	config, err := securitytoolrun.RunConfigFor(spec)
@@ -338,6 +349,17 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 			spec.Target.Digest = in.Target.Revision
 		}
 		return spec, stagedTarget{}, nil
+	}
+	if in.Tool == "mythril" && in.Target.Type == "solidity_contract" {
+		data, readErr := os.ReadFile(local) // #nosec G304 -- resolved and confined workspace target.
+		if readErr != nil {
+			result := errorResultf("reading standalone Mythril source %s: %v", relative, readErr)
+			return spec, stagedTarget{}, &result
+		}
+		if containsSolidityImport(data) {
+			result := errorResultf("Mythril solidity_contract target %s imports other sources; single-file analysis would omit dependencies, so supply self-contained source or EVM bytecode", relative)
+			return spec, stagedTarget{}, &result
+		}
 	}
 	if t.deps.Blobs == nil {
 		result := errorResultf("cannot stage workspace path %s: object storage is unavailable (%v)", relative, t.deps.BlobsErr)
@@ -562,6 +584,57 @@ func looksLikeNetworkLocator(locator string) bool {
 func looksLikeFilesystemLocator(locator string) bool {
 	return strings.Contains(locator, "/") || strings.HasPrefix(locator, "~") ||
 		locator == "." || locator == ".."
+}
+
+// containsSolidityImport recognizes the import keyword only in Solidity code,
+// ignoring comments and quoted strings. A single-file Mythril target cannot
+// preserve imported dependencies, so such a target must fail before a run is
+// created instead of producing a misleading compiler/tool verdict.
+func containsSolidityImport(source []byte) bool {
+	const keyword = "import"
+	for i := 0; i < len(source); {
+		switch {
+		case source[i] == '/' && i+1 < len(source) && source[i+1] == '/':
+			i += 2
+			for i < len(source) && source[i] != '\n' {
+				i++
+			}
+		case source[i] == '/' && i+1 < len(source) && source[i+1] == '*':
+			i += 2
+			for i+1 < len(source) && (source[i] != '*' || source[i+1] != '/') {
+				i++
+			}
+			if i+1 < len(source) {
+				i += 2
+			}
+		case source[i] == '\'' || source[i] == '"':
+			quote := source[i]
+			i++
+			for i < len(source) {
+				if source[i] == '\\' && i+1 < len(source) {
+					i += 2
+					continue
+				}
+				if source[i] == quote {
+					i++
+					break
+				}
+				i++
+			}
+		case i+len(keyword) <= len(source) && string(source[i:i+len(keyword)]) == keyword &&
+			(i == 0 || !solidityIdentifierByte(source[i-1])) &&
+			(i+len(keyword) == len(source) || !solidityIdentifierByte(source[i+len(keyword)])):
+			return true
+		default:
+			i++
+		}
+	}
+	return false
+}
+
+func solidityIdentifierByte(value byte) bool {
+	return value == '_' || value == '$' || value >= 'a' && value <= 'z' ||
+		value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
 }
 
 // archiveWorkspaceTarget streams a deterministic tar.gz of a workspace path:

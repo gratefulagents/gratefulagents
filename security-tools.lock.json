@@ -146,6 +146,35 @@
       }
     },
     {
+      "name": "echidna",
+      "status": "enabled",
+      "version": "2.3.0",
+      "binary": "echidna",
+      "release_url": "https://github.com/crytic/echidna/releases/tag/v2.3.0",
+      "platforms": {
+        "linux/amd64": {
+          "asset": "https://github.com/crytic/echidna/releases/download/v2.3.0/echidna-2.3.0-x86_64-linux.tar.gz",
+          "sha256": "8df7845f22e1300ba63afd6f70509baccf668517832965248d9023676fb992af",
+          "binary_sha256": "b5db2b36cd95c70b84fde5cde73b004485decc7a07b6bfd65d7d6a6695294cc3"
+        },
+        "linux/arm64": {
+          "asset": "https://github.com/crytic/echidna/releases/download/v2.3.0/echidna-2.3.0-aarch64-linux.tar.gz",
+          "sha256": "d15d6a67910de66e9b90a47fc81cee73e61ff65ca66e632c3518c2ddb5780fd2",
+          "binary_sha256": "ede4024e5cdc8112716b726c9951a69c709d428a649d994fa952fc7e38f6f662"
+        }
+      }
+    },
+    {
+      "name": "slither",
+      "status": "disabled",
+      "reason": "Upstream publishes Slither through Python package indexes without a verified multi-architecture runtime closure."
+    },
+    {
+      "name": "halmos",
+      "status": "disabled",
+      "reason": "Upstream publishes Halmos as Python/source distributions and a floating OCI tag without a verified multi-architecture runtime closure."
+    },
+    {
       "name": "semgrep",
       "status": "disabled",
       "reason": "No upstream Linux release asset checksum is pinned; do not install from a floating package index."

@@ -228,3 +228,25 @@ func TestFailureStatusesAndCanonicalReplay(t *testing.T) {
 		t.Fatalf("non-deterministic:\n%s\n%s", ja, jb)
 	}
 }
+
+func TestEVMNativeResultsFlowThroughRunner(t *testing.T) {
+	seed := int64(42)
+	echidnaTarget := fixtureTarget("solidity_project", "fixtures/blockchain/vault")
+	echidnaTarget.MediaType = "application/vnd.gratefulagents.solidity-project.v1+directory"
+	echidnaOutput := []byte(`{"success":true,"error":null,"seed":42,"tests":[{"contract":"Vault","name":"echidna_solvency","status":"solved","error":null,"type":"property","transactions":[{"contract":"Vault","function":"withdraw(uint256)","arguments":["1"],"gas":"1","gasprice":"0","value":"0"}]}]}`)
+	echidna := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"echidna_solvency"}, Output: echidnaOutput}).Run(context.Background(), RunConfig{Tool: "echidna", Target: echidnaTarget, Seed: &seed})
+	if echidna.Status != StatusFindings || len(echidna.Findings) != 1 || echidna.Replay.Seed == nil || *echidna.Replay.Seed != seed {
+		t.Fatalf("echidna result=%+v", echidna)
+	}
+
+	mythrilTarget := fixtureTarget("solidity_contract", "fixtures/blockchain/Vault.sol")
+	mythrilTarget.MediaType = "application/vnd.gratefulagents.solidity-contract.v1+source"
+	clean := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"Vault.sol"}, Output: []byte(`{"success":true,"error":null,"issues":[]}`)}).Run(context.Background(), RunConfig{Tool: "mythril", Target: mythrilTarget})
+	if clean.Status != StatusPass || len(clean.Findings) != 0 {
+		t.Fatalf("clean Mythril result=%+v", clean)
+	}
+	failed := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"Vault.sol"}, Output: []byte(`{"success":false,"error":"analysis failed","issues":[]}`)}).Run(context.Background(), RunConfig{Tool: "mythril", Target: mythrilTarget})
+	if failed.Status != StatusError {
+		t.Fatalf("failed Mythril result=%+v", failed)
+	}
+}
