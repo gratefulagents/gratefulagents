@@ -63,7 +63,8 @@ EOF
       exit "$status"
       ;;
   esac
-  grep -q '"tool": "'$tool'"' "$output/result.json"
+  docker run --rm --user 0 --mount "type=bind,src=$output,dst=/output,readonly" \
+    --entrypoint /bin/grep "$image" -q '"tool": "'$tool'"' /output/result.json
 }
 
 # The upstream Slither toolbox currently embeds an amd64 solc artifact even in
