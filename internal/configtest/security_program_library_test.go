@@ -14,12 +14,27 @@ import (
 func TestSecurityProgramLibrary(t *testing.T) {
 	t.Parallel()
 
+	expectedCategories := map[string][]string{
+		"immunefi-1inch":     {"Smart Contract"},
+		"immunefi-aave":      {"Smart Contract"},
+		"immunefi-arbitrum":  {"Smart Contract"},
+		"immunefi-chainlink": {"Smart Contract", "Web & App"},
+		"immunefi-jito":      {"Blockchain/DLT", "Smart Contract"},
+		"immunefi-kamino":    {"Smart Contract", "Web & App"},
+		"immunefi-lido":      {"Smart Contract", "Web & App"},
+		"immunefi-optimism":  {"Blockchain/DLT", "Smart Contract", "Web & App"},
+		"immunefi-sei":       {"Blockchain/DLT"},
+		"immunefi-sky":       {"Smart Contract", "Web & App"},
+		"immunefi-spark":     {"Smart Contract", "Web & App"},
+		"immunefi-wormhole":  {"Blockchain/DLT", "Smart Contract"},
+	}
+
 	paths, err := filepath.Glob(repoPath("configs", "securityprograms", "*.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) < 10 || len(paths) > 20 {
-		t.Fatalf("security program count = %d, want 10..20", len(paths))
+	if len(paths) != len(expectedCategories) {
+		t.Fatalf("security program count = %d, category expectations = %d", len(paths), len(expectedCategories))
 	}
 
 	seen := make(map[string]struct{}, len(paths))
@@ -56,9 +71,37 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			if program.Spec.Provider != "Immunefi" || !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
 				t.Fatalf("unexpected provider or provenance URL: %q %q", program.Spec.Provider, program.Spec.ProgramURL)
 			}
-			for _, marker := range []string{"Repository targets:", "https://github.com/", "Rewards:", "Eligible impacts:", "Out of scope:", "Testing and submission:"} {
+			for _, marker := range []string{
+				"Verbatim Immunefi scope",
+				"Displayed wording is preserved; layout whitespace is normalized.",
+				"Assets in Scope",
+				"Impacts in Scope",
+				"Out of scope",
+			} {
 				if !strings.Contains(program.Spec.ScopePolicy, marker) {
 					t.Errorf("scopePolicy missing %q", marker)
+				}
+			}
+			for _, summarizedMarker := range []string{"Repository targets:", "Eligible impacts:", "Testing and submission:"} {
+				if strings.Contains(program.Spec.ScopePolicy, summarizedMarker) {
+					t.Errorf("scopePolicy still contains summarized section %q", summarizedMarker)
+				}
+			}
+			categories, ok := expectedCategories[program.Name]
+			if !ok {
+				t.Fatalf("missing category expectations for %q", program.Name)
+			}
+			if len(categories) > 0 {
+				if got := strings.Count(program.Spec.ScopePolicy, "Assets in Scope"); got != len(categories) {
+					t.Errorf("Assets in Scope sections = %d, want %d categories", got, len(categories))
+				}
+				if got := strings.Count(program.Spec.ScopePolicy, "Out of scope"); got != len(categories) {
+					t.Errorf("Out of scope sections = %d, want %d categories", got, len(categories))
+				}
+				for _, category := range categories {
+					if !strings.Contains(program.Spec.ScopePolicy, "\n"+category+"\n") {
+						t.Errorf("scopePolicy missing category %q", category)
+					}
 				}
 			}
 		})
