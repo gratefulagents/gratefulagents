@@ -62,9 +62,11 @@ var securityToolStagedMediaTypes = map[string]map[string]string{
 	"echidna": {
 		"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
 	},
-	"mythril": {
-		"solidity_contract": "application/vnd.gratefulagents.solidity-contract.v1+source",
-		"evm_bytecode":      "application/vnd.gratefulagents.evm-bytecode.v1+hex",
+	"slither": {
+		"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+	},
+	"halmos": {
+		"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
 	},
 }
 
@@ -350,17 +352,6 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 		}
 		return spec, stagedTarget{}, nil
 	}
-	if in.Tool == "mythril" && in.Target.Type == "solidity_contract" {
-		data, readErr := os.ReadFile(local) // #nosec G304 -- resolved and confined workspace target.
-		if readErr != nil {
-			result := errorResultf("reading standalone Mythril source %s: %v", relative, readErr)
-			return spec, stagedTarget{}, &result
-		}
-		if containsSolidityImport(data) {
-			result := errorResultf("Mythril solidity_contract target %s imports other sources; single-file analysis would omit dependencies, so supply self-contained source or EVM bytecode", relative)
-			return spec, stagedTarget{}, &result
-		}
-	}
 	if t.deps.Blobs == nil {
 		result := errorResultf("cannot stage workspace path %s: object storage is unavailable (%v)", relative, t.deps.BlobsErr)
 		return spec, stagedTarget{}, &result
@@ -584,52 +575,6 @@ func looksLikeNetworkLocator(locator string) bool {
 func looksLikeFilesystemLocator(locator string) bool {
 	return strings.Contains(locator, "/") || strings.HasPrefix(locator, "~") ||
 		locator == "." || locator == ".."
-}
-
-// containsSolidityImport recognizes the import keyword only in Solidity code,
-// ignoring comments and quoted strings. A single-file Mythril target cannot
-// preserve imported dependencies, so such a target must fail before a run is
-// created instead of producing a misleading compiler/tool verdict.
-func containsSolidityImport(source []byte) bool {
-	const keyword = "import"
-	for i := 0; i < len(source); {
-		switch {
-		case source[i] == '/' && i+1 < len(source) && source[i+1] == '/':
-			i += 2
-			for i < len(source) && source[i] != '\n' {
-				i++
-			}
-		case source[i] == '/' && i+1 < len(source) && source[i+1] == '*':
-			i += 2
-			for i+1 < len(source) && (source[i] != '*' || source[i+1] != '/') {
-				i++
-			}
-			if i+1 < len(source) {
-				i += 2
-			}
-		case source[i] == '\'' || source[i] == '"':
-			quote := source[i]
-			i++
-			for i < len(source) {
-				if source[i] == '\\' && i+1 < len(source) {
-					i += 2
-					continue
-				}
-				if source[i] == quote {
-					i++
-					break
-				}
-				i++
-			}
-		case i+len(keyword) <= len(source) && string(source[i:i+len(keyword)]) == keyword &&
-			(i == 0 || !solidityIdentifierByte(source[i-1])) &&
-			(i+len(keyword) == len(source) || !solidityIdentifierByte(source[i+len(keyword)])):
-			return true
-		default:
-			i++
-		}
-	}
-	return false
 }
 
 func solidityIdentifierByte(value byte) bool {

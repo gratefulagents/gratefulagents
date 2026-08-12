@@ -44,9 +44,11 @@ type Adapter interface {
 // wrapper keeps adapters independent from persistence while ToScannerRecord
 // still feeds the established scanner finding pipeline.
 type securityRecord struct {
-	Record  ScannerRecord
-	Asset   string
-	Skipped bool
+	Record    ScannerRecord
+	Asset     string
+	Examined  bool
+	Skipped   bool
+	Uncovered bool
 }
 
 // local aliases keep adapter signatures readable.
@@ -159,8 +161,16 @@ func (r *Runner) normalizeNative(tool Tool, target Target, output []byte, redact
 		artifactDigest = res.Artifacts[0].Digest
 	}
 	for _, item := range adapted {
+		if item.Examined {
+			res.Coverage.Examined = sortedUnique(append(res.Coverage.Examined, item.Asset))
+			continue
+		}
 		if item.Skipped {
 			res.Coverage.Skipped = sortedUnique(append(res.Coverage.Skipped, item.Asset))
+			continue
+		}
+		if item.Uncovered {
+			res.Coverage.Uncovered = sortedUnique(append(res.Coverage.Uncovered, item.Asset))
 			continue
 		}
 		record := toPipelineRecord(item.Record)

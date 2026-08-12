@@ -6,6 +6,74 @@ spec:
   description: Deep security review for blockchain clients, rollups, bridges, peer-to-peer nodes, and signing services. It inventories protocol-critical surfaces, reviews the highest-risk flows individually, and hunts consensus, rollup, transaction, network, bridge, execution, signer, storage, native-safety, and release-integrity failures before exploit validation and triage. Contract-only repositories should use smart-contract-review instead.
   parallelism: 6
   tasks:
+    - name: detect-platforms-and-components
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Build the authoritative scope, platform, and component inventory for this repository before any surface
+        is mapped. Record the immutable revision under review, explicit in-scope and out-of-scope roots, stated
+        deployment/artifact availability, and limitations. Inspect manifests, build files, imports, schemas,
+        source layout, generated artifacts, tests,
+        deployment files, and production wiring for EVM clients/protocol code/system contracts, Solana and
+        Anchor, Cosmos SDK/CosmWasm/IBC, Substrate/Polkadot/XCM, Aptos Move, Sui Move, Cairo/Starknet, TON,
+        Algorand, and Bitcoin/UTXO/Lightning. Emit exactly one record for every enumerated platform, including
+        platforms not detected. For each detected platform identify concrete components such as node/client,
+        runtime/VM, consensus, contracts/programs/modules, bridge/rollup/prover, wallet/signer/custody,
+        relayer/oracle/indexer/keeper/sequencer/batcher, RPC/P2P, tests, and deployment/release code, with
+        repository-relative evidence files. Use detected only when source or configuration evidence supports
+        it, not from documentation or names alone; use inconclusive when evidence conflicts. This is inventory,
+        not a vulnerability hunt, and it must not claim that builds, tests, analyzers, fuzzers, provers, or
+        network checks were executed.
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["revision", "scope", "platforms", "limitations"],
+          "properties": {
+            "revision": {"type": "string"},
+            "scope": {
+              "type": "object",
+              "required": ["in_scope", "out_of_scope", "deployment_artifacts"],
+              "properties": {
+                "in_scope": {"type": "array", "items": {"type": "string"}},
+                "out_of_scope": {"type": "array", "items": {"type": "string"}},
+                "deployment_artifacts": {"type": "string", "enum": ["available", "partial", "unavailable"]}
+              }
+            },
+            "platforms": {
+              "type": "array",
+              "minItems": 10,
+              "maxItems": 10,
+              "items": {
+                "type": "object",
+                "required": ["platform", "status", "evidence", "components"],
+                "properties": {
+                  "platform": {"type": "string", "enum": ["evm-protocol", "solana-anchor", "cosmos-cosmwasm-ibc", "substrate-polkadot-xcm", "aptos-move", "sui-move", "cairo-starknet", "ton", "algorand", "bitcoin-lightning"]},
+                  "status": {"type": "string", "enum": ["detected", "not_detected", "inconclusive"]},
+                  "evidence": {"type": "array", "items": {"type": "string", "description": "Repository-relative file or file:line evidence"}},
+                  "components": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["name", "kind", "files"],
+                      "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "files": {"type": "array", "items": {"type": "string"}}
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+
     - name: map-protocol-surfaces
       role: threat-modeler
       category: recon
@@ -16,7 +84,9 @@ spec:
         denied:
           - Bash
       objective: >-
-        Map and risk-rank every production protocol surface in this repository: consensus and finality;
+        Consume the complete platform/component inventory in
+        {{tasks.detect-platforms-and-components.output}} and map and risk-rank every production protocol
+        surface in every detected or inconclusive component: consensus and finality;
         transaction, block, batch, proof, and state-transition validation; rollup derivation and disputes;
         peer-to-peer, mempool, synchronization, and public RPC entry points; cross-chain messages and
         withdrawals; execution engines, precompiles, system contracts, and host boundaries; persistent state,
@@ -29,16 +99,19 @@ spec:
         system contracts, proof/message semantics, and VM/host boundaries; leave ordinary reentrancy, oracle,
         token, proxy-layout, and contract access-control review to smart-contract-review. Publish the complete
         risk-ranked inventory, not findings. Sort the array by strictly ascending, unique risk_rank (one is
-        highest risk); later fan-out consumes that array order and reviews every surface.
+        highest risk); later fan-out consumes that array order and reviews every surface. Preserve the
+        inventory's platform identifier on every surface and do not map a not_detected platform.
+      dependsOn: [detect-platforms-and-components]
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["surface_id", "domain", "entrypoint", "file", "attacker", "asset_or_invariant", "control", "risk_rank"],
+            "required": ["surface_id", "platform", "domain", "entrypoint", "file", "attacker", "asset_or_invariant", "control", "risk_rank"],
             "properties": {
               "surface_id": {"type": "string", "description": "Stable short identifier for this review unit"},
-              "domain": {"type": "string", "enum": ["consensus", "rollup", "transaction", "p2p", "bridge", "execution", "signer", "storage", "native", "deployment", "release"]},
+              "platform": {"type": "string", "enum": ["evm-protocol", "solana-anchor", "cosmos-cosmwasm-ibc", "substrate-polkadot-xcm", "aptos-move", "sui-move", "cairo-starknet", "ton", "algorand", "bitcoin-lightning"]},
+              "domain": {"type": "string", "enum": ["consensus", "rollup", "zk", "transaction", "p2p", "bridge", "execution", "signer", "wallet", "economics", "offchain", "storage", "native", "deployment", "release"]},
               "entrypoint": {"type": "string", "description": "Production handler, message, method, hook, or build entry point"},
               "file": {"type": "string", "description": "Repository-relative implementation file"},
               "attacker": {"type": "string", "description": "Least-privileged principal able to influence this surface"},
@@ -114,6 +187,8 @@ spec:
         sequence that honest nodes accept differently, commits invalid state, violates finality, or halts
         network progress, with the attacker's role and decisive code at file:line.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: rollup-derivation-da-and-fault-proofs
       role: vulnerability-hunter
@@ -135,6 +210,8 @@ spec:
         valid challenge. If absent, report nothing. Cite the crafted L1 event, batch, output, or dispute move,
         the validation defect at file:line, and its safety, liveness, or fund impact.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: transaction-crypto-and-accounting
       role: vulnerability-hunter
@@ -157,6 +234,8 @@ spec:
         token/oracle/contract arithmetic to smart-contract-review. Report the attacker-controlled object,
         broken invariant, and verification or accounting defect at file:line.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: p2p-sync-mempool-and-rpc
       role: vulnerability-hunter
@@ -177,6 +256,8 @@ spec:
         exposed admin/debug methods. Distinguish clean rejection from measurable node degradation. Report
         the request/message pattern, cost asymmetry or trust bypass, recovery behavior, and sink at file:line.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: cross-chain-bridge-and-custody
       role: vulnerability-hunter
@@ -197,6 +278,8 @@ spec:
         off-chain halves present here, but not generic contract vulnerabilities. If no such boundary exists,
         report nothing. Cite acceptance and execution at file:line and the exact message sequence and impact.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: execution-vm-and-host-boundaries
       role: vulnerability-hunter
@@ -219,6 +302,8 @@ spec:
         If no execution boundary exists, report nothing. Cite the crafted program or call sequence and the
         consensus, fund, or node-compromise impact at file:line.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: signer-policy-quorum-and-hsm
       role: vulnerability-hunter
@@ -241,6 +326,8 @@ spec:
         concrete request that obtains an unauthorized or conflicting signature or bypasses operator policy.
         Report the request, trust boundary, and decisive authorization or state defect at file:line.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: key-material-and-operator-secrets
       role: secrets-auditor
@@ -261,6 +348,8 @@ spec:
         or signing authorization here. Discard fixtures and placeholders; report only a concrete disclosure
         path and what key or privilege it compromises, with redacted file:line evidence.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: storage-snapshot-reorg-and-concurrency
       role: vulnerability-hunter
@@ -281,6 +370,8 @@ spec:
         transaction, peer, relayer, or RPC path rather than assumed local corruption. Report the trigger,
         interleaving or recovery sequence, and persistent safety/liveness impact at file:line.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: native-memory-and-ffi-safety
       role: vulnerability-hunter
@@ -302,6 +393,8 @@ spec:
         only an attacker-reachable crash, corruption, secret disclosure, or code-execution path with source,
         conversion, and unsafe sink at file:line.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: genesis-deployment-and-upgrades
       role: vulnerability-hunter
@@ -324,6 +417,8 @@ spec:
         exposes a privileged service, corrupts state, or loses liveness, with file:line evidence and the
         attacker or operator precondition.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
     - name: dependencies-build-and-release
       role: dependency-auditor
@@ -345,6 +440,552 @@ spec:
         activation correctness here. Report only a concrete path to compromise a shipped artifact or exploit
         a reachable dependency, with file:line evidence and required privilege.
       dependsOn: [map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: evm-protocol-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: evm-economic-and-mev-review
+        - name: evm-low-level-and-deployment-review
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
+        evm-protocol is not_detected, explicitly return skipped; if its evidence is inconclusive, review what
+        is available and return inconclusive rather than guessing. For detected EVM clients, protocol code,
+        precompiles, system contracts, rollups, or cross-layer components, map architecture and trust
+        boundaries, assets and privileged roles, and consensus, authorization, accounting, solvency, replay,
+        gas/liveness, upgrade, and deployment invariants before manual review. Cover transaction and chain
+        domains, ERC-1271/EIP-712/permits/account abstraction, CREATE2/clones, Yul/ABI/precompiles, VM/host
+        differences, proxy/diamond migrations, governance, liquidation, ordering, and MEV where present.
+        Identify applicable existing unit, integration, fork, invariant, fuzz, symbolic, and artifact-match
+        tests and inspect their definitions/results when present, but this Bash-denied manual task must not
+        claim any build, analyzer, test, fuzzer, symbolic engine, or fork was executed. Record execution gaps
+        in limitations. Report only production-reachable attacker paths with decisive file:line evidence and
+        return every resulting finding fingerprint; otherwise return an empty fingerprint list.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: solana-anchor-specialist
+      role: vulnerability-hunter
+      category: authz
+      skillRefs:
+        - name: trail-of-bits-solana-vulnerability-scanner
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-rust-review
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
+        solana-anchor is not_detected, explicitly return skipped; if inconclusive or required generated code
+        is unavailable, return inconclusive or unsupported with the exact limitation. For detected Solana or
+        Anchor components, establish architecture, program/account/CPI trust boundaries, assets, authorities,
+        and signer, ownership, lamport/token conservation, PDA uniqueness, initialization, and upgrade
+        invariants before manual review. Audit signer/writable/owner/executable and alias checks, PDA seeds and
+        bumps, CPI target and privilege propagation, remaining accounts, sysvars and instruction introspection,
+        init/close/reinit, SPL Token and Token-2022 hooks/extensions, upgrade authority, compute limits, unsafe
+        Rust, and transaction ordering. Identify applicable program-test, local-validator, stateful/property,
+        fuzz, verifiable-build, and compute tests, but do not claim this Bash-denied manual task executed any
+        tool or test; record execution gaps in limitations. Report only concrete production-reachable attacker
+        paths with decisive file:line evidence and return their finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: cosmos-cosmwasm-ibc-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-cosmos-vulnerability-scanner
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
+        cosmos-cosmwasm-ibc is not_detected, explicitly return skipped; use inconclusive or unsupported when
+        detected semantics or required generated artifacts cannot be established. For detected Cosmos SDK,
+        CometBFT/ABCI, CosmWasm, or IBC components, map architecture, module/keeper/capability and relayer trust
+        boundaries, assets, roles, and deterministic transition, authorization, packet/value conservation,
+        timeout, migration, and liveness invariants before manual review. Cover ante/post handlers, module
+        accounts, genesis/migrations/snapshots, proposal/vote/finalize behavior, panic and resources; IBC
+        clients/connections/channels/packets/timeouts/acks/middleware/denom traces/relayer failure; and CosmWasm
+        instantiate/execute/query/reply/migrate, funds, callbacks, storage, gas, and memory. Identify applicable
+        Go/Rust unit, simulation, invariant, fuzz, interchain, upgrade, and deterministic-replay tests, but do
+        not claim this Bash-denied manual task ran them. Record execution limits and report only concrete
+        attacker paths with decisive file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: substrate-polkadot-xcm-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-substrate-vulnerability-scanner
+        - name: trail-of-bits-rust-review
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
+        substrate-polkadot-xcm is not_detected, explicitly return skipped; classify missing runtime metadata,
+        generated weights, or cross-chain context as unsupported or inconclusive. For detected Substrate,
+        Polkadot, parachain, or XCM components, map runtime/node/relay-chain architecture, origin and XCM trust
+        boundaries, assets and privileged roles, and authorization, weight/proof-size, storage-growth, asset
+        conservation, upgrade/migration, and native/Wasm consistency invariants before manual review. Audit
+        dispatchables, origins, signed extensions, unsigned transactions, inherents, hooks, off-chain workers,
+        nested dispatch, benchmarks, call indexes, proxy/multisig/scheduler/collective paths, and XCM origin,
+        barrier, asset, fee, routing, replay, and version handling. Identify applicable unit, runtime, try-runtime,
+        benchmark, property/fuzz, migration, and native/Wasm differential tests without claiming this
+        Bash-denied task ran them. Record limitations and report only concrete attacker paths with decisive
+        file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: aptos-move-specialist
+      role: vulnerability-hunter
+      category: authz
+      skillRefs:
+        - name: move-chain-security-review
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} and
+        preserve Aptos semantics independently from Sui. If aptos-move is not_detected, explicitly return
+        skipped; return unsupported or inconclusive when bytecode, framework version, or upgrade context is
+        missing. For detected Aptos Move packages or node components, map module/resource/object architecture,
+        signer/capability/framework trust boundaries, assets and privileged roles, and resource conservation,
+        authentication, replay, type-safety, upgrade, and parallel-execution invariants before manual review.
+        Audit abilities, generics/type witnesses, signer and capability custody, visibility/friend entry points,
+        account and transaction authentication, sponsored and multisig transactions, sequence numbers,
+        Block-STM conflicts, Aptos objects/tokens, framework natives, and package compatibility. Identify
+        applicable Move unit/property tests, transactional tests, prover specifications, upgrade checks, and
+        parallel-execution differentials, but do not claim this Bash-denied task executed the Move compiler,
+        Prover, tests, or node. Record limitations and report only concrete attacker paths with decisive
+        file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: sui-move-specialist
+      role: vulnerability-hunter
+      category: authz
+      skillRefs:
+        - name: move-chain-security-review
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} and
+        preserve Sui object semantics independently from Aptos. If sui-move is not_detected, explicitly return
+        skipped; return unsupported or inconclusive when bytecode, framework version, or upgrade context is
+        missing. For detected Sui Move packages or node components, map package/module and owned/shared/
+        immutable object architecture, authority/capability trust boundaries, assets and privileged roles, and
+        ownership, version, consensus sequencing, conservation, transfer, and upgrade invariants before manual
+        review. Audit abilities and type witnesses, UID/object creation, shared-object access, PTB argument and
+        result flow, dynamic fields, receiving and transfers, object wrapping/deletion, clock/randomness,
+        kiosks/tokens where present, package upgrades, and native/framework calls. Identify applicable Move
+        unit/scenario/property tests, PTB/stateful tests, upgrade checks, and shared-object concurrency tests,
+        but do not claim this Bash-denied task ran compiler, tests, simulators, or validators. Record limitations
+        and report only concrete attacker paths with decisive file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: cairo-starknet-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-cairo-vulnerability-scanner
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
+        cairo-starknet is not_detected, explicitly return skipped; classify missing Sierra/CASM/deployed-class
+        evidence or unsupported compiler semantics honestly. For detected Cairo/Starknet contracts, accounts,
+        or node/prover components, map class/component/account/L1-L2 architecture, caller and sequencer trust
+        boundaries, assets and privileged roles, and arithmetic, authorization, replay, message binding,
+        class-upgrade, and source-to-artifact invariants before manual review. Audit felt/range/cast and field
+        arithmetic, source/Sierra/CASM/class consistency, storage/components, constructors, class replacement,
+        library calls, dispatchers, syscalls, account validation/execution, nonces/fees, and L1 handlers with
+        authenticated senders. Identify applicable unit, integration, fuzz/property, artifact comparison,
+        account, and L1 messaging tests, but do not claim this Bash-denied task executed Scarb, tests, analyzers,
+        provers, or a devnet. Record limitations and report only concrete attacker paths with decisive
+        file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: ton-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-ton-vulnerability-scanner
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If TON
+        is not_detected, explicitly return skipped; otherwise map contracts, Jettons, messages, wallets, and
+        validator/client boundaries and establish assets and sender, message, balance/gas, bounce, and custody
+        invariants. Manually audit integer-as-boolean errors, fake Jettons, sender validation, message
+        mode/value/gas, bounce handling, replay, dictionaries/cells, and upgrades. Identify applicable unit,
+        emulator, property/stateful, compile/artifact, and integration tests, but do not claim this Bash-denied
+        task ran any. Record TON-specific execution limits and report only concrete attacker paths with decisive
+        file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: algorand-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-algorand-vulnerability-scanner
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
+        Algorand is not_detected, explicitly return skipped; otherwise map TEAL/PyTeal apps, assets, accounts,
+        groups, and node boundaries and establish authorization, rekey, fee, asset, group-completeness, state,
+        and upgrade invariants. Manually audit rekeying, fees, group indexes and foreign references,
+        close/remainder paths, asset/app identity, and inner transactions. Identify applicable unit, sandbox,
+        property/stateful, compile/artifact, and integration tests, but do not claim this Bash-denied task ran
+        any. Record Algorand-specific execution limits and report only concrete attacker paths with decisive
+        file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: bitcoin-lightning-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: bitcoin-lightning-security-review
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-constant-time-analysis
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
+        bitcoin-lightning is not_detected, explicitly return skipped; classify missing network, policy,
+        descriptor, or channel-state context as unsupported or inconclusive. For detected Bitcoin/UTXO,
+        wallet, signer, node, or Lightning components, map transaction/script/wallet/channel/watchtower/routing
+        architecture, peer and custody trust boundaries, assets and privileged roles, and UTXO ownership,
+        value/fee conservation, sighash/domain binding, timelock, channel-state monotonicity, revocation,
+        force-close, and recovery invariants before manual review. Cover script and witness validation, PSBT
+        intent, descriptors and derivation, coin selection/change, RBF/CPFP and malleability assumptions,
+        HTLC/PTLC timeouts, commitment updates, justice transactions, watchtowers, routing fees, channel jamming,
+        liquidity and backup/recovery. Identify applicable unit, functional/regtest, script-vector, property/fuzz,
+        channel-simulation, and interoperability tests, but do not claim this Bash-denied task ran nodes or
+        tests. Record limitations and report only concrete attacker paths with decisive file:line evidence and
+        finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: bridge-l2-zk-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-sharp-edges
+        - name: trail-of-bits-constant-time-analysis
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
+        all detected platforms. If no bridge, L2/rollup, data-availability, proof, circuit, prover, verifier,
+        or cross-domain component is inventoried, explicitly return skipped; mark unavailable counterpart or
+        circuit/artifact semantics unsupported or inconclusive. Map the end-to-end architecture and trust
+        boundaries among contracts/programs, clients, relayers, sequencers, batchers, challengers, provers and
+        verifiers; identify assets, roles, and message/value conservation, origin/destination binding, replay,
+        finality/reorg, retry/refund, forced-inclusion, derivation, DA, challenge, and proof-soundness invariants.
+        Manually trace one full lifecycle and cover lock/mint and burn/release, decimals, optimistic roots and
+        fault games, sequencer failure, ZK witnesses/public inputs/range constraints/field aliasing/transcripts/
+        aggregation/recursion/setup provenance, and prover-verifier disagreement. Identify applicable unit,
+        integration, reorg, differential, invariant/fuzz, circuit constraint, proof-vector, and local lifecycle
+        tests, but do not claim this Bash-denied task executed any. Record limitations and report only concrete
+        attacker paths with decisive file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: wallet-mpc-cryptography-specialist
+      role: vulnerability-hunter
+      category: crypto
+      skillRefs:
+        - name: trail-of-bits-constant-time-analysis
+        - name: trail-of-bits-wycheproof
+        - name: trail-of-bits-zeroize-audit
+        - name: trail-of-bits-sharp-edges
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
+        all detected platforms. If no wallet, signing, key-management, HSM, MPC/threshold, custody, or custom
+        cryptographic component is inventoried, explicitly return skipped; mark unavailable firmware, peer,
+        transcript, or cryptographic implementation context unsupported or inconclusive. Map wallet/provider/
+        signer/MPC/HSM architecture and trust boundaries, assets and roles, and transaction-intent, key custody,
+        quorum, anti-replay/equivocation, transcript/domain binding, canonical encoding, nonce uniqueness,
+        subgroup/curve validity, and recovery invariants before manual review. Cover BIP-32/39/44 where
+        applicable, entropy/seeds/PSBT/display/blind signing/network and address confusion/change, provider and
+        WalletConnect permissions, browser/mobile/hardware isolation; DKG, rogue keys, shares, backups,
+        attestation and policy; and nonce bias/reuse, batch verification, constant-time behavior and vectors.
+        Identify applicable unit, vector/Wycheproof, interoperability, threshold-failure, recovery, property/fuzz,
+        and side-channel tests, but do not claim this Bash-denied task ran them. Record limitations and report
+        only concrete attacker paths with decisive file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: economics-mev-governance-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: evm-economic-and-mev-review
+        - name: trail-of-bits-dimensional-analysis
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
+        all detected platforms. If no protocol economics, staking, lending, exchange/auction, liquidation,
+        oracle, rewards, fee market, governance, delegation, timelock, or ordering-sensitive component is
+        inventoried, explicitly return skipped; classify unavailable parameter, liquidity, oracle, or
+        governance context as unsupported or inconclusive. Map economic and governance architecture, trust
+        and timing boundaries, assets and roles, and solvency/conservation, share/decimal, bad-debt, incentive,
+        quorum, delegation, timelock, emergency-action, ordering, and liveness invariants before manual review.
+        Cover oracle/liquidity assumptions, liquidation and auction incentives, insolvency cascades, reward and
+        fee gaming, griefing, bribery/censorship, flash-loan or borrowed voting, proposal/execution bypass,
+        sandwiches/back-running/JIT/liquidation races, batching, and parameter stress. Identify applicable unit,
+        invariant/property, stateful simulation, fork, differential, governance lifecycle, and adversarial
+        ordering tests, but do not claim this Bash-denied task ran them or performed economic simulation.
+        Record limitations and report only concrete attacker paths with decisive file:line evidence and
+        finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: off-chain-services-specialist
+      role: vulnerability-hunter
+      category: authz
+      skillRefs:
+        - name: api-authz-hunting
+        - name: web-app-hunting
+        - name: trail-of-bits-sharp-edges
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
+        all detected platforms. If no relayer, oracle, indexer, keeper, bundler, sequencer, batcher, prover,
+        RPC service, admin API, telemetry pipeline, key-custody service, backup, or recovery component is
+        inventoried, explicitly return skipped; classify absent deployment, identity, peer, or persistence
+        context as unsupported or inconclusive. Map service/data/control architecture and on-chain/off-chain
+        trust boundaries, assets and operator roles, and tenant/chain/job binding, authorization, idempotency,
+        ordering, freshness, persistence, failover, custody, backup, recovery, and least-privilege invariants
+        before manual review. Audit untrusted inputs through APIs, queues and workers; confused-deputy and
+        cross-tenant paths; stale/replayed jobs; duplicate or partial execution; unsafe admin operations;
+        telemetry secret leakage; dependency on untrusted RPC/index data; key policy; and outage/recovery
+        behavior. Identify applicable unit, integration, replay/idempotency, authorization, queue-failure,
+        failover, backup/restore, and local end-to-end tests, but do not claim this Bash-denied task ran them or
+        contacted a service. Record limitations and report only concrete attacker paths with decisive
+        file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: account-chain-coverage-a
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Compact {{tasks.evm-protocol-specialist.output}}, {{tasks.solana-anchor-specialist.output}}, and
+        {{tasks.cosmos-cosmwasm-ibc-specialist.output}} into one record per source. Preserve area, status,
+        examined and skipped targets, limitations, and finding fingerprints exactly; do not reinterpret a
+        skipped, unsupported, or inconclusive result as examined and do not add findings.
+      dependsOn: [evm-protocol-specialist, solana-anchor-specialist, cosmos-cosmwasm-ibc-specialist]
+      outputSchema: &coverageLedgerSchema |-
+        {"type":"array","minItems":3,"maxItems":3,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
+
+    - name: account-chain-coverage-b
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Compact {{tasks.substrate-polkadot-xcm-specialist.output}}, {{tasks.aptos-move-specialist.output}}, and
+        {{tasks.sui-move-specialist.output}} into one record per source, preserving every coverage status,
+        examined/skipped target, limitation, and finding fingerprint without adding or upgrading findings.
+      dependsOn: [substrate-polkadot-xcm-specialist, aptos-move-specialist, sui-move-specialist]
+      outputSchema: *coverageLedgerSchema
+
+    - name: account-chain-coverage-c
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Compact {{tasks.cairo-starknet-specialist.output}}, {{tasks.ton-specialist.output}},
+        {{tasks.algorand-specialist.output}}, and {{tasks.bitcoin-lightning-specialist.output}} into one record per source, preserving every coverage
+        status, examined/skipped target, limitation, and finding fingerprint without adding findings.
+      dependsOn: [cairo-starknet-specialist, ton-specialist, algorand-specialist, bitcoin-lightning-specialist]
+      outputSchema: |-
+        {"type":"array","minItems":4,"maxItems":4,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
+
+    - name: account-cross-system-coverage-a
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Compact {{tasks.bridge-l2-zk-specialist.output}}, {{tasks.wallet-mpc-cryptography-specialist.output}},
+        and {{tasks.economics-mev-governance-specialist.output}} into one record per source, preserving every
+        coverage status, examined/skipped target, limitation, and finding fingerprint without adding findings.
+      dependsOn: [bridge-l2-zk-specialist, wallet-mpc-cryptography-specialist, economics-mev-governance-specialist]
+      outputSchema: *coverageLedgerSchema
+
+    - name: account-cross-system-coverage-b
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Preserve {{tasks.off-chain-services-specialist.output}} as a one-record coverage ledger. Keep its
+        status, examined/skipped targets, limitations, and finding fingerprints exact.
+      dependsOn: [off-chain-services-specialist]
+      outputSchema: |-
+        {"type":"array","minItems":1,"maxItems":1,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
+
+    - name: account-chain-coverage
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Merge {{tasks.account-chain-coverage-a.output}}, {{tasks.account-chain-coverage-b.output}}, and
+        {{tasks.account-chain-coverage-c.output}} into one ordered chain coverage ledger without changing any
+        record or losing skipped, unsupported, inconclusive, limitation, or fingerprint data.
+      dependsOn: [account-chain-coverage-a, account-chain-coverage-b, account-chain-coverage-c]
+      outputSchema: |-
+        {"type":"array","minItems":10,"maxItems":10,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
+
+    - name: account-cross-system-coverage
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Merge {{tasks.account-cross-system-coverage-a.output}} and
+        {{tasks.account-cross-system-coverage-b.output}} into one ordered cross-system coverage ledger without
+        changing any record or losing skipped, unsupported, inconclusive, limitation, or fingerprint data.
+      dependsOn: [account-cross-system-coverage-a, account-cross-system-coverage-b]
+      outputSchema: |-
+        {"type":"array","minItems":4,"maxItems":4,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
+
+    - name: account-domain-coverage-a
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Compact {{tasks.consensus-finality-and-state-transition.output}},
+        {{tasks.rollup-derivation-da-and-fault-proofs.output}}, and
+        {{tasks.transaction-crypto-and-accounting.output}} into exactly three unchanged coverage records.
+      dependsOn: [consensus-finality-and-state-transition, rollup-derivation-da-and-fault-proofs, transaction-crypto-and-accounting]
+      outputSchema: &domainCoverageSchema |-
+        {"type":"array","minItems":3,"maxItems":3,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
+
+    - name: account-domain-coverage-b
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Compact {{tasks.p2p-sync-mempool-and-rpc.output}}, {{tasks.cross-chain-bridge-and-custody.output}},
+        and {{tasks.execution-vm-and-host-boundaries.output}} into exactly three unchanged coverage records.
+      dependsOn: [p2p-sync-mempool-and-rpc, cross-chain-bridge-and-custody, execution-vm-and-host-boundaries]
+      outputSchema: *domainCoverageSchema
+
+    - name: account-domain-coverage-c
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Compact {{tasks.signer-policy-quorum-and-hsm.output}}, {{tasks.key-material-and-operator-secrets.output}},
+        and {{tasks.storage-snapshot-reorg-and-concurrency.output}} into exactly three unchanged coverage records.
+      dependsOn: [signer-policy-quorum-and-hsm, key-material-and-operator-secrets, storage-snapshot-reorg-and-concurrency]
+      outputSchema: *domainCoverageSchema
+
+    - name: account-domain-coverage-d
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Compact {{tasks.native-memory-and-ffi-safety.output}}, {{tasks.genesis-deployment-and-upgrades.output}},
+        and {{tasks.dependencies-build-and-release.output}} into exactly three unchanged coverage records.
+      dependsOn: [native-memory-and-ffi-safety, genesis-deployment-and-upgrades, dependencies-build-and-release]
+      outputSchema: *domainCoverageSchema
+
+    - name: account-domain-coverage-ab
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Merge {{tasks.account-domain-coverage-a.output}} and {{tasks.account-domain-coverage-b.output}} into
+        exactly six records without changing statuses, limitations, targets, or fingerprints.
+      dependsOn: [account-domain-coverage-a, account-domain-coverage-b]
+      outputSchema: &sixDomainCoverageSchema |-
+        {"type":"array","minItems":6,"maxItems":6,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
+
+    - name: account-domain-coverage-cd
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Merge {{tasks.account-domain-coverage-c.output}} and {{tasks.account-domain-coverage-d.output}} into
+        exactly six records without changing statuses, limitations, targets, or fingerprints.
+      dependsOn: [account-domain-coverage-c, account-domain-coverage-d]
+      outputSchema: *sixDomainCoverageSchema
+
+    - name: account-domain-coverage
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Merge {{tasks.account-domain-coverage-ab.output}} and {{tasks.account-domain-coverage-cd.output}} into
+        exactly twelve records without changing statuses, limitations, targets, or fingerprints.
+      dependsOn: [account-domain-coverage-ab, account-domain-coverage-cd]
+      outputSchema: |-
+        {"type":"array","minItems":12,"maxItems":12,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
     - name: validate-high-impact-findings
       role: exploit-validator
@@ -381,6 +1022,20 @@ spec:
         - native-memory-and-ffi-safety
         - genesis-deployment-and-upgrades
         - dependencies-build-and-release
+        - evm-protocol-specialist
+        - solana-anchor-specialist
+        - cosmos-cosmwasm-ibc-specialist
+        - substrate-polkadot-xcm-specialist
+        - aptos-move-specialist
+        - sui-move-specialist
+        - cairo-starknet-specialist
+        - ton-specialist
+        - algorand-specialist
+        - bitcoin-lightning-specialist
+        - bridge-l2-zk-specialist
+        - wallet-mpc-cryptography-specialist
+        - economics-mev-governance-specialist
+        - off-chain-services-specialist
       outputSchema: |-
         {
           "type": "array",
@@ -395,6 +1050,35 @@ spec:
           }
         }
 
+    - name: account-protocol-and-validation-coverage
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Compare the complete inventory in {{tasks.map-protocol-surfaces.output}} with every result in
+        {{tasks.review-critical-surface.output}} and {{tasks.validate-high-impact-findings.output}}. Produce a
+        compact ledger naming reviewed and blocked surface ids, inventory domains with no surface, confirmed,
+        disproved, and still-triaged fingerprints, and validation limitations. Do not turn a blocked review,
+        missing domain, timeout, tool failure, or unresolved candidate into a pass.
+      dependsOn: [map-protocol-surfaces, review-critical-surface, validate-high-impact-findings]
+      outputSchema: |-
+        {"type":"object","required":["reviewed_surfaces","blocked_surfaces","absent_domains","confirmed","false_positives","triaged","limitations"],"properties":{"reviewed_surfaces":{"type":"array","items":{"type":"string"}},"blocked_surfaces":{"type":"array","items":{"type":"string"}},"absent_domains":{"type":"array","items":{"type":"string"}},"confirmed":{"type":"array","items":{"type":"string"}},"false_positives":{"type":"array","items":{"type":"string"}},"triaged":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
+    - name: account-complete-protocol-coverage
+      role: finding-triager
+      category: triage
+      tools:
+        denied: [Bash]
+      objective: >-
+        Combine the surface and validation ledger {{tasks.account-protocol-and-validation-coverage.output}}
+        with the twelve-record domain ledger {{tasks.account-domain-coverage.output}}. Preserve every blocked
+        or absent surface, validation verdict, domain status, limitation, and finding fingerprint in a compact
+        object; do not promote unsupported or inconclusive work to examined.
+      dependsOn: [account-protocol-and-validation-coverage, account-domain-coverage]
+      outputSchema: |-
+        {"type":"object","required":["surface_validation","domains"],"properties":{"surface_validation":{"type":"object"},"domains":{"type":"array","minItems":12,"maxItems":12}}}
+
     - name: triage-and-report
       role: finding-triager
       category: triage
@@ -405,20 +1089,27 @@ spec:
         denied:
           - Bash
       objective: >-
-        Triage the findings and validation results in {{tasks.validate-high-impact-findings.output}} and the
-        per-surface coverage results in {{tasks.review-critical-surface.output}} against the risk-ranked
-        inventory in {{tasks.map-protocol-surfaces.output}}. Keep confirmed critical/high findings; retain a
-        triaged candidate only when its evidence still supports a plausible path, mark it tentative, and make
-        the unresolved validation blocker conspicuous rather than silently discarding it. Independently
-        re-read lower-severity paths and reject claims that assume a modified binary, pre-existing operator
-        compromise, impossible state, or a check performed elsewhere. Merge reports sharing one root cause.
-        Rank unauthenticated consensus failure or direct fund loss first, then persistent state corruption,
-        key compromise, bridge safety failure, and
-        single-peer node takeover or sustained DoS; state validator, sequencer, relayer, and operator
-        prerequisites explicitly. The per-surface fan-out reviews every inventory entry: name every blocked
-        review result and every domain absent from the inventory as explicit coverage information rather than
-        implying full coverage. Then assemble and submit exactly one final report.
+        Produce exactly one final report from the complete protocol/domain ledger
+        {{tasks.account-complete-protocol-coverage.output}}, chain ledger
+        {{tasks.account-chain-coverage.output}}, and cross-system ledger
+        {{tasks.account-cross-system-coverage.output}}. Call list_security_findings and re-read each concrete
+        attacker path and file:line before keeping it. Keep confirmed critical/high findings; retain an
+        unresolved candidate only when evidence still supports a plausible path, label it tentative, and make
+        its blocker conspicuous. Reject claims that assume a modified binary, pre-existing operator compromise,
+        impossible state, or a validation performed elsewhere, and merge duplicates sharing one root cause.
+        Rank unauthenticated consensus failure or direct fund loss first, followed by persistent state
+        corruption, key compromise, bridge safety failure, single-peer takeover, and sustained denial of
+        service; state validator, sequencer, relayer, signer, and operator prerequisites explicitly.
+
+        Include separate structured sections for confirmed findings, tool/task errors and timeouts, unsupported
+        platforms or execution methods, skipped or non-applicable targets, inconclusive work, reviewed surfaces,
+        and uncovered inventory. A clean bounded result is evidence only for its named revision, harness, seed,
+        and bounds and must not be described as safety. For each kept finding provide root cause, smallest safe
+        remediation, regression-test guidance, rollout or migration risk, and a deterministic retest recipe
+        naming a new immutable revision, exact target, applicable registered tool and seed/bounds, and expected
+        evidence. State that an actual remediation retest requires a follow-up scan of that revision; do not
+        claim it happened in this immutable scan. Then submit the final report.
       dependsOn:
-        - map-protocol-surfaces
-        - review-critical-surface
-        - validate-high-impact-findings
+        - account-complete-protocol-coverage
+        - account-chain-coverage
+        - account-cross-system-coverage

@@ -103,8 +103,8 @@ func TestValidate(t *testing.T) {
 	cases := map[string]func(spec *platformv1alpha1.SecurityToolRunSpec){
 		"unknown tool": func(spec *platformv1alpha1.SecurityToolRunSpec) { spec.Tool = "cat" },
 		"disabled tool": func(spec *platformv1alpha1.SecurityToolRunSpec) {
-			spec.Tool = "slither"
-			spec.Target.Type = "solidity_project"
+			spec.Tool = "playwright"
+			spec.Target.Type = "browser_script"
 		},
 		"wrong target":     func(spec *platformv1alpha1.SecurityToolRunSpec) { spec.Target.Type = "pcap" },
 		"missing revision": func(spec *platformv1alpha1.SecurityToolRunSpec) { spec.Target.Revision = "" },

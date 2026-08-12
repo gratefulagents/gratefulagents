@@ -104,12 +104,14 @@ var otherExternalSecuritySkills = []externalSkillSource{
 // security-scan handbook.
 var inlineSecuritySkills = []string{
 	"api-authz-hunting",
+	"bitcoin-lightning-security-review",
 	"bug-bounty-reporting",
 	"cloud-iac-hunting",
 	"evm-economic-and-mev-review",
 	"evm-low-level-and-deployment-review",
 	"exploit-poc-discipline",
 	"kubernetes-operator-hunting",
+	"move-chain-security-review",
 	"web-app-hunting",
 }
 

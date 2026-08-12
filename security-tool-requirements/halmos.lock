@@ -1,0 +1,4 @@
+# Halmos is installed without dependencies because Linux arm64 has no yices-solver wheel.
+# The reviewed Z3-only dependency closure is installed from halmos-deps.lock.
+halmos==0.3.3 \
+    --hash=sha256:3967291bdd4aaac96a4c42dd18bf25bd76215acad53697d98f02b986ac8d3f67

@@ -149,6 +149,20 @@ func TestWorkDirectoryQuotaIsFinalAndKernelBacked(t *testing.T) {
 	}
 }
 
+func TestWritableTargetAndWorkShareOneQuota(t *testing.T) {
+	work := t.TempDir()
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "result"), make([]byte, 600), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "compiler-cache"), make([]byte, 600), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkDirectoriesQuota([]string{work, target}, 1024, 4096); !errors.Is(err, errOutputTooLarge) {
+		t.Fatalf("combined writable quota err=%v", err)
+	}
+}
+
 func TestZAPReportRequiresExaminedSite(t *testing.T) {
 	if zapReportExaminedTarget([]byte(`{"site":[]}`), "https://example.test", []string{"https://example.test"}) {
 		t.Fatal("empty ZAP report counted as examined")

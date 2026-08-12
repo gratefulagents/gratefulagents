@@ -167,17 +167,12 @@
     {
       "name": "slither",
       "status": "disabled",
-      "reason": "Upstream publishes Slither through Python package indexes without a verified multi-architecture runtime closure."
+      "reason": "Provided through a pinned multi-architecture OCI root; release-archive installation is intentionally disabled."
     },
     {
       "name": "halmos",
       "status": "disabled",
-      "reason": "Upstream publishes Halmos as Python/source distributions and a floating OCI tag without a verified multi-architecture runtime closure."
-    },
-    {
-      "name": "semgrep",
-      "status": "disabled",
-      "reason": "No upstream Linux release asset checksum is pinned; do not install from a floating package index."
+      "reason": "Provided through a hash-pinned multi-architecture Z3-only Python closure; release-archive installation is intentionally disabled."
     },
     {
       "name": "govulncheck",

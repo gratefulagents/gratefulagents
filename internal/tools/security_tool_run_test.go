@@ -252,6 +252,27 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 	assertAderynSummary(t, fixture, summary)
 }
 
+func TestRunSecurityToolStagesNewEVMDirectoryTools(t *testing.T) {
+	for name, request := range map[string]string{
+		"slither": `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"}}`,
+		"halmos":  `{"tool":"halmos","target":{"type":"foundry_project","locator":"repo/contracts","revision":"abc1234"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
+			fixture.writeProject(t)
+			fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
+			result, _ := fixture.exec(t, request)
+			if result.IsError || fixture.client.created == nil {
+				t.Fatalf("staged %s request failed: %+v", name, result)
+			}
+			target := fixture.client.created.Spec.Target
+			if target.StagedObjectKey == "" || target.MediaType != stagedTargetMediaType {
+				t.Fatalf("%s target was not staged as an archive: %+v", name, target)
+			}
+		})
+	}
+}
+
 func assertStagedAderynSpec(t *testing.T, fixture *securityToolRunFixture, created *platformv1alpha1.SecurityToolRun) {
 	t.Helper()
 	if created.Namespace != "default" || created.Spec.Tool != "aderyn" ||
@@ -594,7 +615,7 @@ func TestRunSecurityToolRejectsInvalidRequestsLocally(t *testing.T) {
 		},
 		{
 			name:    "catalog-only tool",
-			input:   `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"}}`,
+			input:   `{"tool":"playwright","target":{"type":"browser_script","locator":"repo/browser","revision":"abc1234"}}`,
 			wantErr: "not executable",
 		},
 		{
@@ -659,70 +680,6 @@ func TestRunSecurityToolNetworkTargetIsNotStaged(t *testing.T) {
 	}
 	if len(created.Spec.Arguments) != 1 || created.Spec.Arguments[0].Name != "rate" || created.Spec.Arguments[0].Value != "10" {
 		t.Fatalf("typed arguments were not recorded: %+v", created.Spec.Arguments)
-	}
-}
-
-func TestRunSecurityToolStagesMythrilSingleFileTarget(t *testing.T) {
-	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
-	contractPath := filepath.Join(fixture.workspace, "Token.sol")
-	if err := os.WriteFile(contractPath, []byte("contract Token {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
-
-	result, _ := fixture.exec(t, `{"tool":"mythril","target":{"type":"solidity_contract","locator":"Token.sol","revision":"abc1234"},"timeout_seconds":60}`)
-	if result.IsError {
-		t.Fatalf("unexpected error: %s", result.Content)
-	}
-	created := fixture.client.created
-	if created == nil || created.Spec.Target.StagedObjectKey == "" || created.Spec.Target.MediaType != stagedTargetMediaType {
-		t.Fatalf("Mythril target was not staged: %+v", created)
-	}
-	if names := archiveEntryNames(t, fixture.blobs.objects[created.Spec.Target.StagedObjectKey]); len(names) != 1 || names[0] != "Token.sol" {
-		t.Fatalf("staged entries = %v, want Token.sol", names)
-	}
-}
-
-func TestRunSecurityToolRejectsImportedMythrilSourceBeforeCreatingRun(t *testing.T) {
-	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
-	contractPath := filepath.Join(fixture.workspace, "Token.sol")
-	if err := os.WriteFile(contractPath, []byte("import {Base} from './Base.sol';\ncontract Token is Base {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := fixture.tool.Execute(context.Background(), json.RawMessage(
-		`{"tool":"mythril","target":{"type":"solidity_contract","locator":"Token.sol","revision":"abc1234"}}`,
-	), "")
-	if err != nil {
-		t.Fatalf("validation must not return a Go error: %v", err)
-	}
-	if !result.IsError || !strings.Contains(result.Content, "imports other sources") {
-		t.Fatalf("result = %+v, want imported-source rejection", result)
-	}
-	if fixture.client.created != nil || len(fixture.blobs.objects) != 0 {
-		t.Fatal("imported source must be rejected before staging or creating a SecurityToolRun")
-	}
-}
-
-func TestContainsSolidityImportIgnoresCommentsAndStrings(t *testing.T) {
-	for _, source := range []string{
-		"// import './Comment.sol';\ncontract Token {}",
-		"/* import './Comment.sol'; */ contract Token {}",
-		`contract Token { string constant note = "import './String.sol';"; }`,
-		"contract importable {}",
-	} {
-		if containsSolidityImport([]byte(source)) {
-			t.Errorf("false import detection in %q", source)
-		}
-	}
-	for _, source := range []string{
-		"import './Base.sol'; contract Token {}",
-		"import {Base} from './Base.sol'; contract Token is Base {}",
-		"import * as Base from './Base.sol'; contract Token {}",
-	} {
-		if !containsSolidityImport([]byte(source)) {
-			t.Errorf("missed import in %q", source)
-		}
 	}
 }
 

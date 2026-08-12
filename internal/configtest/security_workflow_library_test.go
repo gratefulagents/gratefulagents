@@ -172,9 +172,12 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		"define-security-invariants",
 		"reproducible-build-artifact-deployment-review",
 		"aderyn-static-analysis",
+		"slither-static-analysis",
+		"merge-solidity-static-analysis",
 		"deterministic-forge-tests-and-invariants",
 		"echidna-stateful-property-fuzzing",
-		"bounded-mythril-symbolic-analysis",
+		"bounded-halmos-symbolic-tests",
+		"merge-symbolic-tool-coverage",
 		"symbolic-and-formal-applicability",
 		"deployment-and-privileged-configuration",
 		"validate-high-impact-exploits",
@@ -207,14 +210,21 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 			"map-architecture-assets-roles-entrypoints",
 			"define-security-invariants",
 		},
+		"merge-solidity-static-analysis": {
+			"aderyn-static-analysis",
+			"slither-static-analysis",
+		},
 		"account-build-and-static-coverage": {
 			"reproducible-build-artifact-deployment-review",
-			"aderyn-static-analysis",
+			"merge-solidity-static-analysis",
 			"deterministic-forge-tests-and-invariants",
 		},
-		"account-fuzz-and-formal-coverage": {
+		"merge-symbolic-tool-coverage": {
 			"echidna-stateful-property-fuzzing",
-			"bounded-mythril-symbolic-analysis",
+			"bounded-halmos-symbolic-tests",
+		},
+		"account-fuzz-and-formal-coverage": {
+			"merge-symbolic-tool-coverage",
 			"symbolic-and-formal-applicability",
 		},
 		"account-calls-auth-accounting-coverage": {
@@ -297,11 +307,35 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		}
 	}
 
+	validation := byName["validate-high-impact-exploits"]
+	if !slices.Contains(validation.DependsOn, "bounded-halmos-symbolic-tests") || !strings.Contains(validation.Objective, "{{tasks.bounded-halmos-symbolic-tests.output}}") {
+		t.Error("high-impact validation must consume bounded Halmos results directly")
+	}
+	for _, name := range []string{"bounded-halmos-symbolic-tests", "merge-symbolic-tool-coverage"} {
+		var schema struct {
+			Items struct {
+				Required   []string `json:"required"`
+				Properties map[string]struct {
+					Type string `json:"type"`
+				} `json:"properties"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal([]byte(byName[name].OutputSchema), &schema); err != nil {
+			t.Fatalf("decode %s schema: %v", name, err)
+		}
+		for _, field := range []string{"counterexamples", "limitations"} {
+			if !slices.Contains(schema.Items.Required, field) || schema.Items.Properties[field].Type != "array" {
+				t.Errorf("%s must require structured %s array", name, field)
+			}
+		}
+	}
+
 	for name, tool := range map[string]string{
 		"aderyn-static-analysis":                   "aderyn",
+		"slither-static-analysis":                  "slither",
 		"deterministic-forge-tests-and-invariants": "forge-security-tests",
 		"echidna-stateful-property-fuzzing":        "echidna",
-		"bounded-mythril-symbolic-analysis":        "mythril",
+		"bounded-halmos-symbolic-tests":            "halmos",
 	} {
 		task, ok := byName[name]
 		if !ok {
@@ -320,6 +354,102 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 			if !strings.Contains(objective, status) {
 				t.Errorf("triage-and-report must account for %q coverage", status)
 			}
+		}
+	}
+}
+
+// TestBlockchainProtocolAuditComposition keeps the generic protocol workflow
+// chain-aware: platform detection must feed each specialist and dormant chain
+// skills must remain attached to the matching review task.
+func TestBlockchainProtocolAuditComposition(t *testing.T) {
+	t.Parallel()
+
+	var workflow triggersv1alpha1.SecurityWorkflow
+	readBootstrapAsset(t, "securityworkflows", "blockchain-protocol-audit", &workflow)
+
+	byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+	for _, task := range workflow.Spec.Tasks {
+		byName[task.Name] = task
+	}
+	if _, ok := byName["detect-platforms-and-components"]; !ok {
+		t.Fatal("blockchain protocol workflow must begin with platform detection")
+	}
+	requiredSkills := map[string][]string{
+		"solana-anchor-specialist":            {"trail-of-bits-solana-vulnerability-scanner"},
+		"cosmos-cosmwasm-ibc-specialist":      {"trail-of-bits-cosmos-vulnerability-scanner"},
+		"substrate-polkadot-xcm-specialist":   {"trail-of-bits-substrate-vulnerability-scanner"},
+		"aptos-move-specialist":               {"move-chain-security-review"},
+		"sui-move-specialist":                 {"move-chain-security-review"},
+		"cairo-starknet-specialist":           {"trail-of-bits-cairo-vulnerability-scanner"},
+		"ton-specialist":                      {"trail-of-bits-ton-vulnerability-scanner"},
+		"algorand-specialist":                 {"trail-of-bits-algorand-vulnerability-scanner"},
+		"bitcoin-lightning-specialist":        {"bitcoin-lightning-security-review"},
+		"bridge-l2-zk-specialist":             {"trail-of-bits-property-based-testing"},
+		"wallet-mpc-cryptography-specialist":  {"trail-of-bits-constant-time-analysis"},
+		"economics-mev-governance-specialist": {"evm-economic-and-mev-review"},
+	}
+	for name, skills := range requiredSkills {
+		task, ok := byName[name]
+		if !ok {
+			t.Errorf("required chain-aware task %q is missing", name)
+			continue
+		}
+		if !slices.Contains(task.DependsOn, "detect-platforms-and-components") {
+			t.Errorf("task %q does not consume platform detection", name)
+		}
+		refs := make([]string, 0, len(task.SkillRefs))
+		for _, ref := range task.SkillRefs {
+			refs = append(refs, ref.Name)
+		}
+		for _, skill := range skills {
+			if !slices.Contains(refs, skill) {
+				t.Errorf("task %q does not attach skill %q", name, skill)
+			}
+		}
+	}
+
+	cardinalities := map[string]int{
+		"account-chain-coverage-a":        3,
+		"account-chain-coverage-b":        3,
+		"account-chain-coverage-c":        4,
+		"account-cross-system-coverage-a": 3,
+		"account-cross-system-coverage-b": 1,
+		"account-chain-coverage":          10,
+		"account-cross-system-coverage":   4,
+		"account-domain-coverage-a":       3,
+		"account-domain-coverage-b":       3,
+		"account-domain-coverage-c":       3,
+		"account-domain-coverage-d":       3,
+		"account-domain-coverage-ab":      6,
+		"account-domain-coverage-cd":      6,
+		"account-domain-coverage":         12,
+	}
+	for name, want := range cardinalities {
+		task, ok := byName[name]
+		if !ok {
+			t.Errorf("coverage ledger task %q is missing", name)
+			continue
+		}
+		var schema struct {
+			MinItems int `json:"minItems"`
+			MaxItems int `json:"maxItems"`
+		}
+		if err := json.Unmarshal([]byte(task.OutputSchema), &schema); err != nil {
+			t.Errorf("%s output schema: %v", name, err)
+		} else if schema.MinItems != want || schema.MaxItems != want {
+			t.Errorf("%s output cardinality = %d..%d, want exactly %d", name, schema.MinItems, schema.MaxItems, want)
+		}
+	}
+
+	triage := byName["triage-and-report"]
+	for _, ledger := range []string{"account-complete-protocol-coverage", "account-chain-coverage", "account-cross-system-coverage"} {
+		if !slices.Contains(triage.DependsOn, ledger) || !strings.Contains(triage.Objective, "{{tasks."+ledger+".output}}") {
+			t.Errorf("triage-and-report does not consume %q", ledger)
+		}
+	}
+	for _, status := range []string{"errors", "timeouts", "unsupported", "skipped", "inconclusive", "retest"} {
+		if !strings.Contains(strings.ToLower(triage.Objective), status) {
+			t.Errorf("triage-and-report must account for %q", status)
 		}
 	}
 }

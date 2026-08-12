@@ -277,6 +277,65 @@ spec:
           }
         }
 
+    - name: slither-static-analysis
+      role: vulnerability-hunter
+      category: other
+      skillRefs:
+        - name: security-scan
+        - name: trail-of-bits-fp-check
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.inventory-scope-repositories-deployments.output}} and
+        {{tasks.reproducible-build-artifact-deployment-review.output}} to identify each applicable
+        Solidity project root. For every applicable root, actually call run_security_tool exactly once with
+        tool `slither`, target type `solidity_project`, locator equal to that project root, and target revision
+        equal to the immutable scan revision. Supply no raw flags, seed, or RPC endpoint. The pinned
+        multi-architecture Slither 0.11.3 root may resolve compiler and project dependencies against an
+        ephemeral writable copy of the digest-verified project. Record compiler/remapping availability,
+        normalized findings, exact execution status, artifacts, and limitations. A missing pinned compiler or
+        dependency closure or arm64 Slither compiler is unsupported; error, timeout, and partial output are inconclusive; no
+        Solidity root is skipped/not_applicable. A pass means only that this exact Slither run emitted no
+        detector result. Do not re-submit tool findings or claim a broader clean bill of health.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - reproducible-build-artifact-deployment-review
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "status", "execution_status", "summary"],
+            "properties": {
+              "area": {"type": "string"},
+              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "tool_run": {"type": "string"},
+              "artifacts": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+
+    - name: merge-solidity-static-analysis
+      role: finding-triager
+      category: triage
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Compact {{tasks.aderyn-static-analysis.output}} and {{tasks.slither-static-analysis.output}} into one
+        lossless static-analysis coverage array.
+        Preserve every project, exact execution_status, tool_run, artifacts, limitations, and finding status.
+        Emit seed 0 and empty bounds and harnesses because these static analyzers expose none. Never turn a
+        skipped, unsupported, error, timeout, or partial run into examined coverage.
+      dependsOn:
+        - aderyn-static-analysis
+        - slither-static-analysis
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
     - name: deterministic-forge-tests-and-invariants
       role: test-engineer
       category: logic-flaw
@@ -296,9 +355,12 @@ spec:
         `foundry_project`, locator equal to that workspace root, target revision equal to the immutable scan
         revision, and the fixed seed `2062026`. Do not invent raw Forge flags. Record the seed, pinned tool and
         target references, tests/harnesses discovered, executed result, failures, and coverage limitations.
-        The registered runner is offline and single-threaded: existing fork tests are examined only if their
-        state is already locally reproducible; RPC-dependent or missing fork fixtures are unsupported, not
-        passed. If the tool or a compatible Foundry project is unavailable, publish skipped or unsupported
+        The registered runner is single-threaded and may resolve project dependencies over the network. Detect project-local allocs or full-genesis
+        fixtures and the harnesses that call `vm.loadAllocs`; record fixture paths and digests, source chain ID,
+        immutable source block number/hash, timestamp, and state-completeness limitations. Such bounded local
+        state replay is examined when the harness executes it. Tests using `createFork`/`createSelectFork`,
+        remote RPC aliases, missing state, staged RPC caches, or raw Anvil persistence snapshots are
+        unsupported, not passed. If the tool or a compatible Foundry project is unavailable, publish skipped or unsupported
         with execution_status not_run/not_applicable. Error, timeout, partial, setup failure, and a bounded
         fuzz run with no crash remain inconclusive coverage and never prove safety or an invariant not encoded
         by the harness.
@@ -311,13 +373,18 @@ spec:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["area", "status", "execution_status", "seed", "harnesses", "summary"],
+            "required": ["area", "status", "execution_status", "seed", "harnesses", "state_mode", "fixture_paths", "fixture_digests", "state_limitations", "summary"],
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "seed": {"type": "integer"},
               "harnesses": {"type": "array", "items": {"type": "string"}},
+              "state_mode": {"type": "string", "enum": ["none", "local_allocs", "rpc_required", "raw_anvil_snapshot", "unknown"]},
+              "fixture_paths": {"type": "array", "items": {"type": "string"}},
+              "fixture_digests": {"type": "array", "items": {"type": "string"}},
+              "chain_context": {"type": "object", "properties": {"chain_id": {"type": "integer"}, "block_number": {"type": "integer"}, "block_hash": {"type": "string"}, "timestamp": {"type": "integer"}}},
+              "state_limitations": {"type": "array", "items": {"type": "string"}},
               "invariants_exercised": {"type": "array", "items": {"type": "string"}},
               "uncovered_targets": {"type": "array", "items": {"type": "string"}},
               "tool_run": {"type": "string"},
@@ -346,7 +413,7 @@ spec:
         call run_security_tool with tool `echidna`, target type `solidity_project`, that workspace root and
         immutable revision, and fixed seed `2062026`. The registered wrapper fixes one worker, 10,000 test
         sequences, sequence length 32, shrink limit 5,000, JSON output, no Slither subprocess, and no
-        caller-configurable RPC or FFI; do not invent scanner flags. Correlate falsified properties and
+        caller-configurable RPC or FFI; dependency resolution may use network access. Do not invent scanner flags. Correlate falsified properties and
         minimized transaction sequences with the invariant portfolio and preserve replay/artifact references.
         Record harnesses, properties, seed, targets and coverage limitations. Missing harnesses are skipped,
         an unavailable compiler/build is unsupported, and error/timeout/partial results are inconclusive. A bounded clean campaign proves only
@@ -369,53 +436,6 @@ spec:
               "harnesses": {"type": "array", "items": {"type": "string"}},
               "properties_exercised": {"type": "array", "items": {"type": "string"}},
               "uncovered_targets": {"type": "array", "items": {"type": "string"}},
-              "tool_run": {"type": "string"},
-              "artifacts": {"type": "array", "items": {"type": "string"}},
-              "summary": {"type": "string"}
-            }
-          }
-        }
-
-    - name: bounded-mythril-symbolic-analysis
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: security-scan
-        - name: trail-of-bits-fp-check
-        - name: evm-low-level-and-deployment-review
-      tools:
-        denied:
-          - Bash
-      objective: >-
-        Use {{tasks.inventory-scope-repositories-deployments.output}},
-        {{tasks.map-architecture-assets-roles-entrypoints.output}}, and
-        {{tasks.reproducible-build-artifact-deployment-review.output}} to select production Solidity contract
-        source files or EVM bytecode files for bounded symbolic analysis. For each selected single-file target,
-        actually call run_security_tool with tool `mythril`, target type `solidity_contract` or `evm_bytecode`
-        matching the file, its workspace locator and immutable revision. Do not invent flags: the pinned
-        multi-architecture wrapper runs offline breadth-first search with fixed transaction, depth, call,
-        loop, solver and time bounds. Correlate normalized SWC issues and transaction counterexamples with
-        reachable entry points and manually validate them; do not re-submit tool findings. Record every
-        selected and omitted contract and the bound that limits the claim. A clean bounded result is partial
-        symbolic coverage only. Compiler absence, unsupported multi-file imports, tool error, timeout or
-        native success=false are unsupported/inconclusive rather than passes.
-      dependsOn:
-        - inventory-scope-repositories-deployments
-        - map-architecture-assets-roles-entrypoints
-        - reproducible-build-artifact-deployment-review
-      outputSchema: |-
-        {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["area", "status", "execution_status", "bounds", "summary"],
-            "properties": {
-              "area": {"type": "string"},
-              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
-              "target_type": {"type": "string"},
-              "bounds": {"type": "array", "items": {"type": "string"}},
-              "counterexamples": {"type": "array", "items": {"type": "string"}},
               "tool_run": {"type": "string"},
               "artifacts": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
@@ -621,6 +641,54 @@ spec:
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
+    - name: bounded-halmos-symbolic-tests
+      role: test-engineer
+      category: logic-flaw
+      skillRefs:
+        - name: security-scan
+        - name: exploit-poc-discipline
+        - name: trail-of-bits-fp-check
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.inventory-scope-repositories-deployments.output}},
+        {{tasks.define-security-invariants.output}}, and
+        {{tasks.reproducible-build-artifact-deployment-review.output}} to locate Foundry roots with existing
+        Halmos `check_` or `invariant_` symbolic tests and a complete build/artifact closure. For each
+        applicable root, actually call run_security_tool exactly once with tool `halmos`, target type
+        `foundry_project`, the project-root locator, and immutable revision. Do not supply flags or RPC
+        inputs. The reviewed multi-architecture Halmos 0.3.3 closure fixes Z3, loop bound 2, width 64, depth 128,
+        JSON output and an ephemeral writable digest-verified project copy; dependency resolution may use network access. Preserve test names,
+        bounds, counterexamples, execution status, artifacts, and limitations. Missing harnesses are skipped;
+        missing pinned compiler/dependencies are unsupported; timeout, stuck, revert-all, exception, setup
+        failure, and partial output are inconclusive and never counterexamples or proofs. A pass covers only the
+        encoded symbolic tests under those bounds. Do not re-submit normalized findings.
+      dependsOn:
+        - inventory-scope-repositories-deployments
+        - define-security-invariants
+        - reproducible-build-artifact-deployment-review
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","execution_status","bounds","harnesses","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"execution_status":{"type":"string","enum":["pass","findings","error","timeout","partial","not_applicable","not_run"]},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"tool_run":{"type":"string"},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
+    - name: merge-symbolic-tool-coverage
+      role: finding-triager
+      category: triage
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Compact seeded Echidna {{tasks.echidna-stateful-property-fuzzing.output}} and bounded Halmos
+        {{tasks.bounded-halmos-symbolic-tests.output}} into a lossless executable-tool coverage array. Preserve
+        every execution_status, tool_run, seed, bounds, harnesses, artifacts, counterexamples, and limitations. Use
+        seed 0 only for deterministic tools with no seed. Never turn an error, timeout, partial, skipped,
+        unsupported, or inconclusive record into examined coverage.
+      dependsOn:
+        - echidna-stateful-property-fuzzing
+        - bounded-halmos-symbolic-tests
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+
     - name: symbolic-and-formal-applicability
       role: security-reviewer
       category: other
@@ -638,18 +706,18 @@ spec:
         Scribble, Certora, Halmos, hevm, Foundry symbolic, Solidity model-checker, or other specifications and
         harnesses and judge environment/model completeness, loop/external-call bounds, assumptions and
         counterexample replayability. Only claim execution if an enabled deterministic run_security_tool
-        integration was actually invoked and returned that status. Consume bounded Mythril records from
-        {{tasks.bounded-mythril-symbolic-analysis.output}} and seeded Echidna records from
-        {{tasks.echidna-stateful-property-fuzzing.output}}; Slither, Halmos and any other catalog-only or absent
-        prover remain unsupported. Do not substitute Bash, manual reasoning, or a skill for tool execution.
+        integration was actually invoked and returned that status. Consume seeded Echidna records from
+        {{tasks.echidna-stateful-property-fuzzing.output}} and bounded Halmos records from
+        {{tasks.bounded-halmos-symbolic-tests.output}}. Any other catalog-only or absent prover remains
+        unsupported. Slither is executable static analysis, not a formal proof method. Do not substitute Bash, manual reasoning, or a skill for tool execution.
         Record applicable properties, recommended harness/prover, and why each was
         examined, skipped, unsupported, or inconclusive. Manually inspect existing specs for unsound/vacuous
         assumptions but label that as manual examination, not a formal proof.
       dependsOn:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
-        - bounded-mythril-symbolic-analysis
         - echidna-stateful-property-fuzzing
+        - bounded-halmos-symbolic-tests
       outputSchema: |-
         {
           "type": "array",
@@ -714,9 +782,10 @@ spec:
       objective: >-
         Validate every critical/high candidate produced after the executable and manual stages, using the
         entry-point map in {{tasks.map-architecture-assets-roles-entrypoints.output}}, invariants in
-        {{tasks.define-security-invariants.output}}, Aderyn status in
-        {{tasks.aderyn-static-analysis.output}}, and seeded Forge status in
-        {{tasks.deterministic-forge-tests-and-invariants.output}}. Re-read the complete path and settle caller,
+        {{tasks.define-security-invariants.output}}, static-analysis status in
+        {{tasks.merge-solidity-static-analysis.output}}, seeded Forge status in
+        {{tasks.deterministic-forge-tests-and-invariants.output}}, and bounded Halmos status in
+        {{tasks.bounded-halmos-symbolic-tests.output}}. Re-read the complete path and settle caller,
         deployed reachability, state preconditions, guards, transaction ordering/capital, broken invariant,
         impact and recovery. Use only local repository fixtures and dummy assets; never contact mainnet,
         public testnets, RPCs or third parties and never modify the target. When an existing Foundry reproducer
@@ -730,10 +799,10 @@ spec:
       dependsOn:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
-        - aderyn-static-analysis
+        - merge-solidity-static-analysis
         - deterministic-forge-tests-and-invariants
         - echidna-stateful-property-fuzzing
-        - bounded-mythril-symbolic-analysis
+        - bounded-halmos-symbolic-tests
         - external-calls-reentrancy-and-atomicity
         - authorization-signatures-and-account-abstraction
         - accounting-arithmetic-and-token-integrations
@@ -791,8 +860,8 @@ spec:
           - Bash
       objective: >-
         Produce a concise coverage ledger from build and deployment comparison
-        {{tasks.reproducible-build-artifact-deployment-review.output}}, Aderyn
-        {{tasks.aderyn-static-analysis.output}}, and seeded Forge
+        {{tasks.reproducible-build-artifact-deployment-review.output}}, static analyzers
+        {{tasks.merge-solidity-static-analysis.output}}, and seeded Forge
         {{tasks.deterministic-forge-tests-and-invariants.output}}. Emit deduplicated records for every build,
         artifact, deployment comparison, and tool target. Use only examined, skipped, unsupported, or
         inconclusive status; preserve errors, timeouts, partial runs, absent roots or harnesses, and artifacts.
@@ -801,7 +870,7 @@ spec:
         no seed, and leave string or array metadata empty only when the upstream result does not expose it.
       dependsOn:
         - reproducible-build-artifact-deployment-review
-        - aderyn-static-analysis
+        - merge-solidity-static-analysis
         - deterministic-forge-tests-and-invariants
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
@@ -813,9 +882,8 @@ spec:
         denied:
           - Bash
       objective: >-
-        Produce a concise coverage ledger from seeded Echidna
-        {{tasks.echidna-stateful-property-fuzzing.output}}, bounded Mythril
-        {{tasks.bounded-mythril-symbolic-analysis.output}}, and formal-method applicability
+        Produce a concise coverage ledger from the lossless executable symbolic-tool ledger
+        {{tasks.merge-symbolic-tool-coverage.output}} and formal-method applicability
         {{tasks.symbolic-and-formal-applicability.output}}. Emit deduplicated records for every target,
         property, and formal method. Use only examined, skipped, unsupported, or inconclusive status; preserve
         errors, timeouts, bounds, partial runs, absent harnesses, and unsupported provers as explicit gaps.
@@ -823,8 +891,7 @@ spec:
         for formal records with no executable tool, use seed 0 when the upstream result exposes no seed, and
         leave string or array metadata empty only when the upstream result does not expose it.
       dependsOn:
-        - echidna-stateful-property-fuzzing
-        - bounded-mythril-symbolic-analysis
+        - merge-symbolic-tool-coverage
         - symbolic-and-formal-applicability
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
@@ -1044,8 +1111,7 @@ spec:
         cause and smallest safe fix, affected contracts/deployments/storage or governance migration, invariant
         restored, compatibility and rollout risks, and a regression test or existing reproducer to rerun.
         Specify that follow-up deterministic Aderyn uses the revised immutable revision and applicable
-        Solidity root; Forge and Echidna use the revised project roots with seed `2062026`; and bounded
-        Mythril uses the revised single source or bytecode target. Do not claim those future runs occurred. Define expected pass/failure evidence and require source-artifact-deployment comparison,
+        Solidity root; Forge and Echidna use the revised project roots with seed `2062026`. Do not claim those future runs occurred. Define expected pass/failure evidence and require source-artifact-deployment comparison,
         privileged configuration and unresolved coverage gaps to be rechecked. Keep false positives out of
         remediation but preserve inconclusive/unsupported candidates as explicit investigation items. Submit
         a structured plan; an empty finding plan is valid while coverage-gap retests remain.
@@ -1099,7 +1165,7 @@ spec:
         state, deliberate trust assumptions and paths stopped by another guard. Merge duplicates by root cause
         and rank direct fund loss/insolvency, unauthorized control/upgrades, permanent freeze, economic/MEV
         extraction and sustained liveness failure by realistic prerequisites. The report must include the
-        structured scope and deployment basis, executed Aderyn, Forge, Echidna and Mythril run statuses with
+        structured scope and deployment basis, executed Aderyn, Forge, Echidna and Halmos run statuses with
         seed, bounds and artifact references, formal-method limitations, local-validation evidence,
         remediation/retest plan, and every examined,
         skipped, unsupported and inconclusive coverage record. Never describe unavailable or failed tooling

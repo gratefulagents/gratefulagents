@@ -1,10 +1,13 @@
 package securitytoolpacks
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestNativeAdaptersRejectCanonicalScannerRecordArrays(t *testing.T) {
 	adapters := DefaultAdapters()
-	for _, name := range []string{"zap-json", "schemathesis-json", "restler-json", "nuclei-jsonl", "sslyze-json", "testssl-json", "openssl-json", "tshark-json", "har", "junit", "slither-json", "echidna-json", "mythril-json", "halmos-json"} {
+	for _, name := range []string{"zap-json", "schemathesis-json", "restler-json", "nuclei-jsonl", "sslyze-json", "testssl-json", "openssl-json", "tshark-json", "har", "junit", "slither-json", "echidna-json", "halmos-json"} {
 		t.Run(name, func(t *testing.T) {
 			adapter := adapters[name]
 			if adapter == nil {
@@ -33,11 +36,7 @@ func TestEVMNativeAdapters(t *testing.T) {
 			native:     `{"success":true,"error":null,"seed":42,"tests":[{"contract":"Vault","name":"echidna_solvency","status":"solved","error":null,"events":[],"type":"property","transactions":[{"contract":"Vault","function":"withdraw(uint256)","arguments":["1"],"gas":"1","gasprice":"0","value":"0"}]}],"coverage":{}}`,
 			wantRuleID: "ECHIDNA-PROPERTY",
 		},
-		{
-			name:       "mythril-json",
-			native:     `{"success":true,"error":null,"issues":[{"title":"External Call","swc-id":"107","contract":"Vault","description":"External call before state update","function":"withdraw()","severity":"High","address":12,"tx_sequence":{"steps":["withdraw"]},"sourceMap":"1:2:3","filename":"src/Vault.sol","lineno":12,"code":"callee.call()"}]}`,
-			wantRuleID: "SWC-107",
-		},
+
 		{
 			name:       "halmos-json",
 			native:     `{"exitcode":1,"test_results":{"test/Vault.t.sol:VaultTest":[{"name":"check_solvency(uint256)","exitcode":1,"num_models":1}]}}`,
@@ -51,8 +50,23 @@ func TestEVMNativeAdapters(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(records) != 1 || records[0].Record.RuleID != tc.wantRuleID {
-				t.Fatalf("records=%+v", records)
+			var gotRule bool
+			for _, record := range records {
+				if record.Record.RuleID == tc.wantRuleID {
+					gotRule = true
+				}
+			}
+			if !gotRule {
+				t.Fatalf("records=%+v, want rule %s", records, tc.wantRuleID)
+			}
+			if tc.name == "echidna-json" {
+				var gotCoverage bool
+				for _, record := range records {
+					gotCoverage = gotCoverage || record.Examined && record.Asset == "echidna-property:Vault.echidna_solvency"
+				}
+				if !gotCoverage {
+					t.Fatalf("echidna records lack property coverage: %+v", records)
+				}
 			}
 		})
 	}
@@ -66,8 +80,46 @@ func TestEchidnaAdapterAcceptsLegacyTestTypeKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Record.RuleID != "ECHIDNA-PROPERTY" {
+	var finding, coverage bool
+	for _, record := range records {
+		finding = finding || record.Record.RuleID == "ECHIDNA-PROPERTY"
+		coverage = coverage || record.Examined && record.Asset == "echidna-property:solvency"
+	}
+	if !finding || !coverage {
 		t.Fatalf("records=%+v", records)
+	}
+}
+
+func TestEchidnaAdapterMarksErroredPropertiesUncovered(t *testing.T) {
+	native := []byte(`{"success":true,"error":null,"seed":42,"tests":[{"contract":"Vault","name":"echidna_solvency","status":"error","type":"property","error":"reproducer failed","transactions":[]}]}`)
+	records, err := DefaultAdapters()["echidna-json"].Normalize(
+		Tool{Name: "echidna", Version: "2.3.0"}, Target{Locator: "fixture"}, native, NewRedactor(),
+	)
+	if err == nil {
+		t.Fatal("expected incomplete coverage error")
+	}
+	if len(records) != 1 || !records[0].Uncovered || records[0].Asset != "echidna-property:Vault.echidna_solvency" {
+		t.Fatalf("records=%+v", records)
+	}
+}
+
+func TestHalmosIncompleteStatesAreNotCounterexamples(t *testing.T) {
+	for _, exitCode := range []int{2, 3, 4, 5} {
+		native := fmt.Appendf(nil, `{"exitcode":%d,"test_results":{"test/Vault.t.sol:VaultTest":[{"name":"check_solvency(uint256)","exitcode":%d,"num_models":0}]}}`, exitCode, exitCode)
+		if _, err := DefaultAdapters()["halmos-json"].Normalize(Tool{Name: "halmos"}, Target{}, native, NewRedactor()); err == nil {
+			t.Fatalf("Halmos exit code %d was accepted as a counterexample", exitCode)
+		}
+	}
+}
+
+func TestHalmosPreservesCounterexamplesFromMixedIncompleteRun(t *testing.T) {
+	native := []byte(`{"exitcode":2,"test_results":{"test/Vault.t.sol:VaultTest":[{"name":"check_counterexample(uint256)","exitcode":1,"num_models":1},{"name":"check_timeout(uint256)","exitcode":2,"num_models":0}]}}`)
+	records, err := DefaultAdapters()["halmos-json"].Normalize(Tool{Name: "halmos"}, Target{}, native, NewRedactor())
+	if err == nil {
+		t.Fatal("mixed incomplete run must return a normalization error")
+	}
+	if len(records) != 1 || records[0].Record.RuleID != "HALMOS-COUNTEREXAMPLE" {
+		t.Fatalf("confirmed counterexample was lost: %+v", records)
 	}
 }
 
@@ -75,7 +127,6 @@ func TestEVMNativeAdaptersRejectToolErrors(t *testing.T) {
 	for name, native := range map[string]string{
 		"slither-json": `{"success":false,"error":"compile failed","results":{"detectors":[]}}`,
 		"echidna-json": `{"success":false,"error":"compile failed","tests":[],"seed":1}`,
-		"mythril-json": `{"success":false,"error":"analysis failed","issues":[]}`,
 		"halmos-json":  `{"exitcode":1}`,
 	} {
 		t.Run(name, func(t *testing.T) {

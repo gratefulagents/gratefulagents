@@ -1,0 +1,76 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: bitcoin-lightning-security-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    Bitcoin, UTXO, and Lightning review covering transaction and script
+    validation, wallet and PSBT intent, chain/reorg behavior, channel state
+    machines, watchtowers, routing, liquidity, and implementation limits.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill for Bitcoin consensus, wallet, signing, custody, bridge,
+        and Lightning components. First identify whether code is consensus
+        critical, policy/mempool only, wallet-side, or an off-chain protocol;
+        never treat one layer's validation as protection at another layer.
+
+        ## Bitcoin and UTXO review
+
+        - Inventory parsers and serializers for blocks, transactions, scripts,
+          descriptors, addresses, PSBTs, compact filters, proofs, and peer/RPC
+          messages. Compare encode/decode, txid/wtxid, weight, fee, dust, locktime,
+          sequence, sighash, witness, annex, and Taproot behavior across paths.
+        - Trace every consensus and policy check through admission, relay, mining,
+          block connection, reindex, replay, and reorg. Hunt for disagreement,
+          integer/length amplification, duplicate or missing input accounting,
+          incorrect UTXO lifecycle, malleability assumptions, and fail-open script
+          or signature verification.
+        - Review Script and Taproot execution limits, minimal/canonical encoding,
+          stack behavior, control blocks, leaf versions, key/script path binding,
+          tagged hashes, x-only keys, signature domains, and batch verification.
+        - Model reorganizations, replacement and fee bumping, package relay,
+          confirmation assumptions, coinbase maturity, timelocks, pruning,
+          snapshots, checkpoints, and recovery after interrupted persistence.
+        - For wallets and PSBT, bind displayed intent to exact inputs, outputs,
+          amounts, fees, change, network, scripts, derivation paths, sighash flags,
+          and finalized transaction. Detect unknown fields, duplicate keys,
+          proprietary extensions, change substitution, network/address confusion,
+          blind signing, and unauthorized provider or hardware-wallet requests.
+
+        ## Lightning
+
+        - Model the complete channel state machine: funding, confirmations,
+          commitment updates, revocation, HTLC add/settle/fail, fee updates,
+          cooperative close, force close, breach remedy, splice/dual funding when
+          supported, reconnection, data loss, and channel backup recovery.
+        - Prove old states cannot be published profitably and justice transactions
+          remain valid and relayable under fee pressure, pinning, package limits,
+          reorgs, anchor-output rules, CSV/CLTV boundaries, dust trimming, and
+          watchtower delay or censorship.
+        - Check nonce and key derivation, per-commitment secrets, transcript and
+          channel binding, adaptor signatures, MuSig/threshold participation,
+          backups, HSM boundaries, signer policy, and crash-safe persistence.
+        - Analyze onion parsing, route and payment identifiers, MPP/AMP shard
+          accounting, trampoline/blinded routes, failure messages, gossip,
+          liquidity probing, jamming, griefing, queue growth, and attacker cost
+          versus locked victim capacity.
+        - Review chain monitor, wallet, signer, peer, router, database, tower,
+          watch-only, plugin, and RPC trust boundaries. A local authentication
+          check is insufficient when another interface can reach the same action.
+
+        ## Validation and coverage
+
+        Prefer differential parser/serialization tests, property tests for value
+        conservation and state transitions, deterministic fuzzing of wire/script/
+        PSBT inputs, and local regtest or model fixtures. Execute them only via a
+        registered security tool and record revision, harness, seed, bounds,
+        artifacts, and uncovered targets. Otherwise label execution unsupported.
+        Report a finding only with a concrete attacker object or sequence, the
+        validation path, violated invariant, and file:line evidence. Distinguish
+        consensus loss, fund loss, privacy leakage, routing degradation, operator
+        trust, hardening, and incomplete coverage.

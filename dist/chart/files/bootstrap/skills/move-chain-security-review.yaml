@@ -1,0 +1,78 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: move-chain-security-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    Chain-aware Move review for Aptos and Sui programs: resource and capability
+    safety, transaction authorization, object semantics, parallel execution,
+    package upgrades, and honest accounting of test and prover coverage.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill only after identifying whether a package targets Aptos,
+        Sui, or both. Treat their execution and object models separately; a Move
+        language check is not evidence that chain-specific behavior is safe.
+
+        ## Shared Move review
+
+        - Inventory packages, modules, published addresses, named addresses,
+          dependencies, compiler/edition settings, upgrade policies, entry and
+          public functions, friend declarations, tests, and generated artifacts.
+        - Map resources, abilities (`key`, `store`, `copy`, `drop`), signers,
+          capabilities, type witnesses, generic constraints, phantom types, and
+          every path that creates, transfers, destroys, freezes, or extracts an
+          asset. Prove privileged values cannot be forged, copied, dropped, or
+          confused through a generic type parameter.
+        - Write explicit invariants for conservation, supply, ownership,
+          authorization, replay, lifecycle, and package migration. Check abort
+          paths and transaction atomicity as carefully as successful paths.
+        - Review integer widths and casts, vector/table indexing, unbounded
+          collections, serialization boundaries, events, timestamps, randomness,
+          oracle assumptions, and denial of service through storage or compute.
+        - Run tests, fuzzers, simulators, or provers only through a registered
+          execution tool. If none is available, label execution unsupported; do
+          not turn source review or the presence of specifications into a claim
+          that tests or proofs passed.
+
+        ## Aptos
+
+        - Trace account and transaction authentication, signer derivation,
+          resource accounts, delegated and multisig authority, sponsored
+          transactions, sequence numbers, fee payer behavior, and replay domains.
+        - Analyze Block-STM parallel execution for hidden read/write conflicts,
+          aggregator behavior, order assumptions, retries, and outcomes that can
+          differ from sequential tests.
+        - Review Aptos objects, fungible/digital asset standards, dispatchable
+          hooks, tables, events, and token ownership/transfer controls.
+        - For Move Prover specifications, bind every property to production code,
+          identify trusted/native functions and assumptions, and report the exact
+          package revision, command, result, timeout, and unproved targets only
+          when an executable prover actually ran.
+
+        ## Sui
+
+        - Classify owned, shared, immutable, wrapped, and dynamic-field objects.
+          Follow object IDs, versions, digests, ownership transitions, receiving,
+          transfer-to-object, deletion, and storage rebates.
+        - Audit programmable transaction blocks as attacker-chosen sequences:
+          argument/result aliasing, object reuse, split/merge, nested calls,
+          capability leakage, partial assumptions between commands, and limits.
+        - Check shared-object consensus and concurrency, dynamic fields and bags,
+          kiosk/transfer policies, coin and balance conversions, clock use,
+          randomness epochs, and stale object-version assumptions.
+        - Review package upgrade capabilities, dependency upgrades, compatible
+          layout changes, initialization, migrations, and whether old package
+          versions or capabilities preserve an unintended privileged path.
+
+        ## Findings and coverage
+
+        Report only a production-reachable attacker sequence with the violated
+        invariant and decisive file:line evidence. Record packages, modules,
+        entry points, properties, and configurations examined; separately list
+        skipped, unsupported, and inconclusive areas. A bounded clean run is
+        evidence only for the named harness, seed, state space, and revision.

@@ -23,6 +23,10 @@
 !security-knowledge
 !security-knowledge/*.yaml
 
+# Re-include hash-pinned custom scanner runtime closures.
+!security-tool-requirements
+!security-tool-requirements/*.lock
+
 # Re-include the in-repo platform-app workspace (feeds the web-builder stage),
 # but never local dependency/build output. These exclusions are last so they
 # also win over the blanket *.md / *.json re-includes above.
