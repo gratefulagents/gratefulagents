@@ -4,35 +4,43 @@ import { useTheme } from "@/lib/theme";
 
 /**
  * App-wide toaster. Single instance — mount once in App.tsx.
- * Visual language matches our surface tokens (graphite surface, hairline
- * ring, Geist body / JetBrains Mono numerics). Follows the in-app theme
- * toggle (not the OS theme, which `theme="system"` would track).
+ * Rendered top-center so it never covers the chat composer's Send/Stop
+ * controls in the bottom-right corner; the top offset clears the title bar
+ * (min 44px + safe-area inset) so toasts don't intercept clicks on the
+ * centered search/command-palette button. Visual language matches our surface
+ * tokens (graphite surface, hairline ring, Geist body). Follows the in-app
+ * theme toggle (not the OS theme, which `theme="system"` would track).
  */
 export function Toaster() {
   const theme = useTheme();
   return (
     <SonnerToaster
-      position="bottom-right"
-      offset={16}
+      position="top-center"
+      offset={{ top: "calc(env(safe-area-inset-top, 0px) + 56px)" }}
+      mobileOffset={{ top: "calc(env(safe-area-inset-top, 0px) + 52px)" }}
+      gap={10}
       theme={theme}
-      duration={4000}
+      duration={3500}
+      visibleToasts={3}
       closeButton
       toastOptions={{
         classNames: {
           toast:
-            "!bg-[color:var(--color-popover)] !text-foreground !border !border-border/70 !shadow-[0_8px_24px_rgba(0,0,0,0.25)] !rounded-[8px] !font-sans",
-          title: "!text-[13px] !font-medium !tracking-tight",
-          description: "!text-[12px] !text-muted-foreground",
+            "!bg-[color:var(--color-popover)]/95 !backdrop-blur-md !text-foreground !border !border-border/60 !shadow-[0_1px_2px_rgba(0,0,0,0.08),0_8px_28px_rgba(0,0,0,0.18)] !rounded-[10px] !font-sans !px-3.5 !py-3 !gap-2.5 !items-center",
+          content: "!gap-0.5",
+          title: "!text-[13px] !font-medium !leading-snug !tracking-tight",
+          description: "!text-[12px] !leading-snug !text-muted-foreground",
+          icon: "!m-0 !self-center",
           actionButton:
-            "!bg-primary !text-primary-foreground !text-[11.5px] !font-medium !rounded-[5px] !px-2 !py-1",
+            "!bg-primary !text-primary-foreground !text-[11.5px] !font-medium !rounded-[6px] !px-2.5 !py-1 hover:!opacity-90",
           cancelButton:
-            "!bg-transparent !text-muted-foreground !text-[11.5px] !rounded-[5px] !px-2 !py-1 hover:!bg-muted/60",
+            "!bg-transparent !text-muted-foreground !text-[11.5px] !rounded-[6px] !px-2.5 !py-1 hover:!bg-muted/60 hover:!text-foreground",
           closeButton:
-            "!bg-transparent !text-muted-foreground hover:!text-foreground !border-none",
-          success: "!border-emerald-500/40",
-          error: "!border-destructive/50",
-          warning: "!border-amber-500/40",
-          info: "!border-[color:var(--color-primary)]/40",
+            "!static !order-last !ml-auto !translate-x-0 !translate-y-0 !bg-transparent !text-muted-foreground/70 hover:!text-foreground hover:!bg-muted/60 !border-none !rounded-[6px] !size-5 [&>svg]:!size-3.5",
+          success: "[&_[data-icon]]:!text-emerald-500",
+          error: "[&_[data-icon]]:!text-destructive",
+          warning: "[&_[data-icon]]:!text-amber-500",
+          info: "[&_[data-icon]]:!text-[color:var(--color-primary)]",
         },
       }}
     />
