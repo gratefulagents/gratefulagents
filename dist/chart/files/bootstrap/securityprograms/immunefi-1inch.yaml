@@ -6,30 +6,157 @@ spec:
   provider: Immunefi
   displayName: 1inch Smart Contracts
   programURL: https://immunefi.com/bug-bounty/1inch-SmartContracts/scope/
-  verifiedAt: 2026-08-11T00:00:00Z
+  verifiedAt: 2026-08-12T00:00:00Z
   scopePolicy: |
-    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-08-07).
+    Verbatim Immunefi scope (retrieved 2026-08-12T15:44:16.829Z; page last updated 07 August 2026).
 
-    Repository targets:
-    - https://github.com/1inch/limit-order-protocol
-    - https://github.com/1inch/fusion-protocol
-    - https://github.com/1inch/cross-chain-swap
-    - https://github.com/1inch/token-plugins
-    - https://github.com/1inch/farming
-    - https://github.com/1inch/delegating
-    - https://github.com/1inch/solana-crosschain-protocol
-    - https://github.com/1inch/solana-fusion
-    Only the latest tags/releases are eligible. Critical impact additionally requires affected code to be deployed on mainnet.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Smart-contract Critical: up to USD 500,000.
-    - Smart-contract High: USD 10,000 minimum to USD 30,000 maximum.
+    Smart Contract
 
-    Eligible impacts:
-    - Direct theft, permanent freezing, insolvency, theft/freezing of unclaimed yield, and qualifying temporary freezing.
+    Assets in Scope
+    Target    Name    Added on
 
-    Out of scope:
-    - Imported contracts, undeployed code at Critical severity, theoretical impact, tests/configuration, known issues, fee-on-transfer incompatibility, AI-generated reports, privileged assumptions, and best-practice-only reports are excluded.
 
-    Testing and submission:
-    - PoC and KYC required; reports must be submitted within 24 hours of discovery. Use local forks only; no live-network testing, destructive DoS, phishing, traffic generation, or unapproved disclosure.
+    https://github.com/1inch/solana-fusion
+        Solana Fusion    10 June 2026
+    https://github.com/1inch/solana-crosschain-protocol    Solana Crosschain    10 June 2026
+
+    https://github.com/1inch/cross-chain-swap
+        Cross-chain Swap    10 June 2026
+
+    https://github.com/1inch/delegating
+        Delegating Contracts    10 June 2026
+
+    https://github.com/1inch/farming
+        Farming Contracts    10 June 2026
+
+    https://github.com/1inch/token-plugins
+        Token-plugins    10 June 2026
+
+    https://github.com/1inch/fusion-protocol
+        Limit Order Settlement    10 June 2026
+
+    https://github.com/1inch/limit-order-protocol
+        Limit Order Protocol    10 June 2026
+
+    Impacts in Scope
+    Impacts Body
+
+    Note: The program applies only to the latest tag/releases.
+
+    Critical
+
+
+    Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+
+
+
+    Critical
+
+
+    Permanent freezing of funds
+
+
+
+    Critical
+
+
+    Protocol insolvency
+
+
+
+    High
+
+
+    Theft of unclaimed yield
+
+
+
+    High
+
+
+    Permanent freezing of unclaimed yield
+
+
+
+    High
+
+
+    Temporary freezing of funds
+
+
+
+    Medium
+
+
+    Smart contract unable to operate due to lack of token funds
+
+
+
+    Medium
+
+
+    Theft of coins or tokens (e.g gas) in a smart contract intended for transaction fees
+
+
+
+    Low
+
+
+    Smart contract fails to deliver promised token amounts but the remaining token amounts is not stolen or lost and can still be claimed
+
+
+
+    Low
+
+
+    Impacts caused by griefing with no economic damage other than transaction fees where fix requires a change or a pause of a smart contract
+
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+
+    These impacts are out of scope for this bug bounty program.
+
+    All Categories:
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (governance, strategist) except in such cases where the contracts are intended to have no privileged access to functions that make the attack possible
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+    Redundant code
+    Old compiler version
+    Code style guide violations
+    The compiler version is not locked
+    Theoretical or purely speculative exploits without demonstrated business impact
+
+    Blockchain/DLT & Smart Contract Specific:
+
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+    Micro gas optimizations (less than 1k of gas)
+    Lack of support for Fee-on-Transfer (FoT) tokens
+
+    Prohibited Activities:
+
+    Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet
+    Any testing with pricing oracles or third-party smart contracts (Testing the integration logic on local forks is permitted)
+    Attempting phishing or other social engineering attacks against our employees and/or customers
+    Any testing with third-party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)
+    Any denial of service attacks that are executed against project assets
+    Automated testing of services that generates significant amounts of traffic
+    Public disclosure of an unpatched vulnerability in an embargoed bounty
+    Accessing or modifying data belonging to other users
+    Submitting AI-generated reports
+    Spamming forms or account creation flows (even with low volume)

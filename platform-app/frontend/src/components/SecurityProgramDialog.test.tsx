@@ -40,7 +40,8 @@ describe("SecurityProgramDialog", () => {
     fireEvent.change(screen.getByLabelText(/^Program URL/), {
       target: { value: "https://hackerone.com/acme" },
     });
-    fireEvent.change(screen.getByLabelText(/^Scope policy snapshot/), {
+    const scopeInput = screen.getByLabelText(/^Scope policy snapshot/) as HTMLTextAreaElement;
+    fireEvent.change(scopeInput, {
       target: { value: "In scope:\n- api.example.com\n\nOut of scope:\n- denial-of-service" },
     });
     fireEvent.change(screen.getByLabelText(/^Verified at/), {
@@ -58,6 +59,22 @@ describe("SecurityProgramDialog", () => {
       scopePolicy: "In scope:\n- api.example.com\n\nOut of scope:\n- denial-of-service",
     });
     expect(program.verifiedAt).toBeTruthy();
+  });
+
+  it("rejects a scope policy over the character limit", () => {
+    render(
+      <SecurityProgramDialog
+        trigger={<button>New program</button>}
+        onSaved={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "New program" }));
+    fireEvent.change(screen.getByLabelText(/^Scope policy snapshot/), {
+      target: { value: "界".repeat(131073) },
+    });
+
+    expect(screen.getByText(/at most 131,072 characters/i)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Create security program" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("rejects a non-HTTPS provenance URL", () => {
