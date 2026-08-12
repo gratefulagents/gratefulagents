@@ -442,13 +442,12 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 		// preserve the pinned user base and let Python select its own versioned
 		// site-packages directory.
 		argv = append(argv,
-			// This solc-select release derives its artifact directory from HOME;
-			// SOLC_SELECT_DIR is not honored by the installed wrapper. Restore the
-			// immutable toolbox home while keeping caches and outputs under /work.
+			// This toolbox's solc-select wrapper derives its artifact directory
+			// from HOME and its release requires an installed version. Restore the
+			// immutable toolbox home; do not force a version absent on one arch.
 			"--setenv", "HOME", "/home/ethsec",
 			"--setenv", "PYTHONUSERBASE", "/home/ethsec/.local",
 			"--setenv", "XDG_CACHE_HOME", "/work/.cache",
-			"--setenv", "SOLC_VERSION", "0.8.30",
 		)
 	}
 	if tool.Name == "halmos" {
