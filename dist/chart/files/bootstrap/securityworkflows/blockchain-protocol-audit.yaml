@@ -630,29 +630,46 @@ spec:
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
-    - name: ton-algorand-specialist
+    - name: ton-specialist
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
         - name: trail-of-bits-ton-vulnerability-scanner
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied:
+          - Bash
+      objective: >-
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If TON
+        is not_detected, explicitly return skipped; otherwise map contracts, Jettons, messages, wallets, and
+        validator/client boundaries and establish assets and sender, message, balance/gas, bounce, and custody
+        invariants. Manually audit integer-as-boolean errors, fake Jettons, sender validation, message
+        mode/value/gas, bounce handling, replay, dictionaries/cells, and upgrades. Identify applicable unit,
+        emulator, property/stateful, compile/artifact, and integration tests, but do not claim this Bash-denied
+        task ran any. Record TON-specific execution limits and report only concrete attacker paths with decisive
+        file:line evidence and finding fingerprints.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: algorand-specialist
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
         - name: trail-of-bits-algorand-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
           - Bash
       objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} and
-        evaluate TON and Algorand as separate semantic areas within this task. Explicitly list each
-        not_detected platform as skipped; if neither is detected, return skipped. For TON, map contracts,
-        Jettons, messages, wallets, and validator/client boundaries; establish assets and sender, message,
-        balance/gas, bounce, and custody invariants; manually audit integer-as-boolean errors, fake Jettons,
-        sender validation, message mode/value/gas, bounce handling, replay, dictionaries/cells, and upgrades.
-        For Algorand, map TEAL/PyTeal apps, assets, accounts, groups, and node boundaries; establish authorization,
-        rekey, fee, asset, group-completeness, state, and upgrade invariants; manually audit rekeying, fees,
-        group indexes and foreign references, close/remainder paths, asset/app identity, and inner transactions.
-        Identify applicable chain-specific unit, emulator/sandbox, property/stateful, compile/artifact, and
-        integration tests, but do not claim this Bash-denied task ran any. Record per-platform execution limits
-        and report only concrete attacker paths with decisive file:line evidence and finding fingerprints.
+        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
+        Algorand is not_detected, explicitly return skipped; otherwise map TEAL/PyTeal apps, assets, accounts,
+        groups, and node boundaries and establish authorization, rekey, fee, asset, group-completeness, state,
+        and upgrade invariants. Manually audit rekeying, fees, group indexes and foreign references,
+        close/remainder paths, asset/app identity, and inner transactions. Identify applicable unit, sandbox,
+        property/stateful, compile/artifact, and integration tests, but do not claim this Bash-denied task ran
+        any. Record Algorand-specific execution limits and report only concrete attacker paths with decisive
+        file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
@@ -832,11 +849,12 @@ spec:
       tools:
         denied: [Bash]
       objective: >-
-        Compact {{tasks.cairo-starknet-specialist.output}}, {{tasks.ton-algorand-specialist.output}}, and
-        {{tasks.bitcoin-lightning-specialist.output}} into one record per source, preserving every coverage
+        Compact {{tasks.cairo-starknet-specialist.output}}, {{tasks.ton-specialist.output}},
+        {{tasks.algorand-specialist.output}}, and {{tasks.bitcoin-lightning-specialist.output}} into one record per source, preserving every coverage
         status, examined/skipped target, limitation, and finding fingerprint without adding findings.
-      dependsOn: [cairo-starknet-specialist, ton-algorand-specialist, bitcoin-lightning-specialist]
-      outputSchema: *coverageLedgerSchema
+      dependsOn: [cairo-starknet-specialist, ton-specialist, algorand-specialist, bitcoin-lightning-specialist]
+      outputSchema: |-
+        {"type":"array","minItems":4,"maxItems":4,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
     - name: account-cross-system-coverage-a
       role: finding-triager
@@ -873,7 +891,7 @@ spec:
         record or losing skipped, unsupported, inconclusive, limitation, or fingerprint data.
       dependsOn: [account-chain-coverage-a, account-chain-coverage-b, account-chain-coverage-c]
       outputSchema: |-
-        {"type":"array","minItems":9,"maxItems":9,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
+        {"type":"array","minItems":10,"maxItems":10,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
     - name: account-cross-system-coverage
       role: finding-triager
@@ -1011,7 +1029,8 @@ spec:
         - aptos-move-specialist
         - sui-move-specialist
         - cairo-starknet-specialist
-        - ton-algorand-specialist
+        - ton-specialist
+        - algorand-specialist
         - bitcoin-lightning-specialist
         - bridge-l2-zk-specialist
         - wallet-mpc-cryptography-specialist
