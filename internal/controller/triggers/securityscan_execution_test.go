@@ -2503,6 +2503,66 @@ func TestSecurityScanPostScriptPipelineSplitsOversizedCombinedPrompts(t *testing
 	}
 }
 
+func TestSecurityScanTerminalFindingSkipsActionableOnlyStageAndRunsFinalizer(t *testing.T) {
+	for _, terminalStatus := range []string{
+		store.SecurityFindingStatusFalsePositive,
+		store.SecurityFindingStatusAcceptedRisk,
+		store.SecurityFindingStatusFixed,
+	} {
+		t.Run(terminalStatus, func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			largePrompt := strings.Repeat("x", 280*1024)
+			scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{
+				{Name: "eligibility-gate", Prompt: largePrompt},
+				{Name: "custom-proof-stage", Prompt: largePrompt, RunOn: "high-and-above-actionable"},
+				{Name: "custom-report-stage", Prompt: largePrompt},
+			}, 2)
+			reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+			findings := &postScriptFindingStore{findings: []store.SecurityFindingRecord{
+				postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "high"),
+			}}
+			reconciler.Findings = findings
+
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+			reconcileDeterministicSecurityScan(t, reconciler, scan) // materialize
+			reconcileDeterministicSecurityScan(t, reconciler, scan) // dispatch gate
+
+			gateRun := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "eligibility-gate", "fp-alpha")
+			findings.setStatus(t, "fp-alpha", terminalStatus)
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, gateRun.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+			for range 3 {
+				reconcileDeterministicSecurityScan(t, reconciler, scan)
+			}
+
+			exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+			var proof triggersv1alpha1.SecurityScanPostScriptJobStatus
+			for _, job := range exec.PostScriptJobs {
+				if slices.Equal(job.Scripts, []string{"custom-proof-stage"}) {
+					proof = job
+				}
+			}
+			if proof.State != triggersv1alpha1.SecurityScanPostScriptStateSkipped || proof.Attempts != 0 || !strings.Contains(proof.Result, terminalStatus) {
+				t.Fatalf("proof job = %#v, want controller-skipped without an attempt for %q", proof, terminalStatus)
+			}
+			var reportRunFound bool
+			for _, run := range securityScanRuns(t, k8sClient, scan.Namespace) {
+				scripts := run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation]
+				if scripts == "custom-proof-stage" {
+					t.Fatalf("terminal finding launched actionable-only AgentRun %q", run.Name)
+				}
+				if scripts == "custom-report-stage" {
+					reportRunFound = true
+				}
+			}
+			if !reportRunFound {
+				t.Fatal("terminal-aware finalizer was not dispatched")
+			}
+		})
+	}
+}
+
 func TestSecurityScanPostScriptDispatchStopsAtTheModelJobBudget(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{

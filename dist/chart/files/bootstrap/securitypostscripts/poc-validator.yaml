@@ -4,7 +4,7 @@ metadata:
   name: poc-validator
 spec:
   description: Independently reviews and reruns the stored proof of concept for one high or critical finding under safe local conditions and records an honest validation verdict.
-  runOn: high-and-above
+  runOn: high-and-above-actionable
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
 
