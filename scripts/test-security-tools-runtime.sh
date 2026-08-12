@@ -12,7 +12,9 @@ run_native() {
 run_root() {
   root=$1
   shift
-  docker run --rm --network none --user 0 --entrypoint /usr/sbin/chroot "$image" \
+  docker run --rm --network none --user 0 \
+    --mount "type=bind,src=/dev/null,dst=/usr/local/share/ga-security/toolroots/$root/dev/null" \
+    --entrypoint /usr/sbin/chroot "$image" \
     "/usr/local/share/ga-security/toolroots/$root" "$@"
 }
 
@@ -44,6 +46,7 @@ dangerous(user_input)
 EOF
 semgrep_json=$(docker run --rm --network none --user 0 \
   --mount "type=bind,src=$case_dir/semgrep,dst=/usr/local/share/ga-security/toolroots/semgrep/tmp/case,readonly" \
+  --mount "type=bind,src=/dev/null,dst=/usr/local/share/ga-security/toolroots/semgrep/dev/null" \
   --entrypoint /usr/sbin/chroot "$image" /usr/local/share/ga-security/toolroots/semgrep \
   /usr/bin/env LD_LIBRARY_PATH=/usr/lib/python3.12/site-packages/semgrep/bin/libs \
   /usr/bin/semgrep scan --config /tmp/case/.semgrep.yml --json --metrics off /tmp/case)
@@ -53,6 +56,7 @@ printf '%s' "$semgrep_json" | grep -q 'gratefulagents.runtime-smoke'
 printf '00\n' >"$case_dir/stop.hex"
 mythril_json=$(docker run --rm --network none --user 0 \
   --mount "type=bind,src=$case_dir/stop.hex,dst=/usr/local/share/ga-security/toolroots/mythril/tmp/stop.hex,readonly" \
+  --mount "type=bind,src=/dev/null,dst=/usr/local/share/ga-security/toolroots/mythril/dev/null" \
   --entrypoint /usr/sbin/chroot "$image" /usr/local/share/ga-security/toolroots/mythril \
   /usr/local/bin/myth analyze --codefile /tmp/stop.hex -o json --strategy bfs --max-depth 4 \
   --call-depth-limit 1 --loop-bound 1 --transaction-count 1 --execution-timeout 30 \

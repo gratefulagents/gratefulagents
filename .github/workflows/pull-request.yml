@@ -129,29 +129,32 @@ jobs:
 
   docker-builds:
     name: Docker build (${{ matrix.image }})
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - image: controller
             dockerfile: ./Dockerfile
+            runner: ubuntu-24.04
           - image: worker
             dockerfile: ./Dockerfile.worker
+            runner: ubuntu-24.04
           - image: injector
             dockerfile: ./Dockerfile.injector
+            runner: ubuntu-24.04
           - image: security-tools-amd64
             dockerfile: ./Dockerfile.security-tools
             platform: linux/amd64
+            runner: ubuntu-24.04
             runtime: true
           - image: security-tools-arm64
             dockerfile: ./Dockerfile.security-tools
             platform: linux/arm64
+            runner: ubuntu-24.04-arm
             runtime: true
     steps:
       - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
@@ -177,6 +180,7 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platform }}
+          target: evm-runtime-test
           load: true
           tags: gratefulagents/security-tools:${{ matrix.image }}
           cache-from: type=gha,scope=gratefulagents-${{ matrix.image }}
