@@ -69,9 +69,6 @@ var securityToolStagedMediaTypes = map[string]map[string]string{
 	"slither": {
 		"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
 	},
-	"semgrep": {
-		"semgrep_project": "application/vnd.gratefulagents.semgrep-project.v1+directory",
-	},
 	"halmos": {
 		"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
 	},

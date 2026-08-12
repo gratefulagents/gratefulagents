@@ -475,12 +475,6 @@ func TestJobSetsTheMediaTypeTheRegistryExpectsForExtractedTargets(t *testing.T) 
 			media:      "application/gzip",
 			want:       "application/vnd.gratefulagents.solidity-project.v1+directory",
 		},
-		"semgrep project": {
-			tool:       "semgrep",
-			targetType: "semgrep_project",
-			media:      "application/gzip",
-			want:       "application/vnd.gratefulagents.semgrep-project.v1+directory",
-		},
 		"halmos foundry project": {
 			tool:       "halmos",
 			targetType: "foundry_project",

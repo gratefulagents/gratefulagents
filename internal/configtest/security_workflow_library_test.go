@@ -173,7 +173,6 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		"reproducible-build-artifact-deployment-review",
 		"aderyn-static-analysis",
 		"slither-static-analysis",
-		"semgrep-local-static-analysis",
 		"merge-solidity-static-analysis",
 		"deterministic-forge-tests-and-invariants",
 		"echidna-stateful-property-fuzzing",
@@ -215,7 +214,6 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		"merge-solidity-static-analysis": {
 			"aderyn-static-analysis",
 			"slither-static-analysis",
-			"semgrep-local-static-analysis",
 		},
 		"account-build-and-static-coverage": {
 			"reproducible-build-artifact-deployment-review",
@@ -337,7 +335,6 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 	for name, tool := range map[string]string{
 		"aderyn-static-analysis":                   "aderyn",
 		"slither-static-analysis":                  "slither",
-		"semgrep-local-static-analysis":            "semgrep",
 		"deterministic-forge-tests-and-invariants": "forge-security-tests",
 		"echidna-stateful-property-fuzzing":        "echidna",
 		"bounded-mythril-symbolic-analysis":        "mythril",

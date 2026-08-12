@@ -66,9 +66,6 @@ var stagedTargetContracts = map[string]map[string]stagedTargetContract{
 	"slither": {
 		"solidity_project": {mediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
 	},
-	"semgrep": {
-		"semgrep_project": {mediaType: "application/vnd.gratefulagents.semgrep-project.v1+directory"},
-	},
 	"halmos": {
 		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
 	},

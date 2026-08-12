@@ -26,31 +26,9 @@ run_root mythril /usr/local/bin/myth version >/dev/null
 run_root slither /usr/bin/env -i HOME=/home/ethsec \
   PATH=/home/ethsec/.local/bin:/home/ethsec/.foundry/bin:/usr/local/bin:/usr/bin:/bin \
   /home/ethsec/.local/bin/slither --version >/dev/null
-run_root semgrep /usr/bin/env LD_LIBRARY_PATH=/usr/lib/python3.12/site-packages/semgrep/bin/libs /usr/bin/semgrep --version >/dev/null
 run_root halmos /usr/bin/env -i HOME=/tmp \
   PATH=/opt/halmos/bin:/usr/local/bin:/usr/bin:/bin \
   /opt/halmos/bin/halmos --version >/dev/null
-
-# Prove that the pinned Semgrep root can execute a local, offline rule and scan.
-mkdir -p "$case_dir/semgrep"
-cat >"$case_dir/semgrep/.semgrep.yml" <<'EOF'
-rules:
-  - id: gratefulagents.runtime-smoke
-    languages: [python]
-    severity: ERROR
-    message: runtime smoke finding
-    pattern: dangerous($X)
-EOF
-cat >"$case_dir/semgrep/target.py" <<'EOF'
-dangerous(user_input)
-EOF
-semgrep_json=$(docker run --rm --network none --user 0 \
-  --mount "type=bind,src=$case_dir/semgrep,dst=/usr/local/share/ga-security/toolroots/semgrep/tmp/case,readonly" \
-  --mount "type=bind,src=/dev/null,dst=/usr/local/share/ga-security/toolroots/semgrep/dev/null" \
-  --entrypoint /usr/sbin/chroot "$image" /usr/local/share/ga-security/toolroots/semgrep \
-  /usr/bin/env LD_LIBRARY_PATH=/usr/lib/python3.12/site-packages/semgrep/bin/libs \
-  /usr/bin/semgrep scan --config /tmp/case/.semgrep.yml --json --metrics off /tmp/case)
-printf '%s' "$semgrep_json" | grep -q 'gratefulagents.runtime-smoke'
 
 # Prove that the Mythril root performs a bounded bytecode analysis offline.
 printf '00\n' >"$case_dir/stop.hex"
@@ -88,8 +66,6 @@ EOF
 }
 
 # Exercise directory scanners through ga-security's production Bubblewrap path.
-run_ga_project semgrep semgrep_project application/vnd.gratefulagents.semgrep-project.v1+directory "$case_dir/semgrep"
-
 mkdir -p "$case_dir/slither"
 cat >"$case_dir/slither/Vault.sol" <<'EOF'
 pragma solidity >=0.8.0;

@@ -439,9 +439,6 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 	if tool.Name == "halmos" {
 		argv = append(argv, "--setenv", "FOUNDRY_OFFLINE", "true", "--setenv", "FOUNDRY_FFI", "false")
 	}
-	if tool.Name == "semgrep" {
-		argv = append(argv, "--setenv", "LD_LIBRARY_PATH", "/usr/lib/python3.12/site-packages/semgrep/bin/libs")
-	}
 	if tool.Requirements.Network {
 		for _, hostFile := range []string{"/etc/resolv.conf", "/etc/hosts"} {
 			if _, statErr := os.Stat(filepath.Join(toolRoot, hostFile)); statErr == nil {

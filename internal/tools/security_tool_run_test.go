@@ -255,7 +255,6 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 func TestRunSecurityToolStagesNewEVMDirectoryTools(t *testing.T) {
 	for name, request := range map[string]string{
 		"slither": `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"}}`,
-		"semgrep": `{"tool":"semgrep","target":{"type":"semgrep_project","locator":"repo/contracts","revision":"abc1234"}}`,
 		"halmos":  `{"tool":"halmos","target":{"type":"foundry_project","locator":"repo/contracts","revision":"abc1234"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {

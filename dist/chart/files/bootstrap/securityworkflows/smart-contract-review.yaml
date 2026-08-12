@@ -318,31 +318,6 @@ spec:
           }
         }
 
-    - name: semgrep-local-static-analysis
-      role: vulnerability-hunter
-      category: other
-      skillRefs:
-        - name: security-scan
-        - name: trail-of-bits-semgrep
-        - name: trail-of-bits-fp-check
-      tools:
-        denied:
-          - Bash
-      objective: >-
-        Inspect {{tasks.inventory-scope-repositories-deployments.output}} for project roots containing a
-        repository-reviewed `.semgrep.yml`. For each such root, actually call run_security_tool exactly once
-        with tool `semgrep`, target type `semgrep_project`, the project-root locator, and immutable scan
-        revision. The pinned multi-architecture Semgrep 1.172.0 root uses only that local configuration, emits
-        SARIF, disables metrics, and has no network access; do not use registry rules, `auto`, URLs, raw flags,
-        or package downloads. Record rule-config evidence, execution status, artifacts, findings, and coverage
-        limitations. A missing local config is skipped/not_applicable; invalid config, unsupported language,
-        error, timeout, or partial output is unsupported or inconclusive. Do not re-submit tool findings, and
-        never generalize a clean bounded ruleset to unexamined languages or vulnerability classes.
-      dependsOn:
-        - inventory-scope-repositories-deployments
-      outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","execution_status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"execution_status":{"type":"string","enum":["pass","findings","error","timeout","partial","not_applicable","not_run"]},"tool_run":{"type":"string"},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
-
     - name: merge-solidity-static-analysis
       role: finding-triager
       category: triage
@@ -350,15 +325,14 @@ spec:
         denied:
           - Bash
       objective: >-
-        Compact {{tasks.aderyn-static-analysis.output}}, {{tasks.slither-static-analysis.output}}, and
-        {{tasks.semgrep-local-static-analysis.output}} into one lossless static-analysis coverage array.
+        Compact {{tasks.aderyn-static-analysis.output}} and {{tasks.slither-static-analysis.output}} into one
+        lossless static-analysis coverage array.
         Preserve every project, exact execution_status, tool_run, artifacts, limitations, and finding status.
         Emit seed 0 and empty bounds and harnesses because these static analyzers expose none. Never turn a
         skipped, unsupported, error, timeout, or partial run into examined coverage.
       dependsOn:
         - aderyn-static-analysis
         - slither-static-analysis
-        - semgrep-local-static-analysis
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 

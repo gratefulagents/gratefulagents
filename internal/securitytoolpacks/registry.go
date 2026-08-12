@@ -106,9 +106,6 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		"slither": {
 			"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
 		},
-		"semgrep": {
-			"semgrep_project": "application/vnd.gratefulagents.semgrep-project.v1+directory",
-		},
 		"halmos": {
 			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
 		},
@@ -742,14 +739,13 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("mythril", DomainBlockchain, "0.24.8", "mythril-json", "application/json", []string{"evm_bytecode", "solidity_contract"}, []string{"myth", "analyze", "{{target}}", "-o", "json", "--strategy", "bfs", "--max-depth", "64", "--call-depth-limit", "3", "--loop-bound", "3", "--transaction-count", "2", "--execution-timeout", "240", "--solver-timeout", "10000", "--create-timeout", "30", "--no-onchain-data"}),
 		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
 		base("halmos", DomainBlockchain, "0.3.3", "halmos-json", "application/json", []string{"foundry_project"}, []string{"halmos", "--root", "{{target}}", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"}),
-		base("semgrep", DomainBlockchain, "1.172.0", "sarif", "application/sarif+json", []string{"semgrep_project"}, []string{"semgrep", "scan", "--config", "/tmp/input/.semgrep.yml", "--sarif", "--metrics", "off", "{{target}}"}),
 	}
 	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu"}
 	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz"}
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "mythril", "slither", "semgrep", "halmos"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "mythril", "slither", "halmos"}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
 	packagingBlockers := map[string]string{}
 	ociTools := map[string]struct{ image, digest, amd64, arm64, root, executable, output string }{
@@ -761,7 +757,6 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		"suricata":     {"docker.io/jasonish/suricata", "sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a", "sha256:559a07fcccae439ffdabd05a4969e1feb74cc43f88ea456cc544a20b9b148123", "sha256:6a0b4d02f9174a74e52c904bbd10d344d024bbebc86283866f92096c09be31b0", "suricata", "/usr/bin/suricata", "/work/eve.json"},
 		"mythril":      {"docker.io/mythril/myth", "sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff", "sha256:ca947a2a79204667ae2ae93ea6aaaca0cea669f61bc4db6958e7556ea263bd80", "sha256:831577a2cf58deb5df758911e6b2e75b2aeb3a59c8c29f15127c2cedf992617d", "mythril", "/usr/local/bin/myth", ""},
 		"slither":      {"ghcr.io/trailofbits/eth-security-toolbox", "sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978", "sha256:28ce0f9b27312f6ed1137495aef70744dc2d6ff8e6d5c9147ec9e31a63ff86a8", "sha256:98b90a826a996507e6b1015a7850b2e8de30a3d80f4ec7deaddbf00e050d5152", "slither", "/home/ethsec/.local/bin/slither", ""},
-		"semgrep":      {"docker.io/semgrep/semgrep", "sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b", "sha256:a8298d1c09c84b9a0bbc75ec915e37023fc4657360b6dbfa645261d2353a366c", "sha256:318382dd1d95e4e8ae2975be3a52b6847843c73ab49ff21ba29b479cbda8d027", "semgrep", "/usr/bin/semgrep", ""},
 		"halmos":       {"docker.io/library/python:3.11-slim-bookworm", "sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3", "sha256:77923445c077d8eb971b14b2b114a1d9cd4a87edb4c75654820ca4832ee8cb15", "sha256:ecb0ac954790dd64a0d518d699b9c61a91780c42b0d877c802dbaffd04db66f9", "halmos", "/opt/halmos/bin/halmos", "/work/halmos.json"},
 	}
 	for i := range tools {
@@ -786,7 +781,7 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			tools[i].OCIExecutable = oci.executable
 			tools[i].OCIOutputPath = oci.output
 			tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
-			if tools[i].Name == "schemathesis" || tools[i].Name == "mythril" || tools[i].Name == "semgrep" || tools[i].Name == "halmos" {
+			if tools[i].Name == "schemathesis" || tools[i].Name == "mythril" || tools[i].Name == "halmos" {
 				tools[i].ExitCodes[1] = StatusFindings
 			}
 			if tools[i].Name == "slither" {

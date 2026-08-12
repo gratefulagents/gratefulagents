@@ -147,7 +147,7 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		}
 		dockerfiles += string(data)
 	}
-	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata", "mythril", "slither", "semgrep", "halmos"} {
+	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata", "mythril", "slither", "halmos"} {
 		tool, ok := registry.Tool(name)
 		if !ok || !tool.Enabled {
 			t.Fatalf("%s is not executable: %+v", name, tool)
@@ -165,7 +165,7 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		if slices.Contains([]string{"slither", "halmos"}, name) && (!tool.OCIWritableTarget || tool.OCIPath == "") {
 			t.Fatalf("%s requires an ephemeral writable build target and explicit root PATH: %+v", name, tool)
 		}
-		if name != "schemathesis" && name != "mythril" && name != "semgrep" && name != "halmos" && tool.ExitCodes[1] != StatusError {
+		if name != "schemathesis" && name != "mythril" && name != "halmos" && tool.ExitCodes[1] != StatusError {
 			t.Fatalf("%s exit 1 must be operational error", name)
 		}
 	}
@@ -306,7 +306,7 @@ func TestEVMToolsHaveReviewedExecutionOrPackagingContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"echidna", "mythril", "slither", "semgrep", "halmos"} {
+	for _, name := range []string{"echidna", "mythril", "slither", "halmos"} {
 		tool, ok := registry.Tool(name)
 		if !ok || !tool.Enabled {
 			t.Fatalf("%s must be executable: %+v", name, tool)
@@ -357,11 +357,6 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 			name:   "slither",
 			config: RunConfig{Tool: "slither", Target: Target{Type: "solidity_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("slither")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"}},
 			want:   []string{"slither", "/workspace/project", "--json", "-"},
-		},
-		{
-			name:   "semgrep",
-			config: RunConfig{Tool: "semgrep", Target: Target{Type: "semgrep_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("semgrep")), MediaType: "application/vnd.gratefulagents.semgrep-project.v1+directory"}},
-			want:   []string{"semgrep", "scan", "--config", "/tmp/input/.semgrep.yml", "--sarif", "--metrics", "off", "/workspace/project"},
 		},
 		{
 			name:   "halmos",

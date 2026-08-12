@@ -175,11 +175,6 @@
       "reason": "Provided through a hash-pinned multi-architecture Z3-only Python closure; release-archive installation is intentionally disabled."
     },
     {
-      "name": "semgrep",
-      "status": "disabled",
-      "reason": "Provided through a pinned multi-architecture OCI root; release-archive installation is intentionally disabled."
-    },
-    {
       "name": "govulncheck",
       "status": "disabled",
       "reason": "Distributed as a Go module rather than a checksummed upstream release asset; do not install with an unverified go install."
