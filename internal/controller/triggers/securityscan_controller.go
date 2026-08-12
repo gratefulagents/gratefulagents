@@ -197,6 +197,9 @@ func (r *SecurityScanReconciler) reconcileActive(ctx context.Context, scan *trig
 	if token := pendingManualRunToken(scan); token != "" {
 		return r.reconcileRunNow(ctx, scan, token)
 	}
+	if scan.Spec.ManualOnly {
+		return r.reconcileManualOnly(ctx, scan)
+	}
 
 	if ev := pendingTriggerEvent(scan); ev != nil {
 		return r.reconcileTriggerEvent(ctx, scan, ev)
@@ -206,6 +209,18 @@ func (r *SecurityScanReconciler) reconcileActive(ctx context.Context, scan *trig
 		return r.reconcileOneShot(ctx, scan)
 	}
 	return r.reconcileScheduled(ctx, scan)
+}
+
+func (r *SecurityScanReconciler) reconcileManualOnly(ctx context.Context, scan *triggersv1alpha1.SecurityScan) (ctrl.Result, error) {
+	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
+		fresh.Status.Phase = "Ready"
+		fresh.Status.NextScheduleTime = nil
+		fresh.Status.LastError = ""
+		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ManualOnly", "SecurityScan is ready for a manual run")
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
 }
 
 // pendingManualRunToken returns the run-now annotation token when it has not

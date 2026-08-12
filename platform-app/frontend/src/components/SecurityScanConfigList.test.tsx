@@ -10,17 +10,18 @@ import {
   type SecurityScanConfig,
 } from "@/rpc/platform/service_pb";
 
-const { listSecurityScanConfigs, listSecurityPrograms, runSecurityScanNow, deleteSecurityScan, updateSecurityScan } =
+const { listSecurityScanConfigs, listSecurityPrograms, createSecurityScan, runSecurityScanNow, deleteSecurityScan, updateSecurityScan } =
   vi.hoisted(() => ({
     listSecurityScanConfigs: vi.fn(),
     listSecurityPrograms: vi.fn().mockResolvedValue({ programs: [] }),
+    createSecurityScan: vi.fn().mockResolvedValue({}),
     runSecurityScanNow: vi.fn(),
     deleteSecurityScan: vi.fn(),
     updateSecurityScan: vi.fn(),
   }));
 
 vi.mock("@/lib/client", () => ({
-  client: { listSecurityScanConfigs, listSecurityPrograms, runSecurityScanNow, deleteSecurityScan, updateSecurityScan },
+  client: { listSecurityScanConfigs, listSecurityPrograms, createSecurityScan, runSecurityScanNow, deleteSecurityScan, updateSecurityScan },
 }));
 
 // The full form dialog is covered by SecurityScanFormDialog.test.tsx; here a
@@ -89,6 +90,16 @@ function renderList() {
 }
 
 describe("SecurityScanConfigList", () => {
+  it("offers the Immunefi import as a secondary action without creating by default", async () => {
+    listSecurityScanConfigs.mockResolvedValue({ configs: [] });
+    renderList();
+
+    const importButton = await screen.findByRole("button", { name: "Import Immunefi targets" });
+    expect(importButton.className).toContain("border-border");
+    expect(screen.getByRole("button", { name: "New scan" })).toBeTruthy();
+    expect(createSecurityScan).not.toHaveBeenCalled();
+  });
+
   it("shows Run now only for non-suspended configurations", async () => {
     listSecurityScanConfigs.mockResolvedValue({
       configs: [configFixture(), configFixture({ name: "paused", suspend: true })],

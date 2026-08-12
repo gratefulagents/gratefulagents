@@ -1,0 +1,28 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-thorchain
+spec:
+  provider: Immunefi
+  displayName: THORChain
+  programURL: https://immunefi.com/bug-bounty/thorchain/scope/
+  verifiedAt: 2026-08-12T00:00:00Z
+  scopePolicy: |
+    Snapshot verified against the current/last-known Immunefi scope URL on 2026-08-12. The live program page, including its asset list, impact matrix, exclusions, and reward terms, controls if it differs from this snapshot.
+
+    Repository targets:
+    - Catalog repository: https://github.com/thorchain/thornode.
+    - Source must be matched to a listed deployed/in-scope asset on the live program page. Repository affiliation is not blanket eligibility; unlisted paths, branches, commits, deployments, forks, tests, and examples are not eligible unless the live scope explicitly lists them.
+
+    Rewards:
+    - Consult the live Immunefi reward table for current reward tiers and maximums; this conservative snapshot does not state a headline maximum.
+
+    Eligible impacts:
+    - Blockchain/DLT and smart-contract: direct theft or loss of funds, permanent freezing of funds, forged or improperly validated cross-chain actions, and unauthorized swaps, withdrawals, or asset operations on listed targets.
+    - Severity, asset eligibility, and impact qualification are determined solely by the live Immunefi scope and reward table.
+
+    Out of scope:
+    - Any asset, deployment, code path, dependency, third-party integration, or impact not explicitly listed by the live program; known issues, theoretical or best-practice-only reports, and attacks requiring privileged or unrealistic assumptions are excluded unless the live scope says otherwise.
+
+    Testing and submission:
+    - Test only private/local environments and accounts you control. Do not test mainnet, public testnets, production services, third-party systems, or other users' assets. Do not perform DoS, traffic generation, phishing, social engineering, fund movement, or unapproved public disclosure. Submit a minimal reproducible PoC privately through Immunefi and follow the live program's disclosure and eligibility terms.

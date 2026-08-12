@@ -61,6 +61,7 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 		Dedupe:            &platform.SecurityScanDedupeConfig{Enabled: true, SimilarityThresholdPermille: 900},
 		MinSeverity:       "medium",
 		FailOnSeverity:    "high",
+		ManualOnly:        true,
 		Schedule:          "0 3 * * *",
 		TimeZone:          "UTC",
 		Suspend:           false,
@@ -126,6 +127,9 @@ func TestCreateSecurityScanHappyPathFullSpec(t *testing.T) {
 	if ps.SecurityProgramRef != "acme-bounty" {
 		t.Fatalf("proto security_program_ref = %q", ps.SecurityProgramRef)
 	}
+	if !ps.ManualOnly {
+		t.Fatalf("proto manual_only = false, want true")
+	}
 	pt := ps.Workflow[1]
 	if pt.MaxRetries == nil || *pt.MaxRetries != 2 || pt.Timeout != "45m0s" || pt.MaxTurns != 30 ||
 		pt.MaxCostUsd != "2.50" || pt.ForEach != "injection" || pt.TargetRuns != 5 ||
@@ -139,6 +143,9 @@ func assertFullScanSpec(t *testing.T, spec triggersv1alpha1.SecurityScanSpec) {
 	if spec.RepoURL != "https://github.com/example/payments.git" || spec.BaseBranch != "release" ||
 		spec.Revision != "abc123" || spec.Schedule != "0 3 * * *" || spec.TimeZone != "UTC" {
 		t.Fatalf("spec = %+v", spec)
+	}
+	if !spec.ManualOnly {
+		t.Fatalf("ManualOnly = false, want true")
 	}
 	if len(spec.AdditionalRepos) != 1 || spec.AdditionalRepos[0] != "https://github.com/example/lib.git" {
 		t.Fatalf("AdditionalRepos = %#v", spec.AdditionalRepos)

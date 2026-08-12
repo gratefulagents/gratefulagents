@@ -48,6 +48,33 @@ func TestSecurityScanOmittedExecutionModeUsesDeterministicScheduler(t *testing.T
 	}
 }
 
+func TestSecurityScanDeterministicManualOnlyWaitsForRunNow(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "inspect", Objective: "inspect"}}, 1)
+	scan.Spec.ManualOnly = true
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 0 {
+		t.Fatalf("AgentRuns = %d, want 0 before manual request", len(got))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.Phase != "Ready" || updated.Status.LastExecution != nil {
+		t.Fatalf("status = %+v, want Ready with no execution", updated.Status)
+	}
+
+	annotateSecurityScanRunNow(t, k8sClient, scan, "tok-1")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1 after manual request", len(got))
+	}
+	updated = getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastManualRunToken != "tok-1" || updated.Status.ManualRunsCreated != 1 || updated.Status.LastExecution == nil {
+		t.Fatalf("manual execution status = %+v", updated.Status)
+	}
+}
+
 func TestSecurityScanDeterministicExecutionSchedulesDependenciesWithinParallelismBound(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{

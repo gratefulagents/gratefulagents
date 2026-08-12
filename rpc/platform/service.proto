@@ -4654,6 +4654,9 @@ message SecurityScanConfigSpec {
   // scan's namespace. Its scope policy is snapshotted into run prompts as
   // quoted data; its URL is provenance only.
   string security_program_ref = 29;
+  // manual_only disables creation/spec-generation, scheduled, and
+  // repository-event runs. Explicit RunSecurityScanNow requests still run.
+  bool manual_only = 30;
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.

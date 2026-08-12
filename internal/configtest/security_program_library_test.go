@@ -18,8 +18,8 @@ func TestSecurityProgramLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) < 10 || len(paths) > 20 {
-		t.Fatalf("security program count = %d, want 10..20", len(paths))
+	if len(paths) < 20 || len(paths) > 50 {
+		t.Fatalf("security program count = %d, want 20..50", len(paths))
 	}
 
 	seen := make(map[string]struct{}, len(paths))

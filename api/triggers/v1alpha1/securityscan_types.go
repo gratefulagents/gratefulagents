@@ -226,6 +226,11 @@ type SecurityScanSpec struct {
 	// +optional
 	FailOnSeverity string `json:"failOnSeverity,omitempty"`
 
+	// manualOnly disables automatic runs from creation, spec changes,
+	// schedules, and repository events. Run-now requests are still processed.
+	// +optional
+	ManualOnly bool `json:"manualOnly,omitempty"`
+
 	// schedule is an optional standard 5-field cron expression, or a
 	// descriptor supported by robfig/cron such as "@daily". When empty, the
 	// scan runs exactly once per spec generation.

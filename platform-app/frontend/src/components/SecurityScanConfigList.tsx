@@ -15,6 +15,7 @@ import { TableRowSkeleton } from "@/components/ui/list-state";
 import { filterByQuery } from "@/components/ui/list-search";
 import { ResourceListPage } from "@/components/list-page";
 import { SecurityNav } from "@/components/SecurityNav";
+import { ImmunefiTargetImportDialog } from "@/components/ImmunefiTargetImportDialog";
 import { SeverityCountBadges } from "@/components/SecurityScanList";
 import {
   scanConfigUsesSavedCredentials,
@@ -264,15 +265,22 @@ export function SecurityScanConfigList() {
           : "Create a security scan to analyze a repository for vulnerabilities."
       }
       actions={
-        <SecurityScanFormDialog
-          trigger={
-            <Button size="sm">
-              <Plus />
-              New scan
-            </Button>
-          }
-          onSaved={() => void fetchConfigs()}
-        />
+        <div className="flex items-center gap-2">
+          <ImmunefiTargetImportDialog
+            existingNames={new Set(configs.map((config) => config.name))}
+            trigger={<Button variant="outline" size="sm">Import Immunefi targets</Button>}
+            onImported={() => void fetchConfigs()}
+          />
+          <SecurityScanFormDialog
+            trigger={
+              <Button size="sm">
+                <Plus />
+                New scan
+              </Button>
+            }
+            onSaved={() => void fetchConfigs()}
+          />
+        </div>
       }
       nav={<SecurityNav />}
       toolbar={
