@@ -129,7 +129,7 @@ func Validate(registry *securitytoolpacks.Registry, req Request) (securitytoolpa
 			return tool, fmt.Errorf("argument %q is required", argument.Name)
 		}
 	}
-	if tool.Requirements.Network && len(cfg.Scope) == 0 {
+	if tool.Requirements.Network && !securitytoolpacks.IsEVMBuildTool(tool.Name) && len(cfg.Scope) == 0 {
 		return tool, fmt.Errorf("tool %s requires explicit target scope", tool.Name)
 	}
 	if tool.SeedSupported && cfg.Seed == nil {

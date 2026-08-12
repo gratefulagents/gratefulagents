@@ -44,11 +44,11 @@ run_ga_project() {
 {"tool":"$tool","target":{"type":"$target_type","locator":"/case","revision":"runtime-smoke","digest":"$digest","media_type":"$media_type"}}
 EOF
   status=0
-  # Docker's outer namespace blocks nested unprivileged user/network namespace
-  # setup. Run this disposable integration container as root with only the two
-  # capabilities Bubblewrap needs; Bubblewrap still creates the production
-  # mount, PID, and network namespaces around the scanner process.
-  docker run --rm --network none --user 0 --cap-add SYS_ADMIN --cap-add NET_ADMIN \
+  # Docker's outer namespace blocks nested unprivileged mount namespace setup.
+  # Run this disposable integration container as root with only the capabilities
+  # Bubblewrap needs; it still creates the production mount and PID namespaces,
+  # while EVM dependency resolution uses the container's network.
+  docker run --rm --user 0 --cap-add SYS_ADMIN --cap-add NET_ADMIN \
     --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
     --mount "type=bind,src=$project,dst=/case,readonly" \
     --mount "type=bind,src=$config,dst=/config.json,readonly" \

@@ -346,7 +346,7 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 		{
 			name:   "forge-security-tests",
 			config: RunConfig{Tool: "forge-security-tests", Target: Target{Type: "foundry_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("forge")), MediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"}, Seed: &seed},
-			want:   []string{"forge", "test", "--root", "/workspace/project", "--junit", "--fuzz-seed", "42", "--offline", "--threads", "1"},
+			want:   []string{"forge", "test", "--root", "/workspace/project", "--junit", "--fuzz-seed", "42", "--threads", "1"},
 		},
 		{
 			name:   "echidna",

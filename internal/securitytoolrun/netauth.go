@@ -35,6 +35,12 @@ func SplitAuthorizedNetworkTargets(raw string) []string {
 // declares a network requirement always does; so does any request whose target
 // is a live network locator rather than staged content.
 func NeedsNetworkAuthorization(tool securitytoolpacks.Tool, req Request) bool {
+	// Local EVM build/test tools may resolve compiler and project dependencies.
+	// Their target remains staged content rather than a network probe, so there
+	// is no remote target to compare with the scan's authorization allowlist.
+	if strings.TrimSpace(req.StagedObjectKey) != "" && securitytoolpacks.IsEVMBuildTool(tool.Name) {
+		return false
+	}
 	if tool.Requirements.Network {
 		return true
 	}

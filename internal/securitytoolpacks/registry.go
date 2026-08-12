@@ -112,7 +112,8 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 	if cfg.Target.Revision == "" || !digestPattern.MatchString(cfg.Target.Digest) {
 		return Invocation{}, Tool{}, fmt.Errorf("target revision and immutable sha256 digest are required")
 	}
-	if t.Requirements.Network && len(cfg.Scope) == 0 {
+	unscopedBuildEgress := IsEVMBuildTool(t.Name)
+	if t.Requirements.Network && !unscopedBuildEgress && len(cfg.Scope) == 0 {
 		return Invocation{}, Tool{}, fmt.Errorf("tool %s requires explicit target scope", t.Name)
 	}
 	for i, scope := range cfg.Scope {
@@ -124,7 +125,7 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 	if baseURL := cfg.Arguments["base_url"]; baseURL != "" {
 		scopeTarget = baseURL
 	}
-	if t.Requirements.Network && !scopeAllowsTarget(scopeTarget, cfg.Scope) {
+	if t.Requirements.Network && !unscopedBuildEgress && !scopeAllowsTarget(scopeTarget, cfg.Scope) {
 		return Invocation{}, Tool{}, fmt.Errorf("target %q is outside configured scope", scopeTarget)
 	}
 	if t.Name == "owasp-zap" {
@@ -214,6 +215,12 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		}
 	}
 	return Invocation{Image: t.Image, Digest: t.ImageDigest, Argv: argv, Budgets: t.Budgets, Network: t.Requirements.Network, Privilege: t.Requirements.Privilege}, t, nil
+}
+
+// IsEVMBuildTool reports whether a tool operates only on staged EVM project
+// content but may use outbound access to resolve compilers and dependencies.
+func IsEVMBuildTool(name string) bool {
+	return slices.Contains([]string{"slither", "forge-security-tests", "echidna", "halmos"}, name)
 }
 
 func validScope(scope string) bool {
@@ -722,12 +729,12 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("boofuzz", DomainNetwork, "0.4.2", "junit", "application/junit+xml", []string{"protocol_fixture"}, []string{"boofuzz-runner", "--fixture", "{{target}}", "--junit"}),
 		base("naabu", DomainNetwork, "2.6.1", "naabu-jsonl", "application/x-ndjson", []string{"address_scope"}, []string{"naabu", "-host", "{{target}}", "-p", "{{ports}}", "-rate", "{{rate}}", "-c", "4", "-scan-type", "c", "-retries", "1", "-json", "-silent", "-disable-update-check"}),
 		base("aderyn", DomainBlockchain, "0.6.8", "sarif", "application/sarif+json", []string{"solidity_project"}, []string{"aderyn", "{{target}}", "--output", "report.sarif", "--stdout", "--skip-update-check"}),
-		base("forge-security-tests", DomainBlockchain, "1.7.1", "junit", "application/junit+xml", []string{"foundry_project"}, []string{"forge", "test", "--root", "{{target}}", "--junit", "--fuzz-seed", "{{seed}}", "--offline", "--threads", "1"}),
+		base("forge-security-tests", DomainBlockchain, "1.7.1", "junit", "application/junit+xml", []string{"foundry_project"}, []string{"forge", "test", "--root", "{{target}}", "--junit", "--fuzz-seed", "{{seed}}", "--threads", "1"}),
 		base("slither", DomainBlockchain, "0.11.3", "slither-json", "application/json", []string{"solidity_project"}, []string{"slither", "{{target}}", "--solc", "/home/ethsec/.local/bin/solc", "--json", "/work/slither.json"}),
 		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
 		base("halmos", DomainBlockchain, "0.3.3", "halmos-json", "application/json", []string{"foundry_project"}, []string{"halmos", "--root", "{{target}}", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"}),
 	}
-	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu"}
+	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu", "slither", "forge-security-tests", "echidna", "halmos"}
 	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz"}
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna"}
 	// Executable entries are either built into ga-security or installed from the

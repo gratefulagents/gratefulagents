@@ -288,14 +288,14 @@ spec:
           - Bash
       objective: >-
         Use {{tasks.inventory-scope-repositories-deployments.output}} and
-        {{tasks.reproducible-build-artifact-deployment-review.output}} to identify each applicable offline
+        {{tasks.reproducible-build-artifact-deployment-review.output}} to identify each applicable
         Solidity project root. For every applicable root, actually call run_security_tool exactly once with
         tool `slither`, target type `solidity_project`, locator equal to that project root, and target revision
-        equal to the immutable scan revision. Supply no raw flags, seed, RPC endpoint, or package-download
-        request. The pinned multi-architecture Slither 0.11.3 root runs with network disabled against an
+        equal to the immutable scan revision. Supply no raw flags, seed, or RPC endpoint. The pinned
+        multi-architecture Slither 0.11.3 root may resolve compiler and project dependencies against an
         ephemeral writable copy of the digest-verified project. Record compiler/remapping availability,
         normalized findings, exact execution status, artifacts, and limitations. A missing pinned compiler or
-        offline dependency closure is unsupported; error, timeout, and partial output are inconclusive; no
+        dependency closure is unsupported; error, timeout, and partial output are inconclusive; no
         Solidity root is skipped/not_applicable. A pass means only that this exact Slither run emitted no
         detector result. Do not re-submit tool findings or claim a broader clean bill of health.
       dependsOn:
@@ -355,7 +355,7 @@ spec:
         `foundry_project`, locator equal to that workspace root, target revision equal to the immutable scan
         revision, and the fixed seed `2062026`. Do not invent raw Forge flags. Record the seed, pinned tool and
         target references, tests/harnesses discovered, executed result, failures, and coverage limitations.
-        The registered runner is offline and single-threaded. Detect project-local allocs or full-genesis
+        The registered runner is single-threaded and may resolve project dependencies over the network. Detect project-local allocs or full-genesis
         fixtures and the harnesses that call `vm.loadAllocs`; record fixture paths and digests, source chain ID,
         immutable source block number/hash, timestamp, and state-completeness limitations. Such bounded local
         state replay is examined when the harness executes it. Tests using `createFork`/`createSelectFork`,
@@ -413,7 +413,7 @@ spec:
         call run_security_tool with tool `echidna`, target type `solidity_project`, that workspace root and
         immutable revision, and fixed seed `2062026`. The registered wrapper fixes one worker, 10,000 test
         sequences, sequence length 32, shrink limit 5,000, JSON output, no Slither subprocess, and no
-        caller-configurable RPC or FFI; do not invent scanner flags. Correlate falsified properties and
+        caller-configurable RPC or FFI; dependency resolution may use network access. Do not invent scanner flags. Correlate falsified properties and
         minimized transaction sequences with the invariant portfolio and preserve replay/artifact references.
         Record harnesses, properties, seed, targets and coverage limitations. Missing harnesses are skipped,
         an unavailable compiler/build is unsupported, and error/timeout/partial results are inconclusive. A bounded clean campaign proves only
@@ -655,11 +655,11 @@ spec:
         Use {{tasks.inventory-scope-repositories-deployments.output}},
         {{tasks.define-security-invariants.output}}, and
         {{tasks.reproducible-build-artifact-deployment-review.output}} to locate Foundry roots with existing
-        Halmos `check_` or `invariant_` symbolic tests and a complete offline build/artifact closure. For each
+        Halmos `check_` or `invariant_` symbolic tests and a complete build/artifact closure. For each
         applicable root, actually call run_security_tool exactly once with tool `halmos`, target type
-        `foundry_project`, the project-root locator, and immutable revision. Do not supply flags or network
+        `foundry_project`, the project-root locator, and immutable revision. Do not supply flags or RPC
         inputs. The reviewed multi-architecture Halmos 0.3.3 closure fixes Z3, loop bound 2, width 64, depth 128,
-        JSON output, no network, and an ephemeral writable digest-verified project copy. Preserve test names,
+        JSON output and an ephemeral writable digest-verified project copy; dependency resolution may use network access. Preserve test names,
         bounds, counterexamples, execution status, artifacts, and limitations. Missing harnesses are skipped;
         missing pinned compiler/dependencies are unsupported; timeout, stuck, revert-all, exception, setup
         failure, and partial output are inconclusive and never counterexamples or proofs. A pass covers only the

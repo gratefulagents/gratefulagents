@@ -448,7 +448,7 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 		)
 	}
 	if tool.Name == "halmos" {
-		argv = append(argv, "--setenv", "FOUNDRY_OFFLINE", "true", "--setenv", "FOUNDRY_FFI", "false")
+		argv = append(argv, "--setenv", "FOUNDRY_FFI", "false")
 	}
 	if tool.Requirements.Network {
 		for _, hostFile := range []string{"/etc/resolv.conf", "/etc/hosts"} {
@@ -520,7 +520,7 @@ func deterministicEnvironment(toolName, home string) []string {
 		}
 	}
 	if toolName == "forge-security-tests" {
-		environment = append(environment, "FOUNDRY_OFFLINE=true", "FOUNDRY_FFI=false")
+		environment = append(environment, "FOUNDRY_FFI=false")
 	}
 	sort.Strings(environment)
 	return environment

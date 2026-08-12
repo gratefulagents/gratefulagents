@@ -39,6 +39,10 @@ func TestNeedsNetworkAuthorization(t *testing.T) {
 	if !NeedsNetworkAuthorization(networkTool, staged) {
 		t.Fatal("a tool that requires network access always needs authorization")
 	}
+	evmBuildTool := securitytoolpacks.Tool{Name: "slither", Requirements: securitytoolpacks.Requirements{Network: true}}
+	if NeedsNetworkAuthorization(evmBuildTool, staged) {
+		t.Fatal("a staged EVM build target may use dependency egress without remote-target authorization")
+	}
 	if NeedsNetworkAuthorization(securitytoolpacks.Tool{Name: "gitleaks"}, staged) {
 		t.Fatal("a staged, offline target must not require network authorization")
 	}
