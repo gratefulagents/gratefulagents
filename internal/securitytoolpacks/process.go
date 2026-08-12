@@ -441,7 +441,10 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 		// sandbox intentionally changes HOME to its writable work directory, so
 		// preserve the pinned user base and let Python select its own versioned
 		// site-packages directory.
-		argv = append(argv, "--setenv", "PYTHONUSERBASE", "/home/ethsec/.local")
+		argv = append(argv,
+			"--setenv", "PYTHONUSERBASE", "/home/ethsec/.local",
+			"--setenv", "SOLC_SELECT_DIR", "/home/ethsec/.solc-select",
+		)
 	}
 	if tool.Name == "halmos" {
 		argv = append(argv, "--setenv", "FOUNDRY_OFFLINE", "true", "--setenv", "FOUNDRY_FFI", "false")
