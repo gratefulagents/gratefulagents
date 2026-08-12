@@ -68,6 +68,7 @@ export function SecurityProgramDialog({
   const [error, setError] = useState<string | null>(null);
 
   const urlInvalid = draft.programUrl.trim() !== "" && !isHttpsUrl(draft.programUrl.trim());
+  const scopePolicyTooLong = Array.from(draft.scopePolicy).length > 131072;
   const blocked =
     !draft.name.trim() ||
     !draft.provider.trim() ||
@@ -75,6 +76,7 @@ export function SecurityProgramDialog({
     !draft.programUrl.trim() ||
     urlInvalid ||
     !draft.scopePolicy.trim() ||
+    scopePolicyTooLong ||
     !draft.verifiedAt;
 
   function update<K extends keyof ProgramDraft>(field: K, value: ProgramDraft[K]) {
@@ -208,10 +210,13 @@ export function SecurityProgramDialog({
                 id="program-scope-policy"
                 value={draft.scopePolicy}
                 onChange={(event) => update("scopePolicy", event.target.value)}
-                maxLength={32768}
+                aria-invalid={scopePolicyTooLong}
                 className="min-h-40 font-mono"
                 placeholder={"In scope:\n- api.example.com\n\nOut of scope:\n- production denial-of-service testing"}
               />
+              {scopePolicyTooLong && (
+                <p className="text-sm text-destructive">Scope policy must be at most 131,072 characters.</p>
+              )}
             </FlowField>
             <FlowField
               id="program-verified-at"

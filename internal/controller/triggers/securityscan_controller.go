@@ -198,6 +198,9 @@ func (r *SecurityScanReconciler) reconcileActive(ctx context.Context, scan *trig
 		return r.reconcileRunNow(ctx, scan, token)
 	}
 	if scan.Spec.ManualOnly {
+		if scan.Status.LastRunName != "" && scan.Status.Phase == "Running" {
+			return r.reconcileManualOnlyRun(ctx, scan)
+		}
 		return r.reconcileManualOnly(ctx, scan)
 	}
 
@@ -209,6 +212,32 @@ func (r *SecurityScanReconciler) reconcileActive(ctx context.Context, scan *trig
 		return r.reconcileOneShot(ctx, scan)
 	}
 	return r.reconcileScheduled(ctx, scan)
+}
+
+// reconcileManualOnlyRun observes and finalizes an already-dispatched manual
+// coordinator run without allowing any automatic dispatch path to run.
+func (r *SecurityScanReconciler) reconcileManualOnlyRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan) (ctrl.Result, error) {
+	terminal, err := r.lastRunTerminal(ctx, scan)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !terminal {
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+	r.finalizeCompletedRun(ctx, scan)
+	retryPostRun := r.finishTerminalRun(ctx, scan)
+	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
+		fresh.Status.Phase = "Completed"
+		fresh.Status.NextScheduleTime = nil
+		fresh.Status.LastError = ""
+		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ManualRunCompleted", "Manual scan AgentRun completed")
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+	if retryPostRun {
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *SecurityScanReconciler) reconcileManualOnly(ctx context.Context, scan *triggersv1alpha1.SecurityScan) (ctrl.Result, error) {

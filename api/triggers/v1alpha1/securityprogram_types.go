@@ -12,7 +12,7 @@ const (
 	MaxSecurityProgramProviderLength    = 100
 	MaxSecurityProgramDisplayNameLength = 200
 	MaxSecurityProgramURLLength         = 2048
-	MaxSecurityProgramScopePolicyLength = 32768
+	MaxSecurityProgramScopePolicyLength = 131072
 )
 
 // SecurityProgramScanTarget describes a suggested SecurityScan configuration
@@ -83,7 +83,7 @@ type SecurityProgramSpec struct {
 	// scopePolicy is the operator-verified scope snapshot supplied to scan
 	// prompts as quoted, untrusted data.
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=32768
+	// +kubebuilder:validation:MaxLength=131072
 	ScopePolicy string `json:"scopePolicy"`
 
 	// verifiedAt is when an operator last verified scopePolicy against the

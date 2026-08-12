@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 )
@@ -48,8 +49,8 @@ func ValidateSecurityProgramSpec(spec SecurityProgramSpec) []SecurityWorkflowFie
 	scopePolicy := strings.TrimSpace(spec.ScopePolicy)
 	if scopePolicy == "" {
 		add("scopePolicy", "is required")
-	} else if len(spec.ScopePolicy) > MaxSecurityProgramScopePolicyLength {
-		add("scopePolicy", "must be at most %d bytes", MaxSecurityProgramScopePolicyLength)
+	} else if utf8.RuneCountInString(spec.ScopePolicy) > MaxSecurityProgramScopePolicyLength {
+		add("scopePolicy", "must be at most %d characters", MaxSecurityProgramScopePolicyLength)
 	}
 	if spec.VerifiedAt.IsZero() {
 		add("verifiedAt", "is required")

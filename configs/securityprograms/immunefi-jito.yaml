@@ -6,27 +6,217 @@ spec:
   provider: Immunefi
   displayName: Jito
   programURL: https://immunefi.com/bug-bounty/jito/scope/
-  verifiedAt: 2026-08-11T00:00:00Z
+  verifiedAt: 2026-08-12T00:00:00Z
   scopePolicy: |
-    Verified from the live Immunefi program on 2026-08-11 (program last updated 2025-02-17).
+    Verbatim Immunefi scope (retrieved 2026-08-12T15:44:25.476Z; page last updated 12 August 2026).
 
-    Repository targets:
-    - https://github.com/jito-foundation/jito-programs/tree/master/mev-programs
-    - https://github.com/jito-foundation/restaking/tree/master/restaking_core
-    - https://github.com/jito-foundation/restaking/tree/master/restaking_program
-    - https://github.com/jito-foundation/restaking/tree/master/vault_core
-    - https://github.com/jito-foundation/restaking/tree/master/vault_program
-    - https://github.com/jito-foundation/stake-deposit-interceptor is also an explicitly listed repository asset.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Critical: up to USD 250,000.
-    - High: up to USD 100,000.
+    Blockchain/DLT
 
-    Eligible impacts:
-    - Network shutdown, permanent hard-fork chain split, direct fund loss/theft, permanent freezing, protocol-revenue or yield theft, and qualifying chain split/block delay.
+    Assets in Scope
+    Target    Name    Added on
 
-    Out of scope:
-    - jito-programs/example-programs is explicitly excluded. Upstream Agave/Solana-client bugs, undeployed/default-off code, tests, public/known issues, privileged assumptions, and best-practice-only reports are excluded. Contributor eligibility restrictions apply.
+    https://github.com/jito-foundation/firebam    firedancer fork for bam    12 August 2026
+    https://github.com/jito-foundation/jito-solana    jito-solana    27 August 2024
 
-    Testing and submission:
-    - PoC and KYC required. Use a local validator/cluster only; no mainnet/public-testnet or third-party testing, destructive DoS, phishing, traffic generation, or unapproved disclosure.
+    Impacts in Scope
+    Impacts Body
+
+    Only the following impacts are accepted within this bug bounty program. All other impacts are not considered as in-scope, even if they affect something in the assets in scope table.
+
+    Critical
+
+
+    Direct loss of funds
+
+
+
+    Critical
+
+
+    Permanent freezing of funds (fix requires hardfork)
+
+
+
+    Critical
+
+
+    Network not being able to confirm new transactions (total network shutdown)
+
+
+
+    Critical
+
+
+    Unintended permanent chain split requiring hard fork (network partition requiring hard fork)
+
+
+
+    High
+
+
+    Temporary freezing of network transactions by delaying one block by 500% or more of the average block time of the preceding 24 hours beyond standard difficulty adjustments
+
+
+
+    High
+
+
+    Unintended chain split (network partition)
+
+
+
+    Medium
+
+
+    Causing network processing nodes to process transactions from the mempool beyond set parameters
+
+
+
+    Medium
+
+
+    Increasing network processing node resource consumption by at least 30% without brute force actions, compared to the preceding 24 hours
+
+
+
+    Medium
+
+
+    Shutdown of greater than or equal to 30% of network processing nodes without brute force actions, but does not shut down the network
+
+
+
+    Medium
+
+
+    A bug in the respective layer 0/1/2 network code that results in unintended smart contract behavior with no concrete funds at direct risk
+
+
+
+    Low
+
+
+    Shutdown of greater than 10% or equal to but less than 30% of network processing nodes without brute force actions, but does not shut down the network
+
+
+
+    Low
+
+
+    Modification of transaction fees outside of design parameters
+
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+    Any affected code, from dependant Solana client implementations (eg. Agave or Firedancer) should be reported upstream.
+    Example code (https://github.com/jito-foundation/jito-programs/tree/master/example-programs)
+    any findings should be exploitable without being a trusted third party, findings involving a trusted third party for example BAM node may be considered on a discretionary basis since these would be more defense in depth controls rather than a direct exploit path
+    any findings which assume misconfiguration, for example a deployment of a program gone wrong or a validator misconfigured are not in scope
+    any findings which can only be demonstrated using unit tests only are out of scope. The attack must be a possible attack vector under realistic network/deployment conditions to be considered. A unit test can be used to demonistrat and can be a sufficient POC if it meets this criteria but can not be the sole determining factor.
+    Default Out of Scope and rules
+
+    Blockchain/DLT specific
+
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Smart Contract
+
+    Assets in Scope
+    Target    Name    Added on
+
+    https://github.com/jito-foundation/stake-deposit-interceptor    Stake Deposit Interceptor    21 January 2025
+    https://github.com/jito-foundation/restaking/tree/master/vault_program    Restaking: vault-program    21 January 2025
+    https://github.com/jito-foundation/restaking/tree/master/vault_core    Restaking: vault-core    21 January 2025
+    https://github.com/jito-foundation/restaking/tree/master/restaking_program    Restaking: restaking-program    21 January 2025
+    https://github.com/jito-foundation/restaking/tree/master/restaking_core    Restaking: restaking-core    21 January 2025
+    https://github.com/jito-foundation/jito-programs/tree/master/mev-programs    jito-programs    27 August 2024
+
+    Impacts in Scope
+    Impacts Body
+
+    Only the following impacts are accepted within this bug bounty program. All other impacts are not considered as in-scope, even if they affect something in the assets in scope table.
+
+    Critical
+
+
+    Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+
+
+
+    Critical
+
+
+    Permanent freezing of funds
+
+
+
+    High
+
+
+    Theft of protocol revenue
+
+
+
+    High
+
+
+    Theft of Yield
+
+
+
+    Medium
+
+
+    Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+    Any affected code, from dependant Solana client implementations (eg. Agave or Firedancer) should be reported upstream.
+    Example code (https://github.com/jito-foundation/jito-programs/tree/master/example-programs)
+    any findings should be exploitable without being a trusted third party, findings involving a trusted third party for example BAM node may be considered on a discretionary basis since these would be more defense in depth controls rather than a direct exploit path
+    any findings which assume misconfiguration, for example a deployment of a program gone wrong or a validator misconfigured are not in scope
+    any findings which can only be demonstrated using unit tests only are out of scope. The attack must be a possible attack vector under realistic network/deployment conditions to be considered. A unit test can be used to demonistrat and can be a sufficient POC if it meets this criteria but can not be the sole determining factor.
+    Default Out of Scope and rules
+
+    Smart Contract specific
+
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers

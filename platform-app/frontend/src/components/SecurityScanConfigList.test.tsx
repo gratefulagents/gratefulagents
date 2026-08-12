@@ -10,10 +10,11 @@ import {
   type SecurityScanConfig,
 } from "@/rpc/platform/service_pb";
 
-const { listSecurityScanConfigs, listSecurityPrograms, createSecurityScan, runSecurityScanNow, deleteSecurityScan, updateSecurityScan } =
+const { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, createSecurityScan, runSecurityScanNow, deleteSecurityScan, updateSecurityScan } =
   vi.hoisted(() => ({
     listSecurityScanConfigs: vi.fn(),
     listSecurityPrograms: vi.fn().mockResolvedValue({ programs: [] }),
+    listMyCredentials: vi.fn().mockResolvedValue({ namespace: "user-alice" }),
     createSecurityScan: vi.fn().mockResolvedValue({}),
     runSecurityScanNow: vi.fn(),
     deleteSecurityScan: vi.fn(),
@@ -21,7 +22,7 @@ const { listSecurityScanConfigs, listSecurityPrograms, createSecurityScan, runSe
   }));
 
 vi.mock("@/lib/client", () => ({
-  client: { listSecurityScanConfigs, listSecurityPrograms, createSecurityScan, runSecurityScanNow, deleteSecurityScan, updateSecurityScan },
+  client: { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, createSecurityScan, runSecurityScanNow, deleteSecurityScan, updateSecurityScan },
 }));
 
 // The full form dialog is covered by SecurityScanFormDialog.test.tsx; here a
@@ -125,6 +126,31 @@ describe("SecurityScanConfigList", () => {
     expect(screen.getByText("Custom metadata target")).toBeTruthy();
     expect(screen.getByText("https://example.com/custom")).toBeTruthy();
     expect(screen.getByText("custom-workflow")).toBeTruthy();
+  });
+
+  it("does not treat a same-named scan in another namespace as already imported", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [create(SecurityScanConfigSchema, { namespace: "shared-team", name: "custom-scan" })],
+    });
+    listSecurityPrograms.mockResolvedValue({
+      programs: [{
+        name: "custom-program",
+        scanTarget: {
+          featured: true,
+          priority: 1,
+          displayName: "Custom target",
+          scanName: "custom-scan",
+          repositoryUrl: "https://example.com/custom",
+          workflowRef: "custom-workflow",
+          policyPackRef: "bug-bounty",
+        },
+      }],
+    });
+    renderList();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Import Immunefi targets" }));
+    expect(screen.queryByText("Existing name — skipped")).toBeNull();
+    expect(screen.getByRole("button", { name: "Import 1 missing target" })).toBeTruthy();
   });
 
   it("shows Run now only for non-suspended configurations", async () => {

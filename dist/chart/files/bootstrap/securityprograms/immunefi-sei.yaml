@@ -6,22 +6,210 @@ spec:
   provider: Immunefi
   displayName: Sei
   programURL: https://immunefi.com/bug-bounty/sei/scope/
-  verifiedAt: 2026-08-11T00:00:00Z
+  verifiedAt: 2026-08-12T00:00:00Z
   scopePolicy: |
-    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-08-11).
+    Verbatim Immunefi scope (retrieved 2026-08-12T15:44:35.412Z; page last updated 11 August 2026).
 
-    Repository targets:
-    - https://github.com/sei-protocol/sei-chain is explicitly listed as a repository-root asset without a branch pin. Eligibility still requires production/default-enabled behavior and an accepted impact.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Critical: up to USD 500,000.
-    - High: USD 25,000 flat.
+    Blockchain/DLT
 
-    Eligible impacts:
-    - Direct loss or permanent freezing of at least USD 5,000 can be Critical. A halt of at least one-third of validators, permanent hard-fork chain split, or default-configuration RPC-node crash can be High.
+    Assets in Scope
+    Target    Name    Added on
 
-    Out of scope:
-    - Only the Giga executor is included among Giga functionality. EVMone, Autobahn consensus, Giga storage, other Giga-gated paths, StateSync-peer assumptions, non-default configurations, tests, known issues, privileged assumptions, and best-practice-only reports are excluded.
+    Primacy Of Impact        6 February 2026
 
-    Testing and submission:
-    - PoC and KYC required. Blockchain PoCs must follow the program's local four-node-cluster instructions. No mainnet/public-testnet testing, destructive DoS, third-party testing, phishing, traffic generation, or unapproved disclosure.
+    https://github.com/sei-protocol/sei-js
+            14 January 2026
+
+    https://github.com/sei-protocol/go-ethereum
+            31 May 2024
+
+    https://github.com/sei-protocol/sei-chain
+        Sei Chain    13 November 2023
+
+    Impacts in Scope
+    Impacts Body
+
+    Giga-Related Functionality
+
+    With the exception of the Giga executor, all functionality related to Giga is currently out of scope for this bug bounty program.
+
+    The Giga executor is in scope. The Giga executor is enabled by default. The following are in scope:
+
+    The giga/executor Go package (and its subpackages)
+    The [giga_executor] configuration section, including both the enabled and occ_enabled options
+
+    The following are out of scope even though they relate to the Giga executor, and are not eligible for rewards:
+
+    EVMone: any functionality related to the evmone-based execution backend, including the evmone VM integration and any code paths specific to it. EVMone is not used in production and has not been extensively tested.
+    Transaction result differences (including LastResultsHash divergence) between the Giga and V2 executors: the two execution implementations are not guaranteed to produce identical transaction results or an identical LastResultsHash. This is a known difference.
+    Block delay impacts that rely on the current fallback from Giga to V2 execution: the current fallback from Giga to V2 execution can increase EVM transaction execution time, and block delay impacts that depend on this fallback are not in scope.
+
+    All other Giga functionality is out of scope. Every Giga feature other than the executor remains disabled by default in all supported environments. Specifically, the following are excluded from scope:
+
+    The Autobahn multi-proposer consensus protocol
+    Giga storage
+    Any code paths that require setting a GIGA_* configuration flag to true, other than enabling the Giga executor
+    Any configuration options under giga-prefixed sections other than [giga_executor]
+    Any code contained within giga packages other than giga/executor
+
+    As a result:
+
+    Vulnerabilities that are only exploitable when Giga functionality other than the executor is enabled
+    Vulnerabilities that exist exclusively within giga packages other than giga/executor
+    Vulnerabilities reachable solely through execution paths gated by non-executor Giga configuration
+
+    are not eligible for rewards under this bug bounty program.
+
+    Excluded StateSync Peer Functionality
+
+    Any functionality related to StateSync Peers is currently out of scope for this bug bounty program.
+
+    A StateSync Peer is a trusted node that provides state synchronization data to other nodes during initial sync. These are nodes explicitly configured as RPC servers and persistent peers for the purpose of state sync. They serve trust height, trust hash, and block/state data that the syncing node consumes directly.
+
+    Specifically, the following are excluded from scope:
+
+    Any vulnerabilities that require a malicious or compromised StateSync Peer to be exploited
+    Any attack vectors that depend on a StateSync Peer returning tampered block data, trust hashes, or state snapshots
+    Any vulnerabilities that rely on poisoning the persistent peers list with attacker-controlled node IDs obtained through compromised StateSync Peer RPC responses
+    Any vulnerabilities related to P2P-mode state sync, where any connected P2P peer can serve as a state provider. P2P-mode state sync is disabled by default and is not used in Sei's supported state sync workflow
+
+    StateSync Peers are considered trusted infrastructure within the Sei network's threat model. As a result:
+
+    Vulnerabilities that assume a StateSync Peer is acting maliciously or has been compromised
+    Vulnerabilities that are only exploitable by controlling or impersonating a StateSync Peer endpoint
+    Vulnerabilities reachable solely through tampered RPC responses from a trusted StateSync Peer
+    Vulnerabilities that exist exclusively within P2P-mode state sync code paths
+
+    are not eligible for rewards under this bug bounty program.
+
+    Critical
+
+
+    Permanent freezing of funds of USD $5,000 or more with no on-chain remediation path, excluding general network unavailability (fix requires hard fork)
+
+
+
+    Critical
+
+
+    Direct loss of funds of USD $5,000 or more (including but not limited to unauthorized transfers, token minting, or token burning)
+
+
+
+    High
+
+
+    Crash or halt of ≥1/3 of validators (assuming no direct network access to validator nodes), resulting in loss of network liveness
+
+
+
+    High
+
+
+    Unintended permanent chain split requiring hard fork to resolve (network partition with no automatic recovery)
+
+
+
+    High
+
+
+    Crash of RPC nodes running default configuration without assuming direct network access (e.g. via malicious block/transaction payloads propagated through the network)
+
+
+
+    Medium
+
+
+    Malicious proposer block freeze: delay of ≥10 minutes caused by a single proposer beyond simply skipping their own proposal slot(s)
+
+
+
+    Medium
+
+
+    Bug in layer 0/1/2 network code that causes deterministic unintended smart contract execution, with no funds directly at risk
+
+
+
+    Medium
+
+
+    Crash of RPC nodes running default configuration via direct unauthenticated network access to RPC/gRPC endpoints
+
+
+
+    Medium
+
+
+    Crash or halt of ≥10% but <1/3 of validators via crafted (non-brute-force) messages, where the network retains liveness
+
+
+
+    Medium
+
+
+    Block production delay exceeding 2.5 seconds on realistic validator hardware, caused by crafted transactions or messages (excluding malicious proposers)
+
+
+
+    Medium
+
+
+    Permanent freezing of funds of less than USD $5,000 with no on-chain remediation path, excluding general network unavailability (fix requires hard fork)
+
+
+
+    Medium
+
+
+    Direct loss of funds of less than USD $5,000 (including but not limited to unauthorized transfers, token minting, or token burning)
+
+
+
+    Low
+
+
+    Manipulation of transaction fee calculation resulting in fees outside protocol-defined bounds
+
+
+
+    Low
+
+
+    Causing network processing nodes to include or order mempool transactions outside of protocol-defined selection and priority rules
+
+
+
+    Low
+
+
+    Crash or halt of <10% of validators via crafted (non-brute-force) messages, where the network retains liveness
+
+    Collapse
+     View rewards
+
+    Out of scope
+    Default Out of Scope and rules
+
+    Blockchain/DLT specific
+
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers

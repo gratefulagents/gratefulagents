@@ -6,23 +6,264 @@ spec:
   provider: Immunefi
   displayName: Aave
   programURL: https://immunefi.com/bug-bounty/aave/scope/
-  verifiedAt: 2026-08-11T00:00:00Z
+  verifiedAt: 2026-08-12T00:00:00Z
   scopePolicy: |
-    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-04-17).
+    Verbatim Immunefi scope (retrieved 2026-08-12T15:44:18.372Z; page last updated 17 April 2026).
 
-    Repository targets:
-    - https://github.com/aave-dao/aave-v3-origin on branch main, limited to individually listed production files. Verified groups include PoolAddressesProvider.sol, ACLManager.sol, Pool.sol, L2Pool.sol, PoolConfigurator.sol, DefaultReserveInterestRateStrategyV2.sol, upgradeability contracts, ReserveConfiguration.sol, UserConfiguration.sol, and BorrowLogic.sol under src/contracts/.
-    - gho-origin audit links are resources, not proof of repository scope; this snapshot does not include gho-origin.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Smart-contract Critical: USD 50,000 minimum to USD 1,000,000 maximum, normally 10% of directly affected funds.
-    - Smart-contract High: USD 10,000 minimum to USD 75,000 maximum.
+    Smart Contract
 
-    Eligible impacts:
-    - Principal theft, permanent locking, protocol insolvency, unmitigable governance-result manipulation, treasury theft, and theft/locking of yield.
+    Assets in Scope
+    0
+    Contract Filters
+    Instascope
+    Funds    Type    Target    Name    Added on
 
-    Out of scope:
-    - Tests/configuration, non-active features, privileged or leaked-key assumptions, external depegs not caused by code, liquidity/Sybil/centralization-only issues, known issues, and best practices are excluded. Contributor/auditor eligibility restrictions apply.
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/facilitators/gsm/OwnableFacilitator.sol    OwnableFacilitator    5 September 2025
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/facilitators/gsm/GhoReserve.sol    GhoReserve    5 September 2025
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/facilitators/gsm/priceStrategy/FixedPriceStrategy4626.sol    FixedPriceStrategy4626    5 September 2025
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/facilitators/gsm/Gsm4626.sol    GSM4626    5 September 2025
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/facilitators/flashMinter/GhoFlashMinter.sol    GhoFlashMinter    5 September 2025
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/gho/GhoToken.sol    GhoToken    5 September 2025
+            https://github.com/aave/ccip/blob/d5c6cedde6fbca9890a92a55f2db80e94793d0ec/contracts/src/v0.8/ccip/pools/GHO/UpgradeableBurnMintTokenPool.sol    UpgradeableBurnMintTokenPool    9 September 2024
+            https://github.com/aave/ccip/blob/d5c6cedde6fbca9890a92a55f2db80e94793d0ec/contracts/src/v0.8/ccip/pools/GHO/UpgradeableLockReleaseTokenPool.sol    UpgradeableLockReleaseTokenPool    9 September 2024
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/gho/UpgradeableGhoToken.sol    UpgradeableGhoToken    9 September 2024
+            https://github.com/bgd-labs/aave-governance-v3/blob/main/src/contracts/payloads/PayloadsController.sol    PayloadsController    11 March 2024
+            https://github.com/bgd-labs/aave-governance-v3/blob/main/src/contracts/payloads/Executor.sol    Executor    11 March 2024
+            https://github.com/bgd-labs/aave-governance-v3/blob/main/src/contracts/voting/DataWarehouse.sol    DataWarehouse    11 March 2024
+            https://github.com/bgd-labs/aave-governance-v3/blob/main/src/contracts/voting/VotingMachine.sol    VotingMachine    11 March 2024
+            https://github.com/bgd-labs/aave-governance-v3/blob/main/src/contracts/GovernancePowerStrategy.sol    GovernancePowerStrategy    11 March 2024
+            https://github.com/bgd-labs/aave-governance-v3/blob/main/src/contracts/voting/VotingStrategy.sol    VotingStrategy    11 March 2024
+            https://github.com/bgd-labs/aave-governance-v3/blob/main/src/contracts/Governance.sol    Governance    11 March 2024
+            https://github.com/bgd-labs/solidity-utils/blob/7a7548c1d01f011febdb1c0d47e52c7ec6c30f9d/src/contracts/transparent-proxy/TransparentUpgradeableProxy.sol    TransparentUpgradeableProxy    8 February 2024
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/facilitators/gsm/feeStrategy/FixedFeeStrategy.sol    FixedFeeStrategy    8 February 2024
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/facilitators/gsm/priceStrategy/FixedPriceStrategy.sol    FixedPriceStrategy    8 February 2024
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/facilitators/gsm/Gsm.sol    GSM    8 February 2024
+            https://github.com/aave-dao/gho-origin/blob/main/src/contracts/facilitators/aave/oracle/GhoOracle.sol    Aave v3 GhoOracle    14 November 2023
+            Primacy Of Impact        13 October 2023
 
-    Testing and submission:
-    - PoC and KYC required. Use local forks only; no mainnet/public-testnet or third-party testing, destructive DoS, phishing, automation traffic, or unapproved disclosure.
+    $23.8M
+
+        https://etherscan.io/address/0x464C71f6c2F760DdA6093dCB91C24c39e5d6e18c    Aave v2 Collector    13 October 2023
+
+        https://etherscan.io/address/0xEFFC18fC3b7eb8E676dac549E0c693ad50D1Ce31    Aave v2 WrappedTokenGatewayV2    13 October 2023
+
+        https://etherscan.io/address/0x8A32f49FFbA88aba6EFF96F45D8BD1D4b3f35c7D    Aave v2 Lending Rate Oracle    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/misc/AaveOracle.sol    Aave v2 Aave Oracle    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/tokenization/StableDebtToken.sol    Aave v2 StableDebtToken    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/tokenization/VariableDebtToken.sol    Aave v2 VariableDebtToken    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/tokenization/AToken.sol    Aave v2 AToken    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/math/WadRayMath.sol    Aave v2 Math libraries - WadRayMath    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/math/PercentageMath.sol    Aave v2 Math libraries - PercentageMath    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/math/MathUtils.sol    Aave v2 Math libraries - MathUtils    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/logic/ValidationLogic.sol    Aave v2 Logic libraries - ValidationLogic    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/logic/ReserveLogic.sol    Aave v2 Logic libraries - ReserveLogic    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/logic/GenericLogic.sol    Aave v2 Logic libraries - GenericLogic    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/configuration/UserConfiguration.sol    Aave v2 Global configurations - User Configuration    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/configuration/ReserveConfiguration.sol    Aave v2 Global configurations - Reserve Configuration    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/aave-upgradeability/VersionedInitializable.sol    Aave v2 VersionedInitializable    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/aave-upgradeability/InitializableImmutableAdminUpgradeabilityProxy.sol    Aave v2 InitializableImmutableAdminUpgradeabilityProxy    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/libraries/aave-upgradeability/BaseImmutableAdminUpgradeabilityProxy.sol    Aave v2 BaseImmutableAdminUpgradeabilityProxy    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/lendingpool/LendingPoolConfigurator.sol    Aave v2 LendingPoolConfigurator    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/lendingpool/DefaultReserveInterestRateStrategy.sol    Aave v2 DefaultReserveInterestRateStrategy    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/lendingpool/LendingPoolCollateralManager.sol    Aave v2 LendingPoolCollateralManager    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/lendingpool/LendingPool.sol    Aave v2 LendingPool    13 October 2023
+            https://github.com/aave/protocol-v2/blob/master/contracts/protocol/configuration/LendingPoolAddressesProvider.sol    Aave v2 LendingPoolAddressProvider    13 October 2023
+            https://github.com/bgd-labs/stake-token/blob/main/src/contracts/StakeToken.sol    new Aave Safety Module (stkABPT and stkGHO)    13 October 2023
+            https://github.com/bgd-labs/aave-stk-gov-v3/blob/main/src/contracts/StakedAaveV3.sol    Aave Safety Module Staked Aave v3    13 October 2023
+            https://github.com/bgd-labs/aave-collector-unification/blob/main/src/contracts/Collector.sol    Aave v3 Collector    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/rewards/EmissionManager.sol    Aave v3 Emission Manager    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/rewards/RewardsController.sol    Aave v3 Periphery - Rewards Controller    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/misc/PriceOracleSentinel.sol    Aave v3 Price Oracle Sentinel    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/helpers/L2Encoder.sol    Aave v3 L2Encoder    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/misc/AaveOracle.sol    Aave v3 AaveOracle    13 October 2023
+            https://github.com/aave/aave-v3-core/blob/master/contracts/protocol/tokenization/StableDebtToken.sol    Aave v3 StableDebtToken    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/tokenization/VariableDebtToken.sol    Aave v3 VariableDebtToken    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/tokenization/AToken.sol    Aave v3 AToken    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/math/WadRayMath.sol    Aave v3 Math Libraries - WadRayMath    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/math/PercentageMath.sol    Aave v3 Math Libraries - Percentage Math    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/math/MathUtils.sol    Aave v3 Math Libraries - Math Utils    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/ValidationLogic.sol    Aave v3 Logic Libraries - Validation Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/SupplyLogic.sol    Aave v3 Logic Libraries - Supply Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/ReserveLogic.sol    Aave v3 Logic Libraries - Reserve Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/PoolLogic.sol    Aave v3 Logic Libraries - Pool Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/LiquidationLogic.sol    Aave v3 Logic Libraries - Liquidation Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/IsolationModeLogic.sol    Aave v3 Logic Libraries - Isolation Mode Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/GenericLogic.sol    Aave v3 Logic Libraries - Generic Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/FlashLoanLogic.sol    Aave v3 Logic Libraries - Flash Loan Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/EModeLogic.sol    Aave v3 Logic Libraries - EMode Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/ConfiguratorLogic.sol    Aave v3 Logic Libraries - Configurator Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/CalldataLogic.sol    Aave v3 Logic Libraries - Calldata Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/BridgeLogic.sol    Aave v3 Logic Libraries - Bridge Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/logic/BorrowLogic.sol    Aave v3 Logic Libraries - Borrow Logic    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/configuration/UserConfiguration.sol    Aave v3 Global configurations - User Configuration    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/libraries/configuration/ReserveConfiguration.sol    Aave v3 Global configurations - Reserve Configuration    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/misc/aave-upgradeability/VersionedInitializable.sol    Aave v3 Upgradability - VersionedInitializable    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/misc/aave-upgradeability/InitializableImmutableAdminUpgradeabilityProxy.sol    Aave v3 Upgradability - InitializableImmutableAdminUpgradabilityProxy    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/misc/aave-upgradeability/BaseImmutableAdminUpgradeabilityProxy.sol    Aave v3 Upgradability - BaseImmutableAdminUpgradeabilityProxy    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/misc/DefaultReserveInterestRateStrategyV2.sol    Aave v3 DefaultReserveInterestRateStrategyV2    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/pool/PoolConfigurator.sol    Aave v3 Pool Configurator    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/pool/L2Pool.sol    Aave v3 L2Pool    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/pool/Pool.sol    Aave v3 Pool    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/configuration/ACLManager.sol    Aave v3 ACLManager    13 October 2023
+            https://github.com/aave-dao/aave-v3-origin/blob/main/src/contracts/protocol/configuration/PoolAddressesProvider.sol    Aave v3 PoolAddressesProvider    13 October 2023
+    Collapse
+
+    Impacts in Scope
+    Impacts Body
+
+    Keep in mind the restrictions on impacts based on the respective asset:
+
+    For all assets labeled as “Aave v2” and deployed on the Ethereum network, only Critical and High impacts are in-scope.
+    For all assets labeled as “Aave v2” and deployed on networks other than Ethereum, including L2s on Ethereum, onlyCritical impacts are in-scope.
+    Critical
+
+
+    Major manipulation of governance voting results deviating from voted outcome, whenever protection mechanisms (e.g. cancellation of proposal) can’t mitigate the damage.
+
+
+
+    Critical
+
+
+    Direct theft of any user funds classified as the principal, whether at-rest or in-motion
+
+
+
+    Critical
+
+
+    Permanent locking of user funds classified as the principal or funds of the Aave treasury
+
+
+
+    Critical
+
+
+    Protocol insolvency
+
+
+
+    High
+
+
+    Direct theft of any funds in the Aave Treasury
+
+
+
+    High
+
+
+    Theft of yield, defined as funds not classified as the principal (not including yield yet to be earned)
+
+
+
+    High
+
+
+    Permanent locking of unclaimed yield of users, defined as funds not classified as the principal (not including yield yet to be earned)
+
+
+
+    High
+
+
+    Temporary locking of funds classified as the principal or funds of the Aave treasury
+
+
+
+    Medium
+
+
+    Smart contract unable to operate due to lack of token funds
+
+
+
+    Medium
+
+
+    Loss of rewards-to-be-accrued
+
+
+
+    Medium
+
+
+    Manipulation of interest rates (supply or borrow) with mechanisms not intended or limited by design
+
+
+
+    Medium
+
+
+    Unexpected infrastructural behavior
+
+
+
+    Low
+
+
+    Contract fails to deliver promised returns, but doesn't lose value
+
+
+
+    Low
+
+
+    Griefing
+
+
+
+    Low
+
+
+    Imprecision on accounting (balances, rates)
+
+
+
+    Low
+
+
+    Theft of gas Low
+
+
+
+    Low
+
+
+    Griefing
+
+    Collapse
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+
+    These impacts are out of scope for this bug bounty program.
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials or the compromise of access-controlled functions
+    Impacts caused by attacks requiring access to privileged addresses (governance, strategist) except in such cases where the contracts are intended to have no privileged access to functions that make the attack possible
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts, including those based on an asset with low trading volume. That will be considered as belonging to risk control of the protocol, and not eligible in this bug bounty program.
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+    Impacts requiring the use of non-active features including those not available due to configurations (e.g. risk parameters, flags).
+
+    The following activities are prohibited by this bug bounty program:
+
+    Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet
+    Any testing with pricing oracles or third-party smart contracts
+    Attempting phishing or other social engineering attacks against our employees and/or customers
+    Any testing with third-party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)
+    Any denial of service attacks that are executed against project assets
+    Automated testing of services that generates significant amounts of traffic
+    Public disclosure of an unpatched vulnerability in an embargoed bounty

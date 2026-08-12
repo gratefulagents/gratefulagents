@@ -104,6 +104,21 @@ func TestSecurityScanReconcileManualOnlyProcessesRunNow(t *testing.T) {
 	if updated.Status.LastManualRunToken != "tok-1" || updated.Status.ManualRunsCreated != 1 {
 		t.Fatalf("manual status = %+v", updated.Status)
 	}
+
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	run := &runs[0]
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
+	if err := k8sClient.Status().Update(context.Background(), run); err != nil {
+		t.Fatalf("complete AgentRun: %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("terminal Reconcile() error = %v", err)
+	}
+	updated = getSecurityScan(t, k8sClient, scan)
+	if updated.Status.Phase != "Completed" {
+		t.Fatalf("Phase = %q, want Completed", updated.Status.Phase)
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionTrue, "ManualRunCompleted")
 }
 
 func TestSecurityScanReconcileOneShotCreatesExactlyOneRun(t *testing.T) {

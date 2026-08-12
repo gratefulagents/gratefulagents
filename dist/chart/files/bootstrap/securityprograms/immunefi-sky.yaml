@@ -14,23 +14,558 @@ spec:
   provider: Immunefi
   displayName: Sky
   programURL: https://immunefi.com/bug-bounty/sky/scope/
-  verifiedAt: 2026-08-11T00:00:00Z
+  verifiedAt: 2026-08-12T00:00:00Z
   scopePolicy: |
-    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-07-21).
+    Verbatim Immunefi scope (retrieved 2026-08-12T15:44:38.254Z; page last updated 21 July 2026).
 
-    Repository targets:
-    - https://github.com/sky-ecosystem/dss on branch master, limited to the individually listed production assets. Verified listed files include src/dai.sol, src/spot.sol, src/pot.sol, src/flap.sol, src/flop.sol, src/vow.sol, src/vat.sol, and src/jug.sol. Do not treat the repository as blanket scope.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Smart-contract Critical: USD 150,000 minimum to USD 10,000,000 maximum, calculated as 10% of directly affected funds.
-    - Smart-contract High: USD 5,000 minimum to USD 100,000 maximum.
+    Smart Contract
 
-    Eligible impacts:
-    - Direct theft of user funds, protocol insolvency, permanent freezing of funds, governance-result manipulation that changes the intended outcome, and prevention of governance participation despite participation rights.
+    Assets in Scope
+    Target    Name    Added on
 
-    Out of scope:
-    - A vulnerability must exist in the currently deployed contract; old or GitHub-only vulnerable versions are ineligible.
-    - Malicious governance spells, external-stablecoin depegs not directly caused by a code bug, the deprecated Emergency Shutdown Module, privileged-key assumptions, test/configuration files, known issues, and best-practice-only reports are excluded.
+    https://github.com/sky-ecosystem/dss-emergency-spells/blob/master/src/stusds/StUsdsRateSetterDissBudSpell.sol    EMSP_STUSDS_RATE_S_DISS_BUD_FAB    21 July 2026
+    https://github.com/sky-ecosystem/dss-emergency-spells/blob/master/src/stusds/StUsdsWipeParamSpell.sol    EMSP_STUSDS_WIPE_PARAM_FAB    21 July 2026
+    https://github.com/sky-ecosystem/dss-emergency-spells/blob/master/src/stusds/StUsdsRateSetterHaltSpell.sol    EMSP_STUSDS_RATE_SETTER_HALT    21 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/Beacon.sol    PAU_BEACON    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/aave/AaveFacet.sol    AAVE_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/basin/BasinFacet.sol    BASIN_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/cctp/CCTPFacet.sol    CCTP_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/centrifuge/CentrifugeFacet.sol    CENTRIFUGE_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/curve/CurveFacet.sol    CURVE_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/dai-usds/DAIUSDSFacet.sol    DAIUSDS_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/erc4626/ERC4626Facet.sol    ERC4626_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/erc7540/ERC7540Facet.sol    ERC7540_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/ethena/EthenaFacet.sol    ETHENA_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/farm/FarmFacet.sol    FARM_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/layer-zero/LayerZeroFacet.sol    LAYER_ZERO_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/maple/MapleFacet.sol    MAPLE_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/merkl/MerklFacet.sol    MERKL_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/otc/OTCFacet.sol    OTC_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/pendle/PendleFacet.sol    PENDLE_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/psm/PSMFacet.sol    PSM_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/spark-vault/SparkVaultFacet.sol    SPARK_VAULT_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/superstate/SuperstateFacet.sol    SUPERSTATE_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/transfer-asset/TransferAssetFacet.sol    TRANSFER_ASSET_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/uniswap-v3/UniswapV3Facet.sol    UNISWAP_V3_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/uniswap-v4/UniswapV4Facet.sol    UNISWAP_V4_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/usds/USDSFacet.sol    USDS_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/weeth/WEETHFacet.sol    WEETH_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/wrap-proxy-eth/WrapProxyETHFacet.sol    WRAP_PROXY_ETH_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/facets/wsteth/WSTETHFacet.sol    WSTETH_FACET    6 July 2026
+    https://github.com/sky-ecosystem/diamond-pau/blob/dev/src/PAUFactory.sol    PAU Factory    6 July 2026
+    https://github.com/sky-ecosystem/pau-administered-agent/blob/master/src/AdministeredAgentFactory.sol    Administered Agent Factory    6 July 2026
+    https://github.com/sky-ecosystem/pau-assemblers/blob/dev/src/DefaultPAUAssembler.sol    Default PAU Assembler    6 July 2026
+    https://github.com/sky-ecosystem/subproxy-methods/blob/main/src/SubProxyMethods.sol    SUBPROXY_METHODS    6 July 2026
+    https://github.com/sky-ecosystem/star-guard/blob/main/src/StarGuard.sol    StarGuard    26 February 2026
+    https://github.com/sky-ecosystem/dss-flappers/blob/master/src/Kicker.sol    Kicker    19 November 2025
+    https://github.com/sky-ecosystem/sky-oapp-oft/blob/main/programs/oft/src/state/oft.rs    OFT Program    19 November 2025
+    https://github.com/sky-ecosystem/sky-oapp-oft/blob/main/contracts/SkyOFTAdapter.sol    OFT Adapter    19 November 2025
+    https://github.com/sky-ecosystem/sky-oapp-oft/blob/main/programs/governance/src/state/governance.rs    Governance OApp Receiver    19 November 2025
+    https://github.com/sky-ecosystem/lz-governance-relay/blob/master/src/L1GovernanceRelay.sol    L1 Governance Relay    19 November 2025
+    https://github.com/sky-ecosystem/sky-oapp-oft/blob/main/contracts/GovernanceOAppSender.sol    Governance OApp Sender    19 November 2025
+    https://github.com/sky-ecosystem/lockstake/blob/master/src/LockstakeCappedOsmWrapper.sol    LockStake Capped OSM Wrapper    3 October 2025
+    https://github.com/sky-ecosystem/stusds/    Staked USDS    22 September 2025
+    https://github.com/sky-ecosystem/chief/blob/master/src/Chief.sol    Chief    15 September 2025
+    https://github.com/sky-ecosystem/protego/blob/master/src/EmergencyDropSpell.sol    Emergency Drop Spell    3 June 2025
+    https://github.com/sky-ecosystem/protego/blob/master/src/Protego.sol    Protego    3 June 2025
+    https://github.com/sky-ecosystem/dss-emergency-spells/tree/master/src/spbeam-halt    EMSP_SPBEAM_HALT    3 June 2025
+    https://github.com/sky-ecosystem/sp-beam/blob/master/src/SPBEAMMom.sol    SPBeam Mom    3 June 2025
+    https://github.com/sky-ecosystem/sp-beam/blob/master/src/SPBEAM.sol    SPBeam    3 June 2025
+    https://github.com/sky-ecosystem/dss-blow2/blob/master/src/DssBlow2.sol    Blow 2    3 June 2025
+    https://github.com/sky-ecosystem/arbitrum-token-bridge/blob/master/src/L2TokenGateway.sol    Arbitrum L2 Token Gateway    3 June 2025
+    https://github.com/sky-ecosystem/arbitrum-token-bridge/blob/master/src/L1TokenGateway.sol    Arbitrum L1 Token Gateway    3 June 2025
+    https://github.com/sky-ecosystem/dss-emergency-spells/tree/master/src/splitter-stop    EMSP_SPLITTER_STOP    3 June 2025
+    https://github.com/sky-ecosystem/dss-emergency-spells/tree/master/src/lite-psm-halt    EMSP_LITE_PSM_HALT_FAB    3 June 2025
+    https://github.com/sky-ecosystem/dss-emergency-spells/tree/master/src/ddm-disable    EMSP_DDM_DISABLE_FAB    3 June 2025
+    https://github.com/sky-ecosystem/dss-emergency-spells/tree/master/src/osm-stop    EMSP_GLOBAL_OSM_STOP    3 June 2025
+    https://github.com/sky-ecosystem/dss-emergency-spells/tree/master/src/line-wipe    EMSP_GLOBAL_LINE_WIPE    3 June 2025
+    https://github.com/sky-ecosystem/dss-emergency-spells/tree/master/src/clip-breaker    EMSP_GLOBAL_CLIP_BREAKER    3 June 2025
+    https://github.com/sky-ecosystem/dss-emergency-spells/blob/master/src/DssGroupedEmergencySpell.sol    DssGroupedEmergencySpell    3 June 2025
+    https://github.com/sky-ecosystem/dss-emergency-spells/blob/master/src/DssEmergencySpell.sol    DssEmergencySpell    3 June 2025
+    https://github.com/sky-ecosystem/op-token-bridge/blob/master/src/L2TokenBridge.sol    Optimism L2 Token Bridge    3 June 2025
+    https://github.com/sky-ecosystem/op-token-bridge/blob/master/src/L2GovernanceRelay.sol    Optimism L2 Governance Relay    3 June 2025
+    https://github.com/sky-ecosystem/op-token-bridge/blob/master/src/L1TokenBridge.sol    Optimism L1 Token Bridge    3 June 2025
+    https://github.com/sky-ecosystem/op-token-bridge/blob/master/src/L1GovernanceRelay.sol    Optimism L1 Governance Relay    3 June 2025
+    https://github.com/sky-ecosystem/op-token-bridge/blob/master/src/Escrow.sol    Optimism Escrow    3 June 2025
+    https://github.com/sky-ecosystem/dss-allocator/blob/dev/src/AllocatorBuffer.sol    Allocator Buffer    3 June 2025
+    https://github.com/sky-ecosystem/dss-allocator/blob/dev/src/AllocatorRegistry.sol    Allocator Registry    3 June 2025
+    https://github.com/sky-ecosystem/dss-allocator/blob/dev/src/AllocatorRoles.sol    Allocator Roles    3 June 2025
+    https://github.com/sky-ecosystem/dss-allocator/blob/dev/src/AllocatorVault.sol    Allocator Vault    3 June 2025
+    https://github.com/sky-ecosystem/dss-allocator/blob/dev/src/AllocatorOracle.sol    Allocator Oracle    3 June 2025
+    https://github.com/sky-ecosystem/lockstake/blob/v2/src/LockstakeUrn.sol    Lockstake Urn    3 June 2025
+    https://github.com/sky-ecosystem/univ2-pool-migrator/blob/dev/deploy/UniV2PoolMigratorInit.sol    UniV2PoolMigratorInit    24 September 2024
+    https://github.com/sky-ecosystem/dss-flappers/blob/dev/src/SplitterMom.sol    SplitterMom    24 September 2024
+    https://github.com/sky-ecosystem/dss-flappers/blob/dev/src/Splitter.sol    Splitter    24 September 2024
+    https://github.com/sky-ecosystem/dss-flappers/blob/dev/src/OracleWrapper.sol    Oracle Wrapper    24 September 2024
+    https://github.com/sky-ecosystem/dss-flappers/blob/dev/src/FlapperUniV2SwapOnly.sol    FlapperUniV2SwapOnly    24 September 2024
+    https://github.com/sky-ecosystem/dss-flappers/blob/dev/src/FlapperUniV2.sol    FlapperUniV2    24 September 2024
+    https://github.com/sky-ecosystem/vote-delegate/blob/v3/src/VoteDelegateFactory.sol    Vote Delegate Factory    24 September 2024
+    https://github.com/sky-ecosystem/vote-delegate/blob/v3/src/VoteDelegate.sol    Vote Delegate    24 September 2024
+    https://github.com/sky-ecosystem/lockstake/blob/v2/src/LockstakeClipper.sol    Lockstake Clipper    24 September 2024
+    https://github.com/sky-ecosystem/lockstake/blob/v2/src/LockstakeEngine.sol    Lockstake Engine    24 September 2024
+    https://github.com/sky-ecosystem/lockstake/blob/v2/src/LockstakeSky.sol    LSSKY ERC20    24 September 2024
+    https://github.com/sky-ecosystem/sdai/blob/susds/src/SUsds.sol    sUSDS    24 September 2024
+    https://github.com/sky-ecosystem/sky/blob/one-direction/src/MkrSky.sol    MKR to SKY Converter    24 September 2024
+    https://github.com/sky-ecosystem/sky/blob/dev/src/Sky.sol    SKY ERC20    24 September 2024
+    https://github.com/sky-ecosystem/usds/blob/dev/src/DaiUsds.sol    DAI to USDS Converter    24 September 2024
+    https://github.com/sky-ecosystem/usds/blob/dev/src/Usds.sol    USDS ERC20    24 September 2024
+    https://github.com/sky-ecosystem/usds/blob/dev/src/UsdsJoin.sol    USDSJoin    24 September 2024
+    https://github.com/sky-ecosystem/endgame-toolkit/blob/master/src/SubProxy.sol    SubDAO Proxy for Ownership    24 September 2024
+    https://github.com/sky-ecosystem/endgame-toolkit/blob/master/src/SDAO.sol    SubDAO ERC20    24 September 2024
+    https://github.com/sky-ecosystem/endgame-toolkit/blob/master/src/synthetix/StakingRewards.sol    SKY Staking Rewards    24 September 2024
+    https://github.com/sky-ecosystem/endgame-toolkit/blob/master/src/VestedRewardsDistribution.sol    Vested Rewards Distribution    24 September 2024
+    https://github.com/sky-ecosystem/dss-direct-deposit/blob/master/src/pools/D3M4626TypePool.sol    D3M4626TypePool    19 August 2024
+    https://github.com/sky-ecosystem/dss-direct-deposit/blob/master/src/plans/D3MOperatorPlan.sol    D3MOperatorPlan    19 August 2024
+    https://github.com/sky-ecosystem/dss-lite-psm/blob/main/src/DssLitePsm.sol    DssLitePsm    1 August 2024
+    https://github.com/sky-ecosystem/dss-lite-psm/blob/main/src/DssLitePsmMom.sol    DssLitePsmMom    1 August 2024
+    https://github.com/sky-ecosystem/mkr-authority/blob/master/src/MkrAuthority.sol    MkrAuthority    7 November 2023
+    https://github.com/sky-ecosystem/line-mom/blob/master/src/LineMom.sol    LineMom    7 November 2023
+    https://github.com/sky-ecosystem/dss-flash/blob/master/src/flash.sol    flash    7 November 2023
+    https://github.com/sky-ecosystem/dss-flappers/blob/master/src/FlapperUniV2.sol    FlapperUniV2    7 November 2023
+    https://github.com/sky-ecosystem/dss-flappers/blob/master/src/FlapperMom.sol    FlapperMom    7 November 2023
+    https://github.com/sky-ecosystem/dsr-manager/blob/master/src/DsrManager.sol    DsrManager    7 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/urns/RwaUrn.sol    RwaUrn    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/urns/RwaUrn2.sol    RwaUrn2    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/tokens/RwaToken.sol    RwaToken    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/tokens/RwaTokenFactory.sol    RwaTokenFactory    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/jars/RwaJar.sol    RwaJar    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/conduits/RwaSwapOutputConduit.sol    RwaSwapOutputConduit    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/conduits/RwaSwapInputConduit.sol    RwaSwapInputConduit    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/conduits/RwaSwapInputConduit2.sol    RwaSwapInputConduit2    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/conduits/RwaOutputConduit.sol    RwaOutputConduit    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/conduits/RwaOutputConduit2.sol    RwaOutputConduit2    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/conduits/RwaMultiSwapOutputConduit.sol    RwaMultiSwapOutputConduit    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/conduits/RwaInputConduit.sol    RwaInputConduit    6 November 2023
+    https://github.com/sky-ecosystem/rwa-toolkit/blob/master/src/conduits/RwaInputConduit2.sol    RwaInputConduit2    6 November 2023
+    https://github.com/sky-ecosystem/univ3-lp-oracle/blob/master/src/GUniLPOracle.sol    GUniLPOracle    28 April 2023
+    https://github.com/sky-ecosystem/univ2-lp-oracle/blob/master/src/UNIV2LPOracle.sol    UNIV2LPOracle    28 April 2023
+    https://github.com/sky-ecosystem/mip21-toolkit/blob/master/src/oracles/RwaLiquidationOracle.sol    MIP21_Liquidation_Oracle    22 April 2023
+    https://github.com/sky-ecosystem/dss-direct-deposit/blob/master/src/D3MOracle.sol    D3MOracle    6 December 2022
+    https://github.com/sky-ecosystem/dss-direct-deposit/blob/master/src/D3MMom.sol    D3MMom    6 December 2022
+    https://github.com/sky-ecosystem/dss-direct-deposit/blob/master/src/D3MHub.sol    D3MHub    6 December 2022
+    https://github.com/sky-ecosystem/starknet-dai-bridge/blob/main/contracts/l2/registry.cairo    registry (StarkNet)    2 November 2022
+    https://github.com/sky-ecosystem/starknet-dai-bridge/blob/main/contracts/l2/l2_governance_relay.cairo    l2_governance_relay (StarkNet)    2 November 2022
+    https://github.com/sky-ecosystem/starknet-dai-bridge/blob/main/contracts/l2/l2_dai_bridge.cairo    l2_dai_bridge (StarkNet)    2 November 2022
+    https://github.com/sky-ecosystem/starknet-dai-bridge/blob/main/contracts/l2/dai.cairo    dai (StarkNet)    2 November 2022
+    https://github.com/sky-ecosystem/starknet-dai-bridge/blob/main/contracts/l1/L1GovernanceRelay.sol    L1GovernanceRelay (StarkNet)    2 November 2022
+    https://github.com/sky-ecosystem/starknet-dai-bridge/blob/main/contracts/l1/L1EscrowMom.sol    L1EscrowMom (StarkNet)    2 November 2022
+    https://github.com/sky-ecosystem/starknet-dai-bridge/blob/main/contracts/l1/L1Escrow.sol    L1Escrow (StarkNet)    2 November 2022
+    https://github.com/sky-ecosystem/starknet-dai-bridge/blob/main/contracts/l1/L1DAIBridge.sol    L1DAIBridge (StarkNet)    2 November 2022
+    https://github.com/sky-ecosystem/dss-chain-log/blob/master/src/ChainLog.sol    ChainLog    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l2/dai.sol    DAI (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l2/L2ITokenGateway.sol    L2 Token Gateway (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l2/L2GovernanceRelay.sol    L2 Governance Relay (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l2/L2DaiGateway.sol    L2 DAI Gateway (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l2/L2CrossDomainEnabled.sol    L2 Cross Domain Enabled (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l1/L1ITokenGateway.sol    L1 Token Gateway (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l1/L1GovernanceRelay.sol    L1 Governance Relay (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l1/L1Escrow.sol    L1 Escrow (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l1/L1DaiGateway.sol    L1 DAI Gateway (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/arbitrum-dai-bridge/blob/master/contracts/l1/L1CrossDomainEnabled.sol    L1 Cross Domain Enabled (Arbitrum DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/optimism-dai-bridge/blob/master/contracts/l2/dai.sol    DAI (Optimism DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/optimism-dai-bridge/blob/master/contracts/l2/L2GovernanceRelay.sol    L2 Governance Relay (Optimism DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/optimism-dai-bridge/blob/master/contracts/l2/L2DAITokenBridge.sol    L2 DAI Token Bridge (Optimism DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/optimism-dai-bridge/blob/master/contracts/l1/L1GovernanceRelay.sol    L1 Governance Relay (Optimism DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/optimism-dai-bridge/blob/master/contracts/l1/L1Escrow.sol    L1 Escrow (Optimism DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/optimism-dai-bridge/blob/master/contracts/l1/L1DAITokenBridge.sol    L1 DAI Token Bridge (Optimism DAI Bridge)    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/clip.sol    Dss Clip    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/dog.sol    Dss Dog    10 May 2022
+    https://github.com/sky-ecosystem/dss-psm/blob/master/src/psm.sol    PSM    10 May 2022
+    https://github.com/sky-ecosystem/dss-psm/blob/master/src/join-auth.sol    Join Auth (Dss PSM)    10 May 2022
+    https://github.com/sky-ecosystem/dss-psm/blob/master/src/join-8-auth.sol    Join 8 Auth    10 May 2022
+    https://github.com/sky-ecosystem/dss-psm/blob/master/src/join-5-auth.sol    Join 5 Auth    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/c8d4c806691dacb903ff281b81f316bea974e4c7/src/abaci.sol    Abaci    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/v1.2/src/join.sol    Join    10 May 2022
+    https://github.com/sky-ecosystem/dss-gem-joins/blob/v1.2/src/join-8.sol    Join 8    10 May 2022
+    https://github.com/sky-ecosystem/dss-gem-joins/blob/v1.2/src/join-7.sol    Join 7    10 May 2022
+    https://github.com/sky-ecosystem/dss-gem-joins/blob/v1.2/src/join-6.sol    Join 6    10 May 2022
+    https://github.com/sky-ecosystem/dss-gem-joins/blob/v1.2/src/join-5.sol    Join 5    10 May 2022
+    https://github.com/sky-ecosystem/dss-gem-joins/blob/v1.2/src/join-4.sol    Join 4    10 May 2022
+    https://github.com/sky-ecosystem/dss-gem-joins/blob/v1.2/src/join-3.sol    Join 3    10 May 2022
+    https://github.com/sky-ecosystem/dss-gem-joins/blob/v1.2/src/join-2.sol    Join 2    10 May 2022
+    https://github.com/sky-ecosystem/dss-gem-joins/blob/v1.2/src/join-auth.sol    Join Auth    10 May 2022
+    https://github.com/sky-ecosystem/dss-vest/blob/master/src/DssVest.sol    Dss Vest    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/Interfaces.sol    Interfaces (Abstracts)    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/utils/WardsAbstract.sol    Wards Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/sai/SaiVoxAbstract.sol    Sai Vox Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/sai/SaiTubAbstract.sol    Sai Tub Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/sai/SaiTopAbstract.sol    Sai Top Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/sai/SaiTokenAbstract.sol    Sai Token Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/sai/SaiTapAbstract.sol    Sai Tap Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/sai/SaiMomAbstract.sol    Sai Mom Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/sai/GemPitAbstract.sol    Gem Pit Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/VowAbstract.sol    Vow Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/VestAbstract.sol    Vest Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/VatAbstract.sol    Vat Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/StairstepExponentialDecreaseAbstract.sol    Stairstep Exponential Decrease Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/SpotAbstract.sol    Spot Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/PsmAbstract.sol    Psm Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/PotHelper.sol    Pot Helper    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/PotAbstract.sol    Pot Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/PipAbstract.sol    Pip Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/OsmMomAbstract.sol    Osm Mom Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/OsmAbstract.sol    Osm Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/MkrAuthorityAbstract.sol    MKR Authority Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/MedianAbstract.sol    Median Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/MKRAbstract.sol    MKR Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/LinearDecreaseAbstract.sol    Linear Decrease Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/LerpFactoryAbstract.sol    Lerp Factory Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/LerpAbstract.sol    Lerp Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/LPOsmAbstract.sol    LPOsm Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/JugAbstract.sol    Jug Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/IlkRegistryAbstract.sol    Ilk Registry Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/GetCdpsAbstract.sol    Get Cdps Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/GemJoinManagedAbstract.sol    Gem Join Managed Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/GemJoinImplementationAbstract.sol    Gem Join Implementation Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/GemJoinAbstract.sol    Gem Join Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/FlopAbstract.sol    Flop Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/FlipperMomAbstract.sol    Flipper Mom Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/FlipAbstract.sol    Flip Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/FlashAbstract.sol    Flash Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/FlapAbstract.sol    Flap Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/FaucetAbstract.sol    Faucet Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/ExponentialDecreaseAbstract.sol    Exponential Decrease Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/ETHJoinAbstract.sol    ETH Join Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/DssCdpManager.sol    Dss Cdp Manager    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/DssAutoLineAbstract.sol    Dss Auto Line Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/DogAbstract.sol    Dog Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/DaiJoinAbstract.sol    DaiJoinAbstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/DaiAbstract.sol    Dai Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/ClipperMomAbstract.sol    Clipper Mom Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/ClipAbstract.sol    Clip Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/ChainlogAbstract.sol    Chainlog Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/CatAbstract.sol    Cat Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dss/AuthGemJoinAbstract.sol    Auth Gem Join Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSValueAbstract.sol    DS Value Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSTokenAbstract.sol    DS Token Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSThingAbstract.sol    DS Thing Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSSpellAbstract.sol    DS Spell Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSRuneAbstract.sol    DS Rune Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSRolesAbstract.sol    DS Roles Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSPauseProxyAbstract.sol    DS Pause Proxy Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSPauseAbstract.sol    DS Pause Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSChiefAbstract.sol    DS Chief Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/dapp/DSAuthorityAbstract.sol    DS Authority Abstract    10 May 2022
+    https://github.com/sky-ecosystem/dss-interfaces/blob/master/src/ERC/GemAbstract.sol    Gem Abstract    10 May 2022
+    https://github.com/sky-ecosystem/ilk-registry/blob/master/src/IlkRegistry.sol    Ilk Registry    10 May 2022
+    https://github.com/sky-ecosystem/dss-exec-lib/blob/master/src/DssExecLib.sol    DssExecLib    10 May 2022
+    https://github.com/sky-ecosystem/dss-exec-lib/blob/master/src/DssExec.sol    DssExec    10 May 2022
+    https://github.com/sky-ecosystem/dss-exec-lib/blob/master/src/DssAction.sol    DssAction    10 May 2022
+    https://github.com/sky-ecosystem/dss-exec-lib/blob/master/src/CollateralOpts.sol    CollateralOpts    10 May 2022
+    https://github.com/sky-ecosystem/clipper-mom/blob/master/src/ClipperMom.sol    Clipper Mom    10 May 2022
+    https://github.com/sky-ecosystem/dss-auto-line/blob/master/src/DssAutoLine.sol    DssAutoLine    10 May 2022
+    https://github.com/sky-ecosystem/dss-proxy-actions/blob/master/src/DssProxyActions.sol    DssProxyActions    10 May 2022
+    https://github.com/sky-ecosystem/dss-cdp-manager/blob/master/src/GetCdps.sol    GetCdps    10 May 2022
+    https://github.com/sky-ecosystem/dss-cdp-manager/blob/master/src/DssCdpManager.sol    DssCdpManager    10 May 2022
+    https://github.com/sky-ecosystem/osm/blob/master/src/osm.sol    OSM    10 May 2022
+    https://github.com/sky-ecosystem/median/blob/master/src/median.sol    Medians    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/jug.sol    MCD_JUG    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/vat.sol    MCD_VAT    10 May 2022
+    https://github.com/dapphub/ds-weth/blob/master/src/weth9.sol    MCD_ETH    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/vow.sol    MCD_VOW    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/flop.sol    MCD_FLOP    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/flap.sol    MCD_FLAP    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/pot.sol    MCD_POT    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/spot.sol    MCD_SPOT    10 May 2022
+    https://github.com/sky-ecosystem/dss/blob/master/src/dai.sol    MCD_DAI    10 May 2022
+    Collapse
 
-    Testing and submission:
-    - PoC required. KYC is not required. Never test mainnet or public testnets; use a local fork. No destructive DoS, phishing, high-traffic automation, or unapproved disclosure.
+    Impacts in Scope
+    Impacts Body
+
+    Only the following impacts are accepted within this bug bounty program. All other impacts are not considered as in-scope, even if they affect something in the assets in scope table.
+
+    Critical
+
+
+    Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+
+
+
+    Critical
+
+
+    Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results
+
+
+
+    Critical
+
+
+    Protocol insolvency
+
+
+
+    Critical
+
+
+    Permanent freezing of funds
+
+
+
+    Critical
+
+
+    Prevention of governance participation despite design parameters providing participation rights
+
+
+
+    High
+
+
+    Theft of unclaimed yield
+
+
+
+    High
+
+
+    Permanent freezing of unclaimed yield
+
+
+
+    High
+
+
+    Temporary freezing of funds for at least five blocks
+
+
+
+    Medium
+
+
+    Smart contract unable to operate due to lack of token funds
+
+
+
+    Medium
+
+
+    Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+
+
+
+    Medium
+
+
+    Theft of gas
+
+
+
+    Low
+
+
+    Smart contract fails to work correctly, but doesn’t lose value
+
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+
+    The following vulnerabilities are excluded from the rewards for this bug bounty program:
+
+    All impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+
+    Impacts that rely on the governance approval of a malicious spell or governance crafting malicious code
+
+    Impacts involving the deprecated Emergency Shutdown Module
+
+    Default Out of Scope and rules
+
+    Smart Contract specific
+
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Web & App
+
+    Assets in Scope
+    Target    Name    Added on
+
+
+    https://app.sky.money
+        Sky DeFi Web App    24 September 2024
+
+    https://sky.money
+        Sky Marketing Website    24 September 2024
+
+    https://chainlog.sky.money
+        Contract addresses    10 May 2022
+
+    https://vote.sky.money
+        Governance Voting    10 May 2022
+    Collapse
+
+    Impacts in Scope
+    Impacts Body
+
+    Only the following impacts are accepted within this bug bounty program. All other impacts are not considered as in-scope, even if they affect something in the assets in scope table.
+
+    Critical
+
+
+    Direct theft of user funds
+
+
+
+    Critical
+
+
+    Retrieve sensitive data/files from a running server such as /etc/shadow, database passwords, and blockchain keys(this does not include non-sensitive environment variables, open source code, or usernames)
+
+
+
+    Critical
+
+
+    Taking state-modifying authenticated actions (with or without blockchain state interaction) on behalf of other users without any interaction by that user, such as, changing registration information, commenting, voting, making trades, withdrawals, etc.
+
+
+
+    Critical
+
+
+    Malicious interactions with an already-connected wallet such as modifying transaction arguments or parameters, substituting contract addresses, submitting malicious transactions
+
+
+
+    Critical
+
+
+    Execute arbitrary system commands, only when allowing access to sensitive data or causing financial losses
+
+
+
+    Critical
+
+
+    Subdomain takeover with already-connected wallet interaction, only for subdomains that are not used for testing
+
+
+
+    High
+
+
+    Subdomain takeover without already-connected wallet interaction
+
+
+
+    High
+
+
+    Injecting/modifying the static content on the target application without Javascript (Persistent) such as HTML injection without Javascript, replacing existing text with arbitrary text, arbitrary file uploads, etc.
+
+
+
+    High
+
+
+    Changing sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as email or password of the victim, etc.
+
+
+
+    High
+
+
+    Improperly disclosing confidential user information such as email address, phone number, physical address, etc.
+
+
+
+    Medium
+
+
+    Redirecting users to malicious websites (open redirect)
+
+
+
+    Medium
+
+
+    Changing non-sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as changing the first/last name of user, or en/disabling notification
+
+
+
+    Medium
+
+
+    Injecting/modifying the static content on the target application without Javascript (Reflected) such as reflected HTML injection or loading external site data
+
+
+
+    Medium
+
+
+    Taking down the application/website, in a way that doesn’t allow remediation in less than half an hour
+
+    Collapse
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+
+    The following vulnerabilities are excluded from the rewards for this bug bounty program:
+
+    All impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+
+    Impacts that rely on the governance approval of a malicious spell or governance crafting malicious code
+
+    Impacts involving the deprecated Emergency Shutdown Module
+
+    Default Out of Scope and rules
+
+    Web & App specific
+
+    Theoretical impacts without any proof or demonstration
+    Impacts involving attacks requiring physical access to the victim device
+    Impacts involving attacks requiring access to the local network of the victim
+    Reflected plain text injection (e.g. url parameters, path, etc.)
+    This does not exclude reflected HTML injection with or without JavaScript
+    This does not exclude persistent plain text injection
+    Any impacts involving self-XSS
+    Captcha bypass using OCR without impact demonstration
+    CSRF with no state modifying security impact (e.g. logout CSRF)
+    Impacts related to missing HTTP Security Headers (such as X-FRAME-OPTIONS) or cookie security flags (such as “httponly”) without demonstration of impact
+    Server-side non-confidential information disclosure, such as IPs, server names, and most stack traces
+    Impacts causing only the enumeration or confirmation of the existence of users or tenants
+    Impacts caused by vulnerabilities requiring un-prompted, in-app user actions that are not part of the normal app workflows
+    Lack of SSL/TLS best practices
+    Impacts that only require DDoS
+    UX and UI impacts that do not materially disrupt use of the platform
+    Impacts primarily caused by browser/plugin defects
+    Leakage of non sensitive API keys (e.g. Etherscan, Infura, Alchemy, etc.)
+    Any vulnerability exploit requiring browser bugs for exploitation (e.g. CSP bypass)
+    SPF/DMARC misconfigured records)
+    Missing HTTP Headers without demonstrated impact
+    Automated scanner reports without demonstrated impact
+    UI/UX best practice recommendations
+    Non-future-proof NFT rendering
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers

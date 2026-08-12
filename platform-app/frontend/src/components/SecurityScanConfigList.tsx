@@ -126,6 +126,7 @@ function FilterSelect({
 export function SecurityScanConfigList() {
   const [configs, setConfigs] = useState<SecurityScanConfig[]>([]);
   const [programs, setPrograms] = useState<SecurityProgramResource[]>([]);
+  const [personalNamespace, setPersonalNamespace] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -143,8 +144,12 @@ export function SecurityScanConfigList() {
     setLoading(true);
     setError("");
     try {
-      const resp = await client.listSecurityScanConfigs({ namespace: "" });
+      const [resp, credentials] = await Promise.all([
+        client.listSecurityScanConfigs({ namespace: "" }),
+        client.listMyCredentials({}),
+      ]);
       setConfigs(resp.configs);
+      setPersonalNamespace(credentials.namespace);
       try {
         const programList = await client.listSecurityPrograms({ namespace: "" });
         setPrograms(programList.programs);
@@ -268,7 +273,11 @@ export function SecurityScanConfigList() {
         <div className="flex items-center gap-2">
           <ImmunefiTargetImportDialog
             programs={programs}
-            existingNames={new Set(configs.map((config) => config.name))}
+            existingNames={new Set(
+              configs
+                .filter((config) => config.namespace === personalNamespace)
+                .map((config) => config.name),
+            )}
             trigger={<Button variant="outline" size="sm">Import Immunefi targets</Button>}
             onImported={() => void fetchConfigs()}
           />

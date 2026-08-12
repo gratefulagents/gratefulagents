@@ -14,28 +14,380 @@ spec:
   provider: Immunefi
   displayName: Chainlink
   programURL: https://immunefi.com/bug-bounty/chainlink/scope/
-  verifiedAt: 2026-08-11T00:00:00Z
+  verifiedAt: 2026-08-12T00:00:00Z
   scopePolicy: |
-    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-07-24).
+    Verbatim Immunefi scope (retrieved 2026-08-12T15:44:22.895Z; page last updated 24 July 2026).
 
-    Repository targets:
-    - https://github.com/smartcontractkit/chainlink-ccip/tree/main/execute
-    - https://github.com/smartcontractkit/chainlink-ccip/tree/main/commit
-    - https://github.com/smartcontractkit/chainlink-ccip/tree/main/chains/evm/contracts
-    - https://github.com/smartcontractkit/chainlink-ccip/tree/main/chains/solana/contracts
-    - https://github.com/smartcontractkit/chainlink-evm/tree/develop/contracts
-    - https://github.com/smartcontractkit/chainlink-solana/tree/develop/contracts
-    Only these listed branches/subtrees are verified from the supplied repositories; do not infer blanket organization or Aptos scope.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Smart-contract Critical: USD 100,000 minimum to USD 3,000,000 maximum, at Chainlink Labs' discretion.
-    - Smart-contract High: up to USD 75,000.
+    Smart Contract
 
-    Eligible impacts:
-    - RMN on-chain curse bypass, price/data misreporting, governance manipulation, direct theft, permanent freezing, insolvency, protocol-revenue theft, and rate-limit violations.
+    Assets in Scope
+    Target    Name    Added on
 
-    Out of scope:
-    - Tests/configuration, known or dependency issues, documentation-only mitigation, privileged-key assumptions, theoretical impact, and best-practice-only reports are excluded.
+    https://github.com/smartcontractkit/chainlink-sui/tree/develop/contracts/mcms/mcms    Sui MCMS    6 March 2026
+    https://github.com/smartcontractkit/chainlink-sui/tree/develop/contracts/link    Sui LINK    6 March 2026
+    https://github.com/smartcontractkit/chainlink-sui/tree/develop/contracts/ccip    Sui CCIP    6 March 2026
+    https://github.com/smartcontractkit/chainlink-aptos/tree/develop/contracts    Aptos    6 March 2026
+    https://github.com/smartcontractkit/chainlink-ccip/tree/main/chains/evm/contracts    CCIP EVM    12 August 2025
+    https://github.com/smartcontractkit/chainlink-ccip/tree/main/chains/solana/contracts    CCIP Solana    12 August 2025
+    https://github.com/smartcontractkit/chainlink-evm/tree/develop/contracts    Chainlink EVM Contracts    2 May 2025
+    Primacy Of Impact        27 March 2024
+    https://github.com/smartcontractkit/ccip-owner-contracts/tree/main    CCIP Owner    27 March 2024
+    https://github.com/smartcontractkit/chainlink-solana/tree/develop/contracts    Solana programs    12 February 2022
 
-    Testing and submission:
-    - A code PoC and suggested fix are required. KYC/KYB and sanctions screening are required. Use local forks only; no live-network testing, destructive DoS, phishing, high-traffic automation, or unapproved disclosure.
+    Impacts in Scope
+    Impacts Body
+
+    Only the following impacts are accepted within this bug bounty program. All other impacts are out of scope, even if they affect an in scope asset.
+
+    Critical
+
+
+    Any governance voting result manipulation
+
+
+
+    Critical
+
+
+    Predictable or manipulable RNG that results in abuse of downstream services
+
+
+
+    Critical
+
+
+    Misreporting of prices and/or data
+
+
+
+    Critical
+
+
+    RMN onchain curse bypass
+
+
+
+    Critical
+
+
+    Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+
+
+
+    Critical
+
+
+    Permanent freezing of funds
+
+
+
+    Critical
+
+
+    Protocol insolvency
+
+
+
+    High
+
+
+    Theft of protocol revenue
+
+
+
+    High
+
+
+    Rate limit violations
+
+
+
+    High
+
+
+    Delaying delivery of oracle price feed updates unrelated to congestion of the underlying blockchain and unrelated to CCIP
+
+
+
+    Medium
+
+
+    Loss of protocol revenue (i.e skipping all or part of protocol fees)
+
+
+
+    Medium
+
+
+    Griefing in the condition where the cost of carrying out attack is less than or equal to the damage
+
+
+
+    Medium
+
+
+    Unbounded gas consumption
+
+
+
+    Low
+
+
+    Smart contract fails to deliver expected return(s) but doesn’t result in loss of value
+
+
+
+    Low
+
+
+    Griefing in the condition where the cost of carrying out attack is more than the damage
+
+    Collapse
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+    Best practice critiques
+    Disclosure of vulnerabilities will require the approval of the Chainlink team
+    Issues resulting in documentation-only mitigation
+    Default Out of Scope and rules
+
+    Smart Contract specific
+
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Web & App
+
+    Assets in Scope
+    Target    Name    Added on
+
+    https://github.com/smartcontractkit/chainlink-sui/tree/main/relayer    Sui Offchain Relayer    6 March 2026
+    https://github.com/smartcontractkit/chainlink-solana/tree/develop/pkg/solana    Solana Offchain    6 March 2026
+    https://github.com/smartcontractkit/chainlink-common/tree/main/keystore    Common Keystore    6 March 2026
+    https://github.com/smartcontractkit/chainlink-aptos/tree/develop/relayer    Aptos Offchain Relayer    6 March 2026
+
+    https://cre.chain.link
+        CRE Web App    6 March 2026
+    Primacy Of Impact        4 March 2026
+    https://github.com/smartcontractkit/chainlink-ccip/tree/main/commit    CCIP OCR Commit Plugin    12 August 2025
+    https://github.com/smartcontractkit/external-adapters-js/    External Adapters    12 August 2025
+    https://github.com/smartcontractkit/chainlink-ccip/tree/main/execute    CCIP OCR Execute Plugin    12 August 2025
+    https://github.com/smartcontractkit/operator-ui    Chainlink Core Node UI    27 March 2024
+
+    https://chain.link/
+        Main Web App    12 October 2022
+
+    https://data.chain.link/
+        Data    12 October 2022
+
+    https://faucets.chain.link/
+        Faucets    12 February 2022
+
+    https://github.com/smartcontractkit/libocr
+        LibOCR    12 February 2022
+    https://github.com/smartcontractkit/chainlink/tree/develop/core    Chainlink Core Node    12 February 2022
+    Collapse
+
+    Impacts in Scope
+    Impacts Body
+
+    Only the following impacts are accepted within this bug bounty program. All other impacts are out of scope, even if they affect an in scope asset.
+
+    Critical
+
+
+    Retrieve sensitive data/files from a running server such as /etc/shadow, database passwords, and blockchain keys
+
+
+
+    Critical
+
+
+    Injecting code that results in malicious interactions with an already-connected wallet such as modifying transaction arguments or parameters, substituting contract addresses, submitting malicious transactions
+
+
+
+    Critical
+
+
+    Execute arbitrary system commands
+
+
+
+    High
+
+
+    Injecting/modifying the static content on the target application without Javascript (Persistent) such as HTML injection without Javascript, replacing existing text with arbitrary text, arbitrary file uploads, etc
+
+
+
+    High
+
+
+    Changing sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as email or password of the victim, etc
+
+
+
+    High
+
+
+    Improperly disclosing confidential user information such as email address, phone number, physical address, etc
+
+
+
+    High
+
+
+    Taking down the application/website with methods other than DDoS
+
+
+
+    High
+
+
+    Rate limit violations
+
+
+
+    High
+
+
+    Theft of protocol revenue
+
+
+
+    High
+
+
+    Delaying delivery of oracle price feed updates unrelated to congestion of the underlying blockchain and unrelated to CCIP
+
+
+
+    Medium
+
+
+    Changing non-sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as changing the first/last name of user, or en/disabling notification
+
+
+
+    Medium
+
+
+    Injecting/modifying the static content on the target application without Javascript (Reflected) such as reflected HTML injection or loading external site data
+
+
+
+    Medium
+
+
+    Subdomain takeover
+
+
+
+    Medium
+
+
+    Griefing in the condition where the cost of carrying out attack is less than or equal to the damage
+
+
+
+    Medium
+
+
+    Loss of protocol revenue (i.e skipping all or part of protocol fees)
+
+
+
+    Low
+
+
+    Changing details of other users (including modifying browser local storage) without already-connected wallet interaction and with significant user interaction such as iframing leading to modifying the backend/browser state (demonstrate impact with PoC)
+
+
+
+    Low
+
+
+    Redirecting users to malicious websites (open redirect)
+
+
+
+    Low
+
+
+    Temporarily disabling user's access to target resource
+
+
+
+    Low
+
+
+    Griefing in the condition where the cost of carrying out attack is more than the damage
+
+    Collapse
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+    Best practice critiques
+    Disclosure of vulnerabilities will require the approval of the Chainlink team
+    Issues resulting in documentation-only mitigation
+    Default Out of Scope and rules
+
+    Web & App specific
+
+    Theoretical impacts without any proof or demonstration
+    Impacts involving attacks requiring physical access to the victim device
+    Impacts involving attacks requiring access to the local network of the victim
+    Reflected plain text injection (e.g. url parameters, path, etc.)
+    This does not exclude reflected HTML injection with or without JavaScript
+    This does not exclude persistent plain text injection
+    Any impacts involving self-XSS
+    Captcha bypass using OCR without impact demonstration
+    CSRF with no state modifying security impact (e.g. logout CSRF)
+    Impacts related to missing HTTP Security Headers (such as X-FRAME-OPTIONS) or cookie security flags (such as “httponly”) without demonstration of impact
+    Server-side non-confidential information disclosure, such as IPs, server names, and most stack traces
+    Impacts causing only the enumeration or confirmation of the existence of users or tenants
+    Impacts caused by vulnerabilities requiring un-prompted, in-app user actions that are not part of the normal app workflows
+    Lack of SSL/TLS best practices
+    Impacts that only require DDoS
+    UX and UI impacts that do not materially disrupt use of the platform
+    Impacts primarily caused by browser/plugin defects
+    Leakage of non sensitive API keys (e.g. Etherscan, Infura, Alchemy, etc.)
+    Any vulnerability exploit requiring browser bugs for exploitation (e.g. CSP bypass)
+    SPF/DMARC misconfigured records)
+    Missing HTTP Headers without demonstrated impact
+    Automated scanner reports without demonstrated impact
+    UI/UX best practice recommendations
+    Non-future-proof NFT rendering
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers

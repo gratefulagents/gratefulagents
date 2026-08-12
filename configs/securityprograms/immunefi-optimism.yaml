@@ -14,24 +14,529 @@ spec:
   provider: Immunefi
   displayName: Optimism
   programURL: https://immunefi.com/bug-bounty/optimism/scope/
-  verifiedAt: 2026-08-11T00:00:00Z
+  verifiedAt: 2026-08-12T00:00:00Z
   scopePolicy: |
-    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-07-27).
+    Verbatim Immunefi scope (retrieved 2026-08-12T15:44:34.001Z; page last updated 27 July 2026).
 
-    Repository targets:
-    - https://github.com/ethereum-optimism/optimism/tree/develop/op-dispute-mon, explicitly limited to impacts listed in the smart-contract section.
-    - Other production OP Stack assets may qualify through Primacy of Impact, but this snapshot does not convert the entire repository into an asset target.
-    - https://github.com/ethereum-optimism/op-geth is explicitly out of scope because op-geth has reached end of service.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Blockchain/DLT and smart-contract Critical: up to USD 2,000,042, generally 10% of directly affected funds.
-    - Blockchain/DLT and smart-contract High: USD 15,000 minimum to USD 50,000 maximum.
+    Blockchain/DLT
 
-    Eligible impacts:
-    - Direct loss/theft of user funds, permanent freezing, and protocol insolvency, excluding proposer/challenger bonds and fee vaults. Critical through Medium smart-contract and DLT impacts use Primacy of Impact.
+    Assets in Scope
+    Instascope
+    Target    Name    Added on
 
-    Out of scope:
-    - Alt-DA, end-of-service clients, custom third-party bridges, tests/mocks, known dispute-game issues, proposer/challenger bonds, fee vaults, privileged assumptions, and best-practice-only reports are excluded.
+    https://github.com/ethereum-optimism/optimism/tree/develop/rust/op-reth    op-reth    12 June 2026
+    Primacy Of Impact        11 March 2026
+    https://github.com/ethereum-optimism/optimism/tree/develop/op-dispute-mon    op-dispute-mon (in scope for impacts listed in the smart contracts section)    29 May 2024
+    https://github.com/ethereum-optimism/optimism/tree/develop/op-node    op-node    29 May 2024
 
-    Testing and submission:
-    - PoC and KYC required. Use local Dockerized services or local forks only; no mainnet/public-testnet testing, destructive DoS, phishing, traffic generation, or unapproved disclosure.
+    Impacts in Scope
+    Critical
+
+
+    Direct loss of funds, not including proposer/challenger bonds or fee vaults
+
+
+
+    High
+
+
+    Network not being able to confirm any new transactions, including deposits (Total network shutdown)
+
+
+
+    High
+
+
+    Freezing of funds (fix requires L2 hardfork)
+
+
+
+    Medium
+
+
+    Direct theft or permanent loss of fee vault funds (excluding missed revenue, unrealized yield, or failure to collect fees from pending transactions)
+
+
+
+    Medium
+
+
+    Network not being able to confirm new transactions on L2, while forced-inclusion via L1 is still possible
+
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+
+    The following are considered out-of-scope for the bug bounty:
+
+    Blockchain / DLT:
+
+    Vulnerabilities requiring the user to have publicly exposed an API, such as JSON-RPC or the Beacon API
+    Vulnerabilities requiring the chain operator to violate recommended best practices as described on our docs website, for example around network topology, proxy configuration and so on. See here https://docs.optimism.io/chain-operators/reference/architecture#network-design-example
+    The Alt-DA feature of op-node and op-batcher.
+    All execution layer clients which have reached end-of-service (e.g. op-geth).
+    op-reth depends on several crates sourced from https://github.com/paradigmxyz/reth/. Issues which are responsibly disclosed to the upstream reth team or the Ethereum Foundation Bug Bounty Program (https://bbp-form.ethereum.org/) cannot be "replayed" against Optimism’s bug bounty program if the vulnerability has already been made public. If the vulnerability is disclosed to Optimism at the same time as upstream, the vulnerability is eligible for the bug bounty program.
+    All currently known issues with devp2p here: https://github.com/ethereum/devp2p/blob/master/rlpx.md#known-issues-in-the-current-version
+    There are scenarios where, if an attacker can predict an L1 reorg, they could exploit it to reorder dispute game transactions in a way that causes the honest challenger to respond incorrectly and therefore lose its bond — although the dispute game itself will still resolve correctly.
+
+    Smart Contracts:
+
+    Vulnerabilities in the implementation of ‘custom token bridges’ which are written by third parties for bridging tokens to their network
+    Bugs in op-challenger or other off-chain components that result in "Incorrectly resolved dispute game, detected by op-dispute-mon".
+    Proof of whale based attacks on Fault Proofs.
+    There appears to be an obvious bug which would allow an attacker to withdraw a fake ERC20 token from L2 in exchange for a real ERC20 (such as WBTC) token on L1. There is no check in the L2StandardBridge, however the withdrawal is prevented from finalizing by a check in the L1StandardBridge. Naturally if you do find a way to circumvent our protections, then we would reward you.
+    A bug in ResolvedDelegateProxy.sol which could result in a storage slot key collision overwriting the address of the implementation. This bug is dependent on the layout of the implementation contract, and Optimism is not affected.
+    There is an edge case in which ETH deposited to the OptimismPortal by a contract can be irrecoverably stranded:
+    When a deposit transaction fails to execute, the sender’s account balance is still credited with the mint value. However, if the deposit’s L1 sender is a contract, the tx.origin on L2 will be aliased, and this aliased address will receive the minted on L2. In general the contract on L1 will not be able to recover these funds. We have documented this risk and encourage users to take advantage of our CrossDomainMessenger contracts which provide additional safety measures.
+    Sending cross-chain messages with very large amounts of data, or very specific amounts of gas can open up griefing attacks causing the sender’s funds to be stuck and requiring an upgrade to release them.
+    Deposit transactions can be griefed at a cost to the attacker, by filling up the MAX_RESOURCE_LIMIT. This issue is mitigated by PR 5064, which does not completely resolve the issue but does increase the cost of a sustained griefing attack. A more complete fix will require architectural changes.
+    There are various ‘foot guns’ in the bridge which may arise from misconfiguration of a token. To minimize complexity our bridge design does not try to prevent all forms of developer and user error. Examples of such foot guns include:
+    Having both (or neither of) the local and remote tokens be OptimismMintable.
+    Tokens which dynamically alter the amount of a token held by an account, such as fee-on-transfer and rebasing tokens.
+
+    Web & App:
+
+    explorer.optimism.io
+    testnet-explorer.optimism.io
+    retrofunding.optimism.io
+    public-grafana.optimism.io
+    discord.optimism.io
+    kyc.optimism.io
+    kyb.optimism.io
+    raas.optimism.io
+    contribute.optimism.io
+    superfest.optimism.io
+    welovetheart.optimism.io
+    Additionally, any other asset belonging to Optimism but not under Optimism’s control will also be out of scope.
+
+    The following domains, operated by Agora:
+
+    vote.optimism.io
+    atlas.optimism.io
+
+    Security researchers who discover vulnerabilities on these domains are encouraged to report them directly to Agora at security@voteagora.com. However, if a vulnerability on these domains leads to a direct financial impact on the OP Stack or the Optimism protocol itself, the impact remains in scope under the Primacy of Impact and should be submitted through this bug bounty program.
+
+    Default Out of Scope and rules
+
+    Blockchain/DLT specific
+
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Smart Contract
+
+    Assets in Scope
+    Instascope
+    Target    Name    Added on
+
+    https://optimistic.etherscan.io/address/0xb5CB7a05DD1311195982A26DFC8222477f9D8179    PolicyEngineStaking    21 May 2026
+    Primacy Of Impact        11 March 2026
+    https://etherscan.io/address/0x4146DF64D83acB0DcB0c1a4884a16f090165e122    FaultDisputeGame    3 October 2025
+    https://etherscan.io/address/0xE9daD167EF4DE8812C1abD013Ac9570C616599A0    PermissionedDisputeGame    3 October 2025
+    https://etherscan.io/address/0x18DAc71c228D1C32c99489B7323d441E1175e443    AnchorStateRegistry    3 October 2025
+    https://etherscan.io/address/0xE497B094d6DbB3D5E4CaAc9a14696D7572588d14    DelayedWETH    3 October 2025
+    https://etherscan.io/address/0xD326E10B8186e90F4E2adc5c13a2d0C137ee8b34    PreimageOracle    3 October 2025
+    https://etherscan.io/address/0x0f8EdFbDdD3c0256A80AD8C0F2560B1807873C9c    MIPS    3 October 2025
+    https://etherscan.io/address/0xe5965Ab5962eDc7477C8520243A95517CD252fA9    DisputeGameFactory    29 May 2024
+    https://etherscan.io/address/0xe2F826324b2faf99E513D16D266c3F80aE87832B    OptimismPortal Implementation    29 May 2024
+    https://etherscan.io/address/0xdE1FCfB0851916CA5101820A69b13a4E276bd81F    AddressManager    11 March 2024
+    https://etherscan.io/address/0x543bA4AADBAb8f9025686Bd03993043599c6fB04    ProxyAdmin    11 March 2024
+    https://etherscan.io/address/0x75505a97BD334E7BD3C476893285569C4136Fa0F    OptimismMintableERC20Factory    11 March 2024
+    https://etherscan.io/address/0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1    L1StandardBridge    11 March 2024
+    https://etherscan.io/address/0x5a7749f83b81B301cAb5f48EB8516B986DAef23D    L1ERC721Bridge    11 March 2024
+    https://etherscan.io/address/0x25ace71c97B33Cc4729CF772ae268934F7ab5fA1    L1CrossDomainMessenger    11 March 2024
+    https://etherscan.io/address/0xbEb5Fc579115071764c7423A4f12eDde41f106Ed    OptimismPortal    11 March 2024
+    https://etherscan.io/address/0xdfe97868233d1aa22e815a266982f2cf17685a27    L2OutputOracle    11 March 2024
+    https://etherscan.io/address/0x229047fed2591dbec1eF1118d64F7aF3dB9EB290    SystemConfig    11 March 2024
+    Collapse
+
+    Impacts in Scope
+    Critical
+
+
+    Loss of user funds by direct theft, not including proposer/challenger bonds or fee vaults
+
+
+
+    Critical
+
+
+    Permanent freezing of funds, not including proposer/challenger bonds or fee vaults
+
+
+
+    Critical
+
+
+    Protocol insolvency, not including proposer/challenger bonds or fee vaults
+
+
+
+    High
+
+
+    Temporary freezing of funds, not including proposer/challenger bonds or fee vaults (e.g. recoverable via an upgrade)
+
+
+
+    High
+
+
+    Incorrectly proven withdrawal other than by incorrectly resolved dispute game, mitigated by a delay
+
+
+
+    High
+
+
+    Incorrectly resolved dispute game, not detected by op-dispute-mon, allows proving invalid withdrawal
+
+
+
+    Medium
+
+
+    Incorrectly initiated dispute game bond withdrawal other than by incorrectly resolved dispute game, mitigated by a delay
+
+
+
+    Medium
+
+
+    Incorrectly resolved dispute game, not detected by op-dispute-mon, does not allow proving invalid withdrawal
+
+
+
+    Medium
+
+
+    Direct theft or permanent loss of fee vault funds (excluding missed revenue, unrealized yield, or failure to collect fees from pending transactions)
+
+
+
+    Medium
+
+
+    Incorrectly resolved dispute game, detected by op-dispute-mon, excluding bugs in off-chain components
+
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+
+    The following are considered out-of-scope for the bug bounty:
+
+    Blockchain / DLT:
+
+    Vulnerabilities requiring the user to have publicly exposed an API, such as JSON-RPC or the Beacon API
+    Vulnerabilities requiring the chain operator to violate recommended best practices as described on our docs website, for example around network topology, proxy configuration and so on. See here https://docs.optimism.io/chain-operators/reference/architecture#network-design-example
+    The Alt-DA feature of op-node and op-batcher.
+    All execution layer clients which have reached end-of-service (e.g. op-geth).
+    op-reth depends on several crates sourced from https://github.com/paradigmxyz/reth/. Issues which are responsibly disclosed to the upstream reth team or the Ethereum Foundation Bug Bounty Program (https://bbp-form.ethereum.org/) cannot be "replayed" against Optimism’s bug bounty program if the vulnerability has already been made public. If the vulnerability is disclosed to Optimism at the same time as upstream, the vulnerability is eligible for the bug bounty program.
+    All currently known issues with devp2p here: https://github.com/ethereum/devp2p/blob/master/rlpx.md#known-issues-in-the-current-version
+    There are scenarios where, if an attacker can predict an L1 reorg, they could exploit it to reorder dispute game transactions in a way that causes the honest challenger to respond incorrectly and therefore lose its bond — although the dispute game itself will still resolve correctly.
+
+    Smart Contracts:
+
+    Vulnerabilities in the implementation of ‘custom token bridges’ which are written by third parties for bridging tokens to their network
+    Bugs in op-challenger or other off-chain components that result in "Incorrectly resolved dispute game, detected by op-dispute-mon".
+    Proof of whale based attacks on Fault Proofs.
+    There appears to be an obvious bug which would allow an attacker to withdraw a fake ERC20 token from L2 in exchange for a real ERC20 (such as WBTC) token on L1. There is no check in the L2StandardBridge, however the withdrawal is prevented from finalizing by a check in the L1StandardBridge. Naturally if you do find a way to circumvent our protections, then we would reward you.
+    A bug in ResolvedDelegateProxy.sol which could result in a storage slot key collision overwriting the address of the implementation. This bug is dependent on the layout of the implementation contract, and Optimism is not affected.
+    There is an edge case in which ETH deposited to the OptimismPortal by a contract can be irrecoverably stranded:
+    When a deposit transaction fails to execute, the sender’s account balance is still credited with the mint value. However, if the deposit’s L1 sender is a contract, the tx.origin on L2 will be aliased, and this aliased address will receive the minted on L2. In general the contract on L1 will not be able to recover these funds. We have documented this risk and encourage users to take advantage of our CrossDomainMessenger contracts which provide additional safety measures.
+    Sending cross-chain messages with very large amounts of data, or very specific amounts of gas can open up griefing attacks causing the sender’s funds to be stuck and requiring an upgrade to release them.
+    Deposit transactions can be griefed at a cost to the attacker, by filling up the MAX_RESOURCE_LIMIT. This issue is mitigated by PR 5064, which does not completely resolve the issue but does increase the cost of a sustained griefing attack. A more complete fix will require architectural changes.
+    There are various ‘foot guns’ in the bridge which may arise from misconfiguration of a token. To minimize complexity our bridge design does not try to prevent all forms of developer and user error. Examples of such foot guns include:
+    Having both (or neither of) the local and remote tokens be OptimismMintable.
+    Tokens which dynamically alter the amount of a token held by an account, such as fee-on-transfer and rebasing tokens.
+
+    Web & App:
+
+    explorer.optimism.io
+    testnet-explorer.optimism.io
+    retrofunding.optimism.io
+    public-grafana.optimism.io
+    discord.optimism.io
+    kyc.optimism.io
+    kyb.optimism.io
+    raas.optimism.io
+    contribute.optimism.io
+    superfest.optimism.io
+    welovetheart.optimism.io
+    Additionally, any other asset belonging to Optimism but not under Optimism’s control will also be out of scope.
+
+    The following domains, operated by Agora:
+
+    vote.optimism.io
+    atlas.optimism.io
+
+    Security researchers who discover vulnerabilities on these domains are encouraged to report them directly to Agora at security@voteagora.com. However, if a vulnerability on these domains leads to a direct financial impact on the OP Stack or the Optimism protocol itself, the impact remains in scope under the Primacy of Impact and should be submitted through this bug bounty program.
+
+    Default Out of Scope and rules
+
+    Smart Contract specific
+
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Web & App
+
+    Assets in Scope
+    Instascope
+    Target    Name    Added on
+
+
+    https://blog.oplabs.co/
+        Main OP Labs blog    3 October 2025
+
+    https://www.oplabs.co/
+        Main OP Labs website    3 October 2025
+
+    http://jobs.optimism.io/
+        Optimism's Careers page    3 October 2025
+
+    https://community.optimism.io/
+        Optimism's Community page    3 October 2025
+
+    https://console.optimism.io/
+        Optimism's Console    3 October 2025
+
+    https://specs.optimism.io/
+        Optimism's Specs    3 October 2025
+
+    https://docs.optimism.io/
+        Optimism's Docs    3 October 2025
+
+    https://app.optimism.io/
+        Optimism's App    3 October 2025
+
+    http://gateway.optimism.io/
+        Optimism's Gateway    3 October 2025
+
+    https://www.optimism.io/
+        Main Optimism website    3 October 2025
+    Collapse
+
+    Impacts in Scope
+    Critical
+
+
+    Execute arbitrary system commands
+
+
+
+    Critical
+
+
+    Retrieve sensitive data/files from a running server, such as:
+
+    /etc/shadow
+    database passwords
+    blockchain keys (this does not include non-sensitive environment variables, open source code, or usernames)
+
+
+    Critical
+
+
+    Taking and/modifying authenticated actions (with or without blockchain state interaction) on behalf of other users without any interaction by that user, such as:
+
+    Changing registration information
+    Commenting
+    Voting
+    Making trades
+    Withdrawals, etc.
+
+
+    Critical
+
+
+    Subdomain takeover with already-connected wallet interaction
+
+
+
+    Critical
+
+
+    Direct theft of user funds
+
+
+
+    Critical
+
+
+    Malicious interactions with an already-connected wallet, such as:
+
+    Modifying transaction arguments or parameters
+    Substituting contract addresses
+    Submitting malicious transactions
+
+
+    Critical
+
+
+    Injection of malicious HTML or XSS through metadata
+
+
+
+    High
+
+
+    Subdomain takeover without already-connected wallet interaction
+
+
+
+    High
+
+
+    Improperly disclosing confidential user information, such as:
+
+    Email address
+    Phone number
+    Physical address, etc.
+
+
+    High
+
+
+    Injecting/modifying the static content on the target application without JavaScript (persistent), such as:
+
+    HTML injection without JavaScript
+    Replacing existing text with arbitrary text
+    Arbitrary file uploads, etc.
+
+
+    High
+
+
+    Taking down the application/website
+
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+
+    The following are considered out-of-scope for the bug bounty:
+
+    Blockchain / DLT:
+
+    Vulnerabilities requiring the user to have publicly exposed an API, such as JSON-RPC or the Beacon API
+    Vulnerabilities requiring the chain operator to violate recommended best practices as described on our docs website, for example around network topology, proxy configuration and so on. See here https://docs.optimism.io/chain-operators/reference/architecture#network-design-example
+    The Alt-DA feature of op-node and op-batcher.
+    All execution layer clients which have reached end-of-service (e.g. op-geth).
+    op-reth depends on several crates sourced from https://github.com/paradigmxyz/reth/. Issues which are responsibly disclosed to the upstream reth team or the Ethereum Foundation Bug Bounty Program (https://bbp-form.ethereum.org/) cannot be "replayed" against Optimism’s bug bounty program if the vulnerability has already been made public. If the vulnerability is disclosed to Optimism at the same time as upstream, the vulnerability is eligible for the bug bounty program.
+    All currently known issues with devp2p here: https://github.com/ethereum/devp2p/blob/master/rlpx.md#known-issues-in-the-current-version
+    There are scenarios where, if an attacker can predict an L1 reorg, they could exploit it to reorder dispute game transactions in a way that causes the honest challenger to respond incorrectly and therefore lose its bond — although the dispute game itself will still resolve correctly.
+
+    Smart Contracts:
+
+    Vulnerabilities in the implementation of ‘custom token bridges’ which are written by third parties for bridging tokens to their network
+    Bugs in op-challenger or other off-chain components that result in "Incorrectly resolved dispute game, detected by op-dispute-mon".
+    Proof of whale based attacks on Fault Proofs.
+    There appears to be an obvious bug which would allow an attacker to withdraw a fake ERC20 token from L2 in exchange for a real ERC20 (such as WBTC) token on L1. There is no check in the L2StandardBridge, however the withdrawal is prevented from finalizing by a check in the L1StandardBridge. Naturally if you do find a way to circumvent our protections, then we would reward you.
+    A bug in ResolvedDelegateProxy.sol which could result in a storage slot key collision overwriting the address of the implementation. This bug is dependent on the layout of the implementation contract, and Optimism is not affected.
+    There is an edge case in which ETH deposited to the OptimismPortal by a contract can be irrecoverably stranded:
+    When a deposit transaction fails to execute, the sender’s account balance is still credited with the mint value. However, if the deposit’s L1 sender is a contract, the tx.origin on L2 will be aliased, and this aliased address will receive the minted on L2. In general the contract on L1 will not be able to recover these funds. We have documented this risk and encourage users to take advantage of our CrossDomainMessenger contracts which provide additional safety measures.
+    Sending cross-chain messages with very large amounts of data, or very specific amounts of gas can open up griefing attacks causing the sender’s funds to be stuck and requiring an upgrade to release them.
+    Deposit transactions can be griefed at a cost to the attacker, by filling up the MAX_RESOURCE_LIMIT. This issue is mitigated by PR 5064, which does not completely resolve the issue but does increase the cost of a sustained griefing attack. A more complete fix will require architectural changes.
+    There are various ‘foot guns’ in the bridge which may arise from misconfiguration of a token. To minimize complexity our bridge design does not try to prevent all forms of developer and user error. Examples of such foot guns include:
+    Having both (or neither of) the local and remote tokens be OptimismMintable.
+    Tokens which dynamically alter the amount of a token held by an account, such as fee-on-transfer and rebasing tokens.
+
+    Web & App:
+
+    explorer.optimism.io
+    testnet-explorer.optimism.io
+    retrofunding.optimism.io
+    public-grafana.optimism.io
+    discord.optimism.io
+    kyc.optimism.io
+    kyb.optimism.io
+    raas.optimism.io
+    contribute.optimism.io
+    superfest.optimism.io
+    welovetheart.optimism.io
+    Additionally, any other asset belonging to Optimism but not under Optimism’s control will also be out of scope.
+
+    The following domains, operated by Agora:
+
+    vote.optimism.io
+    atlas.optimism.io
+
+    Security researchers who discover vulnerabilities on these domains are encouraged to report them directly to Agora at security@voteagora.com. However, if a vulnerability on these domains leads to a direct financial impact on the OP Stack or the Optimism protocol itself, the impact remains in scope under the Primacy of Impact and should be submitted through this bug bounty program.
+
+    Default Out of Scope and rules
+
+    Web & App specific
+
+    Theoretical impacts without any proof or demonstration
+    Impacts involving attacks requiring physical access to the victim device
+    Impacts involving attacks requiring access to the local network of the victim
+    Reflected plain text injection (e.g. url parameters, path, etc.)
+    This does not exclude reflected HTML injection with or without JavaScript
+    This does not exclude persistent plain text injection
+    Any impacts involving self-XSS
+    Captcha bypass using OCR without impact demonstration
+    CSRF with no state modifying security impact (e.g. logout CSRF)
+    Impacts related to missing HTTP Security Headers (such as X-FRAME-OPTIONS) or cookie security flags (such as “httponly”) without demonstration of impact
+    Server-side non-confidential information disclosure, such as IPs, server names, and most stack traces
+    Impacts causing only the enumeration or confirmation of the existence of users or tenants
+    Impacts caused by vulnerabilities requiring un-prompted, in-app user actions that are not part of the normal app workflows
+    Lack of SSL/TLS best practices
+    Impacts that only require DDoS
+    UX and UI impacts that do not materially disrupt use of the platform
+    Impacts primarily caused by browser/plugin defects
+    Leakage of non sensitive API keys (e.g. Etherscan, Infura, Alchemy, etc.)
+    Any vulnerability exploit requiring browser bugs for exploitation (e.g. CSP bypass)
+    SPF/DMARC misconfigured records)
+    Missing HTTP Headers without demonstrated impact
+    Automated scanner reports without demonstrated impact
+    UI/UX best practice recommendations
+    Non-future-proof NFT rendering
+
+    All categories
+
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers

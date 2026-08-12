@@ -14,23 +14,349 @@ spec:
   provider: Immunefi
   displayName: Arbitrum
   programURL: https://immunefi.com/bug-bounty/arbitrum/scope/
-  verifiedAt: 2026-08-11T00:00:00Z
+  verifiedAt: 2026-08-12T00:00:00Z
   scopePolicy: |
-    Verified from the live Immunefi program on 2026-08-11 (program last updated 2026-07-30).
+    Verbatim Immunefi scope (retrieved 2026-08-12T15:44:19.939Z; page last updated 30 July 2026).
 
-    Repository targets:
-    - https://github.com/OffchainLabs/token-bridge-contracts on branch main, limited to individually listed files under contracts/tokenbridge/arbitrum and contracts/tokenbridge/ethereum. Verified groups include messenger, standard/custom token, gateway, gateway-router, and WETH-gateway contracts.
-    - Do not infer blanket scope for OffchainLabs/nitro or OffchainLabs/nitro-contracts from project affiliation; the program enumerates individual assets and active deployments.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Smart-contract Critical: up to USD 2,000,000, generally capped at 10% of economic damage with a USD 50,000 minimum.
-    - Smart-contract High: USD 10,000 minimum to USD 30,000 maximum.
+    Smart Contract
 
-    Eligible impacts:
-    - Unmitigated direct theft and unupgradeable permanent freezing are Critical. Invalid withdrawals, protocol-delay-mitigated theft/freezing, insolvency, reorg bugs, fast-bridge damage, and network-wide DoS can be High.
+    Assets in Scope
+    Target    Name    Added on
 
-    Out of scope:
-    - Security-Council-remediable issues and Nova issues are capped at High. Disabled/non-default features, upgrade-window-only or archive-sync-only effects, upstream geth bugs, partial-node DoS, validator stakes, challenge bonds, protocol fee accounts, tests/configuration, and privileged assumptions are excluded.
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/AssertionState.sol    AssertionState.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/Assertion.sol    Assertion.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/CallerChecker.sol    CallerChecker.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/tree/main/src/bridge/DelayBufferTypes.sol    DelayBufferTypes.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/tree/main/src/bridge/DelayBuffer.sol    DelayBuffer.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProverMemory.sol    OneStepProverMemory.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProverMath.sol    OneStepProverMath.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProverHostIo.sol    OneStepProverHostlo.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProver0.sol    OneStepProver0.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProofEntry.sol    OneStepProofEntry.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/IOneStepProver.sol    IOneStepProver.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/IOneStepProofEntry.sol    IOneStepProofEntry.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/HashProofHelper.sol    HashProofHelper.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/interfaces/IEdgeStakingPoolCreator.sol    IEdgeStakingPoolCreator.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/interfaces/IEdgeStakingPool.sol    IEdgeStakingPool.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/interfaces/IAssertionStakingPoolCreator.sol    IAssertionStakingPoolCreator.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/interfaces/IAssertionStakingPool.sol    IAssertionStakingPool.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/interfaces/IAbsBoldStakingPool.sol    IAbsBoldStakingPool.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/StakingPoolCreatorUtils.sol    StakingPoolCreatorUtils.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/EdgeStakingPoolCreator.sol    EdgeStakingPoolCreator.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/EdgeStakingPool.sol    EdgeStakingPool.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/AssertionStakingPoolCreator.sol    AssertionStakingPoolCreator.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/AssertionStakingPool.sol    AssertionStakingPool.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/assertionStakingPool/AbsBoldStakingPool.sol    AbsBoldStakingPool.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/libraries/UintUtilsLib.sol    UintUtilsLib.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/libraries/Structs.sol    Structs.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/libraries/MerkleTreeAccumulatorLib.sol    MerkleTreeAccumulatorLib.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/libraries/Enums.sol    Enums.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/libraries/EdgeChallengeManagerLib.sol    EdgeChallengeManagerLib.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/libraries/ChallengeErrors.sol    ChallengeErrors.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/libraries/ChallengeEdgeLib.sol    ChallengeEdgeLib.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/libraries/ArrayUtilsLib.sol    ArrayUtilsLib.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/IEdgeChallengeManager.sol    IEdgeChallengeManager.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/IAssertionChain.sol    IAssertionChain.sol    6 March 2025
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/challengeV2/EdgeChallengeManager.sol    EdgeChallengeManager.sol    6 March 2025
+    https://github.com/OffchainLabs/fund-distribution-contracts/blob/main/src/Util.sol        22 September 2023
+    https://github.com/OffchainLabs/fund-distribution-contracts/blob/main/src/RewardDistributor.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/UpgradeExecRouteBuilder.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/governors/modules/SecurityCouncilNomineeElectionGovernorTiming.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/governors/modules/SecurityCouncilNomineeElectionGovernorCountingUpgradeable.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/governors/modules/SecurityCouncilMemberElectionGovernorCountingUpgradeable.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/governors/modules/ElectionGovernor.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/governors/modules/ArbitrumGovernorVotesQuorumFractionUpgradeable.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/governors/modules/ArbitrumGovernorProposalExpirationUpgradeable.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/governors/SecurityCouncilNomineeElectionGovernor.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/governors/SecurityCouncilMemberRemovalGovernor.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/governors/SecurityCouncilMemberElectionGovernor.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/factories/L2SecurityCouncilMgmtFactory.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/SecurityCouncilMgmtUtils.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/SecurityCouncilMemberSyncAction.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/security-council-mgmt/SecurityCouncilManager.sol        22 September 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/ArbitrumFoundationVestingWallet.sol        11 August 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/Util.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/UpgradeExecutor.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/TransferAndCallToken.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/TokenDistributor.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/L2GovernanceFactory.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/L2ArbitrumToken.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/L2ArbitrumGovernor.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/L1GovernanceFactory.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/L1ArbitrumToken.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/L1ArbitrumTimelock.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/L1ArbitrumMessenger.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/FixedDelegateErc20Wallet.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/ArbitrumVestingWallet.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/ArbitrumTimelock.sol        5 April 2023
+    https://github.com/ArbitrumFoundation/governance/blob/main/src/ArbitrumDAOConstitution.sol        5 April 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/L2CustomGatewayToken.sol        5 April 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/gateway/L2ReverseCustomGateway.sol        5 April 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/ReverseArbToken.sol        5 April 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/L1ReverseCustomGateway.sol        5 April 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/L1ForceOnlyReverseCustomGateway.sol        5 April 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/ProxyUtil.sol        30 January 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/IERC165.sol        30 January 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/ERC165.sol        30 January 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/gateway/IGatewayRouter.sol        30 January 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/IL1GatewayRouter.sol        30 January 2023
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/IL1ArbitrumGateway.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/ValueStack.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/ValueArray.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/StackFrame.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/PcArray.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/ModuleMemory.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/Module.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/Machine.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/Instructions.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/GlobalState.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/Deserialize.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/RollupUserLogic.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/RollupProxy.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/RollupAdminLogic.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/IRollupLogic.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/IRollupEventInbox.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProverMemory.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProverMath.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProverHostIo.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProver0.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/OneStepProofEntry.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/IOneStepProver.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/IOneStepProofEntry.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/osp/HashProofHelper.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/node-interface/NodeInterfaceDebug.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/node-interface/NodeInterface.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/UUPSNotUpgradeable.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/MerkleLib.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/IGasRefunder.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/Error.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/DoubleLogicUUPSUpgradeable.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/DelegateCallAware.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/CryptographyPrimitives.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/Constants.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/AdminFallbackProxy.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/AddressAliasHelper.sol        30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/IDelayedMessageProvider.sol    IDelayedMessageProvider.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbosTest.sol    ArbosTest.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbosActs.sol    ArbosActs.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbSys.sol    ArbSys.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbStatistics.sol    ArbStatistics.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbRetryableTx.sol    ArbRetryableTx.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbOwnerPublic.sol    ArbOwnerPublic.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbOwner.sol    ArbOwner.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbInfo.sol    ArbInfo.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbGasInfo.sol    ArbGasInfo.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbFunctionTable.sol    ArbFunctionTable.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbBLS.sol    ArbBLS.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbDebug.sol    ArbDebug.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbAggregator.sol    ArbAggregator.sol    30 January 2023
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbSys.sol    ArbSys.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/precompiles/ArbAddressTable.sol    ArbAddressTable.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/ValidatorWalletCreator.sol    ValidatorWalletCreator.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/ValidatorUtils.sol    ValidatorUtils.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/RollupLib.sol    RollupLib.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/RollupCreator.sol    RollupCreator.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/RollupCore.sol    RollupCore.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/Node.sol    Node.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/IRollupCore.sol    IRollupCore.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/rollup/BridgeCreator.sol    BridgeCreator.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/Whitelist.sol    Whitelist.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/libraries/MerkleLib.sol    MerkleLib.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/ICloneable.sol    ICloneable.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/Cloneable.sol    Cloneable.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/BytesLib.sol    BytesLib.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/ISequencerInbox.sol    ISequencerInbox.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/IOutbox.sol    IOutbox.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/IInbox.sol    IInbox.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/IBridge.sol    IBridge.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/SequencerInbox.sol    SequencerInbox.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/Outbox.sol    Outbox.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/Messages.sol    Messages.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/Inbox.sol    Inbox.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/bridge/Bridge.sol    Bridge.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/Value.sol    Value.sol    10 May 2022
+    https://github.com/OffchainLabs/nitro-contracts/blob/main/src/state/Machine.sol    Machine.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/gateway/TokenGateway.sol    TokenGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/gateway/ITokenGateway.sol    ITokenGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/gateway/ICustomGateway.sol    ICustomGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/gateway/GatewayRouter.sol    GatewayRouter.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/gateway/GatewayMessageHandler.sol    GatewayMessageHandler.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/aeWETH.sol    aeWETH.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/aeERC20.sol    aeERC20.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/TransferAndCallToken.sol    TransferAndCallToken.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/L2GatewayToken.sol    L2GatewayToken.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/ITransferAndCall.sol    ITransferAndCall.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/ClonableBeaconProxy.sol    ClonableBeaconProxy.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/libraries/BytesParser.sol    BytesParser.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/L1WethGateway.sol    L1WethGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/L1GatewayRouter.sol    L1GatewayRouter.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/L1ERC20Gateway.sol    L1ERC20Gateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/L1CustomGateway.sol    L1CustomGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/L1ArbitrumGateway.sol    L1ArbitrumGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/gateway/L1ArbitrumExtendedGateway.sol    L1ArbitrumExtendedGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/L1ArbitrumMessenger.sol    L1ArbitrumMessenger.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/ethereum/ICustomToken.sol    ICustomToken.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/gateway/L2WethGateway.sol    L2WethGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/gateway/L2GatewayRouter.sol    L2GatewayRouter.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/gateway/L2ERC20Gateway.sol    L2ERC20Gateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/gateway/L2CustomGateway.sol    L2CustomGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/gateway/L2ArbitrumGateway.sol    L2ArbitrumGateway.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/StandardArbERC20.sol    StandardArbERC20.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/L2ArbitrumMessenger.sol    L2ArbitrumMessenger.sol    10 May 2022
+    https://github.com/OffchainLabs/token-bridge-contracts/blob/main/contracts/tokenbridge/arbitrum/IArbToken.sol    IArbToken.sol    10 May 2022
+    Collapse
 
-    Testing and submission:
-    - PoC and KYC required. Local forks only; no live-network testing, destructive DoS, third-party testing, phishing, automation traffic, or unapproved disclosure.
+    Impacts in Scope
+    Impacts Body
+
+    In addition to the versions of these smart contracts on GitHub, this bug bounty also covers the deployments of these contracts presently in use by the Arbitrum One and Arbitrum Nova networks to the extent that any vulnerability impacts said networks (e.g. if only Arbitrum One's deployment had out of date vulnerable code relating to the Data Availability Service which is not enabled on Arbitrum One and this made the vulnerability unusable to harm Arbitrum One, it would not be in scope). This bug bounty also covers any upgrades to those in scope deployments which have been scheduled by a passed on-chain constitutional DAO vote or the non-emergency security council multisig, as long as that action is currently waiting in the L2 governance timelock, the bridge to L1, or the L1 governance timelock (i.e. it has passed and is set to go through, and has not been canceled).
+
+    Critical
+
+
+    Direct theft of user funds that is NOT mitigiated by a protocol-enforced delay
+
+
+
+    Critical
+
+
+    Permanent freezing of funds (cannot be fixed by upgrade)
+
+
+
+    High
+
+
+    Incorrectly confirmed assertion / incorrectly resolved BoLD challenge, NOT detected by honest validators, that allows proving an invalid withdrawal
+
+
+
+    High
+
+
+    Direct theft or permanent freezing of user funds that IS mitigated by a protocol-enforced delay
+
+
+
+    High
+
+
+    Insolvency
+
+
+
+    High
+
+
+    Permanent freezing of funds (can be fixed by upgrade)
+
+
+
+    High
+
+
+    Bugs relating to reorgs
+
+
+
+    High
+
+
+    Damage relating to withdrawing funds via fast bridges
+
+
+
+    High
+
+
+    Denial of Service (DoS) Attacks that cause network-wide outages (attacks that only take down the RPC do not count)
+
+
+
+    Medium
+
+
+    Incorrectly resolved BoLD challenge that is detected by honest validators, or that does not allow proving an invalid withdrawal
+
+
+
+    Medium
+
+
+    Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+
+
+
+    Medium
+
+
+    Theft of gas
+
+
+
+    Medium
+
+
+    Unbounded gas consumption
+
+
+
+    Medium
+
+
+    Smart contract unable to operate due to lack of funds
+
+
+
+    Medium
+
+
+    Block stuffing for profit
+
+
+
+    Low
+
+
+    Smart contract fails to deliver promised returns, but doesn’t lose value
+
+    Collapse
+     View rewards
+
+    Out of scope
+    Program's Out of Scope information
+    Out of Scope and Rules
+    Smart Contract specific
+    Incorrect data supplied by third party oracles
+    Not to exclude oracle manipulation/flash loan attacks
+    Impacts requiring basic economic and governance attacks (e.g. 51% attack)
+    Lack of liquidity impacts
+    Impacts from Sybil attacks
+    Impacts involving centralization risks
+    All categories
+    Impacts only reachable under a non-default node or chain configuration, or in a feature not currently enabled on Arbitrum One or Arbitrum Nova
+    Impacts that only manifest during a node-software upgrade/rollout window, historical block replay, or archive/from-genesis sync, and do not affect the live canonical chain
+    Impacts requiring attacks that the reporter has already exploited themselves, leading to damage
+    Impacts caused by attacks requiring access to leaked keys/credentials
+    Impacts caused by attacks requiring access to privileged addresses/roles (including, but not limited to: governance, sequencer, batch poster and feed relays and strategist contracts) without additional modifications to the privileges attributed
+    Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code
+    Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production
+    Best practice recommendations
+    Feature requests
+    Impacts on test files and configuration files unless stated otherwise in the bug bounty program
+    Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+    Impacts affecting only validator/assertion stakes, challenge bonds, or protocol fee accounts (theft, loss, or freezing) — these funds are excluded from the user-fund impact tiers
+
+    Informational
+
+    Changes or bugs found or related to Tutorials maintained by Offchain Labs
+    Changes or bugs regarding the arbitrum-sdk
+    Inconsistencies found between documentation and smart contracts and other blockchain code
+    Best practice critiques
+    Denial of Service (DoS) Attacks that only affects some nodes, or cause only some nodes to crash
+    Problems caused by L1 Gas Pricing
+    Issues that affect geth and are not caused by changes made in the Nitro implementation
+    Issues that affect Arbitrum One and Arbitrum Nova will be treated as a single issue, and a report of the same issue with the only difference being the network will be treated as a duplicate.

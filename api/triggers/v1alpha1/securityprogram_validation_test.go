@@ -37,6 +37,11 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 	if errs := ValidateSecurityProgramSpec(validSecurityProgramSpec()); len(errs) != 0 {
 		t.Fatalf("ValidateSecurityProgramSpec(valid) = %v", errs)
 	}
+	multibyte := validSecurityProgramSpec()
+	multibyte.ScopePolicy = strings.Repeat("界", MaxSecurityProgramScopePolicyLength)
+	if errs := ValidateSecurityProgramSpec(multibyte); len(errs) != 0 {
+		t.Fatalf("ValidateSecurityProgramSpec(multibyte boundary) = %v", errs)
+	}
 
 	for name, mutate := range map[string]func(*SecurityProgramSpec){
 		"provider required":     func(s *SecurityProgramSpec) { s.Provider = " " },
@@ -47,6 +52,9 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 		"scope required":        func(s *SecurityProgramSpec) { s.ScopePolicy = "\n\t" },
 		"scope bounded": func(s *SecurityProgramSpec) {
 			s.ScopePolicy = strings.Repeat("x", MaxSecurityProgramScopePolicyLength+1)
+		},
+		"multibyte scope bounded by characters": func(s *SecurityProgramSpec) {
+			s.ScopePolicy = strings.Repeat("界", MaxSecurityProgramScopePolicyLength+1)
 		},
 		"verification required": func(s *SecurityProgramSpec) { s.VerifiedAt = metav1.Time{} },
 		"repository HTTPS required": func(s *SecurityProgramSpec) {
