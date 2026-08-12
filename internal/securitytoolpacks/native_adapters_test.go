@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+func TestGoFuzzAdapterPreservesFailureEvidence(t *testing.T) {
+	native := []byte("{\"Action\":\"output\",\"Package\":\"example/parser\",\"Test\":\"FuzzDecode\",\"Output\":\"panic: bad frame\\n\"}\n{\"Action\":\"fail\",\"Package\":\"example/parser\",\"Test\":\"FuzzDecode\"}\n")
+	records, err := DefaultAdapters()["go-test-json"].Normalize(Tool{Name: "go-fuzz-tests", Version: "go1.26"}, Target{Locator: "fixture"}, native, NewRedactor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Record.RuleID != "go-fuzz-failure" || records[0].Record.Symbol != "FuzzDecode" || records[0].Record.RawEvidence != "panic: bad frame" {
+		t.Fatalf("unexpected records: %+v", records)
+	}
+}
+
 func TestNativeAdaptersRejectCanonicalScannerRecordArrays(t *testing.T) {
 	adapters := DefaultAdapters()
 	for _, name := range []string{"zap-json", "schemathesis-json", "restler-json", "nuclei-jsonl", "sslyze-json", "testssl-json", "openssl-json", "tshark-json", "har", "junit", "slither-json", "echidna-json", "halmos-json"} {

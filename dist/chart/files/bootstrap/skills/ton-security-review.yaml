@@ -1,0 +1,98 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: ton-security-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    Complete TON review for FunC, Tact, and Fift contracts: asynchronous message
+    flows, gas and value accounting, token authenticity, cell parsing, upgrades,
+    storage evolution, replay resistance, and locally reproducible validation.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill for TON contracts and services that construct or interpret
+        TON messages. Identify the source language, compiler and standard-library
+        versions, build configuration, generated code, state-init data, code and
+        data cells, deployment scripts, and available on-chain artifacts before
+        drawing conclusions from source alone.
+
+        ## Architecture and entry points
+
+        - Inventory internal and external message handlers, getters, bounced-message
+          handlers, opcodes, query IDs, subcontracts, wallet and master contracts,
+          privileged addresses, libraries, deployment and initialization paths,
+          upgrades, and every message sent or accepted.
+        - Reconstruct each asynchronous state machine across success, bounce,
+          duplicate, delayed, reordered, partially completed, and insufficient-gas
+          paths. State invariants for authorization, replay, conservation of TON
+          and tokens, pending operations, refunds, and terminal states.
+        - Verify sender and destination identities before parsing or acting on a
+          payload. Check address workchains, nullable addresses, state-init and
+          contract-address derivation, opcode and query-ID domains, duplicate
+          suppression, and whether forged notifications or bounced messages can
+          enter a privileged transition.
+
+        ## Messages, gas, and value
+
+        - Audit bounce flags and bounce handling, send modes, message flags,
+          `accept_message`, gas credit, storage and compute fees, action fees,
+          forward fees, forward-TON amounts, remaining-message-value accounting,
+          reserve operations, and destruction. Follow value on every exit,
+          including early returns and bounces.
+        - Check whether attackers can drain contract balance by forcing repeated
+          sends, underfunded notifications, storage growth, failed actions, or
+          refund loops. Distinguish logical balance from actual TON balance and
+          make all carry-value assumptions explicit.
+        - Review external-message replay controls, signatures, sequence numbers,
+          time bounds, subwallet or network identifiers, initialization races,
+          and transaction rollback versus outbound-action behavior.
+
+        ## Jettons, NFTs, and serialization
+
+        - For Jettons, establish the authentic master-to-wallet relationship and
+          deterministic wallet-address derivation. Validate senders for transfer,
+          internal-transfer, burn, notification, mint, excess, and bounce flows;
+          check fake wallets, fake masters, unsolicited notifications, supply
+          accounting, decimals, and response-destination handling.
+        - For NFTs and collections, validate item and collection authenticity,
+          index and address derivation, ownership transitions, transfer and
+          ownership-assigned notifications, royalty data, and content cells.
+        - Audit cell construction and slice parsing bit by bit: refs, dictionaries,
+          optional fields, coins, addresses, signed and unsigned widths, remaining
+          bits and refs, malformed or trailing data, depth and size limits, and
+          serialization symmetry. Check integer-as-boolean mistakes, `-1` versus
+          `1`, signed arithmetic, shifts, division and rounding, overflow intent,
+          and sentinel values.
+
+        ## Lifecycle and local validation
+
+        - Review one-time initialization, uninitialized-state takeover, code and
+          data upgrades, authorization and timelocks, storage-layout compatibility,
+          migrations, rollback, old-code messages arriving after an upgrade, and
+          deletion or reinitialization paths.
+        - Prefer deterministic local compilation, tests, emulators, transaction
+          traces, and crafted cell/message fixtures. Exercise success, bounce,
+          replay, malformed serialization, low-value, and upgrade cases. Run a
+          compiler, test runner, emulator, fuzzer, or analyzer only through a
+          registered execution tool; if no applicable tool exists, report that
+          execution as unsupported rather than implying it ran.
+        - Record the repository revision, compiler and dependency versions, exact
+          registered tool and command, fixture or seed, bounds, exit status, and
+          relevant output or artifact. A timeout or tool error is incomplete
+          coverage; a bounded clean run supports only the named cases.
+
+        ## Findings and coverage
+
+        Report only a production-reachable attacker sequence with the violated
+        invariant and decisive file:line evidence. Provide a minimal deterministic
+        local reproduction when practical and a remediation retest tied to the
+        fixed revision. Separately enumerate contracts, handlers, messages,
+        properties, artifacts, and configurations examined; targets deliberately
+        skipped with reasons; execution or analysis unsupported by available
+        tools or artifacts; and work left inconclusive by ambiguity, timeout,
+        failure, missing deployment data, or insufficient evidence. Keep findings,
+        tool errors, unsupported work, skipped work, and inconclusive work distinct.

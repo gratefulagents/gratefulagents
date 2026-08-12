@@ -980,9 +980,12 @@ spec:
                 description: |-
                   workflow is the ordered/parallel research plan executed as focused
                   vulnerability-hunting sub-agents. When both workflow and workflowRef are
-                  empty, the controller resolves the default-deep-scan SecurityWorkflow in
-                  this scan's namespace. Mutually exclusive with workflowRef: setting both
-                  makes the controller report Ready=False with reason InvalidSpec.
+                  empty, the controller deterministically infers a blockchain workflow from
+                  repository URLs and scope focus, include paths, and languages. It may
+                  select smart-contract-review, blockchain-protocol-audit, or
+                  cosmos-abci-halt-review; absent or inconclusive evidence falls back to
+                  default-deep-scan. Mutually exclusive with workflowRef: setting both makes
+                  the controller report Ready=False with reason InvalidSpec.
                 items:
                   description: |-
                     SecurityScanTask is one focused research task in the scan workflow, executed

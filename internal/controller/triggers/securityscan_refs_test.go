@@ -78,6 +78,114 @@ func securityScanSeedMessage(t *testing.T, stateStore *seedTestStore, namespace,
 	return messages[0].Content
 }
 
+func TestAutomaticSecurityScanWorkflowName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		spec triggersv1alpha1.SecurityScanSpec
+		want string
+	}{
+		{name: "generic repository", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/widget.git"}, want: "default-deep-scan"},
+		{name: "generic smart contract wording is inconclusive", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/smart-contract-tools.git"}, want: "default-deep-scan"},
+		{name: "solidity language", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/token.git", Scope: &triggersv1alpha1.SecurityScanScope{Languages: []string{"Solidity"}}}, want: "smart-contract-review"},
+		{name: "solidity path", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/token.git", Scope: &triggersv1alpha1.SecurityScanScope{IncludePaths: []string{"contracts/**/*.sol"}}}, want: "smart-contract-review"},
+		{name: "explicit EVM contract focus", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/token.git", Scope: &triggersv1alpha1.SecurityScanScope{Focus: "Review Ethereum smart contracts"}}, want: "smart-contract-review"},
+		{name: "EVM client outranks contracts", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/ethereum-contracts.git", Scope: &triggersv1alpha1.SecurityScanScope{Focus: "execution client consensus"}}, want: "blockchain-protocol-audit"},
+		{name: "Solana marker", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/solana-validator.git"}, want: "blockchain-protocol-audit"},
+		{name: "supported chain in additional repository", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/frontend.git", AdditionalRepos: []string{"https://github.com/acme/substrate-node.git"}}, want: "blockchain-protocol-audit"},
+		{name: "cross chain scope", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/bridge.git", Scope: &triggersv1alpha1.SecurityScanScope{Focus: "Cross-chain message verification"}}, want: "blockchain-protocol-audit"},
+		{name: "Cosmos general audit", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/cosmos-sdk-app.git"}, want: "blockchain-protocol-audit"},
+		{name: "ABCI alone is inconclusive", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/service.git", Scope: &triggersv1alpha1.SecurityScanScope{Focus: "ABCI halt review"}}, want: "default-deep-scan"},
+		{name: "Cosmos ABCI without halt intent is broad", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/cosmos-app.git", Scope: &triggersv1alpha1.SecurityScanScope{Focus: "Review ABCI handlers"}}, want: "blockchain-protocol-audit"},
+		{name: "narrow Cosmos ABCI halt", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/cosmos-app.git", Scope: &triggersv1alpha1.SecurityScanScope{Focus: "ABCI panic and chain halt paths"}}, want: "cosmos-abci-halt-review"},
+		{name: "narrow Cosmos ABCI nondeterminism", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/cometbft-app.git", Scope: &triggersv1alpha1.SecurityScanScope{Focus: "ABCI non-determinism"}}, want: "cosmos-abci-halt-review"},
+		{name: "mixed Cosmos and EVM is broad", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/cosmos-ethereum-bridge.git", Scope: &triggersv1alpha1.SecurityScanScope{Focus: "ABCI halt and Solidity contracts"}}, want: "blockchain-protocol-audit"},
+		{name: "excluded marker is not evidence", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/widget.git", Scope: &triggersv1alpha1.SecurityScanScope{ExcludePaths: []string{"vendor/solidity/**"}}}, want: "default-deep-scan"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := automaticSecurityScanWorkflowName(tt.spec); got != tt.want {
+				t.Fatalf("automaticSecurityScanWorkflowName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAutomaticSecurityScanWorkflowResolutionPrecedence(t *testing.T) {
+	t.Parallel()
+	workflow := func(namespace, name string) *triggersv1alpha1.SecurityWorkflow {
+		return &triggersv1alpha1.SecurityWorkflow{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Spec:       triggersv1alpha1.SecurityWorkflowSpec{Tasks: []triggersv1alpha1.SecurityScanTask{{Name: name, Objective: name}}},
+		}
+	}
+	tests := []struct {
+		name     string
+		scan     func() *triggersv1alpha1.SecurityScan
+		wantTask string
+		wantRef  string
+	}{
+		{
+			name: "automatic route",
+			scan: func() *triggersv1alpha1.SecurityScan {
+				scan := securityScanTestScan()
+				scan.Spec.Scope = &triggersv1alpha1.SecurityScanScope{Languages: []string{"solidity"}}
+				return scan
+			},
+			wantTask: "smart-contract-review",
+			wantRef:  "smart-contract-review",
+		},
+		{
+			name: "explicit workflow ref wins",
+			scan: func() *triggersv1alpha1.SecurityScan {
+				scan := securityScanTestScan()
+				scan.Spec.Scope = &triggersv1alpha1.SecurityScanScope{Languages: []string{"solidity"}}
+				scan.Spec.WorkflowRef = &triggersv1alpha1.SecurityResourceRef{Name: "payments-workflow"}
+				return scan
+			},
+			wantTask: "payments-injection",
+			wantRef:  "payments-workflow",
+		},
+		{
+			name: "inline workflow wins",
+			scan: func() *triggersv1alpha1.SecurityScan {
+				scan := securityScanTestScan()
+				scan.Spec.Scope = &triggersv1alpha1.SecurityScanScope{Languages: []string{"solidity"}}
+				scan.Spec.Workflow = []triggersv1alpha1.SecurityScanTask{{Name: "inline", Objective: "inline"}}
+				return scan
+			},
+			wantTask: "inline",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			scan := tt.scan()
+			_, k8sClient, _ := newSecurityScanReconciler(t, time.Now(), scan,
+				securityTestWorkflow(scan.Namespace), workflow(scan.Namespace, "smart-contract-review"))
+			resolved, err := resolveSecurityScanRefs(context.Background(), k8sClient, scan)
+			if err != nil {
+				t.Fatalf("resolveSecurityScanRefs() error = %v", err)
+			}
+			if len(resolved.spec.Workflow) == 0 || resolved.spec.Workflow[0].Name != tt.wantTask {
+				t.Fatalf("resolved workflow = %+v, want first task %q", resolved.spec.Workflow, tt.wantTask)
+			}
+			if tt.wantRef == "" {
+				if len(resolved.refs) != 0 {
+					t.Fatalf("resolved refs = %+v, want none for inline workflow", resolved.refs)
+				}
+				return
+			}
+			if len(resolved.refs) != 1 || resolved.refs[0].Name != tt.wantRef {
+				t.Fatalf("resolved refs = %+v, want workflow %q", resolved.refs, tt.wantRef)
+			}
+		})
+	}
+}
+
 func TestSecurityScanResolvesRefsAndSnapshotsProvenance(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanTestScan()

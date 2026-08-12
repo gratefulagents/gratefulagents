@@ -109,6 +109,18 @@ describe("SecurityScanFormDialog", () => {
     expect(screen.getByLabelText("Parallelism")).toBeTruthy();
   });
 
+  it("explains deterministic routing when workflow tasks are empty", () => {
+    renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: /Workflow tasks/ }));
+
+    const helpText = screen.getByText(/deterministically infer blockchain routing/i).textContent;
+    expect(helpText).toContain("smart-contract-review");
+    expect(helpText).toContain("blockchain-protocol-audit");
+    expect(helpText).toContain("cosmos-abci-halt-review");
+    expect(helpText).toContain("default-deep-scan");
+  });
+
   it("creates a scan from a repository URL with saved credentials by default", async () => {
     renderDialog();
 

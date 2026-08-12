@@ -481,6 +481,12 @@ func TestJobSetsTheMediaTypeTheRegistryExpectsForExtractedTargets(t *testing.T) 
 			media:      "application/gzip",
 			want:       "application/vnd.gratefulagents.foundry-security-project.v1+directory",
 		},
+		"go fuzz project": {
+			tool:       "go-fuzz-tests",
+			targetType: "go_fuzz_project",
+			media:      "application/gzip",
+			want:       "application/vnd.gratefulagents.go-fuzz-project.v1+directory",
+		},
 		"tool without a directory requirement keeps the staged media type": {
 			tool:       "authorization-matrix",
 			targetType: "authorization_matrix",

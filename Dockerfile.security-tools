@@ -7,6 +7,7 @@ FROM docker.io/instrumentisto/nmap@sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4
 FROM docker.io/zeek/zeek@sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a AS zeek-root
 FROM docker.io/jasonish/suricata@sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a AS suricata-root
 FROM ghcr.io/trailofbits/eth-security-toolbox@sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978 AS slither-root
+FROM docker.io/library/golang:1.26@sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365 AS go-fuzz-root
 
 # Halmos' upstream 0.3.3 image is amd64-only. Build the reviewed Z3-only
 # Python closure for both release architectures; hashes in these locks cover
@@ -59,11 +60,13 @@ COPY security-knowledge/nuclei-reviewed.yaml /usr/local/share/ga-security/knowle
 COPY --from=bwrap-builder /tmp/bubblewrap-0.11.2/build/bwrap /usr/local/bin/bwrap
 COPY --from=slither-root / /usr/local/share/ga-security/toolroots/slither/
 COPY --from=halmos-root / /usr/local/share/ga-security/toolroots/halmos/
+COPY --from=go-fuzz-root / /usr/local/share/ga-security/toolroots/go-fuzz-tests/
 COPY --from=builder /out/tools/forge /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/forge
 RUN cp -L /usr/local/share/ga-security/toolroots/slither/home/ethsec/.local/bin/solc /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/solc \
-    && for root in slither halmos; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc" "/usr/local/share/ga-security/toolroots/${root}/dev/shm"; : > "/usr/local/share/ga-security/toolroots/${root}/dev/null"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
+    && for root in slither halmos go-fuzz-tests; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc" "/usr/local/share/ga-security/toolroots/${root}/dev/shm"; : > "/usr/local/share/ga-security/toolroots/${root}/dev/null"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
     && printf '%s\n' 'sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978' > /usr/local/share/ga-security/toolroots/slither/.ga-oci-digest \
     && printf '%s\n' 'sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f' > /usr/local/share/ga-security/toolroots/halmos/.ga-oci-digest \
+    && printf '%s\n' 'sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365' > /usr/local/share/ga-security/toolroots/go-fuzz-tests/.ga-oci-digest \
     && chown -R 0:0 /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap \
     && chmod -R go-w /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap \
     && chmod 1777 /usr/local/share/ga-security/toolroots/*/dev/shm

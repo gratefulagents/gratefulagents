@@ -1,0 +1,113 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: mpc-cryptographic-security-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    MPC, threshold-signing, HSM, and cryptographic implementation review covering
+    DKG, transcript and identity binding, rogue keys, nonce safety, quorum and
+    recovery, policy enforcement, encoding, validation, side channels, and vectors.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill for threshold signatures, MPC custody, distributed key
+        generation, secret sharing, remote signers, HSM or enclave integrations,
+        and custom cryptographic implementations. Identify the exact protocol and
+        revision, security model, curves and groups, participant and corruption
+        assumptions, threshold, transport, persistence, hardware boundary,
+        signature formats, and external standards. Do not transfer a proof or
+        security claim from a different protocol variant or threat model.
+
+        ## Protocol and key lifecycle
+
+        - Inventory setup, DKG or key import, participant enrollment, commitments,
+          verifiable secret sharing, complaints and disqualification, key refresh,
+          resharing, participant replacement, presigning, signing, aggregation,
+          verification, backup, restore, rotation, revocation, deletion, audit,
+          and disaster-recovery flows.
+        - Bind every protocol message and transcript to protocol version, session,
+          tenant and key, participant identity and roster, threshold, round,
+          purpose, algorithm, curve, chain or application domain, prior messages,
+          and intended output. Check replay, cross-session mixups, concurrent
+          sessions, reordered or duplicated messages, equivocation, aborts,
+          retries, stale state, and resume after crash.
+        - Verify proof of possession and defenses against rogue-key and key-
+          cancellation attacks. Validate commitments, shares, complaints,
+          participant uniqueness, interpolation indices, quorum calculations,
+          weighted thresholds if any, and exclusion of removed or duplicate
+          participants.
+        - State invariants for secrecy, unforgeability, authorization, quorum,
+          agreement on intent, key consistency, nonce uniqueness, recoverability,
+          auditability, and tenant isolation. Distinguish malicious, semi-honest,
+          mobile-adversary, adaptive-corruption, and availability assumptions.
+
+        ## Nonces, policy, hardware, and recovery
+
+        - Trace nonce and presignature generation, randomness, derivation,
+          commitments, storage, reservation, one-time consumption, crash
+          consistency, retries, cancellation, replication, backup and deletion.
+          Look for reuse across messages, algorithms, shares, devices, sessions,
+          restored snapshots, failover nodes, and partial or aborted rounds, as
+          well as bias and selective-abort attacks.
+        - Ensure every participant independently authenticates and authorizes the
+          exact transaction or message intent before contributing a share. Review
+          policy versioning, quorum versus business policy, allowlists and limits,
+          approval freshness, replay, confused-deputy paths, coordinator power,
+          and whether an aggregator can substitute the message, key, chain,
+          derivation path, or output format.
+        - For HSMs, enclaves, and secure elements, verify mechanism and parameter
+          selection, object attributes, key extractability, wrapping and import,
+          attestation identity and freshness, firmware and rollback, debug state,
+          sealing, monotonic state, session and handle isolation, failover, audit
+          logs, and which guarantees end at the hardware boundary.
+        - Review encrypted backups and share recovery for confidentiality,
+          integrity, provenance, quorum, offline copies, operator access, restore
+          into the correct key and roster, snapshot rollback, rotation after
+          compromise, loss scenarios, and tested disaster-recovery procedures.
+
+        ## Cryptographic implementation
+
+        - Validate public keys, points, scalars and ciphertexts before use: curve
+          membership, subgroup and cofactor rules, identity and infinity rejection,
+          scalar ranges, canonical and unique encoding, length, endianness, and
+          strict parsing. Check invalid-curve, small-subgroup, twist, and field-
+          aliasing behavior where applicable.
+        - Review randomness and deterministic nonce derivation, domain separation,
+          hash-to-curve and transcript construction, context and algorithm binding,
+          signature malleability, batch verification and failure localization,
+          aggregation, serialization, key confirmation, and cross-protocol reuse.
+        - Inspect secret-dependent branches, memory access, variable-time arithmetic,
+          compiler behavior, caches, error and timing oracles, power or fault
+          assumptions, secret lifetime, zeroization, logging, core dumps, and FFI
+          boundaries. Do not claim constant-time behavior from source shape alone.
+        - Compare implementation behavior with standards and authoritative test
+          vectors, including malformed, edge-case and negative vectors. Use
+          differential tests only when implementations are independent enough to
+          provide meaningful evidence.
+
+        ## Local validation and findings
+
+        Prefer deterministic local protocol simulations with malicious and failing
+        participants, crash/restart and snapshot tests, nonce-reuse assertions,
+        concurrency tests, encoding mutations, official or Wycheproof-style
+        vectors, fuzzing, sanitizers, side-channel testing, and recovery drills.
+        Run test runners, simulators, fuzzers, analyzers, vector suites, or timing
+        tools only through a registered execution tool. Record revision, exact tool
+        and command, protocol and library versions, topology, fixture or vector,
+        seed, corpus, bounds, coverage, exit status, and artifacts. If unavailable,
+        mark the execution unsupported. Errors and timeouts remain incomplete;
+        bounded or statistical success is not a proof of security or constant time.
+
+        Report only a reachable attack or failure sequence with its threat-model
+        assumptions, violated invariant, and decisive file:line evidence. Provide
+        a minimal deterministic local reproduction when practical using test keys,
+        then retest the remediation revision. Separately enumerate protocols,
+        rounds, roles, primitives, lifecycle paths, policies, platforms, properties,
+        and configurations examined; work skipped with reasons; checks unsupported
+        by available hardware, tools, or artifacts; and work inconclusive due to
+        ambiguity, statistical limits, timeout, failure, or insufficient evidence.
+        Keep findings and each coverage-limitation category distinct.

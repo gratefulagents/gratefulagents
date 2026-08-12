@@ -1,0 +1,98 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: algorand-security-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    Complete Algorand review for TEAL and PyTeal programs: transaction-field and
+    group validation, rekeying and close safety, LogicSig and application state,
+    inner transactions, assets, boxes, and deployed-bytecode consistency.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill for Algorand applications, LogicSigs, transaction builders,
+        and services that authorize or compose transaction groups. Identify AVM
+        version, TEAL or PyTeal source, compiler and SDK versions, templates,
+        generated TEAL, application schemas, deployment parameters, and available
+        deployed approval and clear-state programs before reviewing behavior.
+
+        ## Transactions and groups
+
+        - Inventory approval and clear-state programs, LogicSigs, application call
+          methods, ABI selectors, create, opt-in, close-out, clear, update, delete,
+          no-op and completion paths, inner transactions, assets, accounts, apps,
+          boxes, global and local state, privileged addresses, and every group
+          shape the system accepts.
+        - For every accepted group, validate exact group size and index, transaction
+          type, sender, receiver, amount, asset and application IDs, on-completion,
+          application arguments, accounts, foreign arrays, boxes, note, genesis
+          domain where applicable, and absence or required values of fields not
+          used by the happy path. Do not infer one transaction's safety from a
+          check performed only against another group index.
+        - Check `RekeyTo`, payment `CloseRemainderTo`, asset
+          `AssetCloseTo`, fees, pooled-fee assumptions, leases, first and last
+          valid rounds, group ID, and duplicate or replay behavior on every group
+          member. Require zero or an explicitly intended value for dangerous
+          fields and prove an attacker cannot substitute, append, reorder, or
+          fee-starve transactions.
+
+        ## Authorization and state
+
+        - Distinguish LogicSig contract-account and delegated-signature semantics.
+          Bind authorization to the intended program hash, signer, network,
+          transaction and group, and ensure template parameters cannot alter the
+          authorization envelope.
+        - Review caller and creator checks, role transfer, update and delete
+          authority, clear-state behavior, opt-in assumptions, local-state account
+          selection, global-state initialization, schema limits, minimum-balance
+          effects, and lifecycle transitions. Write explicit authorization,
+          conservation, replay, and asset-ownership invariants.
+        - Trace inner transactions field by field, including inherited defaults,
+          sender authority, fee behavior, rekey and close fields, asset/app
+          references, limits, failure atomicity, and return values. Confirm outer
+          checks constrain all attacker-controlled inputs used by inner actions.
+        - Audit boxes and storage for key collisions, namespacing, authorization,
+          reference declarations, size and budget constraints, creation/deletion,
+          minimum-balance funding, stale data, and denial of service.
+
+        ## Assets, arithmetic, and compilation
+
+        - Follow ASA creation, configuration, freeze, clawback, transfer, opt-in,
+          close-out, destruction, total supply and manager/reserve role changes.
+          Check asset-ID confusion, zero-ID semantics, decimals, rounding, and
+          application custody across every lifecycle path.
+        - Review AVM integer and byte semantics, overflow and underflow behavior,
+          wide arithmetic, conversions, lengths, substring and indexing, stack and
+          scratch-slot use, loops, opcode and budget limits, logs, and ABI encoding.
+          Check PyTeal branching and sequencing against emitted TEAL rather than
+          trusting source-level intent.
+        - When artifacts exist, deterministically compile PyTeal or source TEAL and
+          compare exact program bytes or hashes with deployment manifests and
+          available deployed programs. Treat missing parameters, compiler-version
+          drift, unverifiable network state, or absent bytecode as inconclusive,
+          not as a successful consistency check.
+
+        ## Local validation and findings
+
+        Prefer deterministic local compile, unit and integration tests, local-ledger
+        simulation, dry-run fixtures, and adversarial transaction groups covering
+        rekey, close, fee, lease, validity, index, type, sender, asset, app, inner
+        transaction, and lifecycle mutations. Run compilers, test runners,
+        simulators, fuzzers, or analyzers only through a registered execution tool.
+        If none is available, label execution unsupported. Record revision, AVM and
+        compiler versions, exact tool and command, fixture or seed, bounds, exit
+        status, and output or artifact; timeouts and errors remain incomplete
+        coverage, and bounded success proves only the named cases.
+
+        Report only a production-reachable attacker sequence with the violated
+        invariant and decisive file:line evidence. Include a minimal deterministic
+        local reproduction when practical and retest the remediation revision.
+        Separately list programs, methods, group shapes, properties, artifacts,
+        and configurations examined; targets skipped with reasons; checks or tools
+        unsupported locally; and questions left inconclusive by missing artifacts,
+        ambiguity, failure, timeout, or insufficient evidence. Never merge findings
+        with tool errors, skipped work, unsupported work, or inconclusive work.

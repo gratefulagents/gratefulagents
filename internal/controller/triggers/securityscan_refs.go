@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
@@ -229,7 +230,7 @@ func resolveSecurityScanRefs(
 
 	workflowRef := scan.Spec.WorkflowRef
 	if workflowRef == nil && len(scan.Spec.Workflow) == 0 {
-		workflowRef = &triggersv1alpha1.SecurityResourceRef{Name: triggersv1alpha1.DefaultSecurityWorkflowName}
+		workflowRef = &triggersv1alpha1.SecurityResourceRef{Name: automaticSecurityScanWorkflowName(scan.Spec)}
 	}
 	if ref := workflowRef; ref != nil {
 		workflow := &triggersv1alpha1.SecurityWorkflow{}
@@ -291,6 +292,94 @@ func resolveSecurityScanRefs(
 	}
 
 	return resolved, nil
+}
+
+//nolint:gocyclo // Routing intentionally keeps the complete precedence table together for auditability.
+func automaticSecurityScanWorkflowName(spec triggersv1alpha1.SecurityScanSpec) string {
+	parts := []string{spec.RepoURL}
+	parts = append(parts, spec.AdditionalRepos...)
+	var focus string
+	var languages []string
+	if spec.Scope != nil {
+		focus = spec.Scope.Focus
+		parts = append(parts, focus)
+		parts = append(parts, spec.Scope.IncludePaths...)
+		parts = append(parts, spec.Scope.Languages...)
+		languages = spec.Scope.Languages
+	}
+
+	evidence, tokens := securityScanRoutingEvidence(parts...)
+	focusEvidence, focusTokens := securityScanRoutingEvidence(focus)
+	has := func(values ...string) bool {
+		for _, value := range values {
+			if tokens[value] {
+				return true
+			}
+		}
+		return false
+	}
+	hasPhrase := func(values ...string) bool {
+		for _, value := range values {
+			if strings.Contains(" "+evidence+" ", " "+value+" ") {
+				return true
+			}
+		}
+		return false
+	}
+
+	cosmos := has("cosmos", "cosmwasm", "ibc", "cometbft", "tendermint") || hasPhrase("cosmos sdk")
+	otherChain := has("evm", "ethereum", "solidity", "vyper", "solana", "substrate", "polkadot", "xcm",
+		"aptos", "sui", "cairo", "starknet", "algorand", "bitcoin", "ton", "toncoin") ||
+		hasPhrase("lightning network", "ton blockchain")
+	if cosmos && !otherChain && focusTokens["abci"] && (focusTokens["halt"] || focusTokens["halting"] ||
+		focusTokens["panic"] || focusTokens["nondeterminism"] || focusTokens["nondeterministic"] ||
+		strings.Contains(" "+focusEvidence+" ", " non determinism ")) {
+		return "cosmos-abci-halt-review"
+	}
+
+	nonEVMChain := cosmos ||
+		has("solana", "substrate", "polkadot", "xcm", "aptos", "sui", "cairo", "starknet", "algorand", "bitcoin", "ton") ||
+		hasPhrase("anchor toml", "anchor lang", "lightning network", "ton blockchain") ||
+		has("lightningnetwork", "toncoin")
+	for _, language := range languages {
+		normalized, _ := securityScanRoutingEvidence(language)
+		if normalized == "cairo" || normalized == "tact" {
+			nonEVMChain = true
+		}
+	}
+
+	evm := has("evm", "ethereum") || hasPhrase("go ethereum")
+	evmContract := has("solidity", "vyper", "openzeppelin", "erc20", "erc721", "erc1155") ||
+		hasPhrase("hardhat config", "foundry toml") ||
+		(tokens["sol"] && (strings.Contains(evidence, " contracts ") || strings.HasSuffix(evidence, " contracts"))) ||
+		(evm && (has("contract", "contracts", "hardhat", "foundry") || hasPhrase("smart contract", "smart contracts")))
+	protocolComponent := has("consensus", "rollup", "sequencer", "validator") ||
+		hasPhrase("peer to peer", "execution client", "consensus client", "cross chain", "multi chain") ||
+		has("geth", "reth", "nethermind", "besu", "erigon")
+	blockchainProtocol := nonEVMChain ||
+		hasPhrase("cross chain", "multi chain") ||
+		(evm && protocolComponent) ||
+		(has("blockchain") && (has("client", "node", "protocol", "bridge") || protocolComponent)) ||
+		(has("bridge", "rollup") && (evm || nonEVMChain || has("blockchain", "chain")))
+
+	if blockchainProtocol || (evmContract && nonEVMChain) {
+		return "blockchain-protocol-audit"
+	}
+	if evmContract {
+		return "smart-contract-review"
+	}
+	return triggersv1alpha1.DefaultSecurityWorkflowName
+}
+
+func securityScanRoutingEvidence(parts ...string) (string, map[string]bool) {
+	words := strings.FieldsFunc(strings.ToLower(strings.Join(parts, " ")), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	tokens := make(map[string]bool, len(words))
+	for _, word := range words {
+		tokens[word] = true
+	}
+	return strings.Join(words, " "), tokens
 }
 
 func getSecurityScanRef(ctx context.Context, c client.Reader, namespace, name, kind string, obj client.Object) error {

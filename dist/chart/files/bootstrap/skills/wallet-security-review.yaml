@@ -1,0 +1,109 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: wallet-security-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    Wallet security review covering entropy, BIP-32/39/44 derivation, key custody,
+    transaction intent and display, blind signing, provider permissions, platform
+    isolation, hardware wallets, backups, and recovery.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill for browser, mobile, desktop, hardware, embedded, CLI, and
+        smart-account wallets, transaction signers, provider SDKs, and recovery
+        applications. First identify supported chains, account and signature
+        schemes, custody model, trust boundaries, release targets, and whether
+        cryptographic operations occur in application code, a secure element,
+        hardware wallet, operating-system keystore, remote signer, or contract.
+
+        ## Keys, seeds, and accounts
+
+        - Inventory entropy sources, mnemonic generation and import, BIP-39
+          language and passphrase handling, BIP-32 child derivation, hardened
+          boundaries, BIP-44 purpose/coin/account/change/index paths where
+          applicable, chain-specific derivation, watch-only accounts, imported
+          keys, account abstraction, multisig, backups, export, migration,
+          deletion, and recovery.
+        - Check entropy quality and failure behavior, seed normalization and
+          validation, path parsing, public-child derivation exposure, key and
+          address curve selection, network and coin-type separation, duplicate
+          account discovery, gap limits, metadata binding, and test-versus-
+          production domain separation.
+        - Trace secret material from creation or import through memory, IPC, logs,
+          analytics, crash reports, clipboard, screenshots, storage, backups,
+          synchronization, signing, export, and deletion. Review encryption and
+          key derivation, salts and nonces, authentication gates, brute-force
+          resistance, zeroization where meaningful, lock state, session lifetime,
+          and compromise of the host or backup service.
+
+        ## Transaction intent and signing
+
+        - Reconstruct each transaction from untrusted provider request to decoded
+          intent, policy checks, user display, approval, serialization, signing,
+          broadcast, replacement, and confirmation. Bind signatures to the exact
+          chain, network, account, nonce, recipient, asset, amount, fee, call data,
+          typed-data domain, validity bounds, and signature scheme.
+        - Compare decoded fields and displayed intent with the exact bytes or hash
+          signed. Check blind-signing fallbacks, unknown fields, truncation,
+          Unicode and address lookalikes, decimals and token metadata, proxy and
+          contract identity, unlimited approvals, permit and typed-data domains,
+          simulation drift, fee and change manipulation, UTXO selection, change
+          addresses, replacement transactions, and multi-action or cross-chain
+          requests.
+        - Validate canonical encoding, signature malleability, replay protection,
+          nonce management, low-S or chain-specific rules, network/address-format
+          confusion, stale simulation, hardware display limitations, cancellation,
+          partial signing, and concurrent requests. A decoded UI is not evidence
+          of authorization unless it is cryptographically bound to what is signed.
+
+        ## Providers and platform isolation
+
+        - Audit WalletConnect sessions and browser/provider permissions by origin,
+          chain, account and method. Check connection prompts, session namespaces,
+          origin display, iframe and extension isolation, content-script and page
+          boundaries, message source validation, phishing-resistant account
+          selection, revocation, expiry, reconnection, request ordering, and
+          unsolicited chain or account changes.
+        - For mobile and desktop, review deep and universal links, intents, custom
+          URL schemes, IPC, local services, WebViews, clipboard and screenshot
+          exposure, backup flags, device binding, biometric fallback, lock-screen
+          behavior, notifications, update signing, and downgrade resistance.
+        - For hardware wallets and secure elements, bind host requests to trusted
+          display and physical confirmation. Review APDU or transport framing,
+          app and firmware identity, attestation claims, anti-klepto or nonce
+          behavior where used, PIN and retry policy, supply-chain assumptions,
+          debug interfaces, firmware updates, rollback, seed import/export, and
+          recovery from loss or compromise.
+
+        ## Recovery, local validation, and reporting
+
+        - Model loss of device, password, one key, backup provider, hardware wallet,
+          guardian, service, and network access. Review social recovery and
+          guardians for enrollment, quorum, replay, replacement, collusion,
+          timelocks, notification, cancellation, and post-recovery invalidation.
+          Confirm recovery does not silently weaken normal signing policy.
+        - Prefer deterministic local unit and integration tests, official key and
+          address vectors, transaction fixtures, malformed provider requests,
+          permission and origin tests, UI-to-signature comparisons, and platform
+          isolation tests. Use registered execution tools for test runners,
+          emulators, fuzzers, analyzers, and cryptographic-vector suites. Record
+          revision, exact tool and command, versions, fixture or vector, seed,
+          bounds, exit status, and artifacts. If execution is unavailable, label
+          it unsupported; failures and timeouts are inconclusive coverage, and a
+          bounded clean run proves only the named cases.
+
+        Report only a production-reachable attacker sequence with the violated
+        custody or authorization invariant and decisive file:line evidence.
+        Include a minimal deterministic local reproduction when practical without
+        exposing real secrets, and retest the fixed revision. Separately enumerate
+        chains, platforms, account types, signing flows, recovery paths, properties,
+        and configurations examined; targets skipped with reasons; checks or
+        execution unsupported locally; and work inconclusive due to missing
+        hardware, artifacts, ambiguity, timeout, failure, or insufficient evidence.
+        Keep findings, tool errors, skipped, unsupported, and inconclusive work
+        explicitly distinct.

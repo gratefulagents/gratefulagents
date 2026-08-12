@@ -11,6 +11,64 @@ import (
 	"time"
 )
 
+func TestCollectGoFuzzArtifactsPreservesCorpusEntries(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "parser", "testdata", "fuzz", "FuzzDecode", "deadbeef")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("go test fuzz v1\n[]byte(\"boom\")\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := collectGoFuzzArtifacts(root, nil, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Name != "go-fuzz-corpus/parser/testdata/fuzz/FuzzDecode/deadbeef" || string(artifacts[0].Data) != "go test fuzz v1\n[]byte(\"boom\")\n" || artifacts[0].Digest == "" {
+		t.Fatalf("unexpected artifacts: %+v", artifacts)
+	}
+}
+
+func TestCollectGoFuzzArtifactsSkipsExistingCorpus(t *testing.T) {
+	root := t.TempDir()
+	oldPath := filepath.Join(root, "testdata", "fuzz", "FuzzDecode", "old")
+	if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldPath, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := goFuzzCorpusPaths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPath := filepath.Join(root, "testdata", "fuzz", "FuzzDecode", "new")
+	if err := os.WriteFile(newPath, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := collectGoFuzzArtifacts(root, baseline, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 || string(artifacts[0].Data) != "new" {
+		t.Fatalf("unexpected artifacts: %+v", artifacts)
+	}
+}
+
+func TestCollectGoFuzzArtifactsEnforcesBudget(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "testdata", "fuzz", "FuzzDecode", "deadbeef")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("too large"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := collectGoFuzzArtifacts(root, nil, 2); err == nil {
+		t.Fatal("expected artifact budget error")
+	}
+}
+
 func TestProcessSandboxExecutesArgvWithoutShell(t *testing.T) {
 	request := ExecutionRequest{
 		Invocation: Invocation{Argv: []string{"/usr/bin/printf", "%s", "target; touch /tmp/must-not-exist"}, Budgets: Budgets{Timeout: time.Second, MaxOutputSize: 1024}},

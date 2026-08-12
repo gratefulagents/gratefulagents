@@ -147,7 +147,7 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		}
 		dockerfiles += string(data)
 	}
-	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata", "slither", "halmos"} {
+	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata", "slither", "halmos", "go-fuzz-tests"} {
 		tool, ok := registry.Tool(name)
 		if !ok || !tool.Enabled {
 			t.Fatalf("%s is not executable: %+v", name, tool)
@@ -162,10 +162,10 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		if strings.Count(dockerfiles, tool.Image) != 1 {
 			t.Fatalf("%s pin is not present exactly once in the security-tools Dockerfile", name)
 		}
-		if slices.Contains([]string{"slither", "halmos"}, name) && (!tool.OCIWritableTarget || tool.OCIPath == "") {
+		if slices.Contains([]string{"slither", "halmos", "go-fuzz-tests"}, name) && (!tool.OCIWritableTarget || tool.OCIPath == "") {
 			t.Fatalf("%s requires an ephemeral writable build target and explicit root PATH: %+v", name, tool)
 		}
-		if name != "schemathesis" && name != "halmos" && tool.ExitCodes[1] != StatusError {
+		if name != "schemathesis" && name != "halmos" && name != "go-fuzz-tests" && tool.ExitCodes[1] != StatusError {
 			t.Fatalf("%s exit 1 must be operational error", name)
 		}
 	}
@@ -362,6 +362,11 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 			name:   "halmos",
 			config: RunConfig{Tool: "halmos", Target: Target{Type: "foundry_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("halmos")), MediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"}},
 			want:   []string{"halmos", "--root", "/workspace/project", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"},
+		},
+		{
+			name:   "go-fuzz-tests",
+			config: RunConfig{Tool: "go-fuzz-tests", Target: Target{Type: "go_fuzz_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("go-fuzz")), MediaType: "application/vnd.gratefulagents.go-fuzz-project.v1+directory"}, Arguments: map[string]string{"package": "./parser", "fuzz": "^FuzzDecode$"}},
+			want:   []string{"go", "-C", "/workspace/project", "test", "-json", "./parser", "-run=^$", "-fuzz", "^FuzzDecode$", "-fuzztime=30s", "-parallel=1"},
 		},
 	}
 	for _, test := range cases {

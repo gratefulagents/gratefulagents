@@ -27,6 +27,7 @@ import (
 // output-size budgets.
 type ProcessSandbox struct{}
 
+//nolint:gocyclo // Execution keeps sandbox setup, quota enforcement, collection, and status mapping in one auditable path.
 func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeResult {
 	if len(req.Invocation.Argv) == 0 {
 		return NativeResult{ExitCode: -1, Err: errors.New("empty registered invocation")}
@@ -105,6 +106,14 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 	cmd.Env = deterministicEnvironment(req.Tool.Name, home)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	goFuzzBaseline := map[string]bool{}
+	if req.Tool.Name == "go-fuzz-tests" {
+		var baselineErr error
+		goFuzzBaseline, baselineErr = goFuzzCorpusPaths(executionTarget)
+		if baselineErr != nil {
+			return NativeResult{ExitCode: -1, Err: fmt.Errorf("inventory Go fuzz corpus: %w", baselineErr)}
+		}
+	}
 	var err error
 	if ociWork != "" {
 		quotaDirectories := []string{ociWork}
@@ -159,6 +168,14 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 	}
 	exitCode := processExitCode(err)
 	result := NativeResult{Output: stdout.Bytes(), ExitCode: exitCode, Environment: environment}
+	if req.Tool.Name == "go-fuzz-tests" {
+		artifacts, collectErr := collectGoFuzzArtifacts(executionTarget, goFuzzBaseline, limit)
+		if collectErr != nil && err == nil {
+			err = fmt.Errorf("collect Go fuzz reproducer: %w", collectErr)
+		} else {
+			result.Artifacts = artifacts
+		}
+	}
 	completeEvidence := ociOutputCollected || (req.Tool.Name == "zeek" && exitCode == 0)
 	if exitCode >= 0 && completeEvidence {
 		result.Examined = []string{req.Config.Target.Locator}
@@ -185,6 +202,68 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 		}
 	}
 	return result
+}
+
+func goFuzzCorpusPaths(root string) (map[string]bool, error) {
+	paths := map[string]bool{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		for i := 0; i+2 < len(parts); i++ {
+			if parts[i] == "testdata" && parts[i+1] == "fuzz" {
+				paths[path] = true
+				break
+			}
+		}
+		return nil
+	})
+	return paths, err
+}
+
+func collectGoFuzzArtifacts(root string, baseline map[string]bool, maxBytes int64) ([]Artifact, error) {
+	const maxArtifacts = 100
+	all, err := goFuzzCorpusPaths(root)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(all))
+	for path := range all {
+		if !baseline[path] {
+			paths = append(paths, path)
+		}
+	}
+	if len(paths) > maxArtifacts {
+		return nil, fmt.Errorf("more than %d new Go fuzz corpus artifacts", maxArtifacts)
+	}
+	sort.Strings(paths)
+	artifacts := make([]Artifact, 0, len(paths))
+	var total int64
+	for _, path := range paths {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return nil, statErr
+		}
+		total += info.Size()
+		if total > maxBytes {
+			return nil, fmt.Errorf("Go fuzz corpus exceeds %d-byte artifact budget", maxBytes)
+		}
+		data, readErr := os.ReadFile(path) // #nosec G304 -- path is rooted in the private immutable target snapshot.
+		if readErr != nil {
+			return nil, readErr
+		}
+		rel, _ := filepath.Rel(root, path)
+		artifacts = append(artifacts, Artifact{Name: "go-fuzz-corpus/" + filepath.ToSlash(rel), MediaType: "application/octet-stream", Digest: sha256Digest(data), Size: len(data), Data: data})
+	}
+	return artifacts, nil
 }
 
 func zapReportExaminedTarget(output []byte, baseURL string, scopes []string) bool {
