@@ -14,23 +14,66 @@ spec:
   provider: Immunefi
   displayName: LayerZero
   programURL: https://immunefi.com/bug-bounty/layerzero/scope/
-  verifiedAt: 2026-08-12T00:00:00Z
+  verifiedAt: 2026-08-12T16:35:00Z
   scopePolicy: |
-    Snapshot verified against the current/last-known Immunefi scope URL on 2026-08-12. The live program page, including its asset list, impact matrix, exclusions, and reward terms, controls if it differs from this snapshot.
+    Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-07-16T21:53:08.647Z).
 
-    Repository targets:
-    - Catalog repository: https://github.com/LayerZero-Labs/LayerZero-v2.
-    - Source must be matched to a listed deployed/in-scope asset on the live program page. Repository affiliation is not blanket eligibility; unlisted paths, branches, commits, deployments, forks, tests, and examples are not eligible unless the live scope explicitly lists them.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Up to USD 15,000,000 for eligible Critical impacts, subject to the live reward table and its eligibility, severity, and payout terms.
+    Smart Contract
 
-    Eligible impacts:
-    - Smart-contract and cross-chain messaging: direct theft or loss of funds, permanent freezing of funds, message-validation or bridge-authentication bypass, and unauthorized message execution.
-    - Severity, asset eligibility, and impact qualification are determined solely by the live Immunefi scope and reward table.
+    Assets in Scope
+    https://etherscan.io/address/0x4d73adb72bc3dd368966edd0f0b2148401a178e2#code    UltraLightNodeV2.sol    2023-04-06
+    https://etherscan.io/address/0x07245eEa05826F5984c7c3C8F478b04892e4df89    FPValidator.sol    2023-04-06
+    https://etherscan.io/address/0x66A71Dcef29A0fFBDBE3c6a460a3B5BC225Cd675#code    Endpoint (EVM)    2023-04-17
+    https://aptoscan.com/account/0x54ad3d30af77b60d939ae356e6606de9a4da67583f02b962d2d3f2e481484e90    Endpoint (Aptos)    2024-10-29
+    https://github.com/LayerZero-Labs/solidity-examples/blob/main/contracts/token/oft/v1/OFT.sol    OFT (EVM)    2023-04-17
+    https://github.com/LayerZero-Labs/solidity-examples/blob/main/contracts/token/oft/v2/OFTV2.sol    OFTv1.2 (EVM)    2023-04-17
+    https://github.com/LayerZero-Labs/solidity-examples/blob/main/contracts/token/onft721/ONFT721.sol    ONFT721 (EVM)    2023-04-17
+    https://github.com/LayerZero-Labs/solidity-examples/blob/main/contracts/token/onft1155/ONFT1155.sol    ONFT1155 (EVM)    2023-04-17
+    https://etherscan.io/address/0x1a44076050125825900e736c501f859c50fe728c#code    EndpointV2 (EVM)    2024-02-13
+    https://etherscan.io/address/0xD231084BfB234C107D3eE2b22F97F3346fDAF705#code    SendULN301 (EVM)    2024-02-13
+    https://etherscan.io/address/0x245b6e8ffe9ea5fc301e32d16f66bd4c2123eefc#code    ReceiveULN301 (EVM)    2024-02-13
+    https://etherscan.io/address/0xbb2ea70c9e858123480642cf96acbcce1372dce1#code    SendULN302 (EVM)    2024-02-13
+    https://explorer.solana.com/address/6doghB248px58JSSwG4qejQ46kFMW4AMj7vzJnWZHNZn    SendULN302 (Solana)    2024-10-29
+    https://etherscan.io/address/0xc02ab410f0734efa3f14628780e6e695156024c2#code    ReceiveULN302 (EVM)    2024-02-13
+    https://explorer.solana.com/address/7a4WjyR8VZ7yZz5XJAKm39BUGn5iT9CKcv2pmG9tdXVH    ReceiveULN302 (Solana)    2024-10-29
+    https://etherscan.io/address/0x589dedbd617e0cbcb916a9223f4d1300c294236b#code    DVN (EVM)    2024-02-13
+    https://explorer.solana.com/address/76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6    EndpointV2 (Solana)    2024-10-29
+    https://explorer.solana.com/address/4VDjp6XQaxoZf5RGwiPU9NR1EXSZn2TP4ATMmiSzLfhb    DVN (Solana)    2024-10-29
+    https://github.com/LayerZero-Labs/devtools/tree/main/packages/oapp-evm/contracts/oapp    OApp (EVM)    2024-10-29
+    https://github.com/LayerZero-Labs/devtools/tree/main/packages/oft-evm/contracts    OFT (EVM)    2024-10-29
+    https://github.com/LayerZero-Labs/devtools/tree/main/examples/oft-solana    OFT (Solana)    2024-10-29
+    https://tonviewer.com/0:1eb2bbea3d8c0d42ff7fd60f0264c866c934bbff727526ca759e7374cae0c166    Controller (TON)    2025-02-12
+    https://tonviewer.com/0:150645746e25be5486eb3b2f5d98b44c6b324697c48d495d059f96fc9d3ec368    ULNManager (TON)    2025-02-12
+    https://tonviewer.com/0:0d122dec4ec8bd66c68344faf0dd471d727a7d57a21b62051705bbe2e4c272a7    DVNProxy (TON)    2025-02-12
+    https://immunefi.com    Primacy of Impact    2025-11-11
 
-    Out of scope:
-    - Any asset, deployment, code path, dependency, third-party integration, or impact not explicitly listed by the live program; known issues, theoretical or best-practice-only reports, and attacks requiring privileged or unrealistic assumptions are excluded unless the live scope says otherwise.
+    Impacts in Scope
+    Low
+    All above impacts for OApp, OFT & ONFT related contracts
+    High
+    Any governance voting result manipulation
+    Medium
+    Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+    Critical
+    Exploits resulting in the permanent locking or theft of user funds
+    Critical
+    Permanent DoS attacks (excluding volumetric attacks)
 
-    Testing and submission:
-    - Test only private/local environments and accounts you control. Do not test mainnet, public testnets, production services, third-party systems, or other users' assets. Do not perform DoS, traffic generation, phishing, social engineering, fund movement, or unapproved public disclosure. Submit a minimal reproducible PoC privately through Immunefi and follow the live program's disclosure and eligibility terms.
+    Out of scope
+    - Sybil attacks\n- Impacts to OApps themselves as a result of their own misconfiguration (including but not limited to eg. configuring bad libraries, verifier networks, executors…).\n- DoS of LayerZero infrastructure is not eligible for bug bounty rewards\n- Reports regarding bugs that LayerZero Labs was previously aware of are not eligible for a reward\n- Dependencies & Third Party Code\n- Temporary impacts resulting from configuration adjustment race-conditions
+    - Incorrect data supplied by third party oracles\n  - Not to exclude oracle manipulation/flash loan attacks\n- Impacts requiring basic economic and governance attacks (e.g. 51% attack)\n- Lack of liquidity impacts\n- Impacts from Sybil attacks\n- Impacts involving centralization risks
+    - Impacts requiring attacks that the reporter has already exploited themselves, leading to damage\n- Impacts caused by attacks requiring access to leaked keys/credentials\n- Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed\n- Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code\n- Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production\n- Best practice recommendations\n- Feature requests\n- Impacts on test files and configuration files unless stated otherwise in the bug bounty program\n- Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Program rules and rewards
+
+    $3a
+
+    $39
+
+    ['no_ofac_sdn']
+
+    - Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet\n- Any testing with pricing oracles or third-party smart contracts\n- Attempting phishing or other social engineering attacks against our employees and/or customers\n- Any testing with third-party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)\n- Any denial of service attacks that are executed against project assets\n- Automated testing of services that generates significant amounts of traffic\n- Public disclosure of an unpatched vulnerability in an embargoed bounty\n- [Any other actions prohibited by the Immunefi Rules](https://immunefi.com/rules/)
+
+    $38

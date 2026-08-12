@@ -28,8 +28,8 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-spark":     {"Smart Contract", "Web & App"},
 		"immunefi-wormhole":  {"Blockchain/DLT", "Smart Contract"},
 	}
-	// New snapshots may temporarily use the conservative structured format
-	// until their complete verbatim Immunefi scope is captured.
+	// Active programs use complete captured scopes. Programs no longer present
+	// in Immunefi's live catalog retain an explicitly archived summary.
 	const minimumProgramCount = 20
 
 	paths, err := filepath.Glob(repoPath("configs", "securityprograms", "*.yaml"))
@@ -74,8 +74,8 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			if program.Spec.Provider != "Immunefi" || !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
 				t.Fatalf("unexpected provider or provenance URL: %q %q", program.Spec.Provider, program.Spec.ProgramURL)
 			}
-			categories, hasVerbatimExpectation := expectedCategories[program.Name]
-			if hasVerbatimExpectation {
+			categories, hasCategoryExpectation := expectedCategories[program.Name]
+			if strings.Contains(program.Spec.ScopePolicy, "Verbatim Immunefi scope") {
 				for _, marker := range []string{
 					"Verbatim Immunefi scope",
 					"Displayed wording is preserved; layout whitespace is normalized.",
@@ -93,13 +93,13 @@ func TestSecurityProgramLibrary(t *testing.T) {
 					}
 				}
 			} else {
-				for _, marker := range []string{"Repository targets:", "Rewards:", "Eligible impacts:", "Out of scope:", "Testing and submission:"} {
+				for _, marker := range []string{"Archived last-known scope summary", "Repository targets:", "Rewards:", "Eligible impacts:", "Out of scope:", "Testing and submission:"} {
 					if !strings.Contains(program.Spec.ScopePolicy, marker) {
 						t.Errorf("scopePolicy missing %q", marker)
 					}
 				}
 			}
-			if len(categories) > 0 {
+			if hasCategoryExpectation && len(categories) > 0 {
 				if got := strings.Count(program.Spec.ScopePolicy, "Assets in Scope"); got != len(categories) {
 					t.Errorf("Assets in Scope sections = %d, want %d categories", got, len(categories))
 				}

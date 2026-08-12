@@ -14,23 +14,122 @@ spec:
   provider: Immunefi
   displayName: Ethena
   programURL: https://immunefi.com/bug-bounty/ethena/scope/
-  verifiedAt: 2026-08-12T00:00:00Z
+  verifiedAt: 2026-08-12T16:35:00Z
   scopePolicy: |
-    Snapshot verified against the current/last-known Immunefi scope URL on 2026-08-12. The live program page, including its asset list, impact matrix, exclusions, and reward terms, controls if it differs from this snapshot.
+    Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-08-11T08:18:02.651Z).
 
-    Repository targets:
-    - Catalog repository: https://github.com/ethena-labs/ethena-contracts.
-    - Source must be matched to a listed deployed/in-scope asset on the live program page. Repository affiliation is not blanket eligibility; unlisted paths, branches, commits, deployments, forks, tests, and examples are not eligible unless the live scope explicitly lists them.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Up to USD 3,000,000 for eligible Critical impacts, subject to the live reward table and its eligibility, severity, and payout terms.
+    Smart Contract
 
-    Eligible impacts:
-    - Smart-contract: direct theft or loss of funds, permanent freezing of funds, protocol insolvency, and unauthorized mint, redemption, collateral, or accounting actions affecting in-scope assets.
-    - Severity, asset eligibility, and impact qualification are determined solely by the live Immunefi scope and reward table.
+    Assets in Scope
+    https://etherscan.io/address/0x4c9edd5852cd905f086c759e8383e09bff1e68b3    USDe.sol    2024-04-04
+    https://etherscan.io/address/0xe3490297a08d6fC8Da46Edb7B6142E4F461b62D3#code    EthenaMinting.sol V2    2024-04-04
+    https://etherscan.io/address/0x9d39a5de30e57443bff2a8307a4256c8797a3497    StakedUSDe.sol    2024-04-04
+    https://etherscan.io/address/0x9d39a5de30e57443bff2a8307a4256c8797a3497    StakedUSDeV2.sol    2024-04-04
+    https://etherscan.io/address/0x7FC7c91D556B400AFa565013E3F32055a0713425    USDeSilo.sol    2024-04-04
+    https://etherscan.io/address/0x2cc440b721d2cafd6d64908d6d8c4acc57f8afc3    SingleAdminAccessControl.sol    2024-04-04
+    https://etherscan.io/address/0x8707f238936c12c309bfc2B9959C35828AcFc512    EthenaLPStaking.sol. Present on both Ethereum and Mantle: https://explorer.mantle.xyz/address/0xf2fa332bD83149c66b09B45670bCe64746C6b439?tab=contract    2024-04-04
+    https://etherscan.io/address/0xf2fa332bd83149c66b09b45670bce64746c6b439#tokentxns    StakingRewardsDistributor.sol    2024-04-04
+    https://etherscan.io/address/0x57e114B691Db790C35207b2e685D4A43181e6061    ENA.sol    2024-04-04
+    https://immunefi.com/    Primacy of Impact    2024-04-04
+    https://etherscan.io/address/0x58538e6a46e07434d7e7375bc268d3cb839c0133    ENAOFTAdapter.sol    2024-04-15
+    https://etherscan.io/address/0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34    USDeOFTAdapter.sol    2024-04-15
+    https://etherscan.io/address/0x211cc4dd073734da055fbf44a2b4667d5e5fe5d2    StakedUSDeOFTAdapter.sol    2024-04-15
+    https://explorer.mantle.xyz/address/0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34    USDeOFT.sol - Present on the following chains: Mantle, Arbitrum One, Manta Pacific, Optimism, BNB, Kava, Scroll, Mode, Metis, Fraxtal, Linea, and some others updated here: https://docs.ethena.fi/solution-design/key-addresses    2024-04-15
+    https://explorer.mantle.xyz/address/0x211Cc4DD073734dA055fbF44a2b4667d5E5fE5d2    StakedUSDeOFT.sol - Present on the following chains: Mantle, Arbitrum One, Manta Pacific, Optimism, BNB, Kava, Scroll, Mode, Metis, Fraxtal, Linea, and some others updated here: https://docs.ethena.fi/solution-design/key-a    2024-04-15
+    https://explorer.mantle.xyz/address/0x58538e6A46E07434d7E7375Bc268D3cb839C0133    ENAOFT.sol - Present on the following chains: Mantle, Arbitrum One, Manta Pacific, Optimism, BNB, Kava, Scroll, Mode, Metis, Fraxtal, Linea, and some others updated here: https://docs.ethena.fi/solution-design/key-addresses    2024-04-15
+    https://etherscan.io/address/0x8bE3460A480c80728a8C4D7a5D5303c85ba7B3b9#code    StakedENA.sol    2025-04-04
+    https://etherscan.io/address/0xc139190f447e929f090edeb554d95abb8b18ac1c#code    USDtb.sol    2025-04-04
+    https://etherscan.io/address/0xa3DDBf92077b850E29C4805Df0a2459Ae048416a    USDtbMinting.sol    2025-04-04
+    https://tonviewer.com/EQAIb6KmdfdDR7CN1GBqVJuP25iCnLKCvBlJ07Evuu2dzP5f    USDe minter contract on TON    2025-05-20
+    https://tonviewer.com/EQDQ5UUyPHrLcQJlPAczd_fjxn8SLrlNQwolBznxCdSlfQwr    tsUSDe minter contract on TON    2025-05-20
+    https://tonviewer.com/EQChGuD1u0e7KUWHH5FaYh_ygcLXhsdG2nSHPXHW8qqnpZXW    tsUSDe vault on TON    2025-05-20
+    https://tonviewer.com/EQAjpnYUX43uNjL3IqrFA5LyLPC0vo9iTgOCeab1AF-2aYcq    USDe OFT contract on TON    2025-05-20
+    https://etherscan.io/address/0x73E35C5c35A274E34AdE6EB13cC7f62aEE323728    USDtb PSM Contract    2026-08-10
 
-    Out of scope:
-    - Any asset, deployment, code path, dependency, third-party integration, or impact not explicitly listed by the live program; known issues, theoretical or best-practice-only reports, and attacks requiring privileged or unrealistic assumptions are excluded unless the live scope says otherwise.
+    Impacts in Scope
+    Low
+    Contract fails to deliver promised returns, but doesn't lose value
+    High
+    Theft of unclaimed yield
+    High
+    Theft of unclaimed royalties
+    High
+    Permanent freezing of unclaimed yield
+    High
+    Permanent freezing of unclaimed royalties
+    High
+    Temporary freezing of funds
+    Medium
+    Smart contract unable to operate due to lack of token funds
+    Medium
+    Block stuffing
+    Medium
+    Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+    Medium
+    Theft of gas
+    Medium
+    Unbounded gas consumption
+    Critical
+    Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results
+    Critical
+    Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+    Critical
+    Permanent freezing of funds
+    Critical
+    Protocol insolvency
 
-    Testing and submission:
-    - Test only private/local environments and accounts you control. Do not test mainnet, public testnets, production services, third-party systems, or other users' assets. Do not perform DoS, traffic generation, phishing, social engineering, fund movement, or unapproved public disclosure. Submit a minimal reproducible PoC privately through Immunefi and follow the live program's disclosure and eligibility terms.
+    Out of scope
+    - Incorrect data supplied by third party oracles\n  - Not to exclude oracle manipulation/flash loan attacks\n- Impacts requiring basic economic and governance attacks (e.g. 51% attack)\n- Lack of liquidity impacts\n- Impacts from Sybil attacks\n- Impacts involving centralization risks
+    - Impacts requiring attacks that the reporter has already exploited themselves, leading to damage\n- Impacts caused by attacks requiring access to leaked keys/credentials\n- Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed\n- Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code\n- Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production\n- Best practice recommendations\n- Feature requests\n- Impacts on test files and configuration files unless stated otherwise in the bug bounty program\n- Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Websites and Applications
+
+    Assets in Scope
+    https://www.ethena.fi    Project Link    2024-04-04
+    https://app.ethena.fi    Subdomain    2024-04-04
+    https://claim.ethena.fi    Subdomain    2024-04-04
+    https://immunefi.com    Primacy of Impact    2026-03-04
+
+    Impacts in Scope
+    High
+    Injecting/modifying the static content on the target application without JavaScript (persistent), such as:  HTML injection without JavaScript, Replacing existing text with arbitrary text, Arbitrary file uploads, etc
+    High
+    Changing sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as:  Email, Password of the victim etc.
+    High
+    Improperly disclosing confidential user information, such as:  Email address, Phone number, Physical address, etc.
+    High
+    Subdomain takeover without already-connected wallet interaction
+    Critical
+    Retrieve sensitive data/files from a running server, such as:   /etc/shadow, database passwords, blockchain keys (this does not include non-sensitive environment variables, open source code, or usernames)
+    Critical
+    Taking state-modifying authenticated actions (with or without blockchain state interaction) on behalf of other users without any interaction by that user, such as:   Changing registration information, Commenting, Voting, Making trades, Withdrawals, etc.
+    Critical
+    Malicious interactions with an already-connected wallet, such as:  Modifying transaction arguments or parameters, Substituting contract addresses, Submitting malicious transactions
+    Critical
+    Execute arbitrary system commands
+    Critical
+    Taking down the application/website
+    Critical
+    Subdomain takeover with already-connected wallet interaction
+    Critical
+    Direct theft of user funds
+    Critical
+    Injection of malicious HTML or XSS through metadata
+
+    Out of scope
+    $39
+    - Impacts requiring attacks that the reporter has already exploited themselves, leading to damage\n- Impacts caused by attacks requiring access to leaked keys/credentials\n- Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed\n- Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code\n- Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production\n- Best practice recommendations\n- Feature requests\n- Impacts on test files and configuration files unless stated otherwise in the bug bounty program\n- Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Program rules and rewards
+
+    $3c
+
+    $3b
+
+    ['no_ofac_sdn', 'no_official_contributor', 'no_employee', 'no_auditor']
+
+    - Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet\n- Any testing with pricing oracles or third-party smart contracts\n- Attempting phishing or other social engineering attacks against our employees and/or customers\n- Any testing with third-party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)\n- Any denial of service attacks that are executed against project assets\n- Automated testing of services that generates significant amounts of traffic\n- Public disclosure of an unpatched vulnerability in an embargoed bounty\n- [Any other actions prohibited by the Immunefi Rules](https://immunefi.com/rules/)
+
+    $3a

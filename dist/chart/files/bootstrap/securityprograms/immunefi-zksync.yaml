@@ -13,24 +13,200 @@ spec:
     featured: true
   provider: Immunefi
   displayName: ZKsync
-  programURL: https://immunefi.com/bug-bounty/zksync/scope/
-  verifiedAt: 2026-08-12T00:00:00Z
+  programURL: https://immunefi.com/bug-bounty/zksyncera/scope/
+  verifiedAt: 2026-08-12T16:35:00Z
   scopePolicy: |
-    Snapshot verified against the current/last-known Immunefi scope URL on 2026-08-12. The live program page, including its asset list, impact matrix, exclusions, and reward terms, controls if it differs from this snapshot.
+    Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-08-06T12:39:21.221Z).
 
-    Repository targets:
-    - Catalog repository: https://github.com/matter-labs/zksync-era.
-    - Source must be matched to a listed deployed/in-scope asset on the live program page. Repository affiliation is not blanket eligibility; unlisted paths, branches, commits, deployments, forks, tests, and examples are not eligible unless the live scope explicitly lists them.
+    Displayed wording is preserved; layout whitespace is normalized.
 
-    Rewards:
-    - Consult the live Immunefi reward table for current reward tiers and maximums; this conservative snapshot does not state a headline maximum.
+    Blockchain Dlt
 
-    Eligible impacts:
-    - Blockchain/DLT and smart-contract: direct theft or loss of funds, permanent freezing of funds, consensus or proof-verification safety failure, and bridge or message-validation bypass.
-    - Severity, asset eligibility, and impact qualification are determined solely by the live Immunefi scope and reward table.
+    Assets in Scope
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/storage_application    Storage Application    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/ecrecover    EC Recover    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/main_vm    Main vm    2024-04-18
+    https://github.com/matter-labs/zksync-crypto/tree/main/crates/snark-wrapper    SNARK wrapper    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/transient_storage_validity_by_grand_product    Transient Storage    2024-09-17
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/demux_log_queue    Log Demuxer    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/secp256r1_verify    Secp256r1 verify    2024-09-17
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/fsm_input_output    Finite State Machine Input Output    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/storage_validity_by_grand_product    Storage sorter    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/eip_4844    Eip 4844    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/ram_permutation    RAM Permutation    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src    Supplementary code    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/sha256_round_function    SHA256    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/linear_hasher    Linear Hasher    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/code_unpacker_sha256    Code unpacker    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/log_sorter    Events sorter (L1Messages)    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/scheduler    Scheduler    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/keccak256_round_function    Keccak    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/recursion    Recursion    2024-04-18
+    https://github.com/matter-labs/zksync-protocol/tree/main/crates/zkevm_circuits/src/sort_decommittment_requests    Code decommitment sorter    2024-04-18
+    https://immunefi.com    Primacy of Impact    2026-04-03
 
-    Out of scope:
-    - Any asset, deployment, code path, dependency, third-party integration, or impact not explicitly listed by the live program; known issues, theoretical or best-practice-only reports, and attacks requiring privileged or unrealistic assumptions are excluded unless the live scope says otherwise.
+    Impacts in Scope
+    Critical
+    Direct loss of funds
+    High
+    Difference between implementation outside of the circuit and within the circuit, where the in-circuit implementation is accurate (e.g. overconstraint in the circuit)
 
-    Testing and submission:
-    - Test only private/local environments and accounts you control. Do not test mainnet, public testnets, production services, third-party systems, or other users' assets. Do not perform DoS, traffic generation, phishing, social engineering, fund movement, or unapproved public disclosure. Submit a minimal reproducible PoC privately through Immunefi and follow the live program's disclosure and eligibility terms.
+    Out of scope
+    - Any finding whose exploitation requires Gateway to be enabled and operating as a settlement layer is out of scope, since Gateway is not currently enabled and all chains settle directly to L1. This applies only to the Gateway precondition — the same code, when reachable by an L1-settling chain, stays in scope.\n- Broken link hijacking is out of scope.\n- Attacks requiring changing the verifier key.
+    $38
+    - Impacts requiring attacks that the reporter has already exploited themselves, leading to damage\n- Impacts caused by attacks requiring access to leaked keys/credentials\n- Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed\n- Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code\n- Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production\n- Best practice recommendations\n- Feature requests\n- Impacts on test files and configuration files unless stated otherwise in the bug bounty program\n- Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Smart Contract
+
+    Assets in Scope
+    https://etherscan.io/address/0xECE8e30bFc92c2A8e11e6cb2e17B70868572E3f6#code    EmergencyUpgradeBoard.sol    2025-07-25
+    https://etherscan.io/address/0xE30Dca3047B37dc7d88849dE4A4Dc07937ad5Ab3    ProtocolUpgradeHandler proxy TransparentUpgradeableProxy.sol    2025-07-25
+    https://etherscan.io/address/0x32400084c286cf3e17e7b677ea9583e60a000324    DiamondProxy.sol    2023-03-09
+    https://etherscan.io/address/0x303a465B659cBB0ab36eE643eA362c509EEb5213#code    Bridgehub proxy TransparentUpgradeableProxy.sol    2025-01-22
+    https://immunefi.com    Primacy of Impact    2023-10-05
+    https://etherscan.io/address/0x57891966931Eb4Bb6FB81430E6cE0A03AAbDe063    L1ERC20Bridge proxy TransparentUpgradeableProxy.sol    2023-03-09
+    https://explorer.zksync.io/address/0x76705327e682F2d96943280D99464Ab61219e34f#contract    ZkProtocolGovernor.sol    2025-07-25
+    https://etherscan.io/address/0x66E4431266DC7E04E7d8b7FE9d2181253df7F410#code    SecurityCouncil.sol    2025-07-25
+    https://etherscan.io/address/0x0a67f0fd2f7523057039f14969fe23a5f620f19a#code    ProtocolUpgradeHandler.sol    2025-07-19
+    https://explorer.zksync.io/address/0xC9E442574958f96C026DeF9a50C3236cab17428a#contract    ZkGovOps TimelockController.sol    2025-07-25
+    https://etherscan.io/address/0x600dA620Ab29F41ABC6596a15981e14cE58c86b8    Guardians.sol    2025-07-25
+    https://explorer.zksync.io/address/0xb83FF6501214ddF40C91C9565d095400f3F45746#contract    ZkTokenGovernor.sol    2025-07-25
+    https://etherscan.io/address/0xD7f9f54194C633F36CCD5F3da84ad4a1c38cB2cB#code    L1Nullifier proxy TransparentUpgradeableProxy.sol    2025-01-22
+    https://explorer.zksync.io/address/0x085b8B6407f150D62adB1EF926F7f304600ec714#contract    ZkProtocol TimelockController.sol    2025-07-25
+    https://explorer.zksync.io/address/0x01a6715d3560241e09e865a46122bf347a576c09#contract    ZkToken.sol    2025-07-25
+    https://etherscan.io/address/0xc2eE6b6af7d616f6e27ce7F4A451Aedc2b0F5f5C#code    ChainTypeManager proxy TransparentUpgradeableProxy.sol    2025-01-22
+    https://explorer.zksync.io/address/0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E#contract    ZkToken proxy TransparentUpgradeableProxy.sol    2025-07-25
+    https://explorer.zksync.io/address/0xe5d21A9179CA2E1F0F327d598D464CcF60d89c3d#contract    ZkToken TimelockController.sol    2025-07-25
+    https://explorer.zksync.io/address/0x11f943b2c77b743AB90f4A0Ae7d5A4e7FCA3E102#contract    L2SharedBridge proxy TransparentUpgradeableProxy.sol    2025-01-22
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/chain-deps/facets/Admin.sol    AdminFacet (Admin.sol)    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/chain-deps/facets/Executor.sol    ExecutorFacet (Executor.sol)    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/chain-deps/facets/Getters.sol    GettersFacet (Getters.sol)    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/verifiers/EraDualVerifier.sol    EraDualVerifier.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/chain-deps/facets/Mailbox.sol    MailboxFacet (Mailbox.sol)    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/L1ERC20Bridge.sol    L1ERC20Bridge.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/validators/ValidatorTimelock.sol    ValidatorTimelock.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/AccountCodeStorage.sol    AccountCodeStorage    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/BootloaderUtilities.sol    BootloaderUtilities    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/Compressor.sol    Compressor    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/ContractDeployer.sol    ContractDeployer    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/EmptyContract.sol    EmptyContract    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/EventWriter.yul    EventWriter    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/ImmutableSimulator.sol    ImmutableSimulator    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/KnownCodesStorage.sol    KnownCodesStorage    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/L1Messenger.sol    L1Messenger    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/l2-system/era/L2BaseTokenEra.sol    L2BaseToken (L2BaseTokenEra.sol)    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/MsgValueSimulator.sol    MsgValueSimulator    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/NonceHolder.sol    NonceHolder    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/SystemContext.sol    SystemContext    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/Ecrecover.yul    Ecrecover    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/Keccak256.yul    Keccak256    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/SHA256.yul    SHA256    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/l2-upgrades/L2ComplexUpgrader.sol    ComplexUpgrader (L2ComplexUpgrader.sol)    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/EcAdd.yul    EcAdd    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/EcMul.yul    EcMul    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/Create2Factory.sol    Create2Factory    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/PubdataChunkPublisher.sol    PubdataChunkPublisher    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/CodeOracle.yul    CodeOracle    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/EcPairing.yul    EcPairing    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/P256Verify.yul    P256Verify    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/core/bridgehub/L1Bridgehub.sol    L1Bridgehub.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/L1Nullifier.sol    L1Nullifier.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/L2SharedBridgeLegacy.sol    L2SharedBridgeLegacy.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/EraChainTypeManager.sol    EraChainTypeManager.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/verifiers/EraVerifierFflonk.sol    EraVerifierFflonk.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/verifiers/EraVerifierPlonk.sol    EraVerifierPlonk.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/l2-upgrades/L2GenesisUpgrade.sol    L2GenesisUpgrade    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/core/bridgehub/L2Bridgehub.sol    L2Bridgehub.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/asset-router/L2AssetRouter.sol    L2AssetRouter    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/ntv/L2NativeTokenVault.sol    L2NativeTokenVault    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/core/message-root/L2MessageRoot.sol    L2MessageRoot.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/SloadContract.sol    SloadContract    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/L2WrappedBaseToken.sol    L2WrappedBaseToken    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/bootloader/bootloader.yul    Bootloader.yul    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/DefaultAccount.sol    DefaultAccount.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/interop/InteropCenter.sol    InteropCenter.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/interop/InteropHandler.sol    InteropHandler.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/interop/L2InteropRootStorage.sol    L2InteropRootStorage.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/interop/L2MessageVerification.sol    L2MessageVerification.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/asset-router/L1AssetRouter.sol    L1AssetRouter.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/ntv/L1NativeTokenVault.sol    L1NativeTokenVault.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/asset-tracker/L1AssetTracker.sol    L1AssetTracker.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/asset-tracker/L2AssetTracker.sol    L2AssetTracker.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/asset-tracker/GWAssetTracker.sol    GWAssetTracker.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/BridgedStandardERC20.sol    BridgedStandardERC20.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/core/message-root/L1MessageRoot.sol    L1MessageRoot.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/core/chain-asset-handler/L1ChainAssetHandler.sol    L1ChainAssetHandler.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/core/chain-asset-handler/L2ChainAssetHandler.sol    L2ChainAssetHandler.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/core/chain-registration/ChainRegistrationSender.sol    ChainRegistrationSender.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/core/ctm-deployment/CTMDeploymentTracker.sol    CTMDeploymentTracker.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/chain-deps/facets/Committer.sol    CommitterFacet (Committer.sol)    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/chain-deps/facets/Migrator.sol    MigratorFacet (Migrator.sol)    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/validators/EraMultisigValidator.sol    EraMultisigValidator.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/validators/MultisigCommitter.sol    MultisigCommitter.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/validators/PermissionlessValidator.sol    PermissionlessValidator.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/da-contracts/contracts/RollupL1DAValidator.sol    RollupL1DAValidator.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/da-contracts/contracts/EIP7702Checker.sol    EIP7702Checker.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/EvmEmulator.yul    EvmEmulator    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/EvmGasManager.yul    EvmGasManager    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/EvmHashesStorage.sol    EvmHashesStorage    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/EvmPredeploysManager.sol    EvmPredeploysManager    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/Modexp.yul    Modexp    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/system-contracts/contracts/precompiles/Identity.yul    Identity    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/l2-upgrades/SystemContractProxy.sol    SystemContractProxy.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/l2-upgrades/SystemContractProxyAdmin.sol    SystemContractProxyAdmin.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/l2-system/BaseTokenHolder.sol    BaseTokenHolder.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/data-availability/RollupDAManager.sol    RollupDAManager.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/data-availability/ValidiumL1DAValidator.sol    ValidiumL1DAValidator.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/da-contracts/contracts/da-layers/avail/AvailL1DAValidator.sol    AvailL1DAValidator.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/L2WrappedBaseTokenStore.sol    L2WrappedBaseTokenStore.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/ZKsyncOSChainTypeManager.sol    ZKsyncOSChainTypeManager.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/verifiers/ZKsyncOSVerifierFflonk.sol    ZKsyncOSVerifierFflonk.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/verifiers/ZKsyncOSVerifierPlonk.sol    ZKsyncOSVerifierPlonk.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/state-transition/verifiers/ZKsyncOSDualVerifier.sol    ZKsyncOSDualVerifier.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/da-contracts/contracts/BlobsL1DAValidatorZKsyncOS.sol    BlobsL1DAValidatorZKsyncOS.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/ntv/L2NativeTokenVaultZKOS.sol    L2NativeTokenVaultZKOS.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/l2-system/zksync-os/L1MessengerZKOS.sol    L1MessengerZKOS.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/l2-system/zksync-os/L2BaseTokenZKOS.sol    L2BaseTokenZKOS.sol    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/l2-system/zksync-os/SystemContext.sol    ZKsync OS SystemContext    2026-07-16
+    https://github.com/matter-labs/era-contracts/blob/7b75e11e631936f8bd93ec7c03e7e4f4ac63f6b4/l1-contracts/contracts/bridge/UpgradeableBeaconDeployer.sol    UpgradeableBeaconDeployer.sol    2026-07-16
+
+    Impacts in Scope
+    Low
+    Contract fails to deliver promised returns, but doesn't lose value
+    High
+    Permanent freezing of funds (that can be fixed by upgrade)
+    High
+    Permanent stopping the priority queue
+    High
+    Theft of user fees
+    Medium
+    Block stuffing for profit
+    Medium
+    Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+    Medium
+    Theft of gas
+    Medium
+    Unbounded gas consumption
+    Critical
+    Direct theft of any user funds, whether at-rest or in-motion
+    Critical
+    Permanent freezing of funds (that cannot be fixed by upgrade)
+    Critical
+    Protocol insolvency
+
+    Out of scope
+    - Any finding whose exploitation requires Gateway to be enabled and operating as a settlement layer is out of scope, since Gateway is not currently enabled and all chains settle directly to L1. This applies only to the Gateway precondition — the same code, when reachable by an L1-settling chain, stays in scope.\n- Broken link hijacking is out of scope.\n- Attacks requiring changing the verifier key.
+    - Incorrect data supplied by third party oracles\n  - Not to exclude oracle manipulation/flash loan attacks\n- Impacts requiring basic economic and governance attacks (e.g. 51% attack)\n- Lack of liquidity impacts\n- Impacts from Sybil attacks\n- Impacts involving centralization risks
+    - Impacts requiring attacks that the reporter has already exploited themselves, leading to damage\n- Impacts caused by attacks requiring access to leaked keys/credentials\n- Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed\n- Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code\n- Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production\n- Best practice recommendations\n- Feature requests\n- Impacts on test files and configuration files unless stated otherwise in the bug bounty program\n- Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Program rules and rewards
+
+    $3a
+
+    ZKsync Era is a layer 2 rollup that uses zero-knowledge proofs to scale Ethereum without compromising on security or decentralization. Since it's EVM compatible (Solidity/Vyper), 99% of Ethereum projects can redeploy without refactoring or re-auditing a single line of code. ZKsync Era also uses an LLVM-based compiler that will eventually let developers write smart contracts in C++, Rust and other popular languages.\n\nFor more information about ZKsync Era, please visit [https://zksync.io/](https://zksync.io/)\n\n__For Whitehats__: It is highly recommended that you review the details of this program in full. Although many Bug Bounty programs have standard terms and conditions, each also has their own unique details that are critical to your success. \n\nPrior to submitting a report please review the Immunefi [Bug Report Template and Best Practices. ](https://immunefisupport.zendesk.com/hc/en-us/articles/12435277406481-Bug-Report-Template)
+
+    ['The following activities are prohibited by this bug bounty program. Violation of these rules can result in a temporary suspension or permanent ban from the Immunefi platform at the sole discretion of the Immunefi team, which may also result in: 1) the forfeiture and loss of access to all bug submissions, and 2) zero payout.', 'Please note that Immunefi has no tolerance for spam/low-quality/incomplete bug reports, “beg bounty” behavior, and misrepresentation of assets and severity. Immunefi exists to protect the global crypto community, not facilitate grift.']
+
+    - Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet\n- Any testing with pricing oracles or third-party smart contracts\n- Attempting phishing or other social engineering attacks against our employees and/or customers\n- Any testing with third-party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)\n- Any denial of service attacks that are executed against project assets\n- Automated testing of services that generates significant amounts of traffic\n- Public disclosure of an unpatched vulnerability in an embargoed bounty\n- [Any other actions prohibited by the Immunefi Rules](https://immunefi.com/rules/)
+
+    $39
