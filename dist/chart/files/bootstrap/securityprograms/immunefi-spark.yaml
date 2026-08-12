@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-spark
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/marsfoundation/spark-alm-controller
+    workflowRef: smart-contract-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-spark-alm-controller
+    displayName: Spark ALM controller
+    priority: 4
+    featured: true
   provider: Immunefi
   displayName: Spark
   programURL: https://immunefi.com/bug-bounty/sparklend/scope/

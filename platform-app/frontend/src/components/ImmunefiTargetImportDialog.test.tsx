@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 import { ImmunefiTargetImportDialog } from "@/components/ImmunefiTargetImportDialog";
 import { client } from "@/lib/client";
-import { IMMUNEFI_TARGET_CATALOG } from "@/lib/immunefiTargetCatalog";
+import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
 
 vi.mock("@/lib/client", () => ({
   client: {
@@ -16,9 +16,50 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderDialog(existingNames = new Set<string>()) {
+function program(
+  name: string,
+  scanTarget: Omit<NonNullable<SecurityProgramResource["scanTarget"]>, "$typeName">,
+): SecurityProgramResource {
+  return { name, scanTarget: scanTarget as SecurityProgramResource["scanTarget"] } as SecurityProgramResource;
+}
+
+const programs = [
+  program("program-later", {
+    featured: true,
+    priority: 20,
+    displayName: "Later target",
+    scanName: "scan-later",
+    repositoryUrl: "https://example.com/later",
+    workflowRef: "workflow-later",
+    policyPackRef: "policy-later",
+  }),
+  program("program-first", {
+    featured: true,
+    priority: 10,
+    displayName: "First target",
+    scanName: "scan-first",
+    repositoryUrl: "https://example.com/first",
+    workflowRef: "workflow-first",
+    policyPackRef: "policy-first",
+  }),
+  program("program-hidden", {
+    featured: false,
+    priority: 0,
+    displayName: "Hidden target",
+    scanName: "scan-hidden",
+    repositoryUrl: "https://example.com/hidden",
+    workflowRef: "workflow-hidden",
+    policyPackRef: "policy-hidden",
+  }),
+];
+
+function renderDialog(
+  existingNames = new Set<string>(),
+  availablePrograms: readonly SecurityProgramResource[] = programs,
+) {
   render(
     <ImmunefiTargetImportDialog
+      programs={availablePrograms}
       existingNames={existingNames}
       trigger={<button>Import Immunefi targets</button>}
     />,
@@ -26,63 +67,59 @@ function renderDialog(existingNames = new Set<string>()) {
 }
 
 describe("ImmunefiTargetImportDialog", () => {
-  it("previews all approved targets and creates nothing before confirmation", () => {
+  it("previews only featured program targets in metadata order before confirmation", () => {
     renderDialog();
 
     expect(client.createSecurityScan).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
 
     expect(screen.getByText(/Nothing runs automatically/)).toBeTruthy();
-    expect(screen.getAllByRole("listitem")).toHaveLength(20);
-    expect(screen.getByText("Arbitrum token-bridge-contracts")).toBeTruthy();
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toContain("First target");
+    expect(items[1].textContent).toContain("Later target");
+    expect(screen.queryByText("Hidden target")).toBeNull();
     expect(client.createSecurityScan).not.toHaveBeenCalled();
   });
 
-  it("creates all 20 manual-only targets with the curated fields and never runs them", async () => {
+  it("creates arbitrary program-driven targets as manual-only without running them", async () => {
     renderDialog();
     fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
-    fireEvent.click(screen.getByRole("button", { name: "Import 20 missing targets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import 2 missing targets" }));
 
-    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(20));
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(2));
     const requests = vi.mocked(client.createSecurityScan).mock.calls.map(([request]) => request);
 
-    expect(requests.map((request) => request.name)).toEqual(
-      IMMUNEFI_TARGET_CATALOG.map((target) => target.name),
-    );
-    for (const [index, request] of requests.entries()) {
-      const target = IMMUNEFI_TARGET_CATALOG[index];
-      expect(request.namespace).toBe("");
-      expect(request.useSavedCredentials).toBe(true);
-      expect(request.spec?.repoUrl).toBe(target.repoUrl);
-      expect(request.spec?.workflowRef).toBe(target.workflowRef);
-      expect(request.spec?.policyPackRef).toBe("bug-bounty");
-      expect(request.spec?.securityProgramRef).toBe(target.securityProgramRef);
-      expect(request.spec?.schedule).toBe("");
-      expect(request.spec?.triggers).toBeUndefined();
-      expect(request.spec?.minSeverity).toBe("high");
-      expect(request.spec?.parallelism).toBe(4);
-      expect(request.spec?.dedupe?.enabled).toBe(true);
-      expect(request.spec).toMatchObject({ manualOnly: true });
-    }
-    expect(screen.getByRole("status").textContent).toContain("Created 20; skipped 0; failed 0.");
+    expect(requests.map((request) => request.name)).toEqual(["scan-first", "scan-later"]);
+    expect(requests[0]).toMatchObject({
+      namespace: "",
+      useSavedCredentials: true,
+      spec: {
+        repoUrl: "https://example.com/first",
+        workflowRef: "workflow-first",
+        policyPackRef: "policy-first",
+        securityProgramRef: "program-first",
+        schedule: "",
+        manualOnly: true,
+        minSeverity: "high",
+        parallelism: 4,
+      },
+    });
+    expect(requests[0].spec?.triggers).toBeUndefined();
+    expect(requests[0].spec?.dedupe?.enabled).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain("Created 2; skipped 0; failed 0.");
   });
 
   it("skips existing names without modifying or replacing them", async () => {
-    const existingNames = new Set([
-      IMMUNEFI_TARGET_CATALOG[0].name,
-      IMMUNEFI_TARGET_CATALOG[7].name,
-    ]);
-    renderDialog(existingNames);
+    renderDialog(new Set(["scan-first"]));
     fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
 
-    expect(screen.getAllByText("Existing name — skipped")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Import 18 missing targets" }));
+    expect(screen.getAllByText("Existing name — skipped")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 missing target" }));
 
-    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(18));
-    const names = vi.mocked(client.createSecurityScan).mock.calls.map(([request]) => request.name);
-    expect(names).not.toContain(IMMUNEFI_TARGET_CATALOG[0].name);
-    expect(names).not.toContain(IMMUNEFI_TARGET_CATALOG[7].name);
-    expect(screen.getByRole("status").textContent).toContain("Created 18; skipped 2; failed 0.");
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(client.createSecurityScan).mock.calls[0][0].name).toBe("scan-later");
+    expect(screen.getByRole("status").textContent).toContain("Created 1; skipped 1; failed 0.");
   });
 
   it("continues after errors and reports aggregate partial results", async () => {
@@ -91,11 +128,22 @@ describe("ImmunefiTargetImportDialog", () => {
       .mockResolvedValue({} as Awaited<ReturnType<typeof client.createSecurityScan>>);
     renderDialog();
     fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
-    fireEvent.click(screen.getByRole("button", { name: "Import 20 missing targets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import 2 missing targets" }));
 
-    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(20));
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(2));
     const status = screen.getByRole("status");
-    expect(status.textContent).toContain("Created 19; skipped 0; failed 1.");
-    expect(status.textContent).toContain("immunefi-layerzero: permission denied");
+    expect(status.textContent).toContain("Created 1; skipped 0; failed 1.");
+    expect(status.textContent).toContain("scan-first: permission denied");
+  });
+
+  it("communicates when no featured targets are available", () => {
+    renderDialog(new Set(), []);
+    fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
+
+    expect(screen.getByText("No featured Immunefi targets are available.")).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Import 0 missing targets" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 });

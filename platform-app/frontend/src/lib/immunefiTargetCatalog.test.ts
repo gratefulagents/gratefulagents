@@ -1,38 +1,88 @@
 import { describe, expect, it } from "vitest";
 
-import { IMMUNEFI_TARGET_CATALOG } from "@/lib/immunefiTargetCatalog";
+import { featuredImmunefiTargets } from "@/lib/immunefiTargetCatalog";
+import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
 
-describe("IMMUNEFI_TARGET_CATALOG", () => {
-  it("contains exactly the 20 approved unique targets", () => {
-    expect(IMMUNEFI_TARGET_CATALOG.map((target) => target.displayName)).toEqual([
-      "LayerZero",
-      "Wormhole",
-      "Hyperlane",
-      "Spark ALM controller",
-      "Chainlink CCIP",
-      "Optimism",
-      "zkSync Era",
-      "Arbitrum token-bridge-contracts",
-      "Ethena",
-      "Sky DSS",
-      "Olympus v3",
-      "Axelar GMP SDK Solidity",
-      "Sui",
-      "Aptos",
-      "Polkadot SDK",
-      "THORChain thornode",
-      "TON",
-      "Euler v2",
-      "SSV",
-      "Osmosis",
+function program(
+  name: string,
+  scanTarget: Omit<NonNullable<SecurityProgramResource["scanTarget"]>, "$typeName">,
+): SecurityProgramResource {
+  return { name, scanTarget: scanTarget as SecurityProgramResource["scanTarget"] } as SecurityProgramResource;
+}
+
+describe("featuredImmunefiTargets", () => {
+  it("maps arbitrary featured program metadata and sorts by priority then display name", () => {
+    const targets = featuredImmunefiTargets([
+      program("program-zebra", {
+        featured: true,
+        priority: 20,
+        displayName: "Zebra",
+        scanName: "scan-zebra",
+        repositoryUrl: "https://example.com/zebra",
+        workflowRef: "workflow-zebra",
+        policyPackRef: "policy-zebra",
+      }),
+      program("program-hidden", {
+        featured: false,
+        priority: 0,
+        displayName: "Hidden",
+        scanName: "scan-hidden",
+        repositoryUrl: "https://example.com/hidden",
+        workflowRef: "workflow-hidden",
+        policyPackRef: "policy-hidden",
+      }),
+      program("program-alpha", {
+        featured: true,
+        priority: 20,
+        displayName: "Alpha",
+        scanName: "scan-alpha",
+        repositoryUrl: "https://example.com/alpha",
+        workflowRef: "workflow-alpha",
+        policyPackRef: "policy-alpha",
+      }),
+      program("program-first", {
+        featured: true,
+        priority: 5,
+        displayName: "First",
+        scanName: "scan-first",
+        repositoryUrl: "https://example.com/first",
+        workflowRef: "workflow-first",
+        policyPackRef: "policy-first",
+      }),
     ]);
-    expect(new Set(IMMUNEFI_TARGET_CATALOG.map((target) => target.name)).size).toBe(20);
-    expect(new Set(IMMUNEFI_TARGET_CATALOG.map((target) => target.repoUrl)).size).toBe(20);
-    expect(
-      IMMUNEFI_TARGET_CATALOG.find((target) => target.displayName.startsWith("Arbitrum"))?.repoUrl,
-    ).toBe("https://github.com/OffchainLabs/token-bridge-contracts");
-    expect(IMMUNEFI_TARGET_CATALOG.every((target) => target.policyPackRef === "bug-bounty")).toBe(true);
-    expect(IMMUNEFI_TARGET_CATALOG.every((target) => target.name.startsWith("immunefi-"))).toBe(true);
-    expect(IMMUNEFI_TARGET_CATALOG.every((target) => target.securityProgramRef.startsWith("immunefi-"))).toBe(true);
+
+    expect(targets).toEqual([
+      {
+        name: "scan-first",
+        displayName: "First",
+        repoUrl: "https://example.com/first",
+        workflowRef: "workflow-first",
+        policyPackRef: "policy-first",
+        securityProgramRef: "program-first",
+        priority: 5,
+      },
+      {
+        name: "scan-alpha",
+        displayName: "Alpha",
+        repoUrl: "https://example.com/alpha",
+        workflowRef: "workflow-alpha",
+        policyPackRef: "policy-alpha",
+        securityProgramRef: "program-alpha",
+        priority: 20,
+      },
+      {
+        name: "scan-zebra",
+        displayName: "Zebra",
+        repoUrl: "https://example.com/zebra",
+        workflowRef: "workflow-zebra",
+        policyPackRef: "policy-zebra",
+        securityProgramRef: "program-zebra",
+        priority: 20,
+      },
+    ]);
+  });
+
+  it("returns no targets when no programs are featured", () => {
+    expect(featuredImmunefiTargets([])).toEqual([]);
   });
 });

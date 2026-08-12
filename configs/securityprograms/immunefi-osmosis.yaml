@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-osmosis
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/osmosis-labs/osmosis
+    workflowRef: cosmos-ibc-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-osmosis
+    displayName: Osmosis
+    priority: 20
+    featured: true
   provider: Immunefi
   displayName: Osmosis
   programURL: https://immunefi.com/bug-bounty/osmosis/scope/

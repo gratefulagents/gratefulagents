@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-sui
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/MystenLabs/sui
+    workflowRef: sui-move-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-sui
+    displayName: Sui
+    priority: 13
+    featured: true
   provider: Immunefi
   displayName: Sui
   programURL: https://immunefi.com/bug-bounty/sui/scope/

@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-olympus
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/OlympusDAO/olympus-v3
+    workflowRef: smart-contract-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-olympus-v3
+    displayName: Olympus v3
+    priority: 11
+    featured: true
   provider: Immunefi
   displayName: Olympus
   programURL: https://immunefi.com/bug-bounty/olympusdao/scope/

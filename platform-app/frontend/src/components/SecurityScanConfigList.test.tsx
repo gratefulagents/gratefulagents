@@ -100,6 +100,33 @@ describe("SecurityScanConfigList", () => {
     expect(createSecurityScan).not.toHaveBeenCalled();
   });
 
+  it("passes discovered security program targets to the importer", async () => {
+    listSecurityScanConfigs.mockResolvedValue({ configs: [] });
+    listSecurityPrograms.mockResolvedValue({
+      programs: [
+        {
+          name: "custom-program",
+          scanTarget: {
+            featured: true,
+            priority: 3,
+            displayName: "Custom metadata target",
+            scanName: "custom-scan",
+            repositoryUrl: "https://example.com/custom",
+            workflowRef: "custom-workflow",
+            policyPackRef: "custom-policy",
+          },
+        },
+      ],
+    });
+    renderList();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Import Immunefi targets" }));
+
+    expect(screen.getByText("Custom metadata target")).toBeTruthy();
+    expect(screen.getByText("https://example.com/custom")).toBeTruthy();
+    expect(screen.getByText("custom-workflow")).toBeTruthy();
+  });
+
   it("shows Run now only for non-suspended configurations", async () => {
     listSecurityScanConfigs.mockResolvedValue({
       configs: [configFixture(), configFixture({ name: "paused", suspend: true })],

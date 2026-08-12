@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-hyperlane
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/hyperlane-xyz/hyperlane-monorepo
+    workflowRef: bridge-l2-zk-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-hyperlane
+    displayName: Hyperlane
+    priority: 3
+    featured: true
   provider: Immunefi
   displayName: Hyperlane
   programURL: https://immunefi.com/bug-bounty/hyperlane/scope/

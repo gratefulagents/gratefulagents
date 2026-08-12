@@ -26,6 +26,15 @@ func testSecurityProgramResource(namespace string) *platform.SecurityProgramReso
 		ProgramUrl:  "https://hackerone.com/acme",
 		ScopePolicy: "Only acme/widget production code is in scope.",
 		VerifiedAt:  timestamppb.New(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)),
+		ScanTarget: &platform.SecurityProgramScanTarget{
+			RepositoryUrl: "https://github.com/acme/widget",
+			WorkflowRef:   "blockchain-protocol-audit",
+			PolicyPackRef: "bug-bounty",
+			ScanName:      "acme-bounty",
+			DisplayName:   "Acme",
+			Priority:      3,
+			Featured:      true,
+		},
 	}
 }
 
@@ -43,6 +52,12 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	if created.Namespace != ns || created.Name != "acme-bounty" || created.Provider != "HackerOne" {
 		t.Fatalf("created = %+v", created)
 	}
+	if created.ScanTarget == nil || created.ScanTarget.RepositoryUrl != "https://github.com/acme/widget" ||
+		created.ScanTarget.WorkflowRef != "blockchain-protocol-audit" || created.ScanTarget.PolicyPackRef != "bug-bounty" ||
+		created.ScanTarget.ScanName != "acme-bounty" || created.ScanTarget.DisplayName != "Acme" ||
+		created.ScanTarget.Priority != 3 || !created.ScanTarget.Featured {
+		t.Fatalf("created scan target = %+v", created.ScanTarget)
+	}
 	owner, err := ms.GetResourceOwner(context.Background(), securityProgramResourceType, created.Name, created.Namespace)
 	if err != nil || owner == nil || owner.OwnerID != testProjectSubject {
 		t.Fatalf("SecurityProgram owner = %+v, %v", owner, err)
@@ -53,6 +68,10 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	}
 	if cr.Spec.ProgramURL != "https://hackerone.com/acme" || cr.Spec.VerifiedAt.IsZero() {
 		t.Fatalf("spec = %+v", cr.Spec)
+	}
+	if cr.Spec.ScanTarget == nil || cr.Spec.ScanTarget.RepositoryURL != "https://github.com/acme/widget" ||
+		cr.Spec.ScanTarget.Priority != 3 || !cr.Spec.ScanTarget.Featured {
+		t.Fatalf("stored scan target = %+v", cr.Spec.ScanTarget)
 	}
 
 	update := testSecurityProgramResource("")
@@ -211,6 +230,15 @@ func TestCreateSecurityProgramValidation(t *testing.T) {
 		},
 		"missing verified time": func(p *platform.SecurityProgramResource) { p.VerifiedAt = nil },
 		"invalid name":          func(p *platform.SecurityProgramResource) { p.Name = "Not Valid!" },
+		"invalid repository URL": func(p *platform.SecurityProgramResource) {
+			p.ScanTarget.RepositoryUrl = "http://github.com/acme/widget"
+		},
+		"invalid workflow ref": func(p *platform.SecurityProgramResource) { p.ScanTarget.WorkflowRef = "Not Valid!" },
+		"invalid policy pack ref": func(p *platform.SecurityProgramResource) {
+			p.ScanTarget.PolicyPackRef = "Not Valid!"
+		},
+		"invalid scan name": func(p *platform.SecurityProgramResource) { p.ScanTarget.ScanName = "Not Valid!" },
+		"negative priority": func(p *platform.SecurityProgramResource) { p.ScanTarget.Priority = -1 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			program := testSecurityProgramResource("")
@@ -220,5 +248,18 @@ func TestCreateSecurityProgramValidation(t *testing.T) {
 				t.Fatalf("CreateSecurityProgram() error = %v, want InvalidArgument", err)
 			}
 		})
+	}
+}
+
+func TestSecurityProgramProtoRoundTripWithoutScanTarget(t *testing.T) {
+	pb := testSecurityProgramResource("")
+	pb.ScanTarget = nil
+	spec, err := securityProgramSpecFromProto(pb)
+	if err != nil || spec.ScanTarget != nil {
+		t.Fatalf("securityProgramSpecFromProto() = %+v, %v", spec, err)
+	}
+	got := securityProgramToProto(&triggersv1alpha1.SecurityProgram{Spec: spec}, nil)
+	if got.ScanTarget != nil {
+		t.Fatalf("securityProgramToProto() scan target = %+v", got.ScanTarget)
 	}
 }

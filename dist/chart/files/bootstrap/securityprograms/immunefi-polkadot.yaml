@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-polkadot
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/paritytech/polkadot-sdk
+    workflowRef: substrate-xcm-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-polkadot-sdk
+    displayName: Polkadot SDK
+    priority: 15
+    featured: true
   provider: Immunefi
   displayName: Polkadot
   programURL: https://immunefi.com/bug-bounty/polkadot/scope/

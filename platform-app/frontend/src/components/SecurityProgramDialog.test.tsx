@@ -86,6 +86,15 @@ describe("SecurityProgramDialog", () => {
       programUrl: "https://hackerone.com/acme",
       scopePolicy: "In scope: api.example.com",
       verifiedAt,
+      scanTarget: {
+        repositoryUrl: "https://github.com/acme/widget",
+        workflowRef: "smart-contract-review",
+        policyPackRef: "bug-bounty",
+        scanName: "acme-widget",
+        displayName: "Acme widget",
+        priority: 1,
+        featured: true,
+      },
     });
     updateSecurityProgram.mockResolvedValue({});
     const view = render(
@@ -109,6 +118,7 @@ describe("SecurityProgramDialog", () => {
     expect(program.namespace).toBe("user-alice");
     expect(program.name).toBe("acme-bounty");
     expect(timestampDate(program.verifiedAt).toISOString()).toBe("2026-03-01T12:00:37.000Z");
+    expect(program.scanTarget).toEqual(source.scanTarget);
 
     const refreshed = create(SecurityProgramResourceSchema, {
       ...source,

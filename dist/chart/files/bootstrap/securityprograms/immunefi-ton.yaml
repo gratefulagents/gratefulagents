@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-ton
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/ton-blockchain/ton
+    workflowRef: ton-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-ton
+    displayName: TON
+    priority: 17
+    featured: true
   provider: Immunefi
   displayName: TON
   programURL: https://immunefi.com/bug-bounty/ton/scope/

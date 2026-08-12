@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-ssv-network
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/bloxapp/ssv
+    workflowRef: mpc-cryptography-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-ssv
+    displayName: SSV
+    priority: 19
+    featured: true
   provider: Immunefi
   displayName: SSV Network
   programURL: https://immunefi.com/bug-bounty/ssvnetwork/scope/

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // ValidateSecurityProgramSpec validates the operator-authored program scope
@@ -51,6 +53,35 @@ func ValidateSecurityProgramSpec(spec SecurityProgramSpec) []SecurityWorkflowFie
 	}
 	if spec.VerifiedAt.IsZero() {
 		add("verifiedAt", "is required")
+	}
+	if target := spec.ScanTarget; target != nil {
+		repositoryURL := strings.TrimSpace(target.RepositoryURL)
+		parsed, err := url.ParseRequestURI(repositoryURL)
+		if repositoryURL == "" {
+			add("scanTarget.repositoryURL", "is required")
+		} else if len(repositoryURL) > MaxSecurityProgramURLLength {
+			add("scanTarget.repositoryURL", "must be at most %d bytes", MaxSecurityProgramURLLength)
+		} else if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+			add("scanTarget.repositoryURL", "must be an absolute HTTPS URL without user information")
+		}
+		for field, name := range map[string]string{
+			"workflowRef":   target.WorkflowRef,
+			"policyPackRef": target.PolicyPackRef,
+			"scanName":      target.ScanName,
+		} {
+			if problems := validation.IsDNS1123Subdomain(name); len(problems) != 0 {
+				add("scanTarget."+field, "must be a valid DNS-1123 subdomain")
+			}
+		}
+		displayName := strings.TrimSpace(target.DisplayName)
+		if displayName == "" {
+			add("scanTarget.displayName", "is required")
+		} else if len(displayName) > MaxSecurityProgramDisplayNameLength {
+			add("scanTarget.displayName", "must be at most %d bytes", MaxSecurityProgramDisplayNameLength)
+		}
+		if target.Priority < 0 {
+			add("scanTarget.priority", "must not be negative")
+		}
 	}
 	return errs
 }

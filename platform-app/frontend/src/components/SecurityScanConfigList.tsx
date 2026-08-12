@@ -267,6 +267,7 @@ export function SecurityScanConfigList() {
       actions={
         <div className="flex items-center gap-2">
           <ImmunefiTargetImportDialog
+            programs={programs}
             existingNames={new Set(configs.map((config) => config.name))}
             trigger={<Button variant="outline" size="sm">Import Immunefi targets</Button>}
             onImported={() => void fetchConfigs()}

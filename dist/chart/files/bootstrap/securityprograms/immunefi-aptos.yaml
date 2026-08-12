@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-aptos
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/aptos-labs/aptos-core
+    workflowRef: aptos-move-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-aptos
+    displayName: Aptos
+    priority: 14
+    featured: true
   provider: Immunefi
   displayName: Aptos
   programURL: https://immunefi.com/bug-bounty/aptos/scope/

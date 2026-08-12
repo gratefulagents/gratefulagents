@@ -11,10 +11,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { client } from "@/lib/client";
-import { IMMUNEFI_TARGET_CATALOG } from "@/lib/immunefiTargetCatalog";
+import { featuredImmunefiTargets } from "@/lib/immunefiTargetCatalog";
 import {
   CreateSecurityScanRequestSchema,
   SecurityScanConfigSpecSchema,
+  type SecurityProgramResource,
 } from "@/rpc/platform/service_pb";
 
 export type ImmunefiImportResult = {
@@ -24,10 +25,12 @@ export type ImmunefiImportResult = {
 };
 
 export function ImmunefiTargetImportDialog({
+  programs,
   existingNames,
   trigger,
   onImported,
 }: {
+  programs: readonly SecurityProgramResource[];
   existingNames: ReadonlySet<string>;
   trigger: React.ReactElement;
   onImported?: (result: ImmunefiImportResult) => void;
@@ -35,8 +38,9 @@ export function ImmunefiTargetImportDialog({
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ImmunefiImportResult | null>(null);
-  const skipped = IMMUNEFI_TARGET_CATALOG.filter((target) => existingNames.has(target.name));
-  const missing = IMMUNEFI_TARGET_CATALOG.filter((target) => !existingNames.has(target.name));
+  const targets = featuredImmunefiTargets(programs);
+  const skipped = targets.filter((target) => existingNames.has(target.name));
+  const missing = targets.filter((target) => !existingNames.has(target.name));
 
   async function handleImport() {
     setSubmitting(true);
@@ -97,7 +101,7 @@ export function ImmunefiTargetImportDialog({
         <DialogHeader className="space-y-1 border-b px-6 py-5">
           <DialogTitle>Import Immunefi targets</DialogTitle>
           <DialogDescription>
-            Preview the 20 approved repository targets. Existing configurations with the same
+            Preview featured repository targets. Existing configurations with the same
             name are skipped and never modified.
           </DialogDescription>
         </DialogHeader>
@@ -105,29 +109,35 @@ export function ImmunefiTargetImportDialog({
           <p className="mb-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm font-medium">
             Nothing runs automatically. These manual-only configurations run only when you choose Run now.
           </p>
-          <ul className="divide-y rounded-lg border" aria-label="Approved Immunefi targets">
-            {IMMUNEFI_TARGET_CATALOG.map((target) => {
-              const exists = existingNames.has(target.name);
-              return (
-                <li key={target.name} className="grid gap-1 px-3 py-2.5 sm:grid-cols-[1fr_auto]">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{target.displayName}</span>
-                      {exists && (
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                          Existing name — skipped
-                        </span>
-                      )}
+          {targets.length === 0 ? (
+            <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+              No featured Immunefi targets are available.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-lg border" aria-label="Featured Immunefi targets">
+              {targets.map((target) => {
+                const exists = existingNames.has(target.name);
+                return (
+                  <li key={target.name} className="grid gap-1 px-3 py-2.5 sm:grid-cols-[1fr_auto]">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{target.displayName}</span>
+                        {exists && (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                            Existing name — skipped
+                          </span>
+                        )}
+                      </div>
+                      <div className="truncate font-mono text-xs text-muted-foreground">{target.repoUrl}</div>
                     </div>
-                    <div className="truncate font-mono text-xs text-muted-foreground">{target.repoUrl}</div>
-                  </div>
-                  <div className="font-mono text-xs text-muted-foreground sm:text-right">
-                    {target.workflowRef}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                    <div className="font-mono text-xs text-muted-foreground sm:text-right">
+                      {target.workflowRef}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
           {result && (
             <div className="mt-4 space-y-2" role="status" aria-live="polite">
               <p className="text-sm font-medium">

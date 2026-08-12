@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-layerzero
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/LayerZero-Labs/LayerZero-v2
+    workflowRef: bridge-l2-zk-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-layerzero
+    displayName: LayerZero
+    priority: 1
+    featured: true
   provider: Immunefi
   displayName: LayerZero
   programURL: https://immunefi.com/bug-bounty/layerzero/scope/

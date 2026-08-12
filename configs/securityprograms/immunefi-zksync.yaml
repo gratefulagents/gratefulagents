@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-zksync
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/matter-labs/zksync-era
+    workflowRef: bridge-l2-zk-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-zksync-era
+    displayName: zkSync Era
+    priority: 7
+    featured: true
   provider: Immunefi
   displayName: ZKsync
   programURL: https://immunefi.com/bug-bounty/zksync/scope/

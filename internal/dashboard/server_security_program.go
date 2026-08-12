@@ -46,6 +46,17 @@ func securityProgramSpecFromProto(pb *platform.SecurityProgramResource) (trigger
 		ScopePolicy: pb.GetScopePolicy(),
 		VerifiedAt:  verifiedAt,
 	}
+	if target := pb.GetScanTarget(); target != nil {
+		spec.ScanTarget = &triggersv1alpha1.SecurityProgramScanTarget{
+			RepositoryURL: strings.TrimSpace(target.GetRepositoryUrl()),
+			WorkflowRef:   strings.TrimSpace(target.GetWorkflowRef()),
+			PolicyPackRef: strings.TrimSpace(target.GetPolicyPackRef()),
+			ScanName:      strings.TrimSpace(target.GetScanName()),
+			DisplayName:   strings.TrimSpace(target.GetDisplayName()),
+			Priority:      target.GetPriority(),
+			Featured:      target.GetFeatured(),
+		}
+	}
 	if errs := triggersv1alpha1.ValidateSecurityProgramSpec(spec); len(errs) != 0 {
 		return triggersv1alpha1.SecurityProgramSpec{}, securityLibraryInvalidArgument(errs)
 	}
@@ -74,6 +85,17 @@ func securityProgramToProto(cr *triggersv1alpha1.SecurityProgram, referencing []
 		ReferencingScans: referencing,
 		Generation:       cr.Generation,
 		CreatedAtUnix:    cr.CreationTimestamp.Unix(),
+	}
+	if target := cr.Spec.ScanTarget; target != nil {
+		pb.ScanTarget = &platform.SecurityProgramScanTarget{
+			RepositoryUrl: target.RepositoryURL,
+			WorkflowRef:   target.WorkflowRef,
+			PolicyPackRef: target.PolicyPackRef,
+			ScanName:      target.ScanName,
+			DisplayName:   target.DisplayName,
+			Priority:      target.Priority,
+			Featured:      target.Featured,
+		}
 	}
 	if ready := meta.FindStatusCondition(cr.Status.Conditions, triggersv1alpha1.ConditionSecurityLibraryReady); ready != nil {
 		currentDigest := securityProgramContentDigest(cr.Spec)

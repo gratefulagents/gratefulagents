@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-arbitrum
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/OffchainLabs/token-bridge-contracts
+    workflowRef: smart-contract-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-arbitrum-token-bridge-contracts
+    displayName: Arbitrum token-bridge-contracts
+    priority: 8
+    featured: true
   provider: Immunefi
   displayName: Arbitrum
   programURL: https://immunefi.com/bug-bounty/arbitrum/scope/
