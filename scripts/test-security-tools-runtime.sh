@@ -22,24 +22,12 @@ run_root() {
 run_native aderyn --version
 run_native forge --version
 run_native echidna --version
-run_root mythril /usr/local/bin/myth version >/dev/null
 run_root slither /usr/bin/env -i HOME=/home/ethsec \
   PATH=/home/ethsec/.local/bin:/home/ethsec/.foundry/bin:/usr/local/bin:/usr/bin:/bin \
   /home/ethsec/.local/bin/slither --version >/dev/null
 run_root halmos /usr/bin/env -i HOME=/tmp \
   PATH=/opt/halmos/bin:/usr/local/bin:/usr/bin:/bin \
   /opt/halmos/bin/halmos --version >/dev/null
-
-# Prove that the Mythril root performs a bounded bytecode analysis offline.
-printf '00\n' >"$case_dir/stop.hex"
-mythril_json=$(docker run --rm --network none --user 0 \
-  --mount "type=bind,src=$case_dir/stop.hex,dst=/usr/local/share/ga-security/toolroots/mythril/tmp/stop.hex,readonly" \
-  --mount "type=bind,src=/dev/null,dst=/usr/local/share/ga-security/toolroots/mythril/dev/null" \
-  --entrypoint /usr/sbin/chroot "$image" /usr/local/share/ga-security/toolroots/mythril \
-  /usr/local/bin/myth analyze --codefile /tmp/stop.hex -o json --strategy bfs --max-depth 4 \
-  --call-depth-limit 1 --loop-bound 1 --transaction-count 1 --execution-timeout 30 \
-  --solver-timeout 2000 --create-timeout 10 --no-onchain-data)
-printf '%s' "$mythril_json" | grep -q '"success"'
 
 run_ga_project() {
   tool=$1

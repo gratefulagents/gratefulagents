@@ -6,7 +6,6 @@ FROM docker.io/nablac0d3/sslyze@sha256:e6d59470e380ecb626e831d1c3e006a410f708126
 FROM docker.io/instrumentisto/nmap@sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4416fa36e1891e8c33623cfc845 AS nmap-root
 FROM docker.io/zeek/zeek@sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a AS zeek-root
 FROM docker.io/jasonish/suricata@sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a AS suricata-root
-FROM docker.io/mythril/myth@sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff AS mythril-root
 FROM ghcr.io/trailofbits/eth-security-toolbox@sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978 AS slither-root
 
 # Halmos' upstream 0.3.3 image is amd64-only. Build the reviewed Z3-only
@@ -58,13 +57,11 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifi
 COPY security-tools.lock.json /usr/local/share/ga-security/security-tools.lock.json
 COPY security-knowledge/nuclei-reviewed.yaml /usr/local/share/ga-security/knowledge/nuclei-reviewed.yaml
 COPY --from=bwrap-builder /tmp/bubblewrap-0.11.2/build/bwrap /usr/local/bin/bwrap
-COPY --from=mythril-root / /usr/local/share/ga-security/toolroots/mythril/
 COPY --from=slither-root / /usr/local/share/ga-security/toolroots/slither/
 COPY --from=halmos-root / /usr/local/share/ga-security/toolroots/halmos/
 COPY --from=builder /out/tools/forge /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/forge
 RUN cp -L /usr/local/share/ga-security/toolroots/slither/home/ethsec/.local/bin/solc /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/solc \
-    && for root in mythril slither halmos; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc" "/usr/local/share/ga-security/toolroots/${root}/dev/shm"; : > "/usr/local/share/ga-security/toolroots/${root}/dev/null"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
-    && printf '%s\n' 'sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff' > /usr/local/share/ga-security/toolroots/mythril/.ga-oci-digest \
+    && for root in slither halmos; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc" "/usr/local/share/ga-security/toolroots/${root}/dev/shm"; : > "/usr/local/share/ga-security/toolroots/${root}/dev/null"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
     && printf '%s\n' 'sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978' > /usr/local/share/ga-security/toolroots/slither/.ga-oci-digest \
     && printf '%s\n' 'sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f' > /usr/local/share/ga-security/toolroots/halmos/.ga-oci-digest \
     && chown -R 0:0 /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap \

@@ -279,14 +279,4 @@ func TestEVMNativeResultsFlowThroughRunner(t *testing.T) {
 		t.Fatalf("echidna result lacks normalized property coverage: %+v", echidna.Coverage)
 	}
 
-	mythrilTarget := fixtureTarget("solidity_contract", "fixtures/blockchain/Vault.sol")
-	mythrilTarget.MediaType = "application/vnd.gratefulagents.solidity-contract.v1+source"
-	clean := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"Vault.sol"}, Output: []byte(`{"success":true,"error":null,"issues":[]}`)}).Run(context.Background(), RunConfig{Tool: "mythril", Target: mythrilTarget})
-	if clean.Status != StatusPass || len(clean.Findings) != 0 {
-		t.Fatalf("clean Mythril result=%+v", clean)
-	}
-	failed := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"Vault.sol"}, Output: []byte(`{"success":false,"error":"analysis failed","issues":[]}`)}).Run(context.Background(), RunConfig{Tool: "mythril", Target: mythrilTarget})
-	if failed.Status != StatusError {
-		t.Fatalf("failed Mythril result=%+v", failed)
-	}
 }

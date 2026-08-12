@@ -59,10 +59,6 @@ var stagedTargetContracts = map[string]map[string]stagedTargetContract{
 	"echidna": {
 		"solidity_project": {mediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
 	},
-	"mythril": {
-		"solidity_contract": {mediaType: "application/vnd.gratefulagents.solidity-contract.v1+source", singleFile: true},
-		"evm_bytecode":      {mediaType: "application/vnd.gratefulagents.evm-bytecode.v1+hex", singleFile: true},
-	},
 	"slither": {
 		"solidity_project": {mediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
 	},

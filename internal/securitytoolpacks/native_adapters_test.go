@@ -7,7 +7,7 @@ import (
 
 func TestNativeAdaptersRejectCanonicalScannerRecordArrays(t *testing.T) {
 	adapters := DefaultAdapters()
-	for _, name := range []string{"zap-json", "schemathesis-json", "restler-json", "nuclei-jsonl", "sslyze-json", "testssl-json", "openssl-json", "tshark-json", "har", "junit", "slither-json", "echidna-json", "mythril-json", "halmos-json"} {
+	for _, name := range []string{"zap-json", "schemathesis-json", "restler-json", "nuclei-jsonl", "sslyze-json", "testssl-json", "openssl-json", "tshark-json", "har", "junit", "slither-json", "echidna-json", "halmos-json"} {
 		t.Run(name, func(t *testing.T) {
 			adapter := adapters[name]
 			if adapter == nil {
@@ -36,11 +36,7 @@ func TestEVMNativeAdapters(t *testing.T) {
 			native:     `{"success":true,"error":null,"seed":42,"tests":[{"contract":"Vault","name":"echidna_solvency","status":"solved","error":null,"events":[],"type":"property","transactions":[{"contract":"Vault","function":"withdraw(uint256)","arguments":["1"],"gas":"1","gasprice":"0","value":"0"}]}],"coverage":{}}`,
 			wantRuleID: "ECHIDNA-PROPERTY",
 		},
-		{
-			name:       "mythril-json",
-			native:     `{"success":true,"error":null,"issues":[{"title":"External Call","swc-id":"107","contract":"Vault","description":"External call before state update","function":"withdraw()","severity":"High","address":12,"tx_sequence":{"steps":["withdraw"]},"sourceMap":"1:2:3","filename":"src/Vault.sol","lineno":12,"code":"callee.call()"}]}`,
-			wantRuleID: "SWC-107",
-		},
+
 		{
 			name:       "halmos-json",
 			native:     `{"exitcode":1,"test_results":{"test/Vault.t.sol:VaultTest":[{"name":"check_solvency(uint256)","exitcode":1,"num_models":1}]}}`,
@@ -131,7 +127,6 @@ func TestEVMNativeAdaptersRejectToolErrors(t *testing.T) {
 	for name, native := range map[string]string{
 		"slither-json": `{"success":false,"error":"compile failed","results":{"detectors":[]}}`,
 		"echidna-json": `{"success":false,"error":"compile failed","tests":[],"seed":1}`,
-		"mythril-json": `{"success":false,"error":"analysis failed","issues":[]}`,
 		"halmos-json":  `{"exitcode":1}`,
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -50,7 +50,7 @@ func DefaultAdapters() map[string]Adapter {
 		"authorization-matrix": authzAdapter{}, "crypto-vectors": cryptoAdapter{}, "zeek-jsonl": zeekAdapter{}, "suricata-eve": suricataAdapter{}, "nmap-xml": nmapAdapter{},
 		"json-records": generic, "zap-json": zapAdapter{}, "schemathesis-json": schemathesisAdapter{}, "restler-json": restlerAdapter{}, "nuclei-jsonl": nucleiAdapter{}, "naabu-jsonl": naabuAdapter{}, "sslyze-json": sslyzeAdapter{}, "testssl-json": testsslAdapter{}, "openssl-json": opensslAdapter{}, "tshark-json": tsharkAdapter{},
 		"har": harAdapter{}, "junit": junitAdapter{}, "sarif": sarifAdapter{},
-		"slither-json": slitherAdapter{}, "echidna-json": echidnaAdapter{}, "mythril-json": mythrilAdapter{}, "halmos-json": halmosAdapter{},
+		"slither-json": slitherAdapter{}, "echidna-json": echidnaAdapter{}, "halmos-json": halmosAdapter{},
 	}
 }
 
@@ -358,62 +358,6 @@ func (echidnaAdapter) Normalize(tool Tool, target Target, native []byte, r Redac
 		sort.Strings(testErrors)
 		return records, fmt.Errorf("echidna incomplete coverage: %s", r.Text(strings.Join(testErrors, "; ")))
 	}
-	return records, nil
-}
-
-type mythrilDocument struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error"`
-	Issues  []struct {
-		Title       string          `json:"title"`
-		SWC         string          `json:"swc-id"`
-		Contract    string          `json:"contract"`
-		Description string          `json:"description"`
-		Function    string          `json:"function"`
-		Severity    string          `json:"severity"`
-		Address     int             `json:"address"`
-		TXSequence  json.RawMessage `json:"tx_sequence"`
-		SourceMap   string          `json:"sourceMap"`
-		Filename    string          `json:"filename"`
-		Line        int             `json:"lineno"`
-		Code        string          `json:"code"`
-	} `json:"issues"`
-}
-
-type mythrilAdapter struct{}
-
-func (mythrilAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
-	var document mythrilDocument
-	if err := requireJSONObject(native, &document, "Mythril JSON"); err != nil {
-		return nil, err
-	}
-	if !document.Success {
-		if document.Error == "" {
-			return nil, fmt.Errorf("mythril reported unsuccessful analysis without an error")
-		}
-		return nil, fmt.Errorf("mythril analysis failed: %s", r.Text(document.Error))
-	}
-	var records []securityRecord
-	for i, issue := range document.Issues {
-		if issue.Title == "" || issue.SWC == "" || issue.Description == "" {
-			return nil, fmt.Errorf("mythril issue %d requires title, swc-id, and description", i)
-		}
-		path := issue.Filename
-		if path == "" {
-			path = target.Locator
-		}
-		evidence := strings.TrimSpace(issue.Code)
-		if len(issue.TXSequence) > 0 && string(issue.TXSequence) != "null" {
-			evidence += "\ntx_sequence=" + string(issue.TXSequence)
-		}
-		records = append(records, securityRecord{Asset: path, Record: ScannerRecord{
-			Tool: tool.Name, ToolVersion: tool.Version, RuleID: "SWC-" + strings.TrimPrefix(strings.ToUpper(issue.SWC), "SWC-"), RuleName: issue.Title,
-			Message: r.Text(issue.Description), Severity: nativeSeverity(issue.Severity, "info"), Category: "logic-flaw", FilePath: r.Text(path),
-			StartLine: issue.Line, EndLine: issue.Line, Symbol: r.Text(issue.Function), CWE: "", RawEvidence: r.Text(strings.TrimSpace(evidence)),
-			Extra: map[string]string{"contract": r.Text(issue.Contract), "source_map": r.Text(issue.SourceMap), "instruction_address": strconv.Itoa(issue.Address)},
-		}})
-	}
-	sortSecurityRecords(records)
 	return records, nil
 }
 

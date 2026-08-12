@@ -176,7 +176,6 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		"merge-solidity-static-analysis",
 		"deterministic-forge-tests-and-invariants",
 		"echidna-stateful-property-fuzzing",
-		"bounded-mythril-symbolic-analysis",
 		"bounded-halmos-symbolic-tests",
 		"merge-symbolic-tool-coverage",
 		"symbolic-and-formal-applicability",
@@ -222,7 +221,6 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		},
 		"merge-symbolic-tool-coverage": {
 			"echidna-stateful-property-fuzzing",
-			"bounded-mythril-symbolic-analysis",
 			"bounded-halmos-symbolic-tests",
 		},
 		"account-fuzz-and-formal-coverage": {
@@ -337,7 +335,6 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		"slither-static-analysis":                  "slither",
 		"deterministic-forge-tests-and-invariants": "forge-security-tests",
 		"echidna-stateful-property-fuzzing":        "echidna",
-		"bounded-mythril-symbolic-analysis":        "mythril",
 		"bounded-halmos-symbolic-tests":            "halmos",
 	} {
 		task, ok := byName[name]

@@ -443,53 +443,6 @@ spec:
           }
         }
 
-    - name: bounded-mythril-symbolic-analysis
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: security-scan
-        - name: trail-of-bits-fp-check
-        - name: evm-low-level-and-deployment-review
-      tools:
-        denied:
-          - Bash
-      objective: >-
-        Use {{tasks.inventory-scope-repositories-deployments.output}},
-        {{tasks.map-architecture-assets-roles-entrypoints.output}}, and
-        {{tasks.reproducible-build-artifact-deployment-review.output}} to select production Solidity contract
-        source files or EVM bytecode files for bounded symbolic analysis. For each selected single-file target,
-        actually call run_security_tool with tool `mythril`, target type `solidity_contract` or `evm_bytecode`
-        matching the file, its workspace locator and immutable revision. Do not invent flags: the pinned
-        multi-architecture wrapper runs offline breadth-first search with fixed transaction, depth, call,
-        loop, solver and time bounds. Correlate normalized SWC issues and transaction counterexamples with
-        reachable entry points and manually validate them; do not re-submit tool findings. Record every
-        selected and omitted contract and the bound that limits the claim. A clean bounded result is partial
-        symbolic coverage only. Compiler absence, unsupported multi-file imports, tool error, timeout or
-        native success=false are unsupported/inconclusive rather than passes.
-      dependsOn:
-        - inventory-scope-repositories-deployments
-        - map-architecture-assets-roles-entrypoints
-        - reproducible-build-artifact-deployment-review
-      outputSchema: |-
-        {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["area", "status", "execution_status", "bounds", "summary"],
-            "properties": {
-              "area": {"type": "string"},
-              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
-              "target_type": {"type": "string"},
-              "bounds": {"type": "array", "items": {"type": "string"}},
-              "counterexamples": {"type": "array", "items": {"type": "string"}},
-              "tool_run": {"type": "string"},
-              "artifacts": {"type": "array", "items": {"type": "string"}},
-              "summary": {"type": "string"}
-            }
-          }
-        }
-
     - name: external-calls-reentrancy-and-atomicity
       role: vulnerability-hunter
       category: logic-flaw
@@ -725,15 +678,13 @@ spec:
         denied:
           - Bash
       objective: >-
-        Compact seeded Echidna {{tasks.echidna-stateful-property-fuzzing.output}}, bounded Mythril
-        {{tasks.bounded-mythril-symbolic-analysis.output}}, and bounded Halmos
+        Compact seeded Echidna {{tasks.echidna-stateful-property-fuzzing.output}} and bounded Halmos
         {{tasks.bounded-halmos-symbolic-tests.output}} into a lossless executable-tool coverage array. Preserve
         every execution_status, tool_run, seed, bounds, harnesses, artifacts, counterexamples, and limitations. Use
         seed 0 only for deterministic tools with no seed. Never turn an error, timeout, partial, skipped,
         unsupported, or inconclusive record into examined coverage.
       dependsOn:
         - echidna-stateful-property-fuzzing
-        - bounded-mythril-symbolic-analysis
         - bounded-halmos-symbolic-tests
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
@@ -755,9 +706,8 @@ spec:
         Scribble, Certora, Halmos, hevm, Foundry symbolic, Solidity model-checker, or other specifications and
         harnesses and judge environment/model completeness, loop/external-call bounds, assumptions and
         counterexample replayability. Only claim execution if an enabled deterministic run_security_tool
-        integration was actually invoked and returned that status. Consume bounded Mythril records from
-        {{tasks.bounded-mythril-symbolic-analysis.output}}, seeded Echidna records from
-        {{tasks.echidna-stateful-property-fuzzing.output}}, and bounded Halmos records from
+        integration was actually invoked and returned that status. Consume seeded Echidna records from
+        {{tasks.echidna-stateful-property-fuzzing.output}} and bounded Halmos records from
         {{tasks.bounded-halmos-symbolic-tests.output}}. Any other catalog-only or absent prover remains
         unsupported. Slither is executable static analysis, not a formal proof method. Do not substitute Bash, manual reasoning, or a skill for tool execution.
         Record applicable properties, recommended harness/prover, and why each was
@@ -766,7 +716,6 @@ spec:
       dependsOn:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
-        - bounded-mythril-symbolic-analysis
         - echidna-stateful-property-fuzzing
         - bounded-halmos-symbolic-tests
       outputSchema: |-
@@ -853,7 +802,6 @@ spec:
         - merge-solidity-static-analysis
         - deterministic-forge-tests-and-invariants
         - echidna-stateful-property-fuzzing
-        - bounded-mythril-symbolic-analysis
         - bounded-halmos-symbolic-tests
         - external-calls-reentrancy-and-atomicity
         - authorization-signatures-and-account-abstraction
@@ -1163,8 +1111,7 @@ spec:
         cause and smallest safe fix, affected contracts/deployments/storage or governance migration, invariant
         restored, compatibility and rollout risks, and a regression test or existing reproducer to rerun.
         Specify that follow-up deterministic Aderyn uses the revised immutable revision and applicable
-        Solidity root; Forge and Echidna use the revised project roots with seed `2062026`; and bounded
-        Mythril uses the revised single source or bytecode target. Do not claim those future runs occurred. Define expected pass/failure evidence and require source-artifact-deployment comparison,
+        Solidity root; Forge and Echidna use the revised project roots with seed `2062026`. Do not claim those future runs occurred. Define expected pass/failure evidence and require source-artifact-deployment comparison,
         privileged configuration and unresolved coverage gaps to be rechecked. Keep false positives out of
         remediation but preserve inconclusive/unsupported candidates as explicit investigation items. Submit
         a structured plan; an empty finding plan is valid while coverage-gap retests remain.
@@ -1218,7 +1165,7 @@ spec:
         state, deliberate trust assumptions and paths stopped by another guard. Merge duplicates by root cause
         and rank direct fund loss/insolvency, unauthorized control/upgrades, permanent freeze, economic/MEV
         extraction and sustained liveness failure by realistic prerequisites. The report must include the
-        structured scope and deployment basis, executed Aderyn, Forge, Echidna and Mythril run statuses with
+        structured scope and deployment basis, executed Aderyn, Forge, Echidna and Halmos run statuses with
         seed, bounds and artifact references, formal-method limitations, local-validation evidence,
         remediation/retest plan, and every examined,
         skipped, unsupported and inconclusive coverage record. Never describe unavailable or failed tooling

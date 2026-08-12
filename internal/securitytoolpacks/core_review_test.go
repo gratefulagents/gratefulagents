@@ -147,7 +147,7 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		}
 		dockerfiles += string(data)
 	}
-	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata", "mythril", "slither", "halmos"} {
+	for _, name := range []string{"owasp-zap", "schemathesis", "sslyze", "nmap", "zeek", "suricata", "slither", "halmos"} {
 		tool, ok := registry.Tool(name)
 		if !ok || !tool.Enabled {
 			t.Fatalf("%s is not executable: %+v", name, tool)
@@ -165,7 +165,7 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 		if slices.Contains([]string{"slither", "halmos"}, name) && (!tool.OCIWritableTarget || tool.OCIPath == "") {
 			t.Fatalf("%s requires an ephemeral writable build target and explicit root PATH: %+v", name, tool)
 		}
-		if name != "schemathesis" && name != "mythril" && name != "halmos" && tool.ExitCodes[1] != StatusError {
+		if name != "schemathesis" && name != "halmos" && tool.ExitCodes[1] != StatusError {
 			t.Fatalf("%s exit 1 must be operational error", name)
 		}
 	}
@@ -306,7 +306,7 @@ func TestEVMToolsHaveReviewedExecutionOrPackagingContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"echidna", "mythril", "slither", "halmos"} {
+	for _, name := range []string{"echidna", "slither", "halmos"} {
 		tool, ok := registry.Tool(name)
 		if !ok || !tool.Enabled {
 			t.Fatalf("%s must be executable: %+v", name, tool)
@@ -363,16 +363,6 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 			config: RunConfig{Tool: "halmos", Target: Target{Type: "foundry_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("halmos")), MediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"}},
 			want:   []string{"halmos", "--root", "/workspace/project", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"},
 		},
-		{
-			name:   "mythril solidity source",
-			config: RunConfig{Tool: "mythril", Target: Target{Type: "solidity_contract", Locator: "/workspace/Token.sol", Revision: "fixture-v1", Digest: sha256Digest([]byte("source")), MediaType: "application/vnd.gratefulagents.solidity-contract.v1+source"}},
-			want:   []string{"myth", "analyze", "/workspace/Token.sol", "-o", "json", "--strategy", "bfs", "--max-depth", "64", "--call-depth-limit", "3", "--loop-bound", "3", "--transaction-count", "2", "--execution-timeout", "240", "--solver-timeout", "10000", "--create-timeout", "30", "--no-onchain-data"},
-		},
-		{
-			name:   "mythril EVM bytecode",
-			config: RunConfig{Tool: "mythril", Target: Target{Type: "evm_bytecode", Locator: "/workspace/Token.hex", Revision: "fixture-v1", Digest: sha256Digest([]byte("bytecode")), MediaType: "application/vnd.gratefulagents.evm-bytecode.v1+hex"}},
-			want:   []string{"myth", "analyze", "--codefile", "/workspace/Token.hex", "-o", "json", "--strategy", "bfs", "--max-depth", "64", "--call-depth-limit", "3", "--loop-bound", "3", "--transaction-count", "2", "--execution-timeout", "240", "--solver-timeout", "10000", "--create-timeout", "30", "--no-onchain-data"},
-		},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -397,8 +387,6 @@ func TestEVMToolsRejectMissingSeedsAndMismatchedMediaTypes(t *testing.T) {
 	tests := []RunConfig{
 		{Tool: "echidna", Target: Target{Type: "solidity_project", Locator: base.Locator, Revision: base.Revision, Digest: base.Digest, MediaType: "application/gzip"}, Seed: &seed},
 		{Tool: "echidna", Target: Target{Type: "solidity_project", Locator: base.Locator, Revision: base.Revision, Digest: base.Digest, MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"}},
-		{Tool: "mythril", Target: Target{Type: "solidity_contract", Locator: base.Locator, Revision: base.Revision, Digest: base.Digest, MediaType: "application/vnd.gratefulagents.evm-bytecode.v1+hex"}},
-		{Tool: "mythril", Target: Target{Type: "evm_bytecode", Locator: base.Locator, Revision: base.Revision, Digest: base.Digest, MediaType: "application/vnd.gratefulagents.solidity-contract.v1+source"}},
 	}
 	for _, config := range tests {
 		if _, _, err := registry.BuildInvocation(config); err == nil {
