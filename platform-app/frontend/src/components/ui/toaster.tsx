@@ -5,7 +5,9 @@ import { useTheme } from "@/lib/theme";
 /**
  * App-wide toaster. Single instance — mount once in App.tsx.
  * Rendered top-center so it never covers the chat composer's Send/Stop
- * controls in the bottom-right corner. Visual language matches our surface
+ * controls in the bottom-right corner; the top offset clears the title bar
+ * (min 44px + safe-area inset) so toasts don't intercept clicks on the
+ * centered search/command-palette button. Visual language matches our surface
  * tokens (graphite surface, hairline ring, Geist body). Follows the in-app
  * theme toggle (not the OS theme, which `theme="system"` would track).
  */
@@ -14,8 +16,8 @@ export function Toaster() {
   return (
     <SonnerToaster
       position="top-center"
-      offset={20}
-      mobileOffset={12}
+      offset={{ top: "calc(env(safe-area-inset-top, 0px) + 56px)" }}
+      mobileOffset={{ top: "calc(env(safe-area-inset-top, 0px) + 52px)" }}
       gap={10}
       theme={theme}
       duration={3500}

@@ -590,6 +590,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       });
       setReply("");
       attachments.clear();
+      toast.success("Message sent");
       composerTextareaRef.current?.focus();
     } catch (e) {
       toast.error("Couldn't send message", {
@@ -670,6 +671,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     setSending(true);
     try {
       await client.sendAgentRunMessage({ namespace, name, message });
+      toast.success("Message sent");
       composerTextareaRef.current?.focus();
     } catch (e) {
       toast.error("Couldn't send message", {
@@ -782,6 +784,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     setInterrupting(true);
     try {
       await client.interruptAgentRun({ namespace, name });
+      toast.success("Stopping the current turn");
     } catch (e) {
       toast.error("Couldn't stop the current turn", {
         description: e instanceof Error ? e.message : String(e),
