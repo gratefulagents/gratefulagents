@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -90,6 +91,9 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		return Invocation{}, Tool{}, &ApplicabilityError{Tool: t.Name, TargetType: cfg.Target.Type}
 	}
 	expectedMedia := map[string]map[string]string{
+		"go-fuzz-tests": {
+			"go_fuzz_project": "application/vnd.gratefulagents.go-fuzz-project.v1+directory",
+		},
 		"aderyn": {
 			"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
 		},
@@ -152,6 +156,15 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		}
 		if strings.Contains(v, "{{") || strings.Contains(v, "}}") {
 			return Invocation{}, Tool{}, fmt.Errorf("argument %q contains reserved placeholder syntax", k)
+		}
+	}
+	if t.Name == "go-fuzz-tests" {
+		pkg, fuzz := cfg.Arguments["package"], cfg.Arguments["fuzz"]
+		if !regexp.MustCompile(`^\./[A-Za-z0-9_./-]+$`).MatchString(pkg) || strings.Contains(pkg, "..") {
+			return Invocation{}, Tool{}, fmt.Errorf("argument %q must be a relative Go package selector", "package")
+		}
+		if !regexp.MustCompile(`^\^Fuzz[A-Za-z0-9_]+\$$`).MatchString(fuzz) {
+			return Invocation{}, Tool{}, fmt.Errorf("argument %q must select exactly one named Go fuzz target", "fuzz")
 		}
 	}
 	if rateValue := cfg.Arguments["rate"]; rateValue != "" {
@@ -733,24 +746,26 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("slither", DomainBlockchain, "0.11.3", "slither-json", "application/json", []string{"solidity_project"}, []string{"slither", "{{target}}", "--solc", "/home/ethsec/.local/bin/solc", "--json", "/work/slither.json"}),
 		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
 		base("halmos", DomainBlockchain, "0.3.3", "halmos-json", "application/json", []string{"foundry_project"}, []string{"halmos", "--root", "{{target}}", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"}),
+		base("go-fuzz-tests", DomainBlockchain, "go1.26", "go-test-json", "application/x-ndjson", []string{"go_fuzz_project"}, []string{"go", "-C", "{{target}}", "test", "-json", "{{package}}", "-run=^$", "-fuzz", "{{fuzz}}", "-fuzztime=30s", "-parallel=1"}),
 	}
 	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu", "slither", "forge-security-tests", "echidna", "halmos"}
 	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz"}
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests"}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
 	packagingBlockers := map[string]string{}
 	ociTools := map[string]struct{ image, digest, amd64, arm64, root, executable, output string }{
-		"owasp-zap":    {"docker.io/zaproxy/zap-stable", "sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab", "sha256:65f8bee15a648ca4a0b6a25e1096fc76af6eea42ab2d75f2a9649981225f30b8", "sha256:7d6bc478bd0750a094349b2e9710a4e33b84e003ae4341f2f2ae7245ec1c5065", "owasp-zap", "/zap/zap.sh", "/work/zap-report.json"},
-		"schemathesis": {"docker.io/schemathesis/schemathesis", "sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2", "sha256:7f507383fc96256c1de89e8ac2fd9e00525cd46fee0be39d29dac286315fa414", "sha256:99f0b99bb8a44beb22d97fd12643d0990a28b13a8e0dd91d2ace054500373271", "schemathesis", "/usr/local/bin/schemathesis", "/work/result.xml"},
-		"sslyze":       {"docker.io/nablac0d3/sslyze", "sha256:e6d59470e380ecb626e831d1c3e006a410f7081266171054c0ce616ee03627d3", "sha256:b2a1cbb8cb716a215ea3e34ab2b8db51a149c8d7a04b8a9f146a70c76d783278", "sha256:5aba89895bc4161df0cdcd8126cb4f3e9c9e4eaf2f0462c5979e4cd38ab80e9f", "sslyze", "/opt/venv/bin/sslyze", ""},
-		"nmap":         {"docker.io/instrumentisto/nmap", "sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4416fa36e1891e8c33623cfc845", "sha256:42dc1d797c6f716ef192ac49426a19506bd6d27fc4002b7ca686796452c0b050", "sha256:6b200daa02b7b1a6628df3d815744fba596230137237e270640e788c4a0a65cb", "nmap", "/usr/bin/nmap", ""},
-		"zeek":         {"docker.io/zeek/zeek", "sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a", "sha256:c01e13d3bb837fdbccb26cddfab73c0cf8a9f3dba1eb9d181b00f412530bb4f6", "sha256:e53b6b22aaa753010ea356c5a691435a80a9aa0935721dcfd582dc76dd38572b", "zeek", "/usr/local/zeek/bin/zeek", "/work/notice.log"},
-		"suricata":     {"docker.io/jasonish/suricata", "sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a", "sha256:559a07fcccae439ffdabd05a4969e1feb74cc43f88ea456cc544a20b9b148123", "sha256:6a0b4d02f9174a74e52c904bbd10d344d024bbebc86283866f92096c09be31b0", "suricata", "/usr/bin/suricata", "/work/eve.json"},
-		"slither":      {"ghcr.io/trailofbits/eth-security-toolbox", "sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978", "sha256:28ce0f9b27312f6ed1137495aef70744dc2d6ff8e6d5c9147ec9e31a63ff86a8", "sha256:98b90a826a996507e6b1015a7850b2e8de30a3d80f4ec7deaddbf00e050d5152", "slither", "/home/ethsec/.local/bin/slither", "/work/slither.json"},
-		"halmos":       {"docker.io/library/python:3.11-slim-bookworm", "sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3", "sha256:77923445c077d8eb971b14b2b114a1d9cd4a87edb4c75654820ca4832ee8cb15", "sha256:ecb0ac954790dd64a0d518d699b9c61a91780c42b0d877c802dbaffd04db66f9", "halmos", "/opt/halmos/bin/halmos", "/work/halmos.json"},
+		"owasp-zap":     {"docker.io/zaproxy/zap-stable", "sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab", "sha256:65f8bee15a648ca4a0b6a25e1096fc76af6eea42ab2d75f2a9649981225f30b8", "sha256:7d6bc478bd0750a094349b2e9710a4e33b84e003ae4341f2f2ae7245ec1c5065", "owasp-zap", "/zap/zap.sh", "/work/zap-report.json"},
+		"schemathesis":  {"docker.io/schemathesis/schemathesis", "sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2", "sha256:7f507383fc96256c1de89e8ac2fd9e00525cd46fee0be39d29dac286315fa414", "sha256:99f0b99bb8a44beb22d97fd12643d0990a28b13a8e0dd91d2ace054500373271", "schemathesis", "/usr/local/bin/schemathesis", "/work/result.xml"},
+		"sslyze":        {"docker.io/nablac0d3/sslyze", "sha256:e6d59470e380ecb626e831d1c3e006a410f7081266171054c0ce616ee03627d3", "sha256:b2a1cbb8cb716a215ea3e34ab2b8db51a149c8d7a04b8a9f146a70c76d783278", "sha256:5aba89895bc4161df0cdcd8126cb4f3e9c9e4eaf2f0462c5979e4cd38ab80e9f", "sslyze", "/opt/venv/bin/sslyze", ""},
+		"nmap":          {"docker.io/instrumentisto/nmap", "sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4416fa36e1891e8c33623cfc845", "sha256:42dc1d797c6f716ef192ac49426a19506bd6d27fc4002b7ca686796452c0b050", "sha256:6b200daa02b7b1a6628df3d815744fba596230137237e270640e788c4a0a65cb", "nmap", "/usr/bin/nmap", ""},
+		"zeek":          {"docker.io/zeek/zeek", "sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a", "sha256:c01e13d3bb837fdbccb26cddfab73c0cf8a9f3dba1eb9d181b00f412530bb4f6", "sha256:e53b6b22aaa753010ea356c5a691435a80a9aa0935721dcfd582dc76dd38572b", "zeek", "/usr/local/zeek/bin/zeek", "/work/notice.log"},
+		"suricata":      {"docker.io/jasonish/suricata", "sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a", "sha256:559a07fcccae439ffdabd05a4969e1feb74cc43f88ea456cc544a20b9b148123", "sha256:6a0b4d02f9174a74e52c904bbd10d344d024bbebc86283866f92096c09be31b0", "suricata", "/usr/bin/suricata", "/work/eve.json"},
+		"slither":       {"ghcr.io/trailofbits/eth-security-toolbox", "sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978", "sha256:28ce0f9b27312f6ed1137495aef70744dc2d6ff8e6d5c9147ec9e31a63ff86a8", "sha256:98b90a826a996507e6b1015a7850b2e8de30a3d80f4ec7deaddbf00e050d5152", "slither", "/home/ethsec/.local/bin/slither", "/work/slither.json"},
+		"halmos":        {"docker.io/library/python:3.11-slim-bookworm", "sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3", "sha256:77923445c077d8eb971b14b2b114a1d9cd4a87edb4c75654820ca4832ee8cb15", "sha256:ecb0ac954790dd64a0d518d699b9c61a91780c42b0d877c802dbaffd04db66f9", "halmos", "/opt/halmos/bin/halmos", "/work/halmos.json"},
+		"go-fuzz-tests": {"docker.io/library/golang:1.26", "sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365", "sha256:c05f28d5148bc5c4b60ab5c002291e830b7e835922d23875152b3af5951cecea", "sha256:b11b8c1efa832e8b83ecba5bab41b496edd3fdf6ecdae89dada36831cb51a5b7", "go-fuzz-tests", "/usr/local/go/bin/go", ""},
 	}
 	for i := range tools {
 		if digest := lockedToolArtifactDigest(tools[i].Name, runtime.GOARCH); digest != "" {
@@ -774,7 +789,7 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			tools[i].OCIExecutable = oci.executable
 			tools[i].OCIOutputPath = oci.output
 			tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
-			if tools[i].Name == "schemathesis" || tools[i].Name == "halmos" {
+			if tools[i].Name == "schemathesis" || tools[i].Name == "halmos" || tools[i].Name == "go-fuzz-tests" {
 				tools[i].ExitCodes[1] = StatusFindings
 			}
 			if tools[i].Name == "slither" {
@@ -789,6 +804,8 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}}
 		case "owasp-zap", "schemathesis":
 			tools[i].Arguments = []Argument{{Name: "base_url", Type: "url", Required: true}}
+		case "go-fuzz-tests":
+			tools[i].Arguments = []Argument{{Name: "package", Type: "string", Required: true}, {Name: "fuzz", Type: "string", Required: true}}
 		case "naabu", "nmap":
 			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}, {Name: "ports", Type: "ports", Required: true}}
 		}
@@ -820,6 +837,14 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		if tools[i].Name == "halmos" {
 			tools[i].OCIPath = "/opt/halmos/bin:/usr/local/bin:/usr/bin:/bin"
 			tools[i].OCIWritableTarget = true
+			tools[i].Budgets.Concurrency = 1
+		}
+		if tools[i].Name == "go-fuzz-tests" {
+			tools[i].OCIPath = "/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
+			tools[i].OCIWritableTarget = true
+			tools[i].Budgets.Timeout = time.Minute
+			tools[i].Budgets.CPU = 2000
+			tools[i].Budgets.Memory = 2 << 30
 			tools[i].Budgets.Concurrency = 1
 		}
 		if !slices.Contains(executable, tools[i].Name) {

@@ -1,0 +1,120 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: offchain-blockchain-services-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    Off-chain blockchain service review for relayers, oracles, indexers, keepers,
+    bundlers, sequencers, batchers, provers, RPC and admin APIs, key custody,
+    telemetry, backups, failover, reconciliation, and recovery.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill for services whose decisions or outputs affect blockchain
+        state or user safety. Identify every deployment role, chain and network,
+        trust boundary, external dependency, queue, database, cache, RPC provider,
+        API, key or signer, contract address, configuration source, release
+        artifact, and operator procedure. Review service code, contracts and
+        operational configuration together where an invariant crosses them.
+
+        ## Shared service review
+
+        - Inventory relayers, oracles, indexers, keepers, searchers, bundlers,
+          paymasters, sequencers, batchers, provers, verifiers, signers, watchers,
+          RPC gateways, admin planes, schedulers and recovery jobs. Map privileges,
+          data flows, authentication, authorization, tenant boundaries, and the
+          on-chain effects available to each identity.
+        - Trace each job from untrusted chain, user or operator input through
+          decoding, validation, persistence, deduplication, decision, signing,
+          submission, confirmation, retry, reconciliation and terminal state.
+          Exercise duplicates, reordering, delays, reorgs, conflicting providers,
+          partial writes, crashes, restarts, stale caches, failover, replacement
+          transactions and permanent failures.
+        - State invariants for source authenticity, finality, idempotency, ordering,
+          conservation, freshness, quorum, authorization, key use, tenant and
+          network isolation, availability, auditability and recovery. Identify
+          exactly which on-chain checks contain a compromised service and which
+          invariants rely entirely on honest off-chain behavior.
+
+        ## Chain data, automation, and specialized roles
+
+        - Validate chain and network IDs, genesis or fork identity, contract and
+          asset addresses, block hashes, log provenance, confirmation level,
+          canonical-chain membership, event signatures and indices, decoding,
+          pagination, historical gaps, provider disagreement, pruning, and reorg
+          rollback. Never treat an RPC response as finalized merely because a
+          request succeeded.
+        - For relayers and keepers, review message uniqueness, eligibility and
+          timing, simulation-versus-execution drift, nonce allocation, fee and gas
+          policy, replacement and cancellation, retries, refunds, stuck jobs,
+          front-running, profitability gates, duplicate execution and pause or
+          recovery behavior.
+        - For oracles, bind values to source, market, units, decimals and timestamp.
+          Review aggregation, quorum, signer uniqueness, stale and future data,
+          outliers, zero or negative values, market closure, source correlation,
+          update races, circuit breakers, manipulation cost and fallback behavior.
+        - For indexers, prove rollback and replay produce a canonical derived state.
+          Check gap detection, cursor atomicity, duplicate logs, backfills, schema
+          migrations, eventual consistency, query authorization and whether APIs
+          expose stale or noncanonical data as authoritative.
+        - For bundlers, paymasters and account-abstraction services, review request
+          validation, simulation context, reputation and throttling, fee and
+          sponsorship accounting, replay domains, nonce lanes, aggregator behavior,
+          mempool isolation and denial-of-service costs.
+        - For sequencers, batchers and provers, review transaction ordering and
+          censorship, derivation inputs, batch boundaries, data availability,
+          commitment construction, proof/public-input binding, finality and reorg
+          response, forced inclusion, crash recovery, duplicate batches and key or
+          verifier rotation.
+
+        ## APIs, operations, and custody
+
+        - Audit public, partner, RPC, webhook, metrics, debug and admin interfaces
+          for authentication and authorization on every action and object, tenant
+          scoping, replay, request signing, SSRF, injection, unsafe deserialization,
+          resource limits, batch amplification, rate-limit bypass, secret exposure,
+          dangerous debug methods, and fail-open behavior.
+        - Trace signing keys, API credentials, RPC secrets and recovery material
+          through provisioning, workload identity, process memory, IPC, storage,
+          logs, telemetry, backups, rotation, revocation and deletion. Review HSM
+          or remote-signer policy, destination and transaction-intent binding,
+          quorum, break-glass access and blast radius; network isolation alone is
+          not an authorization control.
+        - Check configuration provenance and validation, environment and network
+          separation, default addresses, feature flags, staged rollout, artifact
+          and image identity, dependency and provider compromise, startup ordering,
+          graceful shutdown, leader election, split brain, clock skew, queue
+          poison messages, backpressure, disk exhaustion and bounded retries.
+        - Ensure logs, traces, metrics and alerts support detection and forensic
+          reconstruction without leaking keys, credentials, raw sensitive requests
+          or tenant data. Review backup integrity and encryption, restore tests,
+          point-in-time consistency, runbooks, failover, disaster recovery,
+          reconciliation after restore and safe return to service.
+
+        ## Local validation and findings
+
+        Prefer deterministic local chain fixtures, mocked provider disagreement,
+        reorg and finality simulations, duplicate/reordered event tests, crash and
+        restart fault injection, queue replay, authorization tests, signer-policy
+        tests, backup/restore drills, fuzzing of parsers and APIs, and regression
+        tests for confirmed findings. Run nodes, test runners, simulators, fuzzers,
+        analyzers, or fault injectors only through a registered execution tool.
+        Record revision, exact tool and command, versions, topology and fixtures,
+        seed, corpus, bounds, coverage, exit status, and artifacts. If execution is
+        unavailable, label it unsupported. Preserve tool failures and timeouts as
+        incomplete coverage; a bounded no-failure run supports only its named
+        harness, state space and conditions.
+
+        Report only a production-reachable attacker or failure sequence with the
+        violated invariant and decisive file:line and configuration evidence.
+        Include a minimal deterministic local reproduction when practical and
+        retest the remediation revision. Separately enumerate services, jobs,
+        identities, APIs, chains, failure modes, properties and configurations
+        examined; targets skipped with reasons; checks unsupported by available
+        tools or environments; and work inconclusive because of missing artifacts,
+        ambiguity, timeout, failure or insufficient evidence. Keep findings, tool
+        errors, skipped work, unsupported work and inconclusive work distinct.

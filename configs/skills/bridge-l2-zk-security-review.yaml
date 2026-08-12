@@ -1,0 +1,120 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: Skill
+metadata:
+  name: bridge-l2-zk-security-review
+  annotations:
+    platform.gratefulagents.dev/security-skill: "true"
+spec:
+  version: "0.1.0"
+  description: >-
+    End-to-end bridge, rollup, and zero-knowledge review spanning message and value
+    lifecycles, relayers and proofs, finality and reorgs, optimistic challenges,
+    data availability, forced inclusion, circuits, and verifier binding.
+  source:
+    inline:
+      instructions: |
+
+        Use this skill for bridges, cross-domain messaging, optimistic or validity
+        rollups, proof systems, and applications whose safety spans more than one
+        execution domain. Review all relevant contracts, nodes, relayers, batchers,
+        sequencers, provers, verifiers, watchers, governance, deployment artifacts,
+        and operational configuration as one system; a safe component does not
+        establish an end-to-end invariant.
+
+        ## System model and invariants
+
+        - Inventory domains, chain and rollup IDs, assets and decimal conventions,
+          trust roots, light clients, oracles, committee or multisig thresholds,
+          inboxes and outboxes, message formats, commitments, proof formats,
+          finality assumptions, upgrade authorities, emergency controls, and every
+          off-chain actor. Mark each trust and data-availability assumption.
+        - Trace at least one complete message and value lifecycle from initiation
+          through serialization, commitment, observation, proof or attestation,
+          finalization, execution, acknowledgement, retry, refund, cancellation,
+          and recovery. Include duplicate, reordered, delayed, censored, malformed,
+          partially executed, reverted, and reorged paths.
+        - State explicit invariants for lock/mint and burn/release conservation,
+          uniqueness, destination and recipient binding, source authenticity,
+          ordered delivery where required, replay domains, finality, solvency,
+          fees, decimals and rounding, liveness, and escape or recovery paths.
+
+        ## Bridges and cross-domain messaging
+
+        - Bind every message to source and destination domain, emitting contract,
+          sender, recipient, nonce, payload, value or asset, amount, fee, deadline,
+          protocol version, and unique identifier. Check ambiguous encodings,
+          hash collisions through omitted fields, address-width conversion,
+          chain-ID confusion, replay after upgrades or resets, and proof reuse.
+        - Verify header, state, receipt, event, storage and inclusion proofs from a
+          trusted root through every decoded field. Audit validator or committee
+          membership, threshold and weight calculations, signature ordering and
+          uniqueness, key rotation, equivocation, stale sets, and compromise or
+          recovery assumptions.
+        - Review finality thresholds, probabilistic finality, reorg handling,
+          orphaned deposits, conflicting observations, confirmation changes,
+          challenge windows, delayed messages, idempotency, retries, refunds,
+          failed destination calls, rate limits, pause behavior, and in-flight
+          messages during upgrades.
+        - Follow native and token custody, wrappers, fee-on-transfer and rebasing
+          behavior, false-return and callback tokens, decimals and dust, caps,
+          accounting versus actual balances, withdrawal liquidity, and the exact
+          authorization for mint, burn, lock and release.
+
+        ## Optimistic and validity rollups
+
+        - For optimistic systems, reconstruct derivation from L1 data, batch and
+          deposit ordering, origin and timestamp rules, unsafe/safe/finalized head
+          transitions, reorg resets, sequencer drift, data availability, forced
+          inclusion, censorship escape, output proposals, dispute-game state,
+          one-step proofs, bonds, deadlines, and honest-challenger resource and
+          liveness assumptions.
+        - For validity systems, bind batch data, old and new state roots, chain and
+          protocol versions, transaction or message commitments, data-availability
+          commitments, and public inputs to the exact verified statement. Check
+          verifier upgrades, proof-type selection, recursion and aggregation,
+          proof replay across batches or domains, and prover/verifier disagreement.
+        - Analyze privileged sequencing, batching, proving and upgrade controls,
+          timelocks, emergency modes, escape hatches, forced exits, verifier or
+          bridge replacement, migration, rollback, and whether users can recover
+          without cooperation from a failed or malicious operator.
+
+        ## ZK circuits and cryptography
+
+        - Inventory circuits, witness generators, constraint systems, custom gates,
+          lookup tables, gadgets, transcripts, proving and verification keys,
+          setup ceremonies, recursion layers, aggregation code, native reference
+          implementations, and serialization boundaries.
+        - Prove every witness value that affects safety is constrained and every
+          required public input is bound. Check range, booleanity, bit length,
+          nonzero, subgroup, curve, canonical encoding, uniqueness, conditional
+          branch, selector, index, memory, signature, Merkle path and state-
+          transition constraints. Look for field aliasing and non-native arithmetic
+          that admits multiple integer encodings.
+        - Review Fiat-Shamir domain separation and transcript ordering, challenge
+          derivation, commitment binding, trusted-setup provenance and toxic-waste
+          assumptions, key and circuit identity, malformed proofs, batch
+          verification, recursion cycles, aggregation soundness, and differences
+          among circuit, witness generator, prover, verifier, and on-chain decoder.
+
+        ## Local validation and coverage
+
+        Prefer deterministic local fixtures for both domains, reorg and finality
+        simulation, message replay and mutation, accounting assertions, challenge
+        games, circuit tests, malformed proofs, verifier vectors, and differential
+        checks among native and constrained implementations. Run a compiler, node,
+        simulator, test runner, fuzzer, prover, verifier, or analyzer only through
+        a registered execution tool. Record revision, exact tool and command,
+        versions, topology or fixture, seed, corpus, bounds, coverage, exit status,
+        and artifacts. If no applicable executable integration exists, report it
+        unsupported. Tool errors and timeouts are incomplete coverage; a bounded
+        no-failure run is evidence only for the named harness and state space.
+
+        Report only a production-reachable attacker or failure sequence with the
+        violated end-to-end invariant and decisive file:line evidence. Give a
+        minimal deterministic local reproduction when practical and retest against
+        the remediation revision. Separately enumerate components, domains,
+        lifecycle steps, invariants, proofs, circuits, configurations, and failure
+        modes examined; work skipped with reasons; checks unsupported by tools or
+        artifacts; and work inconclusive because of missing data, ambiguity,
+        timeout, failure, or insufficient evidence. Keep findings and coverage
+        limitations distinct.

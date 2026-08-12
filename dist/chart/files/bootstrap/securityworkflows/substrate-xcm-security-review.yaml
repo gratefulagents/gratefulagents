@@ -1,0 +1,139 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: substrate-xcm-security-review
+spec:
+  description: End-to-end security review for Substrate, Polkadot, and XCM, covering scope, architecture, invariants, specialist review, applicable executable evidence, validation, explicit coverage, triage, remediation, and retest planning.
+  parallelism: 3
+  tasks:
+    - name: scope-architecture-and-invariants
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-entry-point-analyzer
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied: [Bash]
+      objective: >-
+        Record the immutable revision and all in-scope/out-of-scope roots. Inventory Substrate nodes and runtimes,
+        FRAME pallets, relay/parachain components, XCM configuration and executors, off-chain workers, runtime
+        metadata, generated weights, migrations, benchmarks, tests, and deployment artifacts. Follow production
+        wiring and enumerate assets, privileged and attacker roles, entry points, state, trust boundaries, external
+        dependencies, artifacts, deployments, existing tests, and harnesses with repository-relative evidence.
+        Define testable invariants for every lifecycle and boundary, including origin and privilege integrity,
+        dispatch and nested-call authorization, weight/proof-size and storage-growth bounds, asset conservation, XCM
+        origin/asset/destination binding, replay prevention, native/Wasm agreement, deterministic runtime behavior,
+        and upgrade/migration safety. Each invariant must name the protected asset, attacker, allowed transition,
+        enforcement, alternate paths, impact, and local validation target. Mark absent or conflicting context
+        explicitly. This task is inventory and threat modeling only and must not claim build, test, analyzer,
+        fuzzer, simulator, prover, network, or run_security_tool execution.
+      outputSchema: |-
+        {"type":"object","required":["revision","in_scope","out_of_scope","components","entrypoints","trust_boundaries","assets","roles","artifacts","invariants","test_targets","limitations"],"properties":{"revision":{"type":"string"},"in_scope":{"type":"array","items":{"type":"string"}},"out_of_scope":{"type":"array","items":{"type":"string"}},"components":{"type":"array","items":{"type":"string"}},"entrypoints":{"type":"array","items":{"type":"string"}},"trust_boundaries":{"type":"array","items":{"type":"string"}},"assets":{"type":"array","items":{"type":"string"}},"roles":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"invariants":{"type":"array","items":{"type":"object"}},"test_targets":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
+    - name: specialist-review
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: trail-of-bits-substrate-vulnerability-scanner
+        - name: trail-of-bits-rust-review
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied: [Bash]
+      objective: >-
+        Use {{tasks.scope-architecture-and-invariants.output}} for a complete manual specialist review. Audit
+        dispatchables, ensure/root/signed/custom origins, signed extensions, unsigned validation, inherents, hooks,
+        off-chain workers, nested dispatch, call indexes, proxy/multisig/scheduler/collective paths, benchmark
+        coverage and generated weights, storage deposits, runtime APIs, unsafe/native boundaries, and XCM barriers,
+        origin conversion, asset filters, fee traders, routing, replay, traps, claims, and version handling. Follow
+        attacker-controlled values through parsing, authorization, state transition, external interaction, rollback,
+        retry, recovery, and upgrade paths; compare equivalent admission and execution paths. Report only
+        production-reachable invariant violations with decisive file:line evidence, prerequisites, impact, and
+        finding fingerprint. Return examined, skipped, unsupported, and inconclusive targets explicitly. This Bash-
+        denied task must not claim executable tool or test results.
+      dependsOn: [scope-architecture-and-invariants]
+      outputSchema: |-
+        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+
+    - name: applicable-tool-execution
+      role: vulnerability-hunter
+      category: other
+      skillRefs:
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-coverage-analysis
+      tools:
+        denied: [Bash]
+      objective: >-
+        Use only concrete artifacts, test_targets, and invariants in {{tasks.scope-architecture-and-
+        invariants.output}}. For existing Rust SCALE, XCM, runtime API, parser, or serialization fuzz targets, use
+        run_security_tool only when an enabled cargo-fuzz or sanitizer adapter accepts the staged target. Try-
+        runtime, benchmarks, native/Wasm differential execution, node tests, and emulators remain unsupported unless
+        an exact registered adapter exists and returns evidence. A run exists only when run_security_tool was
+        actually called and returned a run reference. For every considered target preserve tool, target,
+        execution_status, tool_run, seed, bounds, harnesses, artifacts, examined and uncovered scope, and
+        limitations. Errors, timeouts, partial output, missing adapters/harnesses, and incompatible targets remain
+        visible as inconclusive, unsupported, or skipped. Reproduce and minimize crashes where supported; preserve
+        corpus and replay context. A bounded no-finding run is never evidence of safety.
+      dependsOn: [scope-architecture-and-invariants]
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["tool","target","status","execution_status","tool_run","seed","bounds","harnesses","artifacts","examined","uncovered","limitations"],"properties":{"tool":{"type":"string"},"target":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"type":["integer","null"]},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"examined":{"type":"array","items":{"type":"string"}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}}
+
+    - name: validate-triage-and-coverage
+      role: exploit-validator
+      category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: exploit-poc-discipline
+      tools:
+        denied: [Bash]
+      objective: >-
+        Validate every critical or high candidate in {{tasks.specialist-review.output}} against {{tasks.scope-
+        architecture-and-invariants.output}} and actual evidence in {{tasks.applicable-tool-execution.output}}.
+        Confirm production reachability, least-privileged attacker control, each bypassed guard, and impact. Use
+        only safe deterministic local fixtures and dummy assets; never contact a live network or third party. Reuse
+        run_security_tool only for an existing candidate-specific compatible harness and cite its returned
+        run/artifact; otherwise give the smallest code/state/message trace and leave the verdict triaged. Then
+        account for every component, entry point, boundary, artifact, invariant, target, tool attempt, and candidate
+        under examined, skipped, unsupported, or inconclusive. Preserve errors, timeouts, blocked validation and
+        uncovered targets; absence of a finding is not a pass.
+      dependsOn: [scope-architecture-and-invariants, specialist-review, applicable-tool-execution]
+      outputSchema: |-
+        {"type":"object","required":["examined","skipped","unsupported","inconclusive","confirmed","false_positives","triaged","uncovered","limitations"],"properties":{"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"unsupported":{"type":"array","items":{"type":"string"}},"inconclusive":{"type":"array","items":{"type":"string"}},"confirmed":{"type":"array","items":{"type":"string"}},"false_positives":{"type":"array","items":{"type":"string"}},"triaged":{"type":"array","items":{"type":"string"}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
+    - name: remediation-and-retest
+      role: vulnerability-hunter
+      category: other
+      skillRefs:
+        - name: trail-of-bits-variant-analysis
+        - name: trail-of-bits-property-based-testing
+      tools:
+        denied: [Bash]
+      objective: >-
+        Use {{tasks.validate-triage-and-coverage.output}} to give the smallest root-cause remediation and
+        deterministic regression/retest plan for each confirmed or still-triaged finding. Search for sibling
+        variants without broad refactoring. Name the restored invariant, change location, migration/rollout risk,
+        regression property, fixture or harness, required immutable remediation revision, exact compatible
+        registered tool plus seed/bounds when available, expected evidence, and residual unsupported work. This scan
+        cannot contain the future revision: do not claim a fix was applied or retested; require a follow-up scan.
+      dependsOn: [validate-triage-and-coverage]
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["fingerprint","remediation","regression_test","retest","rollout_risk"],"properties":{"fingerprint":{"type":"string"},"remediation":{"type":"string"},"regression_test":{"type":"string"},"retest":{"type":"string"},"rollout_risk":{"type":"string"}}}}
+
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      tools:
+        denied: [Bash]
+      objective: >-
+        Produce exactly one final report from {{tasks.validate-triage-and-coverage.output}} and {{tasks.remediation-
+        and-retest.output}}. Call list_security_findings, re-read each path and file:line, deduplicate root causes,
+        and retain only evidence-supported findings with prerequisites and impact. Separate confirmed findings,
+        tentative/triaged candidates, false positives, task/tool errors and timeouts, examined coverage, skipped
+        targets, unsupported execution/context, inconclusive work, uncovered inventory, and limitations. Include
+        minimal remediation, regression test, rollout risk, and follow-up retest recipe for every kept finding. A
+        bounded clean run applies only to its revision, target, harness, seed and bounds and never proves safety.
+        Submit one report.
+      dependsOn: [validate-triage-and-coverage, remediation-and-retest]

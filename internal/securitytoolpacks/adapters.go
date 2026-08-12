@@ -50,8 +50,65 @@ func DefaultAdapters() map[string]Adapter {
 		"authorization-matrix": authzAdapter{}, "crypto-vectors": cryptoAdapter{}, "zeek-jsonl": zeekAdapter{}, "suricata-eve": suricataAdapter{}, "nmap-xml": nmapAdapter{},
 		"json-records": generic, "zap-json": zapAdapter{}, "schemathesis-json": schemathesisAdapter{}, "restler-json": restlerAdapter{}, "nuclei-jsonl": nucleiAdapter{}, "naabu-jsonl": naabuAdapter{}, "sslyze-json": sslyzeAdapter{}, "testssl-json": testsslAdapter{}, "openssl-json": opensslAdapter{}, "tshark-json": tsharkAdapter{},
 		"har": harAdapter{}, "junit": junitAdapter{}, "sarif": sarifAdapter{},
-		"slither-json": slitherAdapter{}, "echidna-json": echidnaAdapter{}, "halmos-json": halmosAdapter{},
+		"slither-json": slitherAdapter{}, "echidna-json": echidnaAdapter{}, "halmos-json": halmosAdapter{}, "go-test-json": goTestJSONAdapter{},
 	}
+}
+
+type goTestEvent struct {
+	Action  string `json:"Action"`
+	Package string `json:"Package"`
+	Test    string `json:"Test"`
+	Output  string `json:"Output"`
+}
+
+type goTestJSONAdapter struct{}
+
+func (goTestJSONAdapter) Normalize(tool Tool, target Target, native []byte, r Redactor) ([]securityRecord, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(native))
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	type failure struct {
+		pkg, test string
+		output    strings.Builder
+	}
+	failures := map[string]*failure{}
+	failed := map[string]bool{}
+	for scanner.Scan() {
+		var event goTestEvent
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			return nil, fmt.Errorf("Go test JSON output: %w", err)
+		}
+		key := event.Package + "\x00" + event.Test
+		if event.Test != "" && event.Output != "" {
+			f := failures[key]
+			if f == nil {
+				f = &failure{pkg: event.Package, test: event.Test}
+				failures[key] = f
+			}
+			f.output.WriteString(event.Output)
+		}
+		if event.Action == "fail" && event.Test != "" {
+			failed[key] = true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(failed))
+	for key := range failed {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]securityRecord, 0, len(keys))
+	for _, key := range keys {
+		f := failures[key]
+		message := r.Text(strings.TrimSpace(f.output.String()))
+		if message == "" {
+			message = "fuzz target failed"
+		}
+		rec := security.ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "go-fuzz-failure", RuleName: "Go fuzz target failed", Message: message, Severity: "high", Category: "fuzzing", FilePath: f.pkg, Symbol: f.test, RawEvidence: message}
+		out = append(out, securityRecord{Record: fromPipelineRecord(rec), Asset: f.pkg})
+	}
+	return out, nil
 }
 
 type jsonRecordsAdapter struct{}
