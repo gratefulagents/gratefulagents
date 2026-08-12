@@ -356,7 +356,7 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 		{
 			name:   "slither",
 			config: RunConfig{Tool: "slither", Target: Target{Type: "solidity_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("slither")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"}},
-			want:   []string{"slither", "/workspace/project", "--json", "-"},
+			want:   []string{"slither", "/workspace/project", "--solc", "/home/ethsec/.local/bin/solc", "--json", "/work/slither.json"},
 		},
 		{
 			name:   "halmos",
