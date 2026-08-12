@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -63,6 +64,29 @@ func TestInstallRejectsChecksumAndMissingPlatform(t *testing.T) {
 	}
 	if err := install(writeLock(t, lock), t.TempDir(), "linux/arm64"); err == nil {
 		t.Fatal("expected missing-platform rejection")
+	}
+}
+
+func TestDownloadRetriesTransientFailure(t *testing.T) {
+	payload := []byte("verified-binary")
+	sum := sha256.Sum256(payload)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) < 3 {
+			http.Error(response, "temporary", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = response.Write(payload)
+	}))
+	defer server.Close()
+
+	path, err := download(server.Client(), artifact{Asset: server.URL, SHA256: hex.EncodeToString(sum[:])}, "scanner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(path) }()
+	if requests.Load() != 3 {
+		t.Fatalf("requests = %d, want 3", requests.Load())
 	}
 }
 

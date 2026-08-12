@@ -62,7 +62,7 @@ RUN apk add --no-cache ca-certificates curl tar xz gzip
 RUN mkdir -p /out/fallback/bin /out/etc
 
 # GitHub CLI (static Go binary; release assets use amd64/arm64 directly).
-RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" \
+RUN curl -fsSL --retry 10 --retry-all-errors --retry-delay 2 "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" \
       | tar -xz -C /tmp \
     && mv "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /out/fallback/bin/gh
 
@@ -73,7 +73,7 @@ RUN case "$TARGETARCH" in \
       arm64) RG_TRIPLE="aarch64-unknown-linux-gnu" ;; \
       *) echo "unsupported TARGETARCH=$TARGETARCH" >&2; exit 1 ;; \
     esac \
-    && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-${RG_TRIPLE}.tar.gz" \
+    && curl -fsSL --retry 10 --retry-all-errors --retry-delay 2 "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-${RG_TRIPLE}.tar.gz" \
       | tar -xz -C /tmp \
     && mv "/tmp/ripgrep-${RG_VERSION}-${RG_TRIPLE}/rg" /out/fallback/bin/rg
 
@@ -82,12 +82,12 @@ RUN case "$TARGETARCH" in \
       amd64) FD_TRIPLE="x86_64-unknown-linux-musl" ;; \
       arm64) FD_TRIPLE="aarch64-unknown-linux-musl" ;; \
     esac \
-    && curl -fsSL "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-${FD_TRIPLE}.tar.gz" \
+    && curl -fsSL --retry 10 --retry-all-errors --retry-delay 2 "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-${FD_TRIPLE}.tar.gz" \
       | tar -xz -C /tmp \
     && mv "/tmp/fd-v${FD_VERSION}-${FD_TRIPLE}/fd" /out/fallback/bin/fd
 
 # jq (official static builds; assets use amd64/arm64 directly).
-RUN curl -fsSL "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${TARGETARCH}" \
+RUN curl -fsSL --retry 10 --retry-all-errors --retry-delay 2 "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${TARGETARCH}" \
       -o /out/fallback/bin/jq \
     && chmod +x /out/fallback/bin/jq
 
@@ -96,7 +96,7 @@ RUN case "$TARGETARCH" in \
       amd64) CURL_ARCH="x86_64" ;; \
       arm64) CURL_ARCH="aarch64" ;; \
     esac \
-    && curl -fsSL "https://github.com/stunnel/static-curl/releases/download/${CURL_VERSION}/curl-linux-${CURL_ARCH}-musl-${CURL_VERSION}.tar.xz" \
+    && curl -fsSL --retry 10 --retry-all-errors --retry-delay 2 "https://github.com/stunnel/static-curl/releases/download/${CURL_VERSION}/curl-linux-${CURL_ARCH}-musl-${CURL_VERSION}.tar.xz" \
       | tar -xJ -C /tmp \
     && mv /tmp/curl /out/fallback/bin/curl
 
@@ -109,7 +109,7 @@ FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc
 ARG BWRAP_VERSION
 ARG BWRAP_SHA256
 RUN apk add --no-cache build-base meson libcap-dev libcap-static linux-headers curl
-RUN curl -fsSL -o /tmp/bubblewrap.tar.xz "https://github.com/containers/bubblewrap/releases/download/v${BWRAP_VERSION}/bubblewrap-${BWRAP_VERSION}.tar.xz" \
+RUN curl -fsSL --retry 10 --retry-all-errors --retry-delay 2 -o /tmp/bubblewrap.tar.xz "https://github.com/containers/bubblewrap/releases/download/v${BWRAP_VERSION}/bubblewrap-${BWRAP_VERSION}.tar.xz" \
     && echo "${BWRAP_SHA256}  /tmp/bubblewrap.tar.xz" | sha256sum -c - \
     && tar -xJf /tmp/bubblewrap.tar.xz -C /tmp
 RUN cd "/tmp/bubblewrap-${BWRAP_VERSION}" \
@@ -136,7 +136,7 @@ RUN apk add --no-cache build-base curl linux-headers \
 # Alpine's curl-static: the distro build drags in libidn2/libpsl/brotli/... and
 # libidn2's bundled gnulib defines error(), colliding with git's own error()
 # at static link time. git only needs plain HTTP(S) from libcurl.
-RUN curl -fsSL "https://curl.se/download/curl-${CURL_VERSION}.tar.xz" \
+RUN curl -fsSL --retry 10 --retry-all-errors --retry-delay 2 "https://curl.se/download/curl-${CURL_VERSION}.tar.xz" \
       | tar -xJ -C /tmp \
     && cd "/tmp/curl-${CURL_VERSION}" \
     && ./configure --prefix=/usr/local \
@@ -150,7 +150,7 @@ RUN curl -fsSL "https://curl.se/download/curl-${CURL_VERSION}.tar.xz" \
          --disable-file --disable-smb --disable-manual --disable-docs \
     && make -j"$(nproc)" install \
     && /usr/local/bin/curl-config --static-libs
-RUN curl -fsSL "https://github.com/git/git/archive/refs/tags/v${GIT_VERSION}.tar.gz" \
+RUN curl -fsSL --retry 10 --retry-all-errors --retry-delay 2 "https://github.com/git/git/archive/refs/tags/v${GIT_VERSION}.tar.gz" \
       | tar -xz -C /tmp
 # RUNTIME_PREFIX + relative dirs make the install relocatable: git resolves
 # libexec/share relative to the location of the `git` binary, so the whole
