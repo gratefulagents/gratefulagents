@@ -66,6 +66,9 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 			return NativeResult{ExitCode: -1, Err: err}
 		}
 	}
+	if req.Tool.Name == "slither" && runtime.GOARCH == "arm64" {
+		return NativeResult{ExitCode: -1, Err: fmt.Errorf("Slither project compilation is unsupported on arm64: the pinned upstream toolbox embeds an amd64 solc artifact")}
+	}
 	ociWork := ""
 	if req.Tool.OCIRoot != "" {
 		prepared, work, cleanup, err := prepareOCIInvocation(req.Tool, argv, executionTarget)

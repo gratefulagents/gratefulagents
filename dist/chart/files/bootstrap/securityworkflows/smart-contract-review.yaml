@@ -295,7 +295,7 @@ spec:
         multi-architecture Slither 0.11.3 root may resolve compiler and project dependencies against an
         ephemeral writable copy of the digest-verified project. Record compiler/remapping availability,
         normalized findings, exact execution status, artifacts, and limitations. A missing pinned compiler or
-        dependency closure is unsupported; error, timeout, and partial output are inconclusive; no
+        dependency closure or arm64 Slither compiler is unsupported; error, timeout, and partial output are inconclusive; no
         Solidity root is skipped/not_applicable. A pass means only that this exact Slither run emitted no
         detector result. Do not re-submit tool findings or claim a broader clean bill of health.
       dependsOn:

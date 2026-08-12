@@ -66,9 +66,12 @@ EOF
   grep -q '"tool": "'$tool'"' "$output/result.json"
 }
 
-# Exercise directory scanners through ga-security's production Bubblewrap path.
-mkdir -p "$case_dir/slither"
-cat >"$case_dir/slither/Vault.sol" <<'EOF'
+# The upstream Slither toolbox currently embeds an amd64 solc artifact even in
+# its arm64 manifest. Keep the architecture-neutral root/version probe above,
+# but exercise project compilation only where the embedded compiler is native.
+if [ "$(uname -m)" = "x86_64" ]; then
+  mkdir -p "$case_dir/slither"
+  cat >"$case_dir/slither/Vault.sol" <<'EOF'
 pragma solidity >=0.8.0;
 contract Vault {
     mapping(address => uint256) public balance;
@@ -79,7 +82,8 @@ contract Vault {
     }
 }
 EOF
-run_ga_project slither solidity_project application/vnd.gratefulagents.solidity-project.v1+directory "$case_dir/slither"
+  run_ga_project slither solidity_project application/vnd.gratefulagents.solidity-project.v1+directory "$case_dir/slither"
+fi
 
 mkdir -p "$case_dir/halmos/src" "$case_dir/halmos/test"
 cat >"$case_dir/halmos/foundry.toml" <<'EOF'
