@@ -109,6 +109,19 @@ describe("SecurityScanFormDialog", () => {
     expect(screen.getByLabelText("Parallelism")).toBeTruthy();
   });
 
+  it("offers actionable-only post-scripts and explains when they are skipped", () => {
+    renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: /Rankers & post-scripts/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add post-script" }));
+    fireEvent.change(screen.getByLabelText("Run against"), {
+      target: { value: "high-and-above-actionable" },
+    });
+
+    expect(screen.getByRole("option", { name: "high and above, while actionable" })).toBeTruthy();
+    expect(screen.getByText(/successful earlier stage has already marked/i).textContent).toContain("fixed");
+  });
+
   it("explains deterministic routing when workflow tasks are empty", () => {
     renderDialog();
 
