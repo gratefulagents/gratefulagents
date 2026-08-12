@@ -65,7 +65,8 @@ EOF
     0|10|20) ;;
     *)
       echo "$tool production sandbox run failed with status $status" >&2
-      if [ -f "$output/result.json" ]; then cat "$output/result.json" >&2; fi
+      docker run --rm --user 0 --mount "type=bind,src=$output,dst=/output,readonly" \
+        --entrypoint /bin/cat "$image" /output/result.json >&2 || true
       exit "$status"
       ;;
   esac
