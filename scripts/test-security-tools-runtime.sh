@@ -56,7 +56,8 @@ run_ga_project() {
 {"tool":"$tool","target":{"type":"$target_type","locator":"/case","revision":"runtime-smoke","digest":"$digest","media_type":"$media_type"}}
 EOF
   status=0
-  docker run --rm --network none --security-opt seccomp=unconfined \
+  docker run --rm --network none \
+    --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
     --mount "type=bind,src=$project,dst=/case,readonly" \
     --mount "type=bind,src=$config,dst=/config.json,readonly" \
     --mount "type=bind,src=$output,dst=/output" \
