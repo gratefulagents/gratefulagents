@@ -444,6 +444,7 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 		argv = append(argv,
 			"--setenv", "PYTHONUSERBASE", "/home/ethsec/.local",
 			"--setenv", "SOLC_SELECT_DIR", "/home/ethsec/.solc-select",
+			"--setenv", "SOLC_VERSION", "0.8.30",
 		)
 	}
 	if tool.Name == "halmos" {
