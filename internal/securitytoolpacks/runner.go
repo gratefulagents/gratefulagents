@@ -27,6 +27,7 @@ type ExecutionRequest struct {
 }
 type NativeResult struct {
 	Output                       []byte
+	Artifacts                    []Artifact
 	ExitCode                     int
 	TimedOut                     bool
 	Environment                  map[string]string
@@ -125,6 +126,10 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig) Result {
 	}
 	if len(native.Output) > 0 {
 		res.Artifacts = []Artifact{{Name: "raw-output", MediaType: tool.OutputMediaType, Digest: sha256Digest(native.Output), Size: len(native.Output), Data: append([]byte(nil), native.Output...)}}
+	}
+	for _, artifact := range native.Artifacts {
+		artifact.Data = append([]byte(nil), artifact.Data...)
+		res.Artifacts = append(res.Artifacts, artifact)
 	}
 	if native.TimedOut || errors.Is(native.Err, context.DeadlineExceeded) {
 		res.Status = StatusTimeout

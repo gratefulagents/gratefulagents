@@ -75,7 +75,7 @@ func (goTestJSONAdapter) Normalize(tool Tool, target Target, native []byte, r Re
 	for scanner.Scan() {
 		var event goTestEvent
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			return nil, fmt.Errorf("Go test JSON output: %w", err)
+			return nil, fmt.Errorf("go test JSON output: %w", err)
 		}
 		key := event.Package + "\x00" + event.Test
 		if event.Test != "" && event.Output != "" {

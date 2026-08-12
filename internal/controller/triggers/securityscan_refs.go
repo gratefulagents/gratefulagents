@@ -294,6 +294,7 @@ func resolveSecurityScanRefs(
 	return resolved, nil
 }
 
+//nolint:gocyclo // Routing intentionally keeps the complete precedence table together for auditability.
 func automaticSecurityScanWorkflowName(spec triggersv1alpha1.SecurityScanSpec) string {
 	parts := []string{spec.RepoURL}
 	parts = append(parts, spec.AdditionalRepos...)

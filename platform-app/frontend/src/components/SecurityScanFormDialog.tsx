@@ -1475,7 +1475,10 @@ export function SecurityScanFormDialog({
                 {spec.workflowRef === "" && (
                 <>
                 <p className="text-xs text-muted-foreground">
-                  Leave empty to use the default-deep-scan library workflow. Custom tasks replace it
+                  Leave empty to deterministically infer blockchain routing from repository URLs and
+                  scope focus, include paths, and languages. Recognized evidence selects
+                  smart-contract-review, blockchain-protocol-audit, or cosmos-abci-halt-review;
+                  otherwise the scan uses default-deep-scan. Custom tasks replace automatic routing
                   entirely; depends_on must reference other task names.
                 </p>
                 {tasks.map((task, index) => (

@@ -68,6 +68,9 @@ var securityToolStagedMediaTypes = map[string]map[string]string{
 	"halmos": {
 		"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
 	},
+	"go-fuzz-tests": {
+		"go_fuzz_project": "application/vnd.gratefulagents.go-fuzz-project.v1+directory",
+	},
 }
 
 var securityToolRunLabelValuePattern = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`)
@@ -575,11 +578,6 @@ func looksLikeNetworkLocator(locator string) bool {
 func looksLikeFilesystemLocator(locator string) bool {
 	return strings.Contains(locator, "/") || strings.HasPrefix(locator, "~") ||
 		locator == "." || locator == ".."
-}
-
-func solidityIdentifierByte(value byte) bool {
-	return value == '_' || value == '$' || value >= 'a' && value <= 'z' ||
-		value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
 }
 
 // archiveWorkspaceTarget streams a deterministic tar.gz of a workspace path:

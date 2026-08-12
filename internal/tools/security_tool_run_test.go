@@ -252,10 +252,11 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 	assertAderynSummary(t, fixture, summary)
 }
 
-func TestRunSecurityToolStagesNewEVMDirectoryTools(t *testing.T) {
+func TestRunSecurityToolStagesDirectoryTools(t *testing.T) {
 	for name, request := range map[string]string{
-		"slither": `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"}}`,
-		"halmos":  `{"tool":"halmos","target":{"type":"foundry_project","locator":"repo/contracts","revision":"abc1234"}}`,
+		"slither":       `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"}}`,
+		"halmos":        `{"tool":"halmos","target":{"type":"foundry_project","locator":"repo/contracts","revision":"abc1234"}}`,
+		"go-fuzz-tests": `{"tool":"go-fuzz-tests","target":{"type":"go_fuzz_project","locator":"repo/contracts","revision":"abc1234"},"arguments":{"package":"./...","fuzz":"FuzzTarget"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})

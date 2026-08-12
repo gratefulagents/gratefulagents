@@ -65,6 +65,9 @@ var stagedTargetContracts = map[string]map[string]stagedTargetContract{
 	"halmos": {
 		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
 	},
+	"go-fuzz-tests": {
+		"go_fuzz_project": {mediaType: "application/vnd.gratefulagents.go-fuzz-project.v1+directory"},
+	},
 }
 
 // objectStore is the slice of blob storage the Job needs; the fake in the
