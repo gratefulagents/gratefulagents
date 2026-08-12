@@ -198,7 +198,9 @@ func (r *SecurityScanReconciler) reconcileActive(ctx context.Context, scan *trig
 		return r.reconcileRunNow(ctx, scan, token)
 	}
 	if scan.Spec.ManualOnly {
-		if scan.Status.LastRunName != "" && scan.Status.Phase == "Running" {
+		// Completed runs remain observable so transient post-run check or
+		// notification failures can re-enter their idempotent retry path.
+		if scan.Status.LastRunName != "" && (scan.Status.Phase == "Running" || scan.Status.Phase == "Completed") {
 			return r.reconcileManualOnlyRun(ctx, scan)
 		}
 		return r.reconcileManualOnly(ctx, scan)
@@ -241,10 +243,17 @@ func (r *SecurityScanReconciler) reconcileManualOnlyRun(ctx context.Context, sca
 }
 
 func (r *SecurityScanReconciler) reconcileManualOnly(ctx context.Context, scan *triggersv1alpha1.SecurityScan) (ctrl.Result, error) {
+	suppressedEvent := pendingTriggerEvent(scan)
 	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 		fresh.Status.Phase = "Ready"
 		fresh.Status.NextScheduleTime = nil
 		fresh.Status.LastError = ""
+		if suppressedEvent != nil {
+			// Consume rather than defer events received while automatic runs are
+			// disabled; disabling manual-only later must not replay stale work.
+			fresh.Status.LastEventToken = suppressedEvent.Token
+			fresh.Status.LastEventRevision = suppressedEvent.Revision
+		}
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ManualOnly", "SecurityScan is ready for a manual run")
 	}); err != nil {
 		return ctrl.Result{}, err

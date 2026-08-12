@@ -83,6 +83,11 @@ func TestSecurityScanReconcileManualOnlyCreatesNoAutomaticRuns(t *testing.T) {
 			if updated.Status.Phase != "Ready" || updated.Status.NextScheduleTime != nil {
 				t.Fatalf("status = %+v, want Ready with no next schedule", updated.Status)
 			}
+			if tc.name == "repository event" {
+				if updated.Status.LastEventToken != "event-1" || updated.Status.LastEventRevision != "abc123" {
+					t.Fatalf("suppressed event status = %+v, want token and revision consumed", updated.Status)
+				}
+			}
 			assertSecurityScanCondition(t, updated, metav1.ConditionTrue, "ManualOnly")
 		})
 	}
@@ -119,6 +124,48 @@ func TestSecurityScanReconcileManualOnlyProcessesRunNow(t *testing.T) {
 		t.Fatalf("Phase = %q, want Completed", updated.Status.Phase)
 	}
 	assertSecurityScanCondition(t, updated, metav1.ConditionTrue, "ManualRunCompleted")
+
+	// Completed manual-only runs remain on the terminal observation path so
+	// idempotent check and notification side effects can retry after failures.
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("completed retry Reconcile() error = %v", err)
+	}
+	updated = getSecurityScan(t, k8sClient, scan)
+	if updated.Status.Phase != "Completed" {
+		t.Fatalf("Phase after terminal retry = %q, want Completed", updated.Status.Phase)
+	}
+}
+
+func TestSecurityScanReconcileManualOnlyRetriesTerminalSideEffects(t *testing.T) {
+	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t)
+	scan.Spec.ManualOnly = true
+	scan.Status.Phase = "Completed"
+	publisher.publishErr = errors.New("temporary GitHub failure")
+
+	result, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan))
+	if err != nil {
+		t.Fatalf("failed publish Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("failed publish must request a retry")
+	}
+	updated := getSecurityScan(t, reconciler.Client, scan)
+	if updated.Status.LastCheck == nil || updated.Status.LastCheck.Error == "" {
+		t.Fatalf("LastCheck = %+v, want transient error", updated.Status.LastCheck)
+	}
+
+	publisher.publishErr = nil
+	result, err = reconciler.Reconcile(context.Background(), securityScanRequest(scan))
+	if err != nil {
+		t.Fatalf("retry Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Fatalf("successful retry RequeueAfter = %v, want 0", result.RequeueAfter)
+	}
+	updated = getSecurityScan(t, reconciler.Client, scan)
+	if updated.Status.LastCheck == nil || updated.Status.LastCheck.Error != "" || len(publisher.checks) != 1 {
+		t.Fatalf("retry status = %+v, checks = %d, want success", updated.Status.LastCheck, len(publisher.checks))
+	}
 }
 
 func TestSecurityScanReconcileOneShotCreatesExactlyOneRun(t *testing.T) {
