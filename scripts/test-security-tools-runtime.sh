@@ -61,7 +61,14 @@ EOF
     --mount "type=bind,src=$config,dst=/config.json,readonly" \
     --mount "type=bind,src=$output,dst=/output" \
     --entrypoint /usr/local/bin/ga-security "$image" --config /config.json --output /output >/dev/null || status=$?
-  case "$status" in 0|10|20) ;; *) echo "$tool production sandbox run failed with status $status" >&2; exit "$status" ;; esac
+  case "$status" in
+    0|10|20) ;;
+    *)
+      echo "$tool production sandbox run failed with status $status" >&2
+      if [ -f "$output/result.json" ]; then cat "$output/result.json" >&2; fi
+      exit "$status"
+      ;;
+  esac
   grep -q '"tool": "'$tool'"' "$output/result.json"
 }
 
