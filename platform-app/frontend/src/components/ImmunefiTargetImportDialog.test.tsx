@@ -30,6 +30,7 @@ const programs = [
     displayName: "Later target",
     scanName: "scan-later",
     repositoryUrl: "https://example.com/later",
+    baseBranch: "master",
     workflowRef: "workflow-later",
     policyPackRef: "policy-later",
   }),
@@ -39,6 +40,7 @@ const programs = [
     displayName: "First target",
     scanName: "scan-first",
     repositoryUrl: "https://example.com/first",
+    baseBranch: "main",
     workflowRef: "workflow-first",
     policyPackRef: "policy-first",
   }),
@@ -48,6 +50,7 @@ const programs = [
     displayName: "Hidden target",
     scanName: "scan-hidden",
     repositoryUrl: "https://example.com/hidden",
+    baseBranch: "develop",
     workflowRef: "workflow-hidden",
     policyPackRef: "policy-hidden",
   }),
@@ -73,10 +76,11 @@ describe("ImmunefiTargetImportDialog", () => {
     expect(client.createSecurityScan).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
 
-    expect(screen.getByText(/Nothing runs automatically/)).toBeTruthy();
+    expect(screen.getByText(/workspace-write access and unrestricted network egress/)).toBeTruthy();
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("First target");
+    expect(items[0].textContent).toContain("https://example.com/first · main");
     expect(items[1].textContent).toContain("Later target");
     expect(screen.queryByText("Hidden target")).toBeNull();
     expect(client.createSecurityScan).not.toHaveBeenCalled();
@@ -96,6 +100,7 @@ describe("ImmunefiTargetImportDialog", () => {
       useSavedCredentials: true,
       spec: {
         repoUrl: "https://example.com/first",
+        baseBranch: "main",
         workflowRef: "workflow-first",
         policyPackRef: "policy-first",
         securityProgramRef: "program-first",
@@ -107,6 +112,11 @@ describe("ImmunefiTargetImportDialog", () => {
     });
     expect(requests[0].spec?.triggers).toBeUndefined();
     expect(requests[0].spec?.dedupe?.enabled).toBe(true);
+    expect(requests[0].policies).toMatchObject({
+      configureRuntimeProfile: true,
+      permissionMode: "workspace-write",
+      egressMode: "unrestricted",
+    });
     expect(screen.getByRole("status").textContent).toContain("Created 2; skipped 0; failed 0.");
   });
 

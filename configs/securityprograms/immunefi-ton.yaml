@@ -5,6 +5,7 @@ metadata:
 spec:
   scanTarget:
     repositoryURL: https://github.com/ton-blockchain/ton
+    baseBranch: master
     workflowRef: ton-security-review
     policyPackRef: bug-bounty
     scanName: immunefi-ton

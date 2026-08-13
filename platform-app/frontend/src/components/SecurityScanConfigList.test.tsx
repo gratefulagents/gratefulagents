@@ -113,6 +113,7 @@ describe("SecurityScanConfigList", () => {
             displayName: "Custom metadata target",
             scanName: "custom-scan",
             repositoryUrl: "https://example.com/custom",
+            baseBranch: "main",
             workflowRef: "custom-workflow",
             policyPackRef: "custom-policy",
           },
@@ -124,7 +125,7 @@ describe("SecurityScanConfigList", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Import Immunefi targets" }));
 
     expect(screen.getByText("Custom metadata target")).toBeTruthy();
-    expect(screen.getByText("https://example.com/custom")).toBeTruthy();
+    expect(screen.getByText("https://example.com/custom · main")).toBeTruthy();
     expect(screen.getByText("custom-workflow")).toBeTruthy();
   });
 

@@ -5350,4 +5350,5 @@ message SecurityProgramScanTarget {
   string display_name = 5;
   int32 priority = 6;
   bool featured = 7;
+  string base_branch = 8;
 }

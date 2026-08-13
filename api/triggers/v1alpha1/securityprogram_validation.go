@@ -65,6 +65,10 @@ func ValidateSecurityProgramSpec(spec SecurityProgramSpec) []SecurityWorkflowFie
 		} else if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
 			add("scanTarget.repositoryURL", "must be an absolute HTTPS URL without user information")
 		}
+		baseBranch := strings.TrimSpace(target.BaseBranch)
+		if len(baseBranch) > 255 {
+			add("scanTarget.baseBranch", "must be at most 255 bytes")
+		}
 		for field, name := range map[string]string{
 			"workflowRef":   target.WorkflowRef,
 			"policyPackRef": target.PolicyPackRef,

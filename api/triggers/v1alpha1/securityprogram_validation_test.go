@@ -18,6 +18,7 @@ func validSecurityProgramSpec() SecurityProgramSpec {
 	return SecurityProgramSpec{
 		ScanTarget: &SecurityProgramScanTarget{
 			RepositoryURL: "https://github.com/acme/widget",
+			BaseBranch:    "main",
 			WorkflowRef:   "blockchain-protocol-audit",
 			PolicyPackRef: "bug-bounty",
 			ScanName:      "acme-bounty",
@@ -64,6 +65,7 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 		"repository userinfo rejected": func(s *SecurityProgramSpec) {
 			s.ScanTarget.RepositoryURL = "https://user@github.com/acme/widget"
 		},
+		"base branch bounded":   func(s *SecurityProgramSpec) { s.ScanTarget.BaseBranch = strings.Repeat("b", 256) },
 		"workflow ref valid":    func(s *SecurityProgramSpec) { s.ScanTarget.WorkflowRef = "Not Valid!" },
 		"policy pack ref valid": func(s *SecurityProgramSpec) { s.ScanTarget.PolicyPackRef = "Not Valid!" },
 		"scan name valid":       func(s *SecurityProgramSpec) { s.ScanTarget.ScanName = "Not Valid!" },

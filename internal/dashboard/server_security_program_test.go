@@ -28,6 +28,7 @@ func testSecurityProgramResource(namespace string) *platform.SecurityProgramReso
 		VerifiedAt:  timestamppb.New(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)),
 		ScanTarget: &platform.SecurityProgramScanTarget{
 			RepositoryUrl: "https://github.com/acme/widget",
+			BaseBranch:    "main",
 			WorkflowRef:   "blockchain-protocol-audit",
 			PolicyPackRef: "bug-bounty",
 			ScanName:      "acme-bounty",
@@ -52,7 +53,7 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	if created.Namespace != ns || created.Name != "acme-bounty" || created.Provider != "HackerOne" {
 		t.Fatalf("created = %+v", created)
 	}
-	if created.ScanTarget == nil || created.ScanTarget.RepositoryUrl != "https://github.com/acme/widget" ||
+	if created.ScanTarget == nil || created.ScanTarget.RepositoryUrl != "https://github.com/acme/widget" || created.ScanTarget.BaseBranch != "main" ||
 		created.ScanTarget.WorkflowRef != "blockchain-protocol-audit" || created.ScanTarget.PolicyPackRef != "bug-bounty" ||
 		created.ScanTarget.ScanName != "acme-bounty" || created.ScanTarget.DisplayName != "Acme" ||
 		created.ScanTarget.Priority != 3 || !created.ScanTarget.Featured {
@@ -69,7 +70,7 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	if cr.Spec.ProgramURL != "https://hackerone.com/acme" || cr.Spec.VerifiedAt.IsZero() {
 		t.Fatalf("spec = %+v", cr.Spec)
 	}
-	if cr.Spec.ScanTarget == nil || cr.Spec.ScanTarget.RepositoryURL != "https://github.com/acme/widget" ||
+	if cr.Spec.ScanTarget == nil || cr.Spec.ScanTarget.RepositoryURL != "https://github.com/acme/widget" || cr.Spec.ScanTarget.BaseBranch != "main" ||
 		cr.Spec.ScanTarget.Priority != 3 || !cr.Spec.ScanTarget.Featured {
 		t.Fatalf("stored scan target = %+v", cr.Spec.ScanTarget)
 	}
@@ -113,6 +114,20 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	}
 	if _, err := srv.GetSecurityProgram(ctx, &platform.GetSecurityProgramRequest{Name: "acme-bounty"}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("GetSecurityProgram after delete = %v, want NotFound", err)
+	}
+}
+
+func TestSecurityProgramLegacyScanTargetDefaultsToMain(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	resource := testSecurityProgramResource("")
+	resource.ScanTarget.BaseBranch = ""
+
+	created, err := srv.CreateSecurityProgram(projectActorCtx(), &platform.CreateSecurityProgramRequest{Program: resource})
+	if err != nil {
+		t.Fatalf("CreateSecurityProgram() error = %v", err)
+	}
+	if created.ScanTarget == nil || created.ScanTarget.BaseBranch != "main" {
+		t.Fatalf("scan target = %+v, want base branch main", created.ScanTarget)
 	}
 }
 

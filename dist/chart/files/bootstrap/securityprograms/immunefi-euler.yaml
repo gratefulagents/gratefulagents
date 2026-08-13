@@ -3,14 +3,6 @@ kind: SecurityProgram
 metadata:
   name: immunefi-euler
 spec:
-  scanTarget:
-    repositoryURL: https://github.com/euler-xyz/euler-v2
-    workflowRef: smart-contract-review
-    policyPackRef: bug-bounty
-    scanName: immunefi-euler-v2
-    displayName: Euler v2
-    priority: 18
-    featured: false
   provider: Immunefi
   displayName: Euler
   programURL: https://immunefi.com/bug-bounty/euler/scope/

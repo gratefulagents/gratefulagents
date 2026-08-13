@@ -52,6 +52,7 @@ export function ImmunefiTargetImportDialog({
       try {
         const spec = create(SecurityScanConfigSpecSchema, {
           repoUrl: target.repoUrl,
+          baseBranch: target.baseBranch,
           workflowRef: target.workflowRef,
           policyPackRef: target.policyPackRef,
           securityProgramRef: target.securityProgramRef,
@@ -69,6 +70,11 @@ export function ImmunefiTargetImportDialog({
             name: target.name,
             spec,
             useSavedCredentials: true,
+            policies: {
+              configureRuntimeProfile: true,
+              permissionMode: "workspace-write",
+              egressMode: "unrestricted",
+            },
           }),
         );
         created += 1;
@@ -107,7 +113,8 @@ export function ImmunefiTargetImportDialog({
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <p className="mb-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm font-medium">
-            Nothing runs automatically. These manual-only configurations run only when you choose Run now.
+            Nothing runs automatically. These manual-only configurations run only when you choose Run now,
+            using workspace-write access and unrestricted network egress.
           </p>
           {targets.length === 0 ? (
             <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
@@ -128,7 +135,9 @@ export function ImmunefiTargetImportDialog({
                           </span>
                         )}
                       </div>
-                      <div className="truncate font-mono text-xs text-muted-foreground">{target.repoUrl}</div>
+                      <div className="truncate font-mono text-xs text-muted-foreground">
+                        {target.repoUrl} · {target.baseBranch}
+                      </div>
                     </div>
                     <div className="font-mono text-xs text-muted-foreground sm:text-right">
                       {target.workflowRef}

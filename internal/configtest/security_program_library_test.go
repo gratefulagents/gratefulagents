@@ -82,6 +82,11 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			if program.Name == "firedancer" && program.Spec.ScanTarget != nil {
 				t.Error("Firedancer must not suggest a scan target without a selected in-scope release")
 			}
+			if program.Name == "immunefi-ethena" || program.Name == "immunefi-euler" {
+				if program.Spec.ScanTarget != nil {
+					t.Error("unreachable repository must not be exposed as an importable scan target")
+				}
+			}
 			isImmunefi := program.Spec.Provider == "Immunefi"
 			if isImmunefi && !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
 				t.Fatalf("unexpected Immunefi provenance URL: %q", program.Spec.ProgramURL)

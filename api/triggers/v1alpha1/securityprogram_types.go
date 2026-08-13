@@ -24,6 +24,13 @@ type SecurityProgramScanTarget struct {
 	// +kubebuilder:validation:Pattern=`^https://`
 	RepositoryURL string `json:"repositoryURL"`
 
+	// baseBranch is the repository's verified default branch used by imported
+	// SecurityScans. Legacy targets that omit it fall back to main.
+	// +optional
+	// +kubebuilder:default="main"
+	// +kubebuilder:validation:MaxLength=255
+	BaseBranch string `json:"baseBranch,omitempty"`
+
 	// workflowRef names the SecurityWorkflow to use.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253

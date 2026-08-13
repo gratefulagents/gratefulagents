@@ -5,6 +5,7 @@ metadata:
 spec:
   scanTarget:
     repositoryURL: https://github.com/bloxapp/ssv
+    baseBranch: main
     workflowRef: mpc-cryptography-security-review
     policyPackRef: bug-bounty
     scanName: immunefi-ssv
