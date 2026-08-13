@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/mcpattach"
 	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -182,7 +183,7 @@ func TestBuildMCPConfigBridgesSecretEnvFromPodEnv(t *testing.T) {
 		t.Fatalf("AddToScheme(platform): %v", err)
 	}
 
-	t.Setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "glsa_secret")
+	t.Setenv(mcpattach.SecretEnvPodName("grafana", "GRAFANA_SERVICE_ACCOUNT_TOKEN"), "glsa_secret")
 
 	srv := &platformv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "grafana", Namespace: "default"},
@@ -280,6 +281,38 @@ func TestBuildMCPConfigSecretEnvRespectsExistingAllowEnv(t *testing.T) {
 	}
 	if got.Env["SOME_TOKEN"] != "tok" {
 		t.Errorf("secretEnv value not bridged: %v", got.Env)
+	}
+}
+
+func TestBuildMCPConfigIsolatesSameNamedSecretEnvAcrossServers(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(platform): %v", err)
+	}
+	server := func(name string) *platformv1alpha1.MCPServer {
+		return &platformv1alpha1.MCPServer{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: platformv1alpha1.MCPServerSpec{MCPServerConfig: &platformv1alpha1.MCPServerConfig{
+				Command:   "mcp-grafana",
+				SecretEnv: []platformv1alpha1.MCPServerSecretEnv{{Name: "GRAFANA_URL", SecretName: name, SecretKey: "url"}},
+			}},
+		}
+	}
+	dev, prod := server("lf-dev-grafana"), server("lf-prod-grafana")
+	t.Setenv(mcpattach.SecretEnvPodName(dev.Name, "GRAFANA_URL"), "https://dev.example")
+	t.Setenv(mcpattach.SecretEnvPodName(prod.Name, "GRAFANA_URL"), "https://prod.example")
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "default"},
+		Spec:       platformv1alpha1.AgentRunSpec{MCPServerRefs: []platformv1alpha1.NamedRef{{Name: dev.Name}, {Name: prod.Name}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dev, prod).Build()
+
+	cfg, _, _, _ := buildMCPConfig(context.Background(), c, "default", t.TempDir(), run, agentpolicy.PermissionModeWorkspaceWrite)
+	if got := cfg.MCPServers[dev.Name].Env["GRAFANA_URL"]; got != "https://dev.example" {
+		t.Errorf("dev GRAFANA_URL = %q", got)
+	}
+	if got := cfg.MCPServers[prod.Name].Env["GRAFANA_URL"]; got != "https://prod.example" {
+		t.Errorf("prod GRAFANA_URL = %q", got)
 	}
 }
 

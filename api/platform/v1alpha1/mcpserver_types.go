@@ -11,9 +11,10 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // MCPServerSecretEnv names one environment variable sourced from a Secret
 // key that the run pod must expose so the MCP server can authenticate. Values
 // never appear in the CRD; the platform injects them as optional secretKeyRef
-// envs when a run references this server, and the agent bridges each value
-// into the server subprocess env at run start (secretEnv names pass the SDK
-// env filter automatically — no allowEnv pairing needed).
+// envs under private server-scoped names when a run references this server,
+// and the agent bridges each value to Name in only that server's subprocess
+// env at run start (secretEnv names pass the SDK env filter automatically —
+// no allowEnv pairing needed).
 type MCPServerSecretEnv struct {
 	// name is the environment variable to set (e.g. GRAFANA_SERVICE_ACCOUNT_TOKEN).
 	// +kubebuilder:validation:MinLength=1
@@ -54,8 +55,8 @@ type MCPServerConfig struct {
 	AllowEnv []string `json:"allowEnv,omitempty"`
 	// SecretEnv lists environment variables sourced from Secrets that runs
 	// referencing this server need (API tokens, endpoint URLs). Injected into
-	// the run pod as secretKeyRef envs — use instead of Env for anything
-	// sensitive.
+	// the run pod as server-scoped secretKeyRef envs, then mapped to Name only
+	// for that server subprocess — use instead of Env for anything sensitive.
 	// +listType=atomic
 	// +optional
 	SecretEnv []MCPServerSecretEnv `json:"secretEnv,omitempty"`

@@ -105,7 +105,7 @@ func buildMCPConfig(ctx context.Context, c client.Client, namespace, workDir str
 // bridging secretEnv credentials from the pod environment.
 //
 // The run pod receives each spec.mcpServerConfig.secretEnv entry as a
-// secretKeyRef env var, but the SDK deliberately never passes the agent
+// server-scoped secretKeyRef env var, but the SDK deliberately never passes the agent
 // process environment to MCP subprocesses (children get a minimal safe env
 // plus the per-server env map). So the value must be copied into the server's
 // env map here, in-memory only — it is never written to disk, and the SDK
@@ -133,7 +133,15 @@ func crdServerConfig(srv *platformv1alpha1.MCPServer) sdkmcp.ServerConfig {
 		if name == "" {
 			continue
 		}
-		if v, ok := os.LookupEnv(name); ok && v != "" {
+		podName := mcpattach.SecretEnvPodName(srv.Name, name)
+		v, ok := os.LookupEnv(podName)
+		// Keep compatibility with pods created by older controllers. This path
+		// cannot isolate duplicate names, but avoids breaking single-server runs
+		// during a rolling controller/worker deployment.
+		if !ok || v == "" {
+			v, ok = os.LookupEnv(name)
+		}
+		if ok && v != "" {
 			env[name] = v
 		} else if _, inline := env[name]; !inline {
 			missing = append(missing, name)
