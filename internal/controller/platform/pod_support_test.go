@@ -10,6 +10,7 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/mcpattach"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/sdk/pkg/agentsdk/sandbox"
 	corev1 "k8s.io/api/core/v1"
@@ -1445,7 +1446,7 @@ func TestResolveMCPServerSecretEnvs(t *testing.T) {
 		t.Fatalf("expected 2 envs (dup + missing server skipped), got %d: %+v", len(envs), envs)
 	}
 	url := envs[0]
-	if url.Name != "GRAFANA_URL" || url.ValueFrom.SecretKeyRef.Name != "usercred-grafana" || url.ValueFrom.SecretKeyRef.Key != "url" {
+	if url.Name != mcpattach.SecretEnvPodName("grafana", "GRAFANA_URL") || url.ValueFrom.SecretKeyRef.Name != "usercred-grafana" || url.ValueFrom.SecretKeyRef.Key != "url" {
 		t.Fatalf("url env = %+v", url)
 	}
 	if url.ValueFrom.SecretKeyRef.Optional == nil || !*url.ValueFrom.SecretKeyRef.Optional {
@@ -1494,8 +1495,46 @@ func TestResolveMCPServerSecretEnvsViaSkillRequires(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(srv, skill).Build()
 
 	envs := resolveMCPServerSecretEnvs(context.Background(), c, run)
-	if len(envs) != 1 || envs[0].Name != "GRAFANA_URL" {
+	if len(envs) != 1 || envs[0].Name != mcpattach.SecretEnvPodName("grafana", "GRAFANA_URL") {
 		t.Fatalf("expected skill-required server secretEnv to be injected, got %+v", envs)
+	}
+}
+
+func TestResolveMCPServerSecretEnvsIsolatesDuplicateNamesAcrossServers(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+	server := func(name, secret string) *platformv1alpha1.MCPServer {
+		return &platformv1alpha1.MCPServer{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"},
+			Spec: platformv1alpha1.MCPServerSpec{MCPServerConfig: &platformv1alpha1.MCPServerConfig{
+				Command:   "mcp-grafana",
+				SecretEnv: []platformv1alpha1.MCPServerSecretEnv{{Name: "GRAFANA_URL", SecretName: secret, SecretKey: "url"}},
+			}},
+		}
+	}
+	dev, prod := server("lf-dev-grafana", "dev-secret"), server("lf-prod-grafana", "prod-secret")
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns"},
+		Spec:       platformv1alpha1.AgentRunSpec{MCPServerRefs: []platformv1alpha1.NamedRef{{Name: dev.Name}, {Name: prod.Name}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dev, prod).Build()
+
+	envs := resolveMCPServerSecretEnvs(context.Background(), c, run)
+	if len(envs) != 2 {
+		t.Fatalf("expected both servers' same-named secrets, got %+v", envs)
+	}
+	if envs[0].Name == envs[1].Name {
+		t.Fatalf("server-scoped pod env names collided: %+v", envs)
+	}
+	got := map[string]string{}
+	for _, env := range envs {
+		got[env.Name] = env.ValueFrom.SecretKeyRef.Name
+	}
+	if got[mcpattach.SecretEnvPodName(dev.Name, "GRAFANA_URL")] != "dev-secret" ||
+		got[mcpattach.SecretEnvPodName(prod.Name, "GRAFANA_URL")] != "prod-secret" {
+		t.Fatalf("server secrets not preserved: %+v", got)
 	}
 }
 
