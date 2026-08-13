@@ -1,0 +1,25 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: ethereum-besu
+spec:
+  scanTarget:
+    repositoryURL: https://github.com/hyperledger/besu
+    workflowRef: blockchain-protocol-audit
+    policyPackRef: bug-bounty
+    scanName: ethereum-besu
+    displayName: Besu
+    priority: 25
+    featured: false
+  provider: Ethereum Foundation
+  displayName: Besu
+  programURL: https://ethereum.org/en/bug-bounty/
+  verifiedAt: 2026-08-13T00:00:00Z
+  scopePolicy: |
+    Authoritative scope: the live Ethereum Foundation Bug Bounty Program controls eligibility and currently includes this client. A client defect must affect Ethereum mainnet directly and satisfy the program's proof-of-concept, confidentiality, and eligibility rules.
+
+    Eligible impacts: protocol or specification non-compliance, unexpected crashes, remote code execution, qualifying denial of service, consensus splits, validator slashing, and network safety or finality failures at the severities defined by the live program.
+
+    Out of scope: public or known issues, tests, infrastructure, exposed JSON-RPC or Beacon APIs, the trusted Engine API assumption, high-effort sustained single-peer denial of service, and anything without current direct Ethereum-mainnet impact.
+
+    Testing and submission: test only local testnets and private fixtures with dummy assets. Never target mainnet, public testnets, public nodes, or third parties. Submit a minimal reproducible proof of concept privately through the Ethereum Foundation form before any disclosure.

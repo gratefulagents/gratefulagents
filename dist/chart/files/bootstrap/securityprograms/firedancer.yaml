@@ -1,0 +1,25 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: firedancer
+spec:
+  scanTarget:
+    repositoryURL: https://github.com/firedancer-io/firedancer
+    workflowRef: blockchain-protocol-audit
+    policyPackRef: bug-bounty
+    scanName: firedancer
+    displayName: Firedancer validator
+    priority: 22
+    featured: false
+  provider: Firedancer
+  displayName: Firedancer
+  programURL: https://bounty.firedancer.io/
+  verifiedAt: 2026-08-13T00:00:00Z
+  scopePolicy: |
+    Authoritative scope: the live Firedancer bounty portal, its linked terms, and the repository security policy control eligibility. Any reachable code in the firedancer or fdctl binary built from a branch or tag selectable in the live submission form is in scope under the allowed configuration. For a Frankendancer release only fdctl is eligible; for a Firedancer release only firedancer is eligible. Other development code may instead be reported privately through a GitHub Security Advisory.
+
+    Eligible impacts: security-relevant defects in an explicitly in-scope Firedancer release, classified using the live program's low, medium, high, and critical severity choices and current terms.
+
+    Out of scope: Solana protocol bugs; trusted data sources; inactive or unlisted feature gates; known issues; Clang builds and compilers other than the listed GCC versions; firedancer-dev, other tools, and development or deployment scripts; modified configurations; boot-only issues; compromised-tile attacks; social engineering and trusted-key compromise. Temporary Agave/Firedancer fork-choice or duplicate-block disagreements and Frankendancer defects shared with Agave must be reported upstream. The completed 2024 Immunefi audit contest is not the active bounty program.
+
+    Testing and submission: test only local private fixtures and systems you control; never test a public Solana network or third-party infrastructure. Submit privately through the official portal with impact, reproduction steps, proof of concept, affected release, and all other information required by the current terms.

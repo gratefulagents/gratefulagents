@@ -28,6 +28,10 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-spark":     {"Smart Contract", "Web & App"},
 		"immunefi-wormhole":  {"Blockchain/DLT", "Smart Contract"},
 	}
+	expectedProgramURLs := map[string]string{
+		"solana-agave": "https://github.com/anza-xyz/agave/security",
+		"firedancer":   "https://bounty.firedancer.io/",
+	}
 	// Active programs use complete captured scopes. Programs no longer present
 	// in Immunefi's live catalog retain an explicitly archived summary.
 	const minimumProgramCount = 20
@@ -71,8 +75,23 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			if errs := triggersv1alpha1.ValidateSecurityProgramSpec(program.Spec); len(errs) != 0 {
 				t.Fatalf("invalid spec: %v", errs)
 			}
-			if program.Spec.Provider != "Immunefi" || !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
-				t.Fatalf("unexpected provider or provenance URL: %q %q", program.Spec.Provider, program.Spec.ProgramURL)
+			isImmunefi := program.Spec.Provider == "Immunefi"
+			if isImmunefi && !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
+				t.Fatalf("unexpected Immunefi provenance URL: %q", program.Spec.ProgramURL)
+			}
+			if !isImmunefi {
+				expectedURL := expectedProgramURLs[program.Name]
+				if program.Spec.Provider == "Ethereum Foundation" {
+					expectedURL = "https://ethereum.org/en/bug-bounty/"
+				}
+				if expectedURL == "" || program.Spec.ProgramURL != expectedURL {
+					t.Errorf("unexpected non-Immunefi provider or provenance URL: %q %q", program.Spec.Provider, program.Spec.ProgramURL)
+				}
+				for _, marker := range []string{"Authoritative scope:", "Eligible impacts:", "Out of scope:", "Testing and submission:"} {
+					if !strings.Contains(program.Spec.ScopePolicy, marker) {
+						t.Errorf("scopePolicy missing %q", marker)
+					}
+				}
 			}
 			categories, hasCategoryExpectation := expectedCategories[program.Name]
 			if strings.Contains(program.Spec.ScopePolicy, "Verbatim Immunefi scope") {
@@ -92,7 +111,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 						t.Errorf("scopePolicy still contains summarized section %q", summarizedMarker)
 					}
 				}
-			} else {
+			} else if isImmunefi {
 				for _, marker := range []string{"Archived last-known scope summary", "Repository targets:", "Rewards:", "Eligible impacts:", "Out of scope:", "Testing and submission:"} {
 					if !strings.Contains(program.Spec.ScopePolicy, marker) {
 						t.Errorf("scopePolicy missing %q", marker)

@@ -1,0 +1,25 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: solana-agave
+spec:
+  scanTarget:
+    repositoryURL: https://github.com/anza-xyz/agave
+    workflowRef: blockchain-protocol-audit
+    policyPackRef: bug-bounty
+    scanName: solana-agave
+    displayName: Agave validator
+    priority: 21
+    featured: false
+  provider: Solana Foundation
+  displayName: Agave
+  programURL: https://github.com/anza-xyz/agave/security
+  verifiedAt: 2026-08-13T00:00:00Z
+  scopePolicy: |
+    Authoritative scope: the Agave repository security policy controls eligibility. Rewards are discretionary, and a report must cover source in this repository, satisfy the policy's branch-age and proof-of-concept rules, and be submitted as one private GitHub Security Advisory per finding.
+
+    Eligible impacts: qualifying loss of funds, consensus or safety violations, loss of network availability, remotely triggered denial of service, supply-chain compromise, and limited RPC denial-of-service or crashes, subject to the current category definitions and payout ranges.
+
+    Out of scope: assets outside this repository, dependencies, metrics, public or previously disclosed issues, and social engineering. Current component exclusions include Alpenglow crates and plumbing, Loader V4, the virtual-machine interpreter, malicious snapshots, bootstrap-only instability, non-conforming Geyser plugins or scheduler bindings, and supply-chain secrets already committed to the repository. RPC reports must also satisfy the live policy's single-client, request-rate, indexing, and filtering constraints. Recheck the live policy because these component and conditional exclusions change as development progresses.
+
+    Testing and submission: use only private local environments and accounts you control. Do not attack public clusters, validators, RPC endpoints, or third parties. Include a developed exploit proof of concept and submit privately through the repository's security-advisory form.
