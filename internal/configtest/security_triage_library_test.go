@@ -226,6 +226,15 @@ func TestBugBountyAcceptanceGuards(t *testing.T) {
 			t.Errorf("bug-bounty policy must not terminally reject findings merely because validation evidence is unavailable: %q", forbidden)
 		}
 	}
+
+	var writer triggersv1alpha1.SecurityPostScript
+	readBootstrapAsset(t, "securitypostscripts", "report-writer", &writer)
+	writerPrompt := strings.ToLower(strings.Join(strings.Fields(writer.Spec.Prompt), " "))
+	for _, marker := range []string{"submission-ready bundle with their independently validated poc", "triaged findings also produce a review bundle", "without claiming confirmation", "if the save tool succeeds", "without claiming an artifact exists"} {
+		if !strings.Contains(writerPrompt, marker) {
+			t.Errorf("report writer must preserve triaged findings in a review bundle: missing %q", marker)
+		}
+	}
 }
 
 // terminalFindingStatuses are the verdicts a post-script must never overwrite:

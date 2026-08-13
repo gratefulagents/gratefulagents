@@ -3,7 +3,7 @@ kind: SecurityPostScript
 metadata:
   name: report-writer
 spec:
-  description: Rewrites a finding into a structured, submittable Markdown vulnerability report and stores it as a bounty submission artifact.
+  description: Rewrites a finding into structured Markdown, storing triaged findings as review bundles and confirmed findings as submission-ready bounty bundles.
   runOn: all
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
@@ -35,10 +35,14 @@ spec:
     Keep it under 400 lines and drop any section you cannot support with
     evidence, saying explicitly that it is unsupported.
 
-    Once tools become available, call save_security_bounty_submission for this
-    finding with the full Markdown report. Then call update_security_finding
-    with a concise `note` recording that the submission was stored (the note
-    is the only field this tool writes). A finding that already carries status
+    Call save_security_bounty_submission with the full Markdown report. Confirmed
+    findings produce a submission-ready bundle with their independently validated PoC. Triaged
+    findings also produce a review bundle when sandbox validation was unavailable,
+    recording the report without claiming confirmation.
+    If the save tool succeeds, call update_security_finding with a concise `note`
+    recording that the bundle was stored. If it fails, record the exact packaging
+    failure without claiming an artifact exists. The note is the only field this
+    tool writes. A finding that already carries status
     `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and
     leave the status unchanged. Otherwise set status `triaged`, or keep
     `confirmed` when the finding is already confirmed.

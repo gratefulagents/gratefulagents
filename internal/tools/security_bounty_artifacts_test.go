@@ -72,3 +72,64 @@ func TestBuildSecuritySubmissionBundleIsDeterministicAndScoped(t *testing.T) {
 		t.Fatalf("bundle entries = %v, want %v", names, want)
 	}
 }
+
+func TestBuildTriagedSecurityReviewBundleWithoutPoC(t *testing.T) {
+	finding := &store.SecurityFindingRecord{
+		ID: uuid.MustParse("00000000-0000-0000-0000-000000000033"), Fingerprint: "fp-review",
+		Repository: "https://example.invalid/repo", Revision: "def456", ScanName: "bounty",
+		Status: store.SecurityFindingStatusTriaged,
+	}
+	ctx := SecurityScanContext{ScanName: "bounty", RunName: "report-run", ExecutionID: "exec-2"}
+	bundle, err := buildSecurityReportBundle(finding, ctx, nil, nil, "## Title\nNeeds runtime validation", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(bundle), int64(len(bundle)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, file := range reader.File {
+		names = append(names, file.Name)
+		if file.Name == "manifest.json" {
+			body, err := file.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := io.ReadAll(body)
+			_ = body.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(data, []byte(`"finding_status": "triaged"`)) {
+				t.Fatalf("manifest does not label the bundle triaged: %s", data)
+			}
+		}
+	}
+	want := []string{"manifest.json", "submission.md"}
+	if !slices.Equal(names, want) {
+		t.Fatalf("triaged bundle entries = %v, want %v", names, want)
+	}
+}
+
+func TestSecurityReportBundleStatusIncludesTriaged(t *testing.T) {
+	base := store.SecurityFindingRecord{Severity: "high"}
+	for _, tc := range []struct {
+		name, status, want string
+		wantErr            bool
+	}{
+		{name: "confirmed submission", status: store.SecurityFindingStatusConfirmed, want: "ready"},
+		{name: "triaged review", status: store.SecurityFindingStatusTriaged, want: "review"},
+		{name: "open rejected", status: store.SecurityFindingStatusOpen, wantErr: true},
+		{name: "terminal rejected", status: store.SecurityFindingStatusAcceptedRisk, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			finding := base
+			finding.Status = tc.status
+			got, err := securityReportBundleStatus(&finding)
+			if (err != nil) != tc.wantErr || got != tc.want {
+				t.Fatalf("securityReportBundleStatus() = %q, %v; want %q, error=%v", got, err, tc.want, tc.wantErr)
+			}
+		})
+	}
+}
