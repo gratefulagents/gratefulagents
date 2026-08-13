@@ -3,6 +3,15 @@ kind: SecurityProgram
 metadata:
   name: immunefi-sei
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/sei-protocol/sei-chain
+    baseBranch: main
+    workflowRef: blockchain-protocol-audit
+    policyPackRef: bug-bounty
+    scanName: immunefi-sei-chain
+    displayName: Sei Chain
+    priority: 25
+    featured: false
   provider: Immunefi
   displayName: Sei
   programURL: https://immunefi.com/bug-bounty/sei/scope/
