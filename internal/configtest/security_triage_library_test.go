@@ -40,8 +40,8 @@ var securityTriagePostScripts = []struct {
 // is applied by security.Rank to every finding of that category before the
 // minSeverity cut, and no prose can condition it, so a floor may only stay
 // where the ranker's own rules never place a finding of that category below
-// it. bug-bounty-triage caps every unproven finding at low and is therefore
-// prose-only.
+// it. bug-bounty-triage remains prose-only because its evidence requirements
+// cannot be represented by an unconditional category floor.
 var securityTriageRankers = []struct {
 	name   string
 	floors []string
@@ -231,8 +231,8 @@ func TestBugBountyAcceptanceGuards(t *testing.T) {
 
 	var scope triggersv1alpha1.SecurityPostScript
 	readBootstrapAsset(t, "securitypostscripts", "scope-eligibility-check", &scope)
-	prompt := strings.ToLower(scope.Spec.Prompt)
-	for _, marker := range []string{"attached security program scope snapshot", "eligibility is unknown", "program url by itself is provenance only", "must not be fetched", "essential acceptance fact", "untrusted actor-controlled event", "suspicious interpolation alone are ineligible"} {
+	prompt := strings.ToLower(strings.Join(strings.Fields(scope.Spec.Prompt), " "))
+	for _, marker := range []string{"attached security program scope snapshot", "eligibility is unknown", "preserve the finding as nonterminal", "program url by itself is provenance only", "must not be fetched", "essential acceptance fact", "untrusted actor-controlled event", "attacker path that is merely unestablished is unknown", "set status `accepted_risk` only for a definitive scope exclusion", "set status `triaged` for eligible or unknown"} {
 		if !strings.Contains(prompt, marker) {
 			t.Errorf("scope eligibility check must contain conservative guard %q", marker)
 		}
@@ -240,10 +240,24 @@ func TestBugBountyAcceptanceGuards(t *testing.T) {
 
 	var gate triggersv1alpha1.SecurityPostScript
 	readBootstrapAsset(t, "securitypostscripts", "bounty-worthiness-check", &gate)
-	gatePrompt := strings.ToLower(gate.Spec.Prompt)
-	for _, marker := range []string{"final bounty acceptance gate", "severity is high or critical", "prior proof step confirmed", "missing evidence means rejected", "set status `accepted_risk`"} {
+	gatePrompt := strings.ToLower(strings.Join(strings.Fields(gate.Spec.Prompt), " "))
+	for _, marker := range []string{"final bounty acceptance gate", "severity is high or critical", "complete code trace", "unavailable sandbox validation is inconclusive", "missing evidence", "set status `confirmed` for accepted", "`false_positive` for disproved", "`accepted_risk` for out-of-scope", "`triaged` for inconclusive"} {
 		if !strings.Contains(gatePrompt, marker) {
 			t.Errorf("bounty worthiness check must contain final guard %q", marker)
+		}
+	}
+	for _, forbidden := range []string{"locally reproducible path", "missing evidence means rejected"} {
+		if strings.Contains(rules, forbidden) || strings.Contains(gatePrompt, forbidden) {
+			t.Errorf("bug-bounty policy must not terminally reject findings merely because validation evidence is unavailable: %q", forbidden)
+		}
+	}
+
+	var writer triggersv1alpha1.SecurityPostScript
+	readBootstrapAsset(t, "securitypostscripts", "report-writer", &writer)
+	writerPrompt := strings.ToLower(strings.Join(strings.Fields(writer.Spec.Prompt), " "))
+	for _, marker := range []string{"submission-ready bundle with their independently validated poc", "triaged findings also produce a review bundle", "without claiming confirmation", "if the save tool succeeds", "without claiming an artifact exists"} {
+		if !strings.Contains(writerPrompt, marker) {
+			t.Errorf("report writer must preserve triaged findings in a review bundle: missing %q", marker)
 		}
 	}
 }

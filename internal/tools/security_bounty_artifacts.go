@@ -64,6 +64,7 @@ type securityBountySubmission struct {
 type securityBundleManifest struct {
 	SchemaVersion string            `json:"schema_version"`
 	FindingID     string            `json:"finding_id"`
+	FindingStatus string            `json:"finding_status"`
 	Fingerprint   string            `json:"fingerprint"`
 	Repository    string            `json:"repository"`
 	Revision      string            `json:"revision"`
@@ -310,9 +311,19 @@ type saveSecurityBountySubmissionTool struct {
 	deps      securityBountyArtifactDeps
 }
 
+func securityReportBundleStatus(finding *store.SecurityFindingRecord) (string, error) {
+	if finding == nil || (finding.Status != store.SecurityFindingStatusConfirmed && finding.Status != store.SecurityFindingStatusTriaged) || finding.DuplicateOf != nil || finding.SuppressedBy != "" || (finding.Severity != "high" && finding.Severity != "critical") {
+		return "", fmt.Errorf("finding is not an eligible triaged or confirmed, unsuppressed, non-duplicate high/critical report")
+	}
+	if finding.Status == store.SecurityFindingStatusConfirmed {
+		return "ready", nil
+	}
+	return "review", nil
+}
+
 func (t *saveSecurityBountySubmissionTool) Name() string { return "save_security_bounty_submission" }
 func (t *saveSecurityBountySubmissionTool) Description() string {
-	return "Save the final Markdown submission, build a deterministic per-finding ZIP, and upload it to the platform's private S3 bucket."
+	return "Save the Markdown report, build a deterministic per-finding review ZIP, and upload it to the platform's private S3 bucket."
 }
 func (t *saveSecurityBountySubmissionTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"markdown":{"type":"string"}},"required":["markdown"]}`)
@@ -335,29 +346,38 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	if finding.Status != store.SecurityFindingStatusConfirmed || finding.DuplicateOf != nil || finding.SuppressedBy != "" || (finding.Severity != "high" && finding.Severity != "critical") {
-		return Result{Content: "finding is not an eligible confirmed, unsuppressed, non-duplicate high/critical submission", IsError: true}, nil
+	artifactStatus, err := securityReportBundleStatus(finding)
+	if err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	candidateArtifact, err := t.artifacts.GetSecurityFindingArtifact(ctx, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactPoCCandidate)
-	if err != nil || candidateArtifact == nil {
-		return Result{Content: "PoC candidate artifact is missing", IsError: true}, nil
+	var candidate *securityPoCCandidate
+	var validation *securityPoCValidation
+	var builderRun, validatorRun string
+	if finding.Status == store.SecurityFindingStatusConfirmed {
+		candidateArtifact, err := t.artifacts.GetSecurityFindingArtifact(ctx, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactPoCCandidate)
+		if err != nil || candidateArtifact == nil {
+			return Result{Content: "PoC candidate artifact is missing", IsError: true}, nil
+		}
+		validationArtifact, err := t.artifacts.GetSecurityFindingArtifact(ctx, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactPoCValidation)
+		if err != nil || validationArtifact == nil || validationArtifact.Status != "confirmed" {
+			return Result{Content: "independent confirmed PoC validation is required", IsError: true}, nil
+		}
+		if candidateArtifact.ActorRun == validationArtifact.ActorRun {
+			return Result{Content: "builder and validator provenance must be different AgentRuns", IsError: true}, nil
+		}
+		candidate, validation = &securityPoCCandidate{}, &securityPoCValidation{}
+		if json.Unmarshal(candidateArtifact.Content, candidate) != nil || json.Unmarshal(validationArtifact.Content, validation) != nil || !validation.Confirmed || !strings.EqualFold(validation.CandidateSHA256, candidateArtifact.SHA256) {
+			return Result{Content: "stored PoC artifacts are invalid or validation does not bind the current candidate", IsError: true}, nil
+		}
+		builderRun, validatorRun = candidateArtifact.ActorRun, validationArtifact.ActorRun
 	}
-	validationArtifact, err := t.artifacts.GetSecurityFindingArtifact(ctx, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactPoCValidation)
-	if err != nil || validationArtifact == nil || validationArtifact.Status != "confirmed" {
-		return Result{Content: "independent confirmed PoC validation is required", IsError: true}, nil
-	}
-	if candidateArtifact.ActorRun == validationArtifact.ActorRun {
-		return Result{Content: "builder and validator provenance must be different AgentRuns", IsError: true}, nil
-	}
-	var candidate securityPoCCandidate
-	var validation securityPoCValidation
-	if json.Unmarshal(candidateArtifact.Content, &candidate) != nil || json.Unmarshal(validationArtifact.Content, &validation) != nil || !validation.Confirmed || !strings.EqualFold(validation.CandidateSHA256, candidateArtifact.SHA256) {
-		return Result{Content: "stored PoC artifacts are invalid or validation does not bind the current candidate", IsError: true}, nil
-	}
-	if err := upsertFindingArtifact(ctx, t.artifacts, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactBountySubmission, submission, t.state.scanCtx.RunName, "ready"); err != nil {
+	if err := upsertFindingArtifact(ctx, t.artifacts, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactBountySubmission, submission, t.state.scanCtx.RunName, artifactStatus); err != nil {
 		return Result{Content: "saving bounty submission: " + err.Error(), IsError: true}, nil
 	}
-	filename := fmt.Sprintf("%s-%s-bounty-submission.zip", finding.ScanName, finding.Fingerprint)
+	filename := fmt.Sprintf("%s-%s-security-review.zip", finding.ScanName, finding.Fingerprint)
+	if finding.Status == store.SecurityFindingStatusConfirmed {
+		filename = fmt.Sprintf("%s-%s-bounty-submission.zip", finding.ScanName, finding.Fingerprint)
+	}
 	recordBundleError := func(message string) {
 		_, _ = t.artifacts.UpsertSecurityFindingArtifact(ctx, finding.Namespace, &store.SecurityFindingArtifact{
 			FindingID: finding.ID, ExecutionID: t.state.scanCtx.ExecutionID,
@@ -374,7 +394,7 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 		recordBundleError(err.Error())
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	bundle, err := buildSecuritySubmissionBundle(finding, t.state.scanCtx, candidate, validation, submission.Markdown, candidateArtifact.ActorRun, validationArtifact.ActorRun)
+	bundle, err := buildSecurityReportBundle(finding, t.state.scanCtx, candidate, validation, submission.Markdown, builderRun, validatorRun)
 	if err != nil {
 		recordBundleError("building bundle: " + err.Error())
 		return Result{Content: "building bundle: " + err.Error(), IsError: true}, nil
@@ -390,25 +410,33 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 	if err != nil {
 		return Result{Content: "saving bundle metadata: " + err.Error(), IsError: true}, nil
 	}
-	return Result{Content: fmt.Sprintf("Bounty submission bundle uploaded (%s, sha256 %s).", filename, digestHex)}, nil
+	return Result{Content: fmt.Sprintf("Security review bundle uploaded (%s, sha256 %s).", filename, digestHex)}, nil
 }
 
 func buildSecuritySubmissionBundle(finding *store.SecurityFindingRecord, scanCtx SecurityScanContext, candidate securityPoCCandidate, validation securityPoCValidation, markdown, builderRun, validatorRun string) ([]byte, error) {
+	return buildSecurityReportBundle(finding, scanCtx, &candidate, &validation, markdown, builderRun, validatorRun)
+}
+
+func buildSecurityReportBundle(finding *store.SecurityFindingRecord, scanCtx SecurityScanContext, candidate *securityPoCCandidate, validation *securityPoCValidation, markdown, builderRun, validatorRun string) ([]byte, error) {
 	files := map[string][]byte{"submission.md": []byte(markdown)}
-	var readme strings.Builder
-	fmt.Fprintf(&readme, "# Proof of concept\n\n## Setup\n%s\n\n## Command\n```sh\n%s\n```\n\n## Expected output\n```\n%s\n```\n\n## Observed output\n```\n%s\n```\n\n## Teardown\n%s\n\n## Environment\n%s\n", candidate.Setup, candidate.Command, candidate.ExpectedOutput, candidate.ObservedOutput, candidate.Teardown, candidate.Environment)
-	files["poc/README.md"] = []byte(readme.String())
-	for _, file := range candidate.Files {
-		files["poc/"+file.Path] = []byte(file.Content)
+	if candidate != nil {
+		var readme strings.Builder
+		fmt.Fprintf(&readme, "# Proof of concept\n\n## Setup\n%s\n\n## Command\n```sh\n%s\n```\n\n## Expected output\n```\n%s\n```\n\n## Observed output\n```\n%s\n```\n\n## Teardown\n%s\n\n## Environment\n%s\n", candidate.Setup, candidate.Command, candidate.ExpectedOutput, candidate.ObservedOutput, candidate.Teardown, candidate.Environment)
+		files["poc/README.md"] = []byte(readme.String())
+		for _, file := range candidate.Files {
+			files["poc/"+file.Path] = []byte(file.Content)
+		}
 	}
-	validationJSON, _ := json.MarshalIndent(validation, "", "  ")
-	files["validation.json"] = append(validationJSON, '\n')
+	if validation != nil {
+		validationJSON, _ := json.MarshalIndent(validation, "", "  ")
+		files["validation.json"] = append(validationJSON, '\n')
+	}
 	hashes := make(map[string]string, len(files))
 	for name, body := range files {
 		sum := sha256.Sum256(body)
 		hashes[name] = hex.EncodeToString(sum[:])
 	}
-	manifest := securityBundleManifest{SchemaVersion: "v1", FindingID: finding.ID.String(), Fingerprint: finding.Fingerprint, Repository: finding.Repository, Revision: finding.Revision, ScanName: finding.ScanName, ExecutionID: scanCtx.ExecutionID, BuilderRun: builderRun, ValidatorRun: validatorRun, ReportRun: scanCtx.RunName, FilesSHA256: hashes}
+	manifest := securityBundleManifest{SchemaVersion: "v1", FindingID: finding.ID.String(), FindingStatus: finding.Status, Fingerprint: finding.Fingerprint, Repository: finding.Repository, Revision: finding.Revision, ScanName: finding.ScanName, ExecutionID: scanCtx.ExecutionID, BuilderRun: builderRun, ValidatorRun: validatorRun, ReportRun: scanCtx.RunName, FilesSHA256: hashes}
 	manifestJSON, _ := json.MarshalIndent(manifest, "", "  ")
 	files["manifest.json"] = append(manifestJSON, '\n')
 	var buf bytes.Buffer
