@@ -2,6 +2,10 @@ apiVersion: triggers.gratefulagents.dev/v1alpha1
 kind: SecurityProgram
 metadata:
   name: immunefi-ethena
+  annotations:
+    # Refresh untouched bootstrap copies that still expose the nonexistent
+    # ethena-labs/ethena-contracts repository as a scan target.
+    platform.gratefulagents.dev/bootstrap-replaces-spec-hashes: ab616f9e4f6e286c9ad8cb6e0a027091a723da53b7d3c16e5283d401b6c83565
 spec:
   provider: Immunefi
   displayName: Ethena

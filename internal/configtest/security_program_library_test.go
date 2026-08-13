@@ -87,6 +87,12 @@ func TestSecurityProgramLibrary(t *testing.T) {
 					t.Error("unreachable repository must not be exposed as an importable scan target")
 				}
 			}
+			if program.Name == "immunefi-ethena" {
+				const staleSpecHash = "ab616f9e4f6e286c9ad8cb6e0a027091a723da53b7d3c16e5283d401b6c83565"
+				if got := program.Annotations["platform.gratefulagents.dev/bootstrap-replaces-spec-hashes"]; got != staleSpecHash {
+					t.Errorf("bootstrap replacement hash = %q, want %q", got, staleSpecHash)
+				}
+			}
 			isImmunefi := program.Spec.Provider == "Immunefi"
 			if isImmunefi && !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
 				t.Fatalf("unexpected Immunefi provenance URL: %q", program.Spec.ProgramURL)
