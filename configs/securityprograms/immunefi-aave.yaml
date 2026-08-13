@@ -3,6 +3,15 @@ kind: SecurityProgram
 metadata:
   name: immunefi-aave
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/aave-dao/aave-v3-origin
+    baseBranch: main
+    workflowRef: smart-contract-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-aave-v3-origin
+    displayName: Aave v3 Origin
+    priority: 22
+    featured: false
   provider: Immunefi
   displayName: Aave
   programURL: https://immunefi.com/bug-bounty/aave/scope/
