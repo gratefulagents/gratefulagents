@@ -23,6 +23,8 @@ import (
 
 const maxArchiveSize = 512 << 20
 
+const downloadAttempts = 5
+
 type artifact struct {
 	Asset        string `json:"asset"`
 	SHA256       string `json:"sha256"`
@@ -101,6 +103,21 @@ func install(lockPath, outputDir, platform string) error {
 }
 
 func download(client *http.Client, asset artifact, name string) (string, error) {
+	var lastErr error
+	for attempt := 1; attempt <= downloadAttempts; attempt++ {
+		path, err := downloadOnce(client, asset, name)
+		if err == nil {
+			return path, nil
+		}
+		lastErr = err
+		if attempt < downloadAttempts {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
+	return "", fmt.Errorf("%s: download failed after %d attempts: %w", name, downloadAttempts, lastErr)
+}
+
+func downloadOnce(client *http.Client, asset artifact, name string) (string, error) {
 	// #nosec G107 -- build-time URL is restricted and checksum-pinned by the verified lock.
 	response, err := client.Get(asset.Asset)
 	if err != nil {

@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: immunefi-wormhole
 spec:
+  scanTarget:
+    repositoryURL: https://github.com/wormhole-foundation/wormhole
+    workflowRef: bridge-l2-zk-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-wormhole
+    displayName: Wormhole
+    priority: 2
+    featured: true
   provider: Immunefi
   displayName: Wormhole
   programURL: https://immunefi.com/bug-bounty/wormhole/scope/

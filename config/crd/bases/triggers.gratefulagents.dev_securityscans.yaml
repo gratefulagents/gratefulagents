@@ -588,6 +588,11 @@ spec:
                 - low
                 - info
                 type: string
+              manualOnly:
+                description: |-
+                  manualOnly disables automatic runs from creation, spec changes,
+                  schedules, and repository events. Run-now requests are still processed.
+                type: boolean
               maxRuntime:
                 description: |-
                   maxRuntime optionally caps the runtime of each scan AgentRun,

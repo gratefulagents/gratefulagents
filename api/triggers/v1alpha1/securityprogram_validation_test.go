@@ -16,6 +16,15 @@ import (
 
 func validSecurityProgramSpec() SecurityProgramSpec {
 	return SecurityProgramSpec{
+		ScanTarget: &SecurityProgramScanTarget{
+			RepositoryURL: "https://github.com/acme/widget",
+			WorkflowRef:   "blockchain-protocol-audit",
+			PolicyPackRef: "bug-bounty",
+			ScanName:      "acme-bounty",
+			DisplayName:   "Acme",
+			Priority:      1,
+			Featured:      true,
+		},
 		Provider:    "HackerOne",
 		DisplayName: "Acme Bug Bounty",
 		ProgramURL:  "https://hackerone.com/acme",
@@ -48,6 +57,20 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 			s.ScopePolicy = strings.Repeat("界", MaxSecurityProgramScopePolicyLength+1)
 		},
 		"verification required": func(s *SecurityProgramSpec) { s.VerifiedAt = metav1.Time{} },
+		"repository HTTPS required": func(s *SecurityProgramSpec) {
+			s.ScanTarget.RepositoryURL = "http://github.com/acme/widget"
+		},
+		"repository host required": func(s *SecurityProgramSpec) { s.ScanTarget.RepositoryURL = "https:///widget" },
+		"repository userinfo rejected": func(s *SecurityProgramSpec) {
+			s.ScanTarget.RepositoryURL = "https://user@github.com/acme/widget"
+		},
+		"workflow ref valid":    func(s *SecurityProgramSpec) { s.ScanTarget.WorkflowRef = "Not Valid!" },
+		"policy pack ref valid": func(s *SecurityProgramSpec) { s.ScanTarget.PolicyPackRef = "Not Valid!" },
+		"scan name valid":       func(s *SecurityProgramSpec) { s.ScanTarget.ScanName = "Not Valid!" },
+		"target display name required": func(s *SecurityProgramSpec) {
+			s.ScanTarget.DisplayName = " "
+		},
+		"priority nonnegative": func(s *SecurityProgramSpec) { s.ScanTarget.Priority = -1 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := validSecurityProgramSpec()
@@ -56,5 +79,13 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 				t.Fatal("ValidateSecurityProgramSpec() returned no errors")
 			}
 		})
+	}
+}
+
+func TestValidateSecurityProgramSpecWithoutScanTarget(t *testing.T) {
+	spec := validSecurityProgramSpec()
+	spec.ScanTarget = nil
+	if errs := ValidateSecurityProgramSpec(spec); len(errs) != 0 {
+		t.Fatalf("ValidateSecurityProgramSpec(without scan target) = %v", errs)
 	}
 }

@@ -1,0 +1,133 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-olympus
+spec:
+  scanTarget:
+    repositoryURL: https://github.com/OlympusDAO/olympus-v3
+    workflowRef: smart-contract-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-olympus-v3
+    displayName: Olympus v3
+    priority: 11
+    featured: true
+  provider: Immunefi
+  displayName: Olympus
+  programURL: https://immunefi.com/bug-bounty/olympus/scope/
+  verifiedAt: 2026-08-12T16:35:00Z
+  scopePolicy: |
+    Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-07-22T21:58:43.152Z).
+
+    Displayed wording is preserved; layout whitespace is normalized.
+
+    Smart Contract
+
+    Assets in Scope
+    https://etherscan.io/address/0xE6343ad0675C9b8D3f32679ae6aDbA0766A2ab4c    Clearinghouse v2    2023-12-27
+    https://etherscan.io/address/0x04906695D6D12CF5459975d7C3C03356E4Ccd460?utm_source=immunefi    sOHM v2    2022-02-07
+    https://etherscan.io/address/0x64aa3364F17a4D01c6f1751Fd97C2BD3D7e7f1D5?utm_source=immunefi    OHM v2    2022-02-07
+    https://etherscan.io/address/0xB63cac384247597756545b500253ff8E607a8020?utm_source=immunefi    Staking v2    2022-02-07
+    https://etherscan.io/address/0x0ab87046fBb341D058F17CBC4c1133F25a20a52f?utm_source=immunefi    gOHM    2022-02-07
+    https://etherscan.io/address/0x2286d7f9639e8158FaD1169e76d1FbC38247f54b?utm_source=immunefi    Kernel    2023-02-27
+    https://etherscan.io/address/0x9229b0b6FA4A58D67Eb465567DaA2c6A34714A75?utm_source=immunefi    Emergency    2023-02-27
+    https://etherscan.io/address/0xb216d714d91eeC4F7120a732c11428857C659eC8?utm_source=immunefi    Roles Admin    2023-02-27
+    https://etherscan.io/address/0xC9518AC915e46D707585116451Dc19c164513Ccf?utm_source=immunefi    Treasury Custodian    2023-02-27
+    https://etherscan.io/address/0xf6D5d06A4e8e6904E4360108749C177692F59E90?utm_source=immunefi    Olympus Price Config    2023-02-27
+    https://etherscan.io/address/0xf577c77ee3578c7F216327F41B5D7221EaD2B2A3?utm_source=immunefi    Bond Manager    2023-02-27
+    https://etherscan.io/address/0xd6C4D723fdadCf0D171eF9A2a3Bfa870675b282f?utm_source=immunefi#code    Olympus Price    2023-02-27
+    https://etherscan.io/address/0xa8687A15D4BE32CC8F0a8a7B9704a4C3993D9613?utm_source=immunefi    Olympus Treasury    2023-02-27
+    https://etherscan.io/address/0xa90bFe53217da78D900749eb6Ef513ee5b6a491e?utm_source=immunefi    Olympus Minter    2023-02-27
+    https://etherscan.io/address/0x6CAfd730Dc199Df73C16420C4fCAb18E3afbfA59?utm_source=immunefi    Olympus Roles    2023-02-27
+    https://etherscan.io/address/0x7fdD4e808ee9608f1b2f05157A2A8098e3D432cD?utm_source=immunefi    Boosted Liquidity Vault Implementation    2023-04-19
+    https://etherscan.io/address/0xafe729d57d2CC58978C2e01b4EC39C47FB7C4b23?utm_source=immunefi    Boosted Liquidity Vault Manager    2023-04-19
+    https://etherscan.io/address/0x375E06C694B5E50aF8be8FB03495A612eA3e2275?utm_source=immunefi    Boosted Liquidity Registry    2023-04-19
+    https://arbiscan.io/token/0xf0cb2dc0db5e6c66B9a70Ac27B06b878da017028?utm_source=immunefi    OHM (Arbitrum)    2023-05-15
+    https://arbiscan.io/token/0x8D9bA570D6cb60C7e3e0F31343Efe75AB8E65FB1?utm_source=immunefi    gOHM - (Arbitrum)    2023-05-15
+    https://snowtrace.io/token/0x321e7092a180bb43555132ec53aaa65a5bf84251?utm_source=immunefi    gOHM - (Avalanche)    2023-05-15
+    https://polygonscan.com/token/0xd8cA34fd379d9ca3C6Ee3b3905678320F5b45195?utm_source=immunefi    gOHM - (Polygon/MATIC)    2023-05-15
+    https://ftmscan.com/token/0x91fa20244fb509e8289ca630e5db3e9166233fdc?utm_source=immunefi    gOHM - (Fantom)    2023-05-15
+    https://optimistic.etherscan.io/token/0x0b5740c6b4a97f90eF2F0220651Cca420B868FfB?utm_source=immunefi    gOHM - (Optimism)    2023-05-15
+    https://optimistic.etherscan.io/address/0xb1fA0Ac44d399b778B14af0AAF4bCF8af3437ad1    RolesAdmin - (Optimism)    2026-02-20
+    https://optimistic.etherscan.io/address/0x623164A9Ee2556D524b08f34F1d2389d7B4e1A1C    MINTR - (Optimism)    2026-02-20
+    https://optimistic.etherscan.io/address/0x22AE99D07584A2AE1af748De573c83f1B9Cdb4c0    CrossChainBridge - (Optimism)    2026-02-20
+    https://etherscan.io/address/0xFbf6383dC3F6010d403Ecdf12DDC1311701D143D    CCIPCrossChainBridge    2026-02-20
+    https://etherscan.io/address/0xF35193DA8C10e44aF10853Ba5a3a1a6F7529E39a    CD Auctioneer    2026-02-20
+    https://etherscan.io/address/0xEBDe552D851DD6Dfd3D360C596D3F4aF6e5F9678    CD Facility    2026-02-20
+    https://etherscan.io/address/0xe045bd0a0d85e980aa152064c06eae6b6ae358d2    Periphery - Cooler v2 Migrator - (Ethereum)    2026-02-20
+    https://etherscan.io/address/0xdb591Ea2e5Db886dA872654D58f6cc584b68e7cC    MonoCooler (v2)    2026-02-20
+    https://etherscan.io/address/0xD98B5b2E4D5d6Cd554115DE19EfB7A9084BEddd1    ReceiptTokenMgr    2026-02-20
+    https://etherscan.io/address/0xD58d7406E9CE34c90cf849Fc3eed3764EB3779B0    Policy - Treasury Borrower - (Ethereum)    2026-02-20
+    https://etherscan.io/address/0xD3204Ae00d6599Ba6e182c6D640A79d76CdAad74    Module - DLGTE - (Ethereum)    2026-02-20
+    https://etherscan.io/address/0xcb4E21Eb404d80F3e1dB781aAd9AD6A1217fbbf2    DepositManager    2026-02-20
+    https://etherscan.io/address/0xa61b846d5d8b757e3d541e0e4f80390e28f0b6ff    EmissionManager v1.2    2026-02-20
+    https://etherscan.io/address/0xa6013bBFd70d6190FA1cc1afD0cB3859847711B4    Governor Bravo Delegate    2026-02-20
+    https://etherscan.io/address/0xa5588e518CE5ee0e4628C005E4edAbD5e87de3aD    CCIPLockReleaseTokenPool    2026-02-20
+    https://etherscan.io/address/0x9ee9f0c2e91E4f6B195B988a9e6e19efcf91e8dc    Cooler v2 LTV Oracle    2026-02-20
+    https://etherscan.io/address/0x953EA3223d2dd3c1A91E9D6cca1bf7Af162C9c39    Timelock    2026-02-20
+    https://etherscan.io/address/0x89631595649cc6deba249a8012a5b2d88c8dde48    RGSTY Module    2026-02-20
+    https://etherscan.io/address/0x7d8f82A0D5B67d5FDd1B77A899FF517818FaFc2e    CD Auctioneer Limit Orders    2026-02-20
+    https://etherscan.io/address/0x73df08ce9dcc8d74d22f23282c4d49f13b4c795e    BondCallback v1.1    2026-02-20
+    https://etherscan.io/address/0x69a3e97027d21a5984b6a543b36603ffbc6543a4    CHREG Module    2026-02-20
+    https://etherscan.io/address/0x6593768feBF9C95aC857Fb7Ef244D5738D1C57Fd    Periphery - Cooler v2 Composites - (Ethereum)    2026-02-20
+    https://etherscan.io/address/0x6417F206a0a6628Da136C0Faa39026d0134D2b52    Operator v1.5    2026-02-20
+    https://etherscan.io/address/0x5824850D8A6E46a473445a5AF214C7EbD46c5ECB    Heart v1.7    2026-02-20
+    https://etherscan.io/address/0x45e563c39cddba8699a90078f42353a57509543a    CrossChainBridge - (Mainnet)    2026-02-20
+    https://etherscan.io/address/0x399cd3685912bb56aaed0949119db6ce5df60fb5    RANGE v2.0    2026-02-20
+    https://etherscan.io/address/0x30Ce56e80aA96EbbA1E1a74bC5c0FEB5B0dB4216    CoolerFactory    2026-02-20
+    https://etherscan.io/address/0x271e35a8555a62F6bA76508E85dfD76D580B0692    YRF v1.2    2026-02-20
+    https://etherscan.io/address/0x20a3d8510f2e1176E8Db4CeA9883a8287a9029Db    DepositRedemptionVault    2026-02-20
+    https://etherscan.io/address/0x1e094fe00e13fd06d64eea4fb3cd912893606fe0    Clearinghouse v1.2    2026-02-20
+    https://etherscan.io/address/0x0941233c964e7d7Efeb05D253176E5E634cEFfcD    Governor Bravo Delegator    2026-02-20
+    https://etherscan.io/address/0x02331A4c97a4841084dF54d7c0eC04DD3f1A9F1c    CDEPO Module    2026-02-20
+    https://etherscan.io/address/0x007F7735baF391e207E3aA380bb53c4Bd9a5Fed6    BondTeller    2026-02-20
+    https://berascan.com/address/0xbC9eE0D911739cBc72cd094ADA26F56E0C49EeAE    MINTR - (Bera)    2026-02-20
+    https://berascan.com/token/0x18878df23e2a36f81e820e4b47b4a40576d3159c    OHM - (Bera)    2026-02-20
+    https://berascan.com/address/0xe37D9a2791707BBB858012d219960D5FBD190794    RolesAdmin - (Bera)    2026-02-20
+    https://berascan.com/address/0xBA42BE149e5260EbA4B82418A6306f55D532eA47    CrossChainBridge - (Bera)    2026-02-20
+    https://berascan.com/address/0x0D33c811D0fcC711BcB388DFB3a152DE445bE66F    Treasury Custodian - (Bera)    2026-02-20
+    https://basescan.org/token/0x060cb087a9730E13aa191f31A6d86bFF8DfcdCC0    OHM - (Base)    2026-02-20
+    https://basescan.org/address/0xb1fA0Ac44d399b778B14af0AAF4bCF8af3437ad1    RolesAdmin - (Base)    2026-02-20
+    https://basescan.org/address/0x6CA1a916e883c7ce2BFBcF59dc70F2c1EF9dac6e    CrossChainBridge - (Base)    2026-02-20
+    https://basescan.org/address/0x623164A9Ee2556D524b08f34F1d2389d7B4e1A1C    MINTR - (Base)    2026-02-20
+    https://arbiscan.io/address/0xeac3eC0CC130f4826715187805d1B50e861F2DaC    Kernel - (Arbitrum)    2026-02-20
+    https://arbiscan.io/address/0x8f6406eDbFA393e327822D4A08BcF15503570D87    MINTR - (Arbitrum)    2026-02-20
+    https://arbiscan.io/address/0x69168c08AcF66f002fd02E1B169f38C022c93b70    RolesAdmin - (Arbitrum)    2026-02-20
+    https://arbiscan.io/address/0x20B3834091f038Ce04D8686FAC99CA44A0FB285c    CrossChainBridge - (Arbitrum)    2026-02-20
+    https://etherscan.io/address/0x5131654eFCd63f7b797e00118792e0d0dD90B8B0    v1 Migrator    2026-03-02
+
+    Impacts in Scope
+    Critical
+    Loss of treasury funds
+    Critical
+    Loss of user funds
+    Critical
+    Loss of bond funds
+
+    Out of scope
+    - Incorrect data supplied by third party oracles\n  - Not to exclude oracle manipulation/flash loan attacks\n- Impacts requiring basic economic and governance attacks (e.g. 51% attack)\n- Lack of liquidity impacts\n- Impacts from Sybil attacks\n- Impacts involving centralization risks
+    - Impacts requiring attacks that the reporter has already exploited themselves, leading to damage\n- Impacts caused by attacks requiring access to leaked keys/credentials\n- Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed\n- Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code\n- Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production\n- Best practice recommendations\n- Feature requests\n- Impacts on test files and configuration files unless stated otherwise in the bug bounty program\n- Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Websites and Applications
+
+    Assets in Scope
+    https://app.olympusdao.finance/?utm_source=immunefi#/dashboard    2022-02-07
+
+    Impacts in Scope
+    Critical
+    Loss of treasury funds
+    Critical
+    Loss of user funds
+    Critical
+    Loss of bond funds
+
+    Out of scope
+    $38
+    - Impacts requiring attacks that the reporter has already exploited themselves, leading to damage\n- Impacts caused by attacks requiring access to leaked keys/credentials\n- Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed\n- Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code\n- Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production\n- Best practice recommendations\n- Feature requests\n- Impacts on test files and configuration files unless stated otherwise in the bug bounty program\n- Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Program rules and rewards
+
+    $3a
+
+    $39
+
+    - Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet\n- Any testing with pricing oracles or third-party smart contracts\n- Attempting phishing or other social engineering attacks against our employees and/or customers\n- Any testing with third-party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)\n- Any denial of service attacks that are executed against project assets\n- Automated testing of services that generates significant amounts of traffic\n- Public disclosure of an unpatched vulnerability in an embargoed bounty\n- [Any other actions prohibited by the Immunefi Rules](https://immunefi.com/rules/)

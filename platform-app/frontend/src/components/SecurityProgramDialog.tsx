@@ -102,6 +102,9 @@ export function SecurityProgramDialog({
         programUrl: draft.programUrl.trim(),
         scopePolicy: draft.scopePolicy,
         verifiedAt: timestampFromDate(new Date(draft.verifiedAt)),
+        // Scan target metadata is managed through CRDs and drives the optional
+        // import catalog. Preserve it when editing the human-authored scope.
+        scanTarget: source?.scanTarget,
       });
       if (isEdit) {
         await client.updateSecurityProgram(

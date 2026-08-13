@@ -4654,6 +4654,9 @@ message SecurityScanConfigSpec {
   // scan's namespace. Its scope policy is snapshotted into run prompts as
   // quoted data; its URL is provenance only.
   string security_program_ref = 29;
+  // manual_only disables creation/spec-generation, scheduled, and
+  // repository-event runs. Explicit RunSecurityScanNow requests still run.
+  bool manual_only = 30;
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.
@@ -5056,6 +5059,7 @@ message SecurityProgramResource {
   string program_url = 5;
   string scope_policy = 6;
   google.protobuf.Timestamp verified_at = 7;
+  SecurityProgramScanTarget scan_target = 8;
   int32 usage_count = 10;
   repeated string referencing_scans = 11;
   int64 generation = 12;
@@ -5336,4 +5340,14 @@ message SecuritySkillsStatus {
   int32 installed_count = 3;
   int32 available_count = 4;
   int32 conflict_count = 5;
+}
+
+message SecurityProgramScanTarget {
+  string repository_url = 1;
+  string workflow_ref = 2;
+  string policy_pack_ref = 3;
+  string scan_name = 4;
+  string display_name = 5;
+  int32 priority = 6;
+  bool featured = 7;
 }

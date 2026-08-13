@@ -259,6 +259,9 @@ func (r *SecurityScanReconciler) dispatchDeterministic(ctx context.Context, scan
 	if token := pendingManualRunToken(scan); token != "" {
 		return r.deterministicRunNow(ctx, scan, token)
 	}
+	if scan.Spec.ManualOnly {
+		return r.reconcileManualOnly(ctx, scan)
+	}
 	if ev := pendingTriggerEvent(scan); ev != nil {
 		return r.deterministicTriggerEvent(ctx, scan, ev)
 	}

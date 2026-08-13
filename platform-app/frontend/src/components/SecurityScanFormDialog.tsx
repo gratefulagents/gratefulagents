@@ -102,6 +102,7 @@ type SpecState = {
   revision: string;
   additionalRepos: string;
   schedule: string;
+  manualOnly: boolean;
   timeZone: string;
   concurrencyPolicy: string;
   suspend: boolean;
@@ -154,6 +155,7 @@ function initialSpec(config?: SecurityScanConfig): SpecState {
     revision: spec?.revision ?? "",
     additionalRepos: spec?.additionalRepos.join("\n") ?? "",
     schedule: spec?.schedule ?? "",
+    manualOnly: spec?.manualOnly ?? false,
     timeZone: spec?.timeZone ?? "",
     concurrencyPolicy: spec?.concurrencyPolicy || "Forbid",
     suspend: spec?.suspend ?? false,
@@ -261,6 +263,7 @@ export function scanConfigUsesSavedCredentials(config: SecurityScanConfig): bool
 }
 
 function scheduleSummary(spec: SpecState): string {
+  if (spec.manualOnly) return "manual only";
   const parts = [spec.schedule.trim() ? spec.timeZone.trim() || "UTC" : "runs once"];
   parts.push(spec.concurrencyPolicy === "Allow" ? "overlaps allowed" : "overlaps skipped");
   if (spec.suspend) parts.push("paused");
@@ -511,9 +514,10 @@ export function SecurityScanFormDialog({
       }),
       minSeverity: spec.minSeverity,
       failOnSeverity: spec.failOnSeverity,
-      schedule: spec.schedule.trim(),
+      schedule: spec.manualOnly ? "" : spec.schedule.trim(),
+      manualOnly: spec.manualOnly,
       timeZone: spec.timeZone.trim(),
-      suspend: spec.suspend,
+      suspend: spec.manualOnly ? false : spec.suspend,
       concurrencyPolicy: spec.concurrencyPolicy,
       defaults: normalizedDefaults,
       maxRuntime: spec.maxRuntime.trim(),
@@ -696,10 +700,34 @@ export function SecurityScanFormDialog({
               />
             </FlowField>
 
+            <FlowSwitchRow
+              id="scan-manual-only"
+              label="Manual-only"
+              hint="Only run this configuration when you choose Run now. It will not run from saves, schedules, or repository events."
+              control={
+                <Switch
+                  id="scan-manual-only"
+                  checked={spec.manualOnly}
+                  onCheckedChange={(checked) => {
+                    setSpec((current) => ({
+                      ...current,
+                      manualOnly: checked,
+                      schedule: checked ? "" : current.schedule,
+                      suspend: checked ? false : current.suspend,
+                    }));
+                  }}
+                />
+              }
+            />
+
             <FlowField
               id="scan-schedule"
               label="Schedule"
-              hint="Optional — leave empty to scan once per configuration change."
+              hint={
+                spec.manualOnly
+                  ? "Disabled while this configuration is manual-only."
+                  : "Optional — leave empty to scan once per configuration change."
+              }
             >
               <Input
                 id="scan-schedule"
@@ -707,19 +735,22 @@ export function SecurityScanFormDialog({
                 onChange={(event) => update("schedule", event.target.value)}
                 placeholder="0 3 * * *"
                 className="font-mono"
+                disabled={spec.manualOnly}
               />
-              <div className="flex flex-wrap gap-1.5 pt-1.5">
-                {SCHEDULE_PRESETS.map((preset) => (
-                  <Chip
-                    key={preset}
-                    mono
-                    selected={spec.schedule === preset}
-                    onSelect={() => update("schedule", spec.schedule === preset ? "" : preset)}
-                  >
-                    {preset}
-                  </Chip>
-                ))}
-              </div>
+              {!spec.manualOnly && (
+                <div className="flex flex-wrap gap-1.5 pt-1.5">
+                  {SCHEDULE_PRESETS.map((preset) => (
+                    <Chip
+                      key={preset}
+                      mono
+                      selected={spec.schedule === preset}
+                      onSelect={() => update("schedule", spec.schedule === preset ? "" : preset)}
+                    >
+                      {preset}
+                    </Chip>
+                  ))}
+                </div>
+              )}
             </FlowField>
 
             {!isEdit ? (
@@ -750,7 +781,7 @@ export function SecurityScanFormDialog({
                 icon={CalendarClock}
                 title="Scheduling"
                 summary={scheduleSummary(spec)}
-                modified={Boolean(spec.timeZone.trim()) || spec.concurrencyPolicy === "Allow" || spec.suspend}
+                modified={spec.manualOnly || Boolean(spec.timeZone.trim()) || spec.concurrencyPolicy === "Allow" || spec.suspend}
               >
                 <div className="grid gap-4 sm:grid-cols-2">
                   <FlowField id="scan-time-zone" label="Time zone" hint="IANA name, empty = UTC.">
@@ -785,6 +816,7 @@ export function SecurityScanFormDialog({
                       id="scan-suspend"
                       checked={spec.suspend}
                       onCheckedChange={(checked) => update("suspend", checked)}
+                      disabled={spec.manualOnly}
                     />
                   }
                 />

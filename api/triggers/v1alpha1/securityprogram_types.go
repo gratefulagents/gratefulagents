@@ -15,10 +15,54 @@ const (
 	MaxSecurityProgramScopePolicyLength = 131072
 )
 
+// SecurityProgramScanTarget describes a suggested SecurityScan configuration
+// for a program.
+type SecurityProgramScanTarget struct {
+	// repositoryURL is the HTTPS URL of the repository to scan.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https://`
+	RepositoryURL string `json:"repositoryURL"`
+
+	// workflowRef names the SecurityWorkflow to use.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	WorkflowRef string `json:"workflowRef"`
+
+	// policyPackRef names the SecurityPolicyPack to use.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	PolicyPackRef string `json:"policyPackRef"`
+
+	// scanName is the suggested SecurityScan name.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	ScanName string `json:"scanName"`
+
+	// displayName is the human-readable scan target name.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=200
+	DisplayName string `json:"displayName"`
+
+	// priority controls the target's display order, with lower values first.
+	// +kubebuilder:validation:Minimum=0
+	Priority int32 `json:"priority"`
+
+	// featured includes the target in featured target catalogs.
+	Featured bool `json:"featured"`
+}
+
 // SecurityProgramSpec is an operator-verified snapshot of a vulnerability
 // disclosure or bug bounty program's scope. ProgramURL records provenance
 // only: it is never fetched and does not authorize network access.
 type SecurityProgramSpec struct {
+	// scanTarget optionally describes a suggested SecurityScan configuration.
+	// +optional
+	ScanTarget *SecurityProgramScanTarget `json:"scanTarget,omitempty"`
+
 	// provider identifies the program platform or operator.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=100

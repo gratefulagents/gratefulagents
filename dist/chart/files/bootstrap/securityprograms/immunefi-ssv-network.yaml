@@ -1,0 +1,68 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-ssv-network
+spec:
+  scanTarget:
+    repositoryURL: https://github.com/bloxapp/ssv
+    workflowRef: mpc-cryptography-security-review
+    policyPackRef: bug-bounty
+    scanName: immunefi-ssv
+    displayName: SSV
+    priority: 19
+    featured: true
+  provider: Immunefi
+  displayName: SSV Network
+  programURL: https://immunefi.com/bug-bounty/ssvnetwork/scope/
+  verifiedAt: 2026-08-12T16:35:00Z
+  scopePolicy: |
+    Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-04-09T07:47:31.425Z).
+
+    Displayed wording is preserved; layout whitespace is normalized.
+
+    Smart Contract
+
+    Assets in Scope
+    https://etherscan.io/address/0xDD9BC35aE942eF0cFa76930954a156B3fF30a4E1    SSV Network    2023-08-29
+    https://etherscan.io/address/0xafE830B6Ee262ba11cce5F32fDCd760FFE6a66e4    SSV Network View    2023-08-29
+    https://immunefi.com    Primacy of Impact    2023-10-05
+
+    Impacts in Scope
+    Low
+    Contract fails to deliver promised returns, but doesn't lose value
+    High
+    Theft of unclaimed yield
+    High
+    Permanent freezing of unclaimed yield
+    High
+    Temporary freezing of funds
+    Medium
+    Block stuffing
+    Medium
+    Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+    Medium
+    Theft of gas
+    Critical
+    Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+    Critical
+    Permanent freezing of funds
+    Critical
+    Protocol insolvency
+
+    Out of scope
+    - Incorrect data supplied by third party oracles\n  - Not to exclude oracle manipulation/flash loan attacks\n- Impacts requiring basic economic and governance attacks (e.g. 51% attack)\n- Lack of liquidity impacts\n- Impacts from Sybil attacks\n- Impacts involving centralization risks
+    - Impacts requiring attacks that the reporter has already exploited themselves, leading to damage\n- Impacts caused by attacks requiring access to leaked keys/credentials\n- Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed\n- Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code\n- Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production\n- Best practice recommendations\n- Feature requests\n- Impacts on test files and configuration files unless stated otherwise in the bug bounty program\n- Impacts requiring phishing or other social engineering attacks against project's employees and/or customers
+
+    Program rules and rewards
+
+    $3a
+
+    $39
+
+    [{'description': '$3b', 'link': 'https://bugs.immunefi.com/magnus/863/projects/923/reports/76267', 'lastUpdatedAt': '2026-05-11T11:50:59.917Z', 'relatedImpactInScope': 'smart_contract'}, {'description': '$3c', 'link': 'https://bugs.immunefi.com/magnus/863/projects/923/reports/75571', 'lastUpdatedAt': '2026-05-11T11:51:58.013Z', 'relatedImpactInScope': 'smart_contract'}, {'description': '$3d', 'link': 'https://bugs.immunefi.com/magnus/863/projects/923/reports/67215', 'lastUpdatedAt': '2026-05-11T11:52:27.226Z', 'relatedImpactInScope': 'smart_contract'}, {'description': '$3e', 'link': 'https://bugs.immunefi.com/magnus/863/projects/923/reports/66362', 'lastUpdatedAt': '2026-05-11T11:53:02.572Z', 'relatedImpactInScope': 'smart_contract'}, {'description': '$3f', 'link': 'https://bugs.immunefi.com/magnus/863/projects/923/reports/77910', 'lastUpdatedAt': '2026-05-13T22:46:24.647Z', 'relatedImpactInScope': 'smart_contract'}]
+
+    ['no_ofac_sdn', 'no_employee']
+
+    - Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet\n- Any testing with pricing oracles or third-party smart contracts\n- Attempting phishing or other social engineering attacks against our employees and/or customers\n- Any testing with third-party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)\n- Any denial of service attacks that are executed against project assets\n- Automated testing of services that generates significant amounts of traffic\n- Public disclosure of an unpatched vulnerability in an embargoed bounty\n- [Any other actions prohibited by the Immunefi Rules](https://immunefi.com/rules/)
+
+    $38

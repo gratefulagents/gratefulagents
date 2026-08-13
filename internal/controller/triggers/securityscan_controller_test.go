@@ -45,6 +45,129 @@ func TestSecurityScanReconcileSuspendedScanCreatesNoRuns(t *testing.T) {
 	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, "Suspended")
 }
 
+func TestSecurityScanReconcileManualOnlyCreatesNoAutomaticRuns(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 1, 30, 0, time.UTC)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*triggersv1alpha1.SecurityScan)
+	}{
+		{name: "creation", mutate: func(*triggersv1alpha1.SecurityScan) {}},
+		{name: "due schedule", mutate: func(scan *triggersv1alpha1.SecurityScan) {
+			scan.Spec.Schedule = "* * * * *"
+			due := metav1.NewTime(now.Add(-30 * time.Second))
+			scan.Status.NextScheduleTime = &due
+			scan.Status.ObservedSchedule = scan.Spec.Schedule
+			scan.Status.ObservedTimeZone = "UTC"
+		}},
+		{name: "repository event", mutate: func(scan *triggersv1alpha1.SecurityScan) {
+			scan.Annotations = map[string]string{triggersv1alpha1.SecurityScanEventAnnotation: `{"token":"event-1","revision":"abc123","source":"push"}`}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scan := securityScanTestScan()
+			scan.Spec.ManualOnly = true
+			tc.mutate(scan)
+			reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+			result, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan))
+			if err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+			if result.RequeueAfter != 0 {
+				t.Fatalf("RequeueAfter = %v, want 0", result.RequeueAfter)
+			}
+			if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 0 {
+				t.Fatalf("AgentRuns = %d, want 0", len(got))
+			}
+			updated := getSecurityScan(t, k8sClient, scan)
+			if updated.Status.Phase != "Ready" || updated.Status.NextScheduleTime != nil {
+				t.Fatalf("status = %+v, want Ready with no next schedule", updated.Status)
+			}
+			if tc.name == "repository event" {
+				if updated.Status.LastEventToken != "event-1" || updated.Status.LastEventRevision != "abc123" {
+					t.Fatalf("suppressed event status = %+v, want token and revision consumed", updated.Status)
+				}
+			}
+			assertSecurityScanCondition(t, updated, metav1.ConditionTrue, "ManualOnly")
+		})
+	}
+}
+
+func TestSecurityScanReconcileManualOnlyProcessesRunNow(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanWithRunNowToken(now, "tok-1")
+	scan.Spec.ManualOnly = true
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if got := securityScanRuns(t, k8sClient, scan.Namespace); len(got) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(got))
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastManualRunToken != "tok-1" || updated.Status.ManualRunsCreated != 1 {
+		t.Fatalf("manual status = %+v", updated.Status)
+	}
+
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	run := &runs[0]
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
+	if err := k8sClient.Status().Update(context.Background(), run); err != nil {
+		t.Fatalf("complete AgentRun: %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("terminal Reconcile() error = %v", err)
+	}
+	updated = getSecurityScan(t, k8sClient, scan)
+	if updated.Status.Phase != "Completed" {
+		t.Fatalf("Phase = %q, want Completed", updated.Status.Phase)
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionTrue, "ManualRunCompleted")
+
+	// Completed manual-only runs remain on the terminal observation path so
+	// idempotent check and notification side effects can retry after failures.
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("completed retry Reconcile() error = %v", err)
+	}
+	updated = getSecurityScan(t, k8sClient, scan)
+	if updated.Status.Phase != "Completed" {
+		t.Fatalf("Phase after terminal retry = %q, want Completed", updated.Status.Phase)
+	}
+}
+
+func TestSecurityScanReconcileManualOnlyRetriesTerminalSideEffects(t *testing.T) {
+	reconciler, scan, publisher, _ := securityScanChecksTestFixture(t)
+	scan.Spec.ManualOnly = true
+	scan.Status.Phase = "Completed"
+	publisher.publishErr = errors.New("temporary GitHub failure")
+
+	result, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan))
+	if err != nil {
+		t.Fatalf("failed publish Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("failed publish must request a retry")
+	}
+	updated := getSecurityScan(t, reconciler.Client, scan)
+	if updated.Status.LastCheck == nil || updated.Status.LastCheck.Error == "" {
+		t.Fatalf("LastCheck = %+v, want transient error", updated.Status.LastCheck)
+	}
+
+	publisher.publishErr = nil
+	result, err = reconciler.Reconcile(context.Background(), securityScanRequest(scan))
+	if err != nil {
+		t.Fatalf("retry Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Fatalf("successful retry RequeueAfter = %v, want 0", result.RequeueAfter)
+	}
+	updated = getSecurityScan(t, reconciler.Client, scan)
+	if updated.Status.LastCheck == nil || updated.Status.LastCheck.Error != "" || len(publisher.checks) != 1 {
+		t.Fatalf("retry status = %+v, checks = %d, want success", updated.Status.LastCheck, len(publisher.checks))
+	}
+}
+
 func TestSecurityScanReconcileOneShotCreatesExactlyOneRun(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanTestScan()

@@ -146,6 +146,28 @@ describe("SecurityScanFormDialog", () => {
     expect(request.policies?.configureRuntimeProfile).toBe(true);
   });
 
+  it("creates manual-only scans without schedule or suspend semantics", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "@daily" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Manual-only" }));
+
+    expect((screen.getByLabelText(/Schedule/) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText(/Schedule/) as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: /Scheduling/ }));
+    expect(screen.getByRole("switch", { name: "Suspend" }).hasAttribute("data-disabled")).toBe(true);
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(client.createSecurityScan).mock.calls[0][0].spec).toMatchObject({
+      manualOnly: true,
+      schedule: "",
+      suspend: false,
+    });
+  });
+
   it("submits configured severity and scope fields", async () => {
     renderDialog();
 
@@ -254,6 +276,28 @@ describe("SecurityScanFormDialog", () => {
 });
 
 describe("SecurityScanFormDialog duplicate mode", () => {
+  it("preserves manual-only when editing an imported configuration", async () => {
+    vi.mocked(client.updateSecurityScan).mockResolvedValue(
+      create(SecurityScanConfigSchema, { namespace: "user-alice", name: "immunefi-layerzero" }),
+    );
+    const importedSpec = create(SecurityScanConfigSpecSchema, {
+      repoUrl: "https://github.com/LayerZero-Labs/LayerZero-v2",
+    });
+    Object.assign(importedSpec, { manualOnly: true });
+    const config = create(SecurityScanConfigSchema, {
+      namespace: "user-alice",
+      name: "immunefi-layerzero",
+      spec: importedSpec,
+    });
+    render(<SecurityScanFormDialog config={config} trigger={<button>Edit</button>} defaultOpen />);
+
+    expect(screen.getByRole("switch", { name: "Manual-only" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(client.updateSecurityScan).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(client.updateSecurityScan).mock.calls[0][0].spec).toMatchObject({ manualOnly: true });
+  });
+
   function sourceConfig() {
     return create(SecurityScanConfigSchema, {
       namespace: "user-alice",
