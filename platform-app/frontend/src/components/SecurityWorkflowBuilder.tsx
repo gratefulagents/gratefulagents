@@ -684,7 +684,10 @@ export function SecurityWorkflowBuilder({
     return options;
   };
 
-  const unnamedCount = tasks.length - drawable.length;
+  const unnamedIndexes = tasks
+    .map((t, index) => ({ task: t, index }))
+    .filter(({ task }) => task.name.trim() === "")
+    .map(({ index }) => index);
 
   return (
     <div
@@ -865,11 +868,35 @@ export function SecurityWorkflowBuilder({
               })}
             </DagCanvas>
           )}
-          {unnamedCount > 0 && drawable.length > 0 && (
-            <p className="text-[11px] text-muted-foreground">
-              {unnamedCount} unnamed task{unnamedCount > 1 ? "s" : ""} hidden from the graph — fix
-              the validation errors below to draw {unnamedCount > 1 ? "them" : "it"}.
-            </p>
+          {unnamedIndexes.length > 0 && (
+            <div
+              className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"
+              data-testid="workflow-dag-unnamed"
+            >
+              <span>
+                Not on the graph until named — select to edit{unnamedIndexes.length > 1 ? ":" : " it:"}
+              </span>
+              {unnamedIndexes.map((index, n) => (
+                <button
+                  key={index}
+                  type="button"
+                  data-testid={`dag-unnamed-${index}`}
+                  aria-pressed={selectedIndex === index}
+                  onClick={() => {
+                    setSelectedIndex(index);
+                    setConnectFrom(null);
+                    setMessage(null);
+                  }}
+                  className={`rounded-md border px-2 py-0.5 font-mono transition-colors ${
+                    selectedIndex === index
+                      ? "border-primary text-primary"
+                      : "hover:border-primary/50 hover:text-foreground"
+                  }`}
+                >
+                  Unnamed task #{n + 1}
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
@@ -1201,7 +1228,7 @@ export function SecurityWorkflowBuilder({
                 variant="ghost"
                 size="sm"
                 className="text-destructive"
-                aria-label={`Delete task ${selected.name.trim()}`}
+                aria-label={`Delete task ${selected.name.trim() || "(unnamed)"}`}
                 onClick={() => deleteTask(selectedIndex)}
               >
                 <Trash2 className="size-3.5" /> Delete task
