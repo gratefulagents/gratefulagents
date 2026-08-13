@@ -31,10 +31,12 @@ vi.mock("@/components/SecurityScanFormDialog", () => ({
   SecurityScanFormDialog: ({
     config,
     duplicateFrom,
+    initialConfig,
     trigger,
   }: {
     config?: SecurityScanConfig;
     duplicateFrom?: SecurityScanConfig;
+    initialConfig?: SecurityScanConfig;
     trigger: React.ReactElement;
   }) => (
     <div
@@ -43,8 +45,14 @@ vi.mock("@/components/SecurityScanFormDialog", () => ({
           ? `duplicate-dialog-${duplicateFrom.name}`
           : config
             ? `edit-dialog-${config.name}`
-            : "create-dialog"
+            : initialConfig
+              ? `seed-dialog-${initialConfig.name}`
+              : "create-dialog"
       }
+      data-repo-url={initialConfig?.spec?.repoUrl}
+      data-workflow-ref={initialConfig?.spec?.workflowRef}
+      data-policy-pack-ref={initialConfig?.spec?.policyPackRef}
+      data-program-ref={initialConfig?.spec?.securityProgramRef}
     >
       {trigger}
     </div>
@@ -95,7 +103,7 @@ describe("SecurityScanConfigList", () => {
     listSecurityScanConfigs.mockResolvedValue({ configs: [] });
     renderList();
 
-    const importButton = await screen.findByRole("button", { name: "Import Immunefi targets" });
+    const importButton = await screen.findByRole("button", { name: "Add Immunefi scan" });
     expect(importButton.className).toContain("border-border");
     expect(screen.getByRole("button", { name: "New scan" })).toBeTruthy();
     expect(createSecurityScan).not.toHaveBeenCalled();
@@ -122,7 +130,7 @@ describe("SecurityScanConfigList", () => {
     });
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Import Immunefi targets" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add Immunefi scan" }));
 
     expect(screen.getByText("Custom metadata target")).toBeTruthy();
     expect(screen.getByText("https://example.com/custom · main")).toBeTruthy();
@@ -149,9 +157,16 @@ describe("SecurityScanConfigList", () => {
     });
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Import Immunefi targets" }));
-    expect(screen.queryByText("Existing name — skipped")).toBeNull();
-    expect(screen.getByRole("button", { name: "Import 1 missing target" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Add Immunefi scan" }));
+    expect(screen.queryByText("Existing configuration")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Configure scan for Custom target" }));
+
+    const seed = screen.getByTestId("seed-dialog-custom-scan");
+    expect(seed.getAttribute("data-repo-url")).toBe("https://example.com/custom");
+    expect(seed.getAttribute("data-workflow-ref")).toBe("custom-workflow");
+    expect(seed.getAttribute("data-policy-pack-ref")).toBe("bug-bounty");
+    expect(seed.getAttribute("data-program-ref")).toBe("custom-program");
+    expect(createSecurityScan).not.toHaveBeenCalled();
   });
 
   it("shows Run now only for non-suspended configurations", async () => {

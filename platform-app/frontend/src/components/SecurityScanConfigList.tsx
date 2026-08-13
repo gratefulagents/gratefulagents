@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { clone, create } from "@bufbuild/protobuf";
 import { Copy, Filter, Pencil, Play, Plus, ShieldCheck, Trash2 } from "lucide-react";
@@ -23,8 +23,10 @@ import {
 } from "@/components/SecurityScanFormDialog";
 import { client } from "@/lib/client";
 import { formatScheduleTime } from "@/lib/format";
+import type { ImmunefiTarget } from "@/lib/immunefiTargetCatalog";
 import { useNow } from "@/hooks/useNow";
 import {
+  SecurityScanConfigSchema,
   SecurityScanConfigSpecSchema,
   UpdateSecurityScanRequestSchema,
   type SecurityProgramResource,
@@ -138,7 +140,14 @@ export function SecurityScanConfigList() {
   const [programFilter, setProgramFilter] = useState("all");
   const [pendingDelete, setPendingDelete] = useState<SecurityScanConfig | null>(null);
   const [runNowPending, setRunNowPending] = useState<string | null>(null);
+  const [selectedImmunefiTarget, setSelectedImmunefiTarget] = useState<ImmunefiTarget | null>(null);
+  const immunefiTriggerRef = useRef<HTMLButtonElement>(null);
   const now = useNow();
+
+  function closeImmunefiScanForm() {
+    setSelectedImmunefiTarget(null);
+    requestAnimationFrame(() => immunefiTriggerRef.current?.focus());
+  }
 
   const fetchConfigs = useCallback(async () => {
     setLoading(true);
@@ -278,9 +287,33 @@ export function SecurityScanConfigList() {
                 .filter((config) => config.namespace === personalNamespace)
                 .map((config) => config.name),
             )}
-            trigger={<Button variant="outline" size="sm">Import Immunefi targets</Button>}
-            onImported={() => void fetchConfigs()}
+            trigger={<Button ref={immunefiTriggerRef} variant="outline" size="sm">Add Immunefi scan</Button>}
+            onTargetSelected={setSelectedImmunefiTarget}
           />
+          {selectedImmunefiTarget && (
+            <SecurityScanFormDialog
+              key={selectedImmunefiTarget.name}
+              initialConfig={create(SecurityScanConfigSchema, {
+                name: selectedImmunefiTarget.name,
+                spec: {
+                  repoUrl: selectedImmunefiTarget.repoUrl,
+                  baseBranch: selectedImmunefiTarget.baseBranch,
+                  workflowRef: selectedImmunefiTarget.workflowRef,
+                  policyPackRef: selectedImmunefiTarget.policyPackRef,
+                  securityProgramRef: selectedImmunefiTarget.securityProgramRef,
+                  manualOnly: true,
+                  minSeverity: "high",
+                  parallelism: 4,
+                  dedupe: { enabled: true },
+                },
+              })}
+              defaultOpen
+              onOpenChange={(open) => {
+                if (!open) closeImmunefiScanForm();
+              }}
+              onSaved={() => void fetchConfigs()}
+            />
+          )}
           <SecurityScanFormDialog
             trigger={
               <Button size="sm">

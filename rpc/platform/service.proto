@@ -4390,7 +4390,7 @@ message SecurityRankerConfig {
 message SecurityPostScriptConfig {
   string name = 1;
   string prompt = 2;
-  string run_on = 3; // all | confirmed | high-and-above; empty = all
+  string run_on = 3; // all | confirmed | high-and-above | high-and-above-actionable; empty = all
 }
 
 // SecurityScanDedupeConfig configures duplicate-finding suppression.
@@ -4905,7 +4905,7 @@ message SecurityPostScriptResource {
   string name = 2;
   string description = 3;
   string prompt = 4;
-  string run_on = 5; // all | confirmed | high-and-above; empty = all
+  string run_on = 5; // all | confirmed | high-and-above | high-and-above-actionable; empty = all
   int32 usage_count = 10;
   repeated string referencing_scans = 11;
   int64 generation = 12;

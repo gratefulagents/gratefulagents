@@ -339,19 +339,23 @@ const ENFORCED_LABELS: Record<string, string> = {
 export function SecurityScanFormDialog({
   config,
   duplicateFrom,
+  initialConfig,
   trigger,
   defaultOpen = false,
   onSaved,
+  onOpenChange,
 }: {
   config?: SecurityScanConfig;
   duplicateFrom?: SecurityScanConfig;
-  trigger: React.ReactElement;
+  initialConfig?: SecurityScanConfig;
+  trigger?: React.ReactElement;
   defaultOpen?: boolean;
   onSaved?: (config: SecurityScanConfig) => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const isEdit = Boolean(config);
   const isDuplicate = !isEdit && Boolean(duplicateFrom);
-  const source = config ?? duplicateFrom;
+  const source = config ?? duplicateFrom ?? initialConfig;
   const [open, setOpen] = useState(defaultOpen);
   const [spec, setSpec] = useState<SpecState>(() => initialDialogSpec(source, isDuplicate));
   const [tasks, setTasks] = useState<TaskState[]>(() => initialTasks(source));
@@ -364,7 +368,7 @@ export function SecurityScanFormDialog({
     () => source?.spec?.defaults ?? emptyDefaults(),
   );
   const [policies, setPolicies] = useState<TriggerPolicies>(() =>
-    resolvedTriggerPolicies(configPolicySource(source)),
+    resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)),
   );
   const [useSavedCredentials, setUseSavedCredentials] = useState(() =>
     source ? scanConfigUsesSavedCredentials(source) : true,
@@ -430,7 +434,7 @@ export function SecurityScanFormDialog({
     setPostScripts(initialPostScripts(source));
     setNotifications(initialNotifications(source));
     setDefaults(source?.spec?.defaults ?? emptyDefaults());
-    setPolicies(resolvedTriggerPolicies(configPolicySource(source)));
+    setPolicies(resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)));
     setUseSavedCredentials(source ? scanConfigUsesSavedCredentials(source) : true);
     setError(null);
   }
@@ -642,6 +646,7 @@ export function SecurityScanFormDialog({
             }),
           );
       setOpen(false);
+      onOpenChange?.(false);
       reset();
       onSaved?.(saved);
     } catch (err) {
@@ -655,14 +660,16 @@ export function SecurityScanFormDialog({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
+        if (submitting && !nextOpen) return;
         setOpen(nextOpen);
+        onOpenChange?.(nextOpen);
         if (!nextOpen) reset();
       }}
     >
-      <DialogTrigger render={trigger} />
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent
         className="flex w-full max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl max-h-[92vh]"
-        showCloseButton
+        showCloseButton={!submitting}
       >
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader className="space-y-1 border-b px-6 py-5">
@@ -1895,8 +1902,16 @@ export function SecurityScanFormDialog({
                           <option value="all">all findings</option>
                           <option value="confirmed">confirmed findings</option>
                           <option value="high-and-above">high and above</option>
+                          <option value="high-and-above-actionable">high and above, while actionable</option>
                         </select>
                       </FlowField>
+                      {script.runOn === "high-and-above-actionable" && (
+                        <p className="text-xs text-muted-foreground md:col-span-2">
+                          Skips this stage before its first attempt when a successful earlier stage has already marked
+                          the finding false positive, accepted risk, or fixed. Use “all findings” for final reporting,
+                          audit, or cleanup stages.
+                        </p>
+                      )}
                     </div>
                     <FlowField id={`scan-post-prompt-${index}`} label="Prompt">
                       <Textarea
@@ -1961,7 +1976,9 @@ export function SecurityScanFormDialog({
           </div>
 
           <div className="flex items-center justify-end gap-2 border-t px-6 py-4">
-            <DialogClose render={<Button type="button" variant="ghost" size="sm" />}>
+            <DialogClose
+              render={<Button type="button" variant="ghost" size="sm" disabled={submitting} />}
+            >
               Cancel
             </DialogClose>
             <Button type="submit" size="sm" disabled={submitting}>

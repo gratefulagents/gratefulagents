@@ -969,9 +969,11 @@ func slackTokensEnvs(run *platformv1alpha1.AgentRun) []corev1.EnvVar {
 // or pulled in by an attached skill's requires.mcpServers — as secretKeyRef
 // envs for the run pod. This is how token-bearing MCP servers (e.g. Grafana)
 // receive credentials without plaintext CRD values. Missing servers are
-// skipped (the MCP layer already tolerates absent servers); duplicate env
-// names keep the first declaration. Entries default to optional so a missing
-// Secret never blocks pod startup unless the server demands it.
+// skipped (the MCP layer already tolerates absent servers). Secret values are
+// isolated under server-scoped pod env names, so multiple instances of the
+// same MCP implementation can safely use different credentials. Entries
+// default to optional so a missing Secret never blocks pod startup unless the
+// server demands it.
 func resolveMCPServerSecretEnvs(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) []corev1.EnvVar {
 	if run == nil || c == nil {
 		return nil
@@ -997,16 +999,17 @@ func resolveMCPServerSecretEnvs(ctx context.Context, c client.Client, run *platf
 		}
 		for _, se := range srv.Spec.MCPServerConfig.SecretEnv {
 			name := strings.TrimSpace(se.Name)
-			if name == "" || seen[name] {
+			podName := mcpattach.SecretEnvPodName(srv.Name, name)
+			if name == "" || seen[podName] {
 				continue
 			}
 			optional := true
 			if se.Optional != nil {
 				optional = *se.Optional
 			}
-			seen[name] = true
+			seen[podName] = true
 			envs = append(envs, corev1.EnvVar{
-				Name: name,
+				Name: podName,
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{Name: se.SecretName},

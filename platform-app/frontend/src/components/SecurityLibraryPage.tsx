@@ -520,7 +520,15 @@ function PostScriptEditorDialog({
                 placeholder="Write a proof of concept demonstrating the finding."
               />
             </FlowField>
-            <FlowField id="ps-run-on" label="Runs on" hint="Which findings this post-script runs against.">
+            <FlowField
+              id="ps-run-on"
+              label="Runs on"
+              hint={
+                runOn === "high-and-above-actionable"
+                  ? "High/critical findings only; skips the first attempt when a successful earlier stage already marked the finding false positive, accepted risk, or fixed. Use all findings for finalizers."
+                  : "Which findings this post-script runs against."
+              }
+            >
               <select
                 id="ps-run-on"
                 className={selectClass}
@@ -530,6 +538,7 @@ function PostScriptEditorDialog({
                 <option value="all">all findings</option>
                 <option value="confirmed">confirmed findings</option>
                 <option value="high-and-above">high-and-above findings</option>
+                <option value="high-and-above-actionable">high-and-above while actionable</option>
               </select>
             </FlowField>
             {error && <p className="text-sm text-destructive">{error}</p>}

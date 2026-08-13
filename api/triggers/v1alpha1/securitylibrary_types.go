@@ -207,7 +207,9 @@ type SecurityPostScriptSpec struct {
 	Prompt string `json:"prompt"`
 
 	// runOn selects which findings this post-script runs against.
-	// +kubebuilder:validation:Enum=all;confirmed;high-and-above
+	// high-and-above-actionable additionally skips dispatch when a successful
+	// predecessor has already moved the finding to a terminal status.
+	// +kubebuilder:validation:Enum=all;confirmed;high-and-above;high-and-above-actionable
 	// +kubebuilder:default="all"
 	// +optional
 	RunOn string `json:"runOn,omitempty"`

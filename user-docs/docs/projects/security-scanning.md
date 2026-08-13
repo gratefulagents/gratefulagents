@@ -106,7 +106,7 @@ spec:
   postScripts:
     - name: validate
       prompt: "Re-read the cited code and confirm the finding is exploitable; downgrade it if not."
-      runOn: high-and-above             # one of: all (default), confirmed, high-and-above
+      runOn: high-and-above             # one of: all (default), confirmed, high-and-above, high-and-above-actionable
 
   # Matching is evaluated once against each finding as research ends. All
   # matching post-scripts for that finding then normally run in order in one
@@ -186,7 +186,7 @@ Workflows, severity rankers, post-scripts, and bounty program scope snapshots ca
 
 - **`SecurityWorkflow`** — `spec.description`, `spec.tasks` (the same task schema as `spec.workflow`), and an optional `spec.parallelism` that overrides the referencing scan's parallelism when set.
 - **`SecurityRanker`** — `spec.description` and `spec.rules`, a list of ranking rule lines in the same language as `spec.severityRankers[].rules`.
-- **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, or `high-and-above`).
+- **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, `high-and-above`, or `high-and-above-actionable`). The actionable variant is for proof or remediation stages that should not start after a successful predecessor has already rejected, fixed, or accepted the risk; final reporting and audit stages should use `all` so they can record the terminal outcome.
 - **`SecurityProgram`** — an operator-verified bounty or disclosure-program snapshot: provider, display name, HTTPS provenance URL, the explicit scope policy, and when that policy was verified. The controller never fetches the URL. It does not authorize network access; only `spec.scope.authorizedNetworkTargets` can do that.
 
 A `SecurityScan` references them with:

@@ -7,6 +7,7 @@ import { client } from "@/lib/client";
 import {
   SecurityScanConfigSchema,
   SecurityScanConfigSpecSchema,
+  type SecurityScanConfig,
 } from "@/rpc/platform/service_pb";
 
 vi.mock("@/lib/client", () => ({
@@ -107,6 +108,19 @@ describe("SecurityScanFormDialog", () => {
     expect(screen.getByLabelText("Minimum severity")).toBeTruthy();
     expect(screen.getByLabelText("Fail on severity")).toBeTruthy();
     expect(screen.getByLabelText("Parallelism")).toBeTruthy();
+  });
+
+  it("offers actionable-only post-scripts and explains when they are skipped", () => {
+    renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: /Rankers & post-scripts/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add post-script" }));
+    fireEvent.change(screen.getByLabelText("Run against"), {
+      target: { value: "high-and-above-actionable" },
+    });
+
+    expect(screen.getByRole("option", { name: "high and above, while actionable" })).toBeTruthy();
+    expect(screen.getByText(/successful earlier stage has already marked/i).textContent).toContain("fixed");
   });
 
   it("explains deterministic routing when workflow tasks are empty", () => {
@@ -276,6 +290,88 @@ describe("SecurityScanFormDialog", () => {
 });
 
 describe("SecurityScanFormDialog duplicate mode", () => {
+  it("opens a normal create form prefilled from a bounty target", async () => {
+    const initialConfig = create(SecurityScanConfigSchema, {
+      name: "immunefi-optimism",
+      spec: create(SecurityScanConfigSpecSchema, {
+        repoUrl: "https://github.com/ethereum-optimism/optimism",
+        baseBranch: "develop",
+        workflowRef: "blockchain-protocol-audit",
+        policyPackRef: "bug-bounty",
+        securityProgramRef: "immunefi-optimism",
+        manualOnly: true,
+        minSeverity: "high",
+        parallelism: 4,
+        dedupe: { enabled: true },
+      }),
+    });
+    render(
+      <SecurityScanFormDialog
+        initialConfig={initialConfig}
+        trigger={<button>Configure</button>}
+        defaultOpen
+      />,
+    );
+
+    expect(screen.getByText("New security scan")).toBeTruthy();
+    expect((screen.getByLabelText(/Name/) as HTMLInputElement).value).toBe("immunefi-optimism");
+    expect((screen.getByLabelText(/Repository URL/) as HTMLInputElement).value).toBe(
+      "https://github.com/ethereum-optimism/optimism",
+    );
+    expect(screen.getByRole("switch", { name: "Manual-only" }).getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    expect(client.updateSecurityScan).not.toHaveBeenCalled();
+    expect(vi.mocked(client.createSecurityScan).mock.calls[0][0]).toMatchObject({
+      name: "immunefi-optimism",
+      useSavedCredentials: true,
+      spec: {
+        repoUrl: "https://github.com/ethereum-optimism/optimism",
+        baseBranch: "develop",
+        workflowRef: "blockchain-protocol-audit",
+        policyPackRef: "bug-bounty",
+        securityProgramRef: "immunefi-optimism",
+        manualOnly: true,
+        minSeverity: "high",
+        parallelism: 4,
+      },
+      policies: {
+        configureRuntimeProfile: true,
+        permissionMode: "workspace-write",
+        egressMode: "unrestricted",
+      },
+    });
+  });
+
+  it("cannot be dismissed while creating", async () => {
+    let resolveCreate: (value: SecurityScanConfig) => void = () => {};
+    vi.mocked(client.createSecurityScan).mockReturnValueOnce(
+      new Promise<SecurityScanConfig>((resolve) => { resolveCreate = resolve; }),
+    );
+    const onOpenChange = vi.fn();
+    render(
+      <SecurityScanFormDialog
+        initialConfig={create(SecurityScanConfigSchema, {
+          name: "pending-scan",
+          spec: create(SecurityScanConfigSpecSchema, { repoUrl: "https://github.com/acme/repo" }),
+        })}
+        defaultOpen
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+
+    resolveCreate(create(SecurityScanConfigSchema, { name: "pending-scan" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
   it("preserves manual-only when editing an imported configuration", async () => {
     vi.mocked(client.updateSecurityScan).mockResolvedValue(
       create(SecurityScanConfigSchema, { namespace: "user-alice", name: "immunefi-layerzero" }),
