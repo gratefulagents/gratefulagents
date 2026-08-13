@@ -275,10 +275,12 @@ function ExecutionDagNode({
       onClick={onClick}
       title={`${name}: ${state}`}
       className={cn(
-        "flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-background px-2.5 text-left",
-        selected ? "border-primary ring-1 ring-primary" : "border-border hover:border-primary/50",
+        "flex h-full w-full flex-col justify-center gap-1 overflow-hidden rounded-lg border bg-card px-3 text-left shadow-sm transition-[border-color,box-shadow]",
+        selected
+          ? "border-primary ring-1 ring-primary"
+          : "border-border hover:border-primary/50 hover:shadow-md",
       )}
-      style={{ boxShadow: `inset 2.5px 0 0 0 ${toneColor[tone]}` }}
+      style={{ boxShadow: `inset 3px 0 0 0 ${toneColor[tone]}` }}
     >
       <span className="flex min-w-0 items-center gap-1.5">
         {state === "Running" && (
@@ -288,7 +290,7 @@ function ExecutionDagNode({
             style={{ backgroundColor: toneColor[tone] }}
           />
         )}
-        <span className="truncate font-mono text-[11.5px] font-medium leading-tight">{name}</span>
+        <span className="truncate font-mono text-xs font-medium leading-tight">{name}</span>
       </span>
       <span className="flex min-w-0 items-center gap-1 text-[10.5px] leading-tight text-muted-foreground">
         <span className="truncate">

@@ -8,7 +8,7 @@
  * the authored graph and the running graph look identical.
  */
 
-import type { ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 /** DagNodeInput is the minimal shape the layout needs. */
 export interface DagNodeInput {
@@ -17,11 +17,11 @@ export interface DagNodeInput {
 }
 
 /** Node geometry shared by the builder and the execution view. */
-export const DAG_NODE_WIDTH = 176;
-export const DAG_NODE_HEIGHT = 52;
-export const DAG_LAYER_GAP = 56;
-export const DAG_NODE_GAP = 12;
-export const DAG_CANVAS_PAD = 12;
+export const DAG_NODE_WIDTH = 200;
+export const DAG_NODE_HEIGHT = 64;
+export const DAG_LAYER_GAP = 72;
+export const DAG_NODE_GAP = 20;
+export const DAG_CANVAS_PAD = 24;
 
 /**
  * dagLayers groups nodes into topological layers: layer 0 has no
@@ -102,9 +102,13 @@ export function dagEdges<T extends DagNodeInput & { forEach?: string }>(nodes: T
   return edges;
 }
 
+/** Horizontal inset so arrowheads land just outside the target node's port. */
+const EDGE_END_INSET = 5;
+
 /**
- * DagEdgeLayer renders dependency edges as cubic curves in one SVG sized to
- * the canvas. Edges whose endpoints are not positioned are skipped.
+ * DagEdgeLayer renders dependency edges as cubic curves with arrowheads in
+ * one SVG sized to the canvas. Edges whose endpoints are not positioned are
+ * skipped. Fan-out edges are dashed and tinted with the primary color.
  */
 export function DagEdgeLayer({
   edges,
@@ -115,6 +119,11 @@ export function DagEdgeLayer({
   layout: DagLayout;
   label: string;
 }) {
+  // Marker ids must be document-unique: two canvases (builder + execution
+  // preview) can be mounted at once.
+  const markerId = useId();
+  const arrowDefault = `${markerId}-arrow`;
+  const arrowFanout = `${markerId}-arrow-fanout`;
   return (
     <svg
       role="img"
@@ -124,6 +133,30 @@ export function DagEdgeLayer({
       viewBox={`0 0 ${layout.width} ${layout.height}`}
       className="absolute inset-0"
     >
+      <defs>
+        <marker
+          id={arrowDefault}
+          viewBox="0 0 8 8"
+          refX="7"
+          refY="4"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M 0.5 0.5 L 7.5 4 L 0.5 7.5 z" className="fill-muted-foreground/80" />
+        </marker>
+        <marker
+          id={arrowFanout}
+          viewBox="0 0 8 8"
+          refX="7"
+          refY="4"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M 0.5 0.5 L 7.5 4 L 0.5 7.5 z" className="fill-primary/80" />
+        </marker>
+      </defs>
       {edges
         .filter((edge) => layout.positions.has(edge.from) && layout.positions.has(edge.to))
         .map((edge) => {
@@ -131,7 +164,7 @@ export function DagEdgeLayer({
           const to = layout.positions.get(edge.to)!;
           const x1 = from.x + DAG_NODE_WIDTH;
           const y1 = from.y + DAG_NODE_HEIGHT / 2;
-          const x2 = to.x;
+          const x2 = to.x - EDGE_END_INSET;
           const y2 = to.y + DAG_NODE_HEIGHT / 2;
           const mid = (x1 + x2) / 2;
           const fanout = edge.emphasis === "fanout";
@@ -140,9 +173,11 @@ export function DagEdgeLayer({
               key={`${edge.from}->${edge.to}`}
               d={`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`}
               fill="none"
-              strokeWidth={fanout ? 1.5 : 1.25}
-              strokeDasharray={fanout ? "4 3" : undefined}
-              className={fanout ? "stroke-primary/60" : "stroke-muted-foreground/40"}
+              strokeWidth={fanout ? 1.75 : 1.5}
+              strokeDasharray={fanout ? "5 4" : undefined}
+              strokeLinecap="round"
+              markerEnd={`url(#${fanout ? arrowFanout : arrowDefault})`}
+              className={fanout ? "stroke-primary/80" : "stroke-muted-foreground/70"}
             />
           );
         })}
@@ -166,9 +201,13 @@ export function edgeMidpoint(
 }
 
 /**
- * DagCanvas is the scrollable positioned surface both graph views share:
- * a bordered muted canvas with an absolutely positioned inner area sized by
- * the layout. Children place themselves with the layout's positions.
+ * DagCanvas is the positioned surface both graph views share: a bordered
+ * dot-grid canvas with an absolutely positioned inner area sized by the
+ * layout. Children place themselves with the layout's positions. Wide graphs
+ * scale down to fit the available width (down to a floor, then scroll) so the
+ * whole workflow stays visible without panning. It is a `group/dag` hover
+ * group so overlays (e.g. edge-remove buttons) can stay hidden until the
+ * pointer is over the canvas.
  */
 export function DagCanvas({
   layout,
@@ -179,10 +218,53 @@ export function DagCanvas({
   children: ReactNode;
   testId?: string;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) setContainerWidth(entry.contentRect.width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Scale to fit the container, but never below the floor — a graph deep
+  // enough to hit it scrolls horizontally instead of becoming unreadable.
+  const MIN_FIT_SCALE = 0.55;
+  const scale =
+    containerWidth > 0 && layout.width > containerWidth
+      ? Math.max(containerWidth / layout.width, MIN_FIT_SCALE)
+      : 1;
+
   return (
-    <div className="overflow-x-auto rounded-lg border bg-muted/30" data-testid={testId}>
-      <div className="relative" style={{ width: layout.width, height: layout.height }}>
-        {children}
+    <div
+      ref={ref}
+      className="group/dag overflow-auto rounded-xl border bg-muted/20"
+      style={{
+        backgroundImage:
+          "radial-gradient(color-mix(in oklch, var(--muted-foreground) 18%, transparent) 1px, transparent 1px)",
+        backgroundSize: "16px 16px",
+      }}
+      data-testid={testId}
+    >
+      <div
+        className="relative mx-auto"
+        style={{ width: layout.width * scale, height: layout.height * scale }}
+      >
+        <div
+          className="absolute left-0 top-0"
+          style={{
+            width: layout.width,
+            height: layout.height,
+            transform: scale === 1 ? undefined : `scale(${scale})`,
+            transformOrigin: "0 0",
+          }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

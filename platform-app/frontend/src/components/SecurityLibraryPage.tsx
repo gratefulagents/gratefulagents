@@ -190,7 +190,7 @@ function WorkflowEditorDialog({
       }}
     >
       {trigger && <DialogTrigger render={trigger} />}
-      <DialogContent className="flex w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl max-h-[92vh]" showCloseButton>
+      <DialogContent className="flex w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl max-h-[92vh]" showCloseButton>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader className="space-y-1 border-b px-6 py-5">
             <DialogTitle className="text-base">
