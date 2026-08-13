@@ -79,6 +79,9 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			if errs := triggersv1alpha1.ValidateSecurityProgramSpec(program.Spec); len(errs) != 0 {
 				t.Fatalf("invalid spec: %v", errs)
 			}
+			if program.Name == "firedancer" && program.Spec.ScanTarget != nil {
+				t.Error("Firedancer must not suggest a scan target without a selected in-scope release")
+			}
 			isImmunefi := program.Spec.Provider == "Immunefi"
 			if isImmunefi && !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
 				t.Fatalf("unexpected Immunefi provenance URL: %q", program.Spec.ProgramURL)
