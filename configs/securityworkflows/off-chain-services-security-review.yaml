@@ -10,6 +10,7 @@ spec:
       role: threat-modeler
       category: recon
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-entry-point-analyzer
         - name: trail-of-bits-property-based-testing
@@ -36,6 +37,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: offchain-blockchain-services-review
         - name: api-authz-hunting
         - name: web-app-hunting
@@ -61,6 +63,7 @@ spec:
       role: vulnerability-hunter
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-harness-writing
         - name: trail-of-bits-coverage-analysis
       tools:
@@ -84,6 +87,7 @@ spec:
       role: exploit-validator
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       tools:
@@ -105,6 +109,7 @@ spec:
       role: vulnerability-hunter
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-variant-analysis
         - name: trail-of-bits-property-based-testing
       tools:
@@ -124,6 +129,7 @@ spec:
       role: finding-triager
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
       tools:

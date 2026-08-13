@@ -15,6 +15,7 @@ spec:
       role: threat-modeler
       category: recon
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-entry-point-analyzer
       tools:
@@ -92,6 +93,7 @@ spec:
       role: threat-modeler
       category: recon
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-entry-point-analyzer
       tools:
@@ -147,6 +149,7 @@ spec:
       role: threat-modeler
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-dimensional-analysis
         - name: evm-economic-and-mev-review
@@ -193,6 +196,7 @@ spec:
       role: security-reviewer
       category: supply-chain
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-prep-assistant
         - name: trail-of-bits-supply-chain-risk-auditor
         - name: evm-low-level-and-deployment-review
@@ -238,6 +242,7 @@ spec:
       role: vulnerability-hunter
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: security-scan
         - name: trail-of-bits-fp-check
       tools:
@@ -281,6 +286,7 @@ spec:
       role: vulnerability-hunter
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: security-scan
         - name: trail-of-bits-fp-check
       tools:
@@ -321,6 +327,8 @@ spec:
     - name: merge-solidity-static-analysis
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied:
           - Bash
@@ -340,6 +348,7 @@ spec:
       role: test-engineer
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: security-scan
         - name: trail-of-bits-property-based-testing
         - name: exploit-poc-discipline
@@ -398,6 +407,7 @@ spec:
       role: test-engineer
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: security-scan
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-harness-writing
@@ -447,6 +457,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-secure-workflow-guide
         - name: trail-of-bits-entry-point-analyzer
       tools:
@@ -474,6 +485,7 @@ spec:
       role: vulnerability-hunter
       category: authz
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-entry-point-analyzer
         - name: trail-of-bits-secure-workflow-guide
         - name: evm-low-level-and-deployment-review
@@ -502,6 +514,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-token-integration-analyzer
         - name: trail-of-bits-property-based-testing
@@ -531,6 +544,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: evm-economic-and-mev-review
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-property-based-testing
@@ -559,6 +573,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: evm-economic-and-mev-review
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-property-based-testing
@@ -587,6 +602,7 @@ spec:
       role: vulnerability-hunter
       category: dos
       skillRefs:
+        - name: blockchain-security-research-method
         - name: evm-low-level-and-deployment-review
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
@@ -613,6 +629,7 @@ spec:
       role: vulnerability-hunter
       category: misconfiguration
       skillRefs:
+        - name: blockchain-security-research-method
         - name: evm-low-level-and-deployment-review
         - name: trail-of-bits-guidelines-advisor
         - name: trail-of-bits-secure-workflow-guide
@@ -645,6 +662,7 @@ spec:
       role: test-engineer
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: security-scan
         - name: exploit-poc-discipline
         - name: trail-of-bits-fp-check
@@ -674,6 +692,8 @@ spec:
     - name: merge-symbolic-tool-coverage
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied:
           - Bash
@@ -693,6 +713,7 @@ spec:
       role: security-reviewer
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
         - name: evm-low-level-and-deployment-review
@@ -740,6 +761,7 @@ spec:
       role: security-reviewer
       category: misconfiguration
       skillRefs:
+        - name: blockchain-security-research-method
         - name: evm-low-level-and-deployment-review
         - name: evm-economic-and-mev-review
         - name: trail-of-bits-guidelines-advisor
@@ -772,6 +794,7 @@ spec:
       role: exploit-validator
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
         - name: evm-economic-and-mev-review
@@ -833,6 +856,8 @@ spec:
     - name: account-foundation-coverage
       role: security-reviewer
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied:
           - Bash
@@ -855,6 +880,8 @@ spec:
     - name: account-build-and-static-coverage
       role: security-reviewer
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied:
           - Bash
@@ -878,6 +905,8 @@ spec:
     - name: account-fuzz-and-formal-coverage
       role: security-reviewer
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied:
           - Bash
@@ -899,6 +928,8 @@ spec:
     - name: account-calls-auth-accounting-coverage
       role: security-reviewer
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied:
           - Bash
@@ -921,6 +952,8 @@ spec:
     - name: account-economics-oracle-liveness-coverage
       role: security-reviewer
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied:
           - Bash
@@ -943,6 +976,8 @@ spec:
     - name: account-low-level-and-configuration-coverage
       role: security-reviewer
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied:
           - Bash
@@ -964,6 +999,7 @@ spec:
       role: security-reviewer
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-fp-check
       tools:
@@ -1008,6 +1044,7 @@ spec:
       role: security-reviewer
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-fp-check
       tools:
@@ -1052,6 +1089,7 @@ spec:
       role: security-reviewer
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-fp-check
       tools:
@@ -1098,6 +1136,7 @@ spec:
       role: security-reviewer
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: trail-of-bits-property-based-testing
         - name: exploit-poc-discipline
@@ -1147,6 +1186,7 @@ spec:
       role: finding-triager
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
         - name: evm-economic-and-mev-review

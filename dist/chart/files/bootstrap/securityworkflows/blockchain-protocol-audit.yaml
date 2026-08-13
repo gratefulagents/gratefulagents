@@ -10,6 +10,7 @@ spec:
       role: threat-modeler
       category: recon
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
       tools:
         denied:
@@ -78,6 +79,7 @@ spec:
       role: threat-modeler
       category: recon
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-entry-point-analyzer
       tools:
@@ -126,6 +128,7 @@ spec:
       role: vulnerability-hunter
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-secure-workflow-guide
       tools:
         denied:
@@ -171,6 +174,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
       tools:
@@ -194,6 +198,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
       tools:
@@ -217,6 +222,7 @@ spec:
       role: vulnerability-hunter
       category: crypto
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-constant-time-analysis
         - name: trail-of-bits-property-based-testing
@@ -241,6 +247,7 @@ spec:
       role: vulnerability-hunter
       category: dos
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-property-based-testing
       tools:
         denied:
@@ -263,6 +270,7 @@ spec:
       role: vulnerability-hunter
       category: authz
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-sharp-edges
         - name: trail-of-bits-property-based-testing
       tools:
@@ -285,6 +293,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-c-review
         - name: trail-of-bits-rust-review
         - name: trail-of-bits-property-based-testing
@@ -309,6 +318,7 @@ spec:
       role: vulnerability-hunter
       category: authz
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-constant-time-analysis
         - name: trail-of-bits-sharp-edges
         - name: trail-of-bits-zeroize-audit
@@ -333,6 +343,7 @@ spec:
       role: secrets-auditor
       category: secrets
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-zeroize-audit
         - name: trail-of-bits-constant-time-analysis
       tools:
@@ -355,6 +366,7 @@ spec:
       role: vulnerability-hunter
       category: race-condition
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-rust-review
         - name: trail-of-bits-property-based-testing
       tools:
@@ -377,6 +389,7 @@ spec:
       role: vulnerability-hunter
       category: memory-safety
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-c-review
         - name: trail-of-bits-rust-review
         - name: trail-of-bits-address-sanitizer
@@ -400,6 +413,7 @@ spec:
       role: vulnerability-hunter
       category: misconfiguration
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-guidelines-advisor
         - name: trail-of-bits-secure-workflow-guide
         - name: cloud-iac-hunting
@@ -424,6 +438,7 @@ spec:
       role: dependency-auditor
       category: supply-chain
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-supply-chain-risk-auditor
         - name: github-agent-supply-chain
       tools:
@@ -447,6 +462,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: evm-economic-and-mev-review
         - name: evm-low-level-and-deployment-review
         - name: trail-of-bits-property-based-testing
@@ -475,6 +491,7 @@ spec:
       role: vulnerability-hunter
       category: authz
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-solana-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-rust-review
@@ -502,6 +519,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-cosmos-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
       tools:
@@ -528,6 +546,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-substrate-vulnerability-scanner
         - name: trail-of-bits-rust-review
         - name: trail-of-bits-property-based-testing
@@ -555,6 +574,7 @@ spec:
       role: vulnerability-hunter
       category: authz
       skillRefs:
+        - name: blockchain-security-research-method
         - name: move-chain-security-review
         - name: trail-of-bits-property-based-testing
       tools:
@@ -582,6 +602,7 @@ spec:
       role: vulnerability-hunter
       category: authz
       skillRefs:
+        - name: blockchain-security-research-method
         - name: move-chain-security-review
         - name: trail-of-bits-property-based-testing
       tools:
@@ -608,6 +629,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-cairo-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
       tools:
@@ -634,6 +656,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-ton-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
       tools:
@@ -656,6 +679,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-algorand-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
       tools:
@@ -678,6 +702,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: bitcoin-lightning-security-review
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-constant-time-analysis
@@ -706,6 +731,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
         - name: trail-of-bits-constant-time-analysis
@@ -734,6 +760,7 @@ spec:
       role: vulnerability-hunter
       category: crypto
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-constant-time-analysis
         - name: trail-of-bits-wycheproof
         - name: trail-of-bits-zeroize-audit
@@ -763,6 +790,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: evm-economic-and-mev-review
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-property-based-testing
@@ -792,6 +820,7 @@ spec:
       role: vulnerability-hunter
       category: authz
       skillRefs:
+        - name: blockchain-security-research-method
         - name: api-authz-hunting
         - name: web-app-hunting
         - name: trail-of-bits-sharp-edges
@@ -820,6 +849,8 @@ spec:
     - name: account-chain-coverage-a
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -834,6 +865,8 @@ spec:
     - name: account-chain-coverage-b
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -846,6 +879,8 @@ spec:
     - name: account-chain-coverage-c
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -859,6 +894,8 @@ spec:
     - name: account-cross-system-coverage-a
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -871,6 +908,8 @@ spec:
     - name: account-cross-system-coverage-b
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -883,6 +922,8 @@ spec:
     - name: account-chain-coverage
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -896,6 +937,8 @@ spec:
     - name: account-cross-system-coverage
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -909,6 +952,8 @@ spec:
     - name: account-domain-coverage-a
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -922,6 +967,8 @@ spec:
     - name: account-domain-coverage-b
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -933,6 +980,8 @@ spec:
     - name: account-domain-coverage-c
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -944,6 +993,8 @@ spec:
     - name: account-domain-coverage-d
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -955,6 +1006,8 @@ spec:
     - name: account-domain-coverage-ab
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -967,6 +1020,8 @@ spec:
     - name: account-domain-coverage-cd
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -978,6 +1033,8 @@ spec:
     - name: account-domain-coverage
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -991,6 +1048,7 @@ spec:
       role: exploit-validator
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       tools:
@@ -1053,6 +1111,8 @@ spec:
     - name: account-protocol-and-validation-coverage
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -1068,6 +1128,8 @@ spec:
     - name: account-complete-protocol-coverage
       role: finding-triager
       category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
       tools:
         denied: [Bash]
       objective: >-
@@ -1083,6 +1145,7 @@ spec:
       role: finding-triager
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
       tools:

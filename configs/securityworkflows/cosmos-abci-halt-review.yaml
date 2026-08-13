@@ -9,6 +9,7 @@ spec:
       role: threat-modeler
       category: recon
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-cosmos-vulnerability-scanner
         - name: trail-of-bits-audit-context-building
       tools:
@@ -45,6 +46,7 @@ spec:
       role: vulnerability-hunter
       category: dos
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-cosmos-vulnerability-scanner
       tools:
         denied:
@@ -91,6 +93,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-cosmos-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
       tools:
@@ -132,6 +135,7 @@ spec:
       role: vulnerability-hunter
       category: dos
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-cosmos-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
       tools:
@@ -173,6 +177,7 @@ spec:
       role: finding-triager
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
       tools:
