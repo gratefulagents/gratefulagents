@@ -21,17 +21,53 @@ var workflowTaskOutputRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9
 // installs a usable bug-hunting library into every release namespace.
 var securityWorkflowLibrary = []string{
 	"api-service-audit",
+	"algorand-security-review",
+	"aptos-move-security-review",
 	"auth-surface-audit",
+	"bitcoin-lightning-security-review",
 	"blockchain-protocol-audit",
+	"bridge-l2-zk-security-review",
+	"cairo-starknet-security-review",
 	"cosmos-abci-halt-review",
+	"cosmos-ibc-security-review",
 	"default-deep-scan",
 	"external-flow-analysis",
 	"kubernetes-operator-audit",
+	"mpc-cryptography-security-review",
+	"off-chain-services-security-review",
 	"pr-diff-review",
 	"secrets-and-supply-chain",
 	"smart-contract-review",
+	"solana-anchor-security-review",
+	"substrate-xcm-security-review",
+	"sui-move-security-review",
+	"ton-security-review",
 	"validated-critical-hunt",
+	"wallet-security-review",
 	"web-app-owasp",
+}
+
+// TestSecurityWorkflowLibraryInventory prevents new bootstrap workflows from
+// bypassing TestSecurityWorkflowLibraryAssets when this inventory is stale.
+func TestSecurityWorkflowLibraryInventory(t *testing.T) {
+	t.Parallel()
+
+	entries, err := os.ReadDir(repoPath("configs", "securityworkflows"))
+	if err != nil {
+		t.Fatalf("read security workflow library: %v", err)
+	}
+	var discovered []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".yaml") {
+			discovered = append(discovered, strings.TrimSuffix(entry.Name(), ".yaml"))
+		}
+	}
+	slices.Sort(discovered)
+	want := slices.Clone(securityWorkflowLibrary)
+	slices.Sort(want)
+	if !slices.Equal(discovered, want) {
+		t.Fatalf("securityWorkflowLibrary = %v, want every shipped workflow %v", want, discovered)
+	}
 }
 
 // TestSecurityWorkflowLibraryAssets holds every shipped workflow to the rules
