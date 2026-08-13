@@ -15,6 +15,7 @@ import { featuredImmunefiTargets } from "@/lib/immunefiTargetCatalog";
 import {
   CreateSecurityScanRequestSchema,
   SecurityScanConfigSpecSchema,
+  type MyCredentials,
   type SecurityProgramResource,
 } from "@/rpc/platform/service_pb";
 
@@ -23,6 +24,17 @@ export type ImmunefiImportResult = {
   skipped: number;
   failed: { name: string; message: string }[];
 };
+
+function savedDefaults(credentials: MyCredentials) {
+  if (credentials.openaiOauthPresent) return { provider: "openai", authMode: "oauth" };
+  if (credentials.openaiApiKeyPresent) return { provider: "openai", authMode: "api-key" };
+  if (credentials.anthropicOauthPresent) return { provider: "anthropic", authMode: "oauth" };
+  if (credentials.anthropicApiKeyPresent) return { provider: "anthropic", authMode: "api-key" };
+  if (credentials.copilotOauthPresent) return { provider: "copilot", authMode: "oauth" };
+  if (credentials.openrouterApiKeyPresent) return { provider: "openrouter", authMode: "api-key" };
+  if (credentials.xaiApiKeyPresent) return { provider: "xai", authMode: "api-key" };
+  return null;
+}
 
 export function ImmunefiTargetImportDialog({
   programs,
@@ -47,6 +59,23 @@ export function ImmunefiTargetImportDialog({
     setResult(null);
     const failed: ImmunefiImportResult["failed"] = [];
     let created = 0;
+    let defaults: ReturnType<typeof savedDefaults>;
+    try {
+      defaults = savedDefaults(await client.listMyCredentials({}));
+    } catch (error) {
+      const nextResult = {
+        created: 0,
+        skipped: skipped.length,
+        failed: [{
+          name: "credentials",
+          message: error instanceof Error ? error.message : "Failed to inspect saved credentials",
+        }],
+      };
+      setResult(nextResult);
+      setSubmitting(false);
+      onImported?.(nextResult);
+      return;
+    }
 
     for (const target of missing) {
       try {
@@ -62,13 +91,14 @@ export function ImmunefiTargetImportDialog({
           parallelism: 4,
           dedupe: { enabled: true },
           triggers: undefined,
+          defaults: defaults ?? undefined,
         });
         await client.createSecurityScan(
           create(CreateSecurityScanRequestSchema, {
             namespace: "",
             name: target.name,
             spec,
-            useSavedCredentials: true,
+            useSavedCredentials: defaults !== null,
           }),
         );
         created += 1;

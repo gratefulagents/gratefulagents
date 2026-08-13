@@ -8,6 +8,10 @@ import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
 vi.mock("@/lib/client", () => ({
   client: {
     createSecurityScan: vi.fn().mockResolvedValue({}),
+    listMyCredentials: vi.fn().mockResolvedValue({
+      namespace: "ns",
+      openaiOauthPresent: true,
+    }),
   },
 }));
 
@@ -103,11 +107,31 @@ describe("ImmunefiTargetImportDialog", () => {
         manualOnly: true,
         minSeverity: "high",
         parallelism: 4,
+        defaults: {
+          provider: "openai",
+          authMode: "oauth",
+        },
       },
     });
     expect(requests[0].spec?.triggers).toBeUndefined();
     expect(requests[0].spec?.dedupe?.enabled).toBe(true);
     expect(screen.getByRole("status").textContent).toContain("Created 2; skipped 0; failed 0.");
+  });
+
+  it("imports configurations without credentials so they can be configured later", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValueOnce({
+      namespace: "ns",
+    } as Awaited<ReturnType<typeof client.listMyCredentials>>);
+    renderDialog(new Set(["scan-later"]));
+    fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 missing target" }));
+
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(client.createSecurityScan).mock.calls[0][0]).toMatchObject({
+      name: "scan-first",
+      useSavedCredentials: false,
+      spec: { manualOnly: true },
+    });
   });
 
   it("skips existing names without modifying or replacing them", async () => {
