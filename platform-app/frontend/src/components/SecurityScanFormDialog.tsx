@@ -339,19 +339,23 @@ const ENFORCED_LABELS: Record<string, string> = {
 export function SecurityScanFormDialog({
   config,
   duplicateFrom,
+  initialConfig,
   trigger,
   defaultOpen = false,
   onSaved,
+  onOpenChange,
 }: {
   config?: SecurityScanConfig;
   duplicateFrom?: SecurityScanConfig;
-  trigger: React.ReactElement;
+  initialConfig?: SecurityScanConfig;
+  trigger?: React.ReactElement;
   defaultOpen?: boolean;
   onSaved?: (config: SecurityScanConfig) => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const isEdit = Boolean(config);
   const isDuplicate = !isEdit && Boolean(duplicateFrom);
-  const source = config ?? duplicateFrom;
+  const source = config ?? duplicateFrom ?? initialConfig;
   const [open, setOpen] = useState(defaultOpen);
   const [spec, setSpec] = useState<SpecState>(() => initialDialogSpec(source, isDuplicate));
   const [tasks, setTasks] = useState<TaskState[]>(() => initialTasks(source));
@@ -642,6 +646,7 @@ export function SecurityScanFormDialog({
             }),
           );
       setOpen(false);
+      onOpenChange?.(false);
       reset();
       onSaved?.(saved);
     } catch (err) {
@@ -655,14 +660,16 @@ export function SecurityScanFormDialog({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
+        if (submitting && !nextOpen) return;
         setOpen(nextOpen);
+        onOpenChange?.(nextOpen);
         if (!nextOpen) reset();
       }}
     >
-      <DialogTrigger render={trigger} />
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent
         className="flex w-full max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl max-h-[92vh]"
-        showCloseButton
+        showCloseButton={!submitting}
       >
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader className="space-y-1 border-b px-6 py-5">
@@ -1961,7 +1968,9 @@ export function SecurityScanFormDialog({
           </div>
 
           <div className="flex items-center justify-end gap-2 border-t px-6 py-4">
-            <DialogClose render={<Button type="button" variant="ghost" size="sm" />}>
+            <DialogClose
+              render={<Button type="button" variant="ghost" size="sm" disabled={submitting} />}
+            >
               Cancel
             </DialogClose>
             <Button type="submit" size="sm" disabled={submitting}>

@@ -1,19 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { ImmunefiTargetImportDialog } from "@/components/ImmunefiTargetImportDialog";
-import { client } from "@/lib/client";
 import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
-
-vi.mock("@/lib/client", () => ({
-  client: {
-    createSecurityScan: vi.fn().mockResolvedValue({}),
-    listMyCredentials: vi.fn().mockResolvedValue({
-      namespace: "ns",
-      openaiOauthPresent: true,
-    }),
-  },
-}));
 
 afterEach(() => {
   cleanup();
@@ -58,6 +47,7 @@ const programs = [
 ];
 
 function renderDialog(
+  onTargetSelected = vi.fn(),
   existingNames = new Set<string>(),
   availablePrograms: readonly SecurityProgramResource[] = programs,
 ) {
@@ -65,109 +55,56 @@ function renderDialog(
     <ImmunefiTargetImportDialog
       programs={availablePrograms}
       existingNames={existingNames}
-      trigger={<button>Import Immunefi targets</button>}
+      trigger={<button>Add Immunefi scan</button>}
+      onTargetSelected={onTargetSelected}
     />,
   );
+  return onTargetSelected;
 }
 
 describe("ImmunefiTargetImportDialog", () => {
-  it("previews only featured program targets in metadata order before confirmation", () => {
+  it("previews only featured targets in metadata order without creating anything", () => {
     renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
 
-    expect(client.createSecurityScan).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
-
-    expect(screen.getByText(/Nothing runs automatically/)).toBeTruthy();
+    expect(screen.getByText(/Nothing is created or run/)).toBeTruthy();
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("First target");
     expect(items[1].textContent).toContain("Later target");
     expect(screen.queryByText("Hidden target")).toBeNull();
-    expect(client.createSecurityScan).not.toHaveBeenCalled();
   });
 
-  it("creates arbitrary program-driven targets as manual-only without running them", async () => {
-    renderDialog();
-    fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
-    fireEvent.click(screen.getByRole("button", { name: "Import 2 missing targets" }));
+  it("selects one target for configuration and closes the chooser", () => {
+    const onTargetSelected = renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Configure scan for First target" }));
 
-    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(2));
-    const requests = vi.mocked(client.createSecurityScan).mock.calls.map(([request]) => request);
-
-    expect(requests.map((request) => request.name)).toEqual(["scan-first", "scan-later"]);
-    expect(requests[0]).toMatchObject({
-      namespace: "",
-      useSavedCredentials: true,
-      spec: {
-        repoUrl: "https://example.com/first",
-        workflowRef: "workflow-first",
-        policyPackRef: "policy-first",
-        securityProgramRef: "program-first",
-        schedule: "",
-        manualOnly: true,
-        minSeverity: "high",
-        parallelism: 4,
-        defaults: {
-          provider: "openai",
-          authMode: "oauth",
-        },
-      },
-    });
-    expect(requests[0].spec?.triggers).toBeUndefined();
-    expect(requests[0].spec?.dedupe?.enabled).toBe(true);
-    expect(screen.getByRole("status").textContent).toContain("Created 2; skipped 0; failed 0.");
-  });
-
-  it("imports configurations without credentials so they can be configured later", async () => {
-    vi.mocked(client.listMyCredentials).mockResolvedValueOnce({
-      namespace: "ns",
-    } as Awaited<ReturnType<typeof client.listMyCredentials>>);
-    renderDialog(new Set(["scan-later"]));
-    fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
-    fireEvent.click(screen.getByRole("button", { name: "Import 1 missing target" }));
-
-    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(client.createSecurityScan).mock.calls[0][0]).toMatchObject({
+    expect(onTargetSelected).toHaveBeenCalledTimes(1);
+    expect(onTargetSelected).toHaveBeenCalledWith(expect.objectContaining({
       name: "scan-first",
-      useSavedCredentials: false,
-      spec: { manualOnly: true },
-    });
+      repoUrl: "https://example.com/first",
+      workflowRef: "workflow-first",
+      policyPackRef: "policy-first",
+      securityProgramRef: "program-first",
+    }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("skips existing names without modifying or replacing them", async () => {
-    renderDialog(new Set(["scan-first"]));
-    fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
+  it("does not allow selecting an existing configuration", () => {
+    const onTargetSelected = renderDialog(vi.fn(), new Set(["scan-first"]));
+    fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
 
-    expect(screen.getAllByText("Existing name — skipped")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Import 1 missing target" }));
-
-    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(client.createSecurityScan).mock.calls[0][0].name).toBe("scan-later");
-    expect(screen.getByRole("status").textContent).toContain("Created 1; skipped 1; failed 0.");
-  });
-
-  it("continues after errors and reports aggregate partial results", async () => {
-    vi.mocked(client.createSecurityScan)
-      .mockRejectedValueOnce(new Error("permission denied"))
-      .mockResolvedValue({} as Awaited<ReturnType<typeof client.createSecurityScan>>);
-    renderDialog();
-    fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
-    fireEvent.click(screen.getByRole("button", { name: "Import 2 missing targets" }));
-
-    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(2));
-    const status = screen.getByRole("status");
-    expect(status.textContent).toContain("Created 1; skipped 0; failed 1.");
-    expect(status.textContent).toContain("scan-first: permission denied");
+    expect(screen.getByText("Existing configuration")).toBeTruthy();
+    const buttons = screen.getAllByRole("button", { name: /Configure scan for/ }) as HTMLButtonElement[];
+    expect(buttons[0].disabled).toBe(true);
+    fireEvent.click(buttons[0]);
+    expect(onTargetSelected).not.toHaveBeenCalled();
   });
 
   it("communicates when no featured targets are available", () => {
-    renderDialog(new Set(), []);
-    fireEvent.click(screen.getByRole("button", { name: "Import Immunefi targets" }));
-
+    renderDialog(vi.fn(), new Set(), []);
+    fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
     expect(screen.getByText("No featured Immunefi targets are available.")).toBeTruthy();
-    expect(
-      (screen.getByRole("button", { name: "Import 0 missing targets" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
   });
 });
