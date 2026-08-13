@@ -122,6 +122,31 @@ func TestSecurityTriagePostScriptAssets(t *testing.T) {
 	}
 }
 
+func TestReportWriterRequiresEvidenceBackedSubmission(t *testing.T) {
+	t.Parallel()
+
+	var script triggersv1alpha1.SecurityPostScript
+	readBootstrapAsset(t, "securitypostscripts", "report-writer", &script)
+	prompt := script.Spec.Prompt
+
+	for _, marker := range []string{
+		"## Title", "## Summary", "## Scope and affected component",
+		"## Root cause", "## Preconditions and environment",
+		"## Reproduction and evidence", "## Expected versus actual behavior",
+		"## Impact and severity", "## Remediation",
+		"## References and testing limits", "source -> guards -> sink",
+		"Do not invent requests", "If no deterministic",
+		"save_security_bounty_submission", "update_security_finding",
+	} {
+		if !strings.Contains(prompt, marker) {
+			t.Errorf("report-writer prompt is missing %q", marker)
+		}
+	}
+	if strings.Index(prompt, "save_security_bounty_submission") > strings.Index(prompt, "update_security_finding") {
+		t.Error("report-writer must store the report before updating the finding")
+	}
+}
+
 func TestSecurityTriageRankerAssets(t *testing.T) {
 	t.Parallel()
 
