@@ -22,6 +22,7 @@ import {
   SESSION_EXPIRED_EVENT,
 } from "@/lib/client";
 import { storeGet, storeSet } from "@/lib/secure-store";
+import { clearApiCalls } from "@/lib/api-monitor";
 import {
   getAppEnvironment,
   getCloudflareAccessHeaders,
@@ -330,6 +331,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       if (id === getActiveWorkspaceId()) return;
       if (!setActiveWorkspace(id)) return;
+      clearApiCalls();
       setState((prev) => ({
         ...prev,
         isLoading: true,
@@ -363,6 +365,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       await clearWorkspaceSecrets(id);
       removeWorkspaceStore(id);
+      clearApiCalls();
       setState((prev) => ({
         ...prev,
         isLoading: true,
@@ -461,6 +464,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }).catch(() => {});
     }
     await clearTokens();
+    clearApiCalls();
     setState((prev) => ({
       ...prev,
       isAuthenticated: false,
