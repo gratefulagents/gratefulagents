@@ -285,6 +285,7 @@ fi
 
 log "Installing gratefulagents"
 helm lint "$CHART_DIR" --values "$VALUES_FILE" \
+  --set bootstrapDefaults.enabled=false \
   --set "dashboard.service.type=$DASHBOARD_SERVICE_TYPE" \
   --set-string "manager.image.repository=$manager_image_repository" \
   --set-string "manager.image.tag=$IMAGE_TAG" \
@@ -294,6 +295,7 @@ helm lint "$CHART_DIR" --values "$VALUES_FILE" \
 helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --namespace "$NAMESPACE" --create-namespace \
   --values "$VALUES_FILE" \
+  --set bootstrapDefaults.enabled=false \
   --set "dashboard.service.type=$DASHBOARD_SERVICE_TYPE" \
   --set-string "manager.image.repository=$manager_image_repository" \
   --set-string "manager.image.tag=$IMAGE_TAG" \
@@ -301,6 +303,24 @@ helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --set-string "agentImages.worker=$worker_image" \
   --set-string "agentImages.injector=$injector_image" \
   --atomic --wait --wait-for-jobs --timeout "$TIMEOUT" --history-max 10
+
+# The bundled defaults are large and storing them both in the chart archive and
+# in Helm's rendered manifest can push the release Secret past Kubernetes' 1 MiB
+# limit. Render only that template and apply it outside Helm's release record.
+# The template still supplies the bootstrap annotations and bundle marker used
+# by the dashboard's per-user default synchronization.
+log "Applying bundled platform defaults"
+helm template "$RELEASE_NAME" "$CHART_DIR" \
+  --namespace "$NAMESPACE" \
+  --values "$VALUES_FILE" \
+  --set bootstrapDefaults.enabled=true \
+  --set "dashboard.service.type=$DASHBOARD_SERVICE_TYPE" \
+  --set-string "manager.image.repository=$manager_image_repository" \
+  --set-string "manager.image.tag=$IMAGE_TAG" \
+  --set manager.image.pullPolicy=IfNotPresent \
+  --set-string "agentImages.worker=$worker_image" \
+  --set-string "agentImages.injector=$injector_image" \
+  --show-only templates/bootstrap/defaults.yaml | kubectl apply -f -
 
 manager_deployment="$(kubectl -n "$NAMESPACE" get deployment \
   -l "app.kubernetes.io/instance=$RELEASE_NAME,control-plane=controller-manager" \

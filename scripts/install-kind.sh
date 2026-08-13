@@ -269,6 +269,7 @@ injector_image="$IMAGE_REGISTRY/injector:$IMAGE_TAG"
 
 log "Installing gratefulagents $IMAGE_TAG from $IMAGE_REGISTRY"
 helm lint "$CHART_DIR" --values "$VALUES_FILE" \
+  --set bootstrapDefaults.enabled=false \
   --set dashboard.service.type=NodePort \
   --set dashboard.service.nodePort=30090 \
   --set-string "manager.image.repository=$manager_image_repository" \
@@ -279,6 +280,7 @@ helm lint "$CHART_DIR" --values "$VALUES_FILE" \
 helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --namespace "$NAMESPACE" --create-namespace \
   --values "$VALUES_FILE" \
+  --set bootstrapDefaults.enabled=false \
   --set dashboard.service.type=NodePort \
   --set dashboard.service.nodePort=30090 \
   --set-string "manager.image.repository=$manager_image_repository" \
@@ -287,6 +289,24 @@ helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --set-string "agentImages.worker=$worker_image" \
   --set-string "agentImages.injector=$injector_image" \
   --atomic --wait --wait-for-jobs --timeout "$TIMEOUT" --history-max 10
+
+# Keep the large default-resource manifest out of Helm's release Secret. Helm
+# release data is limited by Kubernetes' 1 MiB Secret size, while applying this
+# one rendered template directly preserves the annotations and bundle marker
+# used by personal-namespace bootstrap synchronization.
+log "Applying bundled platform defaults"
+helm template "$RELEASE_NAME" "$CHART_DIR" \
+  --namespace "$NAMESPACE" \
+  --values "$VALUES_FILE" \
+  --set bootstrapDefaults.enabled=true \
+  --set dashboard.service.type=NodePort \
+  --set dashboard.service.nodePort=30090 \
+  --set-string "manager.image.repository=$manager_image_repository" \
+  --set-string "manager.image.tag=$IMAGE_TAG" \
+  --set manager.image.pullPolicy=IfNotPresent \
+  --set-string "agentImages.worker=$worker_image" \
+  --set-string "agentImages.injector=$injector_image" \
+  --show-only templates/bootstrap/defaults.yaml | kubectl apply -f -
 
 manager_deployment="$(kubectl -n "$NAMESPACE" get deployment \
   -l "app.kubernetes.io/instance=$RELEASE_NAME,control-plane=controller-manager" \

@@ -58,6 +58,9 @@ fi
 assert_contains 'source_ref="${GRATEFULAGENTS_REF:-$IMAGE_TAG}"'
 assert_contains '"$IMAGE_TAG" "$GRATEFULAGENTS_REF" "$GRATEFULAGENTS_REPOSITORY_URL" "$TMP_DIR/gratefulagents"'
 assert_contains 'if [[ -z "$SOURCE_DIR" && -n "$CHART_DIR" ]]; then'
+assert_contains '--set bootstrapDefaults.enabled=false'
+assert_contains '--set bootstrapDefaults.enabled=true'
+assert_contains '--show-only templates/bootstrap/defaults.yaml | kubectl apply -f -'
 if grep -Fq -- '"$script_dir/../dist/chart/Chart.yaml"' "$installer"; then
   fail 'installer still auto-selects the chart from its current checkout'
 fi
