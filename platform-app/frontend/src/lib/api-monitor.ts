@@ -21,6 +21,20 @@ type ApiCallListener = () => void;
 
 const MAX_RECORDS = 100;
 const MAX_BODY_CHARS = 20_000;
+const REDACTED = "[redacted]";
+
+const SENSITIVE_HEADERS = new Set([
+  "authorization",
+  "proxy-authorization",
+  "cookie",
+  "set-cookie",
+  "x-api-key",
+  "cf-access-client-id",
+  "cf-access-client-secret",
+]);
+
+const SENSITIVE_FIELD_PATTERN =
+  /password|token|secret|credential|apikey|api_key|authorization/i;
 
 const listeners = new Set<ApiCallListener>();
 let records: ApiCallRecord[] = [];
@@ -60,9 +74,33 @@ function normalizeMethod(input: RequestInfo | URL, init?: RequestInit): string {
 function headerEntries(headers: HeadersInit | Headers | undefined): [string, string][] {
   if (!headers) return [];
   try {
-    return [...new Headers(headers as HeadersInit).entries()];
+    return [...new Headers(headers as HeadersInit).entries()].map(
+      ([name, value]): [string, string] =>
+        SENSITIVE_HEADERS.has(name.toLowerCase()) ? [name, REDACTED] : [name, value],
+    );
   } catch {
     return [];
+  }
+}
+
+function redactJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, val]) =>
+        SENSITIVE_FIELD_PATTERN.test(key) ? [key, REDACTED] : [key, redactJsonValue(val)],
+      ),
+    );
+  }
+  return value;
+}
+
+/** Redact credential-looking fields from a JSON body before it is retained. */
+function redactBodyText(text: string): string {
+  try {
+    return JSON.stringify(redactJsonValue(JSON.parse(text)));
+  } catch {
+    return text;
   }
 }
 
@@ -85,7 +123,7 @@ function truncate(text: string): string {
 function captureRequestBody(init?: RequestInit): string | null {
   const body = init?.body;
   if (body == null) return null;
-  if (typeof body === "string") return truncate(body);
+  if (typeof body === "string") return truncate(redactBodyText(body));
   if (body instanceof URLSearchParams) return truncate(body.toString());
   if (body instanceof FormData) return "[FormData]";
   if (body instanceof Blob) return `[Blob ${body.size} bytes]`;
@@ -120,6 +158,26 @@ function touchRecord(record: ApiCallRecord): void {
   }
 }
 
+/**
+ * Read at most MAX_BODY_CHARS from the stream, then cancel it so large
+ * responses are never fully materialized just for monitoring.
+ */
+async function readBoundedText(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    while (text.length <= MAX_BODY_CHARS) {
+      const { done, value } = await reader.read();
+      if (done) return text;
+      text += decoder.decode(value, { stream: true });
+    }
+    return `${text.slice(0, MAX_BODY_CHARS)}\n… [truncated at ${MAX_BODY_CHARS} chars]`;
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+}
+
 function captureResponseBody(record: ApiCallRecord, response: Response): void {
   const contentType = response.headers.get("content-type");
   if (response.bodyUsed || response.body == null) return;
@@ -128,13 +186,14 @@ function captureResponseBody(record: ApiCallRecord, response: Response): void {
     return;
   }
   try {
-    // Read from a clone so the caller keeps the original stream. Only done
-    // for finite text-like bodies (never event streams) to avoid tee buffering.
-    void response
-      .clone()
-      .text()
+    // Read a bounded prefix from a clone so the caller keeps the original
+    // stream. Only done for finite text-like bodies (never event streams)
+    // to avoid tee buffering.
+    const clonedBody = response.clone().body;
+    if (!clonedBody) return;
+    void readBoundedText(clonedBody)
       .then((text) => {
-        record.responseBody = truncate(text);
+        record.responseBody = redactBodyText(text);
         touchRecord(record);
       })
       .catch(() => {
