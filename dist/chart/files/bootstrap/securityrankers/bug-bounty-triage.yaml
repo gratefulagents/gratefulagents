@@ -3,15 +3,15 @@ kind: SecurityRanker
 metadata:
   name: bug-bounty-triage
 spec:
-  description: Calibrates severity to bounty acceptance rather than theoretical risk; only reproducible, in-scope findings with a concrete attacker path and serious impact can reach high or critical.
+  description: Calibrates severity to bounty acceptance rather than theoretical risk; only evidenced, in-scope findings with a concrete attacker path and serious impact can reach high or critical.
   rules:
-    - High and critical are an acceptance gate, not labels for suspicious code; require all of an external or low-privilege attacker, an in-scope production asset or privilege boundary, a traced and locally reproducible path, and serious concrete impact. If any element is absent, cap the finding at low.
+    - High and critical are an acceptance gate, not labels for suspicious code; require an external or low-privilege attacker, an in-scope production asset or privilege boundary, a complete evidence-backed path through the relevant guards, and serious concrete impact. If the attacker, boundary, path, or impact is disproved, cap the finding at low.
     - Critical requires demonstrated unauthenticated compromise with broad blast radius, such as remote code execution, authentication bypass, mass sensitive-data exposure, or direct fund loss; a meaningful account, tenant, or production-system compromise with modest preconditions is high.
-    - A finding without demonstrated impact — no working reproduction, no concrete data, privilege, code execution, deployment, or funds an attacker gains — cannot exceed low no matter how alarming the code looks.
+    - A finding without demonstrated impact — no concrete data, privilege, code execution, deployment, or funds an attacker gains — cannot exceed low no matter how alarming the code looks. A complete source trace, focused test, or local reproduction may demonstrate impact; lack of a compatible private sandbox alone must not lower severity.
     - Theoretical issues, findings depending on an unpatched victim browser or an attacker-controlled local machine, and self-inflicted issues that only harm the reporter's own account are informational.
     - Missing hardening (security headers, cookie flags, TLS configuration preferences, verbose errors, outdated dependency with no reachable vulnerable call path) is informational and should be reported as a hardening note, not a vulnerability.
     - Rate limiting, account enumeration, and clickjacking are low at most, and only when the finding shows the concrete abuse they enable.
     - GitHub Actions and other repository automation are informational by default; they reach high only when an untrusted external actor can trigger the exact workflow path and the proof shows access to a production secret, protected-branch write, package publication, deployment, or equivalent in-scope impact. Broad permissions, mutable action tags, missing pinning, and attacker-looking interpolation without that end-to-end path are not bounty vulnerabilities.
-    - Scanner output, best-practice deviations, and configuration warnings rank below the reporting threshold unless independently reproduced through the same attacker-to-impact path; a security-sensitive file name or powerful permission is not evidence of exploitability.
+    - Scanner output, best-practice deviations, and configuration warnings rank below the reporting threshold unless independently validated by a complete code trace, focused test, or reproduction through the same attacker-to-impact path; a security-sensitive file name or powerful permission is not evidence of exploitability.
     - Duplicate-prone low-value classes rank below any finding with a working proof of concept; a single reproduced high beats ten unverified criticals.
     - A leaked credential is only high or above when the finding shows it still authenticates against a live system; expired, rotated, or fixture credentials are informational.

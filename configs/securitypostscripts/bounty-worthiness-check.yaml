@@ -14,22 +14,29 @@ spec:
 
     1. Severity is high or critical under the supplied ranker rules.
     2. The affected asset and vulnerability class are explicitly in the bounty
-       scope. If no bounty scope or SECURITY.md establishes eligibility, reject it.
+       scope. If scope evidence is unavailable, return inconclusive, not rejected.
     3. An external or low-privilege attacker controls the entry point and crosses
        a real trust or privilege boundary without a compromised administrator.
-    4. A local test, fixture, or complete code trace safely proves the exploit
-       path and serious impact. Never use live credentials or mutate production.
-    5. The prior proof step confirmed the behaviour. A failed, blocked, uncertain,
-       or merely theoretical reproduction is not bounty-worthy.
+    4. A local test, fixture, or complete code trace safely establishes the
+       exploit path and serious impact. Never use live credentials or mutate
+       production. Do not require a runtime PoC when a complete trace proves the
+       state transition or security boundary.
+    5. Consider the prior proof step, but distinguish a disproved path from a
+       validation environment that was unavailable or incompatible. Blocked or
+       unavailable sandbox validation is inconclusive, not a rejection reason.
     6. For repository automation, CI/CD, or GitHub Actions, proof connects an
        untrusted trigger to a privileged job and a production-impact capability;
        permissions, pinning, or interpolation warnings alone always fail.
 
-    State accepted or rejected and give one evidence-backed sentence for each
-    requirement. Missing evidence means rejected, not accepted-with-caveats.
+    State accepted, disproved, out-of-scope, or inconclusive and give one
+    evidence-backed sentence for each requirement. Use disproved only when
+    evidence shows the attacker path or impact does not hold. Use out-of-scope
+    only for a definitive scope exclusion or explicit operator risk acceptance.
+    Missing evidence or an unavailable validation environment is inconclusive.
 
     Finish by calling update_security_finding with the decision as `note` (the
     only field this tool writes). A finding that already carries status
     `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and
-    leave the status unchanged. Otherwise keep status `confirmed` only for an
-    accepted finding; set status `accepted_risk` for a rejected finding.
+    leave the status unchanged. Otherwise use this exhaustive mapping: set status
+    `confirmed` for accepted, `false_positive` for disproved, `accepted_risk` for
+    out-of-scope, and `triaged` for inconclusive.
