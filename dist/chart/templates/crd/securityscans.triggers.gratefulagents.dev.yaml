@@ -1659,7 +1659,7 @@ spec:
                         description: |-
                           scopePolicy is the operator-verified scope snapshot supplied to scan
                           prompts as quoted, untrusted data.
-                        maxLength: 32768
+                        maxLength: 131072
                         minLength: 1
                         type: string
                       verifiedAt:

@@ -70,7 +70,7 @@ describe("ImmunefiTargetImportDialog", () => {
     renderDialog();
     fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
 
-    expect(screen.getByText(/workspace-write access and unrestricted network egress/)).toBeTruthy();
+    expect(screen.getByText(/read-only access and unrestricted network egress/)).toBeTruthy();
     expect(screen.getByText(/Nothing is created or run/)).toBeTruthy();
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);

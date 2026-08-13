@@ -52,6 +52,7 @@ import {
   SecurityScanTriggersConfigSchema,
   SecurityPostScriptConfigSchema,
   SecurityRankerConfigSchema,
+  TriggerPoliciesSchema,
   UpdateSecurityScanRequestSchema,
   type AgentRunDefaults,
   type SecurityScanConfig,
@@ -340,6 +341,7 @@ export function SecurityScanFormDialog({
   config,
   duplicateFrom,
   initialConfig,
+  initialPolicies,
   trigger,
   defaultOpen = false,
   onSaved,
@@ -348,6 +350,7 @@ export function SecurityScanFormDialog({
   config?: SecurityScanConfig;
   duplicateFrom?: SecurityScanConfig;
   initialConfig?: SecurityScanConfig;
+  initialPolicies?: Partial<TriggerPolicies>;
   trigger?: React.ReactElement;
   defaultOpen?: boolean;
   onSaved?: (config: SecurityScanConfig) => void;
@@ -368,7 +371,10 @@ export function SecurityScanFormDialog({
     () => source?.spec?.defaults ?? emptyDefaults(),
   );
   const [policies, setPolicies] = useState<TriggerPolicies>(() =>
-    resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)),
+    create(TriggerPoliciesSchema, {
+      ...resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)),
+      ...initialPolicies,
+    }),
   );
   const [useSavedCredentials, setUseSavedCredentials] = useState(() =>
     source ? scanConfigUsesSavedCredentials(source) : true,
@@ -434,7 +440,10 @@ export function SecurityScanFormDialog({
     setPostScripts(initialPostScripts(source));
     setNotifications(initialNotifications(source));
     setDefaults(source?.spec?.defaults ?? emptyDefaults());
-    setPolicies(resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)));
+    setPolicies(create(TriggerPoliciesSchema, {
+      ...resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)),
+      ...initialPolicies,
+    }));
     setUseSavedCredentials(source ? scanConfigUsesSavedCredentials(source) : true);
     setError(null);
   }
