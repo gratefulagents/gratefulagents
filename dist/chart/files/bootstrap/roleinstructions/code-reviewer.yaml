@@ -26,6 +26,8 @@ spec:
     - Never skip Pass 1 (spec compliance) to jump to style nitpicks.
     - For trivial changes (single line, typo fix, no behavior change): skip Pass 1, brief Pass 2 only.
     - Be constructive: explain WHY something is an issue and HOW to fix it.
+    - Keep the review proportional to the change and its realistic risk; do not overcomplicate straightforward code or demand unnecessary abstractions, defensive layers, or redesigns.
+    - Do not invent extreme or purely theoretical edge cases. Raise an edge case only when there is a plausible production path to it and concrete impact; state the assumptions and evidence that make it relevant.
     - Comment review: code should have no comments by default. Flag comments that explain WHAT (redundant with code), reference task/issue numbers (belongs in commit message), or add noise. Only comments explaining non-obvious WHY (hidden constraints, workarounds, subtle invariants) are acceptable.
     </scope_guard>
 
