@@ -307,7 +307,6 @@ export function SecurityScanConfigList() {
                   dedupe: { enabled: true },
                 },
               })}
-              initialPolicies={{ permissionMode: "read-only" }}
               defaultOpen
               onOpenChange={(open) => {
                 if (!open) closeImmunefiScanForm();

@@ -308,7 +308,6 @@ describe("SecurityScanFormDialog duplicate mode", () => {
     render(
       <SecurityScanFormDialog
         initialConfig={initialConfig}
-        initialPolicies={{ permissionMode: "read-only" }}
         trigger={<button>Configure</button>}
         defaultOpen
       />,
@@ -339,7 +338,7 @@ describe("SecurityScanFormDialog duplicate mode", () => {
       },
       policies: {
         configureRuntimeProfile: true,
-        permissionMode: "read-only",
+        permissionMode: "workspace-write",
         egressMode: "unrestricted",
       },
     });

@@ -32,13 +32,11 @@ vi.mock("@/components/SecurityScanFormDialog", () => ({
     config,
     duplicateFrom,
     initialConfig,
-    initialPolicies,
     trigger,
   }: {
     config?: SecurityScanConfig;
     duplicateFrom?: SecurityScanConfig;
     initialConfig?: SecurityScanConfig;
-    initialPolicies?: { permissionMode?: string };
     trigger: React.ReactElement;
   }) => (
     <div
@@ -56,7 +54,6 @@ vi.mock("@/components/SecurityScanFormDialog", () => ({
       data-policy-pack-ref={initialConfig?.spec?.policyPackRef}
       data-program-ref={initialConfig?.spec?.securityProgramRef}
       data-base-branch={initialConfig?.spec?.baseBranch}
-      data-permission-mode={initialPolicies?.permissionMode}
     >
       {trigger}
     </div>
@@ -169,7 +166,6 @@ describe("SecurityScanConfigList", () => {
     const seed = screen.getByTestId("seed-dialog-custom-scan");
     expect(seed.getAttribute("data-repo-url")).toBe("https://example.com/custom");
     expect(seed.getAttribute("data-base-branch")).toBe("main");
-    expect(seed.getAttribute("data-permission-mode")).toBe("read-only");
     expect(seed.getAttribute("data-workflow-ref")).toBe("custom-workflow");
     expect(seed.getAttribute("data-policy-pack-ref")).toBe("bug-bounty");
     expect(seed.getAttribute("data-program-ref")).toBe("custom-program");
