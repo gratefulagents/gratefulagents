@@ -4,6 +4,7 @@ metadata:
   name: blockchain-security-research-method
   annotations:
     platform.gratefulagents.dev/security-skill: "true"
+    platform.gratefulagents.dev/bootstrap-required-skill: "true"
 spec:
   version: "1.0.0"
   description: >-
