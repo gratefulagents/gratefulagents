@@ -66,8 +66,7 @@ spec:
       tools:
         denied: [Bash]
       objective: >-
-        Use only concrete artifacts, test_targets, and invariants in {{tasks.scope-architecture-and-
-        invariants.output}}. Use run_security_tool only for an in-scope compatible target accepted by an enabled
+        Use only concrete artifacts, test_targets, and invariants in {{tasks.scope-architecture-and-invariants.output}}. Use run_security_tool only for an in-scope compatible target accepted by an enabled
         adapter, such as an existing OpenAPI service test, authorization matrix, local fixture URL, dependency
         scanner, or language-native fuzz harness. Never contact a production or third-party service, invent
         credentials, or broaden scan scope. If no deterministic local target or adapter exists, record execution as
@@ -90,8 +89,7 @@ spec:
       tools:
         denied: [Bash]
       objective: >-
-        Validate every critical or high candidate in {{tasks.specialist-review.output}} against {{tasks.scope-
-        architecture-and-invariants.output}} and actual evidence in {{tasks.applicable-tool-execution.output}}.
+        Validate every critical or high candidate in {{tasks.specialist-review.output}} against {{tasks.scope-architecture-and-invariants.output}} and actual evidence in {{tasks.applicable-tool-execution.output}}.
         Confirm production reachability, least-privileged attacker control, each bypassed guard, and impact. Use
         only safe deterministic local fixtures and dummy assets; never contact a live network or third party. Reuse
         run_security_tool only for an existing candidate-specific compatible harness and cite its returned
@@ -131,8 +129,7 @@ spec:
       tools:
         denied: [Bash]
       objective: >-
-        Produce exactly one final report from {{tasks.validate-triage-and-coverage.output}} and {{tasks.remediation-
-        and-retest.output}}. Call list_security_findings, re-read each path and file:line, deduplicate root causes,
+        Produce exactly one final report from {{tasks.validate-triage-and-coverage.output}} and {{tasks.remediation-and-retest.output}}. Call list_security_findings, re-read each path and file:line, deduplicate root causes,
         and retain only evidence-supported findings with prerequisites and impact. Separate confirmed findings,
         tentative/triaged candidates, false positives, task/tool errors and timeouts, examined coverage, skipped
         targets, unsupported execution/context, inconclusive work, uncovered inventory, and limitations. Include
