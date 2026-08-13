@@ -32,6 +32,10 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"solana-agave": "https://github.com/anza-xyz/agave/security",
 		"firedancer":   "https://bounty.firedancer.io/",
 	}
+	expectedVerbatimMarkers := map[string][]string{
+		"solana-agave": {"## Reporting security problems in the Agave Validator", "### Out of Scope:", "### Payment of Bug Bounties:"},
+		"firedancer":   {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
+	}
 	// Active programs use complete captured scopes. Programs no longer present
 	// in Immunefi's live catalog retain an explicitly archived summary.
 	const minimumProgramCount = 20
@@ -87,9 +91,18 @@ func TestSecurityProgramLibrary(t *testing.T) {
 				if expectedURL == "" || program.Spec.ProgramURL != expectedURL {
 					t.Errorf("unexpected non-Immunefi provider or provenance URL: %q %q", program.Spec.Provider, program.Spec.ProgramURL)
 				}
-				for _, marker := range []string{"Authoritative scope:", "Eligible impacts:", "Out of scope:", "Testing and submission:"} {
+				markers := expectedVerbatimMarkers[program.Name]
+				if program.Spec.Provider == "Ethereum Foundation" {
+					markers = []string{"# In Scope", "Currently execution layer clients (Besu, Erigon, Geth, Nethermind and Reth)", "# Out of scope", "Critical severity", "Take down the entire network"}
+				}
+				for _, marker := range markers {
 					if !strings.Contains(program.Spec.ScopePolicy, marker) {
-						t.Errorf("scopePolicy missing %q", marker)
+						t.Errorf("scopePolicy missing verbatim marker %q", marker)
+					}
+				}
+				for _, summaryMarker := range []string{"Authoritative scope: the", "Eligible impacts:", "Testing and submission:"} {
+					if strings.Contains(program.Spec.ScopePolicy, summaryMarker) {
+						t.Errorf("scopePolicy still contains summarized section %q", summaryMarker)
 					}
 				}
 			}

@@ -16,10 +16,436 @@ spec:
   programURL: https://bounty.firedancer.io/
   verifiedAt: 2026-08-13T00:00:00Z
   scopePolicy: |
-    Authoritative scope: the live Firedancer bounty portal, its linked terms, and the repository security policy control eligibility. Any reachable code in the firedancer or fdctl binary built from a branch or tag selectable in the live submission form is in scope under the allowed configuration. For a Frankendancer release only fdctl is eligible; for a Firedancer release only firedancer is eligible. Other development code may instead be reported privately through a GitHub Security Advisory.
+    Verbatim authoritative terms and scope (retrieved 2026-08-13; terms version effective 2026-08-06). Visible page text is preserved verbatim below; HTML presentation markup is omitted.
 
-    Eligible impacts: security-relevant defects in an explicitly in-scope Firedancer release, classified using the live program's low, medium, high, and critical severity choices and current terms.
-
-    Out of scope: Solana protocol bugs; trusted data sources; inactive or unlisted feature gates; known issues; Clang builds and compilers other than the listed GCC versions; firedancer-dev, other tools, and development or deployment scripts; modified configurations; boot-only issues; compromised-tile attacks; social engineering and trusted-key compromise. Temporary Agave/Firedancer fork-choice or duplicate-block disagreements and Frankendancer defects shared with Agave must be reported upstream. The completed 2024 Immunefi audit contest is not the active bounty program.
-
-    Testing and submission: test only local private fixtures and systems you control; never test a public Solana network or third-party infrastructure. Submit privately through the official portal with impact, reproduction steps, proof of concept, affected release, and all other information required by the current terms.
+    Bug Bounty Terms & Conditions
+    Terms & Conditions
+    Bug Bounty Program — please read before submitting a report.
+    1
+    Bug Bounty Terms & Conditions
+    Version effective: 2026-08-06
+    By submitting a vulnerability report, you agree to the following
+    terms. Read them carefully before proceeding.
+    2
+    Reporting Security Issues
+    Please only report any found security issues via
+    https://bounty.firedancer.io/.
+    Reports require SOL to be burned to prevent spam; reports without an
+    accompanying burn may or may not be reviewed, but will not be
+    eligible for a bounty.
+    The determination of bug eligibility and severity is entirely at the
+    discretion of the Firedancer team, based on the severity of the bug,
+    the quality of the report, and other factors we may consider. The
+    team values concise, high-quality bug reports that are easy to
+    execute on the default configuration. Issues that are present but
+    difficult to execute due to stake requirements, narrow timing
+    windows, or race conditions, unique validator configurations,
+    hardware configurations, or requiring compromise of other components
+    first will be awarded less at the team's full discretion.
+    Reports must be submitted with the correct severity; incorrectly
+    reporting with a higher severity may make the submission ineligible
+    for a bounty or subject to reclassification at the team's
+    discretion.
+    After we receive your submission and confirm that you have burned
+    the required amount of SOL, you should expect to hear from us within
+    the GitHub Security Advisory (GHSA) within 96 hours. From this point
+    onward, all discussions regarding the report should take place
+    there.
+    If your submission is accepted, you will be required to complete all
+    KYC requirements before receiving your payout. Publicly discussing,
+    sharing, or executing the bug on any known public cluster before a
+    fix has been made and rolled out to all public clusters will void
+    any and all eligibility for rewards. Your payout will be made in
+    USDC to the Solana payout wallet supplied with your bounty
+    submission.
+    3
+    Scope
+    Any reachable code in the firedancer/fdctl
+    binary built with the specified tag/branch and the
+    allowed configuration defined below
+    is considered in scope. This is what is considered to be out of
+    scope:
+    Protocol-level bugs in Solana are out of scope. These should be
+    reported upstream to the
+    Agave bug bounty.
+    For a specific Frankendancer tag/release only the
+    fdctl binary is in scope and not
+    firedancer.
+    For a specific Firedancer tag/release only the
+    firedancer binary is in scope and not
+    fdctl.
+    Certain data sources are considered to be "trusted" (bundle
+    servers, genesis, entrypoints, snapshot providers, telemetry
+    servers, ipecho, …). Firedancer makes a best effort to secure
+    these, but validator security does not depend on it, and reports
+    for these will be considered strictly informational.
+    Feature gates are only eligible if they are already activated on
+    mainnet or testnet or are present in
+    this list
+    at the time of submission
+    Bugs related to feature gates that are not activated on
+    mainnet or testnet and are not in the list are out of scope.
+    If a feature gate is already active on mainnet, any bugs
+    related to it being inactive are not valid.
+    Assume feature key pairs are held and activated by a trusted
+    party.
+    Any behavior related to features must follow the
+    planned activation order. If feature A is activated before
+    feature B, a bug is out of scope if it relies solely on
+    feature B being activated. It is also out of scope if the bug
+    relies on feature B getting activated before feature A.
+    Any bug that falls under the definition of a "known issue" is out
+    of scope.
+    Compiler-dependent bugs are in scope only for GCC 8.5, 13, and 14.
+    Clang-compiled binaries are out of scope.
+    firedancer-dev development binary and any other tools
+    in the repository are out of scope
+    Development scripts. Bugs in any development and deployment
+    scripts in the repository are out of scope.
+    Anything that requires social engineering or the compromise of
+    trusted keys is out of scope. For example, the GitHub release
+    process or the Firedancer website. Any attempt at impersonation or
+    social engineering automatically disqualifies you from bounty
+    eligibility.
+    Bugs that rely on a modification of the configuration TOML beyond
+    what is specified
+    If the same bug affects both the Frankendancer and the Firedancer,
+    it will not be counted twice.
+    Bug reports that show memory corruption (e.g. via OOB writes) but
+    demonstrate no practical impact will likely qualify as
+    informational.
+    Bugs throughout the boot process are generally considered
+    informational, as the validator security model is trust on first
+    use. Causing the validator to crash on boot, for example, is not a
+    valuable finding as the operator will simply restart it.
+    Bugs from dependencies that are reachable by a running validator
+    are in scope. Bugs in dependencies in validator/debugging
+    tools are not.
+    Reports that rely on Kernel-level/OS bugs will be considered to be
+    in scope on a case-by-case basis at the team's discretion. These
+    bugs should be reported to the software vendor upstream.
+    Reports that require publicly exposed endpoints (GUI, RPC, events,
+    etc.) are in scope, but at a lower severity and payout. Operators
+    are not expected to expose these endpoints by default.
+    If bundles are enabled, we can assume that the bundles being sent
+    are well-formed and contain valid, non-vote transactions. Bugs
+    that rely on breaking this assumption are considered invalid or
+    informational.
+    Reports that are not reachable on the target branch but are on a
+    later tag or the main branch will be considered. However, this
+    will be done at the team's discretion.
+    Frankendancer Only - Bugs that affect both the Agave and
+    Frankendancer clients are out of scope for the bug bounty and
+    should be reported upstream to the
+    Agave bug bounty.
+    4
+    Attacker Positioning
+    The team is interested in considering attacks that require more
+    advanced positioning, but will likely treat them as lower severity
+    and with significantly reduced rewards. All reports will still be
+    considered, but on a case-by-case basis, depending on their
+    practicality.
+    Capitalization: An attacker can assume they have up to 500,000 SOL
+    to conduct their attack, or they control validator(s), which
+    together sum to 5% of the network stake (of which only 500,000 SOL
+    is their own).
+    Remote Only: All attacks and bugs must be exploitable by a remote
+    attacker with no pre-existing access on the validator. The
+    compromised-tile model (assuming code execution on another tile
+    within the sandbox) is out of scope for this bounty.
+    Stake Distribution: The attacker can assume that Firedancer
+    controls up to 20% of the network's stake. Other stake
+    distributions (including a full Firedancer cluster) may be
+    considered, but the severity of such findings may be reduced at
+    the team's discretion based on the potential current impact on
+    mainnet.
+    As a further note, because memory and other resources are
+    preallocated in Firedancer and not in Agave, we will consider
+    attacks that impact resources in both clients on a case-by-case
+    basis. For example, if an average Agave host were to OOM before
+    Firedancer would, then the severity of the finding would likely be
+    lowered.
+    5
+    Important Terms
+    Solana Protocol Bugs
+    Current issues that would affect any client in the chain or are
+    underlying issues in certain protocols, such as gossip, are not in
+    scope.
+    If behavior is specified in a Solana SIMD and Firedancer adheres
+    to it, but other clients (Agave) don't, this counts as a protocol
+    issue. These bugs should be reported to Agave.
+    If protocol bugs are partially addressed but not fully, they
+    remain protocol issues. For example, certain snapshot fields can
+    be verified and are in Agave but not in Firedancer. This is not in
+    scope because it doesn't fully address the core protocol issue.
+    A specific protocol bug worth highlighting is snapshot/genesis
+    loading. Snapshot states are not verifiable at the protocol level,
+    and they are expected to be trusted on first use. Snapshot state
+    can be partially verified, but never fully.
+    Another protocol issue worth highlighting is a temporary
+    disagreement between Firedancer and Agave concerning duplicate
+    blocks (equivocation), or a temporary disagreement over fork
+    choice when producing blocks or sending votes. Attacks based on
+    such temporary disagreements are out of scope.
+    Disagreement between Firedancer and Agave about whether a
+    duplicate proof is valid is out of scope.
+    Timing differences in duplicate confirmations are out of
+    scope.
+    Firedancer bugs that cause a permanent fork from the rest of
+    the chain remain in scope.
+    Proof of Concept (PoC)
+    These are the requirements for a PoC to be considered valid.
+    Must build and run against the in-scope branch with clear setup
+    instructions
+    Be an end-to-end reproduction of the issue/attack on a validator
+    on a local network setup. The full exploit must be conducted in
+    the PoC.
+    Demonstrate the impact and show the outcome of the proposed
+    bug/vulnerability
+    Must be reproducible and self-contained. The PoC must be runnable
+    with just the instructions provided in the report.
+    Include the attacker model: specify the position the attacker is
+    in (e.g. are they the leader, a gossip participant, staked
+    validator) and what inputs they control.
+    Must not be a standalone unit test.
+    Modifications to the validator
+    may be allowed at the team's discretion. Modifications
+    are allowed if they make an otherwise hard-to-trigger condition
+    possible (for example, a data race). If a modification is made,
+    the modification must be shown along with a justification for why
+    the bug would be reachable on mainnet.
+    If the submitted PoC does not meet all of these requirements, the
+    submission may be considered invalid on these grounds alone.
+    Loss of Funds (LoF)
+    LoF is defined as a total loss of funds where an attacker
+    is able to drain, transfer, or permanently freeze the funds from one
+    or multiple accounts without requiring a user's signature. This
+    means significant on-chain value is permanently
+    stolen/lost/destroyed without the use of a hard fork. An example of
+    a valid LoF would be a bug that causes the validator to incorrectly
+    execute an on-chain program (e.g. bridge smart contract), causing an
+    attacker to either divert funds to themselves or burn them.
+    Denial or diversion of future funds do not qualify as a loss of
+    funds. A non-exhaustive set of bugs that don't count as a
+    loss of funds includes:
+    bugs that lead to an incorrect version of programs being executed
+    epoch rewards divergence to stake/vote accounts,
+    paying fees to the wrong leader at the end of a block
+    scheduler bugs causing out-of-order execution.
+    Infinite Mint
+    Something is considered to be an infinite mint if the attacker is
+    able to freely mint native SOL tokens without authorization. Bugs
+    that involve temporarily diverting protocol-generated fees or
+    rewards do not count as an infinite mint. An example of a valid
+    infinite mint bug is a transaction that bypasses the checks at the
+    end of the transaction to give a specific account an arbitrary SOL
+    balance.
+    Bank Hash Mismatch (BHM)
+    After a node replays a block, each validator computes a hash of the
+    computed network state, which is called a bank hash. A bank hash
+    mismatch is when two or more validators produce different bank
+    hashes after replaying a block. These can happen due to network
+    partitions or software bugs. This is a type of consensus divergence.
+    This can happen between two different validator versions/clients, or
+    between two validators.
+    Sandbox Escape
+    A sandbox escape is breaking out of the sandbox established for each
+    tile to access the underlying host or resources that weren't
+    intentionally provisioned. Tile-to-tile sandbox escapes are
+    currently out of scope.
+    Allowed Configuration
+    All attacks must be valid against a standard default mainnet TOML.
+    The allowed changes to the aforementioned default configuration file
+    are in [paths], [snapshots.sources.gossip], and [tiles.bundle]. The
+    values must be set to sane values that an operator on mainnet would
+    reasonably use: the identity and vote account should be correct, the
+    snapshot sources that are whitelisted should be trusted sources, and
+    the values specified for tile.bundle should correspond to Jito's
+    mainnet bundle server. Config changes outside the three sanctioned
+    sections are out of scope, unless a real mainnet operator might
+    plausibly run the resulting config, in which case the attack may be
+    considered eligible at reduced severity.
+    Known Issue
+    A bug falls under a known issue if it meets one or more of the
+    following criteria:
+    Public GitHub issue. If the issue either references the underlying
+    bug or the actual issue, it is considered to be known.
+    Code comments. This is not limited to TODOs and FIXMEs; it
+    encompasses all comments in the codebase.
+    Pull Requests. This includes code changes, descriptions, titles,
+    and comments in open, closed, or draft PRs. Even if the fix isn't
+    explicitly mentioned, but a PR fixes the problem, this qualifies
+    as a known issue.
+    Existing code. Fixes or comments made on any public
+    branch in the repository that would mitigate an issue qualify as a
+    known issue.
+    Variants. Variants of a known issue can be considered known or
+    unique at the team's discretion, depending on their exact nature.
+    If the variant were reasonably fixed by the same patch as the
+    original report, the issue will be considered a duplicate or
+    known.
+    A good rule of thumb is that if an engineer were to discover
+    the bug on their own, would it be reasonable that they
+    would've noticed the variant. If so, then it will likely be a
+    known issue, otherwise it will be unique.
+    Privately known issues that can be proven to have been known prior
+    to a bug report will be considered on a case-by-case basis.
+    This list is non-exhaustive; any information about the underlying
+    bug that is publicly discoverable in the repository (issues,
+    commits and their messages, PRs, branches, code, or comments)
+    qualifies as known.
+    An issue is qualified as known if the known bug would nullify the
+    bug/vulnerability. The known issue does not need to explicitly
+    identify the attack; it just has to mention or address the
+    underlying bug.
+    6
+    Duplicates
+    If multiple reports are submitted that reference either the same
+    issue or a similar variant (see above), the first submission will
+    receive the reward. Exceptions to this include:
+    If a later submitter shows higher impact or surface area than the
+    original submitter, the later report may be eligible for a reward.
+    If the earliest submission is incomplete or relies on incorrect
+    assumptions/information, a later submission may be considered the
+    chief finder.
+    Even if the latter submission is not the chief finder, the team
+    may grant a reward for high-quality findings.
+    7
+    Severity
+    All payouts for security issues are at the discretion of the
+    Firedancer team. The numbers below are rough guidelines of what to
+    expect in terms of payouts for successful reports. The actual payout
+    may be lower or higher depending on the exact circumstances of the
+    bug.
+    Critical ($50k-$100k) — Loss of Funds
+    Any bug that leads to a loss of funds (LoF) as defined above.
+    Any bugs that lead to the acceptance of invalid or forged
+    signatures.
+    Infinite mint bug as defined above.
+    End-to-end validator private key compromise and exfiltration
+    chain.
+    High ($10k-$50k) — Cluster Halt
+    This category is intended to reward findings that would allow an
+    attacker to halt the cluster. This could be by sending a malicious
+    packet that crashes all Firedancer validators at once, or by sending
+    a transaction that causes an infinite loop or consensus divergence
+    in all Firedancer validators, or something like that.
+    Deterministic bank hash mismatch or consensus bug that causes
+    all Firedancer validators to fork from the network at the
+    same time.
+    Remotely triggerable liveness failure (e.g. crash or stall) that
+    affects all Firedancer validators at the same time.
+    Any sandbox escape as defined above.
+    Arbitrary write primitives in transaction execution (execle and
+    execrp tiles) that can be used deterministically. An example of
+    this would be escaping the runtime's virtual machine with a
+    transaction to get RCE in the execution tile.
+    Medium ($5k-$10k)
+    This category is intended to reward findings that would allow
+    attackers to impact some validators, but not all, simultaneously,
+    using the same methods as above.
+    Any bug leading a Firedancer validator to produce an invalid block
+    or have its leader slots skipped
+    BHM, consensus bug, or liveness issue that affects one or more,
+    but not all Firedancer validators to fork from the network (or
+    crash/stall) in a deterministic manner. The attacker must be able
+    to reliably target a specific validator to crash or mismatch: the
+    validator in question may be a leader or follower
+    Low ($1k-$5k)
+    Liveness failures or bank hash mismatches that are only
+    exploitable during limited time windows. A "limited time window"
+    refers to a temporary mode or state of the validator that an
+    attacker cannot induce or trigger on demand. Examples include, but
+    are not limited to, booting up, replay catch-up, replay banks
+    eviction, and wait for supermajority.
+    Liveness failures and BHMs can be triggered by certain validator
+    configurations. If a validator can prevent an attack by restarting
+    with a different configuration, it qualifies for a low. This
+    includes exposing a publicly accessible GUI/RPC/events,
+    enabling/disabling bundles, or changing the tile count for
+    scalable tiles (net, resolv, gossvf, etc.).
+    Liveness failures that happen during hard-to-trigger data or
+    timing races that are not reliably triggerable by a remote
+    attacker.
+    Bank hash mismatch, consensus bug, or remotely triggerable
+    liveness issue that causes one or more Firedancer validators to
+    fork from the network in a nondeterministic manner. This is for
+    the case where an attacker can't explicitly choose which nodes to
+    target.
+    Informational
+    This category recognizes reports that do not meet the threshold for
+    a Low, Medium, or High severity finding. These awards are typically
+    reserved for reports that identify something interesting or
+    highlight a bug that is not considered a security issue.
+    Informational rewards are granted entirely at the team's discretion
+    and are awarded in good faith. It is important to note that
+    informational findings are not eligible for a reward by default. In
+    many cases, recognition may take the form of an acknowledgment
+    rather than a monetary payout. Any reward or recognition for an
+    informational finding is ultimately at the team's sole discretion.
+    8
+    KYC Requirements
+    Before receiving any bounty payout, all researchers must complete
+    Know Your Customer (KYC)
+    verification, regardless of the report's severity or payout amount.
+    This requirement applies to the submitting individual or entity, all
+    members of a joint or team submission, and, for bounties claimed on
+    behalf of an organization, both an authorized representative of that
+    organization and the underlying individual(s) who will receive
+    funds.
+    Researchers will be required to provide full legal name and date of
+    birth (or entity name and registration details, if applicable), a
+    valid government-issued photo ID, proof of address if requested,
+    applicable tax documentation (a
+    W-9 for U.S.
+    persons/entities or a
+    W-8BEN/W-8BEN-E
+    for non-U.S. persons/entities), and the Solana payout wallet
+    supplied with the bounty submission. All information provided is
+    screened against applicable sanctions and watchlists (e.g.
+    OFAC);
+    researchers who are residents of, or entities organized in, a
+    sanctioned jurisdiction, or who otherwise appear on a restricted
+    party list, are ineligible for a payout regardless of report
+    validity or severity.
+    Once a report is accepted, researchers have 30 days from
+    notification to complete KYC. Failure to do so within this window
+    may result in forfeiture of the reward at the team's discretion,
+    though extensions may be granted case-by-case for good-faith delays
+    (e.g. document processing times).
+    A few outcomes to note:
+    Reports that are otherwise valid but fail KYC/sanctions screening
+    will not receive a payout, though the team may still issue public
+    acknowledgment or credit at its discretion.
+    Providing false, incomplete, or fraudulent KYC information voids
+    eligibility for both the current submission and any future
+    submissions.
+    Information collected for KYC purposes is used solely for identity
+    verification, sanctions screening, and tax reporting.
+    Awards use the submitted Solana wallet; incorrect addresses are
+    the reporter's responsibility.
+    9
+    Eligibility
+    You must be at least 18 years old and not a resident of a
+    jurisdiction subject to applicable sanctions.
+    Current and former employees, contractors, and their immediate
+    family members are not eligible.
+    10
+    Submission and Conduct
+    You must not have exploited the vulnerability beyond the minimum
+    necessary to confirm its existence.
+    Do not access, modify, or delete data belonging to other users.
+    Each report must describe a single, distinct vulnerability and
+    include clear reproduction steps.
+    The 1 SOL submission fee is non-refundable,
+    including for duplicate, out-of-scope, or invalid reports.
+    Submission does not authorise testing beyond what was necessary to
+    identify the reported vulnerability.
+    11
+    Legal
+    Comply with applicable laws. We will not pursue researchers acting
+    in good faith under these terms.
+    These terms do not create an employment, partnership, or agency
+    relationship.
+    We may modify these terms; the version in effect at submission
+    governs the report.
