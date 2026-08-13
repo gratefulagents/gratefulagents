@@ -10,15 +10,18 @@ spec:
       role: threat-modeler
       category: recon
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-entry-point-analyzer
         - name: trail-of-bits-property-based-testing
       tools:
         denied: [Bash]
       objective: >-
-        Record the immutable revision and all in-scope/out-of-scope roots. Inventory TEAL and PyTeal programs,
-        LogicSigs, applications, assets, transaction groups, inner transactions, boxes/storage, clients or nodes,
-        tests, compiled programs, deployment metadata, and on-chain artifact identifiers. Follow production wiring
+        Record the immutable revision and all in-scope/out-of-scope roots. Inventory TEAL, PyTeal, Algorand
+        Python/Puya and Algorand TypeScript/Puya-TS programs, ARC-4 interfaces and generated clients, LogicSigs,
+        applications, assets, transaction groups, inner transactions, boxes/storage, clients or nodes, tests,
+        compiler versions, source maps, generated TEAL, deployment metadata, and on-chain artifact identifiers.
+        Follow production wiring
         and enumerate assets, privileged and attacker roles, entry points, state, trust boundaries, external
         dependencies, artifacts, deployments, existing tests, and harnesses with repository-relative evidence.
         Define testable invariants for every lifecycle and boundary, including complete group
@@ -36,6 +39,7 @@ spec:
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
+        - name: blockchain-security-research-method
         - name: algorand-security-review
         - name: trail-of-bits-algorand-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
@@ -50,8 +54,14 @@ spec:
         consistency. Follow attacker-controlled values through parsing, authorization, state transition, external
         interaction, rollback, retry, recovery, and upgrade paths; compare equivalent admission and execution paths.
         Report only production-reachable invariant violations with decisive file:line evidence, prerequisites,
-        impact, and finding fingerprint. Return examined, skipped, unsupported, and inconclusive targets explicitly.
-        This Bash-denied task must not claim executable tool or test results.
+        impact, and finding fingerprint. Explicitly review clear-state calls and the fact that they cannot reject,
+        cannot access boxes, and may erase local state; LogicSig arguments as public values outside the signed
+        transaction/group ID; GenesisHash/network binding, RejectVersion, AccessList versus legacy reference arrays;
+        inner-transaction Fee=0 unless justified; and the complete box minimum-balance lifecycle including attacker-
+        selected growth, resize, cleanup before deletion, and stranded balance. Compare generated TEAL/source maps
+        from every supported frontend with approval/clear programs and supplied deployed hashes. Return examined,
+        skipped, unsupported, and inconclusive targets explicitly. This Bash-denied task must not claim executable
+        tool or test results.
       dependsOn: [scope-architecture-and-invariants]
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
@@ -60,6 +70,7 @@ spec:
       role: vulnerability-hunter
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-harness-writing
         - name: trail-of-bits-coverage-analysis
       tools:
@@ -82,6 +93,7 @@ spec:
       role: exploit-validator
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       tools:
@@ -103,6 +115,7 @@ spec:
       role: vulnerability-hunter
       category: other
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-variant-analysis
         - name: trail-of-bits-property-based-testing
       tools:
@@ -122,6 +135,7 @@ spec:
       role: finding-triager
       category: triage
       skillRefs:
+        - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
       tools:

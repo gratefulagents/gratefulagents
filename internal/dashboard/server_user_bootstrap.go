@@ -28,6 +28,7 @@ const (
 	bootstrapSyncedVersionAnnotation  = "platform.gratefulagents.dev/bootstrap-synced-version"
 	bootstrapSpecHashAnnotation       = "platform.gratefulagents.dev/bootstrap-spec-hash"
 	bootstrapReplacesHashesAnnotation = "platform.gratefulagents.dev/bootstrap-replaces-spec-hashes"
+	bootstrapRequiredSkillAnnotation  = "platform.gratefulagents.dev/bootstrap-required-skill"
 	bootstrapSyncProtocolVersion      = "v4"
 )
 
@@ -35,8 +36,9 @@ const (
 // available where a user's runs can actually reference them. The Helm chart
 // installs these resources in the manager namespace, while security library
 // references are deliberately namespace-local. Curated security Skills are
-// intentionally excluded and installed only after an explicit user action;
-// unrelated bootstrap Skills continue to seed normally.
+// normally installed only after an explicit user action. A narrowly annotated
+// required Skill is seeded when refreshed workflows depend on it, so upgrades
+// remain referentially valid; unrelated curated security Skills stay opt-in.
 //
 // Only explicitly marked chart defaults are copied; arbitrary resources in the
 // manager namespace remain private. Existing resources win so a user can edit
@@ -70,7 +72,8 @@ func (s *Server) syncBootstrapResources(ctx context.Context, targetNamespace str
 	}
 	for i := range skills.Items {
 		source := &skills.Items[i]
-		if !isBootstrapDefault(source) || source.Annotations[securitySkillBundleAnnotation] == "true" {
+		if !isBootstrapDefault(source) ||
+			(source.Annotations[securitySkillBundleAnnotation] == "true" && source.Annotations[bootstrapRequiredSkillAnnotation] != "true") {
 			continue
 		}
 		if err := s.createBootstrapResource(ctx, source, &platformv1alpha1.Skill{

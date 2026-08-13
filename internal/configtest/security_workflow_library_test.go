@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	runtimetools "github.com/gratefulagents/gratefulagents/internal/tools"
 )
@@ -19,6 +20,25 @@ var workflowTaskOutputRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9
 // securityWorkflowLibrary lists the SecurityWorkflow assets shipped in
 // configs/securityworkflows/ and mirrored into the chart bootstrap, so Helm
 // installs a usable bug-hunting library into every release namespace.
+var blockchainSecurityWorkflowLibrary = []string{
+	"algorand-security-review",
+	"aptos-move-security-review",
+	"bitcoin-lightning-security-review",
+	"blockchain-protocol-audit",
+	"bridge-l2-zk-security-review",
+	"cairo-starknet-security-review",
+	"cosmos-abci-halt-review",
+	"cosmos-ibc-security-review",
+	"mpc-cryptography-security-review",
+	"off-chain-services-security-review",
+	"smart-contract-review",
+	"solana-anchor-security-review",
+	"substrate-xcm-security-review",
+	"sui-move-security-review",
+	"ton-security-review",
+	"wallet-security-review",
+}
+
 var securityWorkflowLibrary = []string{
 	"api-service-audit",
 	"algorand-security-review",
@@ -67,6 +87,29 @@ func TestSecurityWorkflowLibraryInventory(t *testing.T) {
 	slices.Sort(want)
 	if !slices.Equal(discovered, want) {
 		t.Fatalf("securityWorkflowLibrary = %v, want every shipped workflow %v", want, discovered)
+	}
+}
+
+func TestBlockchainSecurityWorkflowsUseResearchMethod(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range blockchainSecurityWorkflowLibrary {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+			if len(workflow.Spec.Tasks) == 0 {
+				t.Fatal("blockchain workflow must have at least one task")
+			}
+			for _, task := range workflow.Spec.Tasks {
+				if !slices.ContainsFunc(task.SkillRefs, func(ref platformv1alpha1.NamedRef) bool {
+					return ref.Name == "blockchain-security-research-method"
+				}) {
+					t.Errorf("task %q must reference blockchain-security-research-method", task.Name)
+				}
+			}
+		})
 	}
 }
 

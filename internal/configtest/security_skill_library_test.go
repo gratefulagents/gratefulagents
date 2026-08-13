@@ -105,6 +105,7 @@ var otherExternalSecuritySkills = []externalSkillSource{
 var inlineSecuritySkills = []string{
 	"api-authz-hunting",
 	"bitcoin-lightning-security-review",
+	"blockchain-security-research-method",
 	"bug-bounty-reporting",
 	"cloud-iac-hunting",
 	"evm-economic-and-mev-review",

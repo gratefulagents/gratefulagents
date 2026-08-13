@@ -127,6 +127,40 @@ func TestEnsureUserNamespaceSeedsSecurityLibraryButNotSkills(t *testing.T) {
 	}
 }
 
+func TestBootstrapSeedsRequiredSecuritySkillBeforeDependentWorkflow(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "system")
+	scheme := testProjectScheme(t)
+	required := bundledSecuritySkill("blockchain-security-research-method", "research carefully")
+	required.Annotations[bootstrapRequiredSkillAnnotation] = "true"
+	optional := bundledSecuritySkill("security-scan", "scan carefully")
+	workflow := &triggersv1alpha1.SecurityWorkflow{
+		ObjectMeta: bootstrapMeta("blockchain-review"),
+		Spec: triggersv1alpha1.SecurityWorkflowSpec{Tasks: []triggersv1alpha1.SecurityScanTask{{
+			Name: "review", Objective: "review blockchain", SkillRefs: []platformv1alpha1.NamedRef{{Name: required.Name}},
+		}}},
+	}
+	targetNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "alice", Annotations: map[string]string{bootstrapSyncedVersionAnnotation: "v4:old"},
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		bootstrapReadyMarker("new"), required, optional, workflow, targetNamespace,
+	).Build()
+	srv := &Server{k8sClient: c, apiReader: c, scheme: scheme}
+
+	if err := srv.syncBootstrapResources(context.Background(), "alice"); err != nil {
+		t.Fatalf("upgrade sync: %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "alice", Name: required.Name}, &platformv1alpha1.Skill{}); err != nil {
+		t.Fatalf("required security Skill was not seeded: %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "alice", Name: optional.Name}, &platformv1alpha1.Skill{}); err == nil {
+		t.Fatal("unrelated security Skill was copied without explicit opt-in")
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "alice", Name: workflow.Name}, &triggersv1alpha1.SecurityWorkflow{}); err != nil {
+		t.Fatalf("dependent workflow was not refreshed: %v", err)
+	}
+}
+
 func TestBootstrapV4MigrationSeedsProgramsWithoutAdoptingPersonalCopies(t *testing.T) {
 	t.Setenv("POD_NAMESPACE", "system")
 	scheme := testProjectScheme(t)
