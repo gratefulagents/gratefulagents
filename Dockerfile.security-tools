@@ -33,6 +33,18 @@ RUN curl -fsSL -o /tmp/bwrap.tar.xz "https://github.com/containers/bubblewrap/re
     && LDFLAGS=-static meson setup build --prefer-static -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled -Dtests=false \
     && meson compile -C build && strip build/bwrap
 
+# Build the archive installer separately so changes to unrelated root-module
+# dependencies do not invalidate the checksum-locked tool archive layer below.
+FROM --platform=$BUILDPLATFORM golang:1.26@sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365 AS installer-builder
+WORKDIR /workspace
+ENV GOTOOLCHAIN=local
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY cmd/install-security-tools/ ./cmd/install-security-tools/
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -buildvcs=false -o /out/install-security-tools ./cmd/install-security-tools
+
 # Reproducible standalone deterministic security-tool runtime. Base image
 # manifest lists and every release archive are immutable/checksum pinned.
 FROM --platform=$BUILDPLATFORM golang:1.26@sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365 AS builder
@@ -41,14 +53,29 @@ ARG TARGETARCH
 WORKDIR /workspace
 ENV GOTOOLCHAIN=local
 
+# Tool archives depend only on the installer binary, lock, and target platform.
+# Keep this expensive download and extraction layer reusable across ordinary
+# application, dependency, website, chart, prompt, and configuration changes.
+COPY --from=installer-builder /out/install-security-tools /usr/local/bin/
+COPY security-tools.lock.json ./
+RUN install-security-tools security-tools.lock.json /out/tools linux/${TARGETARCH}
+
+# Keep the application build cache scoped to ga-security's actual local package
+# dependencies. A repository-wide COPY would invalidate it for unrelated app,
+# website, chart, prompt, and configuration changes admitted by .dockerignore.
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY . .
+COPY cmd/ga-security/ ./cmd/ga-security/
+COPY api/platform/v1alpha1/ ./api/platform/v1alpha1/
+COPY internal/security/ ./internal/security/
+COPY internal/securitytoolpacks/ ./internal/securitytoolpacks/
+COPY internal/securitytoolrun/ ./internal/securitytoolrun/
+COPY internal/store/*.go ./internal/store/
+COPY internal/store/contentblob/*.go ./internal/store/contentblob/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -buildvcs=false -o /out/ga-security ./cmd/ga-security
-RUN go run ./cmd/install-security-tools security-tools.lock.json /out/tools linux/${TARGETARCH}
 
 FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS security-tools-evm-base
 WORKDIR /workspace
