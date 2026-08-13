@@ -47,8 +47,13 @@ func securityProgramSpecFromProto(pb *platform.SecurityProgramResource) (trigger
 		VerifiedAt:  verifiedAt,
 	}
 	if target := pb.GetScanTarget(); target != nil {
+		baseBranch := strings.TrimSpace(target.GetBaseBranch())
+		if baseBranch == "" {
+			baseBranch = "main"
+		}
 		spec.ScanTarget = &triggersv1alpha1.SecurityProgramScanTarget{
 			RepositoryURL: strings.TrimSpace(target.GetRepositoryUrl()),
+			BaseBranch:    baseBranch,
 			WorkflowRef:   strings.TrimSpace(target.GetWorkflowRef()),
 			PolicyPackRef: strings.TrimSpace(target.GetPolicyPackRef()),
 			ScanName:      strings.TrimSpace(target.GetScanName()),
@@ -89,6 +94,7 @@ func securityProgramToProto(cr *triggersv1alpha1.SecurityProgram, referencing []
 	if target := cr.Spec.ScanTarget; target != nil {
 		pb.ScanTarget = &platform.SecurityProgramScanTarget{
 			RepositoryUrl: target.RepositoryURL,
+			BaseBranch:    target.BaseBranch,
 			WorkflowRef:   target.WorkflowRef,
 			PolicyPackRef: target.PolicyPackRef,
 			ScanName:      target.ScanName,

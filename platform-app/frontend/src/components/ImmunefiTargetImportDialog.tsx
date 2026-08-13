@@ -44,7 +44,8 @@ export function ImmunefiTargetImportDialog({
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <p className="mb-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm font-medium">
-            Nothing is created or run until you review the scan form and choose Create scan.
+            Nothing is created or run until you review the scan form and choose Create scan. New scans default
+            to workspace-write access and unrestricted network egress.
           </p>
           {targets.length === 0 ? (
             <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
@@ -65,7 +66,9 @@ export function ImmunefiTargetImportDialog({
                           </span>
                         )}
                       </div>
-                      <div className="truncate font-mono text-xs text-muted-foreground">{target.repoUrl}</div>
+                      <div className="truncate font-mono text-xs text-muted-foreground">
+                        {target.repoUrl} · {target.baseBranch}
+                      </div>
                       <div className="font-mono text-xs text-muted-foreground">{target.workflowRef}</div>
                     </div>
                     <Button

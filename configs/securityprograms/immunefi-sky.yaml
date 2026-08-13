@@ -5,6 +5,7 @@ metadata:
 spec:
   scanTarget:
     repositoryURL: https://github.com/sky-ecosystem/dss
+    baseBranch: master
     workflowRef: smart-contract-review
     policyPackRef: bug-bounty
     scanName: immunefi-sky-dss

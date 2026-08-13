@@ -297,6 +297,7 @@ export function SecurityScanConfigList() {
                 name: selectedImmunefiTarget.name,
                 spec: {
                   repoUrl: selectedImmunefiTarget.repoUrl,
+                  baseBranch: selectedImmunefiTarget.baseBranch,
                   workflowRef: selectedImmunefiTarget.workflowRef,
                   policyPackRef: selectedImmunefiTarget.policyPackRef,
                   securityProgramRef: selectedImmunefiTarget.securityProgramRef,

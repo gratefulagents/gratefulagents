@@ -37915,6 +37915,7 @@ type SecurityProgramScanTarget struct {
 	DisplayName   string                 `protobuf:"bytes,5,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	Priority      int32                  `protobuf:"varint,6,opt,name=priority,proto3" json:"priority,omitempty"`
 	Featured      bool                   `protobuf:"varint,7,opt,name=featured,proto3" json:"featured,omitempty"`
+	BaseBranch    string                 `protobuf:"bytes,8,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -37996,6 +37997,13 @@ func (x *SecurityProgramScanTarget) GetFeatured() bool {
 		return x.Featured
 	}
 	return false
+}
+
+func (x *SecurityProgramScanTarget) GetBaseBranch() string {
+	if x != nil {
+		return x.BaseBranch
+	}
+	return ""
 }
 
 var File_rpc_platform_service_proto protoreflect.FileDescriptor
@@ -41414,7 +41422,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12'\n" +
 	"\x0finstalled_count\x18\x03 \x01(\x05R\x0einstalledCount\x12'\n" +
 	"\x0favailable_count\x18\x04 \x01(\x05R\x0eavailableCount\x12%\n" +
-	"\x0econflict_count\x18\x05 \x01(\x05R\rconflictCount\"\x85\x02\n" +
+	"\x0econflict_count\x18\x05 \x01(\x05R\rconflictCount\"\xa6\x02\n" +
 	"\x19SecurityProgramScanTarget\x12%\n" +
 	"\x0erepository_url\x18\x01 \x01(\tR\rrepositoryUrl\x12!\n" +
 	"\fworkflow_ref\x18\x02 \x01(\tR\vworkflowRef\x12&\n" +
@@ -41422,7 +41430,9 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\tscan_name\x18\x04 \x01(\tR\bscanName\x12!\n" +
 	"\fdisplay_name\x18\x05 \x01(\tR\vdisplayName\x12\x1a\n" +
 	"\bpriority\x18\x06 \x01(\x05R\bpriority\x12\x1a\n" +
-	"\bfeatured\x18\a \x01(\bR\bfeatured*\x87\x01\n" +
+	"\bfeatured\x18\a \x01(\bR\bfeatured\x12\x1f\n" +
+	"\vbase_branch\x18\b \x01(\tR\n" +
+	"baseBranch*\x87\x01\n" +
 	"\x13AgentRunMessageMode\x12&\n" +
 	"\"AGENT_RUN_MESSAGE_MODE_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eAGENT_RUN_MESSAGE_MODE_ENQUEUE\x10\x01\x12$\n" +

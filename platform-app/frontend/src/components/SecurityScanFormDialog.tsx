@@ -368,7 +368,7 @@ export function SecurityScanFormDialog({
     () => source?.spec?.defaults ?? emptyDefaults(),
   );
   const [policies, setPolicies] = useState<TriggerPolicies>(() =>
-    resolvedTriggerPolicies(configPolicySource(source)),
+    resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)),
   );
   const [useSavedCredentials, setUseSavedCredentials] = useState(() =>
     source ? scanConfigUsesSavedCredentials(source) : true,
@@ -434,7 +434,7 @@ export function SecurityScanFormDialog({
     setPostScripts(initialPostScripts(source));
     setNotifications(initialNotifications(source));
     setDefaults(source?.spec?.defaults ?? emptyDefaults());
-    setPolicies(resolvedTriggerPolicies(configPolicySource(source)));
+    setPolicies(resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)));
     setUseSavedCredentials(source ? scanConfigUsesSavedCredentials(source) : true);
     setError(null);
   }

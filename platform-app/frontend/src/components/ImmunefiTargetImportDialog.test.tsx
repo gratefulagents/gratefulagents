@@ -23,6 +23,7 @@ const programs = [
     displayName: "Later target",
     scanName: "scan-later",
     repositoryUrl: "https://example.com/later",
+    baseBranch: "master",
     workflowRef: "workflow-later",
     policyPackRef: "policy-later",
   }),
@@ -32,6 +33,7 @@ const programs = [
     displayName: "First target",
     scanName: "scan-first",
     repositoryUrl: "https://example.com/first",
+    baseBranch: "main",
     workflowRef: "workflow-first",
     policyPackRef: "policy-first",
   }),
@@ -41,6 +43,7 @@ const programs = [
     displayName: "Hidden target",
     scanName: "scan-hidden",
     repositoryUrl: "https://example.com/hidden",
+    baseBranch: "develop",
     workflowRef: "workflow-hidden",
     policyPackRef: "policy-hidden",
   }),
@@ -67,10 +70,12 @@ describe("ImmunefiTargetImportDialog", () => {
     renderDialog();
     fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
 
+    expect(screen.getByText(/workspace-write access and unrestricted network egress/)).toBeTruthy();
     expect(screen.getByText(/Nothing is created or run/)).toBeTruthy();
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("First target");
+    expect(items[0].textContent).toContain("https://example.com/first · main");
     expect(items[1].textContent).toContain("Later target");
     expect(screen.queryByText("Hidden target")).toBeNull();
   });
@@ -84,6 +89,7 @@ describe("ImmunefiTargetImportDialog", () => {
     expect(onTargetSelected).toHaveBeenCalledWith(expect.objectContaining({
       name: "scan-first",
       repoUrl: "https://example.com/first",
+      baseBranch: "main",
       workflowRef: "workflow-first",
       policyPackRef: "policy-first",
       securityProgramRef: "program-first",

@@ -5,6 +5,7 @@ metadata:
 spec:
   scanTarget:
     repositoryURL: https://github.com/matter-labs/zksync-era
+    baseBranch: main
     workflowRef: bridge-l2-zk-security-review
     policyPackRef: bug-bounty
     scanName: immunefi-zksync-era

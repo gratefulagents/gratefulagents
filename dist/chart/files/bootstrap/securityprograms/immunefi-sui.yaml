@@ -5,6 +5,7 @@ metadata:
 spec:
   scanTarget:
     repositoryURL: https://github.com/MystenLabs/sui
+    baseBranch: main
     workflowRef: sui-move-security-review
     policyPackRef: bug-bounty
     scanName: immunefi-sui

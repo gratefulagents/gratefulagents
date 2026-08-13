@@ -5,6 +5,7 @@ metadata:
 spec:
   scanTarget:
     repositoryURL: https://github.com/aptos-labs/aptos-core
+    baseBranch: main
     workflowRef: aptos-move-security-review
     policyPackRef: bug-bounty
     scanName: immunefi-aptos

@@ -5,6 +5,7 @@ metadata:
 spec:
   scanTarget:
     repositoryURL: https://github.com/paritytech/polkadot-sdk
+    baseBranch: master
     workflowRef: substrate-xcm-security-review
     policyPackRef: bug-bounty
     scanName: immunefi-polkadot-sdk

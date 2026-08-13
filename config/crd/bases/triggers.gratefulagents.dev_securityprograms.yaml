@@ -76,14 +76,20 @@ spec:
                 description: scanTarget optionally describes a suggested SecurityScan
                   configuration.
                 properties:
+                  baseBranch:
+                    description: |-
+                      baseBranch is the repository's verified default branch used by imported
+                      SecurityScans.
+                    default: main
+                    maxLength: 255
+                    type: string
                   displayName:
                     description: displayName is the human-readable scan target name.
                     maxLength: 200
                     minLength: 1
                     type: string
                   featured:
-                    description: featured includes the target in featured target
-                      catalogs.
+                    description: featured includes the target in featured target catalogs.
                     type: boolean
                   policyPackRef:
                     description: policyPackRef names the SecurityPolicyPack to use.

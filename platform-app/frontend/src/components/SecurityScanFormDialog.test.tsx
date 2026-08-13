@@ -295,6 +295,7 @@ describe("SecurityScanFormDialog duplicate mode", () => {
       name: "immunefi-optimism",
       spec: create(SecurityScanConfigSpecSchema, {
         repoUrl: "https://github.com/ethereum-optimism/optimism",
+        baseBranch: "develop",
         workflowRef: "blockchain-protocol-audit",
         policyPackRef: "bug-bounty",
         securityProgramRef: "immunefi-optimism",
@@ -327,12 +328,18 @@ describe("SecurityScanFormDialog duplicate mode", () => {
       useSavedCredentials: true,
       spec: {
         repoUrl: "https://github.com/ethereum-optimism/optimism",
+        baseBranch: "develop",
         workflowRef: "blockchain-protocol-audit",
         policyPackRef: "bug-bounty",
         securityProgramRef: "immunefi-optimism",
         manualOnly: true,
         minSeverity: "high",
         parallelism: 4,
+      },
+      policies: {
+        configureRuntimeProfile: true,
+        permissionMode: "workspace-write",
+        egressMode: "unrestricted",
       },
     });
   });

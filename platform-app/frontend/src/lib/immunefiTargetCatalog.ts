@@ -4,6 +4,7 @@ export type ImmunefiTarget = {
   name: string;
   displayName: string;
   repoUrl: string;
+  baseBranch: string;
   workflowRef: string;
   policyPackRef: string;
   securityProgramRef: string;
@@ -19,6 +20,7 @@ export function featuredImmunefiTargets(
       name: program.scanTarget!.scanName,
       displayName: program.scanTarget!.displayName,
       repoUrl: program.scanTarget!.repositoryUrl,
+      baseBranch: program.scanTarget!.baseBranch,
       workflowRef: program.scanTarget!.workflowRef,
       policyPackRef: program.scanTarget!.policyPackRef,
       securityProgramRef: program.name,

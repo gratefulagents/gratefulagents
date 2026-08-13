@@ -5,6 +5,7 @@ metadata:
 spec:
   scanTarget:
     repositoryURL: https://github.com/OlympusDAO/olympus-v3
+    baseBranch: develop
     workflowRef: smart-contract-review
     policyPackRef: bug-bounty
     scanName: immunefi-olympus-v3

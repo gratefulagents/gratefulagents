@@ -3,14 +3,6 @@ kind: SecurityProgram
 metadata:
   name: immunefi-ethena
 spec:
-  scanTarget:
-    repositoryURL: https://github.com/ethena-labs/ethena-contracts
-    workflowRef: smart-contract-review
-    policyPackRef: bug-bounty
-    scanName: immunefi-ethena
-    displayName: Ethena
-    priority: 9
-    featured: true
   provider: Immunefi
   displayName: Ethena
   programURL: https://immunefi.com/bug-bounty/ethena/scope/

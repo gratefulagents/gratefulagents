@@ -28,6 +28,14 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-spark":     {"Smart Contract", "Web & App"},
 		"immunefi-wormhole":  {"Blockchain/DLT", "Smart Contract"},
 	}
+	expectedProgramURLs := map[string]string{
+		"solana-agave": "https://github.com/anza-xyz/agave/security",
+		"firedancer":   "https://bounty.firedancer.io/",
+	}
+	expectedVerbatimMarkers := map[string][]string{
+		"solana-agave": {"## Reporting security problems in the Agave Validator", "### Out of Scope:", "### Payment of Bug Bounties:"},
+		"firedancer":   {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
+	}
 	// Active programs use complete captured scopes. Programs no longer present
 	// in Immunefi's live catalog retain an explicitly archived summary.
 	const minimumProgramCount = 20
@@ -71,8 +79,40 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			if errs := triggersv1alpha1.ValidateSecurityProgramSpec(program.Spec); len(errs) != 0 {
 				t.Fatalf("invalid spec: %v", errs)
 			}
-			if program.Spec.Provider != "Immunefi" || !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
-				t.Fatalf("unexpected provider or provenance URL: %q %q", program.Spec.Provider, program.Spec.ProgramURL)
+			if program.Name == "firedancer" && program.Spec.ScanTarget != nil {
+				t.Error("Firedancer must not suggest a scan target without a selected in-scope release")
+			}
+			if program.Name == "immunefi-ethena" || program.Name == "immunefi-euler" {
+				if program.Spec.ScanTarget != nil {
+					t.Error("unreachable repository must not be exposed as an importable scan target")
+				}
+			}
+			isImmunefi := program.Spec.Provider == "Immunefi"
+			if isImmunefi && !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
+				t.Fatalf("unexpected Immunefi provenance URL: %q", program.Spec.ProgramURL)
+			}
+			if !isImmunefi {
+				expectedURL := expectedProgramURLs[program.Name]
+				if program.Spec.Provider == "Ethereum Foundation" {
+					expectedURL = "https://ethereum.org/en/bug-bounty/"
+				}
+				if expectedURL == "" || program.Spec.ProgramURL != expectedURL {
+					t.Errorf("unexpected non-Immunefi provider or provenance URL: %q %q", program.Spec.Provider, program.Spec.ProgramURL)
+				}
+				markers := expectedVerbatimMarkers[program.Name]
+				if program.Spec.Provider == "Ethereum Foundation" {
+					markers = []string{"# In Scope", "Currently execution layer clients (Besu, Erigon, Geth, Nethermind and Reth)", "# Out of scope", "Critical severity", "Take down the entire network"}
+				}
+				for _, marker := range markers {
+					if !strings.Contains(program.Spec.ScopePolicy, marker) {
+						t.Errorf("scopePolicy missing verbatim marker %q", marker)
+					}
+				}
+				for _, summaryMarker := range []string{"Authoritative scope: the", "Eligible impacts:", "Testing and submission:"} {
+					if strings.Contains(program.Spec.ScopePolicy, summaryMarker) {
+						t.Errorf("scopePolicy still contains summarized section %q", summaryMarker)
+					}
+				}
 			}
 			categories, hasCategoryExpectation := expectedCategories[program.Name]
 			if strings.Contains(program.Spec.ScopePolicy, "Verbatim Immunefi scope") {
@@ -92,7 +132,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 						t.Errorf("scopePolicy still contains summarized section %q", summarizedMarker)
 					}
 				}
-			} else {
+			} else if isImmunefi {
 				for _, marker := range []string{"Archived last-known scope summary", "Repository targets:", "Rewards:", "Eligible impacts:", "Out of scope:", "Testing and submission:"} {
 					if !strings.Contains(program.Spec.ScopePolicy, marker) {
 						t.Errorf("scopePolicy missing %q", marker)
