@@ -258,8 +258,8 @@ describe("SecurityLibraryPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Duplicate payments-workflow" }));
     const nameInput = (await screen.findByPlaceholderText("payments-deep-dive")) as HTMLInputElement;
     expect(nameInput.value).toBe("");
-    // The single task from the source workflow is prefilled.
-    expect(screen.getByTestId("workflow-task-0")).toBeTruthy();
+    // The single task from the source workflow is prefilled on the graph.
+    expect(screen.getByTestId("workflow-dag")).toBeTruthy();
   });
 
   it("lists policy packs with enforced badges, suppressions, and summaries", async () => {

@@ -208,6 +208,47 @@ describe("SecurityWorkflowBuilder component", () => {
     expect(screen.getByTestId("workflow-errors").textContent).toContain("cycle");
   });
 
+  it("surfaces unnamed tasks as selectable chips so drafts stay repairable", () => {
+    let latest: WorkflowTaskDraft[] = [];
+    const { rerender } = render(
+      <SecurityWorkflowBuilder
+        tasks={[draft({ name: "a" }), draft({ name: "  " }), draft({ name: "" })]}
+        onChange={(next) => {
+          latest = next;
+        }}
+      />,
+    );
+    // Both blank-named tasks are reachable even though the graph hides them.
+    expect(screen.getByTestId("workflow-dag-unnamed")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("dag-unnamed-1"));
+    expect(screen.getByTestId("dag-inspector")).toBeTruthy();
+    fireEvent.change(document.getElementById("wf-inspector-name")!, {
+      target: { value: "fixed" },
+    });
+    expect(latest[1].name).toBe("fixed");
+    // The remaining unnamed task can be deleted from the inspector.
+    rerender(
+      <SecurityWorkflowBuilder
+        tasks={latest}
+        onChange={(next) => {
+          latest = next;
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("dag-unnamed-2"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete task (unnamed)" }));
+    expect(latest).toHaveLength(2);
+    rerender(
+      <SecurityWorkflowBuilder
+        tasks={latest}
+        onChange={(next) => {
+          latest = next;
+        }}
+      />,
+    );
+    expect(screen.queryByTestId("workflow-dag-unnamed")).toBeNull();
+  });
+
   it("adds a task via the Add task button", () => {
     let latest: WorkflowTaskDraft[] = [];
     render(
@@ -232,7 +273,8 @@ describe("SecurityWorkflowBuilder component", () => {
         }}
       />,
     );
-    fireEvent.click(screen.getAllByRole("button", { name: "Remove task" })[0]);
+    fireEvent.click(screen.getByTestId("dag-node-a"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete task a" }));
     expect(latest).toHaveLength(1);
     expect(latest[0].name).toBe("b");
     expect(latest[0].dependsOn).toEqual([]);
@@ -248,7 +290,8 @@ describe("SecurityWorkflowBuilder component", () => {
         }}
       />,
     );
-    const nameInput = document.getElementById("wf-task-name-0");
+    // The first task is selected by default, so the inspector edits "a".
+    const nameInput = document.getElementById("wf-inspector-name");
     expect(nameInput).not.toBeNull();
     fireEvent.change(nameInput!, {
       target: { value: "alpha" },
@@ -282,7 +325,8 @@ describe("SecurityWorkflowBuilder component", () => {
         }}
       />,
     );
-    fireEvent.change(document.getElementById("wf-task-target-runs-0")!, {
+    // The task is selected by default; the field lives in the inspector.
+    fireEvent.change(document.getElementById("wf-inspector-target-runs")!, {
       target: { value: "8" },
     });
     expect(latest[0].targetRuns).toBe("8");
@@ -586,7 +630,7 @@ describe("WorkflowDagEditor interactions", () => {
         onChange={(next) => (latest = next)}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add task/ }));
     expect(latest).toHaveLength(2);
     expect(latest![1].name).toBe("task-2");
   });

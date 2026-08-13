@@ -455,339 +455,6 @@ function nextTaskName(tasks: WorkflowTaskDraft[]): string {
   }
 }
 
-/**
- * WorkflowDagEditor is the interactive node/edge editor over the same layered
- * layout the old read-only view used (layout stays algorithmic — no drag
- * repositioning). It edits the parent-owned draft array via onChange:
- * - click a node to select it and open the inspector (rename, quick edits,
- *   delete — deleting detaches dependents' dependsOn);
- * - the per-node link handle starts connect mode: the next node clicked
- *   becomes a dependent of the source (target.dependsOn += source). Self
- *   edges, duplicates, and cycle-creating edges are rejected with a message;
- * - the × on an edge removes that dependency;
- * - New task adds an auto-named node directly on the canvas.
- */
-export function WorkflowDagEditor({
-  tasks,
-  onChange,
-  idPrefix = "wf",
-}: {
-  tasks: WorkflowTaskDraft[];
-  onChange: (tasks: WorkflowTaskDraft[]) => void;
-  idPrefix?: string;
-}) {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [connectFrom, setConnectFrom] = useState<number | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const drawable = tasks.filter((t) => t.name.trim() !== "");
-  const layers = workflowLayers(drawable);
-  const layout = dagLayout(layers);
-  const edges = dagEdges(
-    drawable.map((t) => ({ name: t.name.trim(), dependsOn: t.dependsOn, forEach: t.forEach })),
-  );
-
-  const selected = selectedIndex !== null ? tasks[selectedIndex] : undefined;
-  const connectSource = connectFrom !== null ? tasks[connectFrom] : undefined;
-
-  const addTask = () => {
-    const name = nextTaskName(tasks);
-    onChange([...tasks, { ...emptyWorkflowTask(), name }]);
-    setSelectedIndex(tasks.length);
-    setMessage(null);
-  };
-
-  const deleteTask = (index: number) => {
-    const removedName = tasks[index].name.trim();
-    onChange(
-      tasks
-        .filter((_, i) => i !== index)
-        .map((t) => ({
-          ...t,
-          dependsOn: t.dependsOn.filter((d) => d !== removedName),
-          forEach: t.forEach === removedName ? "" : t.forEach,
-        })),
-    );
-    setSelectedIndex(null);
-    setConnectFrom(null);
-  };
-
-  const renameTask = (index: number, nextName: string) => {
-    const previous = tasks[index].name.trim();
-    const next = nextName.trim();
-    onChange(
-      tasks.map((t, i) => {
-        if (i === index) return { ...t, name: nextName };
-        return {
-          ...t,
-          // Renames follow into other tasks' dependencies and fan-out refs.
-          dependsOn: t.dependsOn.map((d) => (d === previous ? next : d)),
-          forEach: t.forEach === previous ? next : t.forEach,
-        };
-      }),
-    );
-  };
-
-  const completeConnect = (targetIndex: number) => {
-    if (connectFrom === null) return;
-    const sourceIndex = connectFrom;
-    setConnectFrom(null);
-    const source = tasks[sourceIndex].name.trim();
-    const target = tasks[targetIndex];
-    const targetName = target.name.trim();
-    if (sourceIndex === targetIndex) {
-      setMessage(`Rejected: task "${source}" cannot depend on itself.`);
-      return;
-    }
-    if (target.dependsOn.includes(source)) {
-      setMessage(`Rejected: "${targetName}" already depends on "${source}".`);
-      return;
-    }
-    const next = tasks.map((t, i) =>
-      i === targetIndex ? { ...t, dependsOn: [...t.dependsOn, source] } : t,
-    );
-    const cycle = workflowCycle(next);
-    if (cycle.length > 0) {
-      setMessage(
-        `Rejected: "${targetName}" after "${source}" would create a dependency cycle (${cycle.join(" → ")}).`,
-      );
-      return;
-    }
-    setMessage(null);
-    onChange(next);
-  };
-
-  const removeEdge = (dep: string, targetName: string) => {
-    onChange(
-      tasks.map((t) =>
-        t.name.trim() === targetName
-          ? {
-              ...t,
-              dependsOn: t.dependsOn.filter((d) => d !== dep),
-              forEach: t.forEach === dep ? "" : t.forEach,
-            }
-          : t,
-      ),
-    );
-    setMessage(null);
-  };
-
-  const nodeClick = (index: number) => {
-    if (connectFrom !== null) {
-      completeConnect(index);
-      return;
-    }
-    setSelectedIndex((current) => (current === index ? null : index));
-    setMessage(null);
-  };
-
-  return (
-    <div
-      className="space-y-2"
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && connectFrom !== null) {
-          setConnectFrom(null);
-          setMessage(null);
-        }
-      }}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-muted-foreground">Dependency graph</p>
-        <Button type="button" variant="outline" size="sm" onClick={addTask}>
-          <Plus className="size-3.5" /> New task
-        </Button>
-      </div>
-      {connectSource && (
-        <p className="text-xs text-muted-foreground" data-testid="dag-connect-hint">
-          Linking from <span className="font-mono">{connectSource.name.trim()}</span> — click the
-          task that should run after it (Esc cancels).
-        </p>
-      )}
-      {message && (
-        <p role="status" className="text-xs text-destructive" data-testid="dag-message">
-          {message}
-        </p>
-      )}
-      {drawable.length === 0 ? (
-        <p className="text-xs text-muted-foreground" data-testid="workflow-dag-empty">
-          Name at least one task to see the dependency graph.
-        </p>
-      ) : (
-        <DagCanvas layout={layout} testId="workflow-dag">
-          <DagEdgeLayer edges={edges} layout={layout} label="Workflow dependency graph" />
-          {edges.map((edge) => {
-            const mid = edgeMidpoint(layout, edge.from, edge.to);
-            if (!mid) return null;
-            return (
-              <button
-                key={`x-${edge.from}->${edge.to}`}
-                type="button"
-                aria-label={`Remove dependency ${edge.from} → ${edge.to}`}
-                title={`Remove dependency ${edge.from} → ${edge.to}`}
-                onClick={() => removeEdge(edge.from, edge.to)}
-                className="absolute z-10 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-background text-muted-foreground hover:text-destructive"
-                style={{ left: mid.x, top: mid.y }}
-              >
-                <X className="size-2.5" />
-              </button>
-            );
-          })}
-          {drawable.map((task) => {
-            const name = task.name.trim();
-            const pos = layout.positions.get(name)!;
-            const index = tasks.indexOf(task);
-            const isSelected = selectedIndex === index;
-            const isConnectSource = connectFrom === index;
-            return (
-              <div
-                key={name}
-                className="absolute"
-                style={{ left: pos.x, top: pos.y, width: DAG_NODE_WIDTH, height: DAG_NODE_HEIGHT }}
-              >
-                <button
-                  type="button"
-                  data-testid={`dag-node-${name}`}
-                  aria-pressed={isSelected}
-                  title={
-                    connectFrom !== null && !isConnectSource
-                      ? `Run ${name} after ${connectSource?.name.trim()}`
-                      : name
-                  }
-                  onClick={() => nodeClick(index)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Delete" || event.key === "Backspace") {
-                      event.preventDefault();
-                      deleteTask(index);
-                    }
-                  }}
-                  className={`flex h-full w-[calc(100%-1rem)] flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-background px-2.5 text-left ${
-                    isSelected
-                      ? "border-primary ring-1 ring-primary"
-                      : isConnectSource
-                        ? "border-primary/60 border-dashed"
-                        : "border-border hover:border-primary/50"
-                  }`}
-                >
-                  <span className="truncate font-mono text-[11.5px] font-medium leading-tight">
-                    {name}
-                  </span>
-                  <span className="flex min-w-0 items-center gap-1 text-[10px] leading-tight text-muted-foreground">
-                    <span className="truncate">{task.role.trim() || "security-reviewer"}</span>
-                    {task.forEach.trim() && (
-                      <span
-                        className="shrink-0 rounded bg-primary/10 px-1 py-px text-[9.5px] font-medium text-primary"
-                        title={`Fans out per record of ${task.forEach.trim()}'s output`}
-                      >
-                        fan-out
-                      </span>
-                    )}
-                    {Number(task.repeats.trim() || "0") > 1 && (
-                      <span
-                        className="shrink-0 rounded bg-muted px-1 py-px text-[9.5px] font-medium"
-                        title={`Ensemble: ${task.repeats.trim()} repeated instances`}
-                      >
-                        ×{task.repeats.trim()}
-                      </span>
-                    )}
-                    {task.outputSchema.trim() && (
-                      <span
-                        aria-label="Produces structured output"
-                        title="Produces structured output (JSON Schema contract)"
-                        className="size-1.5 shrink-0 rounded-full bg-primary/70"
-                      />
-                    )}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Start dependency from ${name}`}
-                  title={`Link: the next task clicked will run after ${name}`}
-                  data-testid={`dag-connect-${name}`}
-                  onClick={() => {
-                    setSelectedIndex(null);
-                    setMessage(null);
-                    setConnectFrom((current) => (current === index ? null : index));
-                  }}
-                  className={`absolute right-0 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border bg-background ${
-                    isConnectSource ? "border-primary text-primary" : "text-muted-foreground hover:text-primary"
-                  }`}
-                >
-                  <Link2 className="size-2.5" />
-                </button>
-              </div>
-            );
-          })}
-        </DagCanvas>
-      )}
-      {selected && selectedIndex !== null && (
-        <div className="space-y-3 rounded-md border bg-muted/20 p-3" data-testid="dag-inspector">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium">
-              Task <span className="font-mono">{selected.name.trim() || "(unnamed)"}</span>
-            </p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Close inspector"
-              onClick={() => setSelectedIndex(null)}
-            >
-              <X className="size-3.5" />
-            </Button>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FlowField id={`${idPrefix}-inspector-name`} label="Task name" required>
-              <Input
-                id={`${idPrefix}-inspector-name`}
-                value={selected.name}
-                onChange={(event) => renameTask(selectedIndex, event.target.value)}
-                className="font-mono"
-              />
-            </FlowField>
-            <FlowField id={`${idPrefix}-inspector-category`} label="Category">
-              <Input
-                id={`${idPrefix}-inspector-category`}
-                value={selected.category}
-                onChange={(event) =>
-                  onChange(
-                    tasks.map((t, i) =>
-                      i === selectedIndex ? { ...t, category: event.target.value } : t,
-                    ),
-                  )
-                }
-              />
-            </FlowField>
-          </div>
-          <FlowField id={`${idPrefix}-inspector-objective`} label="Objective" required>
-            <Textarea
-              id={`${idPrefix}-inspector-objective`}
-              value={selected.objective}
-              onChange={(event) =>
-                onChange(
-                  tasks.map((t, i) =>
-                    i === selectedIndex ? { ...t, objective: event.target.value } : t,
-                  ),
-                )
-              }
-              className="min-h-14"
-            />
-          </FlowField>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-destructive"
-            aria-label={`Delete task ${selected.name.trim()}`}
-            onClick={() => deleteTask(selectedIndex)}
-          >
-            <Trash2 className="size-3.5" /> Delete task
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 const selectClass = "h-8 rounded-md border border-input bg-background px-2 text-sm w-full";
 
 /**
@@ -875,12 +542,19 @@ export function WorkflowParametersEditor({
 }
 
 /**
- * SecurityWorkflowBuilder is the structured task editor used by the security
- * workflow library and duplicated inline flows: add/remove/rename tasks, set
- * objective/category/role/model plus execution budgets and fan-out, pick
- * dependencies from the other task names, and edit the same graph directly
- * in the interactive DAG editor. It renders inline validation from
- * validateWorkflowTasks; callers must block save while errors exist.
+ * SecurityWorkflowBuilder is the graph-first task editor used by the security
+ * workflow library and AI-draft review flows. The dependency graph is the
+ * single editing surface (layout stays algorithmic — no drag repositioning):
+ * - Add task drops an auto-named node on the canvas and selects it;
+ * - clicking a node opens the full inspector beside the canvas (objective,
+ *   role, model, dependencies, skills, execution budgets & fan-out, delete —
+ *   deleting detaches dependents' dependsOn and renames follow into them);
+ * - the per-node link handle starts connect mode: the next node clicked
+ *   becomes a dependent of the source (target.dependsOn += source). Self
+ *   edges, duplicates, and cycle-creating edges are rejected with a message;
+ * - hovering the canvas reveals an × affordance on each edge to remove it.
+ * It renders inline validation from validateWorkflowTasks; callers must
+ * block save while errors exist.
  */
 export function SecurityWorkflowBuilder({
   tasks,
@@ -891,11 +565,35 @@ export function SecurityWorkflowBuilder({
   onChange: (tasks: WorkflowTaskDraft[]) => void;
   idPrefix?: string;
 }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(tasks.length > 0 ? 0 : null);
+  const [connectFrom, setConnectFrom] = useState<number | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
   const errors = validateWorkflowTasks(tasks);
+  const drawable = tasks.filter((t) => t.name.trim() !== "");
+  const layout = dagLayout(workflowLayers(drawable));
+  const edges = dagEdges(
+    drawable.map((t) => ({ name: t.name.trim(), dependsOn: t.dependsOn, forEach: t.forEach })),
+  );
+
+  const selected =
+    selectedIndex !== null && selectedIndex < tasks.length ? tasks[selectedIndex] : undefined;
+  const connectSource =
+    connectFrom !== null && connectFrom < tasks.length ? tasks[connectFrom] : undefined;
+
   const updateTask = (index: number, patch: Partial<WorkflowTaskDraft>) => {
     onChange(tasks.map((t, i) => (i === index ? { ...t, ...patch } : t)));
   };
-  const removeTask = (index: number) => {
+
+  const addTask = () => {
+    const name = nextTaskName(tasks);
+    onChange([...tasks, { ...emptyWorkflowTask(), name }]);
+    setSelectedIndex(tasks.length);
+    setConnectFrom(null);
+    setMessage(null);
+  };
+
+  const deleteTask = (index: number) => {
     const removedName = tasks[index].name.trim();
     onChange(
       tasks
@@ -906,7 +604,79 @@ export function SecurityWorkflowBuilder({
           forEach: t.forEach === removedName ? "" : t.forEach,
         })),
     );
+    setSelectedIndex(null);
+    setConnectFrom(null);
   };
+
+  const renameTask = (index: number, nextName: string) => {
+    const previous = tasks[index].name.trim();
+    const next = nextName.trim();
+    onChange(
+      tasks.map((t, i) => {
+        if (i === index) return { ...t, name: nextName };
+        return {
+          ...t,
+          // Renames follow into other tasks' dependencies and fan-out refs.
+          dependsOn: t.dependsOn.map((d) => (d === previous ? next : d)),
+          forEach: t.forEach === previous ? next : t.forEach,
+        };
+      }),
+    );
+  };
+
+  const completeConnect = (targetIndex: number) => {
+    if (connectFrom === null) return;
+    const sourceIndex = connectFrom;
+    setConnectFrom(null);
+    const source = tasks[sourceIndex].name.trim();
+    const target = tasks[targetIndex];
+    const targetName = target.name.trim();
+    if (sourceIndex === targetIndex) {
+      setMessage(`Rejected: task "${source}" cannot depend on itself.`);
+      return;
+    }
+    if (target.dependsOn.includes(source)) {
+      setMessage(`Rejected: "${targetName}" already depends on "${source}".`);
+      return;
+    }
+    const next = tasks.map((t, i) =>
+      i === targetIndex ? { ...t, dependsOn: [...t.dependsOn, source] } : t,
+    );
+    const cycle = workflowCycle(next);
+    if (cycle.length > 0) {
+      setMessage(
+        `Rejected: "${targetName}" after "${source}" would create a dependency cycle (${cycle.join(" → ")}).`,
+      );
+      return;
+    }
+    setMessage(null);
+    onChange(next);
+  };
+
+  const removeEdge = (dep: string, targetName: string) => {
+    onChange(
+      tasks.map((t) =>
+        t.name.trim() === targetName
+          ? {
+              ...t,
+              dependsOn: t.dependsOn.filter((d) => d !== dep),
+              forEach: t.forEach === dep ? "" : t.forEach,
+            }
+          : t,
+      ),
+    );
+    setMessage(null);
+  };
+
+  const nodeClick = (index: number) => {
+    if (connectFrom !== null) {
+      completeConnect(index);
+      return;
+    }
+    setSelectedIndex(index);
+    setMessage(null);
+  };
+
   const roleOptions = (current: string) => {
     const options = [...SECURITY_SPECIALIST_ROLES] as string[];
     const trimmed = current.trim();
@@ -914,312 +684,576 @@ export function SecurityWorkflowBuilder({
     return options;
   };
 
+  const unnamedIndexes = tasks
+    .map((t, index) => ({ task: t, index }))
+    .filter(({ task }) => task.name.trim() === "")
+    .map(({ index }) => index);
+
   return (
-    <div className="space-y-3">
-      {tasks.map((task, index) => (
-        <div key={index} className="space-y-3 rounded-md border p-3" data-testid={`workflow-task-${index}`}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FlowField id={`${idPrefix}-task-name-${index}`} label="Task name" required>
-              <Input
-                id={`${idPrefix}-task-name-${index}`}
-                value={task.name}
-                onChange={(event) => {
-                  const previous = task.name.trim();
-                  const next = event.target.value;
-                  onChange(
-                    tasks.map((t, i) => {
-                      if (i === index) return { ...t, name: next };
-                      // Renames follow into other tasks' dependencies.
-                      return {
-                        ...t,
-                        dependsOn: t.dependsOn.map((d) => (d === previous ? next.trim() : d)),
-                        forEach: t.forEach === previous ? next.trim() : t.forEach,
-                      };
-                    }),
-                  );
-                }}
-                placeholder="injection-hunt"
-                className="font-mono"
-              />
-            </FlowField>
-            <FlowField id={`${idPrefix}-task-category-${index}`} label="Category" hint="Vulnerability class tag.">
-              <Input
-                id={`${idPrefix}-task-category-${index}`}
-                value={task.category}
-                onChange={(event) => updateTask(index, { category: event.target.value })}
-                placeholder="injection"
-              />
-            </FlowField>
-          </div>
-          <FlowField id={`${idPrefix}-task-objective-${index}`} label="Objective" required>
-            <Textarea
-              id={`${idPrefix}-task-objective-${index}`}
-              value={task.objective}
-              onChange={(event) => updateTask(index, { objective: event.target.value })}
-              className="min-h-16"
-              placeholder="Hunt for SQL injection in the API layer."
-            />
-          </FlowField>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FlowField id={`${idPrefix}-task-role-${index}`} label="Specialist role" hint="Empty = security-reviewer.">
-              <select
-                id={`${idPrefix}-task-role-${index}`}
-                className={selectClass}
-                value={task.role}
-                onChange={(event) => updateTask(index, { role: event.target.value })}
-              >
-                <option value="">security-reviewer (default)</option>
-                {roleOptions(task.role).map((role) => (
-                  <option key={role} value={role}>
-                    {role}
-                  </option>
-                ))}
-              </select>
-            </FlowField>
-            <FlowField id={`${idPrefix}-task-model-${index}`} label="Model override" hint="Empty = scan default.">
-              <Input
-                id={`${idPrefix}-task-model-${index}`}
-                value={task.model}
-                onChange={(event) => updateTask(index, { model: event.target.value })}
-                className="font-mono"
-              />
-            </FlowField>
-          </div>
-          <FlowField
-            id={`${idPrefix}-task-depends-${index}`}
-            label="Depends on"
-            hint="Runs only after the selected tasks finish."
-          >
-            <div className="flex flex-wrap gap-2" id={`${idPrefix}-task-depends-${index}`}>
-              {tasks
-                .filter((other, i) => i !== index && other.name.trim() !== "")
-                .map((other) => {
-                  const dep = other.name.trim();
-                  const checked = task.dependsOn.includes(dep);
-                  return (
-                    <label
-                      key={dep}
-                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          updateTask(index, {
-                            dependsOn: checked
-                              ? task.dependsOn.filter((d) => d !== dep)
-                              : [...task.dependsOn, dep],
-                            ...(checked && task.forEach === dep ? { forEach: "" } : {}),
-                          })
-                        }
-                      />
-                      <span className="font-mono">{dep}</span>
-                    </label>
-                  );
-                })}
-              {tasks.filter((_, i) => i !== index).every((t) => t.name.trim() === "") && (
-                <span className="text-xs text-muted-foreground">No other named tasks yet.</span>
-              )}
+    <div
+      className="space-y-2"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && connectFrom !== null) {
+          setConnectFrom(null);
+          setMessage(null);
+        }
+      }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[12.5px] font-medium">Tasks &amp; dependencies</p>
+          <p className="text-[11px] text-muted-foreground">
+            Click a task to edit it in the inspector; use a task's{" "}
+            <Link2 className="inline size-3 align-[-2px]" aria-hidden /> handle to draw
+            &ldquo;runs after&rdquo; edges.
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={addTask}>
+          <Plus className="size-3.5" /> Add task
+        </Button>
+      </div>
+      {connectSource && (
+        <p
+          className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs"
+          data-testid="dag-connect-hint"
+        >
+          Linking from <span className="font-mono font-medium">{connectSource.name.trim()}</span> —
+          click the task that should run after it (Esc cancels).
+        </p>
+      )}
+      {message && (
+        <p
+          role="status"
+          className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive"
+          data-testid="dag-message"
+        >
+          {message}
+        </p>
+      )}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] lg:items-stretch">
+        <div className="min-w-0 space-y-2">
+          {drawable.length === 0 ? (
+            <div
+              className="flex h-44 flex-col items-center justify-center gap-1 rounded-xl border border-dashed bg-muted/20 px-4 text-center"
+              data-testid="workflow-dag-empty"
+            >
+              <p className="text-sm font-medium">
+                {tasks.length === 0 ? "No tasks yet" : "Name at least one task"}
+              </p>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                {tasks.length === 0
+                  ? "Add a task to start building the workflow graph."
+                  : "Tasks appear on the graph once they have a name."}
+              </p>
             </div>
-          </FlowField>
-          <FlowField
-            label="Skills"
-            hint="Reusable instructions loaded only for this task. A skill may also bring required MCP servers."
-          >
-            <SkillPicker
-              selected={task.skillRefs}
-              onChange={(skillRefs) => updateTask(index, { skillRefs })}
-            />
-          </FlowField>
-          <details className="rounded-md border border-border/70 px-3 py-2">
-            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-              Execution, budgets &amp; fan-out
-            </summary>
-            <div className="space-y-3 pt-3">
-              <div className="grid gap-3 sm:grid-cols-4">
-                <FlowField
-                  id={`${idPrefix}-task-max-retries-${index}`}
-                  label="Max retries"
-                  hint="0-10; empty inherits the scan default."
+          ) : (
+            <DagCanvas layout={layout} testId="workflow-dag">
+              <DagEdgeLayer edges={edges} layout={layout} label="Workflow dependency graph" />
+              {edges.map((edge) => {
+                const mid = edgeMidpoint(layout, edge.from, edge.to);
+                if (!mid) return null;
+                return (
+                  <button
+                    key={`x-${edge.from}->${edge.to}`}
+                    type="button"
+                    aria-label={`Remove dependency ${edge.from} → ${edge.to}`}
+                    title={`Remove dependency ${edge.from} → ${edge.to}`}
+                    onClick={() => removeEdge(edge.from, edge.to)}
+                    className="absolute z-10 flex size-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:border-destructive/50 hover:text-destructive focus-visible:opacity-100 group-hover/dag:opacity-100"
+                    style={{ left: mid.x, top: mid.y }}
+                  >
+                    <X className="size-3" />
+                  </button>
+                );
+              })}
+              {drawable.map((task) => {
+                const name = task.name.trim();
+                const pos = layout.positions.get(name)!;
+                const index = tasks.indexOf(task);
+                const isSelected = selectedIndex === index;
+                const isConnectSource = connectFrom === index;
+                const isConnectTarget = connectFrom !== null && !isConnectSource;
+                return (
+                  <div
+                    key={name}
+                    className="absolute"
+                    style={{
+                      left: pos.x,
+                      top: pos.y,
+                      width: DAG_NODE_WIDTH,
+                      height: DAG_NODE_HEIGHT,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      data-testid={`dag-node-${name}`}
+                      aria-pressed={isSelected}
+                      title={
+                        isConnectTarget ? `Run ${name} after ${connectSource?.name.trim()}` : name
+                      }
+                      onClick={() => nodeClick(index)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Delete" || event.key === "Backspace") {
+                          event.preventDefault();
+                          deleteTask(index);
+                        }
+                      }}
+                      className={`flex h-full w-full flex-col justify-center gap-1 overflow-hidden rounded-lg border bg-card px-3 text-left shadow-sm transition-[border-color,box-shadow] ${
+                        isSelected
+                          ? "border-primary ring-1 ring-primary"
+                          : isConnectSource
+                            ? "border-dashed border-primary/70"
+                            : isConnectTarget
+                              ? "cursor-crosshair border-primary/40 ring-1 ring-primary/20 hover:border-primary hover:ring-primary/50"
+                              : "border-border hover:border-primary/50 hover:shadow-md"
+                      }`}
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-mono text-xs font-medium leading-tight">
+                          {name}
+                        </span>
+                        {task.outputSchema.trim() && (
+                          <span
+                            aria-label="Produces structured output"
+                            title="Produces structured output (JSON Schema contract)"
+                            className="size-1.5 shrink-0 rounded-full bg-primary/70"
+                          />
+                        )}
+                      </span>
+                      <span className="flex min-w-0 items-center gap-1 text-[10.5px] leading-tight text-muted-foreground">
+                        <span className="truncate">{task.role.trim() || "security-reviewer"}</span>
+                        {task.forEach.trim() && (
+                          <span
+                            className="shrink-0 rounded bg-primary/10 px-1 py-px text-[9.5px] font-medium text-primary"
+                            title={`Fans out per record of ${task.forEach.trim()}'s output`}
+                          >
+                            fan-out
+                          </span>
+                        )}
+                        {Number(task.repeats.trim() || "0") > 1 && (
+                          <span
+                            className="shrink-0 rounded bg-muted px-1 py-px text-[9.5px] font-medium"
+                            title={`Ensemble: ${task.repeats.trim()} repeated instances`}
+                          >
+                            ×{task.repeats.trim()}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    {task.dependsOn.length > 0 && (
+                      <span
+                        aria-hidden
+                        className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rounded-full border border-muted-foreground/50 bg-background"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      aria-label={`Start dependency from ${name}`}
+                      title={`Link: the next task clicked will run after ${name}`}
+                      data-testid={`dag-connect-${name}`}
+                      onClick={() => {
+                        setMessage(null);
+                        setConnectFrom((current) => (current === index ? null : index));
+                      }}
+                      className={`absolute -right-2.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full border bg-background shadow-sm transition-colors ${
+                        isConnectSource
+                          ? "border-primary text-primary"
+                          : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                      }`}
+                    >
+                      <Link2 className="size-3" />
+                    </button>
+                  </div>
+                );
+              })}
+            </DagCanvas>
+          )}
+          {unnamedIndexes.length > 0 && (
+            <div
+              className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"
+              data-testid="workflow-dag-unnamed"
+            >
+              <span>
+                Not on the graph until named — select to edit{unnamedIndexes.length > 1 ? ":" : " it:"}
+              </span>
+              {unnamedIndexes.map((index, n) => (
+                <button
+                  key={index}
+                  type="button"
+                  data-testid={`dag-unnamed-${index}`}
+                  aria-pressed={selectedIndex === index}
+                  onClick={() => {
+                    setSelectedIndex(index);
+                    setConnectFrom(null);
+                    setMessage(null);
+                  }}
+                  className={`rounded-md border px-2 py-0.5 font-mono transition-colors ${
+                    selectedIndex === index
+                      ? "border-primary text-primary"
+                      : "hover:border-primary/50 hover:text-foreground"
+                  }`}
                 >
-                  <Input
-                    id={`${idPrefix}-task-max-retries-${index}`}
-                    type="number"
-                    min={0}
-                    max={10}
-                    value={task.maxRetries}
-                    onChange={(event) => updateTask(index, { maxRetries: event.target.value })}
-                  />
-                </FlowField>
-                <FlowField
-                  id={`${idPrefix}-task-timeout-${index}`}
-                  label="Timeout"
-                  hint='Go duration, e.g. "30m"; empty = none.'
-                >
-                  <Input
-                    id={`${idPrefix}-task-timeout-${index}`}
-                    value={task.timeout}
-                    onChange={(event) => updateTask(index, { timeout: event.target.value })}
-                    placeholder="30m"
-                    className="font-mono"
-                  />
-                </FlowField>
-                <FlowField
-                  id={`${idPrefix}-task-max-turns-${index}`}
-                  label="Max turns"
-                  hint="Empty or 0 = no limit."
-                >
-                  <Input
-                    id={`${idPrefix}-task-max-turns-${index}`}
-                    type="number"
-                    min={0}
-                    value={task.maxTurns}
-                    onChange={(event) => updateTask(index, { maxTurns: event.target.value })}
-                  />
-                </FlowField>
-                <FlowField
-                  id={`${idPrefix}-task-max-cost-${index}`}
-                  label="Max cost (USD)"
-                  hint='e.g. "2.50"; empty = none.'
-                >
-                  <Input
-                    id={`${idPrefix}-task-max-cost-${index}`}
-                    value={task.maxCostUsd}
-                    onChange={(event) => updateTask(index, { maxCostUsd: event.target.value })}
-                    placeholder="5"
-                    className="font-mono"
-                  />
-                </FlowField>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <FlowField
-                  id={`${idPrefix}-task-tools-allowed-${index}`}
-                  label="Allowed tools"
-                  hint="Comma-separated; non-empty restricts the run to these."
-                >
-                  <Input
-                    id={`${idPrefix}-task-tools-allowed-${index}`}
-                    value={task.toolsAllowed}
-                    onChange={(event) => updateTask(index, { toolsAllowed: event.target.value })}
-                    placeholder="read_file, grep"
-                    className="font-mono"
-                  />
-                </FlowField>
-                <FlowField
-                  id={`${idPrefix}-task-tools-denied-${index}`}
-                  label="Denied tools"
-                  hint="Comma-separated; deny wins over allow."
-                >
-                  <Input
-                    id={`${idPrefix}-task-tools-denied-${index}`}
-                    value={task.toolsDenied}
-                    onChange={(event) => updateTask(index, { toolsDenied: event.target.value })}
-                    placeholder="Bash"
-                    className="font-mono"
-                  />
-                </FlowField>
-              </div>
-              <FlowField
-                id={`${idPrefix}-task-output-schema-${index}`}
-                label="Output schema"
-                hint="JSON Schema (object form) for the task's structured output; dependents read it via {{tasks.name.output}}."
+                  Unnamed task #{n + 1}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {selected && selectedIndex !== null ? (
+          <div className="space-y-3 rounded-xl border bg-card/50 p-3.5" data-testid="dag-inspector">
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 truncate text-xs font-medium">
+                Task <span className="font-mono">{selected.name.trim() || "(unnamed)"}</span>
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Close inspector"
+                onClick={() => setSelectedIndex(null)}
               >
-                <Textarea
-                  id={`${idPrefix}-task-output-schema-${index}`}
-                  value={task.outputSchema}
-                  onChange={(event) => updateTask(index, { outputSchema: event.target.value })}
-                  className="min-h-16 font-mono"
-                  placeholder='{"type":"object","properties":{...}}'
+                <X className="size-3.5" />
+              </Button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FlowField id={`${idPrefix}-inspector-name`} label="Task name" required>
+                <Input
+                  id={`${idPrefix}-inspector-name`}
+                  value={selected.name}
+                  onChange={(event) => renameTask(selectedIndex, event.target.value)}
+                  placeholder="injection-hunt"
+                  className="font-mono"
                 />
               </FlowField>
-              <div className="grid gap-3 sm:grid-cols-4">
-                <FlowField
-                  id={`${idPrefix}-task-for-each-${index}`}
-                  label="Fan out per record of"
-                  hint="A dependency whose JSON-array output spawns one instance per record ({{item.field}})."
-                >
-                  <select
-                    id={`${idPrefix}-task-for-each-${index}`}
-                    className={selectClass}
-                    value={task.forEach}
-                    onChange={(event) => updateTask(index, { forEach: event.target.value })}
-                  >
-                    <option value="">Off</option>
-                    {task.dependsOn
-                      .filter((d) => d.trim() !== "")
-                      .map((dep) => (
-                        <option key={dep} value={dep}>
-                          {dep}
-                        </option>
-                      ))}
-                    {task.forEach !== "" && !task.dependsOn.includes(task.forEach) && (
-                      <option value={task.forEach}>{task.forEach}</option>
-                    )}
-                  </select>
-                </FlowField>
-                <FlowField
-                  id={`${idPrefix}-task-max-instances-${index}`}
-                  label="Max instances"
-                  hint="Legacy fan-out cap; empty or 0 = 10, max 50."
-                >
-                  <Input
-                    id={`${idPrefix}-task-max-instances-${index}`}
-                    type="number"
-                    min={0}
-                    max={50}
-                    value={task.maxInstances}
-                    onChange={(event) => updateTask(index, { maxInstances: event.target.value })}
-                  />
-                </FlowField>
-                <FlowField
-                  id={`${idPrefix}-task-target-runs-${index}`}
-                  label="Target runs"
-                  hint="Split every record across 1-50 runs; exclusive with max instances."
-                >
-                  <Input
-                    id={`${idPrefix}-task-target-runs-${index}`}
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={task.targetRuns}
-                    onChange={(event) => updateTask(index, { targetRuns: event.target.value })}
-                  />
-                </FlowField>
-                <FlowField
-                  id={`${idPrefix}-task-repeats-${index}`}
-                  label="Repeats"
-                  hint="Ensemble instances; empty, 0 or 1 = single, max 5."
-                >
-                  <Input
-                    id={`${idPrefix}-task-repeats-${index}`}
-                    type="number"
-                    min={0}
-                    max={5}
-                    value={task.repeats}
-                    onChange={(event) => updateTask(index, { repeats: event.target.value })}
-                  />
-                </FlowField>
-              </div>
+              <FlowField
+                id={`${idPrefix}-inspector-category`}
+                label="Category"
+                hint="Vulnerability class tag."
+              >
+                <Input
+                  id={`${idPrefix}-inspector-category`}
+                  value={selected.category}
+                  onChange={(event) => updateTask(selectedIndex, { category: event.target.value })}
+                  placeholder="injection"
+                />
+              </FlowField>
             </div>
-          </details>
-          <Button type="button" variant="ghost" size="sm" onClick={() => removeTask(index)}>
-            Remove task
-          </Button>
-        </div>
-      ))}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => onChange([...tasks, emptyWorkflowTask()])}
-      >
-        Add task
-      </Button>
-
-      <WorkflowDagEditor tasks={tasks} onChange={onChange} idPrefix={idPrefix} />
+            <FlowField id={`${idPrefix}-inspector-objective`} label="Objective" required>
+              <Textarea
+                id={`${idPrefix}-inspector-objective`}
+                value={selected.objective}
+                onChange={(event) => updateTask(selectedIndex, { objective: event.target.value })}
+                className="min-h-20"
+                placeholder="Hunt for SQL injection in the API layer."
+              />
+            </FlowField>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FlowField
+                id={`${idPrefix}-inspector-role`}
+                label="Specialist role"
+                hint="Empty = security-reviewer."
+              >
+                <select
+                  id={`${idPrefix}-inspector-role`}
+                  className={selectClass}
+                  value={selected.role}
+                  onChange={(event) => updateTask(selectedIndex, { role: event.target.value })}
+                >
+                  <option value="">security-reviewer (default)</option>
+                  {roleOptions(selected.role).map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </FlowField>
+              <FlowField
+                id={`${idPrefix}-inspector-model`}
+                label="Model override"
+                hint="Empty = scan default."
+              >
+                <Input
+                  id={`${idPrefix}-inspector-model`}
+                  value={selected.model}
+                  onChange={(event) => updateTask(selectedIndex, { model: event.target.value })}
+                  className="font-mono"
+                />
+              </FlowField>
+            </div>
+            <FlowField
+              id={`${idPrefix}-inspector-depends`}
+              label="Runs after"
+              hint="Runs only after the selected tasks finish; the link handles on the graph edit the same edges."
+            >
+              <div className="flex flex-wrap gap-2" id={`${idPrefix}-inspector-depends`}>
+                {tasks
+                  .filter((other, i) => i !== selectedIndex && other.name.trim() !== "")
+                  .map((other) => {
+                    const dep = other.name.trim();
+                    const checked = selected.dependsOn.includes(dep);
+                    return (
+                      <label
+                        key={dep}
+                        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+                          checked ? "border-primary/50 bg-primary/5" : "hover:border-primary/40"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            updateTask(selectedIndex, {
+                              dependsOn: checked
+                                ? selected.dependsOn.filter((d) => d !== dep)
+                                : [...selected.dependsOn, dep],
+                              ...(checked && selected.forEach === dep ? { forEach: "" } : {}),
+                            })
+                          }
+                        />
+                        <span className="font-mono">{dep}</span>
+                      </label>
+                    );
+                  })}
+                {tasks.filter((_, i) => i !== selectedIndex).every((t) => t.name.trim() === "") && (
+                  <span className="text-xs text-muted-foreground">No other named tasks yet.</span>
+                )}
+              </div>
+            </FlowField>
+            <FlowField
+              label="Skills"
+              hint="Reusable instructions loaded only for this task. A skill may also bring required MCP servers."
+            >
+              <SkillPicker
+                selected={selected.skillRefs}
+                onChange={(skillRefs) => updateTask(selectedIndex, { skillRefs })}
+              />
+            </FlowField>
+            <details className="rounded-md border border-border/70 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                Execution, budgets &amp; fan-out
+              </summary>
+              <div className="space-y-3 pt-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FlowField
+                    id={`${idPrefix}-inspector-max-retries`}
+                    label="Max retries"
+                    hint="0-10; empty inherits the scan default."
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-max-retries`}
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={selected.maxRetries}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { maxRetries: event.target.value })
+                      }
+                    />
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-timeout`}
+                    label="Timeout"
+                    hint='Go duration like "30m"; empty = none.'
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-timeout`}
+                      value={selected.timeout}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { timeout: event.target.value })
+                      }
+                      placeholder="30m"
+                      className="font-mono"
+                    />
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-max-turns`}
+                    label="Max turns"
+                    hint="Empty or 0 = no limit."
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-max-turns`}
+                      type="number"
+                      min={0}
+                      value={selected.maxTurns}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { maxTurns: event.target.value })
+                      }
+                    />
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-max-cost`}
+                    label="Max cost (USD)"
+                    hint='Decimal like "2.50"; empty = none.'
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-max-cost`}
+                      value={selected.maxCostUsd}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { maxCostUsd: event.target.value })
+                      }
+                      placeholder="2.50"
+                      className="font-mono"
+                    />
+                  </FlowField>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FlowField
+                    id={`${idPrefix}-inspector-tools-allowed`}
+                    label="Allowed tools"
+                    hint="Comma-separated; non-empty restricts the run to these."
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-tools-allowed`}
+                      value={selected.toolsAllowed}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { toolsAllowed: event.target.value })
+                      }
+                      placeholder="read_file, grep"
+                      className="font-mono"
+                    />
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-tools-denied`}
+                    label="Denied tools"
+                    hint="Comma-separated; deny wins over allow."
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-tools-denied`}
+                      value={selected.toolsDenied}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { toolsDenied: event.target.value })
+                      }
+                      placeholder="Bash"
+                      className="font-mono"
+                    />
+                  </FlowField>
+                </div>
+                <FlowField
+                  id={`${idPrefix}-inspector-output-schema`}
+                  label="Output schema"
+                  hint="JSON Schema (object form) for the task's structured output; dependents read it via {{tasks.name.output}}."
+                >
+                  <Textarea
+                    id={`${idPrefix}-inspector-output-schema`}
+                    value={selected.outputSchema}
+                    onChange={(event) =>
+                      updateTask(selectedIndex, { outputSchema: event.target.value })
+                    }
+                    className="min-h-16 font-mono"
+                    placeholder='{"type":"object","properties":{...}}'
+                  />
+                </FlowField>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FlowField
+                    id={`${idPrefix}-inspector-for-each`}
+                    label="Fan out per record of"
+                    hint="A dependency whose JSON-array output spawns one instance per record ({{item.field}})."
+                  >
+                    <select
+                      id={`${idPrefix}-inspector-for-each`}
+                      className={selectClass}
+                      value={selected.forEach}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { forEach: event.target.value })
+                      }
+                    >
+                      <option value="">Off</option>
+                      {selected.dependsOn
+                        .filter((d) => d.trim() !== "")
+                        .map((dep) => (
+                          <option key={dep} value={dep}>
+                            {dep}
+                          </option>
+                        ))}
+                      {selected.forEach !== "" && !selected.dependsOn.includes(selected.forEach) && (
+                        <option value={selected.forEach}>{selected.forEach}</option>
+                      )}
+                    </select>
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-max-instances`}
+                    label="Max instances"
+                    hint="Legacy fan-out cap; empty or 0 = 10, max 50."
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-max-instances`}
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={selected.maxInstances}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { maxInstances: event.target.value })
+                      }
+                    />
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-target-runs`}
+                    label="Target runs"
+                    hint="Split every record across 1-50 runs; exclusive with max instances."
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-target-runs`}
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={selected.targetRuns}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { targetRuns: event.target.value })
+                      }
+                    />
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-repeats`}
+                    label="Repeats"
+                    hint="Ensemble instances; empty, 0 or 1 = single, max 5."
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-repeats`}
+                      type="number"
+                      min={0}
+                      max={5}
+                      value={selected.repeats}
+                      onChange={(event) =>
+                        updateTask(selectedIndex, { repeats: event.target.value })
+                      }
+                    />
+                  </FlowField>
+                </div>
+              </div>
+            </details>
+            <div className="flex justify-end border-t border-border/60 pt-2.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-destructive"
+                aria-label={`Delete task ${selected.name.trim() || "(unnamed)"}`}
+                onClick={() => deleteTask(selectedIndex)}
+              >
+                <Trash2 className="size-3.5" /> Delete task
+              </Button>
+            </div>
+          </div>
+        ) : (
+          tasks.length > 0 && (
+            <div
+              className="hidden min-h-32 items-center justify-center rounded-xl border border-dashed p-4 text-center lg:flex"
+              data-testid="dag-inspector-empty"
+            >
+              <p className="max-w-48 text-xs text-muted-foreground">
+                Select a task on the graph to edit its objective, role, and budgets.
+              </p>
+            </div>
+          )
+        )}
+      </div>
 
       {errors.length > 0 && (
-        <ul className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2.5" data-testid="workflow-errors">
+        <ul
+          className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2.5"
+          data-testid="workflow-errors"
+        >
           {errors.map((error, index) => (
             <li key={`${error.field}-${index}`} className="text-xs text-destructive">
               {error.message}
