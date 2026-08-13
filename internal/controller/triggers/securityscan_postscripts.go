@@ -303,10 +303,21 @@ func (e *securityScanExecutionEngine) postScriptPipelineChunks(all []triggersv1a
 	var pipeline []triggersv1alpha1.SecurityScanPostScript
 	for _, name := range selected {
 		script := byName[name]
+		// Actionable-only stages need an AgentRun boundary so a successful
+		// predecessor can reject the finding before this stage is dispatched.
+		if script.EffectiveRunOn() == "high-and-above-actionable" {
+			if len(names) > 0 {
+				chunks = append(chunks, append([]string(nil), names...))
+			}
+			chunks = append(chunks, []string{name})
+			names = nil
+			pipeline = nil
+			continue
+		}
 		// Built-in bounty artifact stages must cross an AgentRun boundary so
 		// builder, validator, and report provenance are independently durable.
 		// Other post-scripts retain the normal prompt-packing behavior.
-		if name == "poc-builder" || name == "poc-validator" || name == "report-writer" {
+		if name == "report-writer" {
 			if len(names) > 0 {
 				chunks = append(chunks, append([]string(nil), names...))
 			}
@@ -586,6 +597,13 @@ func (e *securityScanExecutionEngine) launchPostScript(ctx context.Context, job 
 		job.Result = "skipped: the finding no longer exists"
 		return false
 	}
+	if job.Attempts == 0 && securityScanPostScriptsActionableOnly(scripts) &&
+		e.postScriptHasSuccessfulPredecessor(*job) && securityScanFindingHasTerminalStatus(rec.Status) {
+		job.State = triggersv1alpha1.SecurityScanPostScriptStateSkipped
+		job.FinishedAt = &e.now
+		job.Result = fmt.Sprintf("skipped: finding already has terminal status %q", rec.Status)
+		return false
+	}
 	if len(job.Scripts) == 0 && len(scripts) == 1 {
 		// Executions materialized by older controllers decided runOn at
 		// dispatch time. Preserve that contract while they drain during a
@@ -627,6 +645,25 @@ func (e *securityScanExecutionEngine) launchPostScript(ctx context.Context, job 
 	return true
 }
 
+func securityScanFindingHasTerminalStatus(status string) bool {
+	return status == store.SecurityFindingStatusFalsePositive ||
+		status == store.SecurityFindingStatusAcceptedRisk ||
+		status == store.SecurityFindingStatusFixed
+}
+
+func securityScanPostScriptsActionableOnly(scripts []triggersv1alpha1.SecurityScanPostScript) bool {
+	return len(scripts) == 1 && scripts[0].EffectiveRunOn() == "high-and-above-actionable"
+}
+
+func (e *securityScanExecutionEngine) postScriptHasSuccessfulPredecessor(job triggersv1alpha1.SecurityScanPostScriptJobStatus) bool {
+	for _, other := range e.exec.PostScriptJobs {
+		if other.FindingID == job.FindingID && other.Order < job.Order && other.State == triggersv1alpha1.SecurityScanPostScriptStateSucceeded {
+			return true
+		}
+	}
+	return false
+}
+
 // loadPostScriptFinding reloads the job's finding. A (nil, nil) result means
 // the finding no longer exists.
 func (e *securityScanExecutionEngine) loadPostScriptFinding(ctx context.Context, job *triggersv1alpha1.SecurityScanPostScriptJobStatus) (*store.SecurityFindingRecord, error) {
@@ -649,7 +686,7 @@ func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord
 		if rec.Status != store.SecurityFindingStatusConfirmed {
 			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current status %q", runOn, rec.Status)
 		}
-	case "high-and-above":
+	case "high-and-above", "high-and-above-actionable":
 		if !security.SeverityAtLeast(rec.Severity, security.SeverityHigh) {
 			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q (status %q)", runOn, rec.Severity, rec.Status)
 		}

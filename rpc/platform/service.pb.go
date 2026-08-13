@@ -31333,7 +31333,7 @@ type SecurityPostScriptConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Prompt        string                 `protobuf:"bytes,2,opt,name=prompt,proto3" json:"prompt,omitempty"`
-	RunOn         string                 `protobuf:"bytes,3,opt,name=run_on,json=runOn,proto3" json:"run_on,omitempty"` // all | confirmed | high-and-above; empty = all
+	RunOn         string                 `protobuf:"bytes,3,opt,name=run_on,json=runOn,proto3" json:"run_on,omitempty"` // all | confirmed | high-and-above | high-and-above-actionable; empty = all
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -34821,7 +34821,7 @@ type SecurityPostScriptResource struct {
 	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Description      string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
 	Prompt           string                 `protobuf:"bytes,4,opt,name=prompt,proto3" json:"prompt,omitempty"`
-	RunOn            string                 `protobuf:"bytes,5,opt,name=run_on,json=runOn,proto3" json:"run_on,omitempty"` // all | confirmed | high-and-above; empty = all
+	RunOn            string                 `protobuf:"bytes,5,opt,name=run_on,json=runOn,proto3" json:"run_on,omitempty"` // all | confirmed | high-and-above | high-and-above-actionable; empty = all
 	UsageCount       int32                  `protobuf:"varint,10,opt,name=usage_count,json=usageCount,proto3" json:"usage_count,omitempty"`
 	ReferencingScans []string               `protobuf:"bytes,11,rep,name=referencing_scans,json=referencingScans,proto3" json:"referencing_scans,omitempty"`
 	Generation       int64                  `protobuf:"varint,12,opt,name=generation,proto3" json:"generation,omitempty"`

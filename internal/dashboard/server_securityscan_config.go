@@ -789,9 +789,9 @@ func securityScanPostScriptsFromProto(pbScripts []*platform.SecurityPostScriptCo
 			return nil, fmt.Errorf("post-scripts need both a name and a prompt")
 		}
 		switch strings.TrimSpace(p.GetRunOn()) {
-		case "", "all", "confirmed", "high-and-above":
+		case "", "all", "confirmed", "high-and-above", "high-and-above-actionable":
 		default:
-			return nil, fmt.Errorf("invalid post-script run_on %q (want all, confirmed, or high-and-above)", p.GetRunOn())
+			return nil, fmt.Errorf("invalid post-script run_on %q (want all, confirmed, high-and-above, or high-and-above-actionable)", p.GetRunOn())
 		}
 		out = append(out, triggersv1alpha1.SecurityScanPostScript{
 			Name:   strings.TrimSpace(p.GetName()),

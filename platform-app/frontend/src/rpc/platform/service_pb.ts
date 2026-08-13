@@ -16649,7 +16649,7 @@ export type SecurityPostScriptConfig = Message<"platform.v1.SecurityPostScriptCo
   prompt: string;
 
   /**
-   * all | confirmed | high-and-above; empty = all
+   * all | confirmed | high-and-above | high-and-above-actionable; empty = all
    *
    * @generated from field: string run_on = 3;
    */
@@ -18644,7 +18644,7 @@ export type SecurityPostScriptResource = Message<"platform.v1.SecurityPostScript
   prompt: string;
 
   /**
-   * all | confirmed | high-and-above; empty = all
+   * all | confirmed | high-and-above | high-and-above-actionable; empty = all
    *
    * @generated from field: string run_on = 5;
    */
