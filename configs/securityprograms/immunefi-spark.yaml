@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/marsfoundation/spark-alm-controller
       baseBranch: dev
-      workflowRef: smart-contract-review
+      workflowRef: bounty-hunt-evm
       policyPackRef: bug-bounty
       scanName: immunefi-spark-alm-controller
       displayName: Spark ALM controller

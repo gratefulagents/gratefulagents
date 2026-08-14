@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/aave-dao/aave-v3-origin
       baseBranch: main
-      workflowRef: smart-contract-review
+      workflowRef: bounty-hunt-evm
       policyPackRef: bug-bounty
       scanName: immunefi-aave-v3-origin
       displayName: Aave v3 Origin

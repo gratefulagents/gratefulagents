@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/OffchainLabs/token-bridge-contracts
       baseBranch: main
-      workflowRef: smart-contract-review
+      workflowRef: bounty-hunt-evm
       policyPackRef: bug-bounty
       scanName: immunefi-arbitrum-token-bridge-contracts
       displayName: Arbitrum token-bridge-contracts

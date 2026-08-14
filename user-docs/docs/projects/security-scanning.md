@@ -234,7 +234,7 @@ spec:
       featured: true
     - repositoryURL: https://github.com/example/acme-contracts
       baseBranch: develop
-      workflowRef: smart-contract-review
+      workflowRef: bounty-hunt-evm
       policyPackRef: bug-bounty
       scanName: acme-contracts
       displayName: Acme contracts
