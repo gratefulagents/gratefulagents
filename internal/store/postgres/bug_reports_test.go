@@ -71,6 +71,15 @@ func TestAgentBugReportLifecycle(t *testing.T) {
 		t.Fatalf("merge: isNew=%t id=%s occurrences=%d run=%q", isNew, merged.ID, merged.Occurrences, merged.RunName)
 	}
 
+	// A retry from the same run must not inflate the distinct-run count.
+	retried, isNew, err := s.UpsertAgentBugReport(ctx, &rec2)
+	if err != nil {
+		t.Fatalf("UpsertAgentBugReport() same-run retry error = %v", err)
+	}
+	if isNew || retried.Occurrences != 2 {
+		t.Fatalf("same-run retry: isNew=%t occurrences=%d, want false/2", isNew, retried.Occurrences)
+	}
+
 	// Same fingerprint in another namespace is a separate report.
 	rec3 := *rec
 	rec3.Namespace = "other-ns"
@@ -82,11 +91,20 @@ func TestAgentBugReportLifecycle(t *testing.T) {
 		t.Fatalf("cross-namespace upsert merged: isNew=%t", isNew)
 	}
 
-	// Status transitions: resolved regresses to open on reoccurrence,
-	// dismissed stays dismissed.
+	// Status transitions: resolved regresses to open only when a different
+	// run reports again; dismissed stays dismissed.
 	if err := s.SetAgentBugReportStatus(ctx, "test-ns", created.ID, store.AgentBugReportStatusResolved, "alice", "fixed"); err != nil {
 		t.Fatalf("SetAgentBugReportStatus() error = %v", err)
 	}
+	// Same run (run-2 is the last recorded reporter): stays resolved.
+	stillResolved, _, err := s.UpsertAgentBugReport(ctx, &rec2)
+	if err != nil {
+		t.Fatalf("UpsertAgentBugReport() same-run after resolve error = %v", err)
+	}
+	if stillResolved.Status != store.AgentBugReportStatusResolved || stillResolved.Occurrences != 2 {
+		t.Fatalf("same-run after resolve: status=%q occurrences=%d, want resolved/2", stillResolved.Status, stillResolved.Occurrences)
+	}
+	// Different run: reopens and counts.
 	reopened, _, err := s.UpsertAgentBugReport(ctx, rec)
 	if err != nil {
 		t.Fatalf("UpsertAgentBugReport() reoccurrence error = %v", err)
@@ -97,12 +115,12 @@ func TestAgentBugReportLifecycle(t *testing.T) {
 	if err := s.SetAgentBugReportStatus(ctx, "test-ns", created.ID, store.AgentBugReportStatusDismissed, "alice", "noise"); err != nil {
 		t.Fatalf("SetAgentBugReportStatus() dismiss error = %v", err)
 	}
-	dismissed, _, err := s.UpsertAgentBugReport(ctx, rec)
+	dismissed, _, err := s.UpsertAgentBugReport(ctx, &rec2)
 	if err != nil {
 		t.Fatalf("UpsertAgentBugReport() dismissed reoccurrence error = %v", err)
 	}
-	if dismissed.Status != store.AgentBugReportStatusDismissed {
-		t.Fatalf("dismissed reoccurrence status = %q, want dismissed", dismissed.Status)
+	if dismissed.Status != store.AgentBugReportStatusDismissed || dismissed.Occurrences != 4 {
+		t.Fatalf("dismissed reoccurrence: status=%q occurrences=%d, want dismissed/4", dismissed.Status, dismissed.Occurrences)
 	}
 
 	// Get / list / filters.

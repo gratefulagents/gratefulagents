@@ -7,6 +7,7 @@
 import type {
   AgentRun,
   AgentRunUsageResponse,
+  BugReport,
   Cron,
   GetActivityLogResponse,
   GetAgentTraceResponse,
@@ -104,6 +105,9 @@ export interface Scenario {
   securityWorkflows: SecurityWorkflowResource[];
   /** Whether the current user has explicitly installed the curated security bundle. */
   securitySkillsInstalled: boolean;
+
+  /** Agent-filed platform bug reports (listBugReports / updateBugReportStatus). */
+  bugReports: BugReport[];
 
   skillPackages: SkillInfo[];
   runtimeImages: RuntimeImageOption[];

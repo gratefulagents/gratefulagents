@@ -23,6 +23,22 @@ func (s *Server) bugReportStore() (store.AgentBugReportStore, error) {
 	return br, nil
 }
 
+// bugReportVisibility returns the standard resource-visibility predicate for
+// bug reports, derived from the ownership of the run that (most recently)
+// filed each report. Namespaces can be shared between users, so namespace
+// authorization alone is not enough: admins (and internal calls) see
+// everything, other callers see reports whose run is unowned, owned by them,
+// or shared with them.
+func (s *Server) bugReportVisibility(ctx context.Context) func(rec *store.AgentBugReportRecord) bool {
+	runVisible := s.resourceVisibilityFilter(ctx, "agent_run", false)
+	return func(rec *store.AgentBugReportRecord) bool {
+		if rec.RunName == "" {
+			return true
+		}
+		return runVisible(rec.Namespace, rec.RunName)
+	}
+}
+
 // ListBugReports lists agent-filed platform bug reports in a namespace, most
 // recently seen first.
 func (s *Server) ListBugReports(ctx context.Context, req *platform.ListBugReportsRequest) (*platform.ListBugReportsResponse, error) {
@@ -49,8 +65,12 @@ func (s *Server) ListBugReports(ctx context.Context, req *platform.ListBugReport
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("listing bug reports: %w", err))
 	}
+	visible := s.bugReportVisibility(ctx)
 	resp := &platform.ListBugReportsResponse{}
 	for i := range reports {
+		if !visible(&reports[i]) {
+			continue
+		}
 		resp.Reports = append(resp.Reports, bugReportProto(&reports[i]))
 	}
 	return resp, nil
@@ -77,6 +97,16 @@ func (s *Server) UpdateBugReportStatus(ctx context.Context, req *platform.Update
 	id, err := uuid.Parse(req.GetId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid bug report id %q", req.GetId()))
+	}
+	// A report the caller must not see reports the same NotFound as a missing
+	// one, so this endpoint cannot be used to probe or triage another user's
+	// reports in a shared namespace.
+	existing, err := br.GetAgentBugReport(ctx, namespace, id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("getting bug report: %w", err))
+	}
+	if existing == nil || !s.bugReportVisibility(ctx)(existing) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("bug report %s not found", id))
 	}
 	if err := br.SetAgentBugReportStatus(ctx, namespace, id, req.GetStatus(), actor.Subject, req.GetNote()); err != nil {
 		if errors.Is(err, store.ErrAgentBugReportNotFound) {

@@ -35,6 +35,7 @@ import {
   ListAgentRunsResponseSchema,
   ListAvailableModelsResponseSchema,
   ListAvailableModesResponseSchema,
+  ListBugReportsResponseSchema,
   ListCronsResponseSchema,
   ListGitHubRepositoriesResponseSchema,
   ListLinearProjectsResponseSchema,
@@ -472,6 +473,38 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
         installedCount: 55,
         availableCount: 55,
       });
+    },
+
+    // ---- Bug reports --------------------------------------------------------
+    listBugReports: async (req: {
+      namespace: string;
+      status?: string;
+      category?: string;
+      limit?: number;
+    }) => {
+      const reports = s.bugReports.filter(
+        (r) =>
+          (!req.namespace || r.namespace === req.namespace) &&
+          (!req.status || r.status === req.status) &&
+          (!req.category || r.category === req.category),
+      );
+      const limit = req.limit && req.limit > 0 ? req.limit : reports.length;
+      return create(ListBugReportsResponseSchema, { reports: reports.slice(0, limit) });
+    },
+    updateBugReportStatus: async (req: {
+      namespace: string;
+      id: string;
+      status: string;
+      note?: string;
+    }) => {
+      const report = s.bugReports.find(
+        (r) => (!req.namespace || r.namespace === req.namespace) && r.id === req.id,
+      );
+      if (!report) throw notFound(`bug report ${req.namespace}/${req.id}`);
+      report.status = req.status;
+      report.statusNote = req.note ?? "";
+      report.statusActor = s.user.username;
+      return report;
     },
 
     // ---- Slack ------------------------------------------------------------

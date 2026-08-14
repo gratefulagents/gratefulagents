@@ -40,20 +40,26 @@ func (s *Store) UpsertAgentBugReport(ctx context.Context, rec *store.AgentBugRep
 	if !store.ValidAgentBugReportCategory(category) {
 		return nil, false, fmt.Errorf("invalid bug report category %q", category)
 	}
-	// (xmax = 0) distinguishes a fresh insert from a conflict-update. A
-	// resolved report that reoccurs regresses to open so it is re-triaged;
-	// dismissed ("won't fix / noise") stays dismissed.
+	// (xmax = 0) distinguishes a fresh insert from a conflict-update.
+	// Occurrences count distinct reporting runs, so a retry of report_bug
+	// within the same run neither inflates the count nor reopens a report a
+	// human just resolved: only a *different* run counts as a reoccurrence
+	// and regresses a resolved report to open. Dismissed ("won't fix /
+	// noise") stays dismissed either way.
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO agent_bug_reports (namespace, run_name, session_id, category,
 			tool_name, title, body, fingerprint)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (namespace, fingerprint) DO UPDATE SET
+			body = EXCLUDED.body,
+			occurrences = CASE WHEN agent_bug_reports.run_name = EXCLUDED.run_name
+				THEN agent_bug_reports.occurrences
+				ELSE agent_bug_reports.occurrences + 1 END,
+			status = CASE WHEN agent_bug_reports.status = 'resolved'
+					AND agent_bug_reports.run_name <> EXCLUDED.run_name
+				THEN 'open' ELSE agent_bug_reports.status END,
 			run_name = EXCLUDED.run_name,
 			session_id = EXCLUDED.session_id,
-			body = EXCLUDED.body,
-			occurrences = agent_bug_reports.occurrences + 1,
-			status = CASE WHEN agent_bug_reports.status = 'resolved'
-				THEN 'open' ELSE agent_bug_reports.status END,
 			last_seen_at = now(),
 			updated_at = now()
 		RETURNING `+agentBugReportColumns+`, (xmax = 0) AS created`,

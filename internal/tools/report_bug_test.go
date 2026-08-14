@@ -29,13 +29,15 @@ func (f *fakeBugReportStore) UpsertAgentBugReport(_ context.Context, rec *store.
 	}
 	key := rec.Namespace + "/" + rec.Fingerprint
 	if existing, ok := f.reports[key]; ok {
-		existing.Occurrences++
+		if existing.RunName != rec.RunName {
+			existing.Occurrences++
+			if existing.Status == store.AgentBugReportStatusResolved {
+				existing.Status = store.AgentBugReportStatusOpen
+			}
+		}
 		existing.RunName = rec.RunName
 		existing.SessionID = rec.SessionID
 		existing.Body = rec.Body
-		if existing.Status == store.AgentBugReportStatusResolved {
-			existing.Status = store.AgentBugReportStatusOpen
-		}
 		out := *existing
 		return &out, false, nil
 	}
@@ -132,6 +134,12 @@ func TestReportBugCreateAndDedupe(t *testing.T) {
 	}
 	if len(fake.reports) != 1 {
 		t.Fatalf("stored reports after dedupe = %d, want 1", len(fake.reports))
+	}
+
+	// A retry from the same run must not inflate the distinct-run count.
+	payload = executeReportBug(t, tool2, `{"title":"ApplyPatch fails on rename hunks","body":"Retrying the report from the same run after another failure.","category":"bug","tool_name":"ApplyPatch"}`)
+	if payload["duplicate"] != true || payload["occurrences"] != float64(2) {
+		t.Fatalf("same-run retry: got %v, want duplicate=true occurrences=2", payload)
 	}
 }
 

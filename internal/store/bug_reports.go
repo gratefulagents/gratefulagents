@@ -85,9 +85,11 @@ type AgentBugReportFilter struct {
 type AgentBugReportStore interface {
 	// UpsertAgentBugReport inserts the report or, when the
 	// (namespace, fingerprint) key already exists, merges into the existing
-	// row: occurrences and last_seen_at are bumped and the latest run's
-	// run_name, session_id, and body are kept. A previously resolved report
-	// that reoccurs regresses to open (dismissed reports stay dismissed).
+	// row: last_seen_at is bumped and the latest run's run_name, session_id,
+	// and body are kept. Occurrences count distinct reporting runs: a repeat
+	// from the run already recorded as the last reporter does not increment
+	// the count. A previously resolved report regresses to open only when a
+	// *different* run reports it again (dismissed reports stay dismissed).
 	// The bool reports whether a new row was created.
 	UpsertAgentBugReport(ctx context.Context, rec *AgentBugReportRecord) (*AgentBugReportRecord, bool, error)
 	// GetAgentBugReport returns (nil, nil) when the report does not exist.

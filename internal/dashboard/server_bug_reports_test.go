@@ -7,6 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
@@ -86,11 +87,11 @@ func (m *mockBugReportStore) SetAgentBugReportStatus(_ context.Context, namespac
 
 var _ store.AgentBugReportStore = (*mockBugReportStore)(nil)
 
-func seedBugReport(t *testing.T, m *mockBugReportStore, namespace, title string) *store.AgentBugReportRecord {
+func seedBugReport(t *testing.T, m *mockBugReportStore, namespace, runName, title string) *store.AgentBugReportRecord {
 	t.Helper()
 	rec, _, err := m.UpsertAgentBugReport(context.Background(), &store.AgentBugReportRecord{
 		Namespace:   namespace,
-		RunName:     "run-1",
+		RunName:     runName,
 		Category:    store.AgentBugReportCategoryBug,
 		Title:       title,
 		Body:        "expected X, got Y",
@@ -117,8 +118,8 @@ func TestListBugReports(t *testing.T) {
 	mock := newMockBugReportStore()
 	srv := newSecurityTestServer(t, mock)
 	ctx := actorContext("alice", "admin", "", "")
-	seedBugReport(t, mock, "default", "ApplyPatch fails on rename hunks")
-	other := seedBugReport(t, mock, "other-ns", "unrelated report")
+	seedBugReport(t, mock, "default", "run-1", "ApplyPatch fails on rename hunks")
+	other := seedBugReport(t, mock, "other-ns", "run-1", "unrelated report")
 
 	resp, err := srv.ListBugReports(ctx, &platform.ListBugReportsRequest{Namespace: "default"})
 	if err != nil {
@@ -147,7 +148,7 @@ func TestUpdateBugReportStatus(t *testing.T) {
 	mock := newMockBugReportStore()
 	srv := newSecurityTestServer(t, mock)
 	ctx := actorContext("alice", "admin", "", "")
-	rec := seedBugReport(t, mock, "default", "ApplyPatch fails on rename hunks")
+	rec := seedBugReport(t, mock, "default", "run-1", "ApplyPatch fails on rename hunks")
 
 	updated, err := srv.UpdateBugReportStatus(ctx, &platform.UpdateBugReportStatusRequest{
 		Namespace: "default", Id: rec.ID.String(), Status: "resolved", Note: "fixed in v1.2",
@@ -169,8 +170,63 @@ func TestUpdateBugReportStatus(t *testing.T) {
 		t.Fatalf("missing report error = %v, want NotFound", err)
 	}
 	// A report in another namespace must be indistinguishable from a missing one.
-	other := seedBugReport(t, mock, "other-ns", "unrelated report")
+	other := seedBugReport(t, mock, "other-ns", "run-1", "unrelated report")
 	if _, err := srv.UpdateBugReportStatus(ctx, &platform.UpdateBugReportStatusRequest{Namespace: "default", Id: other.ID.String(), Status: "resolved"}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("cross-namespace update error = %v, want NotFound", err)
+	}
+}
+
+// TestBugReportVisibilityFollowsRunOwnership covers shared namespaces: a
+// report filed by a run owned by another user is hidden from listing and its
+// status RPC reports NotFound, while unowned and own-run reports stay visible.
+func TestBugReportVisibilityFollowsRunOwnership(t *testing.T) {
+	mock := newMockBugReportStore()
+	scheme := newDashboardTestScheme(t)
+	srv := &Server{
+		k8sClient:  fake.NewClientBuilder().WithScheme(scheme).WithObjects(sharedNamespaceObj("team-shared")).Build(),
+		scheme:     scheme,
+		stateStore: mock,
+	}
+	mine := seedBugReport(t, mock, "team-shared", "run-alice", "mine: tool X fails")
+	foreign := seedBugReport(t, mock, "team-shared", "run-bob", "bob's: tool Y fails")
+	unowned := seedBugReport(t, mock, "team-shared", "run-system", "system: tool Z fails")
+	for run, owner := range map[string]string{"run-alice": "alice", "run-bob": "bob"} {
+		if err := mock.SetResourceOwner(context.Background(), "agent_run", run, "team-shared", owner); err != nil {
+			t.Fatalf("SetResourceOwner(%s) error = %v", run, err)
+		}
+	}
+
+	ctx := actorContext("alice", "member", "", "")
+	resp, err := srv.ListBugReports(ctx, &platform.ListBugReportsRequest{Namespace: "team-shared"})
+	if err != nil {
+		t.Fatalf("ListBugReports() error = %v", err)
+	}
+	seen := map[string]bool{}
+	for _, r := range resp.GetReports() {
+		seen[r.GetId()] = true
+	}
+	if !seen[mine.ID.String()] || !seen[unowned.ID.String()] || seen[foreign.ID.String()] {
+		t.Fatalf("visibility = %v; want own + unowned visible, foreign hidden", seen)
+	}
+
+	// Triaging a foreign report is indistinguishable from a missing one.
+	if _, err := srv.UpdateBugReportStatus(ctx, &platform.UpdateBugReportStatusRequest{Namespace: "team-shared", Id: foreign.ID.String(), Status: "dismissed"}); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("foreign UpdateBugReportStatus code = %v, want NotFound", connect.CodeOf(err))
+	}
+	if got, _ := mock.GetAgentBugReport(context.Background(), "team-shared", foreign.ID); got.Status != "open" {
+		t.Fatalf("foreign report status = %q, want untouched", got.Status)
+	}
+	if _, err := srv.UpdateBugReportStatus(ctx, &platform.UpdateBugReportStatusRequest{Namespace: "team-shared", Id: mine.ID.String(), Status: "acknowledged"}); err != nil {
+		t.Fatalf("own UpdateBugReportStatus() error = %v", err)
+	}
+
+	// Admins see and triage everything.
+	adminCtx := actorContext("root", "admin", "", "")
+	resp, err = srv.ListBugReports(adminCtx, &platform.ListBugReportsRequest{Namespace: "team-shared"})
+	if err != nil || len(resp.GetReports()) != 3 {
+		t.Fatalf("admin ListBugReports = %d reports, err %v; want 3", len(resp.GetReports()), err)
+	}
+	if _, err := srv.UpdateBugReportStatus(adminCtx, &platform.UpdateBugReportStatusRequest{Namespace: "team-shared", Id: foreign.ID.String(), Status: "resolved"}); err != nil {
+		t.Fatalf("admin UpdateBugReportStatus() error = %v", err)
 	}
 }
