@@ -238,6 +238,10 @@ func (t *runSecurityToolTool) Execute(ctx context.Context, input json.RawMessage
 			tool.Name, in.Target.Type, strings.Join(tool.TargetTypes, ", ")), nil
 	}
 
+	if in.campaignExceedsWaitBudget() {
+		return errorResultf("the requested campaign needs about %ds but the platform waits at most %ds for a tool run: shorten the campaign (fuzztime / max_total_time) so its result can be ingested",
+			in.campaignWait(), securityToolRunMaxTimeout), nil
+	}
 	name, err := securityToolRunName(t.deps.RunName, tool.Name)
 	if err != nil {
 		return errorResultf("naming the security tool run: %v", err), nil
@@ -305,8 +309,47 @@ func (in runSecurityToolInput) timeout() int {
 	seconds := in.TimeoutSeconds
 	if seconds <= 0 {
 		seconds = securityToolRunDefaultTimeout
+		// A fuzz campaign decides how long the Job runs, so the default wait
+		// has to follow it. Waiting less than the campaign returns
+		// "unfinished": the findings are never ingested and the corpus is
+		// never persisted, even though the Job went on to succeed.
+		if campaign := in.campaignWait(); campaign > seconds {
+			seconds = campaign
+		}
 	}
 	return min(max(seconds, securityToolRunMinTimeout), securityToolRunMaxTimeout)
+}
+
+// campaignWait is the control-plane wait a fuzz campaign needs: the campaign
+// itself plus the executor's own allowance for scheduling and, for Rust, for
+// building the instrumented target.
+func (in runSecurityToolInput) campaignWait() int {
+	var campaign time.Duration
+	var err error
+	switch in.Tool {
+	case "go-fuzz-tests":
+		campaign, err = securitytoolpacks.ParseFuzzCampaign(in.Arguments["fuzztime"])
+	case "cargo-fuzz":
+		campaign, err = securitytoolpacks.ParseFuzzCampaign(in.Arguments["max_total_time"])
+		campaign += securitytoolpacks.RustFuzzBuildAllowance
+	default:
+		return 0
+	}
+	if err != nil {
+		return 0
+	}
+	return int((campaign + securitytoolpacks.FuzzCampaignOverhead).Seconds())
+}
+
+// campaignExceedsWaitBudget reports a campaign the control plane could not wait
+// out even at its maximum. Rejecting it up front is honest: dispatching it
+// would return "unfinished" with the work orphaned rather than ingested.
+func (in runSecurityToolInput) campaignExceedsWaitBudget() bool {
+	return in.exceedsWait(securityToolRunMaxTimeout)
+}
+
+func (in runSecurityToolInput) exceedsWait(maximum int) bool {
+	return in.TimeoutSeconds <= 0 && in.campaignWait() > maximum
 }
 
 // stagedTarget records what a request staged into object storage, for the
@@ -613,6 +656,7 @@ func archiveWorkspaceTargetWithInjected(root string, injected map[string][]byte)
 	}
 	writer := tar.NewWriter(gz)
 	var total int64
+	written := map[string]bool{}
 
 	add := func(path string, info fs.FileInfo, name string) error {
 		link := ""
@@ -633,6 +677,7 @@ func archiveWorkspaceTargetWithInjected(root string, injected map[string][]byte)
 			return headerErr
 		}
 		header.Name = name
+		written[name] = true
 		header.Uid, header.Gid = 0, 0
 		header.Uname, header.Gname = "", ""
 		header.ModTime = time.Unix(0, 0).UTC()
@@ -695,6 +740,14 @@ func archiveWorkspaceTargetWithInjected(root string, injected map[string][]byte)
 		return nil, 0, 0, err
 	}
 	for _, name := range slices.Sorted(maps.Keys(injected)) {
+		// A corpus input persisted by an earlier campaign can later be
+		// committed to the repository at the same content-derived path. The
+		// extractor creates files with O_EXCL, so a duplicate header would
+		// abort extraction and break every later campaign; the workspace copy
+		// wins, since it is what the repository actually contains.
+		if written[name] {
+			continue
+		}
 		content := injected[name]
 		header := &tar.Header{
 			Typeflag: tar.TypeReg, Name: name, Mode: 0o600, Size: int64(len(content)),

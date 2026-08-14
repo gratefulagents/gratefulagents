@@ -140,3 +140,42 @@ func TestPersistFuzzCorpusStaysBounded(t *testing.T) {
 		t.Fatalf("stored %d entries, want at most %d", len(stored.Entries), maxFuzzCorpusEntries)
 	}
 }
+
+// A corpus input persisted by an earlier campaign can later be committed to the
+// repository at the same content-derived path. Two tar headers for one path
+// abort extraction in the Job (files are created with O_EXCL), which would
+// break every later campaign, so the workspace copy has to win.
+func TestInjectedCorpusNeverDuplicatesAWorkspaceEntry(t *testing.T) {
+	workspace := t.TempDir()
+	seedDir := filepath.Join(workspace, "parser", "testdata", "fuzz", "FuzzDecode")
+	if err := os.MkdirAll(seedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	committed := []byte("seed-input")
+	name := fuzzCorpusEntryName(committed)
+	if err := os.WriteFile(filepath.Join(seedDir, name), committed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	injected := map[string][]byte{
+		"parser/testdata/fuzz/FuzzDecode/" + name: committed,
+		"parser/testdata/fuzz/FuzzDecode/fresh":   []byte("new-input"),
+	}
+	archive, _, _, err := archiveWorkspaceTargetWithInjected(workspace, injected)
+	if err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	names := archiveNames(t, archive)
+	seen := map[string]int{}
+	for _, entry := range names {
+		seen[entry]++
+	}
+	for entry, count := range seen {
+		if count > 1 {
+			t.Fatalf("archive carries %d headers for %q", count, entry)
+		}
+	}
+	if seen["parser/testdata/fuzz/FuzzDecode/fresh"] != 1 {
+		t.Fatalf("a corpus input absent from the workspace was not injected: %v", names)
+	}
+}

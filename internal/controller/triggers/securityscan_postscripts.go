@@ -697,14 +697,27 @@ func securityProgramPayableFloor(program *triggersv1alpha1.SecurityProgramSpec) 
 	if program == nil || len(program.InScopeImpacts) == 0 {
 		return floor
 	}
+	// Dispatch and packaging must read the SAME scope state. The packaging
+	// tool sees the encoded annotation and refuses to treat a truncated list
+	// as authoritative, so a floor derived here from the complete spec would
+	// dispatch mediums the bundle gate then rejects. Deriving it from the
+	// encoded annotations keeps the two sides in agreement by construction.
+	annotations := securityProgramScopeAnnotations(program)
+	if annotations[triggersv1alpha1.SecurityScanProgramImpactsTruncatedAnnotation] == "true" {
+		return floor
+	}
 	lowest := -1
-	for _, impact := range program.InScopeImpacts {
-		rank := security.SeverityRank(strings.TrimSpace(impact.Level))
+	for line := range strings.SplitSeq(annotations[triggersv1alpha1.SecurityScanProgramImpactsAnnotation], "\n") {
+		level, _, found := strings.Cut(line, "\t")
+		if !found {
+			continue
+		}
+		rank := security.SeverityRank(strings.TrimSpace(level))
 		if rank < 0 {
 			continue
 		}
 		if lowest < 0 || rank < lowest {
-			lowest, floor = rank, strings.TrimSpace(impact.Level)
+			lowest, floor = rank, strings.TrimSpace(level)
 		}
 	}
 	return floor

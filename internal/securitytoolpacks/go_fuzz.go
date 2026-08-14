@@ -32,6 +32,12 @@ const (
 	// fuzzer has had the time the run asked for.
 	fuzzCampaignOverhead = 90 * time.Second
 
+	// FuzzCampaignOverhead and RustFuzzBuildAllowance are exported so the
+	// control plane can derive its wait from the same numbers the executor
+	// budgets with; a caller that waits less than the campaign orphans the run.
+	FuzzCampaignOverhead   = fuzzCampaignOverhead
+	RustFuzzBuildAllowance = rustFuzzBuildAllowance
+
 	// Promotion bounds. A campaign can generate thousands of inputs; the seed
 	// corpus we carry forward is deliberately a bounded sample.
 	maxPromotedCorpusFiles = 64
