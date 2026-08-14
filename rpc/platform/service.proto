@@ -392,6 +392,15 @@ service PlatformService {
   // installation copies or refreshes only untouched curated bundle members.
   rpc GetSecuritySkillsStatus(google.protobuf.Empty) returns (SecuritySkillsStatus);
   rpc InstallSecuritySkills(google.protobuf.Empty) returns (SecuritySkillsStatus);
+
+  // Agent bug reports: durable platform/tooling bug reports, complaints, and
+  // feature requests filed by agents via the report_bug tool. Reports
+  // deduplicate per (namespace, fingerprint) across runs and are triaged by
+  // humans in the dashboard. Backed by the optional Postgres state store.
+  rpc ListBugReports(ListBugReportsRequest) returns (ListBugReportsResponse);
+  // UpdateBugReportStatus sets the triage status (open, acknowledged,
+  // resolved, dismissed) of one report, attributed to the caller.
+  rpc UpdateBugReportStatus(UpdateBugReportStatusRequest) returns (BugReport);
 }
 
 message ListAgentRunsRequest {
@@ -5351,4 +5360,45 @@ message SecurityProgramScanTarget {
   int32 priority = 6;
   bool featured = 7;
   string base_branch = 8;
+}
+
+// BugReport is one deduplicated agent-filed platform bug report, complaint,
+// or feature request, unique per (namespace, fingerprint). run_name is the
+// most recent run that observed the problem.
+message BugReport {
+  string id = 1;
+  string namespace = 2;
+  string run_name = 3;
+  // category is one of bug, complaint, or feature.
+  string category = 4;
+  // tool_name names the affected tool when the report targets one (may be empty).
+  string tool_name = 5;
+  string title = 6;
+  string body = 7;
+  // occurrences counts how many runs reported this same problem.
+  int32 occurrences = 8;
+  // status is one of open, acknowledged, resolved, or dismissed.
+  string status = 9;
+  string status_note = 10;
+  string status_actor = 11;
+  google.protobuf.Timestamp first_seen_at = 12;
+  google.protobuf.Timestamp last_seen_at = 13;
+}
+
+message ListBugReportsRequest {
+  string namespace = 1;
+  string status = 2;   // Optional: filter by triage status (empty = all)
+  string category = 3; // Optional: filter by category (empty = all)
+  int32 limit = 4;
+}
+
+message ListBugReportsResponse {
+  repeated BugReport reports = 1;
+}
+
+message UpdateBugReportStatusRequest {
+  string namespace = 1;
+  string id = 2;
+  string status = 3;
+  string note = 4;
 }
