@@ -11,9 +11,6 @@ spec:
       skillRefs:
         - name: trail-of-bits-audit-context-building
         - name: api-authz-hunting
-      tools:
-        denied:
-          - Bash
       objective: >-
         Inventory every place this codebase decides who a caller is or what they may do: authentication
         middleware, session and token validation, permission or policy checks, role and scope comparisons,
@@ -49,9 +46,6 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: trail-of-bits-fp-check
-      tools:
-        denied:
-          - Bash
       objective: >-
         Attack one access-control decision: {{item.decision_point}} ({{item.kind}}) covering
         {{item.resource}}, defined in {{item.file}} and enforced by {{item.enforced_by}}. Determine what a
@@ -93,9 +87,6 @@ spec:
       skillRefs:
         - name: web-app-hunting
         - name: api-authz-hunting
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit how identity is established and carried between requests, using the decision inventory in
         {{tasks.map-auth-decisions.output}} as the map of what depends on it. Examine credential
@@ -132,9 +123,6 @@ spec:
       skillRefs:
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
-      tools:
-        denied:
-          - Bash
       objective: >-
         Call list_security_findings to load everything the per-decision investigations and the identity
         audit recorded for this scan, and triage that set; address each finding by its fingerprint with

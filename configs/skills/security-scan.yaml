@@ -31,13 +31,13 @@ spec:
 
         ## Deterministic tool packs
 
-        Scanner binaries are not installed in the run image. Every reportable
-        deterministic scan goes through the typed `run_security_tool` tool: give
-        it the registered tool name, the target (type, locator, revision), the
-        tool's typed options, the authorized `scope`, and a `seed` for anything
-        stochastic. There is no image, command, or raw-flag argument — the
-        platform derives argv from its compiled registry and runs the tool in a
-        dedicated Kubernetes Job built from the pinned security-tools image.
+        Scanner binaries are not installed in the run image. Every registered
+        deterministic scanner goes through the typed `run_security_tool` tool:
+        give it the registered tool name, the target (type, locator, revision),
+        the tool's typed options, the authorized `scope`, and a `seed` for
+        anything stochastic. There is no image, command, or raw-flag argument —
+        the platform derives argv from its compiled registry and runs the tool in
+        a dedicated Kubernetes Job built from the pinned security-tools image.
 
         The call returns a typed result whose `status` is exactly one of `pass`,
         `findings`, `error`, `timeout`, `partial`, or `not_applicable`, plus
@@ -47,8 +47,14 @@ spec:
         A failure, timeout, missing pin, or unavailable catalog tool is an
         error/not-applicable — never a pass.
 
-        Bash remains available for exploratory commands, but exploratory output is
-        not a deterministic scan result.
+        Local command execution is available for repository inspection and safe
+        project-native builds, tests, simulators, and harnesses. Inspect invoked
+        scripts before running them, never contact a live network or third party,
+        and preserve the exact command, versions, exit status, and output. When a
+        concrete finding needs validation and no suitable harness exists, create
+        the smallest candidate-specific PoC in a disposable workspace, execute it,
+        debug it, and minimize it. Exploratory command output without a bounded
+        harness is not a deterministic scan result.
 
         ## Sources and sinks by ecosystem
 

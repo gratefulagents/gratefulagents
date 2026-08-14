@@ -102,8 +102,9 @@ spec:
         simulation, message replay and mutation, accounting assertions, challenge
         games, circuit tests, malformed proofs, verifier vectors, and differential
         checks among native and constrained implementations. Run a compiler, node,
-        simulator, test runner, fuzzer, prover, verifier, or analyzer only through
-        a registered execution tool. Record revision, exact tool and command,
+        simulator, test runner, fuzzer, prover, verifier, or analyzer through a
+        registered execution tool when available, or with an inspected project-native
+        local command in the local sandbox. Record revision, exact tool and command,
         versions, topology or fixture, seed, corpus, bounds, coverage, exit status,
         and artifacts. If no applicable executable integration exists, report it
         unsupported. Tool errors and timeouts are incomplete coverage; a bounded

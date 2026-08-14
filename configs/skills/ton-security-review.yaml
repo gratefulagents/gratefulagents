@@ -77,11 +77,12 @@ spec:
         - Prefer deterministic local compilation, tests, emulators, transaction
           traces, and crafted cell/message fixtures. Exercise success, bounce,
           replay, malformed serialization, low-value, and upgrade cases. Run a
-          compiler, test runner, emulator, fuzzer, or analyzer only through a
-          registered execution tool; if no applicable tool exists, report that
-          execution as unsupported rather than implying it ran.
+          compiler, test runner, emulator, fuzzer, or analyzer through a registered
+          execution tool when available, or with an inspected project-native local
+          command in the local sandbox; if neither path exists, report execution as
+          unsupported rather than implying it ran.
         - Record the repository revision, compiler and dependency versions, exact
-          registered tool and command, fixture or seed, bounds, exit status, and
+          tool and command, fixture or seed, bounds, exit status, and
           relevant output or artifact. A timeout or tool error is incomplete
           coverage; a bounded clean run supports only the named cases.
 

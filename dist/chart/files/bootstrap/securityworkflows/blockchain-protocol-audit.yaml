@@ -12,9 +12,6 @@ spec:
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
-      tools:
-        denied:
-          - Bash
       objective: >-
         Build the authoritative scope, platform, and component inventory for this repository before any surface
         is mapped. Record the immutable revision under review, explicit in-scope and out-of-scope roots, stated
@@ -82,9 +79,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-entry-point-analyzer
-      tools:
-        denied:
-          - Bash
       objective: >-
         Consume the complete platform/component inventory in
         {{tasks.detect-platforms-and-components.output}} and map and risk-rank every production protocol
@@ -130,9 +124,6 @@ spec:
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-secure-workflow-guide
-      tools:
-        denied:
-          - Bash
       objective: >-
         Process the indexed array in {{items}}, reviewing every risk-ranked protocol surface it contains end
         to end. For each input, use its surface_id, domain, entrypoint, file, attacker, asset_or_invariant, and
@@ -177,9 +168,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.map-protocol-surfaces.output}} to audit consensus, finality, and state transitions. Cover
         vote and certificate validation, stake-weighted quorum, validator-set and epoch changes,
@@ -201,9 +189,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
-      tools:
-        denied:
-          - Bash
       objective: >-
         Determine from {{tasks.map-protocol-surfaces.output}} whether this is a rollup or supplies a rollup
         component. If applicable, audit L1 origin selection and reorg handling, batch framing, compression and
@@ -226,9 +211,6 @@ spec:
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-constant-time-analysis
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit transaction and protocol authorization, proof verification, and value accounting using
         {{tasks.map-protocol-surfaces.output}}. Check signature encoding and recovery, domain and chain
@@ -249,9 +231,6 @@ spec:
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit unauthenticated peer, discovery, gossip, mempool, synchronization, RPC, API, and binary parser
         surfaces in {{tasks.map-protocol-surfaces.output}}. Check peer identity and handshake binding,
@@ -273,9 +252,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-sharp-edges
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Where {{tasks.map-protocol-surfaces.output}} shows a chain, layer, shard, or custody boundary, trace
         the entire message and value lifecycle. Audit origin, destination, chain-id, emitter, nonce,
@@ -297,9 +273,6 @@ spec:
         - name: trail-of-bits-c-review
         - name: trail-of-bits-rust-review
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit virtual machines, interpreters, precompiles, system contracts, host functions, plugins, WASM,
         native extensions, and privileged protocol-to-contract calls in {{tasks.map-protocol-surfaces.output}}.
@@ -322,9 +295,6 @@ spec:
         - name: trail-of-bits-constant-time-analysis
         - name: trail-of-bits-sharp-edges
         - name: trail-of-bits-zeroize-audit
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit signing policy, threshold coordination, and remote signer/HSM interfaces identified in
         {{tasks.map-protocol-surfaces.output}}. Check that each signing request binds the authenticated caller,
@@ -346,9 +316,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-zeroize-audit
         - name: trail-of-bits-constant-time-analysis
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit generation, derivation, storage, import/export, wrapping, backup, transport, rotation,
         zeroization, logging, and error handling for private keys, seed material, operator credentials, and
@@ -369,9 +336,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-rust-review
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit persistent state, sync, snapshots, pruning, rollback, reorg, migration, recovery, and concurrent
         processing from {{tasks.map-protocol-surfaces.output}}. Hunt for snapshots or metadata accepted without
@@ -393,9 +357,6 @@ spec:
         - name: trail-of-bits-c-review
         - name: trail-of-bits-rust-review
         - name: trail-of-bits-address-sanitizer
-      tools:
-        denied:
-          - Bash
       objective: >-
         In C, C++, Rust unsafe code, cgo/JNI, cryptographic native libraries, firmware, and FFI exposed by
         {{tasks.map-protocol-surfaces.output}}, trace peer-, transaction-, proof-, and signer-controlled sizes,
@@ -417,9 +378,6 @@ spec:
         - name: trail-of-bits-guidelines-advisor
         - name: trail-of-bits-secure-workflow-guide
         - name: cloud-iac-hunting
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit genesis and chain configuration, network and chain IDs, trusted checkpoints, fork and upgrade
         activation, migrations, default service bindings, exposed ports, and deployment wiring associated
@@ -441,9 +399,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-supply-chain-risk-auditor
         - name: github-agent-supply-chain
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit consensus-critical dependencies, generated protocol code, build scripts, CI release jobs,
         container images, downloaded tools and binaries, reproducibility, and signed upgrade artifacts tied
@@ -466,9 +421,6 @@ spec:
         - name: evm-economic-and-mev-review
         - name: evm-low-level-and-deployment-review
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
         evm-protocol is not_detected, explicitly return skipped; if its evidence is inconclusive, review what
@@ -479,7 +431,7 @@ spec:
         domains, ERC-1271/EIP-712/permits/account abstraction, CREATE2/clones, Yul/ABI/precompiles, VM/host
         differences, proxy/diamond migrations, governance, liquidation, ordering, and MEV where present.
         Identify applicable existing unit, integration, fork, invariant, fuzz, symbolic, and artifact-match
-        tests and inspect their definitions/results when present, but this Bash-denied manual task must not
+        tests and inspect their definitions/results when present, but this manual task must not
         claim any build, analyzer, test, fuzzer, symbolic engine, or fork was executed. Record execution gaps
         in limitations. Report only production-reachable attacker paths with decisive file:line evidence and
         return every resulting finding fingerprint; otherwise return an empty fingerprint list.
@@ -495,9 +447,6 @@ spec:
         - name: trail-of-bits-solana-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-rust-review
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
         solana-anchor is not_detected, explicitly return skipped; if inconclusive or required generated code
@@ -508,7 +457,7 @@ spec:
         bumps, CPI target and privilege propagation, remaining accounts, sysvars and instruction introspection,
         init/close/reinit, SPL Token and Token-2022 hooks/extensions, upgrade authority, compute limits, unsafe
         Rust, and transaction ordering. Identify applicable program-test, local-validator, stateful/property,
-        fuzz, verifiable-build, and compute tests, but do not claim this Bash-denied manual task executed any
+        fuzz, verifiable-build, and compute tests, but do not claim this manual task executed any
         tool or test; record execution gaps in limitations. Report only concrete production-reachable attacker
         paths with decisive file:line evidence and return their finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
@@ -522,9 +471,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-cosmos-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
         cosmos-cosmwasm-ibc is not_detected, explicitly return skipped; use inconclusive or unsupported when
@@ -536,7 +482,7 @@ spec:
         clients/connections/channels/packets/timeouts/acks/middleware/denom traces/relayer failure; and CosmWasm
         instantiate/execute/query/reply/migrate, funds, callbacks, storage, gas, and memory. Identify applicable
         Go/Rust unit, simulation, invariant, fuzz, interchain, upgrade, and deterministic-replay tests, but do
-        not claim this Bash-denied manual task ran them. Record execution limits and report only concrete
+        not claim this manual task ran them. Record execution limits and report only concrete
         attacker paths with decisive file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
       outputSchema: |-
@@ -550,9 +496,6 @@ spec:
         - name: trail-of-bits-substrate-vulnerability-scanner
         - name: trail-of-bits-rust-review
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
         substrate-polkadot-xcm is not_detected, explicitly return skipped; classify missing runtime metadata,
@@ -564,7 +507,7 @@ spec:
         nested dispatch, benchmarks, call indexes, proxy/multisig/scheduler/collective paths, and XCM origin,
         barrier, asset, fee, routing, replay, and version handling. Identify applicable unit, runtime, try-runtime,
         benchmark, property/fuzz, migration, and native/Wasm differential tests without claiming this
-        Bash-denied task ran them. Record limitations and report only concrete attacker paths with decisive
+        task ran them. Record limitations and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
       outputSchema: |-
@@ -577,9 +520,6 @@ spec:
         - name: blockchain-security-research-method
         - name: move-chain-security-review
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} and
         preserve Aptos semantics independently from Sui. If aptos-move is not_detected, explicitly return
@@ -591,7 +531,7 @@ spec:
         account and transaction authentication, sponsored and multisig transactions, sequence numbers,
         Block-STM conflicts, Aptos objects/tokens, framework natives, and package compatibility. Identify
         applicable Move unit/property tests, transactional tests, prover specifications, upgrade checks, and
-        parallel-execution differentials, but do not claim this Bash-denied task executed the Move compiler,
+        parallel-execution differentials, but do not claim this task executed the Move compiler,
         Prover, tests, or node. Record limitations and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
@@ -605,9 +545,6 @@ spec:
         - name: blockchain-security-research-method
         - name: move-chain-security-review
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} and
         preserve Sui object semantics independently from Aptos. If sui-move is not_detected, explicitly return
@@ -619,7 +556,7 @@ spec:
         result flow, dynamic fields, receiving and transfers, object wrapping/deletion, clock/randomness,
         kiosks/tokens where present, package upgrades, and native/framework calls. Identify applicable Move
         unit/scenario/property tests, PTB/stateful tests, upgrade checks, and shared-object concurrency tests,
-        but do not claim this Bash-denied task ran compiler, tests, simulators, or validators. Record limitations
+        but do not claim this task ran compiler, tests, simulators, or validators. Record limitations
         and report only concrete attacker paths with decisive file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
       outputSchema: |-
@@ -632,9 +569,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-cairo-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
         cairo-starknet is not_detected, explicitly return skipped; classify missing Sierra/CASM/deployed-class
@@ -645,7 +579,7 @@ spec:
         arithmetic, source/Sierra/CASM/class consistency, storage/components, constructors, class replacement,
         library calls, dispatchers, syscalls, account validation/execution, nonces/fees, and L1 handlers with
         authenticated senders. Identify applicable unit, integration, fuzz/property, artifact comparison,
-        account, and L1 messaging tests, but do not claim this Bash-denied task executed Scarb, tests, analyzers,
+        account, and L1 messaging tests, but do not claim this task executed Scarb, tests, analyzers,
         provers, or a devnet. Record limitations and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
@@ -659,17 +593,13 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-ton-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If TON
         is not_detected, explicitly return skipped; otherwise map contracts, Jettons, messages, wallets, and
         validator/client boundaries and establish assets and sender, message, balance/gas, bounce, and custody
         invariants. Manually audit integer-as-boolean errors, fake Jettons, sender validation, message
         mode/value/gas, bounce handling, replay, dictionaries/cells, and upgrades. Identify applicable unit,
-        emulator, property/stateful, compile/artifact, and integration tests, but do not claim this Bash-denied
-        task ran any. Record TON-specific execution limits and report only concrete attacker paths with decisive
+        emulator, property/stateful, compile/artifact, and integration tests, but do not claim this task ran any. Record TON-specific execution limits and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
       outputSchema: |-
@@ -682,16 +612,13 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-algorand-vulnerability-scanner
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
         Algorand is not_detected, explicitly return skipped; otherwise map TEAL/PyTeal apps, assets, accounts,
         groups, and node boundaries and establish authorization, rekey, fee, asset, group-completeness, state,
         and upgrade invariants. Manually audit rekeying, fees, group indexes and foreign references,
         close/remainder paths, asset/app identity, and inner transactions. Identify applicable unit, sandbox,
-        property/stateful, compile/artifact, and integration tests, but do not claim this Bash-denied task ran
+        property/stateful, compile/artifact, and integration tests, but do not claim this task ran
         any. Record Algorand-specific execution limits and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
@@ -706,9 +633,6 @@ spec:
         - name: bitcoin-lightning-security-review
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-constant-time-analysis
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
         bitcoin-lightning is not_detected, explicitly return skipped; classify missing network, policy,
@@ -720,7 +644,7 @@ spec:
         intent, descriptors and derivation, coin selection/change, RBF/CPFP and malleability assumptions,
         HTLC/PTLC timeouts, commitment updates, justice transactions, watchtowers, routing fees, channel jamming,
         liquidity and backup/recovery. Identify applicable unit, functional/regtest, script-vector, property/fuzz,
-        channel-simulation, and interoperability tests, but do not claim this Bash-denied task ran nodes or
+        channel-simulation, and interoperability tests, but do not claim this task ran nodes or
         tests. Record limitations and report only concrete attacker paths with decisive file:line evidence and
         finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
@@ -735,9 +659,6 @@ spec:
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
         - name: trail-of-bits-constant-time-analysis
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
         all detected platforms. If no bridge, L2/rollup, data-availability, proof, circuit, prover, verifier,
@@ -750,7 +671,7 @@ spec:
         fault games, sequencer failure, ZK witnesses/public inputs/range constraints/field aliasing/transcripts/
         aggregation/recursion/setup provenance, and prover-verifier disagreement. Identify applicable unit,
         integration, reorg, differential, invariant/fuzz, circuit constraint, proof-vector, and local lifecycle
-        tests, but do not claim this Bash-denied task executed any. Record limitations and report only concrete
+        tests, but do not claim this task executed any. Record limitations and report only concrete
         attacker paths with decisive file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
       outputSchema: |-
@@ -765,9 +686,6 @@ spec:
         - name: trail-of-bits-wycheproof
         - name: trail-of-bits-zeroize-audit
         - name: trail-of-bits-sharp-edges
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
         all detected platforms. If no wallet, signing, key-management, HSM, MPC/threshold, custody, or custom
@@ -780,7 +698,7 @@ spec:
         WalletConnect permissions, browser/mobile/hardware isolation; DKG, rogue keys, shares, backups,
         attestation and policy; and nonce bias/reuse, batch verification, constant-time behavior and vectors.
         Identify applicable unit, vector/Wycheproof, interoperability, threshold-failure, recovery, property/fuzz,
-        and side-channel tests, but do not claim this Bash-denied task ran them. Record limitations and report
+        and side-channel tests, but do not claim this task ran them. Record limitations and report
         only concrete attacker paths with decisive file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
       outputSchema: |-
@@ -794,9 +712,6 @@ spec:
         - name: evm-economic-and-mev-review
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
         all detected platforms. If no protocol economics, staking, lending, exchange/auction, liquidation,
@@ -809,7 +724,7 @@ spec:
         fee gaming, griefing, bribery/censorship, flash-loan or borrowed voting, proposal/execution bypass,
         sandwiches/back-running/JIT/liquidation races, batching, and parameter stress. Identify applicable unit,
         invariant/property, stateful simulation, fork, differential, governance lifecycle, and adversarial
-        ordering tests, but do not claim this Bash-denied task ran them or performed economic simulation.
+        ordering tests, but do not claim this task ran them or performed economic simulation.
         Record limitations and report only concrete attacker paths with decisive file:line evidence and
         finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
@@ -824,9 +739,6 @@ spec:
         - name: api-authz-hunting
         - name: web-app-hunting
         - name: trail-of-bits-sharp-edges
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
         all detected platforms. If no relayer, oracle, indexer, keeper, bundler, sequencer, batcher, prover,
@@ -839,7 +751,7 @@ spec:
         cross-tenant paths; stale/replayed jobs; duplicate or partial execution; unsafe admin operations;
         telemetry secret leakage; dependency on untrusted RPC/index data; key policy; and outage/recovery
         behavior. Identify applicable unit, integration, replay/idempotency, authorization, queue-failure,
-        failover, backup/restore, and local end-to-end tests, but do not claim this Bash-denied task ran them or
+        failover, backup/restore, and local end-to-end tests, but do not claim this task ran them or
         contacted a service. Record limitations and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
@@ -851,8 +763,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Compact {{tasks.evm-protocol-specialist.output}}, {{tasks.solana-anchor-specialist.output}}, and
         {{tasks.cosmos-cosmwasm-ibc-specialist.output}} into one record per source. Preserve area, status,
@@ -867,8 +777,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Compact {{tasks.substrate-polkadot-xcm-specialist.output}}, {{tasks.aptos-move-specialist.output}}, and
         {{tasks.sui-move-specialist.output}} into one record per source, preserving every coverage status,
@@ -881,8 +789,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Compact {{tasks.cairo-starknet-specialist.output}}, {{tasks.ton-specialist.output}},
         {{tasks.algorand-specialist.output}}, and {{tasks.bitcoin-lightning-specialist.output}} into one record per source, preserving every coverage
@@ -896,8 +802,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Compact {{tasks.bridge-l2-zk-specialist.output}}, {{tasks.wallet-mpc-cryptography-specialist.output}},
         and {{tasks.economics-mev-governance-specialist.output}} into one record per source, preserving every
@@ -910,8 +814,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Preserve {{tasks.off-chain-services-specialist.output}} as a one-record coverage ledger. Keep its
         status, examined/skipped targets, limitations, and finding fingerprints exact.
@@ -924,8 +826,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Merge {{tasks.account-chain-coverage-a.output}}, {{tasks.account-chain-coverage-b.output}}, and
         {{tasks.account-chain-coverage-c.output}} into one ordered chain coverage ledger without changing any
@@ -939,8 +839,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Merge {{tasks.account-cross-system-coverage-a.output}} and
         {{tasks.account-cross-system-coverage-b.output}} into one ordered cross-system coverage ledger without
@@ -954,8 +852,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Compact {{tasks.consensus-finality-and-state-transition.output}},
         {{tasks.rollup-derivation-da-and-fault-proofs.output}}, and
@@ -969,8 +865,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Compact {{tasks.p2p-sync-mempool-and-rpc.output}}, {{tasks.cross-chain-bridge-and-custody.output}},
         and {{tasks.execution-vm-and-host-boundaries.output}} into exactly three unchanged coverage records.
@@ -982,8 +876,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Compact {{tasks.signer-policy-quorum-and-hsm.output}}, {{tasks.key-material-and-operator-secrets.output}},
         and {{tasks.storage-snapshot-reorg-and-concurrency.output}} into exactly three unchanged coverage records.
@@ -995,8 +887,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Compact {{tasks.native-memory-and-ffi-safety.output}}, {{tasks.genesis-deployment-and-upgrades.output}},
         and {{tasks.dependencies-build-and-release.output}} into exactly three unchanged coverage records.
@@ -1008,8 +898,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Merge {{tasks.account-domain-coverage-a.output}} and {{tasks.account-domain-coverage-b.output}} into
         exactly six records without changing statuses, limitations, targets, or fingerprints.
@@ -1022,8 +910,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Merge {{tasks.account-domain-coverage-c.output}} and {{tasks.account-domain-coverage-d.output}} into
         exactly six records without changing statuses, limitations, targets, or fingerprints.
@@ -1035,8 +921,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Merge {{tasks.account-domain-coverage-ab.output}} and {{tasks.account-domain-coverage-cd.output}} into
         exactly twelve records without changing statuses, limitations, targets, or fingerprints.
@@ -1051,15 +935,14 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Settle every reported critical or high candidate from the per-surface and domain hunts. Re-read the
         full path and confirm the entry point is production-reachable, the attacker has the stated protocol
         role, every intermediate validation is absent or bypassable, and the final impact follows. Use only
         safe local fixtures, focused tests, harnesses, or model-level reproductions; never contact a live
-        network. For consensus and bridge issues, construct the smallest object/sequence that makes the
+        network. If no suitable harness exists, create the smallest candidate-specific PoC in a disposable
+        working copy, execute it, debug it, minimize it, and preserve exact commands, exit statuses, observed
+        output, and artifacts. A missing pre-existing harness is not a reason to stop. For consensus and bridge issues, construct the smallest object/sequence that makes the
         implementations disagree or accept invalid state. For DoS, measure or tightly bound attacker versus
         victim cost and recovery. For races, establish a concrete interleaving. For signer issues, use dummy
         keys and prove the unauthorized signing decision. Update each candidate to confirmed when the local
@@ -1099,10 +982,11 @@ spec:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "verdict", "summary"],
+            "required": ["fingerprint", "verdict", "reproduction", "summary"],
             "properties": {
               "fingerprint": {"type": "string"},
               "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "triaged"]},
+              "reproduction": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string", "description": "Local proof, the control that disproves the path, or the specific validation blocker"}
             }
           }
@@ -1113,8 +997,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Compare the complete inventory in {{tasks.map-protocol-surfaces.output}} with every result in
         {{tasks.review-critical-surface.output}} and {{tasks.validate-high-impact-findings.output}}. Produce a
@@ -1130,8 +1012,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied: [Bash]
       objective: >-
         Combine the surface and validation ledger {{tasks.account-protocol-and-validation-coverage.output}}
         with the twelve-record domain ledger {{tasks.account-domain-coverage.output}}. Preserve every blocked
@@ -1148,9 +1028,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
-      tools:
-        denied:
-          - Bash
       objective: >-
         Produce exactly one final report from the complete protocol/domain ledger
         {{tasks.account-complete-protocol-coverage.output}}, chain ledger

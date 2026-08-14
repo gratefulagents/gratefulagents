@@ -34,10 +34,11 @@ spec:
         - Review integer widths and casts, vector/table indexing, unbounded
           collections, serialization boundaries, events, timestamps, randomness,
           oracle assumptions, and denial of service through storage or compute.
-        - Run tests, fuzzers, simulators, or provers only through a registered
-          execution tool. If none is available, label execution unsupported; do
-          not turn source review or the presence of specifications into a claim
-          that tests or proofs passed.
+        - Run tests, fuzzers, simulators, or provers through a registered execution
+          tool when available, or with an inspected project-native local command in
+          the local sandbox. If neither path is available, label execution
+          unsupported; do not turn source review or the presence of specifications
+          into a claim that tests or proofs passed.
 
         ## Aptos
 

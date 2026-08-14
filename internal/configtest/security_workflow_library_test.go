@@ -176,8 +176,8 @@ func TestSecurityWorkflowLibraryAssets(t *testing.T) {
 						t.Errorf("task %q references skill %q with no shipped Skill asset: %v", task.Name, ref.Name, err)
 					}
 				}
-				if task.Tools == nil || !slices.Contains(task.Tools.Denied, "Bash") {
-					t.Errorf("task %q must deny the registered Bash tool so loaded skills cannot execute untrusted repository code", task.Name)
+				if task.Tools != nil && slices.Contains(task.Tools.Denied, "Bash") {
+					t.Errorf("task %q must allow the registered Bash tool for local validation", task.Name)
 				}
 				// A task only gets the submit_task_output tool when it
 				// declares outputSchema, so interpolating the output of a
@@ -221,12 +221,16 @@ func TestSecurityWorkflowLibraryAssets(t *testing.T) {
 				}
 			}
 
-			// Connect the shipped policy spelling to the case-sensitive runtime
-			// registry so a typo cannot silently leave the shell registered.
+			// Connect the shipped workflow policy to the case-sensitive runtime
+			// registry so local validation always has the Bash tool available.
 			first := workflow.Spec.Tasks[0]
-			registry := runtimetools.NewRegistry(t.TempDir(), runtimetools.WithToolNameFilter(nil, first.Tools.Denied))
-			if registry.Get("Bash") != nil {
-				t.Errorf("task %q denial did not remove the registered Bash tool", first.Name)
+			var denied []string
+			if first.Tools != nil {
+				denied = first.Tools.Denied
+			}
+			registry := runtimetools.NewRegistry(t.TempDir(), runtimetools.WithToolNameFilter(nil, denied))
+			if registry.Get("Bash") == nil {
+				t.Errorf("task %q policy removed the registered Bash tool", first.Name)
 			}
 		})
 	}

@@ -44,8 +44,8 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-lido":   "https://github.com/lidofinance/core",
 		"immunefi-sei":    "https://github.com/sei-protocol/sei-chain",
 	}
-	// Active programs use complete captured scopes. Programs no longer present
-	// in Immunefi's live catalog retain an explicitly archived summary.
+	// Only active programs with complete captured scopes belong in the shipped
+	// catalog. Dead or archived programs must be removed instead of retained.
 	const minimumProgramCount = 20
 
 	paths, err := filepath.Glob(repoPath("configs", "securityprograms", "*.yaml"))
@@ -90,7 +90,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			if program.Name == "firedancer" && program.Spec.ScanTarget != nil {
 				t.Error("Firedancer must not suggest a scan target without a selected in-scope release")
 			}
-			if program.Name == "immunefi-ethena" || program.Name == "immunefi-euler" {
+			if program.Name == "immunefi-ethena" {
 				if program.Spec.ScanTarget != nil {
 					t.Error("unreachable repository must not be exposed as an importable scan target")
 				}
@@ -155,11 +155,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 					}
 				}
 			} else if isImmunefi {
-				for _, marker := range []string{"Archived last-known scope summary", "Repository targets:", "Rewards:", "Eligible impacts:", "Out of scope:", "Testing and submission:"} {
-					if !strings.Contains(program.Spec.ScopePolicy, marker) {
-						t.Errorf("scopePolicy missing %q", marker)
-					}
-				}
+				t.Error("dead or archived Immunefi program must not be shipped")
 			}
 			if hasCategoryExpectation && len(categories) > 0 {
 				if got := strings.Count(program.Spec.ScopePolicy, "Assets in Scope"); got != len(categories) {

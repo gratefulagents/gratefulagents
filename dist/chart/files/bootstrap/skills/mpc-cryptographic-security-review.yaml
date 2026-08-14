@@ -96,7 +96,8 @@ spec:
         concurrency tests, encoding mutations, official or Wycheproof-style
         vectors, fuzzing, sanitizers, side-channel testing, and recovery drills.
         Run test runners, simulators, fuzzers, analyzers, vector suites, or timing
-        tools only through a registered execution tool. Record revision, exact tool
+        tools through a registered execution tool when available, or with an
+        inspected project-native local command in the local sandbox. Record revision, exact tool
         and command, protocol and library versions, topology, fixture or vector,
         seed, corpus, bounds, coverage, exit status, and artifacts. If unavailable,
         mark the execution unsupported. Errors and timeouts remain incomplete;

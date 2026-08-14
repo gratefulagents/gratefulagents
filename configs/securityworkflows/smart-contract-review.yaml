@@ -18,9 +18,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-entry-point-analyzer
-      tools:
-        denied:
-          - Bash
       objective: >-
         Establish the exact EVM review scope before hunting. Follow production wiring and publish one
         structured object containing: the immutable revision and stated inclusions/exclusions; every
@@ -96,9 +93,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-entry-point-analyzer
-      tools:
-        denied:
-          - Bash
       objective: >-
         Using {{tasks.inventory-scope-repositories-deployments.output}}, follow actual inheritance,
         registration, factory, proxy, diamond, library, hook, callback, and deployment wiring. Publish a
@@ -153,9 +147,6 @@ spec:
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-dimensional-analysis
         - name: evm-economic-and-mev-review
-      tools:
-        denied:
-          - Bash
       objective: >-
         Derive explicit, falsifiable security properties from
         {{tasks.inventory-scope-repositories-deployments.output}} and
@@ -200,9 +191,6 @@ spec:
         - name: trail-of-bits-audit-prep-assistant
         - name: trail-of-bits-supply-chain-risk-auditor
         - name: evm-low-level-and-deployment-review
-      tools:
-        denied:
-          - Bash
       objective: >-
         Review the build and release evidence in {{tasks.inventory-scope-repositories-deployments.output}},
         architecture in {{tasks.map-architecture-assets-roles-entrypoints.output}}, and properties in
@@ -245,9 +233,6 @@ spec:
         - name: blockchain-security-research-method
         - name: security-scan
         - name: trail-of-bits-fp-check
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.inventory-scope-repositories-deployments.output}} and
         {{tasks.reproducible-build-artifact-deployment-review.output}} to identify each applicable Solidity
@@ -289,9 +274,6 @@ spec:
         - name: blockchain-security-research-method
         - name: security-scan
         - name: trail-of-bits-fp-check
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.inventory-scope-repositories-deployments.output}} and
         {{tasks.reproducible-build-artifact-deployment-review.output}} to identify each applicable
@@ -329,9 +311,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied:
-          - Bash
       objective: >-
         Compact {{tasks.aderyn-static-analysis.output}} and {{tasks.slither-static-analysis.output}} into one
         lossless static-analysis coverage array.
@@ -352,9 +331,6 @@ spec:
         - name: security-scan
         - name: trail-of-bits-property-based-testing
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.inventory-scope-repositories-deployments.output}},
         {{tasks.define-security-invariants.output}}, and
@@ -412,9 +388,6 @@ spec:
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-harness-writing
         - name: trail-of-bits-coverage-analysis
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.inventory-scope-repositories-deployments.output}},
         {{tasks.define-security-invariants.output}}, and
@@ -460,9 +433,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-secure-workflow-guide
         - name: trail-of-bits-entry-point-analyzer
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit the full call graph from {{tasks.map-architecture-assets-roles-entrypoints.output}} against
         {{tasks.define-security-invariants.output}} and the reviewed build context in
@@ -489,9 +459,6 @@ spec:
         - name: trail-of-bits-entry-point-analyzer
         - name: trail-of-bits-secure-workflow-guide
         - name: evm-low-level-and-deployment-review
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit every caller/guard and role in {{tasks.map-architecture-assets-roles-entrypoints.output}} against
         {{tasks.define-security-invariants.output}} and deployment context in
@@ -519,9 +486,6 @@ spec:
         - name: trail-of-bits-token-integration-analyzer
         - name: trail-of-bits-property-based-testing
         - name: evm-economic-and-mev-review
-      tools:
-        denied:
-          - Bash
       objective: >-
         Test the accounting properties in {{tasks.define-security-invariants.output}} over every value-moving
         entry point and dependency in {{tasks.map-architecture-assets-roles-entrypoints.output}}. Hunt
@@ -548,9 +512,6 @@ spec:
         - name: evm-economic-and-mev-review
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Apply the economic specialist review to roles/assets in
         {{tasks.map-architecture-assets-roles-entrypoints.output}} and properties in
@@ -577,9 +538,6 @@ spec:
         - name: evm-economic-and-mev-review
         - name: trail-of-bits-dimensional-analysis
         - name: trail-of-bits-property-based-testing
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit external values and temporal/order assumptions from
         {{tasks.map-architecture-assets-roles-entrypoints.output}} against
@@ -606,9 +564,6 @@ spec:
         - name: evm-low-level-and-deployment-review
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
-      tools:
-        denied:
-          - Bash
       objective: >-
         Audit liveness and bounded-work properties in {{tasks.define-security-invariants.output}} across the
         entry points in {{tasks.map-architecture-assets-roles-entrypoints.output}}. Hunt user-growable loops
@@ -633,9 +588,6 @@ spec:
         - name: evm-low-level-and-deployment-review
         - name: trail-of-bits-guidelines-advisor
         - name: trail-of-bits-secure-workflow-guide
-      tools:
-        denied:
-          - Bash
       objective: >-
         Apply the low-level/deployment specialist skill to the build evidence in
         {{tasks.reproducible-build-artifact-deployment-review.output}}, deployments in
@@ -666,9 +618,6 @@ spec:
         - name: security-scan
         - name: exploit-poc-discipline
         - name: trail-of-bits-fp-check
-      tools:
-        denied:
-          - Bash
       objective: >-
         Use {{tasks.inventory-scope-repositories-deployments.output}},
         {{tasks.define-security-invariants.output}}, and
@@ -694,9 +643,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied:
-          - Bash
       objective: >-
         Compact seeded Echidna {{tasks.echidna-stateful-property-fuzzing.output}} and bounded Halmos
         {{tasks.bounded-halmos-symbolic-tests.output}} into a lossless executable-tool coverage array. Preserve
@@ -717,9 +663,6 @@ spec:
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
         - name: evm-low-level-and-deployment-review
-      tools:
-        denied:
-          - Bash
       objective: >-
         Assess every invariant in {{tasks.define-security-invariants.output}} and relevant entry point in
         {{tasks.map-architecture-assets-roles-entrypoints.output}} for bounded symbolic execution, SMT/model
@@ -730,7 +673,7 @@ spec:
         integration was actually invoked and returned that status. Consume seeded Echidna records from
         {{tasks.echidna-stateful-property-fuzzing.output}} and bounded Halmos records from
         {{tasks.bounded-halmos-symbolic-tests.output}}. Any other catalog-only or absent prover remains
-        unsupported. Slither is executable static analysis, not a formal proof method. Do not substitute Bash, manual reasoning, or a skill for tool execution.
+        unsupported. Slither is executable static analysis, not a formal proof method. Do not substitute ad hoc command output, manual reasoning, or a skill for tool execution.
         Record applicable properties, recommended harness/prover, and why each was
         examined, skipped, unsupported, or inconclusive. Manually inspect existing specs for unsound/vacuous
         assumptions but label that as manual examination, not a formal proof.
@@ -765,9 +708,6 @@ spec:
         - name: evm-low-level-and-deployment-review
         - name: evm-economic-and-mev-review
         - name: trail-of-bits-guidelines-advisor
-      tools:
-        denied:
-          - Bash
       objective: >-
         Review each available deployment in {{tasks.inventory-scope-repositories-deployments.output}} using
         architecture/roles in {{tasks.map-architecture-assets-roles-entrypoints.output}}, build/artifact
@@ -799,9 +739,6 @@ spec:
         - name: exploit-poc-discipline
         - name: evm-economic-and-mev-review
         - name: evm-low-level-and-deployment-review
-      tools:
-        denied:
-          - Bash
       objective: >-
         Validate every critical/high candidate produced after the executable and manual stages, using the
         entry-point map in {{tasks.map-architecture-assets-roles-entrypoints.output}}, invariants in
@@ -811,12 +748,16 @@ spec:
         {{tasks.bounded-halmos-symbolic-tests.output}}. Re-read the complete path and settle caller,
         deployed reachability, state preconditions, guards, transaction ordering/capital, broken invariant,
         impact and recovery. Use only local repository fixtures and dummy assets; never contact mainnet,
-        public testnets, RPCs or third parties and never modify the target. When an existing Foundry reproducer
-        actually exercises a candidate, call run_security_tool with `forge-security-tests`, target type
-        `foundry_project`, the applicable workspace root and immutable revision, and seed `2062026`; cite the
-        returned run/artifact. Do not call Forge when no candidate-specific harness exists and do not treat the
-        earlier general suite as exploit confirmation. Otherwise provide the smallest transaction/state trace
-        and mark validation inconclusive or unsupported rather than claiming local execution. Publish one
+        public testnets, RPCs or third parties, and never mutate the canonical target checkout. When an existing
+        Foundry reproducer actually exercises a candidate, call run_security_tool with `forge-security-tests`,
+        target type `foundry_project`, the applicable workspace root and immutable revision, and seed `2062026`;
+        cite the returned run/artifact. If no candidate-specific reproducer exists, create the smallest Foundry
+        test or project-native PoC in a disposable working copy, execute it locally, debug setup and harness
+        failures, and preserve the exact commands, exit statuses, observed output, and artifact. Do not treat the
+        earlier general suite as exploit confirmation. Confirm only an observed reproduction of the attacker path
+        and impact. If execution remains impossible after concrete attempts, provide the smallest transaction/state
+        trace and mark validation inconclusive or unsupported. A missing pre-existing harness is not a reason to
+        stop. Publish one
         verdict per eligible finding fingerprint and an empty array only when no critical/high candidates
         exist.
       dependsOn:
@@ -840,11 +781,11 @@ spec:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "verdict", "method", "execution_status", "summary"],
+            "required": ["fingerprint", "verdict", "method", "execution_status", "reproduction", "summary"],
             "properties": {
               "fingerprint": {"type": "string"},
               "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "inconclusive", "unsupported"]},
-              "method": {"type": "string", "enum": ["forge_local", "local_trace", "manual_disproof", "none"]},
+              "method": {"type": "string", "enum": ["forge_local", "project_native_poc", "local_trace", "manual_disproof", "none"]},
               "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "tool_run": {"type": "string"},
               "reproduction": {"type": "array", "items": {"type": "string"}},
@@ -858,9 +799,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied:
-          - Bash
       objective: >-
         Produce a concise coverage ledger from scope
         {{tasks.inventory-scope-repositories-deployments.output}}, architecture and entry points
@@ -882,9 +820,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied:
-          - Bash
       objective: >-
         Produce a concise coverage ledger from build and deployment comparison
         {{tasks.reproducible-build-artifact-deployment-review.output}}, static analyzers
@@ -907,9 +842,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied:
-          - Bash
       objective: >-
         Produce a concise coverage ledger from the lossless executable symbolic-tool ledger
         {{tasks.merge-symbolic-tool-coverage.output}} and formal-method applicability
@@ -930,9 +862,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied:
-          - Bash
       objective: >-
         Produce a concise specialist coverage ledger from external-call and reentrancy review
         {{tasks.external-calls-reentrancy-and-atomicity.output}}, authorization and signatures
@@ -954,9 +883,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied:
-          - Bash
       objective: >-
         Produce a concise specialist coverage ledger from economics, governance, liquidations, auctions and
         MEV {{tasks.governance-liquidations-auctions-and-mev.output}}, oracle, randomness, time and ordering
@@ -978,9 +904,6 @@ spec:
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-      tools:
-        denied:
-          - Bash
       objective: >-
         Produce a concise specialist coverage ledger from low-level, factory, proxy and storage review
         {{tasks.low-level-factories-proxies-and-storage.output}} and deployment and privileged configuration
@@ -1002,9 +925,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-fp-check
-      tools:
-        denied:
-          - Bash
       objective: >-
         Build a compact coverage ledger by merging the foundation ledger
         {{tasks.account-foundation-coverage.output}}, build/static ledger
@@ -1047,9 +967,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-fp-check
-      tools:
-        denied:
-          - Bash
       objective: >-
         Build a compact coverage ledger by merging calls/authorization/accounting
         {{tasks.account-calls-auth-accounting-coverage.output}}, economics/oracle/liveness
@@ -1092,9 +1009,6 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-fp-check
-      tools:
-        denied:
-          - Bash
       objective: >-
         Build the authoritative lifecycle coverage ledger from the compact scope/tool ledger
         {{tasks.account-scope-and-tool-coverage.output}}, compact specialist ledger
@@ -1140,9 +1054,6 @@ spec:
         - name: trail-of-bits-fp-check
         - name: trail-of-bits-property-based-testing
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Produce remediation and follow-up retest guidance from validation
         {{tasks.validate-high-impact-exploits.output}} and the lifecycle ledger
@@ -1191,9 +1102,6 @@ spec:
         - name: bug-bounty-reporting
         - name: evm-economic-and-mev-review
         - name: evm-low-level-and-deployment-review
-      tools:
-        denied:
-          - Bash
       objective: >-
         Perform the workflow's only final triage and reporting pass. Load every recorded finding and reconcile
         it with local validation {{tasks.validate-high-impact-exploits.output}}, lifecycle coverage

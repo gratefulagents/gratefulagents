@@ -82,8 +82,9 @@ spec:
         simulation, dry-run fixtures, and adversarial transaction groups covering
         rekey, close, fee, lease, validity, index, type, sender, asset, app, inner
         transaction, and lifecycle mutations. Run compilers, test runners,
-        simulators, fuzzers, or analyzers only through a registered execution tool.
-        If none is available, label execution unsupported. Record revision, AVM and
+        simulators, fuzzers, or analyzers through a registered execution tool when
+        available, or with an inspected project-native local command in the local
+        sandbox. If neither is available, label execution unsupported. Record revision, AVM and
         compiler versions, exact tool and command, fixture or seed, bounds, exit
         status, and output or artifact; timeouts and errors remain incomplete
         coverage, and bounded success proves only the named cases.

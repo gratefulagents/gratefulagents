@@ -11,9 +11,6 @@ spec:
       skillRefs:
         - name: trail-of-bits-codeql
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Hunt for remote code execution reachable without valid credentials. Start from the entry points an
         anonymous caller can touch and look for untrusted data reaching an interpreter: shell and subprocess
@@ -32,9 +29,6 @@ spec:
         - name: api-authz-hunting
         - name: web-app-hunting
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Hunt for full authentication bypass: reaching an authenticated or administrative identity without
         the credential. Look for token validation that skips signature, algorithm, audience, issuer, or
@@ -51,9 +45,6 @@ spec:
       skillRefs:
         - name: trail-of-bits-codeql
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Hunt for mass exfiltration of data an attacker is not entitled to: injection into database, search,
         or storage queries that returns arbitrary rows; identifiers accepted without an ownership or tenant
@@ -69,9 +60,6 @@ spec:
       skillRefs:
         - name: web-app-hunting
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Hunt for server-side request forgery that reaches something valuable: cloud instance metadata and
         credential endpoints, internal admin or service APIs, databases and caches speaking text protocols,
@@ -89,9 +77,6 @@ spec:
         - name: trail-of-bits-codeql
         - name: trail-of-bits-property-based-testing
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Hunt for untrusted deserialization that leads to code execution or object injection: native
         deserializers and object-constructing YAML loaders fed request, cookie, cache, or queue data;
@@ -106,9 +91,6 @@ spec:
       category: secrets
       skillRefs:
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Hunt for exposed credential material that hands an attacker a production system: live-looking keys,
         tokens, or private keys committed to the repository or embedded in shipped artifacts and client
@@ -124,17 +106,16 @@ spec:
       skillRefs:
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
-      tools:
-        denied:
-          - Bash
       objective: >-
         Settle every candidate reported by the six hunts. Take each finding in turn, re-read the code it
         cites, and reconstruct the attack path from the attacker's position to the impact without skipping
         a hop: confirm the entry point is reachable in a production configuration, that each intermediate
         check is genuinely absent or bypassable, and that the final sink does what the report claims. Build
-        the cheapest local proof that settles the question - a focused harness, a direct call into the
-        vulnerable function, a request against a locally started server - and never send traffic to a real
-        system. Update each finding with the outcome: confirmed with the reproduction steps and evidence,
+        and execute the cheapest local proof that settles the question - a focused harness, a direct call into
+        the vulnerable function, or a request against a locally started server. If the project has no suitable
+        harness, create the smallest candidate-specific PoC in a disposable working copy, debug it, and minimize
+        it; never send traffic to a real system. Confirm only from observed output and preserve exact commands,
+        exit statuses, and artifacts. Update each finding with the outcome: confirmed with the reproduction steps and evidence,
         or false_positive with the specific check that stops the attack (false_positive is the canonical status
         for a disproved candidate; never invent a status such as "rejected"). Kill every candidate whose
         path breaks; a disproved finding is as valuable an outcome as a confirmed one. Publish one entry per settled
@@ -144,7 +125,7 @@ spec:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "fingerprint", "verdict", "summary"],
+            "required": ["title", "fingerprint", "verdict", "reproduction", "summary"],
             "properties": {
               "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding for this finding"},
               "title": {"type": "string", "description": "Short name of the candidate finding"},
@@ -152,6 +133,7 @@ spec:
               "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity of the finding"},
               "file": {"type": "string", "description": "Repository-relative file the candidate cites"},
               "line": {"type": "integer", "description": "Line the candidate cites"},
+              "reproduction": {"type": "array", "items": {"type": "string"}, "description": "Exact local PoC setup, execution, and observed evidence"},
               "summary": {"type": "string", "description": "The reproduction that confirms it, or the check that stops it"}
             }
           }
@@ -169,9 +151,6 @@ spec:
       skillRefs:
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
-      tools:
-        denied:
-          - Bash
       objective: >-
         Assemble the final report from the validation results in {{tasks.validate-exploitability.output}}.
         Apply one admission rule without exception: a finding stays only when the report states a concrete

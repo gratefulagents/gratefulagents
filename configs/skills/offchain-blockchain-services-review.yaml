@@ -102,7 +102,9 @@ spec:
         restart fault injection, queue replay, authorization tests, signer-policy
         tests, backup/restore drills, fuzzing of parsers and APIs, and regression
         tests for confirmed findings. Run nodes, test runners, simulators, fuzzers,
-        analyzers, or fault injectors only through a registered execution tool.
+        analyzers, or fault injectors through a registered execution tool when
+        available, or with an inspected project-native local command in the local
+        sandbox.
         Record revision, exact tool and command, versions, topology and fixtures,
         seed, corpus, bounds, coverage, exit status, and artifacts. If execution is
         unavailable, label it unsupported. Preserve tool failures and timeouts as

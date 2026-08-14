@@ -90,8 +90,9 @@ spec:
         - Prefer deterministic local unit and integration tests, official key and
           address vectors, transaction fixtures, malformed provider requests,
           permission and origin tests, UI-to-signature comparisons, and platform
-          isolation tests. Use registered execution tools for test runners,
-          emulators, fuzzers, analyzers, and cryptographic-vector suites. Record
+          isolation tests. Use registered execution tools when available, or
+          inspected project-native local commands in the local sandbox, for test
+          runners, emulators, fuzzers, analyzers, and cryptographic-vector suites. Record
           revision, exact tool and command, versions, fixture or vector, seed,
           bounds, exit status, and artifacts. If execution is unavailable, label
           it unsupported; failures and timeouts are inconclusive coverage, and a
