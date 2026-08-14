@@ -31,7 +31,7 @@ func TestEffectiveTimeoutDefaultsToSixHours(t *testing.T) {
 	}
 }
 
-func TestEffectiveTimeoutPreservesExplicitRuntimeLongerThanDefault(t *testing.T) {
+func TestEffectiveTimeoutCapsExplicitRuntimeAtSixHours(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{
 		Spec: platformv1alpha1.AgentRunSpec{
 			Limits: &platformv1alpha1.AgentRunLimits{
@@ -39,8 +39,21 @@ func TestEffectiveTimeoutPreservesExplicitRuntimeLongerThanDefault(t *testing.T)
 			},
 		},
 	}
-	if got := effectiveTimeout(run); got != 8*time.Hour {
-		t.Fatalf("effectiveTimeout() = %s, want explicit 8h runtime", got)
+	if got := effectiveTimeout(run); got != 6*time.Hour {
+		t.Fatalf("effectiveTimeout() = %s, want 6h maximum", got)
+	}
+}
+
+func TestEffectiveTimeoutPreservesShorterExplicitRuntime(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			Limits: &platformv1alpha1.AgentRunLimits{
+				MaxRuntime: metav1.Duration{Duration: 4 * time.Hour},
+			},
+		},
+	}
+	if got := effectiveTimeout(run); got != 4*time.Hour {
+		t.Fatalf("effectiveTimeout() = %s, want explicit 4h runtime", got)
 	}
 }
 

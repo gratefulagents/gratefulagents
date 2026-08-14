@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	defaultRunTimeout         = 6 * time.Hour
+	maximumRunTimeout         = 6 * time.Hour
 	awaitingUserStep          = "awaiting-user"
 	teamParentLabelName       = "platform.gratefulagents.dev/team-parent"
 	childAutonomousAnnotation = "platform.gratefulagents.dev/child-autonomous"
@@ -136,10 +136,13 @@ func initialPhaseForRun(run *platformv1alpha1.AgentRun) platformv1alpha1.AgentRu
 }
 
 func effectiveTimeout(run *platformv1alpha1.AgentRun) time.Duration {
-	if run != nil && run.Spec.Limits != nil && run.Spec.Limits.MaxRuntime.Duration > 0 {
-		return run.Spec.Limits.MaxRuntime.Duration
+	if run != nil && run.Spec.Limits != nil {
+		requested := run.Spec.Limits.MaxRuntime.Duration
+		if requested > 0 && requested < maximumRunTimeout {
+			return requested
+		}
 	}
-	return defaultRunTimeout
+	return maximumRunTimeout
 }
 
 func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifiedMaintainedRepositoryName, verifiedMaintainedProjectName string) []rbacv1.PolicyRule {
