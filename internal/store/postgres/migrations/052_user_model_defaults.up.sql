@@ -1,4 +1,4 @@
--- 051_user_model_defaults.up.sql
+-- 052_user_model_defaults.up.sql
 -- Per-user default provider/model/reasoning-level preference. `disabled` keeps
 -- the saved values but tells clients not to auto-apply them.
 

@@ -252,6 +252,7 @@ export const errorScenario: Scenario = {
   securityScanConfigs: [],
   securityWorkflows: [],
   securitySkillsInstalled: false,
+  bugReports: [],
 
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),

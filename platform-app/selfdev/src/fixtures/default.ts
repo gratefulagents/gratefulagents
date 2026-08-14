@@ -21,6 +21,7 @@ import {
   LinearProjectSchema,
   MaintainerWorkItemSchema,
   AnthropicUsageLimitSchema,
+  BugReportSchema,
   MyAnthropicUsageSchema,
   MyCredentialsSchema,
   MyCopilotUsageSchema,
@@ -1611,6 +1612,66 @@ const securityFindings = [
   }),
 ];
 
+const bugReports = [
+  create(BugReportSchema, {
+    id: "7e2b41cc-1111-4f0a-8f3d-bb21d4c5e001",
+    namespace: NS,
+    runName: "run-ui-polish",
+    category: "bug",
+    toolName: "ApplyPatch",
+    title: "ApplyPatch fails on rename hunks",
+    body: "Patches that combine a rename with content edits are rejected with 'path not found' even though the source file exists.",
+    occurrences: 7,
+    status: "open",
+    firstSeenAt: timestampFromDate(daysAgo(3)),
+    lastSeenAt: timestampFromDate(minutesAgo(35)),
+  }),
+  create(BugReportSchema, {
+    id: "7e2b41cc-2222-4f0a-8f3d-bb21d4c5e002",
+    namespace: NS,
+    runName: "run-team-refactor",
+    category: "complaint",
+    toolName: "grep",
+    title: "grep pagination cursor expires mid-search",
+    body: "Continuation cursors stop working after a few pages on large repos, forcing the search to restart from scratch.",
+    occurrences: 3,
+    status: "acknowledged",
+    statusNote: "Reproduced on repos over 100k files; fix scheduled.",
+    statusActor: "dana",
+    firstSeenAt: timestampFromDate(daysAgo(2)),
+    lastSeenAt: timestampFromDate(hoursAgo(4)),
+  }),
+  create(BugReportSchema, {
+    id: "7e2b41cc-3333-4f0a-8f3d-bb21d4c5e003",
+    namespace: NS,
+    runName: "run-shipped",
+    category: "feature",
+    title: "Allow targeting a single route in selfdev snap-all",
+    body: "Screenshotting every scenario route is slow when only one page changed; a --route filter would cut iteration time.",
+    occurrences: 2,
+    status: "resolved",
+    statusNote: "Shipped as the screenshot subcommand.",
+    statusActor: "dana",
+    firstSeenAt: timestampFromDate(daysAgo(6)),
+    lastSeenAt: timestampFromDate(daysAgo(1)),
+  }),
+  create(BugReportSchema, {
+    id: "7e2b41cc-4444-4f0a-8f3d-bb21d4c5e004",
+    namespace: NS,
+    runName: "run-failed-install",
+    category: "bug",
+    toolName: "Bash",
+    title: "Bash timeout parameter ignored above 120s",
+    body: "Setting timeout to 300000 still kills the command at the 120s default, breaking long dependency installs.",
+    occurrences: 1,
+    status: "dismissed",
+    statusNote: "Duplicate of the ApplyPatch runner timeout issue.",
+    statusActor: "dana",
+    firstSeenAt: timestampFromDate(daysAgo(1)),
+    lastSeenAt: timestampFromDate(daysAgo(1)),
+  }),
+];
+
 // ---------------------------------------------------------------------------
 // Scenario
 // ---------------------------------------------------------------------------
@@ -1655,6 +1716,8 @@ export const defaultScenario: Scenario = {
   securityWorkflows,
   securitySkillsInstalled: false,
 
+  bugReports,
+
   skillPackages: skills,
   runtimeImages: runtimeImageCatalog(),
   modes: modeCatalog(),
@@ -1696,6 +1759,7 @@ export const defaultScenario: Scenario = {
     { name: "cron-detail", path: "/cron/demo/nightly-triage" },
     { name: "security-overview", path: "/security" },
     { name: "security-scan-detail", path: "/security/demo/nightly-webapp-1" },
+    { name: "bug-reports", path: "/bug-reports" },
     { name: "slack-agent", path: "/slack/demo/ops-agent" },
     { name: "slack-agent-settings", path: "/slack/demo/ops-agent?tab=settings" },
     { name: "shared", path: "/shared" },

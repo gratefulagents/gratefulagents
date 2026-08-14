@@ -20,6 +20,7 @@ spec:
   permissionMode: read-only
   allowedMutatingTools:
     - submit_overseer_verdict
+    - report_bug
 
   instructions: |
     OVERSEER MODE — Autonomous Run Oversight

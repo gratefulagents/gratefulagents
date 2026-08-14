@@ -149,8 +149,11 @@ var migration049Up string
 //go:embed migrations/050_security_finding_artifacts.up.sql
 var migration050Up string
 
-//go:embed migrations/051_user_model_defaults.up.sql
+//go:embed migrations/051_agent_bug_reports.up.sql
 var migration051Up string
+
+//go:embed migrations/052_user_model_defaults.up.sql
+var migration052Up string
 
 // noTxMigrations run statement-by-statement outside a transaction so they can
 // use commands PostgreSQL forbids in transaction blocks, such as
@@ -253,6 +256,7 @@ func orderedMigrations() []schemaMigration {
 		{49, migration049Up, false},
 		{50, migration050Up, false},
 		{51, migration051Up, false},
+		{52, migration052Up, false},
 	}
 }
 

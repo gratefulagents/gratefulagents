@@ -689,6 +689,12 @@ const (
 	// PlatformServiceInstallSecuritySkillsProcedure is the fully-qualified name of the
 	// PlatformService's InstallSecuritySkills RPC.
 	PlatformServiceInstallSecuritySkillsProcedure = "/platform.v1.PlatformService/InstallSecuritySkills"
+	// PlatformServiceListBugReportsProcedure is the fully-qualified name of the PlatformService's
+	// ListBugReports RPC.
+	PlatformServiceListBugReportsProcedure = "/platform.v1.PlatformService/ListBugReports"
+	// PlatformServiceUpdateBugReportStatusProcedure is the fully-qualified name of the
+	// PlatformService's UpdateBugReportStatus RPC.
+	PlatformServiceUpdateBugReportStatusProcedure = "/platform.v1.PlatformService/UpdateBugReportStatus"
 )
 
 // PlatformServiceClient is a client for the platform.v1.PlatformService service.
@@ -1067,6 +1073,14 @@ type PlatformServiceClient interface {
 	// installation copies or refreshes only untouched curated bundle members.
 	GetSecuritySkillsStatus(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
 	InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
+	// Agent bug reports: durable platform/tooling bug reports, complaints, and
+	// feature requests filed by agents via the report_bug tool. Reports
+	// deduplicate per (namespace, fingerprint) across runs and are triaged by
+	// humans in the dashboard. Backed by the optional Postgres state store.
+	ListBugReports(context.Context, *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error)
+	// UpdateBugReportStatus sets the triage status (open, acknowledged,
+	// resolved, dismissed) of one report, attributed to the caller.
+	UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error)
 }
 
 // NewPlatformServiceClient constructs a client for the platform.v1.PlatformService service. By
@@ -2394,6 +2408,18 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("InstallSecuritySkills")),
 			connect.WithClientOptions(opts...),
 		),
+		listBugReports: connect.NewClient[platform.ListBugReportsRequest, platform.ListBugReportsResponse](
+			httpClient,
+			baseURL+PlatformServiceListBugReportsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListBugReports")),
+			connect.WithClientOptions(opts...),
+		),
+		updateBugReportStatus: connect.NewClient[platform.UpdateBugReportStatusRequest, platform.BugReport](
+			httpClient,
+			baseURL+PlatformServiceUpdateBugReportStatusProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateBugReportStatus")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -2618,6 +2644,8 @@ type platformServiceClient struct {
 	getSecurityScanReport                  *connect.Client[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse]
 	getSecuritySkillsStatus                *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
 	installSecuritySkills                  *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
+	listBugReports                         *connect.Client[platform.ListBugReportsRequest, platform.ListBugReportsResponse]
+	updateBugReportStatus                  *connect.Client[platform.UpdateBugReportStatusRequest, platform.BugReport]
 }
 
 // ListAgentRuns calls platform.v1.PlatformService.ListAgentRuns.
@@ -3721,6 +3749,16 @@ func (c *platformServiceClient) InstallSecuritySkills(ctx context.Context, req *
 	return c.installSecuritySkills.CallUnary(ctx, req)
 }
 
+// ListBugReports calls platform.v1.PlatformService.ListBugReports.
+func (c *platformServiceClient) ListBugReports(ctx context.Context, req *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error) {
+	return c.listBugReports.CallUnary(ctx, req)
+}
+
+// UpdateBugReportStatus calls platform.v1.PlatformService.UpdateBugReportStatus.
+func (c *platformServiceClient) UpdateBugReportStatus(ctx context.Context, req *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error) {
+	return c.updateBugReportStatus.CallUnary(ctx, req)
+}
+
 // PlatformServiceHandler is an implementation of the platform.v1.PlatformService service.
 type PlatformServiceHandler interface {
 	ListAgentRuns(context.Context, *connect.Request[platform.ListAgentRunsRequest]) (*connect.Response[platform.ListAgentRunsResponse], error)
@@ -4097,6 +4135,14 @@ type PlatformServiceHandler interface {
 	// installation copies or refreshes only untouched curated bundle members.
 	GetSecuritySkillsStatus(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
 	InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
+	// Agent bug reports: durable platform/tooling bug reports, complaints, and
+	// feature requests filed by agents via the report_bug tool. Reports
+	// deduplicate per (namespace, fingerprint) across runs and are triaged by
+	// humans in the dashboard. Backed by the optional Postgres state store.
+	ListBugReports(context.Context, *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error)
+	// UpdateBugReportStatus sets the triage status (open, acknowledged,
+	// resolved, dismissed) of one report, attributed to the caller.
+	UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error)
 }
 
 // NewPlatformServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -5420,6 +5466,18 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("InstallSecuritySkills")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListBugReportsHandler := connect.NewUnaryHandler(
+		PlatformServiceListBugReportsProcedure,
+		svc.ListBugReports,
+		connect.WithSchema(platformServiceMethods.ByName("ListBugReports")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateBugReportStatusHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateBugReportStatusProcedure,
+		svc.UpdateBugReportStatus,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateBugReportStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/platform.v1.PlatformService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PlatformServiceListAgentRunsProcedure:
@@ -5860,6 +5918,10 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceGetSecuritySkillsStatusHandler.ServeHTTP(w, r)
 		case PlatformServiceInstallSecuritySkillsProcedure:
 			platformServiceInstallSecuritySkillsHandler.ServeHTTP(w, r)
+		case PlatformServiceListBugReportsProcedure:
+			platformServiceListBugReportsHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateBugReportStatusProcedure:
+			platformServiceUpdateBugReportStatusHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -6743,4 +6805,12 @@ func (UnimplementedPlatformServiceHandler) GetSecuritySkillsStatus(context.Conte
 
 func (UnimplementedPlatformServiceHandler) InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.InstallSecuritySkills is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListBugReports(context.Context, *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListBugReports is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateBugReportStatus is not implemented"))
 }

@@ -43,6 +43,7 @@ export const emptyScenario: Scenario = {
   securityScanConfigs: [],
   securityWorkflows: [],
   securitySkillsInstalled: false,
+  bugReports: [],
 
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),

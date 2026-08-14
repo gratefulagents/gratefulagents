@@ -26,6 +26,7 @@ spec:
     - update_security_finding
     - submit_security_scan_report
     - submit_task_output
+    - report_bug
 
   defaultSkillRefs:
     - name: security-scan
