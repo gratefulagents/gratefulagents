@@ -1,0 +1,15 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityRanker
+metadata:
+  name: code4rena
+spec:
+  description: Code4rena severity categorization transcribed as-is; only High and Medium are risk findings, everything else is QA, and full credit requires both the root cause and the maximum achievable impact.
+  rules:
+    - "weight: severity=0.5, confidence=0.3, exploitability=0.1, exposure=0.1"
+    - High findings are those where assets can be directly stolen, lost, or compromised, or indirectly compromised through an attack path that is stated in full; a path that leans on hand-wavy hypotheticals is not a High.
+    - Medium findings are those where assets are not at direct risk but a function of the protocol or its availability is impacted, or value is leaked, with the external conditions the attack depends on stated explicitly rather than assumed away.
+    - Everything that is neither High nor Medium is QA - centralization risk and admin privilege misuse, issues conditional on a user making a mistake, gas optimizations, and missing input validation with no demonstrated impact all belong in QA, not in the risk severities.
+    - Loss of yield that has already matured can qualify as High because it is an asset the protocol owes; yield that is unmatured or still in motion caps at Medium, and amounts that only ever add up to dust are QA.
+    - A finding earns full credit only when it identifies the root cause AND the maximum achievable impact; a report that names the impact but not the flawed line, or the flawed line but not what it costs, is incomplete and ranks below a complete one.
+    - Judge severity by the impact described in this table, not by how alarming the code looks; a duplicate-prone pattern with a complete attack path outranks an unproven claim of catastrophic loss.
+    - Report the severity by this program's name for it (high, medium, QA). Never translate it into another platform's ladder and never invent a threshold this table does not contain.

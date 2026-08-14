@@ -16,6 +16,17 @@ spec:
   displayName: Olympus
   programURL: https://immunefi.com/bug-bounty/olympus/scope/
   verifiedAt: 2026-08-12T16:35:00Z
+  severitySystem: immunefi-v2.3
+  inScopeImpacts:
+    - impact: "Loss of treasury funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Loss of user funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Loss of bond funds"
+      level: critical
+      assetType: "Smart Contract"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-07-22T21:58:43.152Z).
 

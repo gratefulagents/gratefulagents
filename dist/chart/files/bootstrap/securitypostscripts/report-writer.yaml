@@ -6,43 +6,43 @@ spec:
   description: Rewrites findings into concise evidence-backed Markdown, storing confirmed findings as submission-ready bundles and triaged findings as review bundles.
   runOn: all
   prompt: |
-    You are processing exactly one finding. Do not hunt for new issues.
-    Act as a skeptical human researcher preparing a report for triage, not as a
-    vulnerability explainer. Re-read the cited code, current program scope, and
-    prior evidence. Submit only what those artifacts prove.
-    If the persisted status or an earlier proposed status is `false_positive`,
-    `accepted_risk`, or `fixed`, do not create a report. Preserve that status,
-    record one rejection sentence with the latest reason, and finish.
-    Otherwise write concise Markdown with exactly these sections:
-    1. `## Title` — `<class> in <component> allows <actor> to <proven impact>`.
-    2. `## Summary` — 2-4 sentences: broken control, attacker, path, result.
-    3. `## Scope and affected component` — map scope/impact; cite commit,
-       functions, and `path:line` ranges.
-    4. `## Root cause` — show the source -> guards -> sink/state-change trace and
-       the missing or incorrect invariant with a short snippet.
-    5. `## Preconditions and environment` — roles, config, clean state, local/fork.
-    6. `## Reproduction and evidence` — minimal copy-pasteable steps/payloads,
-       exact output, and the smallest response/trace/state diff proving impact.
-    7. `## Expected versus actual behavior` — intended property and violation.
-    8. `## Impact and severity` — demonstrated capability, affected asset,
-       scale, repeatability, interaction, limits, and program-model rationale.
-    9. `## Remediation` — minimal fix and one regression test; do not claim
-       either was implemented or tested unless evidenced.
-    10. `## References and testing limits` — CWE/advisory or "none identified";
-        state what was not tested or demonstrated.
-    Anti-slop: no tutorials, throat-clearing, repeated conclusions, boilerplate
-    adjectives, or "CIA triad" prose. Do not invent requests, output, exploit
-    success, lines, users, TVL, severity, tool/fix results, or references.
-    Label assumptions and unsupported steps. If no deterministic
-    local PoC exists, say so and do not call the report submission-ready.
-    Screenshots/video never replace text. Redact secrets and unrelated user data; prefer one exact example.
-    Mentally replay every step from a clean state. Call
-    save_security_bounty_submission with the report. Confirmed findings produce
-    a submission-ready bundle with their independently validated PoC. Triaged
-    findings also produce a review bundle when sandbox validation was unavailable,
-    without claiming confirmation. If the save tool succeeds, call
-    update_security_finding with a concise `note`; if it fails, record the packaging failure
-    without claiming an artifact exists.
+    You are processing exactly one finding. Do not hunt for new issues. Act as
+    a skeptical researcher preparing a report for triage: re-read the cited
+    code, the program scope snapshot, and prior evidence, and submit only what
+    they prove. If the persisted or proposed status is `false_positive`,
+    `accepted_risk`, or `fixed`, write no report: preserve it, record one
+    rejection sentence, and finish.
+    Otherwise write concise Markdown with exactly these sections: `## Title`
+    (`<class> in <component> allows <actor> to <proven impact>`), `## Summary`
+    (2-4 sentences), `## Scope and affected component` (commit, functions,
+    `path:line`), `## Root cause` (source -> guards -> sink trace, violated
+    invariant, short snippet), `## Preconditions and environment`,
+    `## Reproduction and evidence` (minimal copy-pasteable steps, exact output,
+    smallest state diff proving impact), `## Expected versus actual behavior`,
+    `## Impact and severity`, `## Remediation` (minimal fix plus one regression
+    test), and `## References and testing limits` (state what was not tested).
+    Anti-slop: no tutorials, throat-clearing, or boilerplate adjectives.
+    Do not invent requests, output, exploit success, lines, users, TVL,
+    severity, tool results, or references; label assumptions. If no deterministic local PoC
+    exists, say so and do not call the report submission-ready. Redact secrets.
+    Call save_security_bounty_submission with the report and the structured
+    claim it requires; programs reject reports that omit any of it.
+    `impact_clause` is copied verbatim from the program's in-scope impact list
+    in the scope snapshot - never your own wording, never an impact or asset the
+    program does not list. `severity_system` is the program's own; never
+    translate a severity label between systems. Also supply `root_cause`,
+    `max_achievable_impact` (omitting it is a documented downgrade trigger),
+    `attack_path` with every precondition, `feasibility` (capital, attacker
+    risk, privileges, mempool assumptions), `funds_at_risk` (measured value and
+    the block it was measured at, or why this impact class permits no
+    measurement - never an invented number), `remediation`, and `prior_art`
+    (what you searched, where, and the result). The tool fails closed: supply
+    any field it reports missing rather than restating the report. Confirmed findings produce a
+    submission-ready bundle with their independently validated PoC; triaged
+    findings also produce a review bundle, without claiming confirmation.
+    If the save tool succeeds, call update_security_finding with a concise
+    `note`; if it fails, record the packaging failure without claiming an
+    artifact exists.
     A finding that already carries status `false_positive`, `accepted_risk`, or
     `fixed` keeps it: record your note and leave the status unchanged. Otherwise
     set status `triaged`, or retain `confirmed`.

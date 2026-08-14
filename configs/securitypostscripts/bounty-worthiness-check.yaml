@@ -27,6 +27,10 @@ spec:
     6. For repository automation, CI/CD, or GitHub Actions, proof connects an
        untrusted trigger to a privileged job and a production-impact capability;
        permissions, pinning, or interpolation warnings alone always fail.
+    7. A prior-art record names the sources searched — bot findability, program
+       known issues, repository prior art, public advisories, release line — and
+       reports the finding as novel. Without that record, return inconclusive; a
+       confirmed known-issue or bot-findable match is out-of-scope.
 
     State accepted, disproved, out-of-scope, or inconclusive and give one
     evidence-backed sentence for each requirement. Use disproved only when

@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -771,6 +772,7 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 	}
 	annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] = strings.Join(names, ",")
 	annotations[triggersv1alpha1.SecurityScanPostScriptFindingAnnotation] = rec.Fingerprint
+	maps.Copy(annotations, securityProgramScopeAnnotations(resolved.program))
 
 	modeRef := base.modeRef
 	if scan.Spec.Defaults.ModeRef == nil {
@@ -889,4 +891,53 @@ func (e *securityScanExecutionEngine) postScriptJobsInFlight() bool {
 		}
 	}
 	return false
+}
+
+// securityProgramScopeAnnotations copies the governing program's typed scope
+// facts onto a run so the packaging tool can enforce them in-process. The
+// impact list is operator-verified configuration, so a submission that names
+// an impact outside it is refused rather than argued with. The list is
+// truncated at a byte bound to stay well inside the annotation size limit.
+func securityProgramScopeAnnotations(program *triggersv1alpha1.SecurityProgramSpec) map[string]string {
+	if program == nil {
+		return nil
+	}
+	out := make(map[string]string, 3)
+	if system := strings.TrimSpace(program.SeveritySystem); system != "" {
+		out[triggersv1alpha1.SecurityScanProgramSeveritySystemAnnotation] = system
+	}
+	if budget := program.SubmissionBudget; budget != nil && budget.MaxPerPeriod > 0 {
+		out[triggersv1alpha1.SecurityScanProgramSubmissionBudgetAnnotation] = strconv.FormatInt(int64(budget.MaxPerPeriod), 10)
+		if budget.PeriodDays > 0 {
+			out[triggersv1alpha1.SecurityScanProgramSubmissionPeriodAnnotation] = strconv.FormatInt(int64(budget.PeriodDays), 10)
+		}
+	}
+	var impacts strings.Builder
+	truncated := false
+	for _, impact := range program.InScopeImpacts {
+		clause := strings.TrimSpace(impact.Impact)
+		level := strings.TrimSpace(impact.Level)
+		if clause == "" || level == "" || strings.ContainsAny(clause, "\n\t") {
+			// A clause that cannot be encoded verbatim is dropped, and the
+			// list is no longer complete.
+			truncated = true
+			continue
+		}
+		line := level + "\t" + clause + "\n"
+		if impacts.Len()+len(line) > triggersv1alpha1.MaxSecurityScanProgramImpactsAnnotationBytes {
+			truncated = true
+			continue
+		}
+		impacts.WriteString(line)
+	}
+	if impacts.Len() != 0 {
+		out[triggersv1alpha1.SecurityScanProgramImpactsAnnotation] = impacts.String()
+	}
+	// A partial list must never become an authoritative allowlist: it can
+	// still tell a consumer the severity of a clause it contains, but it
+	// cannot prove that a clause the program published is absent.
+	if truncated && impacts.Len() != 0 {
+		out[triggersv1alpha1.SecurityScanProgramImpactsTruncatedAnnotation] = "true"
+	}
+	return out
 }

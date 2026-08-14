@@ -16,6 +16,84 @@ spec:
   displayName: Optimism
   programURL: https://immunefi.com/bug-bounty/optimism/scope/
   verifiedAt: 2026-08-12T00:00:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  inScopeImpacts:
+    - impact: "Direct loss of funds, not including proposer/challenger bonds or fee vaults"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Network not being able to confirm any new transactions, including deposits (Total network shutdown)"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Freezing of funds (fix requires L2 hardfork)"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Direct theft or permanent loss of fee vault funds (excluding missed revenue, unrealized yield, or failure to collect fees from pending transactions)"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Network not being able to confirm new transactions on L2, while forced-inclusion via L1 is still possible"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Loss of user funds by direct theft, not including proposer/challenger bonds or fee vaults"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds, not including proposer/challenger bonds or fee vaults"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Protocol insolvency, not including proposer/challenger bonds or fee vaults"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Temporary freezing of funds, not including proposer/challenger bonds or fee vaults (e.g. recoverable via an upgrade)"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Incorrectly proven withdrawal other than by incorrectly resolved dispute game, mitigated by a delay"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Incorrectly resolved dispute game, not detected by op-dispute-mon, allows proving invalid withdrawal"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Incorrectly initiated dispute game bond withdrawal other than by incorrectly resolved dispute game, mitigated by a delay"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Incorrectly resolved dispute game, not detected by op-dispute-mon, does not allow proving invalid withdrawal"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Incorrectly resolved dispute game, detected by op-dispute-mon, excluding bugs in off-chain components"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Execute arbitrary system commands"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Retrieve sensitive data/files from a running server, such as:"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Taking and/modifying authenticated actions (with or without blockchain state interaction) on behalf of other users without any interaction by that user, such as:"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Subdomain takeover with already-connected wallet interaction"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Direct theft of user funds"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Malicious interactions with an already-connected wallet, such as:"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Injection of malicious HTML or XSS through metadata"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Subdomain takeover without already-connected wallet interaction"
+      level: high
+      assetType: "Web & App"
+    - impact: "Improperly disclosing confidential user information, such as:"
+      level: high
+      assetType: "Web & App"
+    - impact: "Injecting/modifying the static content on the target application without JavaScript (persistent), such as:"
+      level: high
+      assetType: "Web & App"
+    - impact: "Taking down the application/website"
+      level: high
+      assetType: "Web & App"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T15:44:34.001Z; page last updated 27 July 2026).
 

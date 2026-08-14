@@ -16,6 +16,57 @@ spec:
   displayName: Aave
   programURL: https://immunefi.com/bug-bounty/aave/scope/
   verifiedAt: 2026-08-12T00:00:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  inScopeImpacts:
+    - impact: "Major manipulation of governance voting results deviating from voted outcome, whenever protection mechanisms (e.g. cancellation of proposal) can’t mitigate the damage."
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any user funds classified as the principal, whether at-rest or in-motion"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent locking of user funds classified as the principal or funds of the Aave treasury"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any funds in the Aave Treasury"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Theft of yield, defined as funds not classified as the principal (not including yield yet to be earned)"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent locking of unclaimed yield of users, defined as funds not classified as the principal (not including yield yet to be earned)"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Temporary locking of funds classified as the principal or funds of the Aave treasury"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Smart contract unable to operate due to lack of token funds"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Loss of rewards-to-be-accrued"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Manipulation of interest rates (supply or borrow) with mechanisms not intended or limited by design"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Unexpected infrastructural behavior"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Contract fails to deliver promised returns, but doesn't lose value"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Griefing"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Imprecision on accounting (balances, rates)"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Theft of gas Low"
+      level: low
+      assetType: "Smart Contract"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T15:44:18.372Z; page last updated 17 April 2026).
 

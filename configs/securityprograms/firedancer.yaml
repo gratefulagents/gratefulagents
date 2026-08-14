@@ -7,6 +7,70 @@ spec:
   displayName: Firedancer
   programURL: https://bounty.firedancer.io/
   verifiedAt: 2026-08-13T00:00:00Z
+  severitySystem: custom
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  inScopeImpacts:
+    - impact: "Any bug that leads to a loss of funds (LoF) as defined above."
+      level: critical
+    - impact: "Any bugs that lead to the acceptance of invalid or forged\nsignatures."
+      level: critical
+    - impact: "Infinite mint bug as defined above."
+      level: critical
+    - impact: "End-to-end validator private key compromise and exfiltration\nchain."
+      level: critical
+    - impact: "Deterministic bank hash mismatch or consensus bug that causes\nall Firedancer validators to fork from the network at the\nsame time."
+      level: high
+    - impact: "Remotely triggerable liveness failure (e.g. crash or stall) that\naffects all Firedancer validators at the same time."
+      level: high
+    - impact: "Any sandbox escape as defined above."
+      level: high
+    - impact: "Arbitrary write primitives in transaction execution (execle and\nexecrp tiles) that can be used deterministically. An example of\nthis would be escaping the runtime's virtual machine with a\ntransaction to get RCE in the execution tile."
+      level: high
+    - impact: "Any bug leading a Firedancer validator to produce an invalid block\nor have its leader slots skipped"
+      level: medium
+    - impact: "BHM, consensus bug, or liveness issue that affects one or more,\nbut not all Firedancer validators to fork from the network (or\ncrash/stall) in a deterministic manner. The attacker must be able\nto reliably target a specific validator to crash or mismatch: the\nvalidator in question may be a leader or follower"
+      level: medium
+    - impact: "Liveness failures or bank hash mismatches that are only\nexploitable during limited time windows. A \"limited time window\"\nrefers to a temporary mode or state of the validator that an\nattacker cannot induce or trigger on demand. Examples include, but\nare not limited to, booting up, replay catch-up, replay banks\neviction, and wait for supermajority."
+      level: low
+    - impact: "Liveness failures and BHMs can be triggered by certain validator\nconfigurations. If a validator can prevent an attack by restarting\nwith a different configuration, it qualifies for a low. This\nincludes exposing a publicly accessible GUI/RPC/events,\nenabling/disabling bundles, or changing the tile count for\nscalable tiles (net, resolv, gossvf, etc.)."
+      level: low
+    - impact: "Liveness failures that happen during hard-to-trigger data or\ntiming races that are not reliably triggerable by a remote\nattacker."
+      level: low
+    - impact: "Bank hash mismatch, consensus bug, or remotely triggerable\nliveness issue that causes one or more Firedancer validators to\nfork from the network in a nondeterministic manner. This is for\nthe case where an attacker can't explicitly choose which nodes to\ntarget."
+      level: low
+  outOfScope:
+    - "Protocol-level bugs in Solana are out of scope. These should be\nreported upstream to the\nAgave bug bounty."
+    - "For a specific Frankendancer tag/release only the\nfdctl binary is in scope and not\nfiredancer."
+    - "For a specific Firedancer tag/release only the\nfiredancer binary is in scope and not\nfdctl."
+    - "Certain data sources are considered to be \"trusted\" (bundle\nservers, genesis, entrypoints, snapshot providers, telemetry\nservers, ipecho, …). Firedancer makes a best effort to secure\nthese, but validator security does not depend on it, and reports\nfor these will be considered strictly informational."
+    - "Feature gates are only eligible if they are already activated on\nmainnet or testnet or are present in\nthis list\nat the time of submission\nBugs related to feature gates that are not activated on\nmainnet or testnet and are not in the list are out of scope.\nIf a feature gate is already active on mainnet, any bugs\nrelated to it being inactive are not valid.\nAssume feature key pairs are held and activated by a trusted\nparty.\nAny behavior related to features must follow the\nplanned activation order. If feature A is activated before\nfeature B, a bug is out of scope if it relies solely on\nfeature B being activated. It is also out of scope if the bug\nrelies on feature B getting activated before feature A."
+    - "Any bug that falls under the definition of a \"known issue\" is out\nof scope."
+    - "Compiler-dependent bugs are in scope only for GCC 8.5, 13, and 14.\nClang-compiled binaries are out of scope."
+    - "firedancer-dev development binary and any other tools\nin the repository are out of scope"
+    - "Development scripts. Bugs in any development and deployment\nscripts in the repository are out of scope."
+    - "Anything that requires social engineering or the compromise of\ntrusted keys is out of scope. For example, the GitHub release\nprocess or the Firedancer website. Any attempt at impersonation or\nsocial engineering automatically disqualifies you from bounty\neligibility."
+    - "Bugs that rely on a modification of the configuration TOML beyond\nwhat is specified"
+    - "If the same bug affects both the Frankendancer and the Firedancer,\nit will not be counted twice."
+    - "Bug reports that show memory corruption (e.g. via OOB writes) but\ndemonstrate no practical impact will likely qualify as\ninformational."
+    - "Bugs throughout the boot process are generally considered\ninformational, as the validator security model is trust on first\nuse. Causing the validator to crash on boot, for example, is not a\nvaluable finding as the operator will simply restart it."
+    - "Bugs from dependencies that are reachable by a running validator\nare in scope. Bugs in dependencies in validator/debugging\ntools are not."
+    - "If bundles are enabled, we can assume that the bundles being sent\nare well-formed and contain valid, non-vote transactions. Bugs\nthat rely on breaking this assumption are considered invalid or\ninformational."
+    - "Frankendancer Only - Bugs that affect both the Agave and\nFrankendancer clients are out of scope for the bug bounty and\nshould be reported upstream to the\nAgave bug bounty."
+    - "Current issues that would affect any client in the chain or are\nunderlying issues in certain protocols, such as gossip, are not in\nscope."
+    - "If behavior is specified in a Solana SIMD and Firedancer adheres\nto it, but other clients (Agave) don't, this counts as a protocol\nissue. These bugs should be reported to Agave."
+    - "If protocol bugs are partially addressed but not fully, they\nremain protocol issues. For example, certain snapshot fields can\nbe verified and are in Agave but not in Firedancer. This is not in\nscope because it doesn't fully address the core protocol issue."
+    - "A specific protocol bug worth highlighting is snapshot/genesis\nloading. Snapshot states are not verifiable at the protocol level,\nand they are expected to be trusted on first use. Snapshot state\ncan be partially verified, but never fully."
+    - "Another protocol issue worth highlighting is a temporary\ndisagreement between Firedancer and Agave concerning duplicate\nblocks (equivocation), or a temporary disagreement over fork\nchoice when producing blocks or sending votes. Attacks based on\nsuch temporary disagreements are out of scope."
+    - "Disagreement between Firedancer and Agave about whether a\nduplicate proof is valid is out of scope."
+    - "Timing differences in duplicate confirmations are out of\nscope."
+  prohibitedTesting:
+    - "Publicly discussing,\nsharing, or executing the bug on any known public cluster before a\nfix has been made and rolled out to all public clusters will void\nany and all eligibility for rewards."
+    - "Any attempt at impersonation or\nsocial engineering automatically disqualifies you from bounty\neligibility."
+    - "You must not have exploited the vulnerability beyond the minimum\nnecessary to confirm its existence."
+    - "Do not access, modify, or delete data belonging to other users."
+    - "Submission does not authorise testing beyond what was necessary to\nidentify the reported vulnerability."
   scopePolicy: |
     Verbatim authoritative terms and scope (retrieved 2026-08-13; terms version effective 2026-08-06). Visible page text is preserved verbatim below; HTML presentation markup is omitted.
 

@@ -16,6 +16,39 @@ spec:
   displayName: SSV Network
   programURL: https://immunefi.com/bug-bounty/ssvnetwork/scope/
   verifiedAt: 2026-08-12T16:35:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  inScopeImpacts:
+    - impact: "Contract fails to deliver promised returns, but doesn't lose value"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Theft of unclaimed yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of unclaimed yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Temporary freezing of funds"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Block stuffing"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Theft of gas"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: "Smart Contract"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-04-09T07:47:31.425Z).
 

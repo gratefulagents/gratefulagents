@@ -13,6 +13,7 @@ spec:
   defaultPostScriptRefs:
     - name: scope-eligibility-check
     - name: false-positive-check
+    - name: prior-art-check
     - name: poc-builder
     - name: poc-validator
     - name: bounty-worthiness-check

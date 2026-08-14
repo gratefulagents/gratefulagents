@@ -11,6 +11,90 @@ spec:
   displayName: Ethena
   programURL: https://immunefi.com/bug-bounty/ethena/scope/
   verifiedAt: 2026-08-12T16:35:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  inScopeImpacts:
+    - impact: "Contract fails to deliver promised returns, but doesn't lose value"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Theft of unclaimed yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Theft of unclaimed royalties"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of unclaimed yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of unclaimed royalties"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Temporary freezing of funds"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Smart contract unable to operate due to lack of token funds"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Block stuffing"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Theft of gas"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Unbounded gas consumption"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Injecting/modifying the static content on the target application without JavaScript (persistent), such as:  HTML injection without JavaScript, Replacing existing text with arbitrary text, Arbitrary file uploads, etc"
+      level: high
+      assetType: "Websites and Applications"
+    - impact: "Changing sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as:  Email, Password of the victim etc."
+      level: high
+      assetType: "Websites and Applications"
+    - impact: "Improperly disclosing confidential user information, such as:  Email address, Phone number, Physical address, etc."
+      level: high
+      assetType: "Websites and Applications"
+    - impact: "Subdomain takeover without already-connected wallet interaction"
+      level: high
+      assetType: "Websites and Applications"
+    - impact: "Retrieve sensitive data/files from a running server, such as:   /etc/shadow, database passwords, blockchain keys (this does not include non-sensitive environment variables, open source code, or usernames)"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Taking state-modifying authenticated actions (with or without blockchain state interaction) on behalf of other users without any interaction by that user, such as:   Changing registration information, Commenting, Voting, Making trades, Withdrawals, etc."
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Malicious interactions with an already-connected wallet, such as:  Modifying transaction arguments or parameters, Substituting contract addresses, Submitting malicious transactions"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Execute arbitrary system commands"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Taking down the application/website"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Subdomain takeover with already-connected wallet interaction"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Direct theft of user funds"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Injection of malicious HTML or XSS through metadata"
+      level: critical
+      assetType: "Websites and Applications"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-08-11T08:18:02.651Z).
 

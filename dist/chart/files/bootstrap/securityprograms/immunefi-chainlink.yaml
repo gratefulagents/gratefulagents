@@ -16,6 +16,93 @@ spec:
   displayName: Chainlink
   programURL: https://immunefi.com/bug-bounty/chainlink/scope/
   verifiedAt: 2026-08-12T00:00:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  inScopeImpacts:
+    - impact: "Any governance voting result manipulation"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Predictable or manipulable RNG that results in abuse of downstream services"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Misreporting of prices and/or data"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "RMN onchain curse bypass"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Theft of protocol revenue"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Rate limit violations"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Delaying delivery of oracle price feed updates unrelated to congestion of the underlying blockchain and unrelated to CCIP"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Loss of protocol revenue (i.e skipping all or part of protocol fees)"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Griefing in the condition where the cost of carrying out attack is less than or equal to the damage"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Unbounded gas consumption"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Smart contract fails to deliver expected return(s) but doesn’t result in loss of value"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Griefing in the condition where the cost of carrying out attack is more than the damage"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Retrieve sensitive data/files from a running server such as /etc/shadow, database passwords, and blockchain keys"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Injecting code that results in malicious interactions with an already-connected wallet such as modifying transaction arguments or parameters, substituting contract addresses, submitting malicious transactions"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Execute arbitrary system commands"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Injecting/modifying the static content on the target application without Javascript (Persistent) such as HTML injection without Javascript, replacing existing text with arbitrary text, arbitrary file uploads, etc"
+      level: high
+      assetType: "Web & App"
+    - impact: "Changing sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as email or password of the victim, etc"
+      level: high
+      assetType: "Web & App"
+    - impact: "Improperly disclosing confidential user information such as email address, phone number, physical address, etc"
+      level: high
+      assetType: "Web & App"
+    - impact: "Taking down the application/website with methods other than DDoS"
+      level: high
+      assetType: "Web & App"
+    - impact: "Changing non-sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as changing the first/last name of user, or en/disabling notification"
+      level: medium
+      assetType: "Web & App"
+    - impact: "Injecting/modifying the static content on the target application without Javascript (Reflected) such as reflected HTML injection or loading external site data"
+      level: medium
+      assetType: "Web & App"
+    - impact: "Subdomain takeover"
+      level: medium
+      assetType: "Web & App"
+    - impact: "Changing details of other users (including modifying browser local storage) without already-connected wallet interaction and with significant user interaction such as iframing leading to modifying the backend/browser state (demonstrate impact with PoC)"
+      level: low
+      assetType: "Web & App"
+    - impact: "Redirecting users to malicious websites (open redirect)"
+      level: low
+      assetType: "Web & App"
+    - impact: "Temporarily disabling user's access to target resource"
+      level: low
+      assetType: "Web & App"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T15:44:22.895Z; page last updated 24 July 2026).
 

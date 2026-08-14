@@ -16,6 +16,56 @@ spec:
   displayName: Arbitrum
   programURL: https://immunefi.com/bug-bounty/arbitrum/scope/
   verifiedAt: 2026-08-12T00:00:00Z
+  severitySystem: immunefi-v2.3
+  inScopeImpacts:
+    - impact: "Direct theft of user funds that is NOT mitigiated by a protocol-enforced delay"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds (cannot be fixed by upgrade)"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Incorrectly confirmed assertion / incorrectly resolved BoLD challenge, NOT detected by honest validators, that allows proving an invalid withdrawal"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Direct theft or permanent freezing of user funds that IS mitigated by a protocol-enforced delay"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Insolvency"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds (can be fixed by upgrade)"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Bugs relating to reorgs"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Damage relating to withdrawing funds via fast bridges"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Denial of Service (DoS) Attacks that cause network-wide outages (attacks that only take down the RPC do not count)"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Incorrectly resolved BoLD challenge that is detected by honest validators, or that does not allow proving an invalid withdrawal"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Theft of gas"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Unbounded gas consumption"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Smart contract unable to operate due to lack of funds"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Block stuffing for profit"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Smart contract fails to deliver promised returns, but doesn’t lose value"
+      level: low
+      assetType: "Smart Contract"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T15:44:19.939Z; page last updated 30 July 2026).
 

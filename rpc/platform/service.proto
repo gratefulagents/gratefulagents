@@ -5113,6 +5113,75 @@ message SecurityProgramResource {
   int64 created_at_unix = 13;
   string condition_ready = 14;
   string content_digest = 15;
+  // severity_system names the severity ladder the program is judged under:
+  // one of immunefi-v2.3, code4rena, sherlock, cantina, ethereum-foundation,
+  // or custom. Severity labels are never translated between systems.
+  string severity_system = 16;
+  // in_scope_impacts are the program's published impact clauses, transcribed
+  // verbatim. A report may only claim an impact the program published.
+  repeated SecurityProgramImpact in_scope_impacts = 17;
+  // out_of_scope are the program's published exclusions, transcribed verbatim.
+  repeated string out_of_scope = 18;
+  // primacy is impact or rules: whether the program judges by demonstrated
+  // impact or strictly by its itemized asset rules.
+  string primacy = 19;
+  // poc_required records that a runnable proof of concept is mandatory.
+  bool poc_required = 20;
+  // poc_environment is one of mainnet-fork, project-test-suite, local-devnet,
+  // or either.
+  string poc_environment = 21;
+  // assets bind in-scope assets to deployed state.
+  repeated SecurityProgramAsset assets = 22;
+  // known_issues are issues the program already knows about; they and their
+  // duplicates are not reportable.
+  repeated SecurityProgramKnownIssue known_issues = 23;
+  // prohibited_testing are the program's published testing prohibitions,
+  // transcribed verbatim.
+  repeated string prohibited_testing = 24;
+  // submission_budget rations how many reports may be submitted.
+  SecurityProgramSubmissionBudget submission_budget = 25;
+  // kyc_required records that the program requires identity verification
+  // before it pays a reward.
+  bool kyc_required = 26;
+}
+
+// SecurityProgramImpact is one impact clause transcribed verbatim from the
+// program's published in-scope impact list, with the severity the program's
+// own system assigns it.
+message SecurityProgramImpact {
+  string impact = 1;
+  // level is one of critical, high, medium, or low in the program's own system.
+  string level = 2;
+  // asset_type is the program's own asset category, such as "Smart Contract".
+  string asset_type = 3;
+}
+
+// SecurityProgramAsset binds an in-scope asset to what is actually deployed.
+message SecurityProgramAsset {
+  string chain_id = 1;
+  string address = 2;
+  string repository_url = 3;
+  string display_name = 4;
+  string added_on = 5;
+}
+
+// SecurityProgramKnownIssue records something the program already knows about,
+// such as a prior-audit finding or an acknowledged README issue.
+message SecurityProgramKnownIssue {
+  string source = 1;
+  string summary = 2;
+  string reference = 3;
+}
+
+// SecurityProgramSubmissionBudget rations reports.
+message SecurityProgramSubmissionBudget {
+  // max_per_period is the submission cap; zero means the program publishes no
+  // explicit limit.
+  int32 max_per_period = 1;
+  // period_days is the rolling window length; zero means the cap applies per
+  // engagement.
+  int32 period_days = 2;
+  bool unrestricted_requires_reputation = 3;
 }
 
 message ListSecurityProgramsRequest {

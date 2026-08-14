@@ -59,21 +59,40 @@ type securityPoCValidation struct {
 
 type securityBountySubmission struct {
 	Markdown string `json:"markdown"`
+	// The fields below are the ones bounty programs reject reports for
+	// omitting. They are validated before anything is persisted, so a report
+	// missing them never becomes an artifact.
+	ImpactClause        string `json:"impact_clause"`
+	RootCause           string `json:"root_cause"`
+	MaxAchievableImpact string `json:"max_achievable_impact"`
+	AttackPath          string `json:"attack_path"`
+	Feasibility         string `json:"feasibility"`
+	FundsAtRisk         string `json:"funds_at_risk"`
+	Remediation         string `json:"remediation"`
+	PriorArt            string `json:"prior_art"`
+	// SeveritySystem echoes the governing program's system. It is checked
+	// against the controller-stamped value: severity is never translated
+	// between systems.
+	SeveritySystem string `json:"severity_system"`
 }
 
 type securityBundleManifest struct {
-	SchemaVersion string            `json:"schema_version"`
-	FindingID     string            `json:"finding_id"`
-	FindingStatus string            `json:"finding_status"`
-	Fingerprint   string            `json:"fingerprint"`
-	Repository    string            `json:"repository"`
-	Revision      string            `json:"revision"`
-	ScanName      string            `json:"scan_name"`
-	ExecutionID   string            `json:"execution_id,omitempty"`
-	BuilderRun    string            `json:"builder_run"`
-	ValidatorRun  string            `json:"validator_run"`
-	ReportRun     string            `json:"report_run"`
-	FilesSHA256   map[string]string `json:"files_sha256"`
+	SchemaVersion  string            `json:"schema_version"`
+	FindingID      string            `json:"finding_id"`
+	FindingStatus  string            `json:"finding_status"`
+	Fingerprint    string            `json:"fingerprint"`
+	Repository     string            `json:"repository"`
+	Revision       string            `json:"revision"`
+	ScanName       string            `json:"scan_name"`
+	ExecutionID    string            `json:"execution_id,omitempty"`
+	BuilderRun     string            `json:"builder_run"`
+	ValidatorRun   string            `json:"validator_run"`
+	ReportRun      string            `json:"report_run"`
+	SeveritySystem string            `json:"severity_system,omitempty"`
+	ImpactClause   string            `json:"impact_clause,omitempty"`
+	ProgramLevel   string            `json:"program_severity_level,omitempty"`
+	BudgetState    string            `json:"submission_budget_state,omitempty"`
+	FilesSHA256    map[string]string `json:"files_sha256"`
 }
 
 type securityBountyArtifactDeps struct {
@@ -326,7 +345,18 @@ func (t *saveSecurityBountySubmissionTool) Description() string {
 	return "Save the Markdown report, build a deterministic per-finding review ZIP, and upload it to the platform's private S3 bucket."
 }
 func (t *saveSecurityBountySubmissionTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"markdown":{"type":"string"}},"required":["markdown"]}`)
+	return json.RawMessage(`{"type":"object","properties":{` +
+		`"markdown":{"type":"string","description":"The full report in the governing program's template."},` +
+		`"impact_clause":{"type":"string","description":"The impact, copied verbatim from the program's in-scope impact list. Never invent an impact or asset."},` +
+		`"root_cause":{"type":"string","description":"The specific line, function, or logic mistake that causes the vulnerability."},` +
+		`"max_achievable_impact":{"type":"string","description":"The maximum impact reachable from this root cause. Omitting it is a documented downgrade trigger."},` +
+		`"attack_path":{"type":"string","description":"Ordered steps from the attacker's position to the impact, with every precondition stated."},` +
+		`"feasibility":{"type":"string","description":"Attacker capital, financial risk, privilege assumptions, and mempool or chain assumptions."},` +
+		`"funds_at_risk":{"type":"string","description":"Quantified value at risk with the block or snapshot it was measured at, or an explicit statement that the impact class permits no measurement."},` +
+		`"remediation":{"type":"string","description":"The recommended fix."},` +
+		`"prior_art":{"type":"string","description":"What was searched for duplicates and known issues, where, and the result."},` +
+		`"severity_system":{"type":"string","description":"The governing program's severity system. Severity is never translated between systems."}},` +
+		`"required":["markdown","impact_clause","root_cause","max_achievable_impact","attack_path","feasibility","remediation","prior_art"]}`)
 }
 func (t *saveSecurityBountySubmissionTool) IsReadOnly() bool { return true }
 func (t *saveSecurityBountySubmissionTool) IsEnabled(_ *agentsdk.RunContext) bool {
@@ -342,11 +372,21 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 	if strings.TrimSpace(submission.Markdown) == "" || len(submission.Markdown) > maxSecurityPoCTotalBytes {
 		return Result{Content: "markdown is required and must not exceed 1 MiB", IsError: true}, nil
 	}
+	if problems := validateBountySubmissionClaim(submission, t.state.scanCtx); len(problems) != 0 {
+		// Fail closed and write nothing: an incomplete claim is the single
+		// most common reason a real submission is rejected, so it must not
+		// become an artifact that looks submission-ready.
+		return Result{Content: "submission is incomplete and was not saved: " + strings.Join(problems, "; "), IsError: true}, nil
+	}
 	finding, err := boundSecurityFinding(ctx, t.state)
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
 	artifactStatus, err := securityReportBundleStatus(finding)
+	if err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	budgetState, err := t.submissionBudgetState(ctx, finding)
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
@@ -394,7 +434,7 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 		recordBundleError(err.Error())
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	bundle, err := buildSecurityReportBundle(finding, t.state.scanCtx, candidate, validation, submission.Markdown, builderRun, validatorRun)
+	bundle, err := buildSecurityReportBundle(finding, t.state.scanCtx, candidate, validation, submission, budgetState, builderRun, validatorRun)
 	if err != nil {
 		recordBundleError("building bundle: " + err.Error())
 		return Result{Content: "building bundle: " + err.Error(), IsError: true}, nil
@@ -414,11 +454,18 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 }
 
 func buildSecuritySubmissionBundle(finding *store.SecurityFindingRecord, scanCtx SecurityScanContext, candidate securityPoCCandidate, validation securityPoCValidation, markdown, builderRun, validatorRun string) ([]byte, error) {
-	return buildSecurityReportBundle(finding, scanCtx, &candidate, &validation, markdown, builderRun, validatorRun)
+	return buildSecurityReportBundle(finding, scanCtx, &candidate, &validation, securityBountySubmission{Markdown: markdown}, "", builderRun, validatorRun)
 }
 
-func buildSecurityReportBundle(finding *store.SecurityFindingRecord, scanCtx SecurityScanContext, candidate *securityPoCCandidate, validation *securityPoCValidation, markdown, builderRun, validatorRun string) ([]byte, error) {
-	files := map[string][]byte{"submission.md": []byte(markdown)}
+func buildSecurityReportBundle(finding *store.SecurityFindingRecord, scanCtx SecurityScanContext, candidate *securityPoCCandidate, validation *securityPoCValidation, submission securityBountySubmission, budgetState, builderRun, validatorRun string) ([]byte, error) {
+	files := map[string][]byte{"submission.md": []byte(submission.Markdown)}
+	// The structured claim travels with the report so a triager can read the
+	// root cause, maximum achievable impact and funds at risk without mining
+	// them out of prose.
+	if strings.TrimSpace(submission.ImpactClause) != "" {
+		claimJSON, _ := json.MarshalIndent(submission, "", "  ")
+		files["claim.json"] = append(claimJSON, '\n')
+	}
 	if candidate != nil {
 		var readme strings.Builder
 		fmt.Fprintf(&readme, "# Proof of concept\n\n## Setup\n%s\n\n## Command\n```sh\n%s\n```\n\n## Expected output\n```\n%s\n```\n\n## Observed output\n```\n%s\n```\n\n## Teardown\n%s\n\n## Environment\n%s\n", candidate.Setup, candidate.Command, candidate.ExpectedOutput, candidate.ObservedOutput, candidate.Teardown, candidate.Environment)
@@ -436,7 +483,8 @@ func buildSecurityReportBundle(finding *store.SecurityFindingRecord, scanCtx Sec
 		sum := sha256.Sum256(body)
 		hashes[name] = hex.EncodeToString(sum[:])
 	}
-	manifest := securityBundleManifest{SchemaVersion: "v1", FindingID: finding.ID.String(), FindingStatus: finding.Status, Fingerprint: finding.Fingerprint, Repository: finding.Repository, Revision: finding.Revision, ScanName: finding.ScanName, ExecutionID: scanCtx.ExecutionID, BuilderRun: builderRun, ValidatorRun: validatorRun, ReportRun: scanCtx.RunName, FilesSHA256: hashes}
+	programLevel, _ := securityProgramImpactLevel(scanCtx, submission.ImpactClause)
+	manifest := securityBundleManifest{SchemaVersion: "v1", FindingID: finding.ID.String(), FindingStatus: finding.Status, Fingerprint: finding.Fingerprint, Repository: finding.Repository, Revision: finding.Revision, ScanName: finding.ScanName, ExecutionID: scanCtx.ExecutionID, BuilderRun: builderRun, ValidatorRun: validatorRun, ReportRun: scanCtx.RunName, SeveritySystem: scanCtx.SeveritySystem, ImpactClause: submission.ImpactClause, ProgramLevel: programLevel, BudgetState: budgetState, FilesSHA256: hashes}
 	manifestJSON, _ := json.MarshalIndent(manifest, "", "  ")
 	files["manifest.json"] = append(manifestJSON, '\n')
 	var buf bytes.Buffer
@@ -464,4 +512,124 @@ func buildSecurityReportBundle(finding *store.SecurityFindingRecord, scanCtx Sec
 		return nil, fmt.Errorf("bundle exceeds %d bytes", maxSecurityBundleBytes)
 	}
 	return buf.Bytes(), nil
+}
+
+// securityProgramImpactLevel returns the governing program's own severity
+// level for a verbatim impact clause. The second result reports whether the
+// program published an impact list at all: when it did not, the clause cannot
+// be checked and the caller must not pretend otherwise.
+func securityProgramImpactLevel(scanCtx SecurityScanContext, clause string) (string, bool) {
+	if len(scanCtx.InScopeImpacts) == 0 {
+		return "", false
+	}
+	clause = strings.TrimSpace(clause)
+	for _, impact := range scanCtx.InScopeImpacts {
+		if impact.Impact == clause {
+			return impact.Level, true
+		}
+	}
+	return "", true
+}
+
+// validateBountySubmissionClaim enforces the fields programs reject reports
+// for omitting, plus the two rules that cause outright rules violations: the
+// impact must be selected verbatim from the program's published list, and the
+// severity system is never translated.
+func validateBountySubmissionClaim(submission securityBountySubmission, scanCtx SecurityScanContext) []string {
+	var problems []string
+	required := []struct {
+		field string
+		value string
+	}{
+		{"impact_clause", submission.ImpactClause},
+		{"root_cause", submission.RootCause},
+		{"max_achievable_impact", submission.MaxAchievableImpact},
+		{"attack_path", submission.AttackPath},
+		{"feasibility", submission.Feasibility},
+		{"remediation", submission.Remediation},
+		{"prior_art", submission.PriorArt},
+	}
+	for _, entry := range required {
+		if strings.TrimSpace(entry.value) == "" {
+			problems = append(problems, entry.field+" is required")
+		}
+	}
+	// Funds at risk is required whenever the program measures impact in
+	// value. An impact class that permits no measurement must say so rather
+	// than leave the field blank.
+	if strings.TrimSpace(submission.FundsAtRisk) == "" {
+		problems = append(problems, "funds_at_risk is required (state the measured value, or why the impact class permits no measurement)")
+	}
+	if declared := strings.TrimSpace(submission.SeveritySystem); declared != "" && scanCtx.SeveritySystem != "" && !strings.EqualFold(declared, scanCtx.SeveritySystem) {
+		problems = append(problems, fmt.Sprintf("severity_system %q does not match the governing program's %q; severity is never translated between systems", declared, scanCtx.SeveritySystem))
+	}
+	// Only a complete impact list can prove a clause is not published. A
+	// truncated list would otherwise reject a genuinely in-scope clause that
+	// fell past the encoding bound.
+	if level, published := securityProgramImpactLevel(scanCtx, submission.ImpactClause); published && !scanCtx.ImpactsTruncated &&
+		level == "" && strings.TrimSpace(submission.ImpactClause) != "" {
+		problems = append(problems, "impact_clause is not one of the program's published in-scope impacts; copy one verbatim instead of writing a new one")
+	}
+	return problems
+}
+
+// submissionBudgetState enforces the program's submission budget. Reporting is
+// rationed on every major platform, so when more eligible findings exist than
+// the budget allows only the highest-ranked ones are packaged; the rest stay
+// candidates with the reason recorded. An unset budget imposes no limit.
+//
+// Ranking is scan-wide rather than execution-wide, so re-running a scan
+// repackages the same top findings instead of granting a fresh allowance, and
+// ties are broken deterministically by fingerprint so a tie can never let more
+// findings through than the budget permits.
+//
+// The program's period (submissionBudget.periodDays) is recorded but not
+// enforced here: counting submissions across a rolling window needs durable
+// submission accounting, which is tracked as the follow-up on #253. The budget
+// state string says so, so a per-scan cap is never mistaken for a per-period one.
+func (t *saveSecurityBountySubmissionTool) submissionBudgetState(ctx context.Context, finding *store.SecurityFindingRecord) (string, error) {
+	budget := t.state.scanCtx.SubmissionBudget
+	if budget <= 0 || finding == nil {
+		return "", nil
+	}
+	filter := t.state.scopeFilter()
+	// Scan-wide: a new execution of the same scan must not mint a new
+	// allowance for the same program.
+	filter.ExecutionID = ""
+	filter.TaskName = ""
+	filter.Status = store.SecurityFindingStatusConfirmed
+	findings, err := t.state.listFindings(ctx, filter)
+	if err != nil {
+		// A budget that cannot be evaluated must not silently authorize an
+		// unlimited number of submissions.
+		return "", fmt.Errorf("evaluating the program's submission budget: %w", err)
+	}
+	rank := 1
+	for _, candidate := range findings {
+		if candidate.ID == finding.ID || candidate.DuplicateOf != nil || candidate.SuppressedBy != "" {
+			continue
+		}
+		if outranksForSubmission(candidate, *finding) {
+			rank++
+		}
+	}
+	period := ""
+	if days := t.state.scanCtx.SubmissionBudgetPeriodDays; days > 0 {
+		period = fmt.Sprintf(", program period %d days not enforced per-window", days)
+	}
+	if int32(rank) > budget {
+		return "", fmt.Errorf("the program's submission budget of %d is exhausted for this scan: this finding ranks %d, so it stays a candidate instead of a submission%s", budget, rank, period)
+	}
+	return fmt.Sprintf("rank %d of budget %d (scan-wide%s)", rank, budget, period), nil
+}
+
+// outranksForSubmission reports whether other should consume a submission slot
+// ahead of finding. Score decides, and equal scores fall back to the
+// fingerprint so the ordering is total: without a tie-break every member of a
+// tie would claim the same rank and the cap could be exceeded.
+func outranksForSubmission(other, finding store.SecurityFindingRecord) bool {
+	if other.Score != finding.Score {
+		return other.Score > finding.Score
+	}
+	return other.Fingerprint < finding.Fingerprint
 }
