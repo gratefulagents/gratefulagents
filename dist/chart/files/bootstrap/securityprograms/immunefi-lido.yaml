@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/lidofinance/core
       baseBranch: master
-      workflowRef: smart-contract-review
+      workflowRef: bounty-hunt-evm
       policyPackRef: bug-bounty
       scanName: immunefi-lido-core
       displayName: Lido Core
