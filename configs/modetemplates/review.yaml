@@ -27,6 +27,7 @@ spec:
     - resolve_review_thread
     - request_re_review
     - submit_review_verdict
+    - report_bug
 
   instructions: |
     PR REVIEW MODE - Autonomous Pull Request Review

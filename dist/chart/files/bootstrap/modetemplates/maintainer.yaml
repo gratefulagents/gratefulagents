@@ -35,6 +35,7 @@ spec:
     - submit_maintainer_report
     - create_github_issue
     - add_github_issue_comment
+    - report_bug
 
   instructions: |
     MAINTAINER MODE — Continuous Repository Maintenance
