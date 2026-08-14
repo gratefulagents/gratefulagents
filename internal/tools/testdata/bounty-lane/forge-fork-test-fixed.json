@@ -1,0 +1,21 @@
+{
+  "test/EscrowForkTest.t.sol:EscrowForkTest": {
+    "test_results": {
+      "test_depositAccountingHolds": {
+        "status": "Success",
+        "reason": null,
+        "counterexample": null,
+        "decoded_logs": []
+      },
+      "test_attackerDrainsEscrowAfterReentry": {
+        "status": "Success",
+        "reason": null,
+        "counterexample": null,
+        "decoded_logs": [
+          "attacker balance before: 0",
+          "attacker balance after: 0"
+        ]
+      }
+    }
+  }
+}
