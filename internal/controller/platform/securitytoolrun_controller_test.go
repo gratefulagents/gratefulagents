@@ -10,9 +10,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1164,5 +1166,56 @@ func TestStagedCleanupBackoffIsBounded(t *testing.T) {
 	}
 	if got := stagedCleanupBackoff(time.Minute); got != time.Minute {
 		t.Fatalf("backoff(1m) = %v, want 1m", got)
+	}
+}
+
+func TestSecurityToolJobCarriesOperatorEVMConfiguration(t *testing.T) {
+	// Without this the manager can advertise an authorized alias that every
+	// worker then rejects as unconfigured, because resolution happens inside
+	// the Job.
+	t.Setenv("GA_SECURITY_EVM_FORK_ENDPOINTS", "mainnet-archive")
+	t.Setenv("GA_SECURITY_EVM_FORK_ENDPOINT_MAINNET_ARCHIVE", "https://archive.example/rpc")
+	t.Setenv("GA_SECURITY_EVM_UPSTREAM_MIRROR_GO_ETHEREUM", "https://mirror.example/go-ethereum.git")
+	t.Setenv("GA_SECURITY_EVM_UNRELATED", "")
+	t.Setenv("GA_UNRELATED_SETTING", "leak-me")
+
+	env := securityToolOperatorEVMEnv()
+	got := make(map[string]string, len(env))
+	names := make([]string, 0, len(env))
+	for _, entry := range env {
+		got[entry.Name] = entry.Value
+		names = append(names, entry.Name)
+	}
+	if got["GA_SECURITY_EVM_FORK_ENDPOINTS"] != "mainnet-archive" ||
+		got["GA_SECURITY_EVM_FORK_ENDPOINT_MAINNET_ARCHIVE"] != "https://archive.example/rpc" ||
+		got["GA_SECURITY_EVM_UPSTREAM_MIRROR_GO_ETHEREUM"] != "https://mirror.example/go-ethereum.git" {
+		t.Fatalf("operator EVM configuration = %v", got)
+	}
+	if _, leaked := got["GA_UNRELATED_SETTING"]; leaked {
+		t.Error("unrelated manager environment was forwarded to the Job")
+	}
+	if _, empty := got["GA_SECURITY_EVM_UNRELATED"]; empty {
+		t.Error("an empty setting was forwarded")
+	}
+	if !slices.IsSorted(names) {
+		t.Errorf("environment order = %v, want a deterministic Job spec", names)
+	}
+}
+
+func TestBoundedScopeIsClampedToStatusLimits(t *testing.T) {
+	// An oversized field would make the API server reject the status update,
+	// discarding an otherwise successful run.
+	long := strings.Repeat("a", securityToolMaxStatusCoverage+500)
+	if got := clampStatusField(long, securityToolMaxStatusCoverage); len(got) != securityToolMaxStatusCoverage {
+		t.Fatalf("clamped coverage length = %d, want %d", len(got), securityToolMaxStatusCoverage)
+	}
+	if got := clampStatusField("short", securityToolMaxStatusShortField); got != "short" {
+		t.Fatalf("clampStatusField truncated a value that fits: %q", got)
+	}
+	// Multi-byte values must not be cut mid-character.
+	multibyte := strings.Repeat("é", 600)
+	clamped := clampStatusField(multibyte, securityToolMaxStatusShortField)
+	if utf8.RuneCountInString(clamped) != securityToolMaxStatusShortField || !utf8.ValidString(clamped) {
+		t.Fatalf("clamped multi-byte value = %d runes, valid=%v", utf8.RuneCountInString(clamped), utf8.ValidString(clamped))
 	}
 }

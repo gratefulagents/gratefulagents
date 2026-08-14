@@ -795,17 +795,13 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna", "forge-fork-test", "forge-coverage-mutation"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation", "upstream-fork-diff"}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
-	// The EVM verification packs are reviewed contracts whose execution stage
-	// is not wired yet. Each reason names the exact missing capability so the
+	// A pack that cannot be packaged for every supported architecture stays
+	// catalog-only, and its reason names the exact missing capability so the
 	// catalog never implies a run would work.
 	packagingBlockers := map[string]string{
-		"anvil-fork":              "catalog-only: the operator fork-endpoint resolver and the local devnet lifecycle supervisor are not implemented in the executor",
-		"forge-fork-test":         "catalog-only: the operator fork-endpoint resolver is not implemented in the executor",
-		"medusa":                  "catalog-only: upstream publishes no linux/arm64 release asset for medusa v1.5.1, so the runtime lock cannot pin a multi-architecture binary",
-		"forge-coverage-mutation": "catalog-only: the mutation driver that applies the selected operator to staged sources and re-runs the pinned coverage argv is not implemented",
-		"upstream-fork-diff":      "catalog-only: the reviewed upstream mirror fetch stage that materializes the pinned upstream revision is not implemented",
+		"medusa": "catalog-only: upstream publishes no linux/arm64 release asset for medusa v1.5.1, so the runtime lock cannot pin a multi-architecture binary",
 	}
 	ociTools := map[string]struct{ image, digest, amd64, arm64, root, executable, output string }{
 		"owasp-zap":     {"docker.io/zaproxy/zap-stable", "sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab", "sha256:65f8bee15a648ca4a0b6a25e1096fc76af6eea42ab2d75f2a9649981225f30b8", "sha256:7d6bc478bd0750a094349b2e9710a4e33b84e003ae4341f2f2ae7245ec1c5065", "owasp-zap", "/zap/zap.sh", "/work/zap-report.json"},

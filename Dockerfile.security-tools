@@ -79,6 +79,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS security-tools-evm-base
 WORKDIR /workspace
+# upstream-fork-diff compares the staged fork against the reviewed upstream
+# revision the operator's mirror provides, so the runtime needs git itself.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/ga-security /usr/local/bin/ga-security
 COPY --from=builder /out/tools/ /usr/local/bin/
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

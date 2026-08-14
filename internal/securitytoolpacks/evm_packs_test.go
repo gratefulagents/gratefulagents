@@ -41,21 +41,29 @@ func evmPack(t *testing.T, name string) Tool {
 	return tool
 }
 
-// The EVM packs are reviewed contracts whose executor stage is not wired yet.
-// They must stay catalog-only with a reason that names the missing capability,
-// so no caller can be told a run would work.
-func TestEVMPacksAreRegisteredAsReviewedCatalogEntries(t *testing.T) {
+// Every EVM pack keeps a complete execution contract. A pack is enabled only
+// when its executor stage exists; anything still unrunnable stays catalog-only
+// with a reason that names the missing capability, so no caller can be told a
+// run would work.
+func TestEVMPacksDeclareExecutableOrCatalogOnlyContracts(t *testing.T) {
 	adapters := DefaultAdapters()
+	// medusa has no linux/arm64 release asset, so the runtime lock cannot pin
+	// it on every supported architecture and it stays catalog-only.
+	catalogOnly := map[string]string{"medusa": "linux/arm64"}
 	for _, name := range evmPackNames {
 		tool := evmPack(t, name)
 		if tool.Domain != DomainBlockchain {
 			t.Errorf("%s domain = %q, want %q", name, tool.Domain, DomainBlockchain)
 		}
-		if tool.Enabled {
-			t.Errorf("%s must remain catalog-only until its executor stage exists", name)
-		}
-		if !strings.HasPrefix(tool.DisabledReason, "catalog-only: ") {
-			t.Errorf("%s disabled reason must name the missing capability, got %q", name, tool.DisabledReason)
+		if blocker, ok := catalogOnly[name]; ok {
+			if tool.Enabled {
+				t.Errorf("%s must remain catalog-only: %s", name, blocker)
+			}
+			if !strings.HasPrefix(tool.DisabledReason, "catalog-only: ") || !strings.Contains(tool.DisabledReason, blocker) {
+				t.Errorf("%s disabled reason must name the missing capability, got %q", name, tool.DisabledReason)
+			}
+		} else if !tool.Enabled {
+			t.Errorf("%s executor stage exists, so it must be runnable: %q", name, tool.DisabledReason)
 		}
 		if _, ok := adapters[tool.Adapter]; !ok {
 			t.Errorf("%s adapter %q is not registered", name, tool.Adapter)
@@ -72,13 +80,26 @@ func TestEVMPacksAreRegisteredAsReviewedCatalogEntries(t *testing.T) {
 	}
 	// A disabled pack must not be reachable even with a fully valid request.
 	registry := evmTestRegistry(t)
-	pin := sha256Digest([]byte("target"))
 	_, _, err := registry.BuildInvocation(RunConfig{
-		Tool:   "anvil-fork",
-		Target: Target{Type: "foundry_project", Locator: "project", Revision: "v1", Digest: pin, MediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
+		Tool:      "medusa",
+		Target:    Target{Type: "solidity_project", Locator: "project", Revision: "v1", Digest: sha256Digest([]byte("target")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
+		Arguments: map[string]string{"target_contracts": "VaultHarness"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "disabled") {
 		t.Fatalf("disabled pack built an invocation: %v", err)
+	}
+}
+
+// The packs whose executable comes from the checksum-verified runtime lock are
+// digest-verified at exec time exactly like nuclei, echidna, and aderyn.
+func TestEVMPackBinariesAreDigestVerifiedAtExec(t *testing.T) {
+	for _, name := range []string{"anvil-fork", "forge-fork-test", "forge-coverage-mutation"} {
+		if !isLockedExternalTool(name) {
+			t.Errorf("%s must be verified against its locked artifact digest before exec", name)
+		}
+		if tool := evmPack(t, name); !strings.HasPrefix(tool.ToolArtifactDigest, "sha256:") {
+			t.Errorf("%s has no locked artifact digest: %q", name, tool.ToolArtifactDigest)
+		}
 	}
 }
 

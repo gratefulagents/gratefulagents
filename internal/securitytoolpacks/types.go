@@ -182,6 +182,10 @@ type Result struct {
 	Bounded *BoundedScope `json:"bounded_scope,omitempty"`
 }
 
+// maxCoverageSummaryBytes bounds the rendered coverage summary so it always
+// fits the SecurityToolRun status field that carries it.
+const maxCoverageSummaryBytes = 1024
+
 // ReproducibilityClass states how a result can be reproduced. Confirmation
 // must be reproducible under the correct class, not under a single universal
 // definition of determinism.
