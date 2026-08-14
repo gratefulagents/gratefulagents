@@ -29,12 +29,24 @@ const (
 type chainNode struct {
 	mu      sync.Mutex
 	methods []string
+	blocks  []string
 	chainID int64
 	number  int64
 	hash    string
 	code    map[string]string
 	storage map[string]map[string]string
 	calls   map[string]map[string]string
+	// rejectHashPin models an endpoint without EIP-1898 support, which is the
+	// fallback path the pin re-check exists for.
+	rejectHashPin bool
+	// transportFailure models a rate-limited or broken endpoint: the node
+	// answers with an HTTP error rather than a JSON-RPC rejection.
+	transportFailure bool
+	// reorgAfterPin makes every block query after the first return a different
+	// hash, which is exactly the reorg a number-pinned run must not silently
+	// report as state at the pinned hash.
+	reorgAfterPin bool
+	blockQueries  int
 }
 
 func newChainNode() *chainNode {
@@ -44,6 +56,14 @@ func newChainNode() *chainNode {
 		storage: map[string]map[string]string{},
 		calls:   map[string]map[string]string{},
 	}
+}
+
+// blockSelectors returns the state selector every read carried, so a test can
+// prove the reads were pinned to the hash rather than to a moving number.
+func (n *chainNode) blockSelectors() []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return slices.Clone(n.blocks)
 }
 
 func (n *chainNode) seen(method string) bool {
@@ -68,7 +88,27 @@ func (n *chainNode) start(t *testing.T) string {
 		_ = json.Unmarshal(body, &call)
 		n.mu.Lock()
 		n.methods = append(n.methods, call.Method)
+		failTransport := n.transportFailure
+		rejectHashPin := n.rejectHashPin
 		n.mu.Unlock()
+		if failTransport {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = fmt.Fprint(w, "rate limited")
+			return
+		}
+		blockIndex := map[string]int{"eth_getCode": 1, "eth_getStorageAt": 2, "eth_call": 1, "eth_getBlockByNumber": 0}
+		if index, pinned := blockIndex[call.Method]; pinned && index < len(call.Params) {
+			selector := string(call.Params[index])
+			n.mu.Lock()
+			n.blocks = append(n.blocks, selector)
+			n.mu.Unlock()
+			if rejectHashPin && strings.HasPrefix(selector, "{") {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"error":{"message":"unsupported block parameter"}}`)
+				return
+			}
+		}
+
 		text := func(index int) string {
 			var value string
 			if index < len(call.Params) {
@@ -81,7 +121,14 @@ func (n *chainNode) start(t *testing.T) string {
 		case "eth_chainId":
 			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":"0x%x"}`, n.chainID)
 		case "eth_getBlockByNumber":
-			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"number":"0x%x","hash":%q}}`, n.number, n.hash)
+			n.mu.Lock()
+			n.blockQueries++
+			hash := n.hash
+			if n.reorgAfterPin && n.blockQueries > 1 {
+				hash = strings.Replace(pinnedBlockHash, "aa", "cc", 1)
+			}
+			n.mu.Unlock()
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"number":"0x%x","hash":%q}}`, n.number, hash)
 		case "eth_getCode":
 			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":%q}`, "0x"+strings.TrimPrefix(n.code[text(0)], "0x"))
 		case "eth_getStorageAt":
@@ -461,5 +508,111 @@ func TestExecuteEVMStageHandlesTheChainPacks(t *testing.T) {
 		if len(result.Output) == 0 {
 			t.Fatalf("pack %s produced no record", name)
 		}
+	}
+}
+
+// A correct beacon proxy leaves its implementation slot empty on purpose: the
+// implementation lives on the beacon. Reporting that as an unset proxy would be
+// a false critical, and would also mean the real implementation was never read.
+func TestChainReadResolvesBeaconProxiesBeforeClassifyingThem(t *testing.T) {
+	const beacon = "0x5555555555555555555555555555555555555555"
+	node := newChainNode()
+	node.code[proxyAddress] = "0x6001"
+	node.code[beacon] = "0x6002"
+	node.code[implAddress] = "0x6003"
+	node.storage[proxyAddress] = map[string]string{eip1967BeaconSlot: word(beacon)}
+	node.storage[implAddress] = map[string]string{erc7201InitializableSlot: word("0x1")}
+	node.calls[beacon] = map[string]string{chainReadSelectors["implementation"]: word(implAddress)}
+	endpoint := node.start(t)
+
+	native, err := readChainState(t.Context(), http.DefaultClient, chainPinFor(endpoint), []string{proxyAddress})
+	if err != nil {
+		t.Fatalf("read chain state: %v", err)
+	}
+	var report chainReadReport
+	if err := json.Unmarshal(native, &report); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if report.Accounts[0].ProxyImplementation != implAddress || report.Accounts[0].ImplementationCodeSize == 0 {
+		t.Fatalf("beacon implementation was not resolved or not examined: %+v", report.Accounts[0])
+	}
+	if got := ruleIDs(normalizeChainRead(t, native)); len(got) != 0 {
+		t.Fatalf("a correct beacon proxy produced findings: %v", got)
+	}
+}
+
+// owner() == 0 alone is not evidence of a claimable implementation: a locked
+// implementation (_disableInitializers) and a renounced owner both read that
+// way. Only a zero Initializable marker in both slots distinguishes them.
+func TestChainReadDoesNotCallALockedOrRenouncedImplementationUninitialized(t *testing.T) {
+	for name, marker := range map[string]string{
+		"disabled initializers (v5)": erc7201InitializableSlot,
+		"initialized (v4 slot 0)":    legacyInitializableSlot,
+	} {
+		node := newChainNode()
+		node.code[proxyAddress] = "0x6001"
+		node.code[implAddress] = "0x6002"
+		node.storage[proxyAddress] = map[string]string{eip1967ImplementationSlot: word(implAddress)}
+		node.storage[implAddress] = map[string]string{marker: word("0xff")}
+		node.calls[implAddress] = map[string]string{chainReadSelectors["owner"]: word("0x0")}
+		endpoint := node.start(t)
+
+		native, err := readChainState(t.Context(), http.DefaultClient, chainPinFor(endpoint), []string{proxyAddress})
+		if err != nil {
+			t.Fatalf("%s: read chain state: %v", name, err)
+		}
+		if got := ruleIDs(normalizeChainRead(t, native)); slices.Contains(got, "implementation-contract-uninitialized") {
+			t.Errorf("%s was reported as uninitialized: %v", name, got)
+		}
+	}
+}
+
+// A rate-limited or broken endpoint must fail the run. Treating it like a
+// contract that has no owner() would turn a transport failure into a clean
+// audit nobody performed.
+func TestChainReadFailsOnTransportFailureInsteadOfReportingCleanState(t *testing.T) {
+	node := newChainNode()
+	node.code[proxyAddress] = "0x6001"
+	endpoint := node.start(t)
+	node.mu.Lock()
+	node.transportFailure = true
+	node.mu.Unlock()
+
+	if _, err := readChainState(t.Context(), http.DefaultClient, chainPinFor(endpoint), []string{proxyAddress}); err == nil {
+		t.Fatal("a failing endpoint produced a successful chain-read run")
+	}
+}
+
+func TestChainReadPinsEveryReadToTheBlockHashWhenTheEndpointSupportsIt(t *testing.T) {
+	node := newChainNode()
+	node.code[proxyAddress] = "0x6001"
+	endpoint := node.start(t)
+
+	if _, err := readChainState(t.Context(), http.DefaultClient, chainPinFor(endpoint), []string{proxyAddress}); err != nil {
+		t.Fatalf("read chain state: %v", err)
+	}
+	pinned := 0
+	for _, selector := range node.blockSelectors() {
+		if strings.Contains(selector, pinnedBlockHash) {
+			pinned++
+		}
+	}
+	if pinned == 0 {
+		t.Fatalf("no read carried the EIP-1898 hash selector: %v", node.blockSelectors())
+	}
+}
+
+// Without EIP-1898 the reads are pinned only by number, so the run re-checks
+// the pin afterwards: a record that claims a block hash the endpoint no longer
+// serves is not replayable and must not be emitted.
+func TestChainReadDetectsAReorgUnderANumberPinnedEndpoint(t *testing.T) {
+	node := newChainNode()
+	node.code[proxyAddress] = "0x6001"
+	node.rejectHashPin = true
+	node.reorgAfterPin = true
+	endpoint := node.start(t)
+
+	if _, err := readChainState(t.Context(), http.DefaultClient, chainPinFor(endpoint), []string{proxyAddress}); err == nil {
+		t.Fatal("a reorg during a number-pinned run was reported as pinned state")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -37,6 +38,15 @@ const (
 	eip1967BeaconSlot         = "0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50"
 
 	evmZeroAddress = "0x0000000000000000000000000000000000000000"
+	evmZeroWord    = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+	// Initializable markers. OpenZeppelin v5 keeps the initialization counter
+	// in an ERC-7201 namespaced slot; v4 keeps it in the low bytes of slot 0.
+	// Both are non-zero once a contract has been initialized AND once
+	// _disableInitializers() has run, which is exactly what distinguishes a
+	// deliberately locked implementation from one nobody ever claimed.
+	erc7201InitializableSlot = "0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00"
+	legacyInitializableSlot  = evmZeroWord
 
 	// chainReadEndpointFlag marks the argv slot the operator endpoint token is
 	// resolved into, so the stage reads a resolved URL it never chose itself.
@@ -131,6 +141,11 @@ type chainReadAccount struct {
 	ProxySlotsSet          bool   `json:"proxy_slots_set"`
 	Owner                  string `json:"owner,omitempty"`
 	Decimals               *int64 `json:"decimals,omitempty"`
+	// ImplementationInitializer is the observed Initializable marker of the
+	// implementation: "zero" only when both the ERC-7201 and the legacy slot
+	// are zero, which is the sole state that evidences an implementation
+	// nobody has claimed and nobody has locked.
+	ImplementationInitializer string `json:"implementation_initializer,omitempty"`
 }
 
 // chainReadReport is the replay record of a chain-read run: the pin, the
@@ -208,11 +223,16 @@ func (chainReadAdapter) Normalize(tool Tool, target Target, native []byte, r Red
 			out = append(out, finding(account, "proxy-implementation-missing-code", "Proxy points at an address with no code", "critical", "chain_state",
 				fmt.Sprintf("%s delegates to %s, which holds no code at block %d", account.Address, account.ProxyImplementation, report.BlockNumber),
 				map[string]string{"implementation": account.ProxyImplementation}))
-		case account.ProxyImplementation != "" && account.ImplementationOwner == evmZeroAddress:
+		case account.ProxyImplementation != "" && account.ImplementationInitializer == "zero" && account.ImplementationOwner == evmZeroAddress:
+			// Both Initializable markers zero rules out the two states that
+			// look identical from owner() alone: an implementation that ran
+			// _disableInitializers() (marker set to its maximum) and one whose
+			// owner was deliberately renounced after initialization (marker
+			// set to the version it initialized at).
 			out = append(out, finding(account, "implementation-contract-uninitialized", "Implementation contract behind the proxy is uninitialized", "high", "chain_state",
-				fmt.Sprintf("implementation %s behind proxy %s reports owner() == %s at block %d: the implementation was never initialized and can be claimed directly",
+				fmt.Sprintf("implementation %s behind proxy %s has a zero Initializable marker in both the ERC-7201 and the legacy slot and reports owner() == %s at block %d: it was never initialized and its initializers were never disabled",
 					account.ProxyImplementation, account.Address, evmZeroAddress, report.BlockNumber),
-				map[string]string{"implementation": account.ProxyImplementation}))
+				map[string]string{"implementation": account.ProxyImplementation, "initializer_marker": account.ImplementationInitializer}))
 		}
 		if account.Decimals != nil && *account.Decimals != 18 {
 			out = append(out, finding(account, "token-decimals-nonstandard", "Token does not use 18 decimals", "low", "accounting",
@@ -264,7 +284,11 @@ func (bytecodeDiffAdapter) Normalize(tool Tool, target Target, native []byte, r 
 type chainReader struct {
 	client   *http.Client
 	endpoint string
-	block    string
+	// block is the state selector every read carries. It is an EIP-1898
+	// {"blockHash": ...} object when the endpoint accepts one, so a reorg
+	// between the pin check and the reads cannot silently move the state a
+	// record claims to describe, and the plain block number otherwise.
+	block any
 }
 
 // call is the single chokepoint for every chain read. A method outside the
@@ -278,22 +302,29 @@ func (c chainReader) call(ctx context.Context, method string, params []any, out 
 }
 
 // staticCall invokes one allowlisted zero-argument view function at the pinned
-// block. It returns ok=false when the call reverts or returns nothing, because
-// "this contract is not a token" is an observation, not a failure.
-func (c chainReader) staticCall(ctx context.Context, address, function string) (string, bool) {
+// block. A revert or a malformed word is an observation — "this contract is
+// not a token" — and returns ok=false. A transport failure, timeout, or rate
+// limit is not: it is returned as an error, because a run that quietly treats
+// a broken endpoint as "the contract has no owner()" reports a clean audit it
+// never performed.
+func (c chainReader) staticCall(ctx context.Context, address, function string) (string, bool, error) {
 	selector, known := chainReadSelectors[function]
 	if !known {
-		return "", false
+		return "", false, fmt.Errorf("chain read refused non-allowlisted view function %q", function)
 	}
 	var result string
 	if err := c.call(ctx, "eth_call", []any{map[string]string{"to": address, "data": selector}, c.block}, &result); err != nil {
-		return "", false
+		var rejected nodeRejection
+		if errors.As(err, &rejected) {
+			return "", false, nil
+		}
+		return "", false, err
 	}
 	word, ok := strings.CutPrefix(strings.ToLower(result), "0x")
 	if !ok || len(word) < 64 {
-		return "", false
+		return "", false, nil
 	}
-	return "0x" + word[len(word)-64:], true
+	return "0x" + word[len(word)-64:], true, nil
 }
 
 func (c chainReader) code(ctx context.Context, address string) ([]byte, error) {
@@ -316,11 +347,19 @@ func (c chainReader) code(ctx context.Context, address string) ([]byte, error) {
 }
 
 func (c chainReader) storageAddress(ctx context.Context, address, slot string) (string, error) {
+	word, err := c.storageWord(ctx, address, slot)
+	if err != nil {
+		return "", err
+	}
+	return wordAddress(word), nil
+}
+
+func (c chainReader) storageWord(ctx context.Context, address, slot string) (string, error) {
 	var value string
 	if err := c.call(ctx, "eth_getStorageAt", []any{address, slot, c.block}, &value); err != nil {
 		return "", err
 	}
-	return wordAddress(value), nil
+	return strings.ToLower(value), nil
 }
 
 // wordAddress reads the low 20 bytes of a storage word as an address and
@@ -355,7 +394,7 @@ func (c chainReader) verifyPin(ctx context.Context, chainID, blockNumber int64, 
 		Number string `json:"number"`
 		Hash   string `json:"hash"`
 	}
-	if err := c.call(ctx, "eth_getBlockByNumber", []any{c.block, false}, &block); err != nil {
+	if err := c.call(ctx, "eth_getBlockByNumber", []any{"0x" + strconv.FormatInt(blockNumber, 16), false}, &block); err != nil {
 		return err
 	}
 	number, err := parseHexQuantity(block.Number)
@@ -406,20 +445,54 @@ func (p chainPin) reader(client *http.Client) chainReader {
 	return chainReader{client: client, endpoint: p.Endpoint, block: "0x" + strconv.FormatInt(p.BlockNumber, 16)}
 }
 
+// pinReader verifies the endpoint is serving the pinned chain and block, then
+// selects the strongest available state selector: an EIP-1898 block-hash
+// object when the endpoint supports one, so a reorg cannot move the state out
+// from under the reads, and the block number otherwise.
+func pinReader(ctx context.Context, client *http.Client, pin chainPin) (chainReader, error) {
+	reader := pin.reader(client)
+	if err := reader.verifyPin(ctx, pin.ChainID, pin.BlockNumber, pin.BlockHash); err != nil {
+		return chainReader{}, err
+	}
+	hashSelector := map[string]any{"blockHash": pin.BlockHash, "requireCanonical": true}
+	probe := chainReader{client: client, endpoint: pin.Endpoint, block: hashSelector}
+	var code string
+	if err := probe.call(ctx, "eth_getCode", []any{evmZeroAddress, hashSelector}, &code); err == nil {
+		return probe, nil
+	} else if !errors.As(err, &nodeRejection{}) {
+		return chainReader{}, err
+	}
+	return reader, nil
+}
+
+// confirmPinStillHolds re-reads the pinned block after the reads complete. It
+// is the fallback path's protection: an endpoint that only accepts block
+// numbers can reorganize mid-run, and a record that claims a block hash it no
+// longer matches is not replayable.
+func (c chainReader) confirmPinStillHolds(ctx context.Context, pin chainPin) error {
+	if _, hashPinned := c.block.(map[string]any); hashPinned {
+		return nil
+	}
+	return c.verifyPin(ctx, pin.ChainID, pin.BlockNumber, pin.BlockHash)
+}
+
 // readChainState observes every requested address at the pinned block and
 // returns the replay record the chain-read adapter consumes.
 func readChainState(ctx context.Context, client *http.Client, pin chainPin, addresses []string) ([]byte, error) {
-	reader := pin.reader(client)
-	if err := reader.verifyPin(ctx, pin.ChainID, pin.BlockNumber, pin.BlockHash); err != nil {
+	reader, err := pinReader(ctx, client, pin)
+	if err != nil {
 		return nil, err
 	}
 	report := chainReadReport{ChainID: pin.ChainID, BlockNumber: pin.BlockNumber, BlockHash: pin.BlockHash, EndpointAlias: pin.Alias}
 	for _, address := range addresses {
-		account, err := readAccount(ctx, reader, address)
-		if err != nil {
-			return nil, err
+		account, accountErr := readAccount(ctx, reader, address)
+		if accountErr != nil {
+			return nil, accountErr
 		}
 		report.Accounts = append(report.Accounts, account)
+	}
+	if err := reader.confirmPinStillHolds(ctx, pin); err != nil {
+		return nil, err
 	}
 	return json.Marshal(report)
 }
@@ -445,18 +518,37 @@ func readAccount(ctx context.Context, reader chainReader, address string) (chain
 		}
 		*field = value
 	}
+	// A beacon proxy legitimately leaves its implementation slot empty: the
+	// implementation lives on the beacon. Resolving it here is what keeps a
+	// correct beacon proxy from being reported as an unset proxy, and is also
+	// the only way its implementation is examined at all.
+	if account.ProxyImplementation == "" && account.ProxyBeacon != "" {
+		resolved, resolveErr := readImplementationPointer(ctx, reader, account.ProxyBeacon)
+		if resolveErr != nil {
+			return chainReadAccount{}, resolveErr
+		}
+		account.ProxyImplementation = resolved
+	}
 	// A contract that answers implementation() is a proxy even when it keeps
 	// the pointer outside the EIP-1967 slot.
 	if account.ProxyImplementation == "" {
-		if word, ok := reader.staticCall(ctx, address, "implementation"); ok {
-			account.ProxyImplementation = wordAddress(word)
+		resolved, resolveErr := readImplementationPointer(ctx, reader, address)
+		if resolveErr != nil {
+			return chainReadAccount{}, resolveErr
 		}
+		account.ProxyImplementation = resolved
 	}
 	account.ProxySlotsSet = account.ProxyImplementation != "" || account.ProxyAdmin != "" || account.ProxyBeacon != ""
-	if word, ok := reader.staticCall(ctx, address, "owner"); ok {
-		account.Owner = "0x" + strings.ToLower(word)[26:]
+	owner, err := readAddressView(ctx, reader, address, "owner")
+	if err != nil {
+		return chainReadAccount{}, err
 	}
-	if word, ok := reader.staticCall(ctx, address, "decimals"); ok {
+	account.Owner = owner
+	word, ok, err := reader.staticCall(ctx, address, "decimals")
+	if err != nil {
+		return chainReadAccount{}, err
+	}
+	if ok {
 		if decimals, parsed := new(big.Int).SetString(strings.TrimPrefix(word, "0x"), 16); parsed && decimals.IsInt64() && decimals.Int64() <= 77 {
 			value := decimals.Int64()
 			account.Decimals = &value
@@ -468,11 +560,61 @@ func readAccount(ctx context.Context, reader chainReader, address string) (chain
 			return chainReadAccount{}, codeErr
 		}
 		account.ImplementationCodeSize = len(implementation)
-		if word, ok := reader.staticCall(ctx, account.ProxyImplementation, "owner"); ok {
-			account.ImplementationOwner = "0x" + strings.ToLower(word)[26:]
+		implementationOwner, ownerErr := readAddressView(ctx, reader, account.ProxyImplementation, "owner")
+		if ownerErr != nil {
+			return chainReadAccount{}, ownerErr
 		}
+		account.ImplementationOwner = implementationOwner
+		marker, markerErr := readInitializableMarker(ctx, reader, account.ProxyImplementation)
+		if markerErr != nil {
+			return chainReadAccount{}, markerErr
+		}
+		account.ImplementationInitializer = marker
 	}
 	return account, nil
+}
+
+// readImplementationPointer calls implementation() and returns the address it
+// points at, or "" when the contract does not answer the call.
+func readImplementationPointer(ctx context.Context, reader chainReader, address string) (string, error) {
+	word, ok, err := reader.staticCall(ctx, address, "implementation")
+	if err != nil || !ok {
+		return "", err
+	}
+	return wordAddress(word), nil
+}
+
+// readAddressView returns the low 20 bytes of an allowlisted view function's
+// result, including the zero address when that is genuinely what it returned,
+// and "" when the contract does not answer the call at all.
+func readAddressView(ctx context.Context, reader chainReader, address, function string) (string, error) {
+	word, ok, err := reader.staticCall(ctx, address, function)
+	if err != nil || !ok {
+		return "", err
+	}
+	return "0x" + strings.ToLower(word)[26:], nil
+}
+
+// readInitializableMarker reports whether the contract's OpenZeppelin
+// Initializable state has ever been written: "zero" only when both the
+// ERC-7201 namespaced slot and the legacy slot-0 marker are zero, "set"
+// otherwise. An implementation that was initialized, and one that ran
+// _disableInitializers(), both read as "set"; only a contract that nobody
+// claimed and nobody locked reads as "zero".
+func readInitializableMarker(ctx context.Context, reader chainReader, address string) (string, error) {
+	for _, slot := range []string{erc7201InitializableSlot, legacyInitializableSlot} {
+		word, err := reader.storageWord(ctx, address, slot)
+		if err != nil {
+			return "", err
+		}
+		if !evmWordPattern.MatchString(word) {
+			return "", fmt.Errorf("eth_getStorageAt returned a malformed word for %s", address)
+		}
+		if word != evmZeroWord {
+			return "set", nil
+		}
+	}
+	return "zero", nil
 }
 
 // diffDeployedBytecode compares the deployed runtime code at the pinned block
@@ -484,12 +626,15 @@ func diffDeployedBytecode(ctx context.Context, client *http.Client, pin chainPin
 	if err != nil {
 		return nil, err
 	}
-	reader := pin.reader(client)
-	if err := reader.verifyPin(ctx, pin.ChainID, pin.BlockNumber, pin.BlockHash); err != nil {
+	reader, err := pinReader(ctx, client, pin)
+	if err != nil {
 		return nil, err
 	}
 	deployed, err := reader.code(ctx, address)
 	if err != nil {
+		return nil, err
+	}
+	if err := reader.confirmPinStillHolds(ctx, pin); err != nil {
 		return nil, err
 	}
 	report := bytecodeDiffReport{

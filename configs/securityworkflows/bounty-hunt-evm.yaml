@@ -144,10 +144,17 @@ spec:
         - name: exploit-poc-discipline
         - name: blockchain-security-research-method
       objective: >-
-        Turn each open hypothesis from {{tasks.hunt-against-invariants.output}} into a test that FAILS on
-        the pinned fork, or kill it. Run only against the local pinned fork or the project's own suite;
-        never send a transaction to a public network, which forfeits eligibility on every program. For
-        each attempt record the exact command, the assertion that broke, the observed state or balance
+        Turn each open hypothesis from {{tasks.hunt-against-invariants.output}} into a test that FAILS,
+        or kill it. Run it on the strongest substrate available to you and name which one you used, in
+        this order of preference: the pinned fork when a fork endpoint is authorized, otherwise a local
+        devnet seeded by the project's own deploy scripts, otherwise the project's own test suite with
+        state matching the deployed configuration. All three run locally and none of them touches a
+        public network: a transaction sent to a public network forfeits eligibility on every program.
+        Then state what your substrate cost you. A devnet or suite run cannot settle anything that
+        depends on deployed state, such as the real implementation behind a proxy, a token's actual
+        decimals, or the live oracle wiring, so a hypothesis that needs those facts is recorded as
+        untested and never as refuted. For each attempt record the exact command, the assertion that
+        broke, the observed state or balance
         delta, the negative control against unmodified or non-attacker input and the fact that the control
         did NOT trigger, and the mutation or calibration case proving the assertion can fail at all. State
         the reproducibility class: deterministic, seeded and replayable, schedule or environment
@@ -169,6 +176,7 @@ spec:
               "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding when a finding was reported"},
               "verdict": {"type": "string", "enum": ["broken", "refuted", "untested"]},
               "command": {"type": "string"},
+              "substrate": {"type": "string", "enum": ["pinned_fork", "local_devnet", "project_test_suite"], "description": "Where the assertion ran, since it bounds what the result can settle"},
               "failing_assertion": {"type": "string"},
               "observed_delta": {"type": "string", "description": "State or balance change proving the effect"},
               "negative_control_passed": {"type": "boolean"},

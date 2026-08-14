@@ -593,8 +593,17 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 		}
 	}
 	exploit := byName["synthesize-failing-exploit"].Objective
+	// The substrate is named and ranked, and the two weaker substrates are
+	// explicitly bounded: a deployment with no authorized fork endpoint must
+	// degrade to a local devnet or the project's own suite instead of stalling,
+	// and a hypothesis that needs deployed state stays untested rather than
+	// being recorded as refuted by a substrate that could never settle it.
+	// Every marker below is checked against the folded objective, so none of
+	// them may depend on where the YAML happens to wrap.
 	for _, marker := range []string{
-		"FAILS on the pinned fork", "never send a transaction to a public network",
+		"into a test that FAILS", "the pinned fork when a fork endpoint is authorized",
+		"the project's own test suite", "forfeits eligibility on every program",
+		"recorded as untested and never as refuted",
 		"negative control", "reproducibility class", "refuted or untested",
 	} {
 		if !strings.Contains(exploit, marker) {

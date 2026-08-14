@@ -1297,6 +1297,21 @@ func devnetCall(ctx context.Context, client *http.Client, endpoint, method strin
 	return jsonRPCCall(ctx, client, endpoint, "fork devnet", method, params, out)
 }
 
+// nodeRejection is an answer from the node itself — a reverted call, an
+// unsupported parameter, a missing result — as opposed to a transport,
+// timeout, or protocol failure. A caller may treat a rejection as an
+// observation ("this contract has no decimals()"), but must never treat a
+// transport failure that way, because that turns a broken endpoint into a
+// clean-looking audit.
+type nodeRejection struct{ label, method, message string }
+
+func (e nodeRejection) Error() string {
+	if e.message == "returned no result" {
+		return fmt.Sprintf("%s %s returned no result", e.label, e.method)
+	}
+	return fmt.Sprintf("%s %s failed: %s", e.label, e.method, e.message)
+}
+
 // jsonRPCCall performs one bounded JSON-RPC request. label names the peer in
 // every error, so a caller's failures stay attributable to the endpoint it
 // chose; the response body is size-limited because a remote node's reply is
@@ -1330,10 +1345,10 @@ func jsonRPCCall(ctx context.Context, client *http.Client, endpoint, label, meth
 		return fmt.Errorf("%s %s response is not JSON-RPC: %w", label, method, err)
 	}
 	if envelope.Error != nil {
-		return fmt.Errorf("%s %s failed: %s", label, method, envelope.Error.Message)
+		return nodeRejection{label: label, method: method, message: envelope.Error.Message}
 	}
 	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
-		return fmt.Errorf("%s %s returned no result", label, method)
+		return nodeRejection{label: label, method: method, message: "returned no result"}
 	}
 	return json.Unmarshal(envelope.Result, out)
 }
