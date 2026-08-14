@@ -22,6 +22,7 @@ var workflowTaskOutputRefPattern = regexp.MustCompile(`\{\{\s*tasks\.([a-zA-Z0-9
 // installs a usable bug-hunting library into every release namespace.
 var blockchainSecurityWorkflowLibrary = []string{
 	"algorand-security-review",
+	"bounty-hunt-evm",
 	"aptos-move-security-review",
 	"bitcoin-lightning-security-review",
 	"blockchain-protocol-audit",
@@ -46,6 +47,7 @@ var securityWorkflowLibrary = []string{
 	"auth-surface-audit",
 	"bitcoin-lightning-security-review",
 	"blockchain-protocol-audit",
+	"bounty-hunt-evm",
 	"bridge-l2-zk-security-review",
 	"cairo-starknet-security-review",
 	"cosmos-abci-halt-review",
@@ -533,6 +535,83 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	for _, status := range []string{"errors", "timeouts", "unsupported", "skipped", "inconclusive", "retest"} {
 		if !strings.Contains(strings.ToLower(triage.Objective), status) {
 			t.Errorf("triage-and-report must account for %q", status)
+		}
+	}
+}
+
+// TestBountyHuntEVMBuildsItsOracleFirst pins the property that makes this
+// workflow different from every other one we ship: the oracle is built and
+// calibrated before hunting, and nothing becomes a finding without a failing
+// assertion on a pinned fork. A workflow that hunts first and validates second
+// is the configuration that produces plausible, non-reproducible reports.
+func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
+	t.Parallel()
+
+	var workflow triggersv1alpha1.SecurityWorkflow
+	readBootstrapAsset(t, "securityworkflows", "bounty-hunt-evm", &workflow)
+
+	order := make(map[string]int, len(workflow.Spec.Tasks))
+	byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+	for index, task := range workflow.Spec.Tasks {
+		order[task.Name] = index
+		byName[task.Name] = task
+	}
+	for _, name := range []string{
+		"pin-target-and-deployment", "build-and-calibrate-invariants", "hunt-against-invariants",
+		"synthesize-failing-exploit", "quantify-impact-and-eligibility", "triage-and-report",
+	} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("workflow is missing task %q", name)
+		}
+	}
+
+	// The harness must exist before the hunt, and the hunt before exploitation:
+	// a green harness only means "not found under these bounds" if it was
+	// calibrated first.
+	dependsOn := func(task, dependency string) bool {
+		return slices.Contains(byName[task].DependsOn, dependency)
+	}
+	for _, edge := range [][2]string{
+		{"build-and-calibrate-invariants", "pin-target-and-deployment"},
+		{"hunt-against-invariants", "build-and-calibrate-invariants"},
+		{"synthesize-failing-exploit", "hunt-against-invariants"},
+		{"quantify-impact-and-eligibility", "synthesize-failing-exploit"},
+		{"triage-and-report", "quantify-impact-and-eligibility"},
+	} {
+		if !dependsOn(edge[0], edge[1]) {
+			t.Errorf("task %q must depend on %q", edge[0], edge[1])
+		}
+		if order[edge[0]] < order[edge[1]] {
+			t.Errorf("task %q is declared before its dependency %q", edge[0], edge[1])
+		}
+	}
+
+	calibration := byName["build-and-calibrate-invariants"].Objective
+	for _, marker := range []string{"before hunting", "mutate", "cannot detect", "never means the target is safe"} {
+		if !strings.Contains(calibration, marker) {
+			t.Errorf("calibration objective is missing %q", marker)
+		}
+	}
+	exploit := byName["synthesize-failing-exploit"].Objective
+	for _, marker := range []string{
+		"FAILS on the pinned fork", "never send a transaction to a public network",
+		"negative control", "reproducibility class", "refuted or untested",
+	} {
+		if !strings.Contains(exploit, marker) {
+			t.Errorf("exploit-synthesis objective is missing %q", marker)
+		}
+	}
+	report := byName["triage-and-report"].Objective
+	for _, marker := range []string{"failing assertion", "clause the program published", "not found under those bounds"} {
+		if !strings.Contains(report, marker) {
+			t.Errorf("report objective is missing %q", marker)
+		}
+	}
+	// Impact has to be priced in the program's own vocabulary, verbatim.
+	impact := byName["quantify-impact-and-eligibility"].Objective
+	for _, marker := range []string{"verbatim", "maximum achievable impact", "never translate"} {
+		if !strings.Contains(impact, marker) {
+			t.Errorf("impact objective is missing %q", marker)
 		}
 	}
 }

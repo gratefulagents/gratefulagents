@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -28,7 +30,11 @@ import (
 type ProcessSandbox struct{}
 
 //nolint:gocyclo // Execution keeps sandbox setup, quota enforcement, collection, and status mapping in one auditable path.
-func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeResult {
+func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result NativeResult) {
+	// Operator-configured fork endpoints carry API keys. Nothing this executor
+	// returns may echo one, so every exit path is scrubbed.
+	secrets := &operatorSecret{}
+	defer func() { result = secrets.scrub(result) }()
 	if len(req.Invocation.Argv) == 0 {
 		return NativeResult{ExitCode: -1, Err: errors.New("empty registered invocation")}
 	}
@@ -97,13 +103,20 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 			}
 		}
 	}
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // #nosec G204 -- executable and argv come only from the validated static registry.
+	if err := resolveOperatorEVMTokens(ctx, argv, executionTarget, secrets); err != nil {
+		return NativeResult{ExitCode: -1, Err: err}
+	}
 	home, homeErr := os.MkdirTemp("", "ga-security-home-*")
 	if homeErr != nil {
 		return NativeResult{ExitCode: -1, Err: homeErr}
 	}
 	defer func() { _ = os.RemoveAll(home) }()
-	cmd.Env = deterministicEnvironment(req.Tool.Name, home)
+	childEnvironment := deterministicEnvironment(req.Tool.Name, home)
+	if staged, handled := executeEVMStage(ctx, req, argv, executionTarget, childEnvironment, secrets); handled {
+		return staged
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // #nosec G204 -- executable and argv come only from the validated static registry.
+	cmd.Env = childEnvironment
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	goFuzzBaseline := map[string]bool{}
@@ -167,7 +180,7 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) NativeR
 		environment["wrapper_digest"] = req.Tool.WrapperDigest
 	}
 	exitCode := processExitCode(err)
-	result := NativeResult{Output: stdout.Bytes(), ExitCode: exitCode, Environment: environment}
+	result = NativeResult{Output: stdout.Bytes(), ExitCode: exitCode, Environment: environment}
 	if req.Tool.Name == "go-fuzz-tests" {
 		artifacts, collectErr := collectGoFuzzArtifacts(executionTarget, goFuzzBaseline, limit)
 		if collectErr != nil && err == nil {
@@ -563,8 +576,12 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 	return append(launcher, argv...), work, cleanup, nil
 }
 
+// isLockedExternalTool names the packs whose executable is extracted from the
+// checksum-verified runtime lock. Their argv[0] is resolved inside the operator
+// toolkit and verified against the locked artifact digest before exec, so a
+// PATH entry can never stand in for the reviewed binary.
 func isLockedExternalTool(name string) bool {
-	return slices.Contains([]string{"nuclei", "naabu", "aderyn", "forge-security-tests", "echidna"}, name)
+	return slices.Contains([]string{"nuclei", "naabu", "aderyn", "forge-security-tests", "echidna", "anvil-fork", "forge-fork-test", "forge-coverage-mutation"}, name)
 }
 
 func trustedToolBinary(binaryName, expectedDigest string) (string, error) {
@@ -604,7 +621,7 @@ func deterministicEnvironment(toolName, home string) []string {
 			environment = append(environment, name+"="+value)
 		}
 	}
-	if toolName == "forge-security-tests" {
+	if slices.Contains([]string{"forge-security-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation"}, toolName) {
 		environment = append(environment, "FOUNDRY_FFI=false")
 	}
 	sort.Strings(environment)
@@ -889,4 +906,727 @@ func ResultExitCode(status Status) int {
 	default:
 		return 1
 	}
+}
+
+// EVM verification packs carry two operator-owned references in their argv:
+// a fork-endpoint alias and a reviewed upstream revision. Both resolve from
+// operator configuration only. A model can name an alias the operator
+// authorized; it can never name a URL, a mirror, or a path, and an alias the
+// operator did not configure fails the run instead of reaching the network.
+const (
+	evmForkEndpointURLEnvPrefix = "GA_SECURITY_EVM_FORK_ENDPOINT_"
+	evmUpstreamMirrorEnvPrefix  = "GA_SECURITY_EVM_UPSTREAM_MIRROR_"
+
+	forkDevnetReadinessCap = 90 * time.Second
+	forkDevnetShutdown     = 5 * time.Second
+	forkDevnetPoll         = 100 * time.Millisecond
+	maxMutants             = 8
+)
+
+func operatorConfigurationName(prefix, alias string) string {
+	return prefix + strings.ToUpper(strings.ReplaceAll(alias, "-", "_"))
+}
+
+// resolveForkEndpoint maps an operator-authorized alias to the operator's URL
+// for it. Both the allowlist and the URL come from the environment the
+// operator controls, so an unknown or unconfigured alias is an error and never
+// falls through to the literal token.
+func resolveForkEndpoint(alias string) (string, error) {
+	if !slices.Contains(evmForkEndpointAliases(), alias) {
+		return "", fmt.Errorf("fork endpoint alias %q is not authorized by %s", alias, evmForkEndpointsEnv)
+	}
+	variable := operatorConfigurationName(evmForkEndpointURLEnvPrefix, alias)
+	endpoint := strings.TrimSpace(os.Getenv(variable))
+	if endpoint == "" {
+		return "", fmt.Errorf("fork endpoint alias %q has no operator-configured URL in %s", alias, variable)
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil || !parsed.IsAbs() || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("%s must hold an absolute http(s) fork endpoint URL", variable)
+	}
+	return endpoint, nil
+}
+
+// resolveOperatorEVMTokens replaces the operator reference tokens in argv in
+// place. Anything left unresolved is a bug, not a fallback: the tokens are not
+// valid URLs or refs, so a missed replacement fails the tool rather than
+// silently widening what the run reaches.
+func resolveOperatorEVMTokens(ctx context.Context, argv []string, repository string, secrets *operatorSecret) error {
+	for i := range argv {
+		if alias, ok := strings.CutPrefix(argv[i], operatorForkEndpointToken); ok {
+			endpoint, err := resolveForkEndpoint(alias)
+			if err != nil {
+				return err
+			}
+			secrets.hide(endpoint, operatorForkEndpointToken+alias)
+			argv[i] = endpoint
+			continue
+		}
+		if reference, ok := strings.CutPrefix(argv[i], operatorUpstreamToken); ok {
+			revision, err := materializeUpstreamRevision(ctx, reference, repository)
+			if err != nil {
+				return err
+			}
+			argv[i] = revision
+		}
+	}
+	return nil
+}
+
+// operatorSecret keeps operator-configured endpoint credentials out of every
+// byte the executor returns. A fork endpoint URL routinely carries an API key
+// in its path or query, and results are stored, replayed, and shown to
+// callers, so the URL is replaced by the alias token it was resolved from.
+type operatorSecret struct{ replacements [][2]string }
+
+func (s *operatorSecret) hide(value, placeholder string) {
+	if s == nil || len(value) < 8 {
+		return
+	}
+	s.replacements = append(s.replacements, [2]string{value, placeholder})
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return
+	}
+	credentials := append(strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/"), strings.Trim(parsed.EscapedPath(), "/"), parsed.RawQuery)
+	for _, values := range parsed.Query() {
+		credentials = append(credentials, values...)
+	}
+	if parsed.User != nil {
+		credentials = append(credentials, parsed.User.String())
+	}
+	for _, credential := range credentials {
+		if len(credential) >= 8 {
+			s.replacements = append(s.replacements, [2]string{credential, "[REDACTED]"})
+		}
+	}
+}
+
+func (s *operatorSecret) text(in string) string {
+	if s == nil {
+		return in
+	}
+	for _, replacement := range s.replacements {
+		in = strings.ReplaceAll(in, replacement[0], replacement[1])
+	}
+	return in
+}
+
+func (s *operatorSecret) scrub(result NativeResult) NativeResult {
+	if s == nil || len(s.replacements) == 0 {
+		return result
+	}
+	if len(result.Output) > 0 {
+		result.Output = []byte(s.text(string(result.Output)))
+	}
+	// The timeout path is recognized by error identity, so it is left intact.
+	if result.Err != nil && !errors.Is(result.Err, context.DeadlineExceeded) {
+		result.Err = errors.New(s.text(result.Err.Error()))
+	}
+	return result
+}
+
+// executeEVMStage runs the EVM packs that are not batch tools: anvil is a
+// server whose lifecycle must be supervised, and the mutation pack re-runs its
+// pinned argv once per mutant. Packs that are a single bounded process
+// (forge-fork-test, upstream-fork-diff) fall through to the generic path.
+func executeEVMStage(ctx context.Context, req ExecutionRequest, argv []string, executionTarget string, childEnvironment []string, secrets *operatorSecret) (NativeResult, bool) {
+	environment := map[string]string{"os": runtime.GOOS, "arch": runtime.GOARCH, "runtime": runtime.Version()}
+	switch req.Tool.Name {
+	case "anvil-fork":
+		output, err := runForkDevnet(ctx, req, argv, childEnvironment, secrets)
+		return evmStageResult(ctx, environment, output, 0, err), true
+	case "forge-coverage-mutation":
+		limit := req.Invocation.Budgets.MaxOutputSize
+		run := func(runCtx context.Context, root string) (int, []byte, error) {
+			mutantArgv := slices.Clone(argv)
+			for i := range mutantArgv {
+				if mutantArgv[i] == executionTarget {
+					mutantArgv[i] = root
+				}
+			}
+			suite := exec.CommandContext(runCtx, mutantArgv[0], mutantArgv[1:]...) // #nosec G204 -- registry argv with only the staged root swapped for its mutant copy.
+			suite.Env = childEnvironment
+			output := &limitedBuffer{limit: limit}
+			suite.Stdout, suite.Stderr = output, io.Discard
+			err := suite.Run()
+			if processExitCode(err) < 0 {
+				return -1, nil, err
+			}
+			return processExitCode(err), output.Bytes(), nil
+		}
+		output, survivors, err := runMutationCampaign(ctx, executionTarget, req.Config.Arguments["mutation_operator"], run)
+		exitCode := 0
+		if survivors > 0 {
+			exitCode = 1
+		}
+		return evmStageResult(ctx, environment, output, exitCode, err), true
+	}
+	return NativeResult{}, false
+}
+
+// evmStageResult reports the stage through the pack's own declared exit codes:
+// 124 for an exhausted budget and 2 for an operational failure, so a broken
+// devnet or mutation campaign is an error result rather than a silent pass.
+func evmStageResult(ctx context.Context, environment map[string]string, output []byte, exitCode int, err error) NativeResult {
+	if ctx.Err() == context.DeadlineExceeded {
+		return NativeResult{Environment: environment, ExitCode: 124, TimedOut: true, Err: context.DeadlineExceeded}
+	}
+	if err != nil {
+		return NativeResult{Environment: environment, ExitCode: 2, Err: err}
+	}
+	return NativeResult{Output: output, Environment: environment, ExitCode: exitCode}
+}
+
+// forkDevnetRequest is everything the supervisor needs to decide whether a
+// devnet is the pinned one. Chain id, block number, and block hash come from
+// the run's required typed arguments, so a devnet that reports anything else
+// is an error result rather than a pass.
+type forkDevnetRequest struct {
+	Argv        []string
+	Environment []string
+	Alias       string
+	ChainID     int64
+	BlockNumber int64
+	BlockHash   string
+	ListenURL   string
+	Readiness   time.Duration
+	MaxLog      int64
+	Secrets     *operatorSecret
+}
+
+func runForkDevnet(ctx context.Context, req ExecutionRequest, argv, childEnvironment []string, secrets *operatorSecret) ([]byte, error) {
+	chainID, err := strconv.ParseInt(req.Config.Arguments["chain_id"], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("fork run is missing its pinned chain id")
+	}
+	blockNumber, err := strconv.ParseInt(req.Config.Arguments["fork_block_number"], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("fork run is missing its pinned fork block number")
+	}
+	blockHash := strings.ToLower(req.Config.Arguments["fork_block_hash"])
+	if !evmBlockHashPattern.MatchString(blockHash) {
+		return nil, fmt.Errorf("fork run is missing its pinned fork block hash")
+	}
+	devnetArgv, listenURL, err := loopbackDevnetArgv(argv)
+	if err != nil {
+		return nil, err
+	}
+	return superviseForkDevnet(ctx, forkDevnetRequest{
+		Argv: devnetArgv, Environment: childEnvironment, Alias: req.Config.Arguments["fork_endpoint"],
+		ChainID: chainID, BlockNumber: blockNumber, BlockHash: blockHash, ListenURL: listenURL,
+		Readiness: min(req.Invocation.Budgets.Timeout/2, forkDevnetReadinessCap),
+		MaxLog:    min(req.Invocation.Budgets.MaxOutputSize, 1<<20), Secrets: secrets,
+	})
+}
+
+// loopbackDevnetArgv pins the devnet to a free loopback port. The registry
+// fixes the interface; only the port is chosen here, so two runs on one node
+// cannot collide on a listener.
+func loopbackDevnetArgv(argv []string) ([]string, string, error) {
+	out := slices.Clone(argv)
+	host, port := -1, -1
+	for i := 0; i+1 < len(out); i++ {
+		switch out[i] {
+		case "--host":
+			host = i + 1
+		case "--port":
+			port = i + 1
+		}
+	}
+	if host < 0 || port < 0 || out[host] != "127.0.0.1" {
+		return nil, "", fmt.Errorf("fork devnet argv must bind the loopback interface")
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, "", err
+	}
+	assigned := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		return nil, "", err
+	}
+	out[port] = strconv.Itoa(assigned)
+	return out, fmt.Sprintf("http://127.0.0.1:%d", assigned), nil
+}
+
+// superviseForkDevnet starts the devnet, waits for JSON-RPC readiness on
+// loopback within the pack's budget, asserts the reported chain state matches
+// the pinned request, emits the replay record, and always terminates and reaps
+// the process. A devnet that never becomes ready, dies early, or reports a
+// different chain or block is an error, never a pass.
+func superviseForkDevnet(ctx context.Context, request forkDevnetRequest) ([]byte, error) {
+	if !isLoopbackDevnet(request.ListenURL) {
+		return nil, fmt.Errorf("fork devnet listen URL %q is not loopback", request.ListenURL)
+	}
+	log := &limitedBuffer{limit: max(request.MaxLog, 4096)}
+	devnet := exec.CommandContext(ctx, request.Argv[0], request.Argv[1:]...) // #nosec G204 -- registry argv whose only resolved value is the operator fork endpoint.
+	devnet.Env = request.Environment
+	devnet.Stdout, devnet.Stderr = log, log
+	// A devnet that leaves a child holding its output pipe must not hold the
+	// supervisor open past its shutdown grace.
+	devnet.WaitDelay = forkDevnetShutdown
+	if err := devnet.Start(); err != nil {
+		return nil, err
+	}
+	var waitErr error
+	done := make(chan struct{})
+	go func() { waitErr = devnet.Wait(); close(done) }()
+	defer terminateForkDevnet(devnet, done)
+
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
+	deadline := time.Now().Add(request.Readiness)
+	var chainID int64
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-done:
+			return nil, fmt.Errorf("fork devnet exited before it was ready (%v): %s", waitErr, request.Secrets.text(strings.TrimSpace(log.String())))
+		default:
+		}
+		id, err := devnetChainID(ctx, client, request.ListenURL)
+		if err == nil {
+			chainID = id
+			break
+		}
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("fork devnet was not ready on %s within %s: %s", request.ListenURL, request.Readiness, request.Secrets.text(strings.TrimSpace(log.String())))
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-done:
+		case <-time.After(forkDevnetPoll):
+		}
+	}
+	if chainID != request.ChainID {
+		return nil, fmt.Errorf("fork devnet reported chain id %d, but the run pinned %d", chainID, request.ChainID)
+	}
+	number, hash, err := devnetForkBlock(ctx, client, request.ListenURL)
+	if err != nil {
+		return nil, err
+	}
+	if number != request.BlockNumber || hash != request.BlockHash {
+		return nil, fmt.Errorf("fork devnet head is block %d (%s), but the run pinned block %d (%s)", number, hash, request.BlockNumber, request.BlockHash)
+	}
+	return json.Marshal(evmForkRecord{ChainID: chainID, ForkBlockNumber: number, ForkBlockHash: hash, EndpointAlias: request.Alias, ListenURL: request.ListenURL})
+}
+
+func terminateForkDevnet(devnet *exec.Cmd, done <-chan struct{}) {
+	select {
+	case <-done:
+		return
+	default:
+	}
+	_ = devnet.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(forkDevnetShutdown):
+		_ = devnet.Process.Kill()
+		<-done
+	}
+}
+
+func devnetChainID(ctx context.Context, client *http.Client, endpoint string) (int64, error) {
+	var quantity string
+	if err := devnetCall(ctx, client, endpoint, "eth_chainId", []any{}, &quantity); err != nil {
+		return 0, err
+	}
+	return parseHexQuantity(quantity)
+}
+
+// devnetForkBlock reads the devnet head. The pack runs anvil with --no-mining,
+// so the head is exactly the forked block and comparing it to the pinned block
+// proves the fork point.
+func devnetForkBlock(ctx context.Context, client *http.Client, endpoint string) (int64, string, error) {
+	var block struct {
+		Number string `json:"number"`
+		Hash   string `json:"hash"`
+	}
+	if err := devnetCall(ctx, client, endpoint, "eth_getBlockByNumber", []any{"latest", false}, &block); err != nil {
+		return 0, "", err
+	}
+	number, err := parseHexQuantity(block.Number)
+	if err != nil {
+		return 0, "", err
+	}
+	hash := strings.ToLower(block.Hash)
+	if !evmBlockHashPattern.MatchString(hash) {
+		return 0, "", fmt.Errorf("fork devnet reported malformed block hash %q", block.Hash)
+	}
+	return number, hash, nil
+}
+
+func devnetCall(ctx context.Context, client *http.Client, endpoint, method string, params []any, out any) error {
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	var envelope struct {
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return fmt.Errorf("fork devnet %s response is not JSON-RPC: %w", method, err)
+	}
+	if envelope.Error != nil {
+		return fmt.Errorf("fork devnet %s failed: %s", method, envelope.Error.Message)
+	}
+	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
+		return fmt.Errorf("fork devnet %s returned no result", method)
+	}
+	return json.Unmarshal(envelope.Result, out)
+}
+
+func parseHexQuantity(value string) (int64, error) {
+	digits, ok := strings.CutPrefix(strings.ToLower(value), "0x")
+	if !ok {
+		return 0, fmt.Errorf("malformed JSON-RPC quantity %q", value)
+	}
+	parsed, err := strconv.ParseInt(digits, 16, 64)
+	if err != nil {
+		return 0, fmt.Errorf("malformed JSON-RPC quantity %q", value)
+	}
+	return parsed, nil
+}
+
+// materializeUpstreamRevision fetches the pinned upstream commit into the
+// staged repository from an operator-configured mirror and verifies that the
+// mirror produced exactly the requested 40-hex commit. Anything else fails the
+// run: a diff against an unverified ref proves nothing about the fork.
+func materializeUpstreamRevision(ctx context.Context, reference, repository string) (string, error) {
+	name, revision, found := strings.Cut(reference, "@")
+	if !found || !slices.Contains(evmUpstreams, name) {
+		return "", fmt.Errorf("upstream reference %q does not name a reviewed upstream", reference)
+	}
+	if !gitRevisionPattern.MatchString(revision) {
+		return "", fmt.Errorf("upstream %s must be pinned to a full 40-hex commit id", name)
+	}
+	variable := operatorConfigurationName(evmUpstreamMirrorEnvPrefix, name)
+	mirror := strings.TrimSpace(os.Getenv(variable))
+	if mirror == "" {
+		return "", fmt.Errorf("upstream %s has no operator-configured mirror in %s", name, variable)
+	}
+	if !isOperatorMirror(mirror) {
+		return "", fmt.Errorf("%s must be an https URL or an absolute directory path", variable)
+	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return "", fmt.Errorf("git is unavailable in the runtime image: %w", err)
+	}
+	for _, arguments := range [][]string{
+		{"fetch", "--no-tags", "--quiet", mirror, revision},
+		{"fetch", "--no-tags", "--quiet", mirror, "+refs/heads/*:refs/ga-upstream/" + name + "/*"},
+	} {
+		if _, fetchErr := runGit(ctx, git, repository, arguments...); fetchErr == nil {
+			break
+		}
+	}
+	resolved, err := runGit(ctx, git, repository, "rev-parse", "--verify", "--quiet", revision+"^{commit}")
+	if err != nil || resolved != revision {
+		return "", fmt.Errorf("upstream %s mirror did not provide the pinned commit %s", name, revision)
+	}
+	return revision, nil
+}
+
+func isOperatorMirror(mirror string) bool {
+	if strings.ContainsAny(mirror, " \t\r\n") || strings.HasPrefix(mirror, "-") {
+		return false
+	}
+	if strings.HasPrefix(mirror, "/") {
+		info, err := os.Stat(mirror)
+		return err == nil && info.IsDir()
+	}
+	parsed, err := url.Parse(mirror)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil
+}
+
+// runGit discards git's stderr: a mirror URL may embed a credential, and the
+// caller reports the pinned commit rather than the transport's own message.
+func runGit(ctx context.Context, git, repository string, arguments ...string) (string, error) {
+	command := exec.CommandContext(ctx, git, append([]string{"-C", repository}, arguments...)...) // #nosec G204 -- git from LookPath, operator-configured mirror, and a validated 40-hex revision.
+	output := &limitedBuffer{limit: 1 << 20}
+	command.Stdout, command.Stderr = output, io.Discard
+	command.Env = []string{"HOME=" + os.TempDir(), "LANG=C.UTF-8", "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_ASKPASS=", "PATH=" + os.Getenv("PATH")}
+	err := command.Run()
+	return strings.TrimSpace(output.String()), err
+}
+
+// mutationReport is the combined coverage and mutation document the
+// forge-mutation-json adapter consumes.
+type mutationReport struct {
+	Coverage []mutationCoverageFile `json:"coverage"`
+	Mutants  []mutationResult       `json:"mutants"`
+}
+
+type mutationCoverageFile struct {
+	File       string `json:"file"`
+	LinesTotal int    `json:"lines_total"`
+	LinesHit   int    `json:"lines_hit"`
+}
+
+type mutationResult struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Operator string `json:"operator"`
+	Status   string `json:"status"`
+}
+
+type mutationSite struct {
+	File    string
+	Line    int
+	Mutated string
+}
+
+// mutationRunner runs the pack's pinned argv against one project root and
+// reports the suite's exit code and stdout.
+type mutationRunner func(ctx context.Context, root string) (int, []byte, error)
+
+// runMutationCampaign measures coverage on the staged project, then re-runs the
+// same suite once per mutant in a private scratch copy. A mutant the suite
+// still passes is a survivor: the assertions covering that line cannot fail.
+// The staged tree is only ever read, never mutated in place.
+func runMutationCampaign(ctx context.Context, staged, operator string, run mutationRunner) ([]byte, int, error) {
+	limit := maxMutants
+	exitCode, coverageOutput, err := run(ctx, staged)
+	if err != nil {
+		return nil, 0, err
+	}
+	if exitCode != 0 {
+		return nil, 0, fmt.Errorf("baseline suite exited %d: mutants cannot be judged against a failing harness", exitCode)
+	}
+	sites, err := mutationSites(staged, operator, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(sites) == 0 {
+		return nil, 0, fmt.Errorf("mutation operator %q has no applicable site in the staged Solidity sources", operator)
+	}
+	report := mutationReport{Coverage: parseLCOVCoverage(staged, coverageOutput), Mutants: []mutationResult{}}
+	survivors := 0
+	for _, site := range sites {
+		if ctx.Err() != nil {
+			break
+		}
+		status, err := judgeMutant(ctx, staged, site, run)
+		if err != nil {
+			return nil, 0, err
+		}
+		if status == "survived" {
+			survivors++
+		}
+		report.Mutants = append(report.Mutants, mutationResult{File: site.File, Line: site.Line, Operator: operator, Status: status})
+	}
+	document, err := json.Marshal(report)
+	return document, survivors, err
+}
+
+func judgeMutant(ctx context.Context, staged string, site mutationSite, run mutationRunner) (string, error) {
+	scratch, err := os.MkdirTemp("", "ga-security-mutant-*")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(scratch) }()
+	root := filepath.Join(scratch, "project")
+	if err := copyStagedTree(staged, root); err != nil {
+		return "", err
+	}
+	if err := applyMutation(root, site); err != nil {
+		return "", err
+	}
+	exitCode, _, err := run(ctx, root)
+	if err != nil {
+		return "", err
+	}
+	if exitCode == 0 {
+		return "survived", nil
+	}
+	return "killed", nil
+}
+
+func applyMutation(root string, site mutationSite) error {
+	path := filepath.Join(root, filepath.FromSlash(site.File))
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a relative source discovered under the private scratch copy.
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	if site.Line < 1 || site.Line > len(lines) {
+		return fmt.Errorf("mutation site %s:%d is outside the staged source", site.File, site.Line)
+	}
+	lines[site.Line-1] = site.Mutated
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)
+}
+
+func copyStagedTree(source, destination string) error {
+	return filepath.WalkDir(source, func(current string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(source, current)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, relative)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(target, info.Mode().Perm()|0o700)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("staged tree contains non-regular path %q", current)
+		}
+		data, err := os.ReadFile(current) // #nosec G304 -- WalkDir confines reads to the staged snapshot.
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode().Perm()|0o600)
+	})
+}
+
+// mutationSites enumerates the sites the selected operator applies to, in a
+// deterministic order, bounded by the pack's mutant budget. Only the project's
+// own contracts are mutated: mutating tests or dependencies would prove
+// nothing about the harness.
+func mutationSites(root, operator string, limit int) ([]mutationSite, error) {
+	var sites []mutationSite
+	err := filepath.WalkDir(root, func(current string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(root, current)
+		if err != nil {
+			return err
+		}
+		slashed := filepath.ToSlash(relative)
+		if entry.IsDir() {
+			if current == root || slashed == "src" || strings.HasPrefix(slashed, "src/") {
+				return nil
+			}
+			return filepath.SkipDir
+		}
+		if !strings.HasSuffix(slashed, ".sol") || !strings.HasPrefix(slashed, "src/") {
+			return nil
+		}
+		data, err := os.ReadFile(current) // #nosec G304 -- WalkDir confines reads to the staged snapshot.
+		if err != nil {
+			return err
+		}
+		for index, line := range strings.Split(string(data), "\n") {
+			if mutated, ok := mutateSolidityLine(operator, line); ok {
+				sites = append(sites, mutationSite{File: slashed, Line: index + 1, Mutated: mutated})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(sites, func(i, j int) bool {
+		if sites[i].File != sites[j].File {
+			return sites[i].File < sites[j].File
+		}
+		return sites[i].Line < sites[j].Line
+	})
+	if len(sites) > limit {
+		sites = sites[:limit]
+	}
+	return sites, nil
+}
+
+func mutateSolidityLine(operator, line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "/*") ||
+		strings.HasPrefix(trimmed, "pragma") || strings.HasPrefix(trimmed, "import") {
+		return "", false
+	}
+	switch operator {
+	case "assertion-negation":
+		if !strings.Contains(line, "require(") && !strings.Contains(line, "assert(") {
+			return "", false
+		}
+		if strings.Contains(line, "==") {
+			return strings.Replace(line, "==", "!=", 1), true
+		}
+		if strings.Contains(line, "!=") {
+			return strings.Replace(line, "!=", "==", 1), true
+		}
+	case "require-removal":
+		if strings.HasPrefix(trimmed, "require(") && strings.HasSuffix(trimmed, ";") {
+			return line[:len(line)-len(strings.TrimLeft(line, " \t"))] + "// mutant removed: " + trimmed, true
+		}
+	case "boundary-shift":
+		for _, shift := range [][2]string{{"<=", "<"}, {">=", ">"}} {
+			if strings.Contains(line, shift[0]) {
+				return strings.Replace(line, shift[0], shift[1], 1), true
+			}
+		}
+	case "return-value-swap":
+		if strings.Contains(line, "return true") {
+			return strings.Replace(line, "return true", "return false", 1), true
+		}
+		if strings.Contains(line, "return false") {
+			return strings.Replace(line, "return false", "return true", 1), true
+		}
+	}
+	return "", false
+}
+
+// parseLCOVCoverage reads `forge coverage --report lcov`. Paths are reported
+// relative to the project so a finding cites the source, not the scratch root.
+func parseLCOVCoverage(root string, output []byte) []mutationCoverageFile {
+	files := []mutationCoverageFile{}
+	current := mutationCoverageFile{}
+	hit, total := 0, 0
+	for line := range strings.SplitSeq(string(output), "\n") {
+		field := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(field, "SF:"):
+			current = mutationCoverageFile{File: relativeCoveragePath(root, strings.TrimPrefix(field, "SF:"))}
+			hit, total = 0, 0
+		case strings.HasPrefix(field, "DA:"):
+			counts := strings.Split(strings.TrimPrefix(field, "DA:"), ",")
+			if len(counts) != 2 {
+				continue
+			}
+			total++
+			if executions, err := strconv.Atoi(counts[1]); err == nil && executions > 0 {
+				hit++
+			}
+		case field == "end_of_record":
+			if current.File == "" {
+				continue
+			}
+			current.LinesTotal, current.LinesHit = total, hit
+			files = append(files, current)
+			current = mutationCoverageFile{}
+		}
+	}
+	return files
+}
+
+func relativeCoveragePath(root, path string) string {
+	path = strings.TrimSpace(path)
+	if relative, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(relative, "..") {
+		return filepath.ToSlash(relative)
+	}
+	return filepath.ToSlash(path)
 }

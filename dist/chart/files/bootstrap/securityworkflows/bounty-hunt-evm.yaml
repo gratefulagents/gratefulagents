@@ -1,0 +1,233 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: bounty-hunt-evm
+spec:
+  description: Harness-first EVM bounty hunt. The oracle is built and calibrated before any hunting, every candidate has to become a failing assertion on a pinned fork, impact is measured in the program's own vocabulary, and anything that never broke an invariant is recorded as untested or refuted rather than reported.
+  parallelism: 4
+  tasks:
+    - name: pin-target-and-deployment
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Pin what is actually under test before anyone reasons about it. Record the immutable source
+        revision, and then the deployed reality it corresponds to: chain id, the block the fork will be
+        taken at, every in-scope address with its proxy/implementation/admin relationship, the
+        initialization state of each implementation, the decimals of every token the protocol prices or
+        transfers, the oracle wiring, the role and permission holders, and the upstream project this
+        codebase forked from when it is a fork. Several of the highest-impact classes are properties of
+        deployed state rather than of source, so an address you could not read is a stated gap, never an
+        assumption. Where a fact is unavailable, say which tool or authorization was missing. Publish one
+        structured dossier for every later task and report no vulnerabilities here.
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["revision", "chain_id", "fork_block_number", "addresses", "gaps"],
+          "properties": {
+            "revision": {"type": "string", "description": "Immutable source revision under test"},
+            "chain_id": {"type": "string"},
+            "fork_block_number": {"type": "string"},
+            "fork_block_hash": {"type": "string"},
+            "upstream": {"type": "string", "description": "Upstream project and revision this codebase forked from, when applicable"},
+            "addresses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["address", "role", "availability"],
+                "properties": {
+                  "address": {"type": "string"},
+                  "role": {"type": "string", "description": "proxy, implementation, admin, token, oracle, or the protocol role it holds"},
+                  "implementation": {"type": "string"},
+                  "initialized": {"type": "string", "enum": ["yes", "no", "unknown"]},
+                  "decimals": {"type": "string"},
+                  "availability": {"type": "string", "enum": ["read", "unavailable"]}
+                }
+              }
+            },
+            "gaps": {"type": "array", "items": {"type": "string"}, "description": "Facts that could not be read, and what was missing"}
+          }
+        }
+    - name: build-and-calibrate-invariants
+      role: test-engineer
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-harness-writing
+      objective: >-
+        Build the oracle before hunting. Using the pinned dossier in
+        {{tasks.pin-target-and-deployment.output}}, write 5 to 15 executable invariants against the target
+        on a fork pinned to that exact chain id and block: conservation of value and solvency, share price
+        or exchange rate monotonicity where the design claims it, accounting identities across deposit,
+        withdraw and settle, the access-control matrix stating who may call what, encode/decode round
+        trips for every identifier that indexes state, and cross-domain identity binding for anything that
+        accepts a relayed or proved message. Then calibrate: mutate the implementation so each invariant
+        SHOULD fail, and record whether it did. An assertion that survives its own mutation cannot detect
+        anything and must be fixed or dropped before hunting begins. Report the calibration honestly,
+        including invariants you could not make executable and why. A green harness at this stage proves
+        nothing was found under these bounds; it never means the target is safe.
+      dependsOn:
+        - pin-target-and-deployment
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["invariants", "harness_entry_point", "limitations"],
+          "properties": {
+            "harness_entry_point": {"type": "string", "description": "Exact command that runs the invariant suite against the pinned fork"},
+            "invariants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "property", "executable", "mutation_killed"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "property": {"type": "string", "description": "The invariant in one sentence, in protocol terms"},
+                  "executable": {"type": "boolean"},
+                  "mutation_applied": {"type": "string", "description": "The mutation used to prove the assertion can fail"},
+                  "mutation_killed": {"type": "boolean", "description": "False means the assertion cannot detect its own violation"}
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: hunt-against-invariants
+      role: vulnerability-hunter
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: evm-low-level-and-deployment-review
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Hunt for a way to break a named invariant from {{tasks.build-and-calibrate-invariants.output}}.
+        Aim first where the disclosed payouts are: initialization and upgrade state on the deployed
+        implementation, cross-domain proof and identity binding, divergence between this codebase and the
+        upstream it forked from, encoding and decoding round trips that let two inputs collide on one
+        identifier, missing balance or state validation, and accounting, rounding and decimals mismatches
+        against the real token decimals recorded in the dossier. Templated reentrancy and flash-loan
+        oracle patterns are a poor use of budget here and are covered by cheaper tooling. For every
+        hypothesis state the invariant it targets, the least-privileged attacker who can act, the exact
+        input they control, the state transition expected, and the observation that would falsify it. A
+        hypothesis you cannot falsify is not a hypothesis. Publish every hypothesis, including the ones
+        you refuted, so later runs do not re-explore them.
+      dependsOn:
+        - build-and-calibrate-invariants
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["invariant", "attacker", "controlled_input", "expected_transition", "falsifier", "status"],
+            "properties": {
+              "invariant": {"type": "string"},
+              "attacker": {"type": "string", "description": "Least privilege the attacker needs"},
+              "controlled_input": {"type": "string"},
+              "expected_transition": {"type": "string"},
+              "falsifier": {"type": "string", "description": "The observation that would disprove this hypothesis"},
+              "evidence": {"type": "string", "description": "file:line trace supporting the hypothesis"},
+              "status": {"type": "string", "enum": ["open", "refuted", "untested"]}
+            }
+          }
+        }
+    - name: synthesize-failing-exploit
+      role: exploit-validator
+      category: other
+      skillRefs:
+        - name: exploit-poc-discipline
+        - name: blockchain-security-research-method
+      objective: >-
+        Turn each open hypothesis from {{tasks.hunt-against-invariants.output}} into a test that FAILS on
+        the pinned fork, or kill it. Run only against the local pinned fork or the project's own suite;
+        never send a transaction to a public network, which forfeits eligibility on every program. For
+        each attempt record the exact command, the assertion that broke, the observed state or balance
+        delta, the negative control against unmodified or non-attacker input and the fact that the control
+        did NOT trigger, and the mutation or calibration case proving the assertion can fail at all. State
+        the reproducibility class: deterministic, seeded and replayable, schedule or environment
+        dependent, statistical, or observational only; for the last three report every attempt including
+        the ones that did not trigger, plus the rule that stopped the campaign. A hypothesis with no
+        failing assertion is recorded as refuted or untested and may not be reported as a finding, no
+        matter how convincing the trace looks. Only report findings for hypotheses that produced a failing
+        assertion, and attach the reproduction to each one.
+      dependsOn:
+        - hunt-against-invariants
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["invariant", "verdict", "command", "reproducibility_class"],
+            "properties": {
+              "invariant": {"type": "string"},
+              "fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding when a finding was reported"},
+              "verdict": {"type": "string", "enum": ["broken", "refuted", "untested"]},
+              "command": {"type": "string"},
+              "failing_assertion": {"type": "string"},
+              "observed_delta": {"type": "string", "description": "State or balance change proving the effect"},
+              "negative_control_passed": {"type": "boolean"},
+              "oracle_can_fail": {"type": "boolean"},
+              "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]},
+              "attempts": {"type": "integer"},
+              "successes": {"type": "integer"}
+            }
+          }
+        }
+    - name: quantify-impact-and-eligibility
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Price and qualify only what actually broke in {{tasks.synthesize-failing-exploit.output}}. For each
+        broken invariant, measure the value at risk at the pinned block and say how it was measured, or
+        state plainly that this impact class permits no measurement; never estimate a number you did not
+        derive. Record the capital the attacker must front, the capital they risk, the privileges and
+        timing they need, and the mempool assumptions. Then map the result onto the governing program's
+        own published in-scope impact list, copying the clause verbatim, and give the maximum achievable
+        impact reachable from the same root cause rather than the first one you demonstrated. Judge
+        severity under that program's own system and never translate a label from another system into it.
+        Anything you cannot map to a published impact clause is not submittable, however real it is.
+      dependsOn:
+        - synthesize-failing-exploit
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "impact_clause", "max_achievable_impact", "eligible"],
+            "properties": {
+              "fingerprint": {"type": "string"},
+              "impact_clause": {"type": "string", "description": "Copied verbatim from the program's in-scope impact list"},
+              "program_severity": {"type": "string"},
+              "max_achievable_impact": {"type": "string"},
+              "funds_at_risk": {"type": "string", "description": "Measured value plus the block it was measured at, or why no measurement is possible"},
+              "attacker_capital": {"type": "string"},
+              "preconditions": {"type": "string"},
+              "eligible": {"type": "boolean"},
+              "ineligible_reason": {"type": "string"}
+            }
+          }
+        }
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Assemble the report from {{tasks.quantify-impact-and-eligibility.output}} under one admission rule:
+        a finding survives only when a named invariant broke, a failing assertion on the pinned fork proves
+        it, the control did not trigger, the oracle was shown capable of failing, and the impact maps to a
+        clause the program published. Drop everything else, including analyses that read well but never
+        broke anything. Prefer an empty report to a padded one: reporting is rationed, and a rejected
+        submission costs more than a withheld one. State the bounded negative result explicitly - which
+        invariants were tested, at which revision and block, under which bounds and coverage - so a clean
+        run is recorded as not found under those bounds rather than as a clean bill of health. Then submit
+        the final scan report.
+      dependsOn:
+        - quantify-impact-and-eligibility
