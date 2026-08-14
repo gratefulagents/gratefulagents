@@ -7,8 +7,10 @@ import { ImageAttachmentStrip } from "@/components/ImageAttachmentStrip";
 import { client } from "@/lib/client";
 import { useImageAttachments } from "@/hooks/useImageAttachments";
 import { useMyCredentials } from "@/hooks/useMyCredentials";
+import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import { useProjects } from "@/hooks/useWatchedList";
 import { readLastProject, writeLastProject } from "@/lib/lastProject";
+import { applyModelDefaults } from "@/lib/modelDefaults";
 import { cn } from "@/lib/utils";
 import { connectCodeOf } from "@/lib/rpc-errors";
 import {
@@ -148,6 +150,20 @@ export function NewChatComposer({
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [model, setModel] = useState("");
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+
+  // Seed the model override once from the user's saved model defaults; the
+  // provider travels in the model prefix. Never overwrite a typed value.
+  useEffect(() => {
+    if (!modelDefaultsLoaded) return;
+    const seeded = applyModelDefaults(myModelDefaults);
+    if (!seeded.model) return;
+    const prefixed = seeded.model.includes("/")
+      ? seeded.model
+      : `${seeded.provider}/${seeded.model}`;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of an untouched field
+    setModel((prev) => (prev.trim() ? prev : prefixed));
+  }, [modelDefaultsLoaded, myModelDefaults]);
   const [picked, setPicked] = useState<{ namespace: string; name: string } | null>(
     fixedNamespace && fixedProject ? { namespace: fixedNamespace, name: fixedProject } : null,
   );

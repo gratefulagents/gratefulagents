@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Cpu, Eye, FolderCog, FolderGit2, KeyRound, Loader2, Play, Sparkles } from "lucide-react";
 import { client } from "@/lib/client";
+import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import { useProjects } from "@/hooks/useWatchedList";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +36,7 @@ import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
 import { cn } from "@/lib/utils";
 import { REASONING_LEVELS } from "@/lib/reasoning";
+import { applyModelDefaults } from "@/lib/modelDefaults";
 import { toneText } from "@/lib/status";
 
 const selectClassName =
@@ -97,6 +99,25 @@ export function CreateRunDialog({
     claudeApiKeySecret: "",
     githubTokenSecret: "",
   });
+
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+
+  // Seed a fresh form from the user's saved model defaults. Prefill only:
+  // never overwrite values the user edited or values inherited from a project.
+  useEffect(() => {
+    if (!modelDefaultsLoaded) return;
+    const seeded = applyModelDefaults(myModelDefaults);
+    setForm((prev) =>
+      prev.provider === "anthropic" && !prev.model && !prev.reasoningLevel
+        ? {
+            ...prev,
+            provider: seeded.provider,
+            model: seeded.model,
+            reasoningLevel: seeded.reasoningLevel,
+          }
+        : prev,
+    );
+  }, [modelDefaultsLoaded, myModelDefaults]);
 
   useEffect(() => {
     if (!defaultNamespace) return;

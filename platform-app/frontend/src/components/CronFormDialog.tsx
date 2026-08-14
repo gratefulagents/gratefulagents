@@ -1,5 +1,5 @@
-import { create } from "@bufbuild/protobuf";
-import { useState } from "react";
+import { clone, create } from "@bufbuild/protobuf";
+import { useEffect, useState } from "react";
 import { CalendarClock, Clock3, Loader2 } from "lucide-react";
 
 import {
@@ -35,7 +35,10 @@ import { resolvedTriggerPolicies } from "@/components/TriggerDefaultsDialog";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneText } from "@/lib/status";
+import { applyModelDefaults, hasActiveModelDefaults } from "@/lib/modelDefaults";
+import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import {
+  AgentRunDefaultsSchema,
   CreateCronRequestSchema,
   UpdateCronRequestSchema,
   type AgentRunDefaults,
@@ -99,6 +102,24 @@ export function CronFormDialog({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+
+  // Seed a brand-new cron's untouched model fields from the user's saved
+  // model defaults; editing an existing cron always keeps its own values.
+  useEffect(() => {
+    if (!open || cron || !modelDefaultsLoaded || !hasActiveModelDefaults(myModelDefaults)) return;
+    const seeded = applyModelDefaults(myModelDefaults);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
+    setDefaults((prev) => {
+      if (prev.provider || prev.model || prev.reasoningLevel) return prev;
+      const next = clone(AgentRunDefaultsSchema, prev);
+      next.provider = seeded.provider;
+      next.model = seeded.model;
+      next.reasoningLevel = seeded.reasoningLevel;
+      return next;
+    });
+  }, [open, cron, modelDefaultsLoaded, myModelDefaults]);
 
   function update<K extends keyof SpecState>(field: K, value: SpecState[K]) {
     setSpec((prev) => ({ ...prev, [field]: value }));

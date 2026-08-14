@@ -12,6 +12,7 @@ import {
   GitCommitHorizontal,
   KeyRound,
   Loader2,
+  SlidersHorizontal,
   Sparkles,
 } from "lucide-react";
 
@@ -21,16 +22,19 @@ import { ImportLocalCredentials } from "@/components/ImportLocalCredentials";
 import { OpenAIOAuthConnect } from "@/components/OpenAIOAuthConnect";
 import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { Chip } from "@/components/create-flow/create-flow";
+import { PROVIDERS } from "@/components/create-flow/providers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateProject } from "@/hooks/useCreateProject";
 import { useMyCredentials } from "@/hooks/useMyCredentials";
+import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import { useProjects } from "@/hooks/useWatchedList";
 import { client } from "@/lib/client";
 import { writeLastProject } from "@/lib/lastProject";
 import { openExternal } from "@/lib/native";
+import { REASONING_LEVELS } from "@/lib/reasoning";
 import {
   dismissOnboarding,
   emptyCredentialPresence,
@@ -41,7 +45,7 @@ import {
 } from "@/lib/onboarding";
 import { toneSoft, toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
-import { CreateProjectRequestSchema, type Project } from "@/rpc/platform/service_pb";
+import { CreateProjectRequestSchema, type ModelDefaults, type Project } from "@/rpc/platform/service_pb";
 
 /**
  * OnboardingWizard is the full-screen first-login journey: connect a model
@@ -50,7 +54,13 @@ import { CreateProjectRequestSchema, type Project } from "@/rpc/platform/service
  * live server state so returning to /welcome shows what's already done.
  */
 
-const STEP_TITLES = ["Model provider", "GitHub", "Git identity", "First project"] as const;
+const STEP_TITLES = [
+  "Model provider",
+  "GitHub",
+  "Git identity",
+  "Default model",
+  "First project",
+] as const;
 
 /** Providers the wizard offers for the first project (saved-credential wiring). */
 const WIZARD_PROVIDERS = [
@@ -127,11 +137,12 @@ export function OnboardingWizard() {
   const initialStep = useMemo(() => {
     const requested = searchParams.get("step") ?? "";
     if (requested === "git-identity") return 2;
-    if (requested === "project") return 3;
+    if (requested === "default-model") return 3;
+    if (requested === "project") return 4;
     const parsed = Number.parseInt(requested, 10);
     // Keep the original ?step=3 project deep link working. New steps use a
     // semantic key so future additions do not silently reassign old URLs.
-    if (Number.isFinite(parsed) && parsed >= 3) return 3;
+    if (Number.isFinite(parsed) && parsed >= 3) return 4;
     return Number.isFinite(parsed) ? Math.min(Math.max(parsed - 1, 0), 1) : 0;
   }, [searchParams]);
   const [step, setStep] = useState(initialStep);
@@ -142,8 +153,21 @@ export function OnboardingWizard() {
   const gitIdentityDirty =
     gitIdentityName.trim() !== savedGitIdentityName ||
     gitIdentityEmail.trim() !== savedGitIdentityEmail;
+  const {
+    defaults: myModelDefaults,
+    loaded: modelDefaultsLoaded,
+    apply: applyModelDefaultsResponse,
+  } = useMyModelDefaults();
+  const modelDefaultsDone = Boolean(myModelDefaults?.updatedAt);
+
   const gitIdentityDone = gitIdentitySaved && !gitIdentityDirty;
-  const stepDone = [progress.provider, progress.github, gitIdentityDone, progress.project];
+  const stepDone = [
+    progress.provider,
+    progress.github,
+    gitIdentityDone,
+    modelDefaultsDone,
+    progress.project,
+  ];
 
   function leave(to = "/") {
     // Any exit counts as "seen it" — never bounce the user back here on the
@@ -179,7 +203,7 @@ export function OnboardingWizard() {
                 Welcome{firstName ? `, ${firstName}` : ""}
               </h1>
               <p className="mt-1 text-[13px] text-muted-foreground">
-                Four quick steps and your agents are ready to work.
+                Five quick steps and your agents are ready to work.
               </p>
             </div>
           </div>
@@ -255,6 +279,14 @@ export function OnboardingWizard() {
             />
           )}
           {step === 3 && (
+            <ModelDefaultsStep
+              key={modelDefaultsLoaded ? "loaded" : "loading"}
+              defaults={myModelDefaults}
+              saved={modelDefaultsDone}
+              onSaved={applyModelDefaultsResponse}
+            />
+          )}
+          {step === 4 && (
             <ProjectStep
               presence={presence}
               onCreated={(project) => {
@@ -277,11 +309,11 @@ export function OnboardingWizard() {
             <ArrowLeft data-icon="inline-start" />
             Back
           </Button>
-          {step < 3 ? (
+          {step < 4 ? (
             <Button
               size="sm"
               variant={stepDone[step] ? "default" : "outline"}
-              onClick={() => setStep((s) => Math.min(s + 1, 3))}
+              onClick={() => setStep((s) => Math.min(s + 1, 4))}
             >
               {stepDone[step] ? "Continue" : "Skip for now"}
               <ArrowRight data-icon="inline-end" />
@@ -763,7 +795,117 @@ function GitIdentityStep({
   );
 }
 
-/* ── Step 4: first project ────────────────────────────────────── */
+/* ── Step 4: default model ────────────────────────────────────── */
+
+function ModelDefaultsStep({
+  defaults,
+  saved,
+  onSaved,
+}: {
+  defaults: ModelDefaults | null;
+  saved: boolean;
+  onSaved: (defaults: ModelDefaults) => void;
+}) {
+  const [provider, setProvider] = useState(defaults?.provider || "anthropic");
+  const [model, setModel] = useState(defaults?.model ?? "");
+  const [reasoningLevel, setReasoningLevel] = useState(defaults?.reasoningLevel ?? "");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setStatus(null);
+    setError(null);
+    try {
+      onSaved(
+        await client.updateMyModelDefaults({
+          provider,
+          model: model.trim(),
+          reasoningLevel,
+          disabled: false,
+        }),
+      );
+      setStatus("Default model saved");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save default model");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <StepIntro
+        icon={SlidersHorizontal}
+        title="Pick a default model"
+        done={saved}
+        doneNote="Saved"
+      >
+        Optional: choose the provider, model, and reasoning level new projects, runs, and scans
+        start from. You can override them on any form, change them later in Settings → Models, or
+        skip this step entirely.
+      </StepIntro>
+
+      <div>
+        <Label className="mb-1.5 block text-[12.5px]">Provider</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {PROVIDERS.map((p) => (
+            <Chip key={p.id} selected={provider === p.id} onSelect={() => setProvider(p.id)}>
+              {p.name}
+            </Chip>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="onboarding-default-model" className="mb-1.5 block text-[12.5px]">
+            Model
+          </Label>
+          <Input
+            id="onboarding-default-model"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="provider default"
+          />
+        </div>
+        <div>
+          <Label htmlFor="onboarding-default-reasoning" className="mb-1.5 block text-[12.5px]">
+            Reasoning level
+          </Label>
+          <select
+            id="onboarding-default-reasoning"
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            value={reasoningLevel}
+            onChange={(e) => setReasoningLevel(e.target.value)}
+          >
+            {REASONING_LEVELS.map((level) => (
+              <option key={level || "default"} value={level}>
+                {level || "default"}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button size="sm" onClick={() => void save()} disabled={saving}>
+          {saving && <Loader2 className="animate-spin" data-icon="inline-start" />}
+          {saving ? "Saving…" : "Save default model"}
+        </Button>
+        {status && <span className="text-[12px] text-muted-foreground">{status}</span>}
+        {error && (
+          <span className="text-[12px] text-destructive" role="alert">
+            {error}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Step 5: first project ────────────────────────────────────── */
 
 function ProjectStep({
   presence,

@@ -15,6 +15,8 @@ vi.mock("@/lib/client", () => ({
     listRuntimeImages: vi.fn().mockResolvedValue({ images: [] }),
     getMyGitIdentity: vi.fn(),
     updateMyGitIdentity: vi.fn(),
+    getMyModelDefaults: vi.fn(),
+    updateMyModelDefaults: vi.fn(),
   },
 }));
 
@@ -51,6 +53,12 @@ function serverCreds(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.mocked(client.getMyGitIdentity).mockResolvedValue({ name: "", email: "" } as never);
   vi.mocked(client.listRuntimeImages).mockResolvedValue({ images: [] } as never);
+  vi.mocked(client.getMyModelDefaults).mockResolvedValue({
+    provider: "",
+    model: "",
+    reasoningLevel: "",
+    disabled: false,
+  } as never);
 });
 
 afterEach(() => {
@@ -63,6 +71,8 @@ afterEach(() => {
   vi.mocked(client.listRuntimeImages).mockReset();
   vi.mocked(client.getMyGitIdentity).mockReset();
   vi.mocked(client.updateMyGitIdentity).mockReset();
+  vi.mocked(client.getMyModelDefaults).mockReset();
+  vi.mocked(client.updateMyModelDefaults).mockReset();
 });
 
 function renderWizard(entry = "/welcome") {
@@ -78,7 +88,7 @@ function renderWizard(entry = "/welcome") {
 }
 
 describe("OnboardingWizard", () => {
-  it("walks provider → GitHub → git identity → project and lands on Home", async () => {
+  it("walks provider → GitHub → git identity → default model → project and lands on Home", async () => {
     vi.mocked(client.listMyCredentials).mockResolvedValue(serverCreds() as never);
     vi.mocked(client.listAvailableModels).mockResolvedValue({ models: ["z-ai/glm-4.7"] } as never);
     vi.mocked(client.updateMyCredentials)
@@ -89,6 +99,13 @@ describe("OnboardingWizard", () => {
     vi.mocked(client.updateMyGitIdentity).mockResolvedValue({
       name: "Dana Ops",
       email: "dana@example.com",
+    } as never);
+    vi.mocked(client.updateMyModelDefaults).mockResolvedValue({
+      provider: "openrouter",
+      model: "z-ai/glm-4.7",
+      reasoningLevel: "high",
+      disabled: false,
+      updatedAt: { seconds: BigInt(1_700_000_000), nanos: 0 },
     } as never);
     vi.mocked(client.createProject).mockResolvedValue({
       namespace: "dana-x",
@@ -137,6 +154,20 @@ describe("OnboardingWizard", () => {
     expect(client.updateMyGitIdentity).toHaveBeenCalledWith({
       name: "Dana Ops",
       email: "dana@example.com",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await screen.findByText("Pick a default model");
+    fireEvent.click(screen.getByRole("button", { name: "OpenRouter" }));
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "z-ai/glm-4.7" } });
+    fireEvent.change(screen.getByLabelText("Reasoning level"), { target: { value: "high" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save default model" }));
+    await screen.findByText("Default model saved");
+    expect(client.updateMyModelDefaults).toHaveBeenCalledWith({
+      provider: "openrouter",
+      model: "z-ai/glm-4.7",
+      reasoningLevel: "high",
+      disabled: false,
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
@@ -299,5 +330,39 @@ describe("OnboardingWizard", () => {
     vi.mocked(client.listMyCredentials).mockResolvedValue(serverCreds() as never);
     renderWizard("/welcome?step=git-identity");
     await screen.findByText("Set your git identity");
+  });
+
+  it("keeps the ?step=3 deep link pointing at the project step", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValue(serverCreds() as never);
+    renderWizard("/welcome?step=3");
+    await screen.findByText("Create your first project");
+  });
+
+  it("lets the user skip the default model step without saving", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValue(serverCreds() as never);
+    renderWizard("/welcome?step=default-model");
+
+    await screen.findByText("Pick a default model");
+    fireEvent.click(screen.getByRole("button", { name: /Skip for now/ }));
+    await screen.findByText("Create your first project");
+    expect(client.updateMyModelDefaults).not.toHaveBeenCalled();
+  });
+
+  it("prefills the default model step from saved defaults and marks it done", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValue(serverCreds() as never);
+    vi.mocked(client.getMyModelDefaults).mockResolvedValue({
+      provider: "openai",
+      model: "gpt-5",
+      reasoningLevel: "low",
+      disabled: false,
+      updatedAt: { seconds: BigInt(1_700_000_000), nanos: 0 },
+    } as never);
+    renderWizard("/welcome?step=default-model");
+
+    await screen.findByText("Pick a default model");
+    const model = (await screen.findByDisplayValue("gpt-5")) as HTMLInputElement;
+    expect(model).toBeTruthy();
+    expect((screen.getByLabelText("Reasoning level") as HTMLSelectElement).value).toBe("low");
+    expect(await screen.findByRole("button", { name: /Continue/ })).toBeTruthy();
   });
 });

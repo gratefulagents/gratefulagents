@@ -5,6 +5,8 @@ import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneText } from "@/lib/status";
 import { REASONING_LEVELS } from "@/lib/reasoning";
+import { applyModelDefaults } from "@/lib/modelDefaults";
+import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -76,6 +78,21 @@ export function SlackAgentCreateDialog({
   const [error, setError] = useState<string | null>(null);
 
   const effectiveAuthMode = provider === "copilot" ? "oauth" : authMode;
+
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+
+  // Seed the untouched model fields once from the user's saved model defaults.
+  useEffect(() => {
+    if (!open || !modelDefaultsLoaded) return;
+    if (provider !== "anthropic" || model.trim() || reasoningLevel) return;
+    const seeded = applyModelDefaults(myModelDefaults);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
+    setProvider(seeded.provider);
+    setModel(seeded.model);
+    setReasoningLevel(seeded.reasoningLevel);
+    // Only run while the fields still hold their initial values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, modelDefaultsLoaded, myModelDefaults]);
 
   useEffect(() => {
     if (!open || !namespace) return;

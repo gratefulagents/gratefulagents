@@ -39,6 +39,7 @@ import {
 } from "@/components/create-flow/create-flow";
 import { PROVIDERS, providerMeta } from "@/components/create-flow/providers";
 import { useCreateProject } from "@/hooks/useCreateProject";
+import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
 import { ProjectReviewLoopOption } from "@/components/ProjectReviewLoopOption";
@@ -48,6 +49,7 @@ import { UserSecretPicker, type UserSecretOption } from "@/components/UserSecret
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { REASONING_LEVELS } from "@/lib/reasoning";
+import { applyModelDefaults } from "@/lib/modelDefaults";
 import { mcpPolicyBlocksServers } from "@/lib/resourceNames";
 import { toneText } from "@/lib/status";
 import { CreateProjectRequestSchema } from "@/rpc/platform/service_pb";
@@ -198,6 +200,26 @@ export function CreateProjectDialog({
     () => splitCommaList(form.mcpPolicyAllowedServers),
     [form.mcpPolicyAllowedServers],
   );
+
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+
+  // Seed a fresh form from the user's saved model defaults. Prefill only:
+  // it never overwrites fields the user already edited.
+  useEffect(() => {
+    if (!open || !modelDefaultsLoaded) return;
+    const seeded = applyModelDefaults(myModelDefaults);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
+    setForm((prev) =>
+      prev.provider === "anthropic" && !prev.model && !prev.reasoningLevel
+        ? {
+            ...prev,
+            provider: seeded.provider,
+            model: seeded.model,
+            reasoningLevel: seeded.reasoningLevel,
+          }
+        : prev,
+    );
+  }, [open, modelDefaultsLoaded, myModelDefaults]);
 
   // Load the user's saved credential presence + personal namespace when the
   // dialog opens, so we can offer "use a saved credential" and show where the

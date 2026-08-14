@@ -2,6 +2,8 @@ import { useEffect, useId, useState, type ReactElement, type ReactNode } from "r
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { client } from "@/lib/client";
+import { applyModelDefaults } from "@/lib/modelDefaults";
+import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import { PROVIDERS } from "@/components/create-flow/providers";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +46,26 @@ export function CreateLinearProjectDialog({
   const set = <K extends keyof LinearCreateValues>(key: K, value: LinearCreateValues[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
   const effectiveAuthMode = form.provider === "copilot" ? "oauth" : form.authMode;
+
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+
+  // Seed a fresh form from the user's saved model defaults (prefill only;
+  // Linear projects have no reasoning-level field).
+  useEffect(() => {
+    if (!open || !modelDefaultsLoaded) return;
+    const seeded = applyModelDefaults(myModelDefaults);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
+    setForm((current) =>
+      current.provider === "anthropic" && !current.model
+        ? {
+            ...current,
+            provider: seeded.provider,
+            model: seeded.model,
+            authMode: seeded.provider === "copilot" ? "oauth" : current.authMode,
+          }
+        : current,
+    );
+  }, [open, modelDefaultsLoaded, myModelDefaults]);
 
   useEffect(() => {
     if (!open) return;
