@@ -48,6 +48,11 @@ const (
 	rustFuzzVersion         = "0.13.2"
 
 	rustFuzzToolVersion = rustFuzzVersion + "+" + rustFuzzNightly
+
+	// rustFuzzCrashExitCode is passed to libFuzzer explicitly rather than
+	// relying on its default, so the exit-code contract in the registry and
+	// the value the fuzzer actually uses cannot drift apart.
+	rustFuzzCrashExitCode = "77"
 )
 
 // RustFuzzClosureIdentity is the exact string the image build hashes into the
@@ -128,7 +133,7 @@ func collectRustFuzzRun(root string, baseline map[string]bool, cfg RunConfig, ex
 	campaign, _ := ParseFuzzCampaign(cfg.Arguments["max_total_time"])
 	report := rustFuzzReport{
 		FuzzTarget: target, MaxTotalTime: campaign.String(), ExitCode: exitCode,
-		ReplayCommand: fmt.Sprintf("cargo +nightly fuzz run %s fuzz/artifacts/%s/<crash-input>", target, target),
+		ReplayCommand: fmt.Sprintf("cargo +%s fuzz run %s fuzz/artifacts/%s/<crash-input>", rustFuzzNightly, target, target),
 		ConsoleTail:   boundedConsoleTail(console),
 	}
 	if cfg.Seed != nil {

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -60,41 +59,36 @@ func fuzzCorpusObjectKey(namespace, tool, campaign string) string {
 	return path.Join("security-tool-corpus", namespace, tool, campaign+".json")
 }
 
-// restoreFuzzCorpus writes a persisted corpus into the staged package's seed
-// corpus directory. A missing or unreadable corpus is not an error: a campaign
-// that has never run simply starts cold, and saying so is more useful than
-// failing the run.
-func restoreFuzzCorpus(ctx context.Context, blobs SecurityToolRunBlobStore, key, packageDir, target string) int {
-	if blobs == nil || packageDir == "" || target == "" {
-		return 0
+// fuzzCorpusForArchive resolves a persisted corpus into the archive entries a
+// campaign should start from. It deliberately returns content instead of
+// writing files: restoring into the user's checkout would leave untracked
+// inputs behind, and a cleanup step that runs "usually" is not a guarantee.
+// A missing or unreadable corpus is not an error either — a campaign that has
+// never run simply starts cold, and saying so is more useful than failing.
+func fuzzCorpusForArchive(ctx context.Context, blobs SecurityToolRunBlobStore, key, packageRelative, target string) map[string][]byte {
+	if blobs == nil || target == "" {
+		return nil
 	}
 	raw, err := blobs.Get(ctx, key)
 	if err != nil || len(raw) == 0 {
-		return 0
+		return nil
 	}
 	var document fuzzCorpusDocument
 	if json.Unmarshal(raw, &document) != nil || document.SchemaVersion != fuzzCorpusSchemaVersion {
-		return 0
+		return nil
 	}
-	destination := filepath.Join(packageDir, "testdata", "fuzz", target)
-	if err := os.MkdirAll(destination, 0o750); err != nil {
-		return 0
-	}
-	restored := 0
+	directory := path.Join(packageRelative, "testdata", "fuzz", target)
+	out := make(map[string][]byte, len(document.Entries))
 	for _, entry := range document.Entries {
-		if restored >= maxFuzzCorpusEntries || len(entry.Data) == 0 || len(entry.Data) > maxFuzzCorpusEntryBytes {
+		if len(out) >= maxFuzzCorpusEntries || len(entry.Data) == 0 || len(entry.Data) > maxFuzzCorpusEntryBytes {
 			continue
 		}
-		// The stored path is never trusted: the file name is re-derived from
-		// the content, so a hostile corpus document cannot escape the
-		// directory it is being restored into.
-		name := fuzzCorpusEntryName(entry.Data)
-		if err := os.WriteFile(filepath.Join(destination, name), entry.Data, 0o600); err != nil {
-			continue
-		}
-		restored++
+		// The stored path is never trusted: the entry name is re-derived from
+		// the content, so a hostile corpus document cannot place a file
+		// anywhere but this target's seed corpus.
+		out[path.Join(directory, fuzzCorpusEntryName(entry.Data))] = entry.Data
 	}
-	return restored
+	return out
 }
 
 func fuzzCorpusEntryName(data []byte) string {
@@ -198,21 +192,24 @@ func goFuzzCampaignNote(restored, persisted int) string {
 	return fmt.Sprintf("fuzz corpus: restored %d seed input(s), persisted %d new input(s) for the next campaign", restored, persisted)
 }
 
-// restoreGoFuzzCorpus restores the persisted corpus for this campaign into the
-// staged workspace copy. It is best-effort by design: a cold start is a normal
-// state, and refusing to fuzz because no corpus exists yet would make the
-// first campaign impossible.
-func (t *runSecurityToolTool) restoreGoFuzzCorpus(ctx context.Context, in runSecurityToolInput, local string) int {
+// goFuzzCorpusForArchive resolves this campaign's persisted corpus into archive
+// entries, keyed by their path inside the staged target.
+func (t *runSecurityToolTool) goFuzzCorpusForArchive(ctx context.Context, in runSecurityToolInput, local string) map[string][]byte {
 	if in.Tool != "go-fuzz-tests" {
-		return 0
+		return nil
 	}
 	pkg, target := in.Arguments["package"], securitytoolpacks.GoFuzzTargetName(in.Arguments["fuzz"])
 	if pkg == "" || target == "" {
-		return 0
+		return nil
+	}
+	packageDir := securitytoolpacks.GoFuzzPackageDir(local, pkg)
+	relative, err := filepath.Rel(local, packageDir)
+	if err != nil || relative == "." || strings.HasPrefix(relative, "..") {
+		relative = ""
 	}
 	campaign := fuzzCampaignIdentity(t.state.scanCtx.Repository, pkg, target)
 	key := fuzzCorpusObjectKey(t.deps.Namespace, in.Tool, campaign)
-	return restoreFuzzCorpus(ctx, t.deps.Blobs, key, securitytoolpacks.GoFuzzPackageDir(local, pkg), target)
+	return fuzzCorpusForArchive(ctx, t.deps.Blobs, key, filepath.ToSlash(relative), target)
 }
 
 // persistGoFuzzCorpus stores what this campaign produced so the next one

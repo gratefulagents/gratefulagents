@@ -854,7 +854,7 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		// cargo-fuzz runs the maintainers' own fuzz/fuzz_targets. Nothing in
 		// argv can name a harness we wrote: the target is a validated upstream
 		// target name and the campaign length is bounded.
-		base("cargo-fuzz", DomainBlockchain, rustFuzzToolVersion, "rust-fuzz-json", "application/json", []string{"rust_fuzz_project"}, []string{"cargo", "+nightly", "fuzz", "run", "--fuzz-dir", "{{target}}/fuzz", "{{fuzz_target}}", "--", "-max_total_time={{max_total_time_seconds}}", "-seed={{seed}}", "-rss_limit_mb=2048", "-print_final_stats=1"}),
+		base("cargo-fuzz", DomainBlockchain, rustFuzzToolVersion, "rust-fuzz-json", "application/json", []string{"rust_fuzz_project"}, []string{"cargo", "+" + rustFuzzNightly, "fuzz", "run", "--fuzz-dir", "{{target}}/fuzz", "{{fuzz_target}}", "--", "-max_total_time={{max_total_time_seconds}}", "-seed={{seed}}", "-rss_limit_mb=2048", "-error_exitcode=" + rustFuzzCrashExitCode + "", "-print_final_stats=1"}),
 		base("go-fuzz-tests", DomainBlockchain, "go1.26", "go-test-json", "application/x-ndjson", []string{"go_fuzz_project"}, []string{"go", "-C", "{{target}}", "test", "-json", "{{package}}", "-run=^$", "-fuzz", "{{fuzz}}", "-fuzztime={{fuzztime}}", "-parallel=1"}),
 		// EVM verification packs. The fork endpoint is never a model-supplied
 		// string: argv carries an operator-authorized alias token that the

@@ -370,8 +370,9 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 	// found, so the persisted corpus is restored into the package's seed
 	// corpus before the target is archived. It has to happen here: the staged
 	// archive is the only channel into the execution Job.
-	t.restoredFuzzInputs = t.restoreGoFuzzCorpus(ctx, in, local)
-	archive, entries, skipped, err := archiveWorkspaceTarget(local)
+	injected := t.goFuzzCorpusForArchive(ctx, in, local)
+	t.restoredFuzzInputs = len(injected)
+	archive, entries, skipped, err := archiveWorkspaceTargetWithInjected(local, injected)
 	if err != nil {
 		result := errorResultf("staging %s: %v", relative, err)
 		return spec, stagedTarget{}, &result
@@ -596,6 +597,15 @@ func looksLikeFilesystemLocator(locator string) bool {
 // stable ordering, zeroed timestamps and ownership, sockets/devices and
 // escaping symlinks skipped, and a hard total-size cap.
 func archiveWorkspaceTarget(root string) (archive []byte, entries, skipped int, err error) {
+	return archiveWorkspaceTargetWithInjected(root, nil)
+}
+
+// archiveWorkspaceTargetWithInjected archives the workspace target plus content
+// that exists only inside the archive. Restoring a persisted fuzz corpus by
+// writing it into the user's checkout would leave untracked inputs behind for
+// later agent work to trip over; injecting it here keeps the workspace exactly
+// as the user left it, and makes cleanup a thing that cannot be forgotten.
+func archiveWorkspaceTargetWithInjected(root string, injected map[string][]byte) (archive []byte, entries, skipped int, err error) {
 	var buf bytes.Buffer
 	gz, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
 	if err != nil {
@@ -683,6 +693,20 @@ func archiveWorkspaceTarget(root string) (archive []byte, entries, skipped int, 
 	}
 	if err != nil {
 		return nil, 0, 0, err
+	}
+	for _, name := range slices.Sorted(maps.Keys(injected)) {
+		content := injected[name]
+		header := &tar.Header{
+			Typeflag: tar.TypeReg, Name: name, Mode: 0o600, Size: int64(len(content)),
+			ModTime: time.Unix(0, 0).UTC(),
+		}
+		if err := writer.WriteHeader(header); err != nil {
+			return nil, 0, 0, err
+		}
+		if _, err := writer.Write(content); err != nil {
+			return nil, 0, 0, err
+		}
+		entries++
 	}
 	if err := writer.Close(); err != nil {
 		return nil, 0, 0, err

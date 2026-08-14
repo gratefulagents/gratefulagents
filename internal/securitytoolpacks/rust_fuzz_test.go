@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -257,5 +258,45 @@ func TestCargoFuzzCollectionFailureIsNotACleanCampaign(t *testing.T) {
 	cfg := rustFuzzConfig(root, map[string]string{"fuzz_target": "parse_block", "max_total_time": "2m"})
 	if _, _, err := collectRustFuzzRun(root, map[string]bool{}, cfg, 0, nil); err == nil {
 		t.Fatal("an over-budget crash set was collected silently")
+	}
+}
+
+// The image installs one dated nightly, so `cargo +nightly` would fail before
+// compiling anything, and libFuzzer's crash exit code has to be a value the
+// registry actually maps — otherwise a crash is downgraded to a partial run
+// with an "unmapped exit code" error instead of reported as findings.
+func TestCargoFuzzInvokesTheInstalledToolchainAndMapsItsCrashExit(t *testing.T) {
+	manifest := DefaultManifest("sha256:"+strings.Repeat("d", 64), nil)
+	index := slices.IndexFunc(manifest.Tools, func(tool Tool) bool { return tool.Name == "cargo-fuzz" })
+	if index < 0 {
+		t.Fatal("cargo-fuzz is missing from the registry")
+	}
+	tool := manifest.Tools[index]
+	if !slices.Contains(tool.Invocation, "+"+rustFuzzNightly) {
+		t.Fatalf("argv does not select the installed toolchain: %v", tool.Invocation)
+	}
+	if slices.Contains(tool.Invocation, "+nightly") {
+		t.Fatal("argv selects an undated nightly the image never installs")
+	}
+	if !slices.Contains(tool.Invocation, "-error_exitcode="+rustFuzzCrashExitCode) {
+		t.Fatalf("argv does not pin libFuzzer's crash exit code: %v", tool.Invocation)
+	}
+	code, err := strconv.Atoi(rustFuzzCrashExitCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool.ExitCodes[code] != StatusFindings {
+		t.Fatalf("exit code %d maps to %q, want findings", code, tool.ExitCodes[code])
+	}
+
+	root := stageRustFuzzProject(t, "parse_block", map[string]string{"crash-abc": "boom"}, nil)
+	cfg := rustFuzzConfig(root, map[string]string{"fuzz_target": "parse_block", "max_total_time": "2m"})
+	report, _, err := collectRustFuzzRun(root, map[string]bool{}, cfg, code, nil)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	// The replay command a reader is handed must name a toolchain that exists.
+	if !strings.Contains(report.ReplayCommand, "+"+rustFuzzNightly) {
+		t.Fatalf("replay command does not name the installed toolchain: %q", report.ReplayCommand)
 	}
 }
