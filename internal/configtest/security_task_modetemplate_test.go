@@ -9,7 +9,7 @@ import (
 )
 
 // TestSecurityScanTaskModeTemplateAsset validates the bootstrap ModeTemplate
-// for single deterministic security workflow tasks: a linear, read-only run
+// for single deterministic security workflow tasks: a linear, workspace-write run
 // that executes exactly one assigned task and reports through the finding
 // tools and submit_task_output.
 func TestSecurityScanTaskModeTemplateAsset(t *testing.T) {
@@ -24,10 +24,12 @@ func TestSecurityScanTaskModeTemplateAsset(t *testing.T) {
 	if !mode.Spec.Autonomous {
 		t.Error("scan task mode must be autonomous")
 	}
-	// Scanned repositories are untrusted input: task runs must never be able
-	// to modify the workspace or push code.
-	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeReadOnly {
-		t.Errorf("permissionMode = %q, want read-only", mode.Spec.PermissionMode)
+	// Task runs need local writes for PoCs, test fixtures, and compiler caches.
+	// Workspace-write also permits networked shell commands in the command
+	// sandbox; the SecurityScan controller separately denies repository editing
+	// and remote git-write tools.
+	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeWorkspaceWrite {
+		t.Errorf("permissionMode = %q, want workspace-write", mode.Spec.PermissionMode)
 	}
 	// A task run is one focused, linear unit of work: the workflow controller
 	// owns fan-out, so the run itself must not orchestrate sub-agents.
@@ -43,8 +45,8 @@ func TestSecurityScanTaskModeTemplateAsset(t *testing.T) {
 	if got := mode.Spec.Constraints.MaxRetries; got != 1 {
 		t.Errorf("maxRetries = %d, want 1", got)
 	}
-	// The finding and typed-output tools write platform scan/run state only,
-	// so they must survive the read-only clamp or the task has no outputs.
+	// Keep the finding and typed-output tools explicit so any future tightening
+	// of autonomous mode policy cannot remove the task's required outputs.
 	wantTools := []string{
 		"report_security_finding",
 		"update_security_finding",
