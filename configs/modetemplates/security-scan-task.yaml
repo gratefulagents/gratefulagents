@@ -17,10 +17,11 @@ spec:
     maxRetries: 1
     maxConcurrentSubAgents: 1
 
-  # Scanned code is untrusted input. Task runs never modify the target
-  # repository: clamp to read-only and allowlist only the finding and typed
-  # output tools, which write platform scan state rather than the workspace.
-  permissionMode: read-only
+  # Security tasks need a writable workspace for local PoCs, compiler caches,
+  # and test fixtures. Shell network access is also intentionally limited to
+  # workspace-write runs by the command sandbox. The SecurityScan controller's
+  # denied-tools policy still blocks repository editing and remote git writes.
+  permissionMode: workspace-write
   allowedMutatingTools:
     - report_security_finding
     - update_security_finding

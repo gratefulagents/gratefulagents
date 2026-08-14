@@ -25,9 +25,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestEffectiveTimeoutDefaultsToTwoHours(t *testing.T) {
-	if got := effectiveTimeout(&platformv1alpha1.AgentRun{}); got != 2*time.Hour {
-		t.Fatalf("effectiveTimeout() = %s, want 2h", got)
+func TestEffectiveTimeoutDefaultsToSixHours(t *testing.T) {
+	if got := effectiveTimeout(&platformv1alpha1.AgentRun{}); got != 6*time.Hour {
+		t.Fatalf("effectiveTimeout() = %s, want 6h", got)
+	}
+}
+
+func TestEffectiveTimeoutPreservesExplicitRuntimeLongerThanDefault(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			Limits: &platformv1alpha1.AgentRunLimits{
+				MaxRuntime: metav1.Duration{Duration: 8 * time.Hour},
+			},
+		},
+	}
+	if got := effectiveTimeout(run); got != 8*time.Hour {
+		t.Fatalf("effectiveTimeout() = %s, want explicit 8h runtime", got)
 	}
 }
 
