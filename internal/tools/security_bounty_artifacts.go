@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
 
+	"github.com/gratefulagents/gratefulagents/internal/securitytoolpacks"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 )
 
@@ -55,6 +56,64 @@ type securityPoCValidation struct {
 	Command         string `json:"command"`
 	ObservedOutput  string `json:"observed_output"`
 	Reason          string `json:"reason"`
+	// ReproducibilityClass states how this reproduction can be reproduced
+	// again. Ordering, reorg and race bugs do not replay byte-identically, so
+	// a single definition of determinism would reject a real race and accept
+	// a flake after one lucky rerun.
+	ReproducibilityClass string `json:"reproducibility_class"`
+	// The harness-health fields below decide whether a confirmation means
+	// anything: a run that never reached the target, ran no control, or
+	// carried an assertion that cannot fail has proved nothing.
+	TargetCodeExecuted bool   `json:"target_code_executed"`
+	NegativeControlRan bool   `json:"negative_control_ran"`
+	OracleCanFail      bool   `json:"oracle_can_fail"`
+	OracleEvidence     string `json:"oracle_evidence"`
+	// Trials records attempts for a non-deterministic class.
+	Attempts     int    `json:"attempts,omitempty"`
+	Successes    int    `json:"successes,omitempty"`
+	StoppingRule string `json:"stopping_rule,omitempty"`
+}
+
+// validateSecurityPoCEvidence enforces the difference between "the command ran
+// and printed something" and "this reproduction proves anything". A confirmed
+// verdict must exercise real target code, run its control, and demonstrate
+// that the oracle can fail; a non-deterministic class must carry its trials.
+func validateSecurityPoCEvidence(validation securityPoCValidation) []string {
+	var problems []string
+	class := securitytoolpacks.ReproducibilityClass(strings.TrimSpace(validation.ReproducibilityClass))
+	if !securitytoolpacks.ValidReproducibilityClass(class) {
+		problems = append(problems, "reproducibility_class must be one of deterministic, seeded_replayable, schedule_or_environment_dependent, statistical, observational_only")
+	}
+	if !validation.Confirmed {
+		// A disproof does not need to prove its own oracle: it needs to say
+		// which check stops the attack, which `reason` already carries.
+		return problems
+	}
+	if class == "" {
+		problems = append(problems, "reproducibility_class is required for a confirmed reproduction")
+	}
+	if !validation.TargetCodeExecuted {
+		problems = append(problems, "target_code_executed must be true: a model or mock is never a target-code reproduction")
+	}
+	if !validation.NegativeControlRan {
+		problems = append(problems, "negative_control_ran must be true: without a control the result is not attributable to the defect")
+	}
+	if !validation.OracleCanFail || strings.TrimSpace(validation.OracleEvidence) == "" {
+		problems = append(problems, "oracle_can_fail requires oracle_evidence: show the mutation or calibration that made the assertion fail on purpose")
+	}
+	switch class {
+	case securitytoolpacks.ReproducibilityScheduleDependent, securitytoolpacks.ReproducibilityStatistical:
+		if validation.Attempts <= 0 {
+			problems = append(problems, "a schedule-dependent or statistical reproduction must report its attempts, including the ones that did not trigger")
+		}
+		if validation.Successes > validation.Attempts {
+			problems = append(problems, "successes cannot exceed attempts")
+		}
+		if strings.TrimSpace(validation.StoppingRule) == "" {
+			problems = append(problems, "stopping_rule is required so a low trigger rate is not read as exhaustive")
+		}
+	}
+	return problems
 }
 
 type securityBountySubmission struct {
@@ -277,7 +336,17 @@ func (t *validateSecurityPoCTool) Description() string {
 	return "Record an independent local reproduction verdict for the stored PoC candidate bound to this finding."
 }
 func (t *validateSecurityPoCTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"confirmed":{"type":"boolean"},"candidate_sha256":{"type":"string"},"command":{"type":"string"},"observed_output":{"type":"string"},"reason":{"type":"string"}},"required":["confirmed","candidate_sha256","command","observed_output","reason"]}`)
+	return json.RawMessage(`{"type":"object","properties":{` +
+		`"confirmed":{"type":"boolean"},"candidate_sha256":{"type":"string"},"command":{"type":"string"},` +
+		`"observed_output":{"type":"string"},"reason":{"type":"string"},` +
+		`"reproducibility_class":{"type":"string","enum":["deterministic","seeded_replayable","schedule_or_environment_dependent","statistical","observational_only"],"description":"How this result reproduces. Ordering, reorg and race bugs do not replay byte-identically."},` +
+		`"target_code_executed":{"type":"boolean","description":"The real target code ran, not a mock or simplified model."},` +
+		`"negative_control_ran":{"type":"boolean","description":"The same harness was run against unmodified or non-attacker input."},` +
+		`"oracle_can_fail":{"type":"boolean","description":"A mutation or known calibration failure made the assertion fail on purpose."},` +
+		`"oracle_evidence":{"type":"string","description":"What made the assertion fail: the mutation applied, or the calibration case used."},` +
+		`"attempts":{"type":"integer"},"successes":{"type":"integer"},` +
+		`"stopping_rule":{"type":"string","description":"Why the campaign stopped, so a low trigger rate is not read as exhaustive."}},` +
+		`"required":["confirmed","candidate_sha256","command","observed_output","reason","reproducibility_class"]}`)
 }
 func (t *validateSecurityPoCTool) IsReadOnly() bool { return true }
 func (t *validateSecurityPoCTool) IsEnabled(_ *agentsdk.RunContext) bool {
@@ -292,6 +361,9 @@ func (t *validateSecurityPoCTool) Execute(ctx context.Context, input json.RawMes
 	}
 	if strings.TrimSpace(validation.Command) == "" || strings.TrimSpace(validation.ObservedOutput) == "" || strings.TrimSpace(validation.Reason) == "" {
 		return Result{Content: "command, observed_output, and reason are required", IsError: true}, nil
+	}
+	if problems := validateSecurityPoCEvidence(validation); len(problems) != 0 {
+		return Result{Content: "validation evidence is incomplete and was not saved: " + strings.Join(problems, "; "), IsError: true}, nil
 	}
 	finding, err := boundSecurityFinding(ctx, t.state)
 	if err != nil {

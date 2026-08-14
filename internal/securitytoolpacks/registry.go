@@ -109,6 +109,21 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		"halmos": {
 			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
 		},
+		"anvil-fork": {
+			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+		},
+		"forge-fork-test": {
+			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+		},
+		"forge-coverage-mutation": {
+			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+		},
+		"medusa": {
+			"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
+		},
+		"upstream-fork-diff": {
+			"git_repository": "application/vnd.gratefulagents.git-repository.v1+directory",
+		},
 	}
 	if media := expectedMedia[t.Name][cfg.Target.Type]; media != "" && cfg.Target.MediaType != media {
 		return Invocation{}, Tool{}, fmt.Errorf("tool %s requires target media type %s", t.Name, media)
@@ -203,6 +218,9 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 			return Invocation{}, Tool{}, fmt.Errorf("argument %q is required", a.Name)
 		}
 	}
+	if err := validateEVMPackArguments(t, cfg); err != nil {
+		return Invocation{}, Tool{}, err
+	}
 	keys := []string{"target"}
 	values := map[string]string{"target": cfg.Target.Locator}
 	for _, a := range t.Arguments {
@@ -231,9 +249,12 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 }
 
 // IsEVMBuildTool reports whether a tool operates only on staged EVM project
-// content but may use outbound access to resolve compilers and dependencies.
+// content but may use outbound access to resolve compilers and dependencies,
+// or — for the fork packs — the operator-authorized fork endpoint. In neither
+// case is there a model-chosen remote target to compare with a scope list.
 func IsEVMBuildTool(name string) bool {
-	return slices.Contains([]string{"slither", "forge-security-tests", "echidna", "halmos"}, name)
+	return slices.Contains([]string{"slither", "forge-security-tests", "echidna", "halmos"}, name) ||
+		slices.Contains(evmVerificationPacks, name)
 }
 
 func validScope(scope string) bool {
@@ -656,6 +677,14 @@ func validateArg(a Argument, value string) error {
 		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
 			return fmt.Errorf("argument %q must be an integer", a.Name)
 		}
+	case "evm_block_hash":
+		if !evmBlockHashPattern.MatchString(value) {
+			return fmt.Errorf("argument %q must be a 0x-prefixed lowercase 32-byte block hash", a.Name)
+		}
+	case "git_revision":
+		if !gitRevisionPattern.MatchString(value) {
+			return fmt.Errorf("argument %q must be a full lowercase 40-character git commit id", a.Name)
+		}
 	case "boolean":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("argument %q must be boolean", a.Name)
@@ -747,15 +776,37 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
 		base("halmos", DomainBlockchain, "0.3.3", "halmos-json", "application/json", []string{"foundry_project"}, []string{"halmos", "--root", "{{target}}", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"}),
 		base("go-fuzz-tests", DomainBlockchain, "go1.26", "go-test-json", "application/x-ndjson", []string{"go_fuzz_project"}, []string{"go", "-C", "{{target}}", "test", "-json", "{{package}}", "-run=^$", "-fuzz", "{{fuzz}}", "-fuzztime=30s", "-parallel=1"}),
+		// EVM verification packs. The fork endpoint is never a model-supplied
+		// string: argv carries an operator-authorized alias token that the
+		// execution layer resolves, and the forked chain state is pinned by
+		// required typed arguments so the recorded run is replayable.
+		base("anvil-fork", DomainBlockchain, "1.7.1", "evm-fork-record", "application/json", []string{"foundry_project"}, []string{"anvil", "--host", "127.0.0.1", "--port", "8545", "--fork-url", operatorForkEndpointToken + "{{fork_endpoint}}", "--fork-block-number", "{{fork_block_number}}", "--fork-chain-id", "{{chain_id}}", "--chain-id", "{{chain_id}}", "--order", "fifo", "--no-mining"}),
+		base("forge-fork-test", DomainBlockchain, "1.7.1", "forge-json", "application/json", []string{"foundry_project"}, []string{"forge", "test", "--root", "{{target}}", "--json", "--fork-url", operatorForkEndpointToken + "{{fork_endpoint}}", "--fork-block-number", "{{fork_block_number}}", "--chain-id", "{{chain_id}}", "--fuzz-seed", "{{seed}}", "--threads", "1"}),
+		base("medusa", DomainBlockchain, "1.5.1", "medusa-console", "text/plain", []string{"solidity_project"}, []string{"medusa", "fuzz", "--compilation-target", "{{target}}", "--target-contracts", "{{target_contracts}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--timeout", "600", "--no-color", "--log-level", "info"}),
+		// The reviewed argv is the coverage phase. The mutation driver re-runs
+		// exactly this argv against mutated sources and emits the combined
+		// coverage/mutant document this pack normalizes; a surviving mutant is
+		// the evidence that a harness assertion cannot fail.
+		base("forge-coverage-mutation", DomainBlockchain, "1.7.1", "forge-mutation-json", "application/json", []string{"foundry_project"}, []string{"forge", "coverage", "--root", "{{target}}", "--report", "lcov", "--report-file", "/dev/stdout", "--fuzz-seed", "{{seed}}", "--threads", "1"}),
+		base("upstream-fork-diff", DomainBlockchain, "1.0.0", "git-divergence", "text/plain", []string{"git_repository"}, []string{"git", "-C", "{{target}}", "diff", "--no-color", "--no-ext-diff", "--numstat", "--find-renames", "--exit-code", operatorUpstreamToken + "{{upstream}}@{{upstream_revision}}", "HEAD"}),
 	}
-	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu", "slither", "forge-security-tests", "echidna", "halmos"}
-	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz"}
-	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna"}
+	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu", "slither", "forge-security-tests", "echidna", "halmos", "anvil-fork", "forge-fork-test", "medusa", "forge-coverage-mutation", "upstream-fork-diff"}
+	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz", "medusa"}
+	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna", "forge-fork-test", "forge-coverage-mutation"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
 	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests"}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
-	packagingBlockers := map[string]string{}
+	// The EVM verification packs are reviewed contracts whose execution stage
+	// is not wired yet. Each reason names the exact missing capability so the
+	// catalog never implies a run would work.
+	packagingBlockers := map[string]string{
+		"anvil-fork":              "catalog-only: the operator fork-endpoint resolver and the local devnet lifecycle supervisor are not implemented in the executor",
+		"forge-fork-test":         "catalog-only: the operator fork-endpoint resolver is not implemented in the executor",
+		"medusa":                  "catalog-only: upstream publishes no linux/arm64 release asset for medusa v1.5.1, so the runtime lock cannot pin a multi-architecture binary",
+		"forge-coverage-mutation": "catalog-only: the mutation driver that applies the selected operator to staged sources and re-runs the pinned coverage argv is not implemented",
+		"upstream-fork-diff":      "catalog-only: the reviewed upstream mirror fetch stage that materializes the pinned upstream revision is not implemented",
+	}
 	ociTools := map[string]struct{ image, digest, amd64, arm64, root, executable, output string }{
 		"owasp-zap":     {"docker.io/zaproxy/zap-stable", "sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab", "sha256:65f8bee15a648ca4a0b6a25e1096fc76af6eea42ab2d75f2a9649981225f30b8", "sha256:7d6bc478bd0750a094349b2e9710a4e33b84e003ae4341f2f2ae7245ec1c5065", "owasp-zap", "/zap/zap.sh", "/work/zap-report.json"},
 		"schemathesis":  {"docker.io/schemathesis/schemathesis", "sha256:153e544c9eefd31c7a0aabc40c7d90bf66c36915e2e4ccba968319da453006b2", "sha256:7f507383fc96256c1de89e8ac2fd9e00525cd46fee0be39d29dac286315fa414", "sha256:99f0b99bb8a44beb22d97fd12643d0990a28b13a8e0dd91d2ace054500373271", "schemathesis", "/usr/local/bin/schemathesis", "/work/result.xml"},
@@ -808,6 +859,17 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			tools[i].Arguments = []Argument{{Name: "package", Type: "string", Required: true}, {Name: "fuzz", Type: "string", Required: true}}
 		case "naabu", "nmap":
 			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}, {Name: "ports", Type: "ports", Required: true}}
+		case "anvil-fork", "forge-fork-test":
+			tools[i].Arguments = evmForkPinningArguments()
+		case "medusa":
+			tools[i].Arguments = []Argument{{Name: "target_contracts", Type: "string", Required: true}}
+		case "forge-coverage-mutation":
+			tools[i].Arguments = []Argument{{Name: "mutation_operator", Type: "enum", Required: true, Enum: []string{"assertion-negation", "require-removal", "boundary-shift", "return-value-swap"}}}
+		case "upstream-fork-diff":
+			tools[i].Arguments = []Argument{
+				{Name: "upstream", Type: "enum", Required: true, Enum: slices.Clone(evmUpstreams)},
+				{Name: "upstream_revision", Type: "git_revision", Required: true},
+			}
 		}
 		if digest, ok := knowledgeDigests[tools[i].Name]; ok {
 			tools[i].KnowledgeDigests = map[string]string{"bundle": digest}
@@ -828,6 +890,26 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		if tools[i].Name == "echidna" {
 			tools[i].Budgets.Requests = 10000
 			tools[i].Budgets.Concurrency = 1
+		}
+		if slices.Contains(evmVerificationPacks, tools[i].Name) {
+			tools[i].Budgets.Concurrency = 1
+			tools[i].Budgets.Memory = 4 << 30
+			tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusFindings, 2: StatusError, 124: StatusTimeout}
+			switch tools[i].Name {
+			case "anvil-fork":
+				// A devnet that exits at all failed: it never reports findings.
+				tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
+				tools[i].Budgets.Timeout = 10 * time.Minute
+			case "forge-fork-test", "forge-coverage-mutation":
+				tools[i].Budgets.Timeout = 15 * time.Minute
+			case "medusa":
+				tools[i].Budgets.Timeout = 20 * time.Minute
+				tools[i].Budgets.Requests = 10000
+			case "upstream-fork-diff":
+				// git diff --exit-code: 1 is divergence, 128 is a git failure.
+				tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusFindings, 128: StatusError, 129: StatusError, 124: StatusTimeout}
+				tools[i].Budgets.Timeout = 10 * time.Minute
+			}
 		}
 		if tools[i].Name == "slither" {
 			tools[i].OCIPath = "/home/ethsec/.local/bin:/home/ethsec/.foundry/bin:/usr/local/bin:/usr/bin:/bin"
@@ -862,11 +944,14 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 // reviewed runtime lock so every replay cites the exact executed artifact.
 func lockedToolArtifactDigest(name, arch string) string {
 	pins := map[string]map[string]string{
-		"nuclei":               {"amd64": "sha256:c49588140f357cbdddd5436dec11201953a4c5390faeec90777f9ee2cfd70251", "arm64": "sha256:f27098e0be0cc370af52274611608ad61896d7f0a024e35b136327d39e725477"},
-		"naabu":                {"amd64": "sha256:6c0aac4253aebe95bbc13d4712a5f8caf7db9c9b62d6bc1fb4c56594cfa45165", "arm64": "sha256:635d93e16b2e6423434b361c017d8fd12f354eaebbf04bcf062c97a9d4e2addc"},
-		"aderyn":               {"amd64": "sha256:a268d616826901e17717b1bc6368d8b2c063045a46fb99a0c0f657f102d977ca", "arm64": "sha256:773033830116d7628c01f105a4bd0691d1034fc285f37652e8868c8dc14d97e0"},
-		"forge-security-tests": {"amd64": "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "arm64": "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988"},
-		"echidna":              {"amd64": "sha256:b5db2b36cd95c70b84fde5cde73b004485decc7a07b6bfd65d7d6a6695294cc3", "arm64": "sha256:ede4024e5cdc8112716b726c9951a69c709d428a649d994fa952fc7e38f6f662"},
+		"nuclei":                  {"amd64": "sha256:c49588140f357cbdddd5436dec11201953a4c5390faeec90777f9ee2cfd70251", "arm64": "sha256:f27098e0be0cc370af52274611608ad61896d7f0a024e35b136327d39e725477"},
+		"naabu":                   {"amd64": "sha256:6c0aac4253aebe95bbc13d4712a5f8caf7db9c9b62d6bc1fb4c56594cfa45165", "arm64": "sha256:635d93e16b2e6423434b361c017d8fd12f354eaebbf04bcf062c97a9d4e2addc"},
+		"aderyn":                  {"amd64": "sha256:a268d616826901e17717b1bc6368d8b2c063045a46fb99a0c0f657f102d977ca", "arm64": "sha256:773033830116d7628c01f105a4bd0691d1034fc285f37652e8868c8dc14d97e0"},
+		"forge-security-tests":    {"amd64": "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "arm64": "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988"},
+		"echidna":                 {"amd64": "sha256:b5db2b36cd95c70b84fde5cde73b004485decc7a07b6bfd65d7d6a6695294cc3", "arm64": "sha256:ede4024e5cdc8112716b726c9951a69c709d428a649d994fa952fc7e38f6f662"},
+		"anvil-fork":              {"amd64": "sha256:10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b", "arm64": "sha256:bebaff5c1b6ff6f55b6f2f5f415bb5543f19b948197b5e909195e81ef1727be1"},
+		"forge-fork-test":         {"amd64": "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "arm64": "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988"},
+		"forge-coverage-mutation": {"amd64": "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "arm64": "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988"},
 	}
 	return pins[name][arch]
 }

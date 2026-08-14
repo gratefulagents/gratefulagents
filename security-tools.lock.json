@@ -165,6 +165,40 @@
       }
     },
     {
+      "name": "anvil",
+      "status": "enabled",
+      "version": "1.7.1",
+      "binary": "anvil",
+      "release_url": "https://github.com/foundry-rs/foundry/releases/tag/v1.7.1",
+      "platforms": {
+        "linux/amd64": {
+          "asset": "https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_linux_amd64.tar.gz",
+          "sha256": "cf7e688ed0c4c48adffca788b496076e31060b67ac5afe1e43dbb5499c20c88b",
+          "binary_sha256": "10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b"
+        },
+        "linux/arm64": {
+          "asset": "https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_linux_arm64.tar.gz",
+          "sha256": "c8fe8fa09ae3aba2c81b510c6f9da3a9d468029b9580e690b245b3f0aea687ae",
+          "binary_sha256": "bebaff5c1b6ff6f55b6f2f5f415bb5543f19b948197b5e909195e81ef1727be1"
+        }
+      }
+    },
+    {
+      "name": "medusa",
+      "status": "disabled",
+      "version": "1.5.1",
+      "binary": "medusa",
+      "release_url": "https://github.com/crytic/medusa/releases/tag/v1.5.1",
+      "reason": "Upstream publishes no linux/arm64 release asset (v1.5.1 ships medusa-linux-x64, medusa-mac-arm64, medusa-mac-x64, medusa-win-x64 only), so no verified arm64 digest exists; the verified linux/amd64 digests are recorded so enabling this entry only requires an upstream arm64 asset.",
+      "platforms": {
+        "linux/amd64": {
+          "asset": "https://github.com/crytic/medusa/releases/download/v1.5.1/medusa-linux-x64.tar.gz",
+          "sha256": "ddfe1517ae9028ef9fc331b00f5a6a9d5406f3fcd11a715d60c6b6fb3e4546d3",
+          "binary_sha256": "86e54c586e49e6bf9676f448218e10475afacb0a8bd5ca1aea234f66db7169d6"
+        }
+      }
+    },
+    {
       "name": "slither",
       "status": "disabled",
       "reason": "Provided through a pinned multi-architecture OCI root; release-archive installation is intentionally disabled."

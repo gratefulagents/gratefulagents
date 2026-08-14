@@ -51,6 +51,7 @@ func DefaultAdapters() map[string]Adapter {
 		"json-records": generic, "zap-json": zapAdapter{}, "schemathesis-json": schemathesisAdapter{}, "restler-json": restlerAdapter{}, "nuclei-jsonl": nucleiAdapter{}, "naabu-jsonl": naabuAdapter{}, "sslyze-json": sslyzeAdapter{}, "testssl-json": testsslAdapter{}, "openssl-json": opensslAdapter{}, "tshark-json": tsharkAdapter{},
 		"har": harAdapter{}, "junit": junitAdapter{}, "sarif": sarifAdapter{},
 		"slither-json": slitherAdapter{}, "echidna-json": echidnaAdapter{}, "halmos-json": halmosAdapter{}, "go-test-json": goTestJSONAdapter{},
+		"evm-fork-record": evmForkRecordAdapter{}, "forge-json": forgeJSONAdapter{}, "forge-mutation-json": forgeCoverageMutationAdapter{}, "git-divergence": gitDivergenceAdapter{}, "medusa-console": medusaConsoleAdapter{},
 	}
 }
 
