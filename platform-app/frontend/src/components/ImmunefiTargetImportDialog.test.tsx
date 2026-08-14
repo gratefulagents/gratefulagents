@@ -9,35 +9,43 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function program(
+type TargetInput = Omit<SecurityProgramResource["scanTargets"][number], "$typeName">;
+
+function legacyProgram(
   name: string,
-  scanTarget: Omit<NonNullable<SecurityProgramResource["scanTarget"]>, "$typeName">,
+  scanTarget: TargetInput,
 ): SecurityProgramResource {
   return { name, scanTarget: scanTarget as SecurityProgramResource["scanTarget"] } as SecurityProgramResource;
 }
 
+function program(name: string, scanTargets: TargetInput[]): SecurityProgramResource {
+  return { name, scanTargets } as SecurityProgramResource;
+}
+
 const programs = [
-  program("program-later", {
-    featured: true,
-    priority: 20,
-    displayName: "Later target",
-    scanName: "scan-later",
-    repositoryUrl: "https://example.com/later",
-    baseBranch: "master",
-    workflowRef: "workflow-later",
-    policyPackRef: "policy-later",
-  }),
-  program("program-first", {
-    featured: true,
-    priority: 10,
-    displayName: "First target",
-    scanName: "scan-first",
-    repositoryUrl: "https://example.com/first",
-    baseBranch: "main",
-    workflowRef: "workflow-first",
-    policyPackRef: "policy-first",
-  }),
-  program("program-hidden", {
+  program("program-multi", [
+    {
+      featured: true,
+      priority: 20,
+      displayName: "Later target",
+      scanName: "scan-later",
+      repositoryUrl: "https://example.com/later",
+      baseBranch: "master",
+      workflowRef: "workflow-later",
+      policyPackRef: "policy-later",
+    },
+    {
+      featured: true,
+      priority: 10,
+      displayName: "First target",
+      scanName: "scan-first",
+      repositoryUrl: "https://example.com/first",
+      baseBranch: "main",
+      workflowRef: "workflow-first",
+      policyPackRef: "policy-first",
+    },
+  ]),
+  legacyProgram("program-hidden", {
     featured: false,
     priority: 0,
     displayName: "Hidden target",
@@ -92,7 +100,7 @@ describe("ImmunefiTargetImportDialog", () => {
       baseBranch: "main",
       workflowRef: "workflow-first",
       policyPackRef: "policy-first",
-      securityProgramRef: "program-first",
+      securityProgramRef: "program-multi",
     }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });

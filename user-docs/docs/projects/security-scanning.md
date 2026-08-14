@@ -187,7 +187,7 @@ Workflows, severity rankers, post-scripts, and bounty program scope snapshots ca
 - **`SecurityWorkflow`** — `spec.description`, `spec.tasks` (the same task schema as `spec.workflow`), and an optional `spec.parallelism` that overrides the referencing scan's parallelism when set.
 - **`SecurityRanker`** — `spec.description` and `spec.rules`, a list of ranking rule lines in the same language as `spec.severityRankers[].rules`.
 - **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, `high-and-above`, or `high-and-above-actionable`). The actionable variant is for proof or remediation stages that should not start after a successful predecessor has already rejected, fixed, or accepted the risk; final reporting and audit stages should use `all` so they can record the terminal outcome.
-- **`SecurityProgram`** — an operator-verified bounty or disclosure-program snapshot: provider, display name, HTTPS provenance URL, the explicit scope policy, and when that policy was verified. The controller never fetches the URL. It does not authorize network access; only `spec.scope.authorizedNetworkTargets` can do that.
+- **`SecurityProgram`** — an operator-verified bounty or disclosure-program snapshot: provider, display name, HTTPS provenance URL, the explicit scope policy, when that policy was verified, and optional `scanTargets` for every independently importable repository. Each target selects its own default branch, workflow, policy pack, scan name, and catalog priority. The controller never fetches the program URL. Neither the URL nor a scan target authorizes network access; only `spec.scope.authorizedNetworkTargets` can do that.
 
 A `SecurityScan` references them with:
 
@@ -217,16 +217,35 @@ For example:
 apiVersion: triggers.gratefulagents.dev/v1alpha1
 kind: SecurityProgram
 metadata:
-  name: rootstock-immunefi
+  name: acme-bounty
 spec:
-  provider: Immunefi
-  displayName: Rootstock Labs Bug Bounty
-  programURL: https://immunefi.com/bug-bounty/rootstocklabs/scope/
+  provider: Example
+  displayName: Acme Bug Bounty
+  programURL: https://security.example.com/bug-bounty
   verifiedAt: "2026-08-11T00:00:00Z"
+  scanTargets:
+    - repositoryURL: https://github.com/example/acme-protocol
+      baseBranch: main
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: acme-protocol
+      displayName: Acme protocol
+      priority: 10
+      featured: true
+    - repositoryURL: https://github.com/example/acme-contracts
+      baseBranch: develop
+      workflowRef: smart-contract-review
+      policyPackRef: bug-bounty
+      scanName: acme-contracts
+      displayName: Acme contracts
+      priority: 20
+      featured: false
   scopePolicy: |
     Paste the operator-verified in-scope assets, eligible vulnerability
     classes, exclusions, testing restrictions, and reward requirements here.
 ```
+
+`scanTargets` is optional and may contain up to 256 repositories. Scan names must be unique within the program. The deprecated singular `scanTarget` field is still read for existing resources, but it cannot be combined with `scanTargets`; editing a legacy program in the dashboard migrates it to the list form.
 
 Program-page text is quoted to agents as untrusted policy data. Embedded instructions are not executed, and the URL is retained only as provenance. Update `scopePolicy` and `verifiedAt` after reviewing a changed program page; new executions receive the new snapshot while active and historical executions retain the old one.
 

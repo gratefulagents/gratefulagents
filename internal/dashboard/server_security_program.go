@@ -46,26 +46,50 @@ func securityProgramSpecFromProto(pb *platform.SecurityProgramResource) (trigger
 		ScopePolicy: pb.GetScopePolicy(),
 		VerifiedAt:  verifiedAt,
 	}
+	for _, target := range pb.GetScanTargets() {
+		spec.ScanTargets = append(spec.ScanTargets, securityProgramScanTargetFromProto(target))
+	}
 	if target := pb.GetScanTarget(); target != nil {
-		baseBranch := strings.TrimSpace(target.GetBaseBranch())
-		if baseBranch == "" {
-			baseBranch = "main"
-		}
-		spec.ScanTarget = &triggersv1alpha1.SecurityProgramScanTarget{
-			RepositoryURL: strings.TrimSpace(target.GetRepositoryUrl()),
-			BaseBranch:    baseBranch,
-			WorkflowRef:   strings.TrimSpace(target.GetWorkflowRef()),
-			PolicyPackRef: strings.TrimSpace(target.GetPolicyPackRef()),
-			ScanName:      strings.TrimSpace(target.GetScanName()),
-			DisplayName:   strings.TrimSpace(target.GetDisplayName()),
-			Priority:      target.GetPriority(),
-			Featured:      target.GetFeatured(),
-		}
+		legacyTarget := securityProgramScanTargetFromProto(target)
+		spec.ScanTarget = &legacyTarget
 	}
 	if errs := triggersv1alpha1.ValidateSecurityProgramSpec(spec); len(errs) != 0 {
 		return triggersv1alpha1.SecurityProgramSpec{}, securityLibraryInvalidArgument(errs)
 	}
 	return spec, nil
+}
+
+func securityProgramScanTargetFromProto(target *platform.SecurityProgramScanTarget) triggersv1alpha1.SecurityProgramScanTarget {
+	baseBranch := strings.TrimSpace(target.GetBaseBranch())
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+	return triggersv1alpha1.SecurityProgramScanTarget{
+		RepositoryURL: strings.TrimSpace(target.GetRepositoryUrl()),
+		BaseBranch:    baseBranch,
+		WorkflowRef:   strings.TrimSpace(target.GetWorkflowRef()),
+		PolicyPackRef: strings.TrimSpace(target.GetPolicyPackRef()),
+		ScanName:      strings.TrimSpace(target.GetScanName()),
+		DisplayName:   strings.TrimSpace(target.GetDisplayName()),
+		Priority:      target.GetPriority(),
+		Featured:      target.GetFeatured(),
+	}
+}
+
+func securityProgramScanTargetToProto(target *triggersv1alpha1.SecurityProgramScanTarget) *platform.SecurityProgramScanTarget {
+	if target == nil {
+		return nil
+	}
+	return &platform.SecurityProgramScanTarget{
+		RepositoryUrl: target.RepositoryURL,
+		BaseBranch:    target.BaseBranch,
+		WorkflowRef:   target.WorkflowRef,
+		PolicyPackRef: target.PolicyPackRef,
+		ScanName:      target.ScanName,
+		DisplayName:   target.DisplayName,
+		Priority:      target.Priority,
+		Featured:      target.Featured,
+	}
 }
 
 func securityProgramContentDigest(spec triggersv1alpha1.SecurityProgramSpec) string {
@@ -91,17 +115,11 @@ func securityProgramToProto(cr *triggersv1alpha1.SecurityProgram, referencing []
 		Generation:       cr.Generation,
 		CreatedAtUnix:    cr.CreationTimestamp.Unix(),
 	}
+	for index := range cr.Spec.ScanTargets {
+		pb.ScanTargets = append(pb.ScanTargets, securityProgramScanTargetToProto(&cr.Spec.ScanTargets[index]))
+	}
 	if target := cr.Spec.ScanTarget; target != nil {
-		pb.ScanTarget = &platform.SecurityProgramScanTarget{
-			RepositoryUrl: target.RepositoryURL,
-			BaseBranch:    target.BaseBranch,
-			WorkflowRef:   target.WorkflowRef,
-			PolicyPackRef: target.PolicyPackRef,
-			ScanName:      target.ScanName,
-			DisplayName:   target.DisplayName,
-			Priority:      target.Priority,
-			Featured:      target.Featured,
-		}
+		pb.ScanTarget = securityProgramScanTargetToProto(target)
 	}
 	if ready := meta.FindStatusCondition(cr.Status.Conditions, triggersv1alpha1.ConditionSecurityLibraryReady); ready != nil {
 		currentDigest := securityProgramContentDigest(cr.Spec)

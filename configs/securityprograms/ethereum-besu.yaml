@@ -3,15 +3,15 @@ kind: SecurityProgram
 metadata:
   name: ethereum-besu
 spec:
-  scanTarget:
-    repositoryURL: https://github.com/hyperledger/besu
-    baseBranch: main
-    workflowRef: blockchain-protocol-audit
-    policyPackRef: bug-bounty
-    scanName: ethereum-besu
-    displayName: Besu
-    priority: 25
-    featured: false
+  scanTargets:
+    - repositoryURL: https://github.com/hyperledger/besu
+      baseBranch: main
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: ethereum-besu
+      displayName: Besu
+      priority: 25
+      featured: false
   provider: Ethereum Foundation
   displayName: Besu
   programURL: https://ethereum.org/en/bug-bounty/

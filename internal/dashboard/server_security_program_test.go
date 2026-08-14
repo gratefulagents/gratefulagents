@@ -26,15 +26,26 @@ func testSecurityProgramResource(namespace string) *platform.SecurityProgramReso
 		ProgramUrl:  "https://hackerone.com/acme",
 		ScopePolicy: "Only acme/widget production code is in scope.",
 		VerifiedAt:  timestamppb.New(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)),
-		ScanTarget: &platform.SecurityProgramScanTarget{
-			RepositoryUrl: "https://github.com/acme/widget",
-			BaseBranch:    "main",
-			WorkflowRef:   "blockchain-protocol-audit",
-			PolicyPackRef: "bug-bounty",
-			ScanName:      "acme-bounty",
-			DisplayName:   "Acme",
-			Priority:      3,
-			Featured:      true,
+		ScanTargets: []*platform.SecurityProgramScanTarget{
+			{
+				RepositoryUrl: "https://github.com/acme/widget",
+				BaseBranch:    "main",
+				WorkflowRef:   "blockchain-protocol-audit",
+				PolicyPackRef: "bug-bounty",
+				ScanName:      "acme-widget",
+				DisplayName:   "Acme Widget",
+				Priority:      3,
+				Featured:      true,
+			},
+			{
+				RepositoryUrl: "https://github.com/acme/contracts",
+				BaseBranch:    "develop",
+				WorkflowRef:   "smart-contract-review",
+				PolicyPackRef: "bug-bounty",
+				ScanName:      "acme-contracts",
+				DisplayName:   "Acme Contracts",
+				Priority:      4,
+			},
 		},
 	}
 }
@@ -53,11 +64,12 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	if created.Namespace != ns || created.Name != "acme-bounty" || created.Provider != "HackerOne" {
 		t.Fatalf("created = %+v", created)
 	}
-	if created.ScanTarget == nil || created.ScanTarget.RepositoryUrl != "https://github.com/acme/widget" || created.ScanTarget.BaseBranch != "main" ||
-		created.ScanTarget.WorkflowRef != "blockchain-protocol-audit" || created.ScanTarget.PolicyPackRef != "bug-bounty" ||
-		created.ScanTarget.ScanName != "acme-bounty" || created.ScanTarget.DisplayName != "Acme" ||
-		created.ScanTarget.Priority != 3 || !created.ScanTarget.Featured {
-		t.Fatalf("created scan target = %+v", created.ScanTarget)
+	if len(created.ScanTargets) != 2 || created.ScanTargets[0].RepositoryUrl != "https://github.com/acme/widget" || created.ScanTargets[0].BaseBranch != "main" ||
+		created.ScanTargets[0].WorkflowRef != "blockchain-protocol-audit" || created.ScanTargets[0].PolicyPackRef != "bug-bounty" ||
+		created.ScanTargets[0].ScanName != "acme-widget" || created.ScanTargets[0].DisplayName != "Acme Widget" ||
+		created.ScanTargets[0].Priority != 3 || !created.ScanTargets[0].Featured ||
+		created.ScanTargets[1].RepositoryUrl != "https://github.com/acme/contracts" || created.ScanTargets[1].BaseBranch != "develop" {
+		t.Fatalf("created scan targets = %+v", created.ScanTargets)
 	}
 	owner, err := ms.GetResourceOwner(context.Background(), securityProgramResourceType, created.Name, created.Namespace)
 	if err != nil || owner == nil || owner.OwnerID != testProjectSubject {
@@ -70,9 +82,10 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	if cr.Spec.ProgramURL != "https://hackerone.com/acme" || cr.Spec.VerifiedAt.IsZero() {
 		t.Fatalf("spec = %+v", cr.Spec)
 	}
-	if cr.Spec.ScanTarget == nil || cr.Spec.ScanTarget.RepositoryURL != "https://github.com/acme/widget" || cr.Spec.ScanTarget.BaseBranch != "main" ||
-		cr.Spec.ScanTarget.Priority != 3 || !cr.Spec.ScanTarget.Featured {
-		t.Fatalf("stored scan target = %+v", cr.Spec.ScanTarget)
+	if len(cr.Spec.ScanTargets) != 2 || cr.Spec.ScanTargets[0].RepositoryURL != "https://github.com/acme/widget" || cr.Spec.ScanTargets[0].BaseBranch != "main" ||
+		cr.Spec.ScanTargets[0].Priority != 3 || !cr.Spec.ScanTargets[0].Featured ||
+		cr.Spec.ScanTargets[1].RepositoryURL != "https://github.com/acme/contracts" {
+		t.Fatalf("stored scan targets = %+v", cr.Spec.ScanTargets)
 	}
 
 	update := testSecurityProgramResource("")
@@ -120,6 +133,8 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 func TestSecurityProgramLegacyScanTargetDefaultsToMain(t *testing.T) {
 	srv, _ := newCronTestServer(t)
 	resource := testSecurityProgramResource("")
+	resource.ScanTarget = resource.ScanTargets[0]
+	resource.ScanTargets = nil
 	resource.ScanTarget.BaseBranch = ""
 
 	created, err := srv.CreateSecurityProgram(projectActorCtx(), &platform.CreateSecurityProgramRequest{Program: resource})
@@ -246,14 +261,20 @@ func TestCreateSecurityProgramValidation(t *testing.T) {
 		"missing verified time": func(p *platform.SecurityProgramResource) { p.VerifiedAt = nil },
 		"invalid name":          func(p *platform.SecurityProgramResource) { p.Name = "Not Valid!" },
 		"invalid repository URL": func(p *platform.SecurityProgramResource) {
-			p.ScanTarget.RepositoryUrl = "http://github.com/acme/widget"
+			p.ScanTargets[0].RepositoryUrl = "http://github.com/acme/widget"
 		},
-		"invalid workflow ref": func(p *platform.SecurityProgramResource) { p.ScanTarget.WorkflowRef = "Not Valid!" },
+		"invalid workflow ref": func(p *platform.SecurityProgramResource) { p.ScanTargets[0].WorkflowRef = "Not Valid!" },
 		"invalid policy pack ref": func(p *platform.SecurityProgramResource) {
-			p.ScanTarget.PolicyPackRef = "Not Valid!"
+			p.ScanTargets[0].PolicyPackRef = "Not Valid!"
 		},
-		"invalid scan name": func(p *platform.SecurityProgramResource) { p.ScanTarget.ScanName = "Not Valid!" },
-		"negative priority": func(p *platform.SecurityProgramResource) { p.ScanTarget.Priority = -1 },
+		"invalid scan name": func(p *platform.SecurityProgramResource) { p.ScanTargets[0].ScanName = "Not Valid!" },
+		"duplicate scan name": func(p *platform.SecurityProgramResource) {
+			p.ScanTargets[1].ScanName = p.ScanTargets[0].ScanName
+		},
+		"negative priority": func(p *platform.SecurityProgramResource) { p.ScanTargets[0].Priority = -1 },
+		"both target forms": func(p *platform.SecurityProgramResource) {
+			p.ScanTarget = p.ScanTargets[0]
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			program := testSecurityProgramResource("")
@@ -268,13 +289,14 @@ func TestCreateSecurityProgramValidation(t *testing.T) {
 
 func TestSecurityProgramProtoRoundTripWithoutScanTarget(t *testing.T) {
 	pb := testSecurityProgramResource("")
+	pb.ScanTargets = nil
 	pb.ScanTarget = nil
 	spec, err := securityProgramSpecFromProto(pb)
-	if err != nil || spec.ScanTarget != nil {
+	if err != nil || spec.ScanTarget != nil || len(spec.ScanTargets) != 0 {
 		t.Fatalf("securityProgramSpecFromProto() = %+v, %v", spec, err)
 	}
 	got := securityProgramToProto(&triggersv1alpha1.SecurityProgram{Spec: spec}, nil)
-	if got.ScanTarget != nil {
-		t.Fatalf("securityProgramToProto() scan target = %+v", got.ScanTarget)
+	if got.ScanTarget != nil || len(got.ScanTargets) != 0 {
+		t.Fatalf("securityProgramToProto() scan targets = %+v / %+v", got.ScanTarget, got.ScanTargets)
 	}
 }

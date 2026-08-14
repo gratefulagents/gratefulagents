@@ -1654,6 +1654,144 @@ spec:
                         maxLength: 100
                         minLength: 1
                         type: string
+                      scanTarget:
+                        description: |-
+                          scanTarget is the deprecated single-target form. New resources should
+                          use scanTargets. It remains readable for backward compatibility.
+                        properties:
+                          baseBranch:
+                            default: main
+                            description: |-
+                              baseBranch is the repository's verified default branch used by imported
+                              SecurityScans. Legacy targets that omit it fall back to main.
+                            maxLength: 255
+                            type: string
+                          displayName:
+                            description: displayName is the human-readable scan target
+                              name.
+                            maxLength: 200
+                            minLength: 1
+                            type: string
+                          featured:
+                            description: featured includes the target in featured
+                              target catalogs.
+                            type: boolean
+                          policyPackRef:
+                            description: policyPackRef names the SecurityPolicyPack
+                              to use.
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          priority:
+                            description: priority controls the target's display order,
+                              with lower values first.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          repositoryURL:
+                            description: repositoryURL is the HTTPS URL of the repository
+                              to scan.
+                            maxLength: 2048
+                            minLength: 1
+                            pattern: ^https://
+                            type: string
+                          scanName:
+                            description: scanName is the suggested SecurityScan name.
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          workflowRef:
+                            description: workflowRef names the SecurityWorkflow to
+                              use.
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                        required:
+                        - displayName
+                        - featured
+                        - policyPackRef
+                        - priority
+                        - repositoryURL
+                        - scanName
+                        - workflowRef
+                        type: object
+                      scanTargets:
+                        description: |-
+                          scanTargets describe suggested SecurityScan configurations for the
+                          repositories covered by this program.
+                        items:
+                          description: |-
+                            SecurityProgramScanTarget describes a suggested SecurityScan configuration
+                            for a program.
+                          properties:
+                            baseBranch:
+                              default: main
+                              description: |-
+                                baseBranch is the repository's verified default branch used by imported
+                                SecurityScans. Legacy targets that omit it fall back to main.
+                              maxLength: 255
+                              type: string
+                            displayName:
+                              description: displayName is the human-readable scan
+                                target name.
+                              maxLength: 200
+                              minLength: 1
+                              type: string
+                            featured:
+                              description: featured includes the target in featured
+                                target catalogs.
+                              type: boolean
+                            policyPackRef:
+                              description: policyPackRef names the SecurityPolicyPack
+                                to use.
+                              maxLength: 253
+                              minLength: 1
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                              type: string
+                            priority:
+                              description: priority controls the target's display
+                                order, with lower values first.
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            repositoryURL:
+                              description: repositoryURL is the HTTPS URL of the repository
+                                to scan.
+                              maxLength: 2048
+                              minLength: 1
+                              pattern: ^https://
+                              type: string
+                            scanName:
+                              description: scanName is the suggested SecurityScan
+                                name.
+                              maxLength: 253
+                              minLength: 1
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                              type: string
+                            workflowRef:
+                              description: workflowRef names the SecurityWorkflow
+                                to use.
+                              maxLength: 253
+                              minLength: 1
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                              type: string
+                          required:
+                          - displayName
+                          - featured
+                          - policyPackRef
+                          - priority
+                          - repositoryURL
+                          - scanName
+                          - workflowRef
+                          type: object
+                        maxItems: 256
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - scanName
+                        x-kubernetes-list-type: map
                       scopePolicy:
                         description: |-
                           scopePolicy is the operator-verified scope snapshot supplied to scan
@@ -1674,6 +1812,10 @@ spec:
                     - scopePolicy
                     - verifiedAt
                     type: object
+                    x-kubernetes-validations:
+                    - message: scanTarget and scanTargets cannot both be set
+                      rule: '!(has(self.scanTarget) && has(self.scanTargets) && self.scanTargets.size()
+                        > 0)'
                   startedAt:
                     description: startedAt is when the execution started.
                     format: date-time

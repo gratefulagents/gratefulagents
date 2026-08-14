@@ -154,6 +154,10 @@ function seedLists() {
         programUrl: "https://hackerone.com/acme",
         scopePolicy: "In scope: api.example.com\nOut of scope: denial-of-service testing",
         verifiedAt: timestampFromDate(new Date("2026-03-01T12:00:00Z")),
+        scanTargets: [
+          { scanName: "acme-api", repositoryUrl: "https://github.com/acme/api" },
+          { scanName: "acme-contracts", repositoryUrl: "https://github.com/acme/contracts" },
+        ],
         usageCount: 1,
         referencingScans: ["scan-a"],
       }),
@@ -289,6 +293,7 @@ describe("SecurityLibraryPage", () => {
     expect(row.textContent).toContain("HackerOne");
     expect(row.textContent).toContain("https://hackerone.com/acme");
     expect(row.textContent).toContain("api.example.com");
+    expect(row.textContent).toContain("2 repos");
     expect(row.textContent).toContain("1 scan");
     expect(screen.getByText(/provenance only and does not authorize network testing/i)).toBeTruthy();
   });

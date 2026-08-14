@@ -55,37 +55,62 @@ func ValidateSecurityProgramSpec(spec SecurityProgramSpec) []SecurityWorkflowFie
 	if spec.VerifiedAt.IsZero() {
 		add("verifiedAt", "is required")
 	}
-	if target := spec.ScanTarget; target != nil {
+	if spec.ScanTarget != nil && len(spec.ScanTargets) != 0 {
+		add("scanTargets", "cannot be set together with deprecated scanTarget")
+	}
+	if len(spec.ScanTargets) > MaxSecurityProgramScanTargets {
+		add("scanTargets", "must contain at most %d targets", MaxSecurityProgramScanTargets)
+	}
+
+	targets := spec.ScanTargets
+	prefix := func(index int) string { return fmt.Sprintf("scanTargets[%d]", index) }
+	if len(targets) == 0 && spec.ScanTarget != nil {
+		targets = []SecurityProgramScanTarget{*spec.ScanTarget}
+		prefix = func(int) string { return "scanTarget" }
+	}
+	seenScanNames := make(map[string]int, len(targets))
+	for index := range targets {
+		target := &targets[index]
+		fieldPrefix := prefix(index)
 		repositoryURL := strings.TrimSpace(target.RepositoryURL)
 		parsed, err := url.ParseRequestURI(repositoryURL)
 		if repositoryURL == "" {
-			add("scanTarget.repositoryURL", "is required")
+			add(fieldPrefix+".repositoryURL", "is required")
 		} else if len(repositoryURL) > MaxSecurityProgramURLLength {
-			add("scanTarget.repositoryURL", "must be at most %d bytes", MaxSecurityProgramURLLength)
+			add(fieldPrefix+".repositoryURL", "must be at most %d bytes", MaxSecurityProgramURLLength)
 		} else if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-			add("scanTarget.repositoryURL", "must be an absolute HTTPS URL without user information")
+			add(fieldPrefix+".repositoryURL", "must be an absolute HTTPS URL without user information")
 		}
 		baseBranch := strings.TrimSpace(target.BaseBranch)
 		if len(baseBranch) > 255 {
-			add("scanTarget.baseBranch", "must be at most 255 bytes")
+			add(fieldPrefix+".baseBranch", "must be at most 255 bytes")
 		}
-		for field, name := range map[string]string{
-			"workflowRef":   target.WorkflowRef,
-			"policyPackRef": target.PolicyPackRef,
-			"scanName":      target.ScanName,
+		for _, ref := range []struct {
+			field string
+			name  string
+		}{
+			{field: "workflowRef", name: target.WorkflowRef},
+			{field: "policyPackRef", name: target.PolicyPackRef},
+			{field: "scanName", name: target.ScanName},
 		} {
-			if problems := validation.IsDNS1123Subdomain(name); len(problems) != 0 {
-				add("scanTarget."+field, "must be a valid DNS-1123 subdomain")
+			if problems := validation.IsDNS1123Subdomain(ref.name); len(problems) != 0 {
+				add(fieldPrefix+"."+ref.field, "must be a valid DNS-1123 subdomain")
 			}
+		}
+		scanName := strings.TrimSpace(target.ScanName)
+		if previous, exists := seenScanNames[scanName]; scanName != "" && exists {
+			add(fieldPrefix+".scanName", "must be unique; it duplicates scanTargets[%d].scanName", previous)
+		} else if scanName != "" {
+			seenScanNames[scanName] = index
 		}
 		displayName := strings.TrimSpace(target.DisplayName)
 		if displayName == "" {
-			add("scanTarget.displayName", "is required")
+			add(fieldPrefix+".displayName", "is required")
 		} else if len(displayName) > MaxSecurityProgramDisplayNameLength {
-			add("scanTarget.displayName", "must be at most %d bytes", MaxSecurityProgramDisplayNameLength)
+			add(fieldPrefix+".displayName", "must be at most %d bytes", MaxSecurityProgramDisplayNameLength)
 		}
 		if target.Priority < 0 {
-			add("scanTarget.priority", "must not be negative")
+			add(fieldPrefix+".priority", "must not be negative")
 		}
 	}
 	return errs

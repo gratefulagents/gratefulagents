@@ -57,6 +57,7 @@ describe("SecurityProgramDialog", () => {
       displayName: "Acme public bug bounty",
       programUrl: "https://hackerone.com/acme",
       scopePolicy: "In scope:\n- api.example.com\n\nOut of scope:\n- denial-of-service",
+      scanTargets: [],
     });
     expect(program.verifiedAt).toBeTruthy();
   });
@@ -93,7 +94,7 @@ describe("SecurityProgramDialog", () => {
     expect((screen.getByRole("button", { name: "Create security program" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("round-trips every editable field and verified timestamp", async () => {
+  it("migrates a legacy target and adds another repository", async () => {
     const verifiedAt = timestampFromDate(new Date("2026-03-01T12:00:37Z"));
     const source = create(SecurityProgramResourceSchema, {
       namespace: "user-alice",
@@ -128,6 +129,24 @@ describe("SecurityProgramDialog", () => {
     expect((screen.getByLabelText(/^Scope policy snapshot/) as HTMLTextAreaElement).value).toBe(
       "In scope: api.example.com",
     );
+    expect((screen.getByLabelText(/^Repository URL/) as HTMLInputElement).value).toBe(
+      "https://github.com/acme/widget",
+    );
+    expect((screen.getByLabelText(/^Default branch/) as HTMLInputElement).value).toBe("main");
+
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    const repositoryInputs = screen.getAllByLabelText(/^Repository URL/);
+    const displayNameInputs = screen.getAllByLabelText(/^Target display name/);
+    const scanNameInputs = screen.getAllByLabelText(/^Scan name/);
+    const workflowInputs = screen.getAllByLabelText(/^Workflow/);
+    fireEvent.change(repositoryInputs[1], { target: { value: "https://github.com/acme/contracts" } });
+    fireEvent.change(displayNameInputs[1], { target: { value: "Acme contracts" } });
+    fireEvent.change(scanNameInputs[1], { target: { value: "acme-widget" } });
+    fireEvent.change(workflowInputs[1], { target: { value: "smart-contract-review" } });
+
+    expect(screen.getAllByText(/Scan names must be unique/i)).toHaveLength(2);
+    expect((screen.getByRole("button", { name: "Save security program" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(scanNameInputs[1], { target: { value: "acme-contracts" } });
     fireEvent.click(screen.getByRole("button", { name: "Save security program" }));
 
     await waitFor(() => expect(updateSecurityProgram).toHaveBeenCalledTimes(1));
@@ -135,7 +154,28 @@ describe("SecurityProgramDialog", () => {
     expect(program.namespace).toBe("user-alice");
     expect(program.name).toBe("acme-bounty");
     expect(timestampDate(program.verifiedAt).toISOString()).toBe("2026-03-01T12:00:37.000Z");
-    expect(program.scanTarget).toEqual(source.scanTarget);
+    expect(program.scanTarget).toBeUndefined();
+    expect(program.scanTargets).toHaveLength(2);
+    expect(program.scanTargets[0]).toMatchObject({
+      repositoryUrl: "https://github.com/acme/widget",
+      baseBranch: "main",
+      workflowRef: "smart-contract-review",
+      policyPackRef: "bug-bounty",
+      scanName: "acme-widget",
+      displayName: "Acme widget",
+      priority: 1,
+      featured: true,
+    });
+    expect(program.scanTargets[1]).toMatchObject({
+      repositoryUrl: "https://github.com/acme/contracts",
+      baseBranch: "main",
+      workflowRef: "smart-contract-review",
+      policyPackRef: "bug-bounty",
+      scanName: "acme-contracts",
+      displayName: "Acme contracts",
+      priority: 1,
+      featured: false,
+    });
 
     const refreshed = create(SecurityProgramResourceSchema, {
       ...source,

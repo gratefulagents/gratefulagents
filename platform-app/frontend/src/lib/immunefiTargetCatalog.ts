@@ -15,17 +15,23 @@ export function importableImmunefiTargets(
   programs: readonly SecurityProgramResource[],
 ): ImmunefiTarget[] {
   return programs
-    .filter((program) => program.scanTarget !== undefined)
-    .map((program) => ({
-      name: program.scanTarget!.scanName,
-      displayName: program.scanTarget!.displayName,
-      repoUrl: program.scanTarget!.repositoryUrl,
-      baseBranch: program.scanTarget!.baseBranch,
-      workflowRef: program.scanTarget!.workflowRef,
-      policyPackRef: program.scanTarget!.policyPackRef,
-      securityProgramRef: program.name,
-      priority: program.scanTarget!.priority,
-    }))
+    .flatMap((program) => {
+      const targets = program.scanTargets?.length
+        ? program.scanTargets
+        : program.scanTarget
+          ? [program.scanTarget]
+          : [];
+      return targets.map((target) => ({
+        name: target.scanName,
+        displayName: target.displayName,
+        repoUrl: target.repositoryUrl,
+        baseBranch: target.baseBranch || "main",
+        workflowRef: target.workflowRef,
+        policyPackRef: target.policyPackRef,
+        securityProgramRef: program.name,
+        priority: target.priority,
+      }));
+    })
     .sort(
       (left, right) =>
         left.priority - right.priority || left.displayName.localeCompare(right.displayName),

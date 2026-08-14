@@ -80,6 +80,11 @@ function usageBadge(usageCount: number, referencingScans: string[]) {
   );
 }
 
+function programTargetLabel(program: SecurityProgramResource): string {
+  const count = program.scanTargets?.length || (program.scanTarget ? 1 : 0);
+  return `${count} ${count === 1 ? "repo" : "repos"}`;
+}
+
 /* ── Workflow editor ─────────────────────────────────────────── */
 
 function WorkflowEditorDialog({
@@ -1108,6 +1113,7 @@ export function SecurityLibraryPage() {
                 <TableHead>Provider</TableHead>
                 <TableHead>Provenance URL</TableHead>
                 <TableHead>Scope policy snapshot</TableHead>
+                <TableHead>Repositories</TableHead>
                 <TableHead>Verified</TableHead>
                 <TableHead>Used by</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -1116,7 +1122,7 @@ export function SecurityLibraryPage() {
             <TableBody>
               {visiblePrograms.length === 0 && !loading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
                     No security programs yet.
                   </TableCell>
                 </TableRow>
@@ -1142,6 +1148,9 @@ export function SecurityLibraryPage() {
                     title={program.scopePolicy}
                   >
                     <span className="line-clamp-2">{program.scopePolicy}</span>
+                  </TableCell>
+                  <TableCell className="text-[12px] text-muted-foreground">
+                    {programTargetLabel(program)}
                   </TableCell>
                   <TableCell className="text-[12px] text-muted-foreground">
                     {program.verifiedAt ? timestampDate(program.verifiedAt).toLocaleString() : "—"}

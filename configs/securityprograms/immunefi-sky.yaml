@@ -3,15 +3,15 @@ kind: SecurityProgram
 metadata:
   name: immunefi-sky
 spec:
-  scanTarget:
-    repositoryURL: https://github.com/sky-ecosystem/dss
-    baseBranch: master
-    workflowRef: smart-contract-review
-    policyPackRef: bug-bounty
-    scanName: immunefi-sky-dss
-    displayName: Sky DSS
-    priority: 10
-    featured: true
+  scanTargets:
+    - repositoryURL: https://github.com/sky-ecosystem/dss
+      baseBranch: master
+      workflowRef: smart-contract-review
+      policyPackRef: bug-bounty
+      scanName: immunefi-sky-dss
+      displayName: Sky DSS
+      priority: 10
+      featured: true
   provider: Immunefi
   displayName: Sky
   programURL: https://immunefi.com/bug-bounty/sky/scope/

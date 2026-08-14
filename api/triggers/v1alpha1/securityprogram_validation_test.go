@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 package v1alpha1
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -16,15 +17,26 @@ import (
 
 func validSecurityProgramSpec() SecurityProgramSpec {
 	return SecurityProgramSpec{
-		ScanTarget: &SecurityProgramScanTarget{
-			RepositoryURL: "https://github.com/acme/widget",
-			BaseBranch:    "main",
-			WorkflowRef:   "blockchain-protocol-audit",
-			PolicyPackRef: "bug-bounty",
-			ScanName:      "acme-bounty",
-			DisplayName:   "Acme",
-			Priority:      1,
-			Featured:      true,
+		ScanTargets: []SecurityProgramScanTarget{
+			{
+				RepositoryURL: "https://github.com/acme/widget",
+				BaseBranch:    "main",
+				WorkflowRef:   "blockchain-protocol-audit",
+				PolicyPackRef: "bug-bounty",
+				ScanName:      "acme-widget",
+				DisplayName:   "Acme Widget",
+				Priority:      1,
+				Featured:      true,
+			},
+			{
+				RepositoryURL: "https://github.com/acme/contracts",
+				BaseBranch:    "develop",
+				WorkflowRef:   "smart-contract-review",
+				PolicyPackRef: "bug-bounty",
+				ScanName:      "acme-contracts",
+				DisplayName:   "Acme Contracts",
+				Priority:      2,
+			},
 		},
 		Provider:    "HackerOne",
 		DisplayName: "Acme Bug Bounty",
@@ -59,20 +71,20 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 		},
 		"verification required": func(s *SecurityProgramSpec) { s.VerifiedAt = metav1.Time{} },
 		"repository HTTPS required": func(s *SecurityProgramSpec) {
-			s.ScanTarget.RepositoryURL = "http://github.com/acme/widget"
+			s.ScanTargets[0].RepositoryURL = "http://github.com/acme/widget"
 		},
-		"repository host required": func(s *SecurityProgramSpec) { s.ScanTarget.RepositoryURL = "https:///widget" },
+		"repository host required": func(s *SecurityProgramSpec) { s.ScanTargets[0].RepositoryURL = "https:///widget" },
 		"repository userinfo rejected": func(s *SecurityProgramSpec) {
-			s.ScanTarget.RepositoryURL = "https://user@github.com/acme/widget"
+			s.ScanTargets[0].RepositoryURL = "https://user@github.com/acme/widget"
 		},
-		"base branch bounded":   func(s *SecurityProgramSpec) { s.ScanTarget.BaseBranch = strings.Repeat("b", 256) },
-		"workflow ref valid":    func(s *SecurityProgramSpec) { s.ScanTarget.WorkflowRef = "Not Valid!" },
-		"policy pack ref valid": func(s *SecurityProgramSpec) { s.ScanTarget.PolicyPackRef = "Not Valid!" },
-		"scan name valid":       func(s *SecurityProgramSpec) { s.ScanTarget.ScanName = "Not Valid!" },
+		"base branch bounded":   func(s *SecurityProgramSpec) { s.ScanTargets[0].BaseBranch = strings.Repeat("b", 256) },
+		"workflow ref valid":    func(s *SecurityProgramSpec) { s.ScanTargets[0].WorkflowRef = "Not Valid!" },
+		"policy pack ref valid": func(s *SecurityProgramSpec) { s.ScanTargets[0].PolicyPackRef = "Not Valid!" },
+		"scan name valid":       func(s *SecurityProgramSpec) { s.ScanTargets[0].ScanName = "Not Valid!" },
 		"target display name required": func(s *SecurityProgramSpec) {
-			s.ScanTarget.DisplayName = " "
+			s.ScanTargets[0].DisplayName = " "
 		},
-		"priority nonnegative": func(s *SecurityProgramSpec) { s.ScanTarget.Priority = -1 },
+		"priority nonnegative": func(s *SecurityProgramSpec) { s.ScanTargets[0].Priority = -1 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := validSecurityProgramSpec()
@@ -86,8 +98,63 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 
 func TestValidateSecurityProgramSpecWithoutScanTarget(t *testing.T) {
 	spec := validSecurityProgramSpec()
+	spec.ScanTargets = nil
 	spec.ScanTarget = nil
 	if errs := ValidateSecurityProgramSpec(spec); len(errs) != 0 {
 		t.Fatalf("ValidateSecurityProgramSpec(without scan target) = %v", errs)
 	}
+}
+
+func TestValidateSecurityProgramSpecLegacyScanTarget(t *testing.T) {
+	spec := validSecurityProgramSpec()
+	legacy := spec.ScanTargets[0]
+	spec.ScanTargets = nil
+	spec.ScanTarget = &legacy
+	if errs := ValidateSecurityProgramSpec(spec); len(errs) != 0 {
+		t.Fatalf("ValidateSecurityProgramSpec(legacy scan target) = %v", errs)
+	}
+	if got := spec.EffectiveScanTargets(); len(got) != 1 || got[0].ScanName != legacy.ScanName {
+		t.Fatalf("EffectiveScanTargets() = %+v", got)
+	}
+}
+
+func TestValidateSecurityProgramSpecRejectsAmbiguousAndDuplicateTargets(t *testing.T) {
+	t.Run("both target forms", func(t *testing.T) {
+		spec := validSecurityProgramSpec()
+		legacy := spec.ScanTargets[0]
+		spec.ScanTarget = &legacy
+		if errs := ValidateSecurityProgramSpec(spec); !hasSecurityProgramFieldError(errs, "scanTargets") {
+			t.Fatalf("ValidateSecurityProgramSpec() = %v, want scanTargets error", errs)
+		}
+	})
+
+	t.Run("duplicate scan name", func(t *testing.T) {
+		spec := validSecurityProgramSpec()
+		spec.ScanTargets[1].ScanName = spec.ScanTargets[0].ScanName
+		if errs := ValidateSecurityProgramSpec(spec); !hasSecurityProgramFieldError(errs, "scanTargets[1].scanName") {
+			t.Fatalf("ValidateSecurityProgramSpec() = %v, want indexed duplicate error", errs)
+		}
+	})
+
+	t.Run("too many targets", func(t *testing.T) {
+		spec := validSecurityProgramSpec()
+		target := spec.ScanTargets[0]
+		spec.ScanTargets = make([]SecurityProgramScanTarget, MaxSecurityProgramScanTargets+1)
+		for index := range spec.ScanTargets {
+			spec.ScanTargets[index] = target
+			spec.ScanTargets[index].ScanName = fmt.Sprintf("target-%d", index)
+		}
+		if errs := ValidateSecurityProgramSpec(spec); !hasSecurityProgramFieldError(errs, "scanTargets") {
+			t.Fatalf("ValidateSecurityProgramSpec() = %v, want scanTargets bound error", errs)
+		}
+	})
+}
+
+func hasSecurityProgramFieldError(errs []SecurityWorkflowFieldError, field string) bool {
+	for _, err := range errs {
+		if err.Field == field {
+			return true
+		}
+	}
+	return false
 }

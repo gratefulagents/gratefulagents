@@ -5059,7 +5059,11 @@ message SecurityProgramResource {
   string program_url = 5;
   string scope_policy = 6;
   google.protobuf.Timestamp verified_at = 7;
-  SecurityProgramScanTarget scan_target = 8;
+  // Deprecated single-target form retained for older clients.
+  SecurityProgramScanTarget scan_target = 8 [deprecated = true];
+  // scan_targets contains every independently importable repository covered
+  // by the program.
+  repeated SecurityProgramScanTarget scan_targets = 9;
   int32 usage_count = 10;
   repeated string referencing_scans = 11;
   int64 generation = 12;

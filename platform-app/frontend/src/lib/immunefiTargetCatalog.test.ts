@@ -1,29 +1,53 @@
+import { create } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 
 import { importableImmunefiTargets } from "@/lib/immunefiTargetCatalog";
-import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
+import {
+  SecurityProgramResourceSchema,
+  SecurityProgramScanTargetSchema,
+  type SecurityProgramResource,
+  type SecurityProgramScanTarget,
+} from "@/rpc/platform/service_pb";
 
-function program(
-  name: string,
-  scanTarget: Omit<NonNullable<SecurityProgramResource["scanTarget"]>, "$typeName">,
-): SecurityProgramResource {
-  return { name, scanTarget: scanTarget as SecurityProgramResource["scanTarget"] } as SecurityProgramResource;
+type TargetInput = Omit<SecurityProgramScanTarget, "$typeName">;
+
+function target(input: TargetInput): SecurityProgramScanTarget {
+  return create(SecurityProgramScanTargetSchema, input);
+}
+
+function program(name: string, scanTargets: TargetInput[]): SecurityProgramResource {
+  return create(SecurityProgramResourceSchema, {
+    name,
+    scanTargets: scanTargets.map(target),
+  });
 }
 
 describe("importableImmunefiTargets", () => {
-  it("maps featured and non-featured scan targets and sorts by priority then display name", () => {
+  it("flattens every repository target and sorts by priority then display name", () => {
     const targets = importableImmunefiTargets([
-      program("program-zebra", {
-        featured: true,
-        priority: 20,
-        displayName: "Zebra",
-        scanName: "scan-zebra",
-        repositoryUrl: "https://example.com/zebra",
-        baseBranch: "main",
-        workflowRef: "workflow-zebra",
-        policyPackRef: "policy-zebra",
-      }),
-      program("program-hidden", {
+      program("program-multi", [
+        {
+          featured: true,
+          priority: 20,
+          displayName: "Zebra",
+          scanName: "scan-zebra",
+          repositoryUrl: "https://example.com/zebra",
+          baseBranch: "main",
+          workflowRef: "workflow-zebra",
+          policyPackRef: "policy-zebra",
+        },
+        {
+          featured: true,
+          priority: 20,
+          displayName: "Alpha",
+          scanName: "scan-alpha",
+          repositoryUrl: "https://example.com/alpha",
+          baseBranch: "develop",
+          workflowRef: "workflow-alpha",
+          policyPackRef: "policy-alpha",
+        },
+      ]),
+      program("program-hidden", [{
         featured: false,
         priority: 0,
         displayName: "Hidden",
@@ -32,18 +56,8 @@ describe("importableImmunefiTargets", () => {
         baseBranch: "main",
         workflowRef: "workflow-hidden",
         policyPackRef: "policy-hidden",
-      }),
-      program("program-alpha", {
-        featured: true,
-        priority: 20,
-        displayName: "Alpha",
-        scanName: "scan-alpha",
-        repositoryUrl: "https://example.com/alpha",
-        baseBranch: "develop",
-        workflowRef: "workflow-alpha",
-        policyPackRef: "policy-alpha",
-      }),
-      program("program-first", {
+      }]),
+      program("program-first", [{
         featured: true,
         priority: 5,
         displayName: "First",
@@ -52,7 +66,7 @@ describe("importableImmunefiTargets", () => {
         baseBranch: "master",
         workflowRef: "workflow-first",
         policyPackRef: "policy-first",
-      }),
+      }]),
     ]);
 
     expect(targets).toEqual([
@@ -83,7 +97,7 @@ describe("importableImmunefiTargets", () => {
         baseBranch: "develop",
         workflowRef: "workflow-alpha",
         policyPackRef: "policy-alpha",
-        securityProgramRef: "program-alpha",
+        securityProgramRef: "program-multi",
         priority: 20,
       },
       {
@@ -93,14 +107,34 @@ describe("importableImmunefiTargets", () => {
         baseBranch: "main",
         workflowRef: "workflow-zebra",
         policyPackRef: "policy-zebra",
-        securityProgramRef: "program-zebra",
+        securityProgramRef: "program-multi",
         priority: 20,
       },
     ]);
   });
 
+  it("imports the deprecated single target and defaults its branch", () => {
+    const legacy = create(SecurityProgramResourceSchema, {
+      name: "legacy-program",
+      scanTarget: target({
+        featured: true,
+        priority: 1,
+        displayName: "Legacy",
+        scanName: "legacy-scan",
+        repositoryUrl: "https://example.com/legacy",
+        baseBranch: "",
+        workflowRef: "legacy-workflow",
+        policyPackRef: "legacy-policy",
+      }),
+    });
+
+    expect(importableImmunefiTargets([legacy])).toEqual([
+      expect.objectContaining({ name: "legacy-scan", baseBranch: "main" }),
+    ]);
+  });
+
   it("excludes programs without scan-target metadata", () => {
-    const unavailable = { name: "program-unavailable" } as SecurityProgramResource;
+    const unavailable = create(SecurityProgramResourceSchema, { name: "program-unavailable" });
 
     expect(importableImmunefiTargets([unavailable])).toEqual([]);
   });

@@ -13,6 +13,7 @@ const (
 	MaxSecurityProgramDisplayNameLength = 200
 	MaxSecurityProgramURLLength         = 2048
 	MaxSecurityProgramScopePolicyLength = 131072
+	MaxSecurityProgramScanTargets       = 256
 )
 
 // SecurityProgramScanTarget describes a suggested SecurityScan configuration
@@ -65,8 +66,18 @@ type SecurityProgramScanTarget struct {
 // SecurityProgramSpec is an operator-verified snapshot of a vulnerability
 // disclosure or bug bounty program's scope. ProgramURL records provenance
 // only: it is never fetched and does not authorize network access.
+// +kubebuilder:validation:XValidation:rule="!(has(self.scanTarget) && has(self.scanTargets) && self.scanTargets.size() > 0)",message="scanTarget and scanTargets cannot both be set"
 type SecurityProgramSpec struct {
-	// scanTarget optionally describes a suggested SecurityScan configuration.
+	// scanTargets describe suggested SecurityScan configurations for the
+	// repositories covered by this program.
+	// +optional
+	// +kubebuilder:validation:MaxItems=256
+	// +listType=map
+	// +listMapKey=scanName
+	ScanTargets []SecurityProgramScanTarget `json:"scanTargets,omitempty"`
+
+	// scanTarget is the deprecated single-target form. New resources should
+	// use scanTargets. It remains readable for backward compatibility.
 	// +optional
 	ScanTarget *SecurityProgramScanTarget `json:"scanTarget,omitempty"`
 
@@ -96,6 +107,19 @@ type SecurityProgramSpec struct {
 	// verifiedAt is when an operator last verified scopePolicy against the
 	// program's authoritative source.
 	VerifiedAt metav1.Time `json:"verifiedAt"`
+}
+
+// EffectiveScanTargets returns the canonical target list, falling back to the
+// deprecated single-target field for resources created before scanTargets was
+// introduced.
+func (spec SecurityProgramSpec) EffectiveScanTargets() []SecurityProgramScanTarget {
+	if len(spec.ScanTargets) != 0 {
+		return spec.ScanTargets
+	}
+	if spec.ScanTarget != nil {
+		return []SecurityProgramScanTarget{*spec.ScanTarget}
+	}
+	return nil
 }
 
 // SecurityProgramStatus is the observed validation and usage state.

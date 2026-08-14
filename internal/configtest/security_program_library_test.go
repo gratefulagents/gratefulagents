@@ -87,11 +87,15 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			if errs := triggersv1alpha1.ValidateSecurityProgramSpec(program.Spec); len(errs) != 0 {
 				t.Fatalf("invalid spec: %v", errs)
 			}
-			if program.Name == "firedancer" && program.Spec.ScanTarget != nil {
+			if program.Spec.ScanTarget != nil {
+				t.Error("shipped programs must use scanTargets instead of deprecated scanTarget")
+			}
+			targets := program.Spec.EffectiveScanTargets()
+			if program.Name == "firedancer" && len(targets) != 0 {
 				t.Error("Firedancer must not suggest a scan target without a selected in-scope release")
 			}
 			if program.Name == "immunefi-ethena" {
-				if program.Spec.ScanTarget != nil {
+				if len(targets) != 0 {
 					t.Error("unreachable repository must not be exposed as an importable scan target")
 				}
 			}
@@ -102,10 +106,10 @@ func TestSecurityProgramLibrary(t *testing.T) {
 				}
 			}
 			if want, ok := expectedImmunefiTargets[program.Name]; ok {
-				if program.Spec.ScanTarget == nil {
+				if len(targets) == 0 {
 					t.Fatalf("active program with an in-scope repository has no scan target")
 				}
-				if got := program.Spec.ScanTarget.RepositoryURL; got != want {
+				if got := targets[0].RepositoryURL; got != want {
 					t.Errorf("scan target repository = %q, want %q", got, want)
 				}
 			}
