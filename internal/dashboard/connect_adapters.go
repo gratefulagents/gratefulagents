@@ -556,6 +556,22 @@ func (h *PlatformServiceConnectHandler) UpdateMyGitIdentity(ctx context.Context,
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) GetMyModelDefaults(ctx context.Context, req *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	resp, err := h.srv.GetMyModelDefaults(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateMyModelDefaults(ctx context.Context, req *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	resp, err := h.srv.UpdateMyModelDefaults(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) DeleteAgentRun(ctx context.Context, req *connect.Request[platform.DeleteAgentRunRequest]) (*connect.Response[emptypb.Empty], error) {
 	resp, err := h.srv.DeleteAgentRun(ctx, req.Msg)
 	if err != nil {

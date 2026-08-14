@@ -13,6 +13,7 @@
 import * as http from "node:http";
 import { create } from "@bufbuild/protobuf";
 import type { DescMethod, DescService } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, type ConnectRouter, type HandlerContext } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import {
@@ -56,6 +57,7 @@ import {
   ListSlackDraftsResponseSchema,
   ListSlackWorkspacesResponseSchema,
   ListWorkspaceFilesResponseSchema,
+  ModelDefaultsSchema,
   ObservabilityBreakdownSchema,
   ObservabilityBucketSchema,
   ObservabilityDataCompletenessSchema,
@@ -603,6 +605,25 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       s.gitIdentity.name = req.name;
       s.gitIdentity.email = req.email;
       return s.gitIdentity;
+    },
+    getMyModelDefaults: async () => s.modelDefaults,
+    updateMyModelDefaults: async (req: {
+      provider: string;
+      model: string;
+      reasoningLevel: string;
+      disabled: boolean;
+    }) => {
+      const cleared = !req.provider && !req.model && !req.reasoningLevel && !req.disabled;
+      s.modelDefaults = cleared
+        ? create(ModelDefaultsSchema, {})
+        : create(ModelDefaultsSchema, {
+            provider: req.provider,
+            model: req.model,
+            reasoningLevel: req.reasoningLevel,
+            disabled: req.disabled,
+            updatedAt: timestampFromDate(new Date()),
+          });
+      return s.modelDefaults;
     },
 
     // ---- Collaboration ------------------------------------------------------

@@ -1,4 +1,4 @@
-import { create } from "@bufbuild/protobuf";
+import { clone, create } from "@bufbuild/protobuf";
 import { useEffect, useState } from "react";
 import { Bell, CalendarClock, Crosshair, GitBranch, GitPullRequest, ListChecks, Loader2, Route, ShieldAlert, ShieldCheck, SlidersHorizontal } from "lucide-react";
 
@@ -40,7 +40,10 @@ import {
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneText } from "@/lib/status";
+import { applyModelDefaults, hasActiveModelDefaults } from "@/lib/modelDefaults";
+import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import {
+  AgentRunDefaultsSchema,
   CreateSecurityScanRequestSchema,
   SecurityScanConfigSpecSchema,
   SecurityScanChecksConfigSchema,
@@ -375,6 +378,26 @@ export function SecurityScanFormDialog({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open && !source);
+
+  // Seed a brand-new scan's untouched run defaults from the user's saved
+  // model defaults. Editing, duplicating, or template-based configs keep the
+  // values they were loaded with.
+  useEffect(() => {
+    if (!open || source || !modelDefaultsLoaded || !hasActiveModelDefaults(myModelDefaults))
+      return;
+    const seeded = applyModelDefaults(myModelDefaults);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
+    setDefaults((prev) => {
+      if (prev.provider || prev.model || prev.reasoningLevel) return prev;
+      const next = clone(AgentRunDefaultsSchema, prev);
+      next.provider = seeded.provider;
+      next.model = seeded.model;
+      next.reasoningLevel = seeded.reasoningLevel;
+      return next;
+    });
+  }, [open, source, modelDefaultsLoaded, myModelDefaults]);
   const [libraryWorkflows, setLibraryWorkflows] = useState<SecurityWorkflowResource[]>([]);
   const [libraryRankers, setLibraryRankers] = useState<SecurityRankerResource[]>([]);
   const [libraryPostScripts, setLibraryPostScripts] = useState<SecurityPostScriptResource[]>([]);

@@ -4,6 +4,7 @@
 import { create } from "@bufbuild/protobuf";
 import {
   GitIdentitySchema,
+  ModelDefaultsSchema,
   MyAnthropicUsageSchema,
   MyCredentialsSchema,
   MyCopilotUsageSchema,
@@ -55,6 +56,7 @@ export const emptyScenario: Scenario = {
   anthropicUsage: create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
   soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
+  modelDefaults: create(ModelDefaultsSchema, {}),
 
   notifications: [],
   sharedWithMe: [],

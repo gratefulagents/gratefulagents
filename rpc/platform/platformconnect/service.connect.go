@@ -217,6 +217,12 @@ const (
 	// PlatformServiceUpdateMyRoleModelPreferencesProcedure is the fully-qualified name of the
 	// PlatformService's UpdateMyRoleModelPreferences RPC.
 	PlatformServiceUpdateMyRoleModelPreferencesProcedure = "/platform.v1.PlatformService/UpdateMyRoleModelPreferences"
+	// PlatformServiceGetMyModelDefaultsProcedure is the fully-qualified name of the PlatformService's
+	// GetMyModelDefaults RPC.
+	PlatformServiceGetMyModelDefaultsProcedure = "/platform.v1.PlatformService/GetMyModelDefaults"
+	// PlatformServiceUpdateMyModelDefaultsProcedure is the fully-qualified name of the
+	// PlatformService's UpdateMyModelDefaults RPC.
+	PlatformServiceUpdateMyModelDefaultsProcedure = "/platform.v1.PlatformService/UpdateMyModelDefaults"
 	// PlatformServiceGetMyGitIdentityProcedure is the fully-qualified name of the PlatformService's
 	// GetMyGitIdentity RPC.
 	PlatformServiceGetMyGitIdentityProcedure = "/platform.v1.PlatformService/GetMyGitIdentity"
@@ -793,6 +799,11 @@ type PlatformServiceClient interface {
 	// defaults for runs created by the calling user.
 	GetMyRoleModelPreferences(context.Context, *connect.Request[platform.GetMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
+	// Personal model defaults seed the provider/model/reasoning fields whenever
+	// the calling user creates a new project, trigger, or scan config. Runs are
+	// not seeded: they follow their project's settings.
+	GetMyModelDefaults(context.Context, *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
+	UpdateMyModelDefaults(context.Context, *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
 	// GetMyGitIdentity returns the calling user's git commit identity (empty
 	// when none is saved).
 	GetMyGitIdentity(context.Context, *connect.Request[platform.GetMyGitIdentityRequest]) (*connect.Response[platform.GitIdentity], error)
@@ -1448,6 +1459,18 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+PlatformServiceUpdateMyRoleModelPreferencesProcedure,
 			connect.WithSchema(platformServiceMethods.ByName("UpdateMyRoleModelPreferences")),
+			connect.WithClientOptions(opts...),
+		),
+		getMyModelDefaults: connect.NewClient[platform.GetMyModelDefaultsRequest, platform.ModelDefaults](
+			httpClient,
+			baseURL+PlatformServiceGetMyModelDefaultsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetMyModelDefaults")),
+			connect.WithClientOptions(opts...),
+		),
+		updateMyModelDefaults: connect.NewClient[platform.UpdateMyModelDefaultsRequest, platform.ModelDefaults](
+			httpClient,
+			baseURL+PlatformServiceUpdateMyModelDefaultsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateMyModelDefaults")),
 			connect.WithClientOptions(opts...),
 		),
 		getMyGitIdentity: connect.NewClient[platform.GetMyGitIdentityRequest, platform.GitIdentity](
@@ -2464,6 +2487,8 @@ type platformServiceClient struct {
 	updateMySoul                           *connect.Client[platform.UpdateMySoulRequest, platform.Soul]
 	getMyRoleModelPreferences              *connect.Client[platform.GetMyRoleModelPreferencesRequest, platform.RoleModelPreferences]
 	updateMyRoleModelPreferences           *connect.Client[platform.UpdateMyRoleModelPreferencesRequest, platform.RoleModelPreferences]
+	getMyModelDefaults                     *connect.Client[platform.GetMyModelDefaultsRequest, platform.ModelDefaults]
+	updateMyModelDefaults                  *connect.Client[platform.UpdateMyModelDefaultsRequest, platform.ModelDefaults]
 	getMyGitIdentity                       *connect.Client[platform.GetMyGitIdentityRequest, platform.GitIdentity]
 	updateMyGitIdentity                    *connect.Client[platform.UpdateMyGitIdentityRequest, platform.GitIdentity]
 	deleteAgentRun                         *connect.Client[platform.DeleteAgentRunRequest, emptypb.Empty]
@@ -2927,6 +2952,16 @@ func (c *platformServiceClient) GetMyRoleModelPreferences(ctx context.Context, r
 // UpdateMyRoleModelPreferences calls platform.v1.PlatformService.UpdateMyRoleModelPreferences.
 func (c *platformServiceClient) UpdateMyRoleModelPreferences(ctx context.Context, req *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error) {
 	return c.updateMyRoleModelPreferences.CallUnary(ctx, req)
+}
+
+// GetMyModelDefaults calls platform.v1.PlatformService.GetMyModelDefaults.
+func (c *platformServiceClient) GetMyModelDefaults(ctx context.Context, req *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	return c.getMyModelDefaults.CallUnary(ctx, req)
+}
+
+// UpdateMyModelDefaults calls platform.v1.PlatformService.UpdateMyModelDefaults.
+func (c *platformServiceClient) UpdateMyModelDefaults(ctx context.Context, req *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	return c.updateMyModelDefaults.CallUnary(ctx, req)
 }
 
 // GetMyGitIdentity calls platform.v1.PlatformService.GetMyGitIdentity.
@@ -3827,6 +3862,11 @@ type PlatformServiceHandler interface {
 	// defaults for runs created by the calling user.
 	GetMyRoleModelPreferences(context.Context, *connect.Request[platform.GetMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
+	// Personal model defaults seed the provider/model/reasoning fields whenever
+	// the calling user creates a new project, trigger, or scan config. Runs are
+	// not seeded: they follow their project's settings.
+	GetMyModelDefaults(context.Context, *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
+	UpdateMyModelDefaults(context.Context, *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
 	// GetMyGitIdentity returns the calling user's git commit identity (empty
 	// when none is saved).
 	GetMyGitIdentity(context.Context, *connect.Request[platform.GetMyGitIdentityRequest]) (*connect.Response[platform.GitIdentity], error)
@@ -4478,6 +4518,18 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		PlatformServiceUpdateMyRoleModelPreferencesProcedure,
 		svc.UpdateMyRoleModelPreferences,
 		connect.WithSchema(platformServiceMethods.ByName("UpdateMyRoleModelPreferences")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetMyModelDefaultsHandler := connect.NewUnaryHandler(
+		PlatformServiceGetMyModelDefaultsProcedure,
+		svc.GetMyModelDefaults,
+		connect.WithSchema(platformServiceMethods.ByName("GetMyModelDefaults")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateMyModelDefaultsHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateMyModelDefaultsProcedure,
+		svc.UpdateMyModelDefaults,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateMyModelDefaults")),
 		connect.WithHandlerOptions(opts...),
 	)
 	platformServiceGetMyGitIdentityHandler := connect.NewUnaryHandler(
@@ -5552,6 +5604,10 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceGetMyRoleModelPreferencesHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateMyRoleModelPreferencesProcedure:
 			platformServiceUpdateMyRoleModelPreferencesHandler.ServeHTTP(w, r)
+		case PlatformServiceGetMyModelDefaultsProcedure:
+			platformServiceGetMyModelDefaultsHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateMyModelDefaultsProcedure:
+			platformServiceUpdateMyModelDefaultsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetMyGitIdentityProcedure:
 			platformServiceGetMyGitIdentityHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateMyGitIdentityProcedure:
@@ -6119,6 +6175,14 @@ func (UnimplementedPlatformServiceHandler) GetMyRoleModelPreferences(context.Con
 
 func (UnimplementedPlatformServiceHandler) UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateMyRoleModelPreferences is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetMyModelDefaults(context.Context, *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetMyModelDefaults is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateMyModelDefaults(context.Context, *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateMyModelDefaults is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GetMyGitIdentity(context.Context, *connect.Request[platform.GetMyGitIdentityRequest]) (*connect.Response[platform.GitIdentity], error) {
