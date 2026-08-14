@@ -103,7 +103,7 @@ export function CronFormDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open && !cron);
 
   // Seed a brand-new cron's untouched model fields from the user's saved
   // model defaults; editing an existing cron always keeps its own values.

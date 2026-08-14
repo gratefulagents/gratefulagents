@@ -8,8 +8,13 @@ import type { ModelDefaults } from "@/rpc/platform/service_pb";
  * level once. Creation surfaces use it (with applyModelDefaults) to prefill
  * fresh forms. Load failures are treated as "no defaults" so creating
  * resources never blocks on this preference.
+ *
+ * Pass `enabled=false` while the result cannot be used (dialog closed, or an
+ * existing resource is being edited) so always-mounted dialog instances don't
+ * issue redundant RPCs; the fetch starts the first time `enabled` is true and
+ * is never repeated.
  */
-export function useMyModelDefaults() {
+export function useMyModelDefaults(enabled = true) {
   const [defaults, setDefaults] = useState<ModelDefaults | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -19,6 +24,7 @@ export function useMyModelDefaults() {
   }, []);
 
   useEffect(() => {
+    if (!enabled || loaded) return;
     let active = true;
     (async () => {
       try {
@@ -33,7 +39,7 @@ export function useMyModelDefaults() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [enabled, loaded]);
 
   return { defaults, loaded, apply };
 }

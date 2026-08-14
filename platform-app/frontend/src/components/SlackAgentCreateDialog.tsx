@@ -79,7 +79,7 @@ export function SlackAgentCreateDialog({
 
   const effectiveAuthMode = provider === "copilot" ? "oauth" : authMode;
 
-  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open);
 
   // Seed the untouched model fields once from the user's saved model defaults.
   useEffect(() => {

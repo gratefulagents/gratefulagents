@@ -201,7 +201,7 @@ export function CreateProjectDialog({
     [form.mcpPolicyAllowedServers],
   );
 
-  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open);
 
   // Seed a fresh form from the user's saved model defaults. Prefill only:
   // it never overwrites fields the user already edited.

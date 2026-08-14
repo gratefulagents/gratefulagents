@@ -114,7 +114,7 @@ export function AddGitHubRepositoryDialog({ onCreated }: { onCreated?: () => voi
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open);
 
   // Seed the new repository's untouched run defaults from the user's saved
   // model defaults (prefill only; the fields stay editable).

@@ -11,6 +11,7 @@ import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import { useProjects } from "@/hooks/useWatchedList";
 import { readLastProject, writeLastProject } from "@/lib/lastProject";
 import { applyModelDefaults } from "@/lib/modelDefaults";
+import { PROVIDERS } from "@/components/create-flow/providers";
 import { cn } from "@/lib/utils";
 import { connectCodeOf } from "@/lib/rpc-errors";
 import {
@@ -153,14 +154,17 @@ export function NewChatComposer({
   const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
 
   // Seed the model override once from the user's saved model defaults; the
-  // provider travels in the model prefix. Never overwrite a typed value.
+  // provider travels in the model prefix. Provider-native IDs can themselves
+  // contain slashes (e.g. openrouter's "z-ai/glm-4.7"), so only treat the
+  // value as already prefixed when the first segment is a platform provider.
+  // Never overwrite a typed value.
   useEffect(() => {
     if (!modelDefaultsLoaded) return;
     const seeded = applyModelDefaults(myModelDefaults);
     if (!seeded.model) return;
-    const prefixed = seeded.model.includes("/")
-      ? seeded.model
-      : `${seeded.provider}/${seeded.model}`;
+    const firstSegment = seeded.model.split("/", 1)[0];
+    const alreadyPrefixed = PROVIDERS.some((p) => p.id === firstSegment);
+    const prefixed = alreadyPrefixed ? seeded.model : `${seeded.provider}/${seeded.model}`;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of an untouched field
     setModel((prev) => (prev.trim() ? prev : prefixed));
   }, [modelDefaultsLoaded, myModelDefaults]);
@@ -280,6 +284,9 @@ export function NewChatComposer({
         namespace: chatProject.namespace,
         userRequest: request,
         model: model.trim(),
+        // Saved reasoning defaults apply even without a model override; empty
+        // (or disabled defaults) leaves the project's reasoning setting alone.
+        reasoningLevel: applyModelDefaults(myModelDefaults).reasoningLevel,
         source: { kind: "Project", name: chatProject.name },
         imageDataUrls: attachments.dataUrls(),
         videoDataUrls: attachments.videoDataUrls(),

@@ -100,7 +100,7 @@ export function CreateRunDialog({
     githubTokenSecret: "",
   });
 
-  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open);
 
   // Seed a fresh form from the user's saved model defaults. Prefill only:
   // never overwrite values the user edited or values inherited from a project.

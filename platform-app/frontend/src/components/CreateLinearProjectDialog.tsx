@@ -47,7 +47,7 @@ export function CreateLinearProjectDialog({
     setForm((current) => ({ ...current, [key]: value }));
   const effectiveAuthMode = form.provider === "copilot" ? "oauth" : form.authMode;
 
-  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open);
 
   // Seed a fresh form from the user's saved model defaults (prefill only;
   // Linear projects have no reasoning-level field).

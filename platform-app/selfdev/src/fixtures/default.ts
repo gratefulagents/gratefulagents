@@ -18,6 +18,7 @@ import {
   GetAgentTraceResponseSchema,
   GitHubRepositorySchema,
   GitIdentitySchema,
+  ModelDefaultsSchema,
   LinearProjectSchema,
   MaintainerWorkItemSchema,
   AnthropicUsageLimitSchema,
@@ -1290,6 +1291,14 @@ const gitIdentity = create(GitIdentitySchema, {
   updatedAt: timestampFromDate(daysAgo(10)),
 });
 
+// Saved personal model defaults so create dialogs demonstrate prefill.
+const modelDefaults = create(ModelDefaultsSchema, {
+  provider: "anthropic",
+  model: "claude-sonnet-4-6",
+  reasoningLevel: "high",
+  updatedAt: timestampFromDate(daysAgo(6)),
+});
+
 // ---------------------------------------------------------------------------
 // Collaboration
 // ---------------------------------------------------------------------------
@@ -1728,6 +1737,7 @@ export const defaultScenario: Scenario = {
   anthropicUsage,
   soul,
   gitIdentity,
+  modelDefaults,
 
   notifications,
   sharedWithMe,

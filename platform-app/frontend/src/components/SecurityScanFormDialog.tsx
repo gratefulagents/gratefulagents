@@ -379,7 +379,7 @@ export function SecurityScanFormDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults();
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open && !source);
 
   // Seed a brand-new scan's untouched run defaults from the user's saved
   // model defaults. Editing, duplicating, or template-based configs keep the
