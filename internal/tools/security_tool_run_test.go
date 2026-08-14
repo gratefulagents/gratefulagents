@@ -496,7 +496,8 @@ func TestRunSecurityToolUnreadableResultIsNeverAPass(t *testing.T) {
 
 func TestRunSecurityToolTerminalStatusMapping(t *testing.T) {
 	pass := sampleSecurityToolResult()
-	pass.Status = securitytoolpacks.StatusPass
+	// The retired verdict, spelled literally so the test outlives the constant.
+	pass.Status = securitytoolpacks.Status("pass")
 	pass.Findings = nil
 
 	tests := []struct {

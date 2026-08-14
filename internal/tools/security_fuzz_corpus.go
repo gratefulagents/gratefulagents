@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -151,8 +152,8 @@ func boundFuzzCorpus(entries []fuzzCorpusEntry) []fuzzCorpusEntry {
 		entries = entries[len(entries)-maxFuzzCorpusEntries:]
 	}
 	total := 0
-	for i := len(entries) - 1; i >= 0; i-- {
-		total += len(entries[i].Data)
+	for i, entry := range slices.Backward(entries) {
+		total += len(entry.Data)
 		if total > maxFuzzCorpusBytes {
 			return entries[i+1:]
 		}

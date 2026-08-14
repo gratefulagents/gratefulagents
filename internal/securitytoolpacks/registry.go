@@ -905,78 +905,8 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		if digest := lockedToolArtifactDigest(tools[i].Name, runtime.GOARCH); digest != "" {
 			tools[i].ToolArtifactDigest = digest
 		}
-		if oci, ok := ociTools[tools[i].Name]; ok {
-			tools[i].Image = oci.image + "@" + oci.digest
-			tools[i].ImageDigest = oci.digest
-			tools[i].ToolArtifactDigest = oci.digest
-			if tools[i].Name == "halmos" {
-				tools[i].ToolArtifactDigest = "sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f"
-			}
-			if tools[i].Name == "cargo-fuzz" {
-				// The cargo-fuzz root is derived from its base image, so the
-				// base digest would claim the same identity for materially
-				// different fuzz executors. The recorded digest covers the
-				// whole closure: base image, dated nightly, cargo-fuzz version.
-				tools[i].ToolArtifactDigest = RustFuzzClosureDigest()
-			}
-			tools[i].PlatformDigests = map[string]string{"amd64": oci.amd64, "arm64": oci.arm64}
-			if tools[i].Name == "halmos" {
-				tools[i].PlatformDigests = map[string]string{
-					"amd64": "sha256:a80b8016e9a409a38d54ff300af5aa37cbb0ae281faaa37afab7fa6a63c87340",
-					"arm64": "sha256:32bb55c125446b2aa95ac8bb3968701ee05b740ea0c06ccdd5b73e081d5bce98",
-				}
-			}
-			tools[i].OCIRoot = oci.root
-			tools[i].OCIExecutable = oci.executable
-			tools[i].OCIOutputPath = oci.output
-			tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
-			if tools[i].Name == "schemathesis" || tools[i].Name == "halmos" || tools[i].Name == "go-fuzz-tests" {
-				tools[i].ExitCodes[1] = StatusFindings
-			}
-			if tools[i].Name == "slither" {
-				tools[i].ExitCodes[255] = StatusFindings
-			}
-			if tools[i].Name == "zeek" || tools[i].Name == "suricata" {
-				tools[i].KnowledgeDigests = map[string]string{"embedded": oci.digest}
-			}
-		}
-		switch tools[i].Name {
-		case "nuclei":
-			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}}
-		case "owasp-zap", "schemathesis":
-			tools[i].Arguments = []Argument{{Name: "base_url", Type: "url", Required: true}}
-		case "cargo-fuzz":
-			tools[i].Arguments = []Argument{
-				{Name: "fuzz_target", Type: "string", Required: true},
-				{Name: "max_total_time", Type: "duration", Default: defaultFuzzCampaign.String()},
-			}
-		case "go-fuzz-tests":
-			tools[i].Arguments = []Argument{
-				{Name: "package", Type: "string", Required: true},
-				{Name: "fuzz", Type: "string", Required: true},
-				// The campaign length is the difference between fuzzing and a
-				// smoke test, so it is a reviewed, bounded argument rather than
-				// a constant buried in argv.
-				{Name: "fuzztime", Type: "duration", Default: defaultFuzzCampaign.String()},
-			}
-		case "naabu", "nmap":
-			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}, {Name: "ports", Type: "ports", Required: true}}
-		case "anvil-fork", "forge-fork-test":
-			tools[i].Arguments = evmForkPinningArguments()
-		case "medusa":
-			tools[i].Arguments = []Argument{{Name: "target_contracts", Type: "string", Required: true}}
-		case "forge-coverage-mutation":
-			tools[i].Arguments = []Argument{{Name: "mutation_operator", Type: "enum", Required: true, Enum: []string{"assertion-negation", "require-removal", "boundary-shift", "return-value-swap"}}}
-		case "chain-read":
-			tools[i].Arguments = chainReadArguments()
-		case "deployed-bytecode-diff":
-			tools[i].Arguments = deployedBytecodeDiffArguments()
-		case "upstream-fork-diff":
-			tools[i].Arguments = []Argument{
-				{Name: "upstream", Type: "enum", Required: true, Enum: slices.Clone(evmUpstreams)},
-				{Name: "upstream_revision", Type: "git_revision", Required: true},
-			}
-		}
+		applyOCIRootSettings(&tools[i], ociTools[tools[i].Name].image, ociTools[tools[i].Name].digest, ociTools[tools[i].Name].amd64, ociTools[tools[i].Name].arm64, ociTools[tools[i].Name].root, ociTools[tools[i].Name].executable, ociTools[tools[i].Name].output)
+		applyToolArguments(&tools[i])
 		if digest, ok := knowledgeDigests[tools[i].Name]; ok {
 			tools[i].KnowledgeDigests = map[string]string{"bundle": digest}
 		} else if slices.Contains(knowledgeRequired, tools[i].Name) && len(tools[i].KnowledgeDigests) == 0 {
@@ -1069,6 +999,88 @@ func applySandboxRuntimeSettings(tool *Tool) {
 		tool.Budgets.CPU = 2000
 		tool.Budgets.Memory = 2 << 30
 		tool.Budgets.Concurrency = 1
+	}
+}
+
+// applyOCIRootSettings records how a tool that runs inside a pinned image root
+// is executed and identified. An empty image means the tool is not an OCI tool
+// and nothing is applied.
+func applyOCIRootSettings(tool *Tool, image, digest, amd64Digest, arm64Digest, root, executable, output string) {
+	if image == "" {
+		return
+	}
+	tool.Image = image + "@" + digest
+	tool.ImageDigest = digest
+	tool.ToolArtifactDigest = digest
+	tool.PlatformDigests = map[string]string{"amd64": amd64Digest, "arm64": arm64Digest}
+	switch tool.Name {
+	case "halmos":
+		// The Halmos root is a reviewed closure built here rather than the
+		// upstream image, so it carries its own identity.
+		tool.ToolArtifactDigest = "sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f"
+		tool.PlatformDigests = map[string]string{
+			"amd64": "sha256:a80b8016e9a409a38d54ff300af5aa37cbb0ae281faaa37afab7fa6a63c87340",
+			"arm64": "sha256:32bb55c125446b2aa95ac8bb3968701ee05b740ea0c06ccdd5b73e081d5bce98",
+		}
+	case "cargo-fuzz":
+		// Same reason: the root is derived from its base image, so the base
+		// digest would claim one identity for materially different fuzz
+		// executors. The recorded digest covers the whole closure.
+		tool.ToolArtifactDigest = RustFuzzClosureDigest()
+	}
+	tool.OCIRoot = root
+	tool.OCIExecutable = executable
+	tool.OCIOutputPath = output
+	tool.ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
+	switch tool.Name {
+	case "schemathesis", "halmos", "go-fuzz-tests":
+		tool.ExitCodes[1] = StatusFindings
+	case "slither":
+		tool.ExitCodes[255] = StatusFindings
+	case "zeek", "suricata":
+		tool.KnowledgeDigests = map[string]string{"embedded": digest}
+	}
+}
+
+// applyToolArguments declares the typed arguments each tool accepts. Anything
+// not declared here cannot be passed at all.
+func applyToolArguments(tool *Tool) {
+	switch tool.Name {
+	case "nuclei":
+		tool.Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}}
+	case "owasp-zap", "schemathesis":
+		tool.Arguments = []Argument{{Name: "base_url", Type: "url", Required: true}}
+	case "cargo-fuzz":
+		tool.Arguments = []Argument{
+			{Name: "fuzz_target", Type: "string", Required: true},
+			{Name: "max_total_time", Type: "duration", Default: defaultFuzzCampaign.String()},
+		}
+	case "go-fuzz-tests":
+		tool.Arguments = []Argument{
+			{Name: "package", Type: "string", Required: true},
+			{Name: "fuzz", Type: "string", Required: true},
+			// The campaign length is the difference between fuzzing and a
+			// smoke test, so it is a reviewed, bounded argument rather than
+			// a constant buried in argv.
+			{Name: "fuzztime", Type: "duration", Default: defaultFuzzCampaign.String()},
+		}
+	case "naabu", "nmap":
+		tool.Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}, {Name: "ports", Type: "ports", Required: true}}
+	case "anvil-fork", "forge-fork-test":
+		tool.Arguments = evmForkPinningArguments()
+	case "medusa":
+		tool.Arguments = []Argument{{Name: "target_contracts", Type: "string", Required: true}}
+	case "forge-coverage-mutation":
+		tool.Arguments = []Argument{{Name: "mutation_operator", Type: "enum", Required: true, Enum: []string{"assertion-negation", "require-removal", "boundary-shift", "return-value-swap"}}}
+	case "chain-read":
+		tool.Arguments = chainReadArguments()
+	case "deployed-bytecode-diff":
+		tool.Arguments = deployedBytecodeDiffArguments()
+	case "upstream-fork-diff":
+		tool.Arguments = []Argument{
+			{Name: "upstream", Type: "enum", Required: true, Enum: slices.Clone(evmUpstreams)},
+			{Name: "upstream_revision", Type: "git_revision", Required: true},
+		}
 	}
 }
 

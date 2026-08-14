@@ -91,7 +91,7 @@ func TestBuildTriagedSecurityReviewBundleWithoutPoC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
+	names := make([]string, 0, len(reader.File))
 	for _, file := range reader.File {
 		names = append(names, file.Name)
 		if file.Name == "manifest.json" {

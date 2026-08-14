@@ -889,7 +889,10 @@ func (t *runSecurityToolTool) summarize(ctx context.Context, run *platformv1alph
 		summary.Findings.Reported = int(result.FindingCount)
 	}
 	if run.Status.Phase == platformv1alpha1.SecurityToolRunPhaseFailed {
-		if summary.Status == "" || summary.Status == string(securitytoolpacks.StatusPass) {
+		// A failed run may still carry the retired "pass" verdict from an older
+		// executor; it is spelled literally so this keeps working once the
+		// deprecated constant is removed.
+		if summary.Status == "" || summary.Status == "pass" {
 			summary.Status = string(securitytoolpacks.StatusError)
 		}
 		return securityToolRunResult(summary, true)

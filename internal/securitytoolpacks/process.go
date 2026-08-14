@@ -322,7 +322,7 @@ func collectGoFuzzArtifacts(root string, baseline map[string]bool, maxBytes int6
 		}
 		total += info.Size()
 		if total > maxBytes {
-			return nil, fmt.Errorf("Go fuzz corpus exceeds %d-byte artifact budget", maxBytes)
+			return nil, fmt.Errorf("collected Go fuzz corpus exceeds the %d-byte artifact budget", maxBytes)
 		}
 		data, readErr := os.ReadFile(path) // #nosec G304 -- path is rooted in the private immutable target snapshot.
 		if readErr != nil {
@@ -644,7 +644,8 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 	}
 	argv = append(argv, "--", tool.OCIExecutable)
 	argv = append(argv, toolArgv[1:]...)
-	launcher := []string{executable, "__sandbox-exec", strconv.FormatInt(tool.Budgets.MaxOutputSize, 10), strconv.FormatInt(tool.Budgets.Memory, 10)}
+	launcher := make([]string, 0, 4+len(argv))
+	launcher = append(launcher, executable, "__sandbox-exec", strconv.FormatInt(tool.Budgets.MaxOutputSize, 10), strconv.FormatInt(tool.Budgets.Memory, 10))
 	return append(launcher, argv...), work, cleanup, nil
 }
 
