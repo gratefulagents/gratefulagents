@@ -20,7 +20,12 @@ spec:
         transfers, the oracle wiring, the role and permission holders, and the upstream project this
         codebase forked from when it is a fork. Several of the highest-impact classes are properties of
         deployed state rather than of source, so an address you could not read is a stated gap, never an
-        assumption. Where a fact is unavailable, say which tool or authorization was missing. Publish one
+        assumption. The chain-read pack reads that deployed state directly — EIP-1967 implementation,
+        admin and beacon slots, token decimals, owners and role holders — through an operator-authorized
+        endpoint alias pinned to the same chain id, block number and block hash, and deployed-bytecode-diff
+        proves the compiled artifact of the pinned revision is the code actually running at an address.
+        A bytecode divergence invalidates every later finding derived from source, so record it here.
+        Where a fact is unavailable, say which tool or authorization was missing. Publish one
         structured dossier for every later task and report no vulnerabilities here.
       outputSchema: |-
         {

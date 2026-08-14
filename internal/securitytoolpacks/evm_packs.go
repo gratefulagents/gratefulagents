@@ -43,12 +43,12 @@ var (
 
 // evmForkPacks are the packs whose execution reaches an operator-authorized
 // fork endpoint and therefore must pin the forked chain state.
-var evmForkPacks = []string{"anvil-fork", "forge-fork-test"}
+var evmForkPacks = []string{"anvil-fork", "forge-fork-test", "chain-read", "deployed-bytecode-diff"}
 
 // evmVerificationPacks are all packs defined in this file. They operate on
 // staged EVM content, so their egress is either the operator-authorized fork
 // endpoint or compiler/dependency resolution, never a model-chosen target.
-var evmVerificationPacks = []string{"anvil-fork", "forge-fork-test", "medusa", "forge-coverage-mutation", "upstream-fork-diff"}
+var evmVerificationPacks = []string{"anvil-fork", "forge-fork-test", "medusa", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff"}
 
 // evmUpstreams are the reviewed upstream projects a fork target may be
 // compared against. The value is an identifier, never a URL: the execution
@@ -95,6 +95,11 @@ func validateEVMPackArguments(tool Tool, cfg RunConfig) error {
 		}
 		if len(tool.Arguments) > 0 && len(argumentEnum(tool, "fork_endpoint")) == 0 {
 			return fmt.Errorf("tool %s has no operator-authorized fork endpoint configured", tool.Name)
+		}
+	}
+	if tool.Name == "chain-read" {
+		if err := validateEVMAddressList(cfg.Arguments["addresses"]); err != nil {
+			return err
 		}
 	}
 	if tool.Name == "medusa" {
