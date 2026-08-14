@@ -120,12 +120,16 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	goFuzzBaseline := map[string]bool{}
+	goFuzzPackage, goFuzzTarget, goFuzzSeeds := "", "", 0
 	if req.Tool.Name == "go-fuzz-tests" {
 		var baselineErr error
 		goFuzzBaseline, baselineErr = goFuzzCorpusPaths(executionTarget)
 		if baselineErr != nil {
 			return NativeResult{ExitCode: -1, Err: fmt.Errorf("inventory Go fuzz corpus: %w", baselineErr)}
 		}
+		goFuzzPackage = GoFuzzPackageDir(executionTarget, req.Config.Arguments["package"])
+		goFuzzTarget = GoFuzzTargetName(req.Config.Arguments["fuzz"])
+		goFuzzSeeds = countSeedCorpus(goFuzzPackage, goFuzzTarget)
 	}
 	var err error
 	if ociWork != "" {
@@ -182,12 +186,22 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 	exitCode := processExitCode(err)
 	result = NativeResult{Output: stdout.Bytes(), ExitCode: exitCode, Environment: environment}
 	if req.Tool.Name == "go-fuzz-tests" {
+		// Everything the campaign learned lives in the build cache and would
+		// die with the sandbox. Promote a bounded sample into the package's
+		// seed corpus first, so it leaves as artifacts and seeds the next
+		// campaign; then collect, which also picks up minimized crashers.
+		promoted, promoteErr := promoteGeneratedCorpus(ociWork, goFuzzPackage, goFuzzTarget)
+		if promoteErr != nil && err == nil {
+			err = fmt.Errorf("promote Go fuzz corpus: %w", promoteErr)
+		}
 		artifacts, collectErr := collectGoFuzzArtifacts(executionTarget, goFuzzBaseline, limit)
 		if collectErr != nil && err == nil {
 			err = fmt.Errorf("collect Go fuzz reproducer: %w", collectErr)
 		} else {
 			result.Artifacts = artifacts
 		}
+		campaign, _ := ParseFuzzCampaign(req.Config.Arguments["fuzztime"])
+		result.Bounded = goFuzzBoundedScope(req.Config.Arguments["package"], goFuzzTarget, campaign, goFuzzSeeds, promoted)
 	}
 	completeEvidence := ociOutputCollected || (req.Tool.Name == "zeek" && exitCode == 0)
 	if exitCode >= 0 && completeEvidence {

@@ -69,7 +69,7 @@ spec:
       "name": "dns-1123-label suggestion for the resource name",
       "description": "one sentence on what the post-script does",
       "prompt": "per-finding instructions executed after findings are recorded",
-      "runOn": "all | confirmed | high-and-above | high-and-above-actionable"
+      "runOn": "all | confirmed | high-and-above | high-and-above-actionable | medium-and-above-actionable"
     }
 
     ## Rules

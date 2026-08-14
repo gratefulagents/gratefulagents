@@ -117,11 +117,15 @@ func RegisterSecurityToolRunTool(registry *Registry, state *securityScanState, d
 }
 
 type runSecurityToolTool struct {
-	state        *securityScanState
-	deps         SecurityToolRunDeps
-	packs        *securitytoolpacks.Registry
-	packsErr     error
-	pollInterval time.Duration
+	// restoredFuzzInputs records how many persisted corpus inputs were
+	// restored into the staged target, so the summary can say whether a clean
+	// campaign started cold or warm.
+	restoredFuzzInputs int
+	state              *securityScanState
+	deps               SecurityToolRunDeps
+	packs              *securitytoolpacks.Registry
+	packsErr           error
+	pollInterval       time.Duration
 }
 
 type runSecurityToolTarget struct {
@@ -268,7 +272,7 @@ func (t *runSecurityToolTool) Execute(ctx context.Context, input json.RawMessage
 		return errorResultf("SecurityToolRun %s did not finish before the wait ended (budget %ds, last phase %s); it keeps running — inspect it for the verdict rather than assuming a pass",
 			name, in.timeout(), securityToolRunPhase(final)), nil
 	}
-	return t.summarize(ctx, final, staging), nil
+	return t.summarize(ctx, final, staging, in), nil
 }
 
 func decodeRunSecurityToolInput(input json.RawMessage) (runSecurityToolInput, *Result) {
@@ -359,6 +363,11 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 		result := errorResultf("cannot stage workspace path %s: object storage is unavailable (%v)", relative, t.deps.BlobsErr)
 		return spec, stagedTarget{}, &result
 	}
+	// A fuzz campaign only compounds if it starts from what earlier campaigns
+	// found, so the persisted corpus is restored into the package's seed
+	// corpus before the target is archived. It has to happen here: the staged
+	// archive is the only channel into the execution Job.
+	t.restoredFuzzInputs = t.restoreGoFuzzCorpus(ctx, in, local)
 	archive, entries, skipped, err := archiveWorkspaceTarget(local)
 	if err != nil {
 		result := errorResultf("staging %s: %v", relative, err)
@@ -859,7 +868,7 @@ type runSecurityToolReplay struct {
 // summarize turns a terminal SecurityToolRun into the agent-facing verdict. A
 // failed run, an unreadable result, and a digest mismatch all stay errors: none
 // of them may look like a clean scan.
-func (t *runSecurityToolTool) summarize(ctx context.Context, run *platformv1alpha1.SecurityToolRun, staging stagedTarget) Result {
+func (t *runSecurityToolTool) summarize(ctx context.Context, run *platformv1alpha1.SecurityToolRun, staging stagedTarget, in runSecurityToolInput) Result {
 	summary := runSecurityToolSummary{
 		Tool:            run.Spec.Tool,
 		SecurityToolRun: run.Name,
@@ -895,6 +904,12 @@ func (t *runSecurityToolTool) summarize(ctx context.Context, run *platformv1alph
 			ObjectKey: artifact.ObjectKey,
 			Digest:    artifact.Digest,
 		})
+	}
+	// The campaign's new inputs become the next campaign's seed corpus, and
+	// the note says whether this run started cold or warm — a clean result
+	// from a cold first campaign means much less than one from a warm tenth.
+	if note := t.persistGoFuzzCorpus(ctx, in, summary.Artifacts); note != "" {
+		summary.Notes = append(summary.Notes, note)
 	}
 
 	document, err := t.fetchResult(ctx, result)

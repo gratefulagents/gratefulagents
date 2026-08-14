@@ -107,13 +107,39 @@ spec:
         - name: evm-low-level-and-deployment-review
         - name: evm-economic-and-mev-review
       objective: >-
-        Hunt for a way to break a named invariant from {{tasks.build-and-calibrate-invariants.output}}.
-        Aim first where the disclosed payouts are: initialization and upgrade state on the deployed
-        implementation, cross-domain proof and identity binding, divergence between this codebase and the
-        upstream it forked from, encoding and decoding round trips that let two inputs collide on one
-        identifier, missing balance or state validation, and accounting, rounding and decimals mismatches
-        against the real token decimals recorded in the dossier. Templated reentrancy and flash-loan
-        oracle patterns are a poor use of budget here and are covered by cheaper tooling. For every
+        Hunt for a way to break a named invariant from {{tasks.build-and-calibrate-invariants.output}},
+        working the classes in the order the disclosed payouts follow and naming, for every hypothesis, the
+        invariant it tries to break. Priority 1, initialization and upgrade state on the DEPLOYED
+        implementation: the invariant is that every implementation behind a proxy is already initialized,
+        owns nothing, and is reachable only through its proxy — hunt uninitialized implementations,
+        initializer re-entry across upgrades, ownership held on the implementation itself, and
+        implementation/admin slot confusion (Wormhole, $10M). Priority 2, cross-chain proof and identity
+        binding: the invariant is that a proof is accepted only from the producer allowed to have produced
+        it and that a relayed message arrives with the caller identity the destination believes it has —
+        hunt emitter, chain id and nonce binding, relayer and forwarder identity, and what msg.sender
+        becomes after relaying (Aurora, $1M). Priority 3, fork-versus-upstream divergence: when the target
+        is a client or an L2 fork, run upstream-fork-diff against the upstream revision recorded in the
+        dossier, enumerate every divergence, and check each one against the invariant the upstream code
+        used to satisfy; it is the cheapest enumerable high-payout sweep we have (Optimism l2geth,
+        $2,000,042). Priority 4, encoding and decoding round trips and replay: the invariant is that decode
+        after encode is the identity and that one identifier has exactly one encoding — hunt two encodings
+        colliding on one identifier, signature malleability, and missing nonce or domain separation
+        (Polygon Plasma, $2M). Priority 5, missing balance and state validation, the most frequently
+        confirmed root cause in Immunefi's disclosed set: the invariant is that every state-changing path
+        checks the balance, allowance, bound or existence it depends on. Priority 6, accounting, rounding,
+        precision and decimals: the invariant is that share-to-asset conversion round-trips within a stated
+        bound and that every amount is scaled by the decimals actually read from chain rather than assumed
+        to be 18 — build the decimals matrix over the real values in the dossier and hunt division before
+        multiplication and repeated caller-favorable rounding (DFX; Moonbeam, Astar and Acala, $1M).
+        Priority 7, access control and role or permission inventories: the invariant is the access-control
+        matrix the harness already asserts, checked against the role holders in the dossier. Priorities 1
+        and 6 rest on facts only the chain-read and deployed-bytecode-diff packs can settle, and both need
+        an operator-authorized fork endpoint alias: with no alias authorized, record the missing
+        authorization as an explicit gap, leave the hypothesis untested rather than refuted, and never
+        assume the deployed value. Templated reentrancy and flash-loan oracle manipulation stay available
+        but are off the default bounty path: they are under one percent of disclosed DeFi losses and bots
+        already find them, and bot-findable means unpayable — Code4rena rules Zellic V12 bot findings and
+        their duplicates ineligible, and Cantina does the same with LightChaser. For every
         hypothesis state the invariant it targets, the least-privileged attacker who can act, the exact
         input they control, the state transition expected, and the observation that would falsify it. A
         hypothesis you cannot falsify is not a hypothesis. Publish every hypothesis, including the ones
@@ -128,6 +154,8 @@ spec:
             "required": ["invariant", "attacker", "controlled_input", "expected_transition", "falsifier", "status"],
             "properties": {
               "invariant": {"type": "string"},
+              "priority_class": {"type": "string", "description": "Which payout-ordered class this hypothesis belongs to, 1 through 7"},
+              "missing_dependency": {"type": "string", "description": "Tool or authorization that was unavailable, such as an unauthorized fork endpoint alias for chain-read; required whenever status is untested"},
               "attacker": {"type": "string", "description": "Least privilege the attacker needs"},
               "controlled_input": {"type": "string"},
               "expected_transition": {"type": "string"},

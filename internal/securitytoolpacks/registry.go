@@ -167,6 +167,18 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 	for _, a := range t.Arguments {
 		known[a.Name] = a
 	}
+	// A declared default is registry data, so an omitted optional argument
+	// still resolves to a reviewed value and the recorded configuration
+	// states what actually ran instead of leaving it implicit in argv.
+	for _, a := range t.Arguments {
+		if a.Default == "" || cfg.Arguments[a.Name] != "" {
+			continue
+		}
+		if cfg.Arguments == nil {
+			cfg.Arguments = map[string]string{}
+		}
+		cfg.Arguments[a.Name] = a.Default
+	}
 	for k, v := range cfg.Arguments {
 		a, ok := known[k]
 		if !ok {
@@ -186,6 +198,9 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		}
 		if !regexp.MustCompile(`^\^Fuzz[A-Za-z0-9_]+\$$`).MatchString(fuzz) {
 			return Invocation{}, Tool{}, fmt.Errorf("argument %q must select exactly one named Go fuzz target", "fuzz")
+		}
+		if _, err := ParseFuzzCampaign(cfg.Arguments["fuzztime"]); err != nil {
+			return Invocation{}, Tool{}, err
 		}
 	}
 	if rateValue := cfg.Arguments["rate"]; rateValue != "" {
@@ -251,7 +266,17 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 			return Invocation{}, Tool{}, fmt.Errorf("unresolved invocation token %q", argv[i])
 		}
 	}
-	return Invocation{Image: t.Image, Digest: t.ImageDigest, Argv: argv, Budgets: t.Budgets, Network: t.Requirements.Network, Privilege: t.Requirements.Privilege}, t, nil
+	budgets := t.Budgets
+	if t.Name == "go-fuzz-tests" {
+		// The deadline follows the campaign the run asked for; a fixed budget
+		// would truncate a long campaign and misreport it as a timeout.
+		campaign, err := ParseFuzzCampaign(cfg.Arguments["fuzztime"])
+		if err != nil {
+			return Invocation{}, Tool{}, err
+		}
+		budgets = fuzzCampaignBudget(budgets, campaign)
+	}
+	return Invocation{Image: t.Image, Digest: t.ImageDigest, Argv: argv, Budgets: budgets, Network: t.Requirements.Network, Privilege: t.Requirements.Privilege}, t, nil
 }
 
 // IsEVMBuildTool reports whether a tool operates only on staged EVM project
@@ -687,6 +712,11 @@ func validateArg(a Argument, value string) error {
 		if !evmBlockHashPattern.MatchString(value) {
 			return fmt.Errorf("argument %q must be a 0x-prefixed lowercase 32-byte block hash", a.Name)
 		}
+	case "duration":
+		parsed, err := time.ParseDuration(value)
+		if err != nil || parsed <= 0 {
+			return fmt.Errorf("argument %q must be a positive Go duration such as 2m", a.Name)
+		}
 	case "evm_address":
 		if !evmAddressPattern.MatchString(value) {
 			return fmt.Errorf("argument %q must be a 0x-prefixed lowercase 20-byte address", a.Name)
@@ -793,7 +823,7 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("slither", DomainBlockchain, "0.11.3", "slither-json", "application/json", []string{"solidity_project"}, []string{"slither", "{{target}}", "--solc", "/home/ethsec/.local/bin/solc", "--json", "/work/slither.json"}),
 		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
 		base("halmos", DomainBlockchain, "0.3.3", "halmos-json", "application/json", []string{"foundry_project"}, []string{"halmos", "--root", "{{target}}", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"}),
-		base("go-fuzz-tests", DomainBlockchain, "go1.26", "go-test-json", "application/x-ndjson", []string{"go_fuzz_project"}, []string{"go", "-C", "{{target}}", "test", "-json", "{{package}}", "-run=^$", "-fuzz", "{{fuzz}}", "-fuzztime=30s", "-parallel=1"}),
+		base("go-fuzz-tests", DomainBlockchain, "go1.26", "go-test-json", "application/x-ndjson", []string{"go_fuzz_project"}, []string{"go", "-C", "{{target}}", "test", "-json", "{{package}}", "-run=^$", "-fuzz", "{{fuzz}}", "-fuzztime={{fuzztime}}", "-parallel=1"}),
 		// EVM verification packs. The fork endpoint is never a model-supplied
 		// string: argv carries an operator-authorized alias token that the
 		// execution layer resolves, and the forked chain state is pinned by
@@ -876,7 +906,14 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		case "owasp-zap", "schemathesis":
 			tools[i].Arguments = []Argument{{Name: "base_url", Type: "url", Required: true}}
 		case "go-fuzz-tests":
-			tools[i].Arguments = []Argument{{Name: "package", Type: "string", Required: true}, {Name: "fuzz", Type: "string", Required: true}}
+			tools[i].Arguments = []Argument{
+				{Name: "package", Type: "string", Required: true},
+				{Name: "fuzz", Type: "string", Required: true},
+				// The campaign length is the difference between fuzzing and a
+				// smoke test, so it is a reviewed, bounded argument rather than
+				// a constant buried in argv.
+				{Name: "fuzztime", Type: "duration", Default: defaultFuzzCampaign.String()},
+			}
 		case "naabu", "nmap":
 			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}, {Name: "ports", Type: "ports", Required: true}}
 		case "anvil-fork", "forge-fork-test":

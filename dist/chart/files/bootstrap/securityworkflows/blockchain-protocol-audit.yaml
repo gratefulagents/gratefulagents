@@ -127,7 +127,27 @@ spec:
       objective: >-
         Process the indexed array in {{items}}, reviewing every risk-ranked protocol surface it contains end
         to end. For each input, use its surface_id, domain, entrypoint, file, attacker, asset_or_invariant, and
-        control. Follow attacker-controlled data through parsing, validation, authorization, state reads and
+        control. Attack each surface in the payout-ordered sequence, naming the invariant you are trying to
+        break. Priority 1, initialization and upgrade state on the DEPLOYED implementation: every
+        implementation behind a proxy is already initialized, owns nothing, and is reachable only through
+        its proxy (Wormhole, $10M). Priority 2, cross-chain proof and identity binding: a proof is accepted
+        only from the producer allowed to have produced it, and a relayed message keeps the caller identity
+        the destination believes it has, msg.sender after relaying included (Aurora, $1M). Priority 3,
+        fork-versus-upstream divergence when the surface belongs to a client or an L2 fork: upstream-fork-diff
+        enumerates every divergence and each one is checked against the invariant the upstream code used to
+        satisfy (Optimism l2geth, $2,000,042). Priority 4, encoding and decoding round trips and replay:
+        decode after encode is the identity, one identifier has exactly one encoding, and nonce and domain
+        separation are present (Polygon Plasma, $2M). Priority 5, missing balance and state validation, the
+        most frequently confirmed root cause in Immunefi's disclosed set: every state-changing path checks
+        the balance, bound or existence it depends on. Priority 6, accounting, rounding, precision and
+        decimals: conversions round-trip within a stated bound at the decimals actually reported, never an
+        assumed 18 (Moonbeam, Astar and Acala, $1M). Priority 7, access control and role or permission
+        inventories: the matrix of who may call what holds. Priorities 1 and 6 rest on deployed state that
+        only the chain-read and deployed-bytecode-diff packs can settle, and both need an
+        operator-authorized fork endpoint alias: with no alias authorized, return blocked for that surface
+        with the missing authorization named in the summary rather than assuming the deployed value.
+        Templated reentrancy and flash-loan oracle patterns stay available but sit off the default path,
+        because bots already sweep them and bot-findable means unpayable. Follow attacker-controlled data through parsing, validation, authorization, state reads and
         writes, cryptography, external calls, persistence, and error or rollback handling. Compare alternate
         admission, replay, synchronization, estimation, tracing, recovery, and upgrade paths that perform the
         same operation. Report only a concrete path where the stated control is absent or bypassable, with
@@ -169,7 +189,13 @@ spec:
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-sharp-edges
       objective: >-
-        Use {{tasks.map-protocol-surfaces.output}} to audit consensus, finality, and state transitions. Cover
+        Use {{tasks.map-protocol-surfaces.output}} to audit consensus, finality, and state transitions.
+        Payout-ordered priority 3 is owned here: when this codebase is a fork of an upstream client or L2,
+        name upstream-fork-diff, enumerate every divergence against the upstream revision, and check each
+        divergence against the invariant the upstream code used to satisfy — a state-transition or
+        accounting rule upstream enforced and the fork silently dropped is the cheapest enumerable
+        high-payout sweep we have (Optimism l2geth, $2,000,042). Record an unavailable upstream revision as
+        a limitation instead of guessing at the diff. Cover
         vote and certificate validation, stake-weighted quorum, validator-set and epoch changes,
         equivocation and slashing, view or round transitions, weak-subjectivity and checkpoint assumptions,
         fork-choice and upgrade activation, block and transaction execution, and state-root construction.
@@ -213,7 +239,16 @@ spec:
         - name: trail-of-bits-property-based-testing
       objective: >-
         Audit transaction and protocol authorization, proof verification, and value accounting using
-        {{tasks.map-protocol-surfaces.output}}. Check signature encoding and recovery, domain and chain
+        {{tasks.map-protocol-surfaces.output}}. Payout-ordered priorities 4, 5 and 6 are owned here.
+        Priority 4, encoding and decoding round trips and replay: the invariant is that decode after encode
+        is the identity and that one identifier has exactly one encoding, so hunt two encodings colliding
+        on one identifier, signature malleability, and missing nonce or domain separation (Polygon Plasma,
+        $2M). Priority 5, missing balance and state validation, the most frequently confirmed root cause in
+        Immunefi's disclosed set: the invariant is that every value-moving path checks the balance, bound
+        or existence it depends on before it acts. Priority 6, accounting, rounding, precision and
+        decimals: the invariant is that a conversion round-trips within a stated bound across every
+        representation and decimal scale, so build the decimals matrix over non-18-decimal representations
+        and hunt division before multiplication (Moonbeam, Astar and Acala, $1M). Check signature encoding and recovery, domain and chain
         separation, nonces and replay, threshold and multisignature rules, commitments, randomness, and
         cryptographic errors that fail open. Follow fees, balances, gas, rewards, deposits, withdrawals,
         integer conversions, precision, and rounding across every representation and layer. Hunt for an
@@ -254,7 +289,11 @@ spec:
         - name: trail-of-bits-property-based-testing
       objective: >-
         Where {{tasks.map-protocol-surfaces.output}} shows a chain, layer, shard, or custody boundary, trace
-        the entire message and value lifecycle. Audit origin, destination, chain-id, emitter, nonce,
+        the entire message and value lifecycle. Payout-ordered priority 2 is owned here, cross-chain proof
+        and identity binding: the invariant is that a proof is accepted only from the producer allowed to
+        have produced it and that a relayed message arrives with the caller identity the destination
+        believes it has, so establish who is allowed to have produced this proof, how relayer and forwarder
+        identity is bound to it, and what msg.sender becomes on the far side after relaying (Aurora, $1M). Audit origin, destination, chain-id, emitter, nonce,
         membership, stake/guardian quorum, epoch, sequence, finality, proof root, replay, and execution checks;
         canonical encoding across producer and verifier; reorg behavior; relayer confused-deputy paths; and
         retry, refund, partial failure, and withdrawal ownership. Hunt for forged, substituted, reordered, or
@@ -381,7 +420,16 @@ spec:
       objective: >-
         Audit genesis and chain configuration, network and chain IDs, trusted checkpoints, fork and upgrade
         activation, migrations, default service bindings, exposed ports, and deployment wiring associated
-        with {{tasks.map-protocol-surfaces.output}}. Hunt for inconsistent parameters across components,
+        with {{tasks.map-protocol-surfaces.output}}. Payout-ordered priority 1 is owned here,
+        initialization and upgrade state on the DEPLOYED implementation: the invariant is that every
+        implementation behind a proxy is already initialized, owns nothing, and is reachable only through
+        its proxy, so hunt uninitialized implementations, initializer re-entry across upgrades, ownership
+        held on the implementation itself, and implementation/admin slot confusion (Wormhole, $10M). That
+        is deployed state rather than source: the chain-read pack reads the EIP-1967 implementation, admin
+        and beacon slots and the owner and role holders, and deployed-bytecode-diff proves the compiled
+        artifact is the code running at the address, and both need an operator-authorized fork endpoint
+        alias. With no alias authorized, record the missing authorization as an explicit limitation and
+        return unsupported for that check rather than assuming the deployed value. Hunt for inconsistent parameters across components,
         boundary and rollback errors in activation, unsafe production defaults, unverified genesis or
         checkpoint selection, migrations that violate state invariants, and drift between a fork and its
         upstream implementation that changes protocol semantics. Report only a concrete configuration,
@@ -722,7 +770,10 @@ spec:
         quorum, delegation, timelock, emergency-action, ordering, and liveness invariants before manual review.
         Cover oracle/liquidity assumptions, liquidation and auction incentives, insolvency cascades, reward and
         fee gaming, griefing, bribery/censorship, flash-loan or borrowed voting, proposal/execution bypass,
-        sandwiches/back-running/JIT/liquidation races, batching, and parameter stress. Identify applicable unit,
+        sandwiches/back-running/JIT/liquidation races, batching, and parameter stress. Templated flash-loan
+        oracle manipulation stays available but is off the default path: bots already sweep the templated
+        patterns and bot-findable means unpayable, so spend the budget on the composition, freshness,
+        decimals and incentive cases no bot templates. Identify applicable unit,
         invariant/property, stateful simulation, fork, differential, governance lifecycle, and adversarial
         ordering tests, but do not claim this task ran them or performed economic simulation.
         Record limitations and report only concrete attacker paths with decisive file:line evidence and

@@ -32,7 +32,11 @@ type NativeResult struct {
 	TimedOut                     bool
 	Environment                  map[string]string
 	Examined, Skipped, Uncovered []string
-	Err                          error
+	// Bounded is the scope an executor knows and the adapter cannot see:
+	// campaign length, corpus provenance, harness identity. A bounded clean
+	// run is only honest if it says what bounded it.
+	Bounded *BoundedScope
+	Err     error
 }
 type Sandbox interface {
 	Execute(context.Context, ExecutionRequest) NativeResult
@@ -118,6 +122,10 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig) Result {
 	}
 	native := r.sandbox.Execute(ctx, ExecutionRequest{Invocation: inv, Tool: cloneTool(tool), Config: cloneRunConfig(cfg)})
 	res.Coverage = Coverage{Examined: sortedUnique(native.Examined), Skipped: sortedUnique(native.Skipped), Uncovered: sortedUnique(native.Uncovered)}
+	if native.Bounded != nil {
+		bounded := *native.Bounded
+		res.Bounded = &bounded
+	}
 	res.Replay.Environment = stableEnvironment(native.Environment)
 	res.Replay.SandboxDigest = native.Environment["sandbox_digest"]
 	redactor := NewRedactor(cfg.Sensitive...)

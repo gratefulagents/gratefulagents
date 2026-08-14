@@ -529,8 +529,8 @@ function PostScriptEditorDialog({
               id="ps-run-on"
               label="Runs on"
               hint={
-                runOn === "high-and-above-actionable"
-                  ? "High/critical findings only; skips the first attempt when a successful earlier stage already marked the finding false positive, accepted risk, or fixed. Use all findings for finalizers."
+                runOn === "high-and-above-actionable" || runOn === "medium-and-above-actionable"
+                  ? "Findings at or above the chosen severity; skips the first attempt when a successful earlier stage already marked the finding false positive, accepted risk, or fixed. Use all findings for finalizers."
                   : "Which findings this post-script runs against."
               }
             >
@@ -544,6 +544,7 @@ function PostScriptEditorDialog({
                 <option value="confirmed">confirmed findings</option>
                 <option value="high-and-above">high-and-above findings</option>
                 <option value="high-and-above-actionable">high-and-above while actionable</option>
+                <option value="medium-and-above-actionable">medium-and-above while actionable</option>
               </select>
             </FlowField>
             {error && <p className="text-sm text-destructive">{error}</p>}

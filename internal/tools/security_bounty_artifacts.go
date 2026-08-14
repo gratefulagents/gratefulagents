@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
 
+	"github.com/gratefulagents/gratefulagents/internal/security"
 	"github.com/gratefulagents/gratefulagents/internal/securitytoolpacks"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 )
@@ -412,9 +413,37 @@ type saveSecurityBountySubmissionTool struct {
 	deps      securityBountyArtifactDeps
 }
 
-func securityReportBundleStatus(finding *store.SecurityFindingRecord) (string, error) {
-	if finding == nil || (finding.Status != store.SecurityFindingStatusConfirmed && finding.Status != store.SecurityFindingStatusTriaged) || finding.DuplicateOf != nil || finding.SuppressedBy != "" || (finding.Severity != "high" && finding.Severity != "critical") {
-		return "", fmt.Errorf("finding is not an eligible triaged or confirmed, unsuppressed, non-duplicate high/critical report")
+// securityProgramSeverityFloor returns the lowest severity the governing
+// program itself publishes across its in-scope impact clauses: a program whose
+// scope lists medium clauses pays for mediums, and one that lists only
+// high and critical clauses does not. The level is the program's own, never
+// translated into another system.
+//
+// Without a governing scope there is no published table to read, and a
+// truncated list cannot prove which levels the program publishes, so both keep
+// the conservative high floor.
+func securityProgramSeverityFloor(scanCtx SecurityScanContext) string {
+	floor := security.SeverityHigh
+	if len(scanCtx.InScopeImpacts) == 0 || scanCtx.ImpactsTruncated {
+		return floor
+	}
+	lowest := -1
+	for _, impact := range scanCtx.InScopeImpacts {
+		rank := security.SeverityRank(impact.Level)
+		if rank < 0 {
+			continue
+		}
+		if lowest < 0 || rank < lowest {
+			lowest, floor = rank, impact.Level
+		}
+	}
+	return floor
+}
+
+func securityReportBundleStatus(finding *store.SecurityFindingRecord, scanCtx SecurityScanContext) (string, error) {
+	floor := securityProgramSeverityFloor(scanCtx)
+	if finding == nil || (finding.Status != store.SecurityFindingStatusConfirmed && finding.Status != store.SecurityFindingStatusTriaged) || finding.DuplicateOf != nil || finding.SuppressedBy != "" || !security.SeverityAtLeast(finding.Severity, floor) {
+		return "", fmt.Errorf("finding is not an eligible triaged or confirmed, unsuppressed, non-duplicate report at or above the program's lowest published severity %q", floor)
 	}
 	if finding.Status == store.SecurityFindingStatusConfirmed {
 		return "ready", nil
@@ -464,7 +493,7 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	artifactStatus, err := securityReportBundleStatus(finding)
+	artifactStatus, err := securityReportBundleStatus(finding, t.state.scanCtx)
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}

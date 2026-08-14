@@ -623,4 +623,148 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 			t.Errorf("impact objective is missing %q", marker)
 		}
 	}
+	// The hunt is aimed by disclosed payouts, in order, and every class names
+	// the invariant it breaks so it feeds the calibrated harness instead of
+	// producing prose.
+	hunt := byName["hunt-against-invariants"].Objective
+	for _, marker := range slices.Concat(payoutOrderMarkers, []string{
+		"upstream-fork-diff",
+		"chain-read and deployed-bytecode-diff packs can settle",
+		"operator-authorized fork endpoint alias",
+		"untested rather than refuted",
+		"bot-findable means unpayable",
+	}) {
+		if !strings.Contains(hunt, marker) {
+			t.Errorf("hunt objective is missing %q", marker)
+		}
+	}
+}
+
+// payoutOrderMarkers pins the priority order the hunt lanes are aimed at, so a
+// rewrite cannot quietly drop a class or reorder it back to the generic
+// vulnerability taxonomy the disclosed payouts no longer follow.
+var payoutOrderMarkers = []string{
+	"Priority 1, initialization and upgrade state on the DEPLOYED implementation",
+	"Priority 2, cross-chain proof and identity binding",
+	"Priority 3, fork-versus-upstream divergence",
+	"Priority 4, encoding and decoding round trips and replay",
+	"Priority 5, missing balance and state validation",
+	"Priority 6, accounting, rounding, precision and decimals",
+	"Priority 7, access control and role or permission inventories",
+}
+
+// TestHuntObjectivesFollowDisclosedPayoutOrder holds the two large blockchain
+// review workflows to the same payout-ordered aim as the bounty hunt: the
+// deployed-state, cross-chain identity, fork-divergence, encoding, validation,
+// accounting and access-control classes are prioritized by class, each names
+// the invariant it breaks, chain reads name the pack and the authorization they
+// need, and the bot-findable classes stay available but off the default path.
+func TestHuntObjectivesFollowDisclosedPayoutOrder(t *testing.T) {
+	t.Parallel()
+
+	workflows := map[string]map[string][]string{
+		"smart-contract-review": {
+			"low-level-factories-proxies-and-storage": {
+				"Payout-ordered priority 1 is owned here: initialization and upgrade state on the DEPLOYED implementation",
+				"The invariant is that every implementation behind a proxy is already initialized",
+				"the chain-read pack reads the EIP-1967 implementation, admin and beacon slots",
+				"deployed-bytecode-diff",
+				"operator-authorized fork endpoint alias",
+				"never assume a slot value you could not read",
+				"Payout-ordered priority 3 also lands here",
+				"name upstream-fork-diff",
+				"the invariant the upstream code used to satisfy",
+			},
+			"authorization-signatures-and-account-abstraction": {
+				"Payout-ordered priorities 2, 4 and 7 are owned here",
+				"Priority 2, cross-chain proof and identity binding",
+				"what msg.sender becomes after relaying",
+				"Priority 4, encoding and decoding round trips and replay",
+				"missing nonce or domain separation",
+				"Priority 7, access control",
+			},
+			"accounting-arithmetic-and-token-integrations": {
+				"Payout-ordered priorities 5 and 6 are owned here",
+				"Priority 5, missing balance and state validation",
+				"Priority 6, accounting, rounding, precision and decimals",
+				"non-18-decimal tokens",
+				"only the chain-read pack can settle",
+				"never assume a decimals value you could not read",
+			},
+			"external-calls-reentrancy-and-atomicity": {
+				"stay AVAILABLE here but sit off the default bounty path",
+				"bot-findable means unpayable",
+				"Zellic V12",
+				"LightChaser",
+			},
+			"oracles-randomness-time-and-ordering": {
+				"Templated flash-loan oracle manipulation",
+				"stays AVAILABLE but is off the default bounty path",
+				"bot-findable means unpayable",
+			},
+		},
+		"blockchain-protocol-audit": {
+			"review-critical-surface": slices.Concat(payoutOrderMarkers, []string{
+				"naming the invariant you are trying to break",
+				"chain-read and deployed-bytecode-diff packs can settle",
+				"operator-authorized fork endpoint alias",
+				"rather than assuming the deployed value",
+				"bot-findable means unpayable",
+			}),
+			"consensus-finality-and-state-transition": {
+				"Payout-ordered priority 3 is owned here",
+				"name upstream-fork-diff",
+				"the invariant the upstream code used to satisfy",
+				"Record an unavailable upstream revision as a limitation",
+			},
+			"cross-chain-bridge-and-custody": {
+				"Payout-ordered priority 2 is owned here, cross-chain proof and identity binding",
+				"who is allowed to have produced this proof",
+				"what msg.sender becomes on the far side after relaying",
+			},
+			"transaction-crypto-and-accounting": {
+				"Payout-ordered priorities 4, 5 and 6 are owned here",
+				"Priority 4, encoding and decoding round trips and replay",
+				"Priority 5, missing balance and state validation",
+				"Priority 6, accounting, rounding, precision and decimals",
+				"non-18-decimal representations",
+			},
+			"genesis-deployment-and-upgrades": {
+				"Payout-ordered priority 1 is owned here",
+				"the chain-read pack reads the EIP-1967 implementation, admin and beacon slots",
+				"deployed-bytecode-diff",
+				"operator-authorized fork endpoint alias",
+				"rather than assuming the deployed value",
+			},
+			"economics-mev-governance-specialist": {
+				"Templated flash-loan oracle manipulation stays available but is off the default path",
+				"bot-findable means unpayable",
+			},
+		},
+	}
+
+	for name, tasks := range workflows {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+			byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+			for _, task := range workflow.Spec.Tasks {
+				byName[task.Name] = task
+			}
+			for taskName, markers := range tasks {
+				task, ok := byName[taskName]
+				if !ok {
+					t.Errorf("workflow is missing hunt task %q", taskName)
+					continue
+				}
+				for _, marker := range markers {
+					if !strings.Contains(task.Objective, marker) {
+						t.Errorf("task %q objective is missing %q", taskName, marker)
+					}
+				}
+			}
+		})
+	}
 }

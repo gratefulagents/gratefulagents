@@ -129,7 +129,41 @@ func TestSecurityReportBundleStatusIncludesTriaged(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			finding := base
 			finding.Status = tc.status
-			got, err := securityReportBundleStatus(&finding)
+			got, err := securityReportBundleStatus(&finding, bountyScanContextWithProgram())
+			if (err != nil) != tc.wantErr || got != tc.want {
+				t.Fatalf("securityReportBundleStatus() = %q, %v; want %q, error=%v", got, err, tc.want, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestSecurityReportBundleStatusFollowsProgramPublishedLevels(t *testing.T) {
+	t.Parallel()
+	mediumProgram := bountyScanContextWithProgram()
+	mediumProgram.InScopeImpacts = append(mediumProgram.InScopeImpacts, SecurityProgramImpactClause{Level: "medium", Impact: "Griefing with no profit motive"})
+	truncatedMediumProgram := mediumProgram
+	truncatedMediumProgram.ImpactsTruncated = true
+	noProgram := SecurityScanContext{ScanName: "bounty", RunName: "report-run", ExecutionID: "exec-3"}
+
+	for _, tc := range []struct {
+		name     string
+		severity string
+		scanCtx  SecurityScanContext
+		want     string
+		wantErr  bool
+	}{
+		{name: "program publishing mediums packages a medium", severity: "medium", scanCtx: mediumProgram, want: "ready"},
+		{name: "program publishing only high and above rejects a medium", severity: "medium", scanCtx: bountyScanContextWithProgram(), wantErr: true},
+		{name: "program publishing only high and above keeps packaging highs", severity: "high", scanCtx: bountyScanContextWithProgram(), want: "ready"},
+		{name: "no program scope keeps the high floor", severity: "medium", scanCtx: noProgram, wantErr: true},
+		{name: "no program scope still packages a high", severity: "high", scanCtx: noProgram, want: "ready"},
+		{name: "truncated impact list keeps the high floor", severity: "medium", scanCtx: truncatedMediumProgram, wantErr: true},
+		{name: "low stays below a medium program floor", severity: "low", scanCtx: mediumProgram, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			finding := store.SecurityFindingRecord{Severity: tc.severity, Status: store.SecurityFindingStatusConfirmed}
+			got, err := securityReportBundleStatus(&finding, tc.scanCtx)
 			if (err != nil) != tc.wantErr || got != tc.want {
 				t.Fatalf("securityReportBundleStatus() = %q, %v; want %q, error=%v", got, err, tc.want, tc.wantErr)
 			}

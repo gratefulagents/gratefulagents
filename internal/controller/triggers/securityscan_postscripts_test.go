@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/store"
 )
 
 func TestSecurityProgramScopeAnnotationsMarkTruncation(t *testing.T) {
@@ -58,5 +59,45 @@ func TestSecurityProgramScopeAnnotationsMarkTruncation(t *testing.T) {
 	}
 	if len(annotations[triggersv1alpha1.SecurityScanProgramImpactsAnnotation]) > triggersv1alpha1.MaxSecurityScanProgramImpactsAnnotationBytes {
 		t.Error("the impacts annotation exceeded its bound")
+	}
+}
+
+func TestSecurityScanPostScriptMatchesMediumAndAboveActionable(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, runOn, severity string
+		want                  bool
+	}{
+		{name: "medium matches the medium floor", runOn: "medium-and-above-actionable", severity: "medium", want: true},
+		{name: "high matches the medium floor", runOn: "medium-and-above-actionable", severity: "high", want: true},
+		{name: "low stays below the medium floor", runOn: "medium-and-above-actionable", severity: "low"},
+		{name: "medium stays below the high floor", runOn: "high-and-above-actionable", severity: "medium"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rec := store.SecurityFindingRecord{Severity: tc.severity, Status: store.SecurityFindingStatusTriaged}
+			got, reason := securityScanPostScriptMatches(tc.runOn, rec)
+			if got != tc.want {
+				t.Fatalf("securityScanPostScriptMatches(%q, %q) = %v (%s), want %v", tc.runOn, tc.severity, got, reason, tc.want)
+			}
+			if !got && !strings.Contains(reason, tc.severity) {
+				t.Fatalf("skip reason %q does not name the severity %q", reason, tc.severity)
+			}
+		})
+	}
+}
+
+func TestSecurityScanPostScriptsActionableOnlyCoversMediumVariant(t *testing.T) {
+	t.Parallel()
+	for runOn, want := range map[string]bool{
+		"medium-and-above-actionable": true,
+		"high-and-above-actionable":   true,
+		"high-and-above":              false,
+		"all":                         false,
+	} {
+		scripts := []triggersv1alpha1.SecurityScanPostScript{{Name: "poc-builder", Prompt: "p", RunOn: runOn}}
+		if got := securityScanPostScriptsActionableOnly(scripts); got != want {
+			t.Fatalf("securityScanPostScriptsActionableOnly(%q) = %v, want %v", runOn, got, want)
+		}
 	}
 }

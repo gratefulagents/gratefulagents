@@ -306,7 +306,7 @@ func (e *securityScanExecutionEngine) postScriptPipelineChunks(all []triggersv1a
 		script := byName[name]
 		// Actionable-only stages need an AgentRun boundary so a successful
 		// predecessor can reject the finding before this stage is dispatched.
-		if script.EffectiveRunOn() == "high-and-above-actionable" {
+		if securityScanPostScriptRunOnActionable(script.EffectiveRunOn()) {
 			if len(names) > 0 {
 				chunks = append(chunks, append([]string(nil), names...))
 			}
@@ -653,7 +653,14 @@ func securityScanFindingHasTerminalStatus(status string) bool {
 }
 
 func securityScanPostScriptsActionableOnly(scripts []triggersv1alpha1.SecurityScanPostScript) bool {
-	return len(scripts) == 1 && scripts[0].EffectiveRunOn() == "high-and-above-actionable"
+	return len(scripts) == 1 && securityScanPostScriptRunOnActionable(scripts[0].EffectiveRunOn())
+}
+
+// securityScanPostScriptRunOnActionable reports whether a runOn selector
+// carries the 'actionable' semantics: the stage is skipped once a successful
+// predecessor has already settled the finding.
+func securityScanPostScriptRunOnActionable(runOn string) bool {
+	return runOn == "high-and-above-actionable" || runOn == "medium-and-above-actionable"
 }
 
 func (e *securityScanExecutionEngine) postScriptHasSuccessfulPredecessor(job triggersv1alpha1.SecurityScanPostScriptJobStatus) bool {
@@ -689,6 +696,10 @@ func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord
 		}
 	case "high-and-above", "high-and-above-actionable":
 		if !security.SeverityAtLeast(rec.Severity, security.SeverityHigh) {
+			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q (status %q)", runOn, rec.Severity, rec.Status)
+		}
+	case "medium-and-above-actionable":
+		if !security.SeverityAtLeast(rec.Severity, security.SeverityMedium) {
 			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q (status %q)", runOn, rec.Severity, rec.Status)
 		}
 	}
