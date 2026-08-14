@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 
-import { importableImmunefiTargets } from "@/lib/immunefiTargetCatalog";
+import { importableProgramTargets } from "@/lib/programTargetCatalog";
 import {
   SecurityProgramResourceSchema,
   SecurityProgramScanTargetSchema,
@@ -22,9 +22,9 @@ function program(name: string, scanTargets: TargetInput[]): SecurityProgramResou
   });
 }
 
-describe("importableImmunefiTargets", () => {
+describe("importableProgramTargets", () => {
   it("flattens every repository target and sorts by priority then display name", () => {
-    const targets = importableImmunefiTargets([
+    const targets = importableProgramTargets([
       program("program-multi", [
         {
           featured: true,
@@ -128,7 +128,7 @@ describe("importableImmunefiTargets", () => {
       }),
     });
 
-    expect(importableImmunefiTargets([legacy])).toEqual([
+    expect(importableProgramTargets([legacy])).toEqual([
       expect.objectContaining({ name: "legacy-scan", baseBranch: "main" }),
     ]);
   });
@@ -136,6 +136,6 @@ describe("importableImmunefiTargets", () => {
   it("excludes programs without scan-target metadata", () => {
     const unavailable = create(SecurityProgramResourceSchema, { name: "program-unavailable" });
 
-    expect(importableImmunefiTargets([unavailable])).toEqual([]);
+    expect(importableProgramTargets([unavailable])).toEqual([]);
   });
 });

@@ -379,13 +379,20 @@ export function SecurityScanFormDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open && !source);
+  // New scans include ones prefilled from an imported program target
+  // (initialConfig): the template rarely sets a model, so the user's saved
+  // defaults still apply to whatever it left untouched.
+  const isNewScan = !config && !duplicateFrom;
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(
+    open && isNewScan,
+  );
 
   // Seed a brand-new scan's untouched run defaults from the user's saved
-  // model defaults. Editing, duplicating, or template-based configs keep the
-  // values they were loaded with.
+  // model defaults. Editing or duplicating keeps the values they were loaded
+  // with, and a template that sets provider/model/reasoning wins over the
+  // personal defaults.
   useEffect(() => {
-    if (!open || source || !modelDefaultsLoaded || !hasActiveModelDefaults(myModelDefaults))
+    if (!open || !isNewScan || !modelDefaultsLoaded || !hasActiveModelDefaults(myModelDefaults))
       return;
     const seeded = applyModelDefaults(myModelDefaults);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
@@ -397,7 +404,7 @@ export function SecurityScanFormDialog({
       next.reasoningLevel = seeded.reasoningLevel;
       return next;
     });
-  }, [open, source, modelDefaultsLoaded, myModelDefaults]);
+  }, [open, isNewScan, modelDefaultsLoaded, myModelDefaults]);
   const [libraryWorkflows, setLibraryWorkflows] = useState<SecurityWorkflowResource[]>([]);
   const [libraryRankers, setLibraryRankers] = useState<SecurityRankerResource[]>([]);
   const [libraryPostScripts, setLibraryPostScripts] = useState<SecurityPostScriptResource[]>([]);

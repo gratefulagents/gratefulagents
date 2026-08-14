@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 
 import { SecurityScanFormDialog } from "@/components/SecurityScanFormDialog";
@@ -24,6 +24,9 @@ vi.mock("@/lib/client", () => ({
       githubTokenPresent: false,
     }),
     listAvailableModels: vi.fn().mockResolvedValue({ models: [] }),
+    getMyModelDefaults: vi
+      .fn()
+      .mockResolvedValue({ provider: "", model: "", reasoningLevel: "", disabled: false }),
     listMCPServers: vi.fn().mockResolvedValue({ servers: [] }),
     listSkills: vi.fn().mockResolvedValue({ skills: [] }),
     listRuntimeImages: vi.fn().mockResolvedValue({ images: [] }),
@@ -286,6 +289,73 @@ describe("SecurityScanFormDialog", () => {
     expect(vi.mocked(client.updateSecurityScan).mock.calls[0][0].spec?.securityProgramRef).toBe(
       "acme-bounty",
     );
+  });
+});
+
+describe("SecurityScanFormDialog model defaults", () => {
+  it("seeds saved model defaults for a scan prefilled from an imported program target", async () => {
+    vi.mocked(client.getMyModelDefaults).mockResolvedValueOnce({
+      provider: "openai",
+      model: "gpt-5.2",
+      reasoningLevel: "high",
+      disabled: false,
+    } as never);
+    render(
+      <SecurityScanFormDialog
+        initialConfig={create(SecurityScanConfigSchema, {
+          name: "acme-protocol",
+          spec: create(SecurityScanConfigSpecSchema, {
+            repoUrl: "https://github.com/acme/protocol",
+            workflowRef: "blockchain-protocol-audit",
+            securityProgramRef: "acme-protocol",
+            manualOnly: true,
+          }),
+        })}
+        trigger={<button>Configure</button>}
+        defaultOpen
+      />,
+    );
+
+    await waitFor(() => expect(client.getMyModelDefaults).toHaveBeenCalled());
+    await act(async () => {}); // flush the resolved defaults into state
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(client.createSecurityScan).mock.calls[0][0].spec?.defaults).toMatchObject({
+      provider: "openai",
+      model: "gpt-5.2",
+      reasoningLevel: "high",
+    });
+  });
+
+  it("does not seed model defaults when duplicating an existing scan", async () => {
+    vi.mocked(client.getMyModelDefaults).mockResolvedValue({
+      provider: "openai",
+      model: "gpt-5.2",
+      reasoningLevel: "high",
+      disabled: false,
+    } as never);
+    render(
+      <SecurityScanFormDialog
+        duplicateFrom={create(SecurityScanConfigSchema, {
+          namespace: "user-alice",
+          name: "existing-scan",
+          spec: create(SecurityScanConfigSpecSchema, {
+            repoUrl: "https://github.com/acme/protocol",
+            workflowRef: "blockchain-protocol-audit",
+          }),
+        })}
+        trigger={<button>Duplicate</button>}
+        defaultOpen
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "copy-scan" } });
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    const defaults = vi.mocked(client.createSecurityScan).mock.calls[0][0].spec?.defaults;
+    expect(defaults?.provider ?? "").toBe("");
+    expect(defaults?.model ?? "").toBe("");
+    expect(client.getMyModelDefaults).not.toHaveBeenCalled();
   });
 });
 

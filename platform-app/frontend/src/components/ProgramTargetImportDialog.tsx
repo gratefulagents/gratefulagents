@@ -9,10 +9,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { importableImmunefiTargets, type ImmunefiTarget } from "@/lib/immunefiTargetCatalog";
+import { importableProgramTargets, type ProgramScanTarget } from "@/lib/programTargetCatalog";
 import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
 
-export function ImmunefiTargetImportDialog({
+export function ProgramTargetImportDialog({
   programs,
   existingNames,
   trigger,
@@ -21,12 +21,12 @@ export function ImmunefiTargetImportDialog({
   programs: readonly SecurityProgramResource[];
   existingNames: ReadonlySet<string>;
   trigger: React.ReactElement;
-  onTargetSelected: (target: ImmunefiTarget) => void;
+  onTargetSelected: (target: ProgramScanTarget) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const targets = importableImmunefiTargets(programs);
+  const targets = importableProgramTargets(programs);
 
-  function selectTarget(target: ImmunefiTarget) {
+  function selectTarget(target: ProgramScanTarget) {
     setOpen(false);
     onTargetSelected(target);
   }
@@ -36,9 +36,9 @@ export function ImmunefiTargetImportDialog({
       <DialogTrigger render={trigger} />
       <DialogContent className="flex max-h-[92vh] w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="space-y-1 border-b px-6 py-5">
-          <DialogTitle>Choose an Immunefi target</DialogTitle>
+          <DialogTitle>Choose a scan target</DialogTitle>
           <DialogDescription>
-            Select a bounty target to prefill a new scan. You can review the configuration,
+            Select a security-program target to prefill a new scan. You can review the configuration,
             model, credentials, and all other options before creating it.
           </DialogDescription>
         </DialogHeader>
@@ -49,10 +49,10 @@ export function ImmunefiTargetImportDialog({
           </p>
           {targets.length === 0 ? (
             <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              No importable Immunefi targets are available.
+              No importable scan targets are available.
             </p>
           ) : (
-            <ul className="divide-y rounded-lg border" aria-label="Importable Immunefi targets">
+            <ul className="divide-y rounded-lg border" aria-label="Importable scan targets">
               {targets.map((target) => {
                 const exists = existingNames.has(target.name);
                 return (
