@@ -16,6 +16,101 @@ spec:
   displayName: Lido
   programURL: https://immunefi.com/bug-bounty/lido/scope/
   verifiedAt: 2026-08-12T00:00:00Z
+  severitySystem: immunefi-v2.3
+  inScopeImpacts:
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Any governance voting result manipulation"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Theft of tokenized staking yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of tokenized staking yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Acquiring owner/admin rights or roles without contract’s owner/admin action"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Missing access controls / unprotected internal interfaces"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Economic/financial attacks"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Reversible freezing of funds"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Off-chain apps sensitive data extraction (e.g. Oracle private keys)"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Theft or loss of funds from a treasury"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Block stuffing for profit"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Susceptibility to frontrunning"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Contract fails to deliver promised returns, but doesn't lose value"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Execute arbitrary system commands"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Taking and/modifying authenticated actions (with or without blockchain state interaction) on behalf of other users without any interaction by that user, such as:"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Subdomain takeover with already-connected wallet interaction"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Direct theft of user funds"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Malicious interactions with an already-connected wallet, such as:"
+      level: critical
+      assetType: "Web & App"
+    - impact: "Changing sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as:"
+      level: high
+      assetType: "Web & App"
+    - impact: "Subdomain takeover without already-connected wallet interaction"
+      level: high
+      assetType: "Web & App"
+    - impact: "Retrieve sensitive data/files from a running server, such as: /etc/shadow database passwords blockchain keys (this does not include non-sensitive environment variables, open source code, or usernames)"
+      level: high
+      assetType: "Web & App"
+    - impact: "Redirecting users to malicious websites (open redirect)"
+      level: medium
+      assetType: "Web & App"
+    - impact: "Injecting/modifying the static content on the target application without JavaScript injection such as HTML injection, replacing existing text with arbitrary text, arbitrary file uploads, etc."
+      level: medium
+      assetType: "Web & App"
+    - impact: "Improperly disclosing confidential user information such as email address, phone number, IP address, etc."
+      level: medium
+      assetType: "Web & App"
+    - impact: "Changing details of other users (including modifying browser local storage) without already-connected wallet interaction and with significant user interaction, such as:"
+      level: low
+      assetType: "Web & App"
+    - impact: "Taking over broken or expired outgoing links, such as:"
+      level: low
+      assetType: "Web & App"
+    - impact: "Taking down the application/website"
+      level: low
+      assetType: "Web & App"
+    - impact: "Changing non- sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as changing the first/last name of user, or en/disabling"
+      level: low
+      assetType: "Web & App"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T15:44:30.409Z; page last updated 29 June 2026).
 

@@ -307,3 +307,73 @@ func TestSecurityProgramSnapshotIsQuotedInEveryPrompt(t *testing.T) {
 		})
 	}
 }
+
+func TestSecurityProgramTypedScopeIsRenderedInEveryPrompt(t *testing.T) {
+	spec := securityScanPromptSpec()
+	program := &triggersv1alpha1.SecurityProgramSpec{
+		Provider:       "Immunefi",
+		DisplayName:    "Acme Program",
+		ProgramURL:     "https://immunefi.com/bug-bounty/acme",
+		ScopePolicy:    "The acme/widget repository is in scope.",
+		VerifiedAt:     metav1.NewTime(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)),
+		SeveritySystem: string(triggersv1alpha1.SeveritySystemImmunefiV23),
+		Primacy:        string(triggersv1alpha1.PrimacyImpact),
+		PoCRequired:    true,
+		PoCEnvironment: string(triggersv1alpha1.PoCEnvironmentMainnetFork),
+		InScopeImpacts: []triggersv1alpha1.SecurityProgramImpact{
+			{Impact: "Permanent freezing of funds", Level: "critical", AssetType: "Smart Contract"},
+		},
+		OutOfScope:        []string{"Attacks requiring leaked keys"},
+		ProhibitedTesting: []string{"Testing on mainnet or public testnet"},
+		KnownIssues: []triggersv1alpha1.SecurityProgramKnownIssue{
+			{Source: "prior audit", Summary: "Rounding in withdraw is acknowledged"},
+		},
+		Assets: []triggersv1alpha1.SecurityProgramAsset{
+			{ChainID: "1", Address: "0xabc"},
+		},
+		SubmissionBudget: &triggersv1alpha1.SecurityProgramSubmissionBudget{MaxPerPeriod: 2, PeriodDays: 30},
+	}
+	task := spec.Workflow[0]
+	finding := SecurityPostScriptFinding{Fingerprint: "fp", ID: "id", Title: "finding", Severity: "high", Status: "open"}
+	prompts := map[string]string{
+		"coordinator": BuildSecurityScanPromptWithProgram(spec, nil, 0, program),
+		"task":        BuildSecurityScanTaskPromptWithProgram(spec, nil, task, SecurityScanTaskInstance{}, nil, program),
+		"post-script": BuildSecurityPostScriptPipelinePromptWithProgram(spec, nil, spec.PostScripts, finding, program),
+	}
+	for name, prompt := range prompts {
+		t.Run(name, func(t *testing.T) {
+			for _, want := range []string{
+				`Severity system: "immunefi-v2.3"`,
+				"never translate a severity label",
+				"Primacy: impact",
+				"Proof of concept: required (mainnet-fork)",
+				"Select the report's impact verbatim",
+				`[critical] "Permanent freezing of funds" (asset type "Smart Contract")`,
+				`"Attacks requiring leaked keys"`,
+				`"Rounding in withdraw is acknowledged"`,
+				`"Testing on mainnet or public testnet"`,
+				`chain "1" address "0xabc"`,
+				"at most 2 reports per 30 days",
+			} {
+				if !strings.Contains(prompt, want) {
+					t.Fatalf("prompt missing %q:\n%s", want, prompt)
+				}
+			}
+		})
+	}
+
+	// A program without typed scope renders none of the typed section.
+	untyped := &triggersv1alpha1.SecurityProgramSpec{
+		Provider:    "HackerOne",
+		DisplayName: "Legacy Program",
+		ProgramURL:  "https://hackerone.com/acme",
+		ScopePolicy: "The acme/widget repository is in scope.",
+		VerifiedAt:  metav1.NewTime(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)),
+	}
+	prompt := BuildSecurityScanPromptWithProgram(spec, nil, 0, untyped)
+	for _, unwanted := range []string{"Severity system:", "In-scope impacts", "Submission budget:"} {
+		if strings.Contains(prompt, unwanted) {
+			t.Fatalf("untyped program rendered %q:\n%s", unwanted, prompt)
+		}
+	}
+}

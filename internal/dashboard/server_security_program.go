@@ -59,6 +59,53 @@ func securityProgramSpecFromProto(pb *platform.SecurityProgramResource) (trigger
 	return spec, nil
 }
 
+// preserveSecurityProgramTypedScope carries the typed, machine-readable scope
+// facts (severity system, in-scope impacts, known issues, deployed assets, and
+// the submission budget) from the stored program onto an incoming update.
+//
+// The dashboard API does not expose those fields yet, so without this an editor
+// round-trip would silently erase operator-transcribed scope and leave the
+// program looking like it had never been transcribed. Whoever adds the RPC
+// fields should replace this with a real mapping.
+func preserveSecurityProgramTypedScope(incoming *triggersv1alpha1.SecurityProgramSpec, stored triggersv1alpha1.SecurityProgramSpec) {
+	if incoming == nil {
+		return
+	}
+	if incoming.SeveritySystem == "" {
+		incoming.SeveritySystem = stored.SeveritySystem
+	}
+	if incoming.Primacy == "" {
+		incoming.Primacy = stored.Primacy
+	}
+	if incoming.PoCEnvironment == "" {
+		incoming.PoCEnvironment = stored.PoCEnvironment
+	}
+	if !incoming.PoCRequired {
+		incoming.PoCRequired = stored.PoCRequired
+	}
+	if !incoming.KYCRequired {
+		incoming.KYCRequired = stored.KYCRequired
+	}
+	if len(incoming.InScopeImpacts) == 0 {
+		incoming.InScopeImpacts = stored.InScopeImpacts
+	}
+	if len(incoming.OutOfScope) == 0 {
+		incoming.OutOfScope = stored.OutOfScope
+	}
+	if len(incoming.Assets) == 0 {
+		incoming.Assets = stored.Assets
+	}
+	if len(incoming.KnownIssues) == 0 {
+		incoming.KnownIssues = stored.KnownIssues
+	}
+	if len(incoming.ProhibitedTesting) == 0 {
+		incoming.ProhibitedTesting = stored.ProhibitedTesting
+	}
+	if incoming.SubmissionBudget == nil {
+		incoming.SubmissionBudget = stored.SubmissionBudget
+	}
+}
+
 func securityProgramScanTargetFromProto(target *platform.SecurityProgramScanTarget) triggersv1alpha1.SecurityProgramScanTarget {
 	baseBranch := strings.TrimSpace(target.GetBaseBranch())
 	if baseBranch == "" {
@@ -243,7 +290,10 @@ func (s *Server) UpdateSecurityProgram(ctx context.Context, req *platform.Update
 		return nil, err
 	}
 	cr := &triggersv1alpha1.SecurityProgram{}
-	usage, err := s.updateSecurityLibraryResource(ctx, namespace, req.GetProgram().GetName(), "SecurityProgram", cr, func() { cr.Spec = spec })
+	usage, err := s.updateSecurityLibraryResource(ctx, namespace, req.GetProgram().GetName(), "SecurityProgram", cr, func() {
+		preserveSecurityProgramTypedScope(&spec, cr.Spec)
+		cr.Spec = spec
+	})
 	if err != nil {
 		return nil, err
 	}

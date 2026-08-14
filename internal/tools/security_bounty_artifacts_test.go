@@ -3,8 +3,11 @@ package tools
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"io"
+	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -80,7 +83,7 @@ func TestBuildTriagedSecurityReviewBundleWithoutPoC(t *testing.T) {
 		Status: store.SecurityFindingStatusTriaged,
 	}
 	ctx := SecurityScanContext{ScanName: "bounty", RunName: "report-run", ExecutionID: "exec-2"}
-	bundle, err := buildSecurityReportBundle(finding, ctx, nil, nil, "## Title\nNeeds runtime validation", "", "")
+	bundle, err := buildSecurityReportBundle(finding, ctx, nil, nil, securityBountySubmission{Markdown: "## Title\nNeeds runtime validation"}, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,5 +134,159 @@ func TestSecurityReportBundleStatusIncludesTriaged(t *testing.T) {
 				t.Fatalf("securityReportBundleStatus() = %q, %v; want %q, error=%v", got, err, tc.want, tc.wantErr)
 			}
 		})
+	}
+}
+
+func completeBountySubmission() securityBountySubmission {
+	return securityBountySubmission{
+		Markdown:            "## Title\nFull report",
+		ImpactClause:        "Permanent freezing of funds",
+		RootCause:           "withdraw() clears the escrow index before transferring",
+		MaxAchievableImpact: "every escrowed deposit becomes unrecoverable",
+		AttackPath:          "1. attacker calls deposit 2. attacker calls withdraw twice",
+		Feasibility:         "no privileges, ~0.01 ETH of gas, no capital at risk",
+		FundsAtRisk:         "4,102 ETH at block 21,000,000",
+		Remediation:         "transfer before clearing the index",
+		PriorArt:            "searched repo issues/PRs, OSV and GHSA on 2026-08-14: no match",
+		SeveritySystem:      "immunefi-v2.3",
+	}
+}
+
+func bountyScanContextWithProgram() SecurityScanContext {
+	return SecurityScanContext{
+		ScanName:       "bounty",
+		RunName:        "report-run",
+		ExecutionID:    "exec-3",
+		SeveritySystem: "immunefi-v2.3",
+		InScopeImpacts: []SecurityProgramImpactClause{
+			{Level: "critical", Impact: "Permanent freezing of funds"},
+			{Level: "high", Impact: "Theft of unclaimed yield"},
+		},
+	}
+}
+
+func TestValidateBountySubmissionClaim(t *testing.T) {
+	t.Parallel()
+	scanCtx := bountyScanContextWithProgram()
+
+	if problems := validateBountySubmissionClaim(completeBountySubmission(), scanCtx); len(problems) != 0 {
+		t.Fatalf("expected a complete submission to pass, got %v", problems)
+	}
+
+	cases := []struct {
+		name   string
+		want   string
+		mutate func(*securityBountySubmission)
+	}{
+		{"missing impact clause", "impact_clause is required", func(s *securityBountySubmission) { s.ImpactClause = "" }},
+		{"missing root cause", "root_cause is required", func(s *securityBountySubmission) { s.RootCause = " " }},
+		{"missing max achievable impact", "max_achievable_impact is required", func(s *securityBountySubmission) { s.MaxAchievableImpact = "" }},
+		{"missing attack path", "attack_path is required", func(s *securityBountySubmission) { s.AttackPath = "" }},
+		{"missing feasibility", "feasibility is required", func(s *securityBountySubmission) { s.Feasibility = "" }},
+		{"missing remediation", "remediation is required", func(s *securityBountySubmission) { s.Remediation = "" }},
+		{"missing prior art", "prior_art is required", func(s *securityBountySubmission) { s.PriorArt = "" }},
+		{"missing funds at risk", "funds_at_risk is required", func(s *securityBountySubmission) { s.FundsAtRisk = "" }},
+		{
+			"invented impact clause",
+			"not one of the program's published in-scope impacts",
+			func(s *securityBountySubmission) { s.ImpactClause = "Loss of protocol dignity" },
+		},
+		{
+			"translated severity system",
+			"severity is never translated between systems",
+			func(s *securityBountySubmission) { s.SeveritySystem = "sherlock" },
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			submission := completeBountySubmission()
+			testCase.mutate(&submission)
+			problems := validateBountySubmissionClaim(submission, scanCtx)
+			joined := strings.Join(problems, "; ")
+			if !strings.Contains(joined, testCase.want) {
+				t.Fatalf("problems = %q, want it to mention %q", joined, testCase.want)
+			}
+		})
+	}
+
+	// A program that never published an impact list cannot have its clauses
+	// checked; the claim must not be rejected for failing an impossible test.
+	untyped := SecurityScanContext{ScanName: "bounty", RunName: "report-run"}
+	submission := completeBountySubmission()
+	submission.ImpactClause = "Some impact the operator has not transcribed"
+	submission.SeveritySystem = ""
+	if problems := validateBountySubmissionClaim(submission, untyped); len(problems) != 0 {
+		t.Fatalf("expected no problems without a transcribed impact list, got %v", problems)
+	}
+}
+
+func TestSecurityReportBundleCarriesTheStructuredClaim(t *testing.T) {
+	t.Parallel()
+	finding := &store.SecurityFindingRecord{
+		ID: uuid.MustParse("00000000-0000-0000-0000-000000000044"), Fingerprint: "fp-claim",
+		Repository: "https://example.invalid/repo", Revision: "abc789", ScanName: "bounty",
+		Status: store.SecurityFindingStatusConfirmed,
+	}
+	bundle, err := buildSecurityReportBundle(finding, bountyScanContextWithProgram(), nil, nil, completeBountySubmission(), "rank 1 of budget 2", "builder", "validator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(bundle), int64(len(bundle)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{}
+	for _, file := range reader.File {
+		body, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(body)
+		_ = body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[file.Name] = data
+	}
+	if _, ok := files["claim.json"]; !ok {
+		t.Fatalf("bundle is missing claim.json, got %v", slices.Sorted(maps.Keys(files)))
+	}
+	var manifest securityBundleManifest
+	if err := json.Unmarshal(files["manifest.json"], &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.SeveritySystem != "immunefi-v2.3" {
+		t.Errorf("manifest severity system = %q, want immunefi-v2.3", manifest.SeveritySystem)
+	}
+	if manifest.ImpactClause != "Permanent freezing of funds" {
+		t.Errorf("manifest impact clause = %q", manifest.ImpactClause)
+	}
+	if manifest.ProgramLevel != "critical" {
+		t.Errorf("manifest program severity level = %q, want critical", manifest.ProgramLevel)
+	}
+	if manifest.BudgetState != "rank 1 of budget 2" {
+		t.Errorf("manifest budget state = %q", manifest.BudgetState)
+	}
+	if manifest.FilesSHA256["claim.json"] == "" {
+		t.Error("claim.json is not covered by the manifest hashes")
+	}
+}
+
+func TestParseSecurityProgramImpactsAndBudget(t *testing.T) {
+	t.Parallel()
+	impacts := parseSecurityProgramImpacts("critical\tPermanent freezing of funds\n\nhigh\tTheft of unclaimed yield\nmalformed line\n\tblank level\n")
+	if len(impacts) != 2 {
+		t.Fatalf("parsed %d impacts, want 2: %+v", len(impacts), impacts)
+	}
+	if impacts[0].Level != "critical" || impacts[0].Impact != "Permanent freezing of funds" {
+		t.Errorf("unexpected first impact: %+v", impacts[0])
+	}
+	for _, testCase := range []struct {
+		value string
+		want  int32
+	}{{"3", 3}, {"", 0}, {"-2", 0}, {"not a number", 0}} {
+		if got := parseSecuritySubmissionBudget(testCase.value); got != testCase.want {
+			t.Errorf("parseSecuritySubmissionBudget(%q) = %d, want %d", testCase.value, got, testCase.want)
+		}
 	}
 }

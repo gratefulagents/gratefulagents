@@ -1636,10 +1636,164 @@ spec:
                       this execution. It keeps tasks and post-scripts dispatched later in the
                       same execution independent of subsequent SecurityProgram edits.
                     properties:
+                      assets:
+                        description: |-
+                          assets bind in-scope assets to deployed state so findings can be checked
+                          against what is actually running rather than only against source.
+                        items:
+                          description: |-
+                            SecurityProgramAsset binds an in-scope asset to what is actually deployed.
+                            Several of the highest-impact vulnerability classes (uninitialized proxies,
+                            wrong token decimals, oracle wiring) are properties of deployed state rather
+                            than of the repository.
+                          properties:
+                            addedOn:
+                              description: addedOn is the date the program listed
+                                the asset, as published.
+                              maxLength: 64
+                              type: string
+                            address:
+                              description: address is the deployed contract or program
+                                address.
+                              maxLength: 128
+                              type: string
+                            chainID:
+                              description: |-
+                                chainID is the EIP-155 chain identifier, or another chain's canonical
+                                network identifier, for a deployed asset.
+                              maxLength: 64
+                              type: string
+                            displayName:
+                              description: displayName is the program's own name for
+                                the asset.
+                              maxLength: 200
+                              type: string
+                            repositoryURL:
+                              description: repositoryURL is the HTTPS source repository
+                                for the asset.
+                              maxLength: 2048
+                              pattern: ^(https://.*)?$
+                              type: string
+                          type: object
+                        maxItems: 256
+                        type: array
+                        x-kubernetes-list-type: atomic
                       displayName:
                         description: displayName is the human-readable program name.
                         maxLength: 200
                         minLength: 1
+                        type: string
+                      inScopeImpacts:
+                        description: |-
+                          inScopeImpacts are the program's published impact clauses, transcribed
+                          verbatim. A submission must select one of these; a report that invents
+                          an impact or asset is rejected, and misrepresenting them is a rules
+                          violation rather than a downgrade.
+                        items:
+                          description: |-
+                            SecurityProgramImpact is one impact clause transcribed verbatim from the
+                            program's published in-scope impact list, with the severity the program's
+                            own system assigns it. A report must select one of these clauses; inventing
+                            an impact or asset is a rules violation on every major platform.
+                          properties:
+                            assetType:
+                              description: |-
+                                assetType is the program's own asset category for the clause, such as
+                                "Smart Contract", "Blockchain/DLT", or "Websites and Applications".
+                              maxLength: 200
+                              type: string
+                            impact:
+                              description: impact is the verbatim impact clause as
+                                published by the program.
+                              maxLength: 1024
+                              minLength: 1
+                              type: string
+                            level:
+                              description: level is the severity the program's own
+                                system assigns this impact.
+                              enum:
+                              - critical
+                              - high
+                              - medium
+                              - low
+                              type: string
+                          required:
+                          - impact
+                          - level
+                          type: object
+                        maxItems: 256
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      knownIssues:
+                        description: |-
+                          knownIssues are issues the program already knows about. They, and
+                          findings sharing their root cause, are not reportable.
+                        items:
+                          description: |-
+                            SecurityProgramKnownIssue records something the program already knows about.
+                            Contest platforms treat prior-audit findings, acknowledged README issues and
+                            automated-tool output as ineligible, along with their duplicates.
+                          properties:
+                            reference:
+                              description: reference is an optional HTTPS link to
+                                the published known issue.
+                              maxLength: 2048
+                              pattern: ^(https://.*)?$
+                              type: string
+                            source:
+                              description: |-
+                                source describes where the known issue comes from, such as a prior
+                                audit, a repository README acknowledgement, or a bot tool.
+                              maxLength: 200
+                              minLength: 1
+                              type: string
+                            summary:
+                              description: summary describes the known issue in the
+                                program's own words.
+                              maxLength: 2048
+                              minLength: 1
+                              type: string
+                          required:
+                          - source
+                          - summary
+                          type: object
+                        maxItems: 256
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      kycRequired:
+                        description: |-
+                          kycRequired records that the program requires identity verification
+                          before it pays a reward.
+                        type: boolean
+                      outOfScope:
+                        description: outOfScope are the program's published exclusions,
+                          transcribed verbatim.
+                        items:
+                          type: string
+                        maxItems: 256
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      pocEnvironment:
+                        description: |-
+                          pocEnvironment records the proof-of-concept environment the program
+                          accepts.
+                        enum:
+                        - mainnet-fork
+                        - project-test-suite
+                        - either
+                        type: string
+                      pocRequired:
+                        description: |-
+                          pocRequired records that the program requires a runnable proof of
+                          concept before a report is eligible.
+                        type: boolean
+                      primacy:
+                        description: |-
+                          primacy records whether the program judges by demonstrated impact or
+                          strictly by its itemized asset rules.
+                        enum:
+                        - impact
+                        - rules
                         type: string
                       programURL:
                         description: |-
@@ -1649,6 +1803,15 @@ spec:
                         minLength: 1
                         pattern: ^https://
                         type: string
+                      prohibitedTesting:
+                        description: |-
+                          prohibitedTesting are the program's published testing prohibitions,
+                          transcribed verbatim. Violating them typically forfeits every report.
+                        items:
+                          type: string
+                        maxItems: 64
+                        type: array
+                        x-kubernetes-list-type: atomic
                       provider:
                         description: provider identifies the program platform or operator.
                         maxLength: 100
@@ -1799,6 +1962,45 @@ spec:
                         maxLength: 131072
                         minLength: 1
                         type: string
+                      severitySystem:
+                        description: |-
+                          severitySystem names the severity ladder this program is judged under.
+                          Consumers must rank findings with that system's own table and must never
+                          translate a severity label from one system into another.
+                        enum:
+                        - immunefi-v2.3
+                        - code4rena
+                        - sherlock
+                        - cantina
+                        - ethereum-foundation
+                        - custom
+                        type: string
+                      submissionBudget:
+                        description: submissionBudget rations how many reports may
+                          be submitted.
+                        properties:
+                          maxPerPeriod:
+                            description: |-
+                              maxPerPeriod is the maximum number of submissions allowed per period.
+                              Zero means the program publishes no explicit limit.
+                            format: int32
+                            maximum: 10000
+                            minimum: 0
+                            type: integer
+                          periodDays:
+                            description: |-
+                              periodDays is the length of the budget period in days. Zero means the
+                              limit applies per engagement rather than per rolling window.
+                            format: int32
+                            maximum: 365
+                            minimum: 0
+                            type: integer
+                          unrestrictedRequiresReputation:
+                            description: |-
+                              unrestrictedRequiresReputation records that the program only lifts the
+                              submission cap for researchers above a reputation or identity threshold.
+                            type: boolean
+                        type: object
                       verifiedAt:
                         description: |-
                           verifiedAt is when an operator last verified scopePolicy against the

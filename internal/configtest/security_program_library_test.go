@@ -117,6 +117,26 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			if isImmunefi && !strings.HasPrefix(program.Spec.ProgramURL, "https://immunefi.com/bug-bounty/") {
 				t.Fatalf("unexpected Immunefi provenance URL: %q", program.Spec.ProgramURL)
 			}
+			if isImmunefi {
+				// Typed scope is what downstream gates read. Immunefi
+				// programs are judged under Immunefi's own severity system
+				// and must publish the impact clauses a report has to select
+				// from, or the report writer has nothing to select.
+				if got := program.Spec.SeveritySystem; got != string(triggersv1alpha1.SeveritySystemImmunefiV23) {
+					t.Errorf("severitySystem = %q, want immunefi-v2.3", got)
+				}
+				if len(program.Spec.InScopeImpacts) == 0 {
+					t.Error("Immunefi program has no transcribed in-scope impacts")
+				}
+				for index, impact := range program.Spec.InScopeImpacts {
+					if strings.TrimSpace(impact.Impact) == "" || strings.TrimSpace(impact.Level) == "" {
+						t.Errorf("inScopeImpacts[%d] is incomplete: %+v", index, impact)
+					}
+					if !strings.Contains(program.Spec.ScopePolicy, impact.Impact) {
+						t.Errorf("inScopeImpacts[%d] is not verbatim from the scope snapshot: %q", index, impact.Impact)
+					}
+				}
+			}
 			if !isImmunefi {
 				expectedURL := expectedProgramURLs[program.Name]
 				if program.Spec.Provider == "Ethereum Foundation" {

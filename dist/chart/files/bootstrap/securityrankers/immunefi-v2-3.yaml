@@ -1,0 +1,16 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityRanker
+metadata:
+  name: immunefi-v2-3
+spec:
+  description: Immunefi Vulnerability Severity Classification System v2.3, transcribed as-is; severity is the impact the program's table names, assessed before feasibility, and is never translated into another platform's ladder.
+  rules:
+    - "weight: severity=0.7, confidence=0.2, exploitability=0.05, exposure=0.05"
+    - Smart contract critical impacts are direct theft of user funds or NFTs whether at rest or in motion, permanent freezing of funds or NFTs, unauthorized minting of NFTs, predictable or manipulable RNG that lets an attacker abuse the principal or an NFT, protocol insolvency, and manipulation of a governance vote so the executed result deviates from the voted outcome.
+    - Smart contract high impacts are theft of unclaimed yield or unclaimed royalties, permanent freezing of unclaimed yield or unclaimed royalties, and temporary freezing of funds or NFTs. Do not raise them to critical because the amount is large, and do not lower them because the window is short.
+    - Smart contract medium impacts are griefing with no profit motive for the attacker, block stuffing, theft of gas, unbounded gas consumption, and a contract that cannot operate because it lacks the token funds to do so.
+    - Blockchain and DLT critical impacts are the network being unable to confirm new transactions (total network shutdown), an unintended permanent chain split that requires a hard fork to resolve, direct loss of funds, and permanent freezing of funds where the fix requires a hardfork.
+    - Impact is assessed before feasibility. A real critical impact that is difficult or currently infeasible to execute keeps its critical severity; the difficulty belongs in the reward discussion and in the finding's exploitability notes, never in a lower severity label.
+    - An impact that can only be reached with elevated privileges or with uncommon user interaction may be downgraded or rejected outright; state which privilege or interaction the path needs so the downgrade decision is auditable instead of implicit.
+    - Attacks that require access to leaked keys or credentials, or access to a privileged address such as governance or a strategist, are out of scope for this program and must not be reported as findings at any severity.
+    - Report the severity level from this table by name (critical, high, medium, low). Never restate it in another program's system, and never invent a level or threshold this table does not contain.

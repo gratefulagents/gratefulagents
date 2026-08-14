@@ -64,6 +64,23 @@ const (
 	// SecurityScanPostScriptFindingAnnotation is the finding id it is bound to.
 	SecurityScanPostScriptAnnotation        = "security.gratefulagents.dev/post-script"
 	SecurityScanPostScriptFindingAnnotation = "security.gratefulagents.dev/post-script-finding"
+	// SecurityScanProgramSeveritySystemAnnotation carries the governing
+	// program's severity system, and SecurityScanProgramImpactsAnnotation its
+	// published in-scope impact clauses, one per line as "level<TAB>impact".
+	// Both are operator-verified configuration copied from the resolved
+	// SecurityProgram, never model output: submission packaging refuses an
+	// impact clause that is not on this list, because a report that invents
+	// an impact or asset is rejected by the program.
+	SecurityScanProgramSeveritySystemAnnotation = "security.gratefulagents.dev/program-severity-system"
+	SecurityScanProgramImpactsAnnotation        = "security.gratefulagents.dev/program-impacts"
+	// SecurityScanProgramSubmissionBudgetAnnotation is the program's maximum
+	// number of submissions per period. Reporting is rationed on every major
+	// platform, so the packaging tool submits only the strongest findings.
+	SecurityScanProgramSubmissionBudgetAnnotation = "security.gratefulagents.dev/program-submission-budget"
+	// MaxSecurityScanProgramImpactsAnnotationBytes bounds the transcribed
+	// impact list so a large program cannot push the run past the annotation
+	// size limit. A truncated list still validates the clauses it carries.
+	MaxSecurityScanProgramImpactsAnnotationBytes = 16 << 10
 )
 
 // SecurityScanRunNowAnnotation is set on a SecurityScan (not its runs) by the

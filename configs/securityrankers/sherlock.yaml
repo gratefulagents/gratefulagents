@@ -1,0 +1,16 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityRanker
+metadata:
+  name: sherlock
+spec:
+  description: Sherlock judging criteria transcribed as-is; only High and Medium are valid severities, both are payable, likelihood never enters the severity decision, and the loss thresholds are the ones Sherlock publishes.
+  rules:
+    - "min-severity: medium"
+    - "weight: severity=0.6, confidence=0.25, exploitability=0.0, exposure=0.15"
+    - High requires a definite loss of funds without extensive limitations of external conditions, and the loss must exceed 1% AND 10 USD of the affected principal, yield, or fees. Both parts of the threshold must hold; one alone is not a High.
+    - Medium covers a loss that requires certain external conditions or a specific protocol state to occur, where the loss exceeds 0.01% AND 10 USD of the affected principal, yield, or fees, and also covers a break of core contract functionality.
+    - Nothing below Medium is a valid finding here. Do not emit low or informational severities against this program; if the issue cannot be argued to Medium under the thresholds above, drop it rather than filing it down a level.
+    - Likelihood is not considered when deciding severity or validity. Do not downgrade a finding because the attack looks unlikely, expensive, or dependent on an unusual sequencing; only the stated external conditions and loss thresholds decide the level.
+    - Denial of service and griefing are Medium when funds are locked for more than a week OR a time-sensitive function is blocked, and High when both hold at once.
+    - On chains with a private mempool, front-running issues are downgraded one step - a High becomes a Medium, and a Medium becomes invalid; state the chain and its mempool behavior when applying this.
+    - The hierarchy of truth is the contest README first, then code comments, then Sherlock's default judging guidelines; when the README contradicts a general guideline, the README wins and the finding must say so.

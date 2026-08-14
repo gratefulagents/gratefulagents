@@ -16,6 +16,59 @@ spec:
   displayName: Jito
   programURL: https://immunefi.com/bug-bounty/jito/scope/
   verifiedAt: 2026-08-12T00:00:00Z
+  severitySystem: immunefi-v2.3
+  inScopeImpacts:
+    - impact: "Direct loss of funds"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Permanent freezing of funds (fix requires hardfork)"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Network not being able to confirm new transactions (total network shutdown)"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Unintended permanent chain split requiring hard fork (network partition requiring hard fork)"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Temporary freezing of network transactions by delaying one block by 500% or more of the average block time of the preceding 24 hours beyond standard difficulty adjustments"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Unintended chain split (network partition)"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Causing network processing nodes to process transactions from the mempool beyond set parameters"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Increasing network processing node resource consumption by at least 30% without brute force actions, compared to the preceding 24 hours"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Shutdown of greater than or equal to 30% of network processing nodes without brute force actions, but does not shut down the network"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "A bug in the respective layer 0/1/2 network code that results in unintended smart contract behavior with no concrete funds at direct risk"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Shutdown of greater than 10% or equal to but less than 30% of network processing nodes without brute force actions, but does not shut down the network"
+      level: low
+      assetType: "Blockchain/DLT"
+    - impact: "Modification of transaction fees outside of design parameters"
+      level: low
+      assetType: "Blockchain/DLT"
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Theft of protocol revenue"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Theft of Yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: medium
+      assetType: "Smart Contract"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T15:44:25.476Z; page last updated 12 August 2026).
 

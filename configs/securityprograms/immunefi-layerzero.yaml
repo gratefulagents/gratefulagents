@@ -16,6 +16,24 @@ spec:
   displayName: LayerZero
   programURL: https://immunefi.com/bug-bounty/layerzero/scope/
   verifiedAt: 2026-08-12T16:35:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  inScopeImpacts:
+    - impact: "All above impacts for OApp, OFT & ONFT related contracts"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Any governance voting result manipulation"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Exploits resulting in the permanent locking or theft of user funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent DoS attacks (excluding volumetric attacks)"
+      level: critical
+      assetType: "Smart Contract"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-07-16T21:53:08.647Z).
 

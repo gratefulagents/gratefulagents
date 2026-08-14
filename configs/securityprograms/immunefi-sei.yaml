@@ -16,6 +16,54 @@ spec:
   displayName: Sei
   programURL: https://immunefi.com/bug-bounty/sei/scope/
   verifiedAt: 2026-08-12T00:00:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  inScopeImpacts:
+    - impact: "Permanent freezing of funds of USD $5,000 or more with no on-chain remediation path, excluding general network unavailability (fix requires hard fork)"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Direct loss of funds of USD $5,000 or more (including but not limited to unauthorized transfers, token minting, or token burning)"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Crash or halt of ≥1/3 of validators (assuming no direct network access to validator nodes), resulting in loss of network liveness"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Unintended permanent chain split requiring hard fork to resolve (network partition with no automatic recovery)"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Crash of RPC nodes running default configuration without assuming direct network access (e.g. via malicious block/transaction payloads propagated through the network)"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Malicious proposer block freeze: delay of ≥10 minutes caused by a single proposer beyond simply skipping their own proposal slot(s)"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Bug in layer 0/1/2 network code that causes deterministic unintended smart contract execution, with no funds directly at risk"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Crash of RPC nodes running default configuration via direct unauthenticated network access to RPC/gRPC endpoints"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Crash or halt of ≥10% but <1/3 of validators via crafted (non-brute-force) messages, where the network retains liveness"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Block production delay exceeding 2.5 seconds on realistic validator hardware, caused by crafted transactions or messages (excluding malicious proposers)"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Permanent freezing of funds of less than USD $5,000 with no on-chain remediation path, excluding general network unavailability (fix requires hard fork)"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Direct loss of funds of less than USD $5,000 (including but not limited to unauthorized transfers, token minting, or token burning)"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Manipulation of transaction fee calculation resulting in fees outside protocol-defined bounds"
+      level: low
+      assetType: "Blockchain/DLT"
+    - impact: "Causing network processing nodes to include or order mempool transactions outside of protocol-defined selection and priority rules"
+      level: low
+      assetType: "Blockchain/DLT"
+    - impact: "Crash or halt of <10% of validators via crafted (non-brute-force) messages, where the network retains liveness"
+      level: low
+      assetType: "Blockchain/DLT"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T15:44:35.412Z; page last updated 11 August 2026).
 

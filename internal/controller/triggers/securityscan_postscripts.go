@@ -771,6 +771,9 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 	}
 	annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] = strings.Join(names, ",")
 	annotations[triggersv1alpha1.SecurityScanPostScriptFindingAnnotation] = rec.Fingerprint
+	for key, value := range securityProgramScopeAnnotations(resolved.program) {
+		annotations[key] = value
+	}
 
 	modeRef := base.modeRef
 	if scan.Spec.Defaults.ModeRef == nil {
@@ -889,4 +892,39 @@ func (e *securityScanExecutionEngine) postScriptJobsInFlight() bool {
 		}
 	}
 	return false
+}
+
+// securityProgramScopeAnnotations copies the governing program's typed scope
+// facts onto a run so the packaging tool can enforce them in-process. The
+// impact list is operator-verified configuration, so a submission that names
+// an impact outside it is refused rather than argued with. The list is
+// truncated at a byte bound to stay well inside the annotation size limit.
+func securityProgramScopeAnnotations(program *triggersv1alpha1.SecurityProgramSpec) map[string]string {
+	if program == nil {
+		return nil
+	}
+	out := make(map[string]string, 3)
+	if system := strings.TrimSpace(program.SeveritySystem); system != "" {
+		out[triggersv1alpha1.SecurityScanProgramSeveritySystemAnnotation] = system
+	}
+	if budget := program.SubmissionBudget; budget != nil && budget.MaxPerPeriod > 0 {
+		out[triggersv1alpha1.SecurityScanProgramSubmissionBudgetAnnotation] = strconv.FormatInt(int64(budget.MaxPerPeriod), 10)
+	}
+	var impacts strings.Builder
+	for _, impact := range program.InScopeImpacts {
+		clause := strings.TrimSpace(impact.Impact)
+		level := strings.TrimSpace(impact.Level)
+		if clause == "" || level == "" || strings.ContainsAny(clause, "\n\t") {
+			continue
+		}
+		line := level + "\t" + clause + "\n"
+		if impacts.Len()+len(line) > triggersv1alpha1.MaxSecurityScanProgramImpactsAnnotationBytes {
+			break
+		}
+		impacts.WriteString(line)
+	}
+	if impacts.Len() != 0 {
+		out[triggersv1alpha1.SecurityScanProgramImpactsAnnotation] = impacts.String()
+	}
+	return out
 }

@@ -16,6 +16,38 @@ spec:
   displayName: 1inch Smart Contracts
   programURL: https://immunefi.com/bug-bounty/1inch-SmartContracts/scope/
   verifiedAt: 2026-08-12T00:00:00Z
+  severitySystem: immunefi-v2.3
+  inScopeImpacts:
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Theft of unclaimed yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of unclaimed yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Temporary freezing of funds"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Smart contract unable to operate due to lack of token funds"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Theft of coins or tokens (e.g gas) in a smart contract intended for transaction fees"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Smart contract fails to deliver promised token amounts but the remaining token amounts is not stolen or lost and can still be claimed"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Impacts caused by griefing with no economic damage other than transaction fees where fix requires a change or a pause of a smart contract"
+      level: low
+      assetType: "Smart Contract"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T15:44:16.829Z; page last updated 07 August 2026).
 

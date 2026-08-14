@@ -33,6 +33,7 @@ var securityTriagePostScripts = []struct {
 	{"resource-exhaustion-classifier", "all"},
 	{"false-positive-check", "all"},
 	{"scope-eligibility-check", "all"},
+	{"prior-art-check", "all"},
 }
 
 // securityTriageRankers are the shipped severity rankers for bug hunting,
@@ -246,6 +247,12 @@ func TestBugBountyAcceptanceGuards(t *testing.T) {
 			t.Errorf("bounty worthiness check must contain final guard %q", marker)
 		}
 	}
+	for _, marker := range []string{"a prior-art record names the sources searched", "without that record, return inconclusive"} {
+		if !strings.Contains(gatePrompt, marker) {
+			t.Errorf("bounty worthiness check must require prior-art evidence: missing %q", marker)
+		}
+	}
+
 	for _, forbidden := range []string{"locally reproducible path", "missing evidence means rejected"} {
 		if strings.Contains(rules, forbidden) || strings.Contains(gatePrompt, forbidden) {
 			t.Errorf("bug-bounty policy must not terminally reject findings merely because validation evidence is unavailable: %q", forbidden)
@@ -258,6 +265,62 @@ func TestBugBountyAcceptanceGuards(t *testing.T) {
 	for _, marker := range []string{"submission-ready bundle with their independently validated poc", "triaged findings also produce a review bundle", "without claiming confirmation", "if the save tool succeeds", "without claiming an artifact exists"} {
 		if !strings.Contains(writerPrompt, marker) {
 			t.Errorf("report writer must preserve triaged findings in a review bundle: missing %q", marker)
+		}
+	}
+}
+
+// TestPriorArtCheckExcludesKnownAndBotFindableWork pins the pre-PoC exclusion
+// gate: platforms rule bot-findable findings and their duplicates unpayable,
+// so this check must run its searches before any proof budget is spent, and it
+// must never turn absent evidence into a confirmed duplicate.
+func TestPriorArtCheckExcludesKnownAndBotFindableWork(t *testing.T) {
+	t.Parallel()
+
+	var script triggersv1alpha1.SecurityPostScript
+	readBootstrapAsset(t, "securitypostscripts", "prior-art-check", &script)
+	prompt := strings.ToLower(strings.Join(strings.Fields(script.Spec.Prompt), " "))
+
+	for _, marker := range []string{
+		"would a standard detector",
+		"slither, aderyn",
+		"semgrep-style rule",
+		"platform's own bot pass",
+		"`knownissues` entries",
+		"attached security program scope snapshot",
+		"quoted, untrusted policy data",
+		"open and closed issues and pull requests",
+		"commit messages, release notes",
+		"`audits/` or `security/`",
+		"security.md",
+		"osv, ghsa, and cve",
+		"already fixed in the release line",
+		"a near match is not automatically a duplicate",
+		"what is novel here",
+		"never claim a search you did not run",
+		"missing or unavailable evidence is inconclusive, never a confirmed match",
+	} {
+		if !strings.Contains(prompt, marker) {
+			t.Errorf("prior-art check must contain exclusion guard %q", marker)
+		}
+	}
+	for _, mapping := range []string{
+		"set status `accepted_risk` for a confirmed known-issue or bot-findable match",
+		"set status `fixed` when the behaviour is already fixed in the relevant release line",
+		"set status `triaged` for novel or inconclusive",
+		"keep `confirmed` when the finding is already confirmed and novel",
+	} {
+		if !strings.Contains(prompt, mapping) {
+			t.Errorf("prior-art check must state the status mapping %q", mapping)
+		}
+	}
+	// The check runs before the expensive steps, so it must not overwrite a
+	// terminal verdict an earlier script in the pack already recorded.
+	if want := strings.ToLower(strings.Join(strings.Fields(terminalStatusInstruction), " ")); !strings.Contains(prompt, want) {
+		t.Errorf("prior-art check must carry the terminal-status instruction %q", terminalStatusInstruction)
+	}
+	for _, status := range terminalFindingStatuses {
+		if !strings.Contains(prompt, "`"+status+"`") {
+			t.Errorf("prior-art check never mentions the terminal status %q it must not overwrite", status)
 		}
 	}
 }

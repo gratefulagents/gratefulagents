@@ -158,3 +158,164 @@ func hasSecurityProgramFieldError(errs []SecurityWorkflowFieldError, field strin
 	}
 	return false
 }
+
+func TestValidateSecurityProgramTypedScope(t *testing.T) {
+	t.Parallel()
+
+	valid := validSecurityProgramSpec()
+	valid.SeveritySystem = string(SeveritySystemImmunefiV23)
+	valid.Primacy = string(PrimacyImpact)
+	valid.PoCRequired = true
+	valid.PoCEnvironment = string(PoCEnvironmentMainnetFork)
+	valid.InScopeImpacts = []SecurityProgramImpact{
+		{Impact: "Direct theft of any user funds", Level: "critical", AssetType: "Smart Contract"},
+		// The same clause under a different asset category is legitimate.
+		{Impact: "Direct theft of any user funds", Level: "high", AssetType: "Blockchain/DLT"},
+	}
+	valid.OutOfScope = []string{"Attacks requiring leaked keys"}
+	valid.ProhibitedTesting = []string{"Testing on mainnet or public testnet"}
+	valid.Assets = []SecurityProgramAsset{
+		{ChainID: "1", Address: "0xabc", DisplayName: "Vault"},
+		{RepositoryURL: "https://github.com/acme/widget"},
+	}
+	valid.KnownIssues = []SecurityProgramKnownIssue{
+		{Source: "prior audit", Summary: "Rounding in withdraw is acknowledged", Reference: "https://example.com/audit.pdf"},
+	}
+	valid.SubmissionBudget = &SecurityProgramSubmissionBudget{MaxPerPeriod: 2, PeriodDays: 30}
+	valid.KYCRequired = true
+	if errs := ValidateSecurityProgramSpec(valid); len(errs) != 0 {
+		t.Fatalf("expected typed scope to validate, got %v", errs)
+	}
+
+	if level, ok := valid.ImpactLevel("Direct theft of any user funds"); !ok || level != "critical" {
+		t.Fatalf("ImpactLevel() = %q, %v; want critical, true", level, ok)
+	}
+	if _, ok := valid.ImpactLevel("Loss of the operator's patience"); ok {
+		t.Fatal("ImpactLevel() accepted an impact the program never published")
+	}
+
+	cases := []struct {
+		name   string
+		field  string
+		mutate func(*SecurityProgramSpec)
+	}{
+		{
+			name:   "unknown severity system",
+			field:  "severitySystem",
+			mutate: func(spec *SecurityProgramSpec) { spec.SeveritySystem = "cvss" },
+		},
+		{
+			name:   "unknown primacy",
+			field:  "primacy",
+			mutate: func(spec *SecurityProgramSpec) { spec.Primacy = "vibes" },
+		},
+		{
+			name:   "unknown poc environment",
+			field:  "pocEnvironment",
+			mutate: func(spec *SecurityProgramSpec) { spec.PoCEnvironment = "screenshot" },
+		},
+		{
+			name:  "blank impact",
+			field: "inScopeImpacts[0].impact",
+			mutate: func(spec *SecurityProgramSpec) {
+				spec.InScopeImpacts = []SecurityProgramImpact{{Impact: "  ", Level: "high"}}
+			},
+		},
+		{
+			name:  "duplicate impact in one asset type",
+			field: "inScopeImpacts[1].impact",
+			mutate: func(spec *SecurityProgramSpec) {
+				spec.InScopeImpacts = []SecurityProgramImpact{
+					{Impact: "Permanent freezing of funds", Level: "critical", AssetType: "Smart Contract"},
+					{Impact: "Permanent freezing of funds", Level: "high", AssetType: "Smart Contract"},
+				}
+			},
+		},
+		{
+			name:  "impact level outside the ladder",
+			field: "inScopeImpacts[0].level",
+			mutate: func(spec *SecurityProgramSpec) {
+				spec.InScopeImpacts = []SecurityProgramImpact{{Impact: "Protocol insolvency", Level: "severe"}}
+			},
+		},
+		{
+			name:  "sherlock does not judge lows",
+			field: "inScopeImpacts[0].level",
+			mutate: func(spec *SecurityProgramSpec) {
+				spec.SeveritySystem = string(SeveritySystemSherlock)
+				spec.InScopeImpacts = []SecurityProgramImpact{{Impact: "Gas optimization", Level: "low"}}
+			},
+		},
+		{
+			name:  "address without a chain",
+			field: "assets[0].chainID",
+			mutate: func(spec *SecurityProgramSpec) {
+				spec.Assets = []SecurityProgramAsset{{Address: "0xabc"}}
+			},
+		},
+		{
+			name:  "asset identifies nothing",
+			field: "assets[0]",
+			mutate: func(spec *SecurityProgramSpec) {
+				spec.Assets = []SecurityProgramAsset{{DisplayName: "Mystery"}}
+			},
+		},
+		{
+			name:  "known issue without a source",
+			field: "knownIssues[0].source",
+			mutate: func(spec *SecurityProgramSpec) {
+				spec.KnownIssues = []SecurityProgramKnownIssue{{Summary: "Acknowledged"}}
+			},
+		},
+		{
+			name:  "known issue reference must be https",
+			field: "knownIssues[0].reference",
+			mutate: func(spec *SecurityProgramSpec) {
+				spec.KnownIssues = []SecurityProgramKnownIssue{{Source: "audit", Summary: "Acknowledged", Reference: "http://example.com"}}
+			},
+		},
+		{
+			name:  "budget period without a cap",
+			field: "submissionBudget.maxPerPeriod",
+			mutate: func(spec *SecurityProgramSpec) {
+				spec.SubmissionBudget = &SecurityProgramSubmissionBudget{PeriodDays: 30}
+			},
+		},
+		{
+			name:   "blank exclusion",
+			field:  "outOfScope[0]",
+			mutate: func(spec *SecurityProgramSpec) { spec.OutOfScope = []string{" "} },
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			spec := valid
+			spec.InScopeImpacts = nil
+			spec.Assets = nil
+			spec.KnownIssues = nil
+			spec.OutOfScope = nil
+			spec.SubmissionBudget = nil
+			testCase.mutate(&spec)
+			errs := ValidateSecurityProgramSpec(spec)
+			var found bool
+			for _, err := range errs {
+				if err.Field == testCase.field {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected an error on %s, got %v", testCase.field, errs)
+			}
+		})
+	}
+}
+
+func TestValidateSecurityProgramSpecWithoutTypedScope(t *testing.T) {
+	t.Parallel()
+	// Typed scope is optional: programs transcribed before it existed must
+	// keep validating so their prose snapshot stays usable.
+	if errs := ValidateSecurityProgramSpec(validSecurityProgramSpec()); len(errs) != 0 {
+		t.Fatalf("expected untyped program to validate, got %v", errs)
+	}
+}

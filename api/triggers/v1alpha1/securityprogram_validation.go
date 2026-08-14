@@ -113,5 +113,164 @@ func ValidateSecurityProgramSpec(spec SecurityProgramSpec) []SecurityWorkflowFie
 			add(fieldPrefix+".priority", "must not be negative")
 		}
 	}
+	errs = append(errs, validateSecurityProgramScope(spec)...)
 	return errs
+}
+
+// validateSecurityProgramScope validates the typed, machine-readable scope
+// facts. Every field is optional so existing programs keep validating, but a
+// field that is present must be usable without re-reading the prose snapshot.
+func validateSecurityProgramScope(spec SecurityProgramSpec) []SecurityWorkflowFieldError {
+	var errs []SecurityWorkflowFieldError
+	add := func(field, format string, args ...any) {
+		errs = append(errs, SecurityWorkflowFieldError{Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+
+	severitySystem := strings.TrimSpace(spec.SeveritySystem)
+	if severitySystem != "" && !validSecurityProgramSeveritySystems[SecurityProgramSeveritySystem(severitySystem)] {
+		add("severitySystem", "must be one of %s", strings.Join(securityProgramSeveritySystemNames(), ", "))
+	}
+	if primacy := strings.TrimSpace(spec.Primacy); primacy != "" &&
+		primacy != string(PrimacyImpact) && primacy != string(PrimacyRules) {
+		add("primacy", "must be either impact or rules")
+	}
+	switch strings.TrimSpace(spec.PoCEnvironment) {
+	case "", string(PoCEnvironmentMainnetFork), string(PoCEnvironmentProjectTestSuite), string(PoCEnvironmentEither):
+	default:
+		add("pocEnvironment", "must be one of mainnet-fork, project-test-suite, either")
+	}
+
+	if len(spec.InScopeImpacts) > MaxSecurityProgramImpacts {
+		add("inScopeImpacts", "must contain at most %d impacts", MaxSecurityProgramImpacts)
+	}
+	seenImpacts := make(map[string]int, len(spec.InScopeImpacts))
+	for index, entry := range spec.InScopeImpacts {
+		field := fmt.Sprintf("inScopeImpacts[%d]", index)
+		impact := strings.TrimSpace(entry.Impact)
+		switch {
+		case impact == "":
+			add(field+".impact", "is required")
+		case utf8.RuneCountInString(entry.Impact) > MaxSecurityProgramImpactLength:
+			add(field+".impact", "must be at most %d characters", MaxSecurityProgramImpactLength)
+		default:
+			// The same clause legitimately repeats across asset categories
+			// (a smart-contract impact and a blockchain impact can share
+			// wording), so uniqueness is per category.
+			key := strings.TrimSpace(entry.AssetType) + "\x00" + impact
+			if previous, exists := seenImpacts[key]; exists {
+				add(field+".impact", "must be unique per assetType; it duplicates inScopeImpacts[%d].impact", previous)
+			} else {
+				seenImpacts[key] = index
+			}
+		}
+		level := strings.TrimSpace(entry.Level)
+		if !validSecurityProgramImpactLevels[level] {
+			add(field+".level", "must be one of critical, high, medium, low")
+			continue
+		}
+		// Sherlock judges only High and Medium; a transcribed low impact
+		// under that system means the transcription is wrong, not that the
+		// program pays for lows.
+		if severitySystem == string(SeveritySystemSherlock) && (level == "low" || level == "critical") {
+			add(field+".level", "sherlock judges only high and medium severities")
+		}
+	}
+
+	if len(spec.OutOfScope) > MaxSecurityProgramExclusions {
+		add("outOfScope", "must contain at most %d exclusions", MaxSecurityProgramExclusions)
+	}
+	for index, exclusion := range spec.OutOfScope {
+		if strings.TrimSpace(exclusion) == "" {
+			add(fmt.Sprintf("outOfScope[%d]", index), "must not be blank")
+		}
+	}
+	if len(spec.ProhibitedTesting) > MaxSecurityProgramProhibitedTesting {
+		add("prohibitedTesting", "must contain at most %d entries", MaxSecurityProgramProhibitedTesting)
+	}
+	for index, entry := range spec.ProhibitedTesting {
+		if strings.TrimSpace(entry) == "" {
+			add(fmt.Sprintf("prohibitedTesting[%d]", index), "must not be blank")
+		}
+	}
+
+	if len(spec.Assets) > MaxSecurityProgramAssets {
+		add("assets", "must contain at most %d assets", MaxSecurityProgramAssets)
+	}
+	for index, asset := range spec.Assets {
+		field := fmt.Sprintf("assets[%d]", index)
+		chainID := strings.TrimSpace(asset.ChainID)
+		address := strings.TrimSpace(asset.Address)
+		repositoryURL := strings.TrimSpace(asset.RepositoryURL)
+		if chainID == "" && address == "" && repositoryURL == "" {
+			add(field, "must identify an asset by chainID and address, or by repositoryURL")
+		}
+		if address != "" && chainID == "" {
+			add(field+".chainID", "is required when address is set")
+		}
+		if repositoryURL != "" {
+			parsed, err := url.ParseRequestURI(repositoryURL)
+			if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+				add(field+".repositoryURL", "must be an absolute HTTPS URL without user information")
+			}
+		}
+	}
+
+	if len(spec.KnownIssues) > MaxSecurityProgramKnownIssues {
+		add("knownIssues", "must contain at most %d entries", MaxSecurityProgramKnownIssues)
+	}
+	for index, issue := range spec.KnownIssues {
+		field := fmt.Sprintf("knownIssues[%d]", index)
+		if strings.TrimSpace(issue.Source) == "" {
+			add(field+".source", "is required")
+		}
+		if strings.TrimSpace(issue.Summary) == "" {
+			add(field+".summary", "is required")
+		}
+		if reference := strings.TrimSpace(issue.Reference); reference != "" {
+			parsed, err := url.ParseRequestURI(reference)
+			if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+				add(field+".reference", "must be an absolute HTTPS URL without user information")
+			}
+		}
+	}
+
+	if budget := spec.SubmissionBudget; budget != nil {
+		if budget.MaxPerPeriod < 0 {
+			add("submissionBudget.maxPerPeriod", "must not be negative")
+		}
+		if budget.PeriodDays < 0 {
+			add("submissionBudget.periodDays", "must not be negative")
+		}
+		if budget.PeriodDays > 0 && budget.MaxPerPeriod == 0 {
+			add("submissionBudget.maxPerPeriod", "is required when periodDays is set")
+		}
+	}
+	return errs
+}
+
+var validSecurityProgramSeveritySystems = map[SecurityProgramSeveritySystem]bool{
+	SeveritySystemImmunefiV23:        true,
+	SeveritySystemCode4rena:          true,
+	SeveritySystemSherlock:           true,
+	SeveritySystemCantina:            true,
+	SeveritySystemEthereumFoundation: true,
+	SeveritySystemCustom:             true,
+}
+
+var validSecurityProgramImpactLevels = map[string]bool{
+	"critical": true,
+	"high":     true,
+	"medium":   true,
+	"low":      true,
+}
+
+func securityProgramSeveritySystemNames() []string {
+	return []string{
+		string(SeveritySystemImmunefiV23),
+		string(SeveritySystemCode4rena),
+		string(SeveritySystemSherlock),
+		string(SeveritySystemCantina),
+		string(SeveritySystemEthereumFoundation),
+		string(SeveritySystemCustom),
+	}
 }

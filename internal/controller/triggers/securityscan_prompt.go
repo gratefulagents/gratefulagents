@@ -137,7 +137,85 @@ func writeSecurityProgramSnapshot(b *strings.Builder, program *triggersv1alpha1.
 	fmt.Fprintf(b, "- Program URL (provenance only): %q\n", program.ProgramURL)
 	b.WriteString("- Scope policy (JSON-quoted data): ")
 	fmt.Fprintf(b, "%q\n\n", program.ScopePolicy)
+	writeSecurityProgramTypedScope(b, program)
 	b.WriteString("The program URL is provenance only. Do not fetch it, and do not infer permission to contact any host from it. Network access is authorized only by the scan's operator-configured authorized network targets.\n\n")
+}
+
+// writeSecurityProgramTypedScope renders the operator-transcribed, machine-
+// readable scope facts. They are the authoritative form: a report has to select
+// one of the program's own impact clauses, judged under the program's own
+// severity system, and severity is never translated between systems.
+func writeSecurityProgramTypedScope(b *strings.Builder, program *triggersv1alpha1.SecurityProgramSpec) {
+	if program == nil {
+		return
+	}
+	if strings.TrimSpace(program.SeveritySystem) != "" {
+		fmt.Fprintf(b, "- Severity system: %q. Rank every finding with this system's own table and never translate a severity label from another system into it.\n", program.SeveritySystem)
+	}
+	if strings.TrimSpace(program.Primacy) != "" {
+		switch program.Primacy {
+		case string(triggersv1alpha1.PrimacyImpact):
+			b.WriteString("- Primacy: impact. A demonstrated in-scope impact counts even when the affected asset is not itemized.\n")
+		default:
+			b.WriteString("- Primacy: rules. Only the itemized assets are eligible, whatever the impact.\n")
+		}
+	}
+	if program.PoCRequired {
+		environment := strings.TrimSpace(program.PoCEnvironment)
+		if environment == "" {
+			environment = "unspecified"
+		}
+		fmt.Fprintf(b, "- Proof of concept: required (%s). A report without a runnable proof is not eligible.\n", environment)
+	}
+	if len(program.InScopeImpacts) != 0 {
+		b.WriteString("- In-scope impacts. Select the report's impact verbatim from this list; never invent an impact or asset:\n")
+		for _, impact := range program.InScopeImpacts {
+			if assetType := strings.TrimSpace(impact.AssetType); assetType != "" {
+				fmt.Fprintf(b, "  - [%s] %q (asset type %q)\n", impact.Level, impact.Impact, assetType)
+				continue
+			}
+			fmt.Fprintf(b, "  - [%s] %q\n", impact.Level, impact.Impact)
+		}
+	}
+	if len(program.OutOfScope) != 0 {
+		b.WriteString("- Out of scope (verbatim exclusions):\n")
+		for _, exclusion := range program.OutOfScope {
+			fmt.Fprintf(b, "  - %q\n", exclusion)
+		}
+	}
+	if len(program.KnownIssues) != 0 {
+		b.WriteString("- Known issues. These, and findings sharing their root cause, are not reportable:\n")
+		for _, issue := range program.KnownIssues {
+			fmt.Fprintf(b, "  - %q (source %q)\n", issue.Summary, issue.Source)
+		}
+	}
+	if len(program.ProhibitedTesting) != 0 {
+		b.WriteString("- Prohibited testing (violating these forfeits every report):\n")
+		for _, prohibited := range program.ProhibitedTesting {
+			fmt.Fprintf(b, "  - %q\n", prohibited)
+		}
+	}
+	if len(program.Assets) != 0 {
+		b.WriteString("- Deployed assets in scope:\n")
+		for _, asset := range program.Assets {
+			switch {
+			case asset.Address != "":
+				fmt.Fprintf(b, "  - chain %q address %q\n", asset.ChainID, asset.Address)
+			case asset.RepositoryURL != "":
+				fmt.Fprintf(b, "  - repository %q\n", asset.RepositoryURL)
+			}
+		}
+	}
+	if budget := program.SubmissionBudget; budget != nil && budget.MaxPerPeriod > 0 {
+		if budget.PeriodDays > 0 {
+			fmt.Fprintf(b, "- Submission budget: at most %d reports per %d days. Reporting is rationed: submit only the strongest findings.\n", budget.MaxPerPeriod, budget.PeriodDays)
+		} else {
+			fmt.Fprintf(b, "- Submission budget: at most %d reports. Reporting is rationed: submit only the strongest findings.\n", budget.MaxPerPeriod)
+		}
+	}
+	if len(program.InScopeImpacts) != 0 || strings.TrimSpace(program.SeveritySystem) != "" {
+		b.WriteString("\n")
+	}
 }
 
 // writeSecurityScanReportingPolicy renders the reporting policy shared by

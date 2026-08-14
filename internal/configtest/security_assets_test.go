@@ -10,6 +10,7 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/security"
 	"sigs.k8s.io/yaml"
 )
 
@@ -226,6 +227,74 @@ func TestDefaultSecurityRankerAsset(t *testing.T) {
 	}
 	if errs := triggersv1alpha1.ValidateSecurityRankerRules(ranker.Spec.Rules); len(errs) != 0 {
 		t.Errorf("rules fail validation: %v", errs)
+	}
+}
+
+// securityProgramSeverityRankers are the shipped transcriptions of a bug
+// bounty platform's own published severity table. A scan governed by a
+// SecurityProgram with that severitySystem resolves the matching ranker by
+// name, so a renamed or dropped asset silently drops the program's severity
+// system and lets findings be rated in a translated one.
+var securityProgramSeverityRankers = []struct {
+	name    string
+	markers []string
+}{
+	{name: "immunefi-v2-3", markers: []string{"unauthorized minting", "protocol insolvency", "chain split", "leaked keys"}},
+	{name: "code4rena", markers: []string{"directly stolen", "QA", "matured", "root cause"}},
+	{name: "sherlock", markers: []string{"1%", "0.01%", "10 USD", "private mempool", "README"}},
+}
+
+func TestSecurityProgramSeverityRankerAssets(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range securityProgramSeverityRankers {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var ranker triggersv1alpha1.SecurityRanker
+			readBootstrapAsset(t, "securityrankers", tc.name, &ranker)
+
+			if ranker.Kind != "SecurityRanker" {
+				t.Errorf("kind = %q, want SecurityRanker", ranker.Kind)
+			}
+			if ranker.Name != tc.name {
+				t.Fatalf("metadata.name = %q, want %q", ranker.Name, tc.name)
+			}
+			if desc := strings.TrimSpace(ranker.Spec.Description); len(desc) < 40 {
+				t.Errorf("description %q is too thin to explain which published table it transcribes", desc)
+			}
+			if errs := triggersv1alpha1.ValidateSecurityRankerRules(ranker.Spec.Rules); len(errs) != 0 {
+				t.Fatalf("rules fail validation: %v", errs)
+			}
+			joined := strings.Join(ranker.Spec.Rules, "\n")
+			for _, marker := range tc.markers {
+				if !strings.Contains(joined, marker) {
+					t.Errorf("rules must transcribe the published table entry %q", marker)
+				}
+			}
+			// A mistyped directive silently degrades into prose, so every
+			// directive-looking line must actually parse as one.
+			rules := security.ParseRankRules(joined)
+			for i, rule := range ranker.Spec.Rules {
+				directive, _, ok := strings.Cut(strings.TrimSpace(rule), ":")
+				if !ok {
+					continue
+				}
+				switch strings.ToLower(strings.TrimSpace(directive)) {
+				case "severity-floor", "severity-ceiling", "exclude", "min-severity", "weight":
+				default:
+					continue
+				}
+				if strings.Contains(rules.Text, strings.TrimSpace(rule)) {
+					t.Errorf("rules[%d] = %q looks like a directive but did not parse as one", i, rule)
+				}
+			}
+			// Sherlock pays out on Medium and above and treats everything
+			// below as invalid, so the floor is part of the table itself.
+			if tc.name == "sherlock" && rules.MinSeverity != security.SeverityMedium {
+				t.Errorf("minSeverity = %q, want %q: Sherlock rewards only High and Medium", rules.MinSeverity, security.SeverityMedium)
+			}
+		})
 	}
 }
 

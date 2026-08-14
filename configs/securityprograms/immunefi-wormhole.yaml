@@ -16,6 +16,98 @@ spec:
   displayName: Wormhole
   programURL: https://immunefi.com/bug-bounty/wormhole/scope/
   verifiedAt: 2026-08-12T00:00:00Z
+  severitySystem: immunefi-v2.3
+  inScopeImpacts:
+    - impact: "Unauthorized changes to protocol parameters through governance resulting in direct loss of funds (i.e. spoofing Governance actions)"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Theft of funds from exposure of production private keys of a quorum of Guardians"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Exploits resulting in the locking, loss, or theft of user funds from the Portal Token Bridge (locking only applies to non-upgradeable smart contracts)"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Forging of wormhole messages (i.e. VAAs) or circumventing VAA verification logic"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Gaining control of multiple Guardian nodes by exploiting a vulnerability that leads to Remote Code Execution."
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Any other vulnerabilities that lead to the impacts described in Tier 1-3"
+      level: critical
+      assetType: "Blockchain/DLT"
+    - impact: "Unrestricted bypass of the Accountant (https://github.com/wormhole-foundation/wormhole/blob/main/whitepapers/0011_accountant.md)"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Unrestricted bypass of rate limiters, including the Governor module (https://github.com/wormhole-foundation/wormhole/tree/main/node/pkg/governor])"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Bugs that allow forging of wormhole messages (i.e. VAAs) or circumventing VAA verification logic in the smart contracts but are outside of the “critical” category. For example, it is possible to spoof a VAA without being able to control the sender's address."
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Bugs that are very capital-intensive to carry out but could be critical"
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Attacks that would be critical if a single Guardian were malicious."
+      level: high
+      assetType: "Blockchain/DLT"
+    - impact: "Bugs that allow forging signed messages from a super-minority of Guardians"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Attacks that would be critical if a super minority of Guardians were malicious, excluding denial of service vulnerabilities."
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Impacts of critical or high severity but require a feasible amount of Guardian or user interaction to exploit."
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Compromising a single guardian node"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Cryptographic implementation flaws and flaws in random number generation with limited impact"
+      level: medium
+      assetType: "Blockchain/DLT"
+    - impact: "Bugs that are unlikely to occur but would have a significant impact if so, e.g. race conditions"
+      level: low
+      assetType: "Blockchain/DLT"
+    - impact: "Unrestricted bypass of the Transfer Verifier (https://github.com/wormhole-foundation/wormhole/blob/main/whitepapers/0014_transfer_verifier.md)"
+      level: low
+      assetType: "Blockchain/DLT"
+    - impact: "Bugs that are not currently exploitable but may become exploitable in future stages of development. This could refer to a configuration setting change or a likely code change causing a bug. The WH team determines the feasibility and likelihood of this."
+      level: low
+      assetType: "Blockchain/DLT"
+    - impact: "Denial of Service attacks against the Guardian network (excluding volumetric attacks) that would result in an extended (24 hours) degradation of performance"
+      level: low
+      assetType: "Blockchain/DLT"
+    - impact: "Attacks below Critical severity if a single Guardian were malicious"
+      level: low
+      assetType: "Blockchain/DLT"
+    - impact: "Forging of wormhole messages (i.e. VAAs) or circumventing VAA verification logic in the smart contracts"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Governance manipulation"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Exposure of production private keys and/or other extremely sensitive information."
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Bugs that allow the forging of wormhole messages (e.g., VAAs) or circumventing VAA verification logic in smart contracts are outside of the “critical” category."
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Attacks that would be critical if a minority of Guardians were malicious."
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Exploit chains requiring user interaction"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Bugs that allow forging signed messages from a minority of Guardians"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Bugs that are likely to occur in future stages of development but do not manifest themselves yet"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Denial-of-service attacks against the Guardian network (excluding volumetric attacks) temporarily degrade performance."
+      level: low
+      assetType: "Smart Contract"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T15:44:43.820Z; page last updated 12 August 2026).
 

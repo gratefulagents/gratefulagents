@@ -16,6 +16,119 @@ spec:
   displayName: Hyperlane
   programURL: https://immunefi.com/bug-bounty/hyperlane/scope/
   verifiedAt: 2026-08-12T16:35:00Z
+  severitySystem: immunefi-v2.3
+  inScopeImpacts:
+    - impact: "Smart contract fails to deliver promised returns, but doesn’t lose value"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Any governance voting result manipulation"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Unauthorized minting of interchain assets, whether fungible or not"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any user NFTs, whether at-rest or in-motion, other than unclaimed royalties"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of NFTs"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Unauthorized minting of NFTs"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Unintended alteration of what the NFT represents (e.g. token URI, payload, artistic content)"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Theft of unclaimed yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Theft of unclaimed royalties"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of unclaimed yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of unclaimed royalties"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Smart contract unable to operate due to lack of token funds"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Unbounded gas consumption"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Changing details of other users (including modifying browser local storage) without already-connected wallet interaction and with significant user interaction such as iframing leading to modifying the backend/browser state (demonstrate impact with PoC)"
+      level: low
+      assetType: "Websites and Applications"
+    - impact: "Any impact involving a publicly released CVE without a working PoC"
+      level: low
+      assetType: "Websites and Applications"
+    - impact: "Taking over broken or expired outgoing links such as social media handles, etc."
+      level: low
+      assetType: "Websites and Applications"
+    - impact: "Temporarily disabling user to access target site, such as locking up the victim from login, cookie bombing, etc."
+      level: low
+      assetType: "Websites and Applications"
+    - impact: "Injecting/modifying the static content on the target application without Javascript (Persistent) such as HTML injection without Javascript, replacing existing text with arbitrary text, arbitrary file uploads, etc."
+      level: high
+      assetType: "Websites and Applications"
+    - impact: "Changing sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as email or password of the victim, etc."
+      level: high
+      assetType: "Websites and Applications"
+    - impact: "Improperly disclosing confidential user information such as email address, phone number, physical address, etc."
+      level: high
+      assetType: "Websites and Applications"
+    - impact: "Changing non-sensitive details of other users (including modifying browser local storage) without already-connected wallet interaction and with up to one click of user interaction, such as changing the first/last name of user, or en/disabling notification"
+      level: medium
+      assetType: "Websites and Applications"
+    - impact: "Injecting/modifying the static content on the target application without Javascript (Reflected) such as reflected HTML injection or loading external site data"
+      level: medium
+      assetType: "Websites and Applications"
+    - impact: "Subdomain takeover without already-connected wallet interaction"
+      level: medium
+      assetType: "Websites and Applications"
+    - impact: "Retrieve sensitive data/files from a running server such as /etc/shadow, database passwords, and blockchain keys(this does not include non-sensitive environment variables, open source code, or usernames)"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Taking state-modifying authenticated actions (with or without blockchain state interaction) on behalf of other users without any interaction by that user, such as, changing registration information, commenting, voting, making trades, withdrawals, etc."
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Malicious interactions with an already-connected wallet such as modifying transaction arguments or parameters, substituting contract addresses, submitting malicious transactions"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Execute arbitrary system commands"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Taking down the application/website"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Taking down the NFT URI"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Subdomain takeover with already-connected wallet interaction"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Direct theft of user funds"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Direct theft of user NFTs"
+      level: critical
+      assetType: "Websites and Applications"
+    - impact: "Redirecting users to malicious websites (open redirect)"
+      level: medium
+      assetType: "Websites and Applications"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-07-28T10:38:59.160Z).
 

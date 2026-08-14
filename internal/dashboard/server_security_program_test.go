@@ -300,3 +300,69 @@ func TestSecurityProgramProtoRoundTripWithoutScanTarget(t *testing.T) {
 		t.Fatalf("securityProgramToProto() scan targets = %+v / %+v", got.ScanTarget, got.ScanTargets)
 	}
 }
+
+// A dashboard edit must not erase operator-transcribed typed scope. The RPC
+// does not carry those fields yet, so an unguarded update would silently drop
+// the program's impact list and leave downstream gates with nothing to check.
+func TestUpdateSecurityProgramPreservesTypedScope(t *testing.T) {
+	srv, c := newCronTestServer(t)
+	srv.stateStore = newMockStateStore()
+	ctx := projectActorCtx()
+	ns := testUserNS()
+
+	if _, err := srv.CreateSecurityProgram(ctx, &platform.CreateSecurityProgramRequest{Program: testSecurityProgramResource("")}); err != nil {
+		t.Fatalf("CreateSecurityProgram() error = %v", err)
+	}
+
+	cr := &triggersv1alpha1.SecurityProgram{}
+	key := client.ObjectKey{Namespace: ns, Name: "acme-bounty"}
+	if err := c.Get(context.Background(), key, cr); err != nil {
+		t.Fatalf("Get(SecurityProgram) error = %v", err)
+	}
+	cr.Spec.SeveritySystem = string(triggersv1alpha1.SeveritySystemImmunefiV23)
+	cr.Spec.Primacy = string(triggersv1alpha1.PrimacyImpact)
+	cr.Spec.PoCRequired = true
+	cr.Spec.PoCEnvironment = string(triggersv1alpha1.PoCEnvironmentMainnetFork)
+	cr.Spec.KYCRequired = true
+	cr.Spec.InScopeImpacts = []triggersv1alpha1.SecurityProgramImpact{
+		{Impact: "Permanent freezing of funds", Level: "critical", AssetType: "Smart Contract"},
+	}
+	cr.Spec.OutOfScope = []string{"Attacks requiring leaked keys"}
+	cr.Spec.ProhibitedTesting = []string{"Testing on mainnet or public testnet"}
+	cr.Spec.KnownIssues = []triggersv1alpha1.SecurityProgramKnownIssue{{Source: "prior audit", Summary: "Acknowledged rounding"}}
+	cr.Spec.Assets = []triggersv1alpha1.SecurityProgramAsset{{ChainID: "1", Address: "0xabc"}}
+	cr.Spec.SubmissionBudget = &triggersv1alpha1.SecurityProgramSubmissionBudget{MaxPerPeriod: 2, PeriodDays: 30}
+	if err := c.Update(context.Background(), cr); err != nil {
+		t.Fatalf("Update(SecurityProgram) error = %v", err)
+	}
+
+	update := testSecurityProgramResource("")
+	update.DisplayName = "Acme Public Bounty"
+	if _, err := srv.UpdateSecurityProgram(ctx, &platform.UpdateSecurityProgramRequest{Program: update}); err != nil {
+		t.Fatalf("UpdateSecurityProgram() error = %v", err)
+	}
+
+	stored := &triggersv1alpha1.SecurityProgram{}
+	if err := c.Get(context.Background(), key, stored); err != nil {
+		t.Fatalf("Get(SecurityProgram) after update error = %v", err)
+	}
+	if stored.Spec.DisplayName != "Acme Public Bounty" {
+		t.Errorf("displayName = %q, want the edit to apply", stored.Spec.DisplayName)
+	}
+	if stored.Spec.SeveritySystem != string(triggersv1alpha1.SeveritySystemImmunefiV23) ||
+		stored.Spec.Primacy != string(triggersv1alpha1.PrimacyImpact) ||
+		!stored.Spec.PoCRequired || stored.Spec.PoCEnvironment != string(triggersv1alpha1.PoCEnvironmentMainnetFork) ||
+		!stored.Spec.KYCRequired {
+		t.Errorf("typed scope flags were dropped: %+v", stored.Spec)
+	}
+	if len(stored.Spec.InScopeImpacts) != 1 || stored.Spec.InScopeImpacts[0].Impact != "Permanent freezing of funds" {
+		t.Errorf("inScopeImpacts = %+v", stored.Spec.InScopeImpacts)
+	}
+	if len(stored.Spec.OutOfScope) != 1 || len(stored.Spec.ProhibitedTesting) != 1 ||
+		len(stored.Spec.KnownIssues) != 1 || len(stored.Spec.Assets) != 1 {
+		t.Errorf("typed scope lists were dropped: %+v", stored.Spec)
+	}
+	if stored.Spec.SubmissionBudget == nil || stored.Spec.SubmissionBudget.MaxPerPeriod != 2 {
+		t.Errorf("submissionBudget = %+v", stored.Spec.SubmissionBudget)
+	}
+}

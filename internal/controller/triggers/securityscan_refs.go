@@ -278,6 +278,10 @@ func resolveSecurityScanRefs(
 		resolved.refs = append(resolved.refs, resolvedSecurityRef("SecurityRanker", ranker.Name, ranker.Generation, ranker.Spec))
 	}
 
+	if err := appendProgramSeverityRanker(ctx, c, scan.Namespace, resolved); err != nil {
+		return nil, err
+	}
+
 	for _, ref := range postScriptRefs {
 		script := &triggersv1alpha1.SecurityPostScript{}
 		if err := getSecurityScanRef(ctx, c, scan.Namespace, ref.Name, "SecurityPostScript", script); err != nil {
@@ -292,6 +296,55 @@ func resolveSecurityScanRefs(
 	}
 
 	return resolved, nil
+}
+
+// securityProgramSeverityRankers maps a program's severity system to the
+// shipped SecurityRanker that transcribes that platform's published severity
+// table. Systems without a shipped transcription (custom, and the ones whose
+// tables are not shipped yet) resolve to no ranker.
+var securityProgramSeverityRankers = map[string]string{
+	string(triggersv1alpha1.SeveritySystemImmunefiV23): "immunefi-v2-3",
+	string(triggersv1alpha1.SeveritySystemCode4rena):   "code4rena",
+	string(triggersv1alpha1.SeveritySystemSherlock):    "sherlock",
+}
+
+// appendProgramSeverityRanker appends the SecurityRanker transcribing the
+// governing program's own severity table, so findings are rated in the system
+// the program pays out on instead of a translated one. It runs after the
+// explicit and pack-default rankers so an operator-chosen ranker of the same
+// name wins and resolution stays idempotent. A ranker CR that is not
+// installed in the scan's namespace is skipped silently: the program's
+// severity system is a fact about the program, not a reference the scan
+// author made.
+func appendProgramSeverityRanker(
+	ctx context.Context, c client.Reader, namespace string, resolved *resolvedSecurityScanSpec,
+) error {
+	if resolved.program == nil {
+		return nil
+	}
+	name := securityProgramSeverityRankers[strings.TrimSpace(resolved.program.SeveritySystem)]
+	if name == "" {
+		return nil
+	}
+	for _, existing := range resolved.spec.SeverityRankers {
+		if existing.Name == name {
+			return nil
+		}
+	}
+	ranker := &triggersv1alpha1.SecurityRanker{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, ranker); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("resolving SecurityRanker %s/%s for severity system %q: %w",
+			namespace, name, resolved.program.SeveritySystem, err)
+	}
+	resolved.spec.SeverityRankers = append(resolved.spec.SeverityRankers, triggersv1alpha1.SecurityScanRanker{
+		Name:  ranker.Name,
+		Rules: strings.Join(ranker.Spec.Rules, "\n"),
+	})
+	resolved.refs = append(resolved.refs, resolvedSecurityRef("SecurityRanker", ranker.Name, ranker.Generation, ranker.Spec))
+	return nil
 }
 
 //nolint:gocyclo // Routing intentionally keeps the complete precedence table together for auditability.

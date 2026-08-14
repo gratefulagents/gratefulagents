@@ -16,6 +16,48 @@ spec:
   displayName: ZKsync
   programURL: https://immunefi.com/bug-bounty/zksyncera/scope/
   verifiedAt: 2026-08-12T16:35:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  inScopeImpacts:
+    - impact: "Direct loss of funds"
+      level: critical
+      assetType: "Blockchain Dlt"
+    - impact: "Difference between implementation outside of the circuit and within the circuit, where the in-circuit implementation is accurate (e.g. overconstraint in the circuit)"
+      level: high
+      assetType: "Blockchain Dlt"
+    - impact: "Contract fails to deliver promised returns, but doesn't lose value"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds (that can be fixed by upgrade)"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Permanent stopping the priority queue"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Theft of user fees"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Block stuffing for profit"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Theft of gas"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Unbounded gas consumption"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds (that cannot be fixed by upgrade)"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: "Smart Contract"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-08-06T12:39:21.221Z).
 

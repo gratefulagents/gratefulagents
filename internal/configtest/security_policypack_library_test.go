@@ -31,9 +31,12 @@ func TestSecurityPolicyPackLibraryAssets(t *testing.T) {
 			postScripts: []string{"false-positive-check", "report-writer"},
 		},
 		{
-			name:        "bug-bounty",
-			rankers:     []string{"bug-bounty-triage"},
-			postScripts: []string{"scope-eligibility-check", "false-positive-check", "poc-builder", "poc-validator", "bounty-worthiness-check", "report-writer"},
+			name:    "bug-bounty",
+			rankers: []string{"bug-bounty-triage"},
+			// prior-art-check runs before any PoC work: a known, already-reported,
+			// or bot-findable finding is unpayable, so it must be killed before
+			// the pipeline spends proof-of-concept budget on it.
+			postScripts: []string{"scope-eligibility-check", "false-positive-check", "prior-art-check", "poc-builder", "poc-validator", "bounty-worthiness-check", "report-writer"},
 		},
 	}
 

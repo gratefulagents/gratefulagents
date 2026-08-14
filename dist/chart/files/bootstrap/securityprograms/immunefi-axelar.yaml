@@ -16,6 +16,89 @@ spec:
   displayName: Axelar
   programURL: https://immunefi.com/bug-bounty/axelarnetwork/scope/
   verifiedAt: 2026-08-12T16:35:00Z
+  severitySystem: immunefi-v2.3
+  inScopeImpacts:
+    - impact: "Smart contract fails to deliver promised returns, but doesn’t lose value"
+      level: low
+      assetType: "Smart Contract"
+    - impact: "Temporary freezing of funds for a minimum of 24 hours"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Invalid command execution"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Smart contract unable to operate due to lack of funds"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Block stuffing for profit"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Theft of gas"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Unbounded gas consumption"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Privilege escalation resulting in a severe impact"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Unauthorized mint/burn/transfer of wrapped assets"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Insolvency"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "DoS of greater than 10% but less than 30% of validator nodes and does not shut down the network"
+      level: low
+      assetType: "Blockchain Dlt"
+    - impact: "Significant underpricing of transaction fees relative to computation time"
+      level: low
+      assetType: "Blockchain Dlt"
+    - impact: "Network not being able to confirm new transactions (Total network shutdown)"
+      level: high
+      assetType: "Blockchain Dlt"
+    - impact: "Unintended permanent chain split requiring hard fork (Network partition requiring hard fork)"
+      level: high
+      assetType: "Blockchain Dlt"
+    - impact: "Freezing of funds (fix requires hardfork on Axelar)"
+      level: high
+      assetType: "Blockchain Dlt"
+    - impact: "Non-determinism in the network and consensus failure"
+      level: high
+      assetType: "Blockchain Dlt"
+    - impact: "Transient consensus failures"
+      level: high
+      assetType: "Blockchain Dlt"
+    - impact: "Privilege escalation resulting in a severe impact"
+      level: high
+      assetType: "Blockchain Dlt"
+    - impact: "High compute consumption by validator nodes"
+      level: medium
+      assetType: "Blockchain Dlt"
+    - impact: "Attacks against light clients"
+      level: medium
+      assetType: "Blockchain Dlt"
+    - impact: "DoS of greater than 30% of validator or miner nodes and does not shut down the network"
+      level: medium
+      assetType: "Blockchain Dlt"
+    - impact: "Privilege Escalation causing DoS"
+      level: medium
+      assetType: "Blockchain Dlt"
+    - impact: "Direct loss of funds"
+      level: critical
+      assetType: "Blockchain Dlt"
+    - impact: "Cryptographic vulnerabilities"
+      level: critical
+      assetType: "Blockchain Dlt"
   scopePolicy: |
     Verbatim Immunefi scope (retrieved 2026-08-12T16:35:00Z; page last updated 2026-06-03T13:08:45.817Z).
 
