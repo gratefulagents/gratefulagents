@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -130,6 +131,12 @@ func TestSecurityProgramLibrary(t *testing.T) {
 					if target.WorkflowRef != "bounty-hunt-evm" {
 						t.Errorf("scanTargets[%d].workflowRef = %q, want bounty-hunt-evm", index, target.WorkflowRef)
 					}
+				}
+			}
+			if program.Name == "immunefi-aave" {
+				want := map[string]string{"project_root": "."}
+				if got := targets[0].ParameterValues; !reflect.DeepEqual(got, want) {
+					t.Errorf("scan target parameterValues = %#v, want %#v", got, want)
 				}
 			}
 			isImmunefi := program.Spec.Provider == "Immunefi"

@@ -28,14 +28,15 @@ func testSecurityProgramResource(namespace string) *platform.SecurityProgramReso
 		VerifiedAt:  timestamppb.New(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)),
 		ScanTargets: []*platform.SecurityProgramScanTarget{
 			{
-				RepositoryUrl: "https://github.com/acme/widget",
-				BaseBranch:    "main",
-				WorkflowRef:   "blockchain-protocol-audit",
-				PolicyPackRef: "bug-bounty",
-				ScanName:      "acme-widget",
-				DisplayName:   "Acme Widget",
-				Priority:      3,
-				Featured:      true,
+				RepositoryUrl:   "https://github.com/acme/widget",
+				BaseBranch:      "main",
+				WorkflowRef:     "blockchain-protocol-audit",
+				PolicyPackRef:   "bug-bounty",
+				ScanName:        "acme-widget",
+				DisplayName:     "Acme Widget",
+				Priority:        3,
+				ParameterValues: map[string]string{"project_root": "contracts"},
+				Featured:        true,
 			},
 			{
 				RepositoryUrl: "https://github.com/acme/contracts",

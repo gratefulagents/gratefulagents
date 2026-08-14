@@ -1085,6 +1085,23 @@ func (s *operatorSecret) text(in string) string {
 	return in
 }
 
+func (s *operatorSecret) err(err error) error {
+	if err == nil {
+		return nil
+	}
+	redacted := s.text(err.Error())
+	if redacted == err.Error() {
+		return err
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s: %w", redacted, context.DeadlineExceeded)
+	}
+	if errors.Is(err, context.Canceled) {
+		return fmt.Errorf("%s: %w", redacted, context.Canceled)
+	}
+	return errors.New(redacted)
+}
+
 func (s *operatorSecret) scrub(result NativeResult) NativeResult {
 	if s == nil || len(s.replacements) == 0 {
 		return result
@@ -1092,23 +1109,26 @@ func (s *operatorSecret) scrub(result NativeResult) NativeResult {
 	if len(result.Output) > 0 {
 		result.Output = []byte(s.text(string(result.Output)))
 	}
-	// The timeout path is recognized by error identity, so it is left intact.
-	if result.Err != nil && !errors.Is(result.Err, context.DeadlineExceeded) {
-		result.Err = errors.New(s.text(result.Err.Error()))
+	if result.Err != nil {
+		result.Err = s.err(result.Err)
 	}
 	return result
 }
 
 // executeEVMStage runs the EVM packs that are not batch tools: anvil is a
-// server whose lifecycle must be supervised, and the mutation pack re-runs its
-// pinned argv once per mutant. Packs that are a single bounded process
-// (forge-fork-test, upstream-fork-diff) fall through to the generic path.
+// server whose lifecycle must be supervised, the fork-test pack verifies its
+// remote pin before falling through to Forge, and the mutation pack re-runs
+// its pinned argv once per mutant.
 func executeEVMStage(ctx context.Context, req ExecutionRequest, argv []string, executionTarget string, childEnvironment []string, secrets *operatorSecret) (NativeResult, bool) {
 	environment := map[string]string{"os": runtime.GOOS, "arch": runtime.GOARCH, "runtime": runtime.Version()}
 	switch req.Tool.Name {
 	case "anvil-fork":
 		output, err := runForkDevnet(ctx, req, argv, childEnvironment, secrets)
 		return evmStageResult(ctx, environment, output, 0, err), true
+	case "forge-fork-test":
+		if err := verifyForgeForkPin(ctx, req.Config.Arguments, argv, secrets); err != nil {
+			return evmStageResult(ctx, environment, nil, 0, err), true
+		}
 	case "forge-coverage-mutation":
 		limit := req.Invocation.Budgets.MaxOutputSize
 		run := func(runCtx context.Context, root string) (int, []byte, error) {
@@ -1139,6 +1159,104 @@ func executeEVMStage(ctx context.Context, req ExecutionRequest, argv []string, e
 		return evmStageResult(ctx, environment, output, 0, err), true
 	}
 	return NativeResult{}, false
+}
+
+// EVMForkPin is operator-resolved chain state suitable for the required fork
+// arguments. It deliberately contains no endpoint URL or credential.
+type EVMForkPin struct {
+	ChainID         int64  `json:"chain_id"`
+	ForkBlockNumber int64  `json:"fork_block_number"`
+	ForkBlockHash   string `json:"fork_block_hash"`
+}
+
+// ResolveEVMForkPin resolves the endpoint from an operator alias and returns
+// its current finalized block after verifying the expected chain ID.
+func ResolveEVMForkPin(ctx context.Context, alias string, expectedChainID int64) (pin EVMForkPin, err error) {
+	if expectedChainID < 1 {
+		return EVMForkPin{}, fmt.Errorf("expected chain id must be positive")
+	}
+	endpoint, err := resolveForkEndpoint(alias)
+	if err != nil {
+		return EVMForkPin{}, err
+	}
+	secrets := &operatorSecret{}
+	secrets.hide(endpoint, operatorForkEndpointToken+alias)
+	defer func() { err = secrets.err(err) }()
+
+	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
+	var quantity string
+	if err := jsonRPCCall(ctx, client, endpoint, "fork endpoint", "eth_chainId", []any{}, &quantity); err != nil {
+		return EVMForkPin{}, err
+	}
+	chainID, err := parseHexQuantity(quantity)
+	if err != nil {
+		return EVMForkPin{}, err
+	}
+	if chainID != expectedChainID {
+		return EVMForkPin{}, fmt.Errorf("fork endpoint serves chain id %d, expected %d", chainID, expectedChainID)
+	}
+	var block struct {
+		Number string `json:"number"`
+		Hash   string `json:"hash"`
+	}
+	if err := jsonRPCCall(ctx, client, endpoint, "fork endpoint", "eth_getBlockByNumber", []any{"finalized", false}, &block); err != nil {
+		return EVMForkPin{}, err
+	}
+	blockNumber, err := parseHexQuantity(block.Number)
+	if err != nil {
+		return EVMForkPin{}, err
+	}
+	blockHash := strings.ToLower(block.Hash)
+	if !evmBlockHashPattern.MatchString(blockHash) {
+		return EVMForkPin{}, fmt.Errorf("fork endpoint returned a malformed finalized block hash")
+	}
+	return EVMForkPin{ChainID: chainID, ForkBlockNumber: blockNumber, ForkBlockHash: blockHash}, nil
+}
+
+func forkPinFromArguments(arguments map[string]string) (EVMForkPin, error) {
+	chainID, err := strconv.ParseInt(arguments["chain_id"], 10, 64)
+	if err != nil || chainID < 1 {
+		return EVMForkPin{}, fmt.Errorf("fork run is missing its pinned chain id")
+	}
+	blockNumber, err := strconv.ParseInt(arguments["fork_block_number"], 10, 64)
+	if err != nil || blockNumber < 0 {
+		return EVMForkPin{}, fmt.Errorf("fork run is missing its pinned fork block number")
+	}
+	blockHash := strings.ToLower(arguments["fork_block_hash"])
+	if !evmBlockHashPattern.MatchString(blockHash) {
+		return EVMForkPin{}, fmt.Errorf("fork run is missing its pinned fork block hash")
+	}
+	return EVMForkPin{ChainID: chainID, ForkBlockNumber: blockNumber, ForkBlockHash: blockHash}, nil
+}
+
+func verifyForgeForkPin(ctx context.Context, arguments map[string]string, argv []string, secrets *operatorSecret) error {
+	pin, err := forkPinFromArguments(arguments)
+	if err != nil {
+		return err
+	}
+	configuredEndpoint, err := resolveForkEndpoint(arguments["fork_endpoint"])
+	if err != nil {
+		return err
+	}
+	secrets.hide(configuredEndpoint, operatorForkEndpointToken+arguments["fork_endpoint"])
+	endpoint := ""
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "--fork-url" {
+			if endpoint != "" {
+				return fmt.Errorf("forge fork test has multiple fork endpoints")
+			}
+			endpoint = argv[i+1]
+		}
+	}
+	if endpoint == "" || endpoint != configuredEndpoint {
+		return fmt.Errorf("forge fork test has no resolved operator endpoint")
+	}
+	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
+	reader := chainReader{client: client, endpoint: endpoint, block: "0x" + strconv.FormatInt(pin.ForkBlockNumber, 16)}
+	if err := reader.verifyPin(ctx, pin.ChainID, pin.ForkBlockNumber, pin.ForkBlockHash); err != nil {
+		return secrets.err(fmt.Errorf("forge fork preflight: %w", err))
+	}
+	return nil
 }
 
 // runChainStatePack executes the chain-state packs in this process rather than
@@ -1205,17 +1323,9 @@ type forkDevnetRequest struct {
 }
 
 func runForkDevnet(ctx context.Context, req ExecutionRequest, argv, childEnvironment []string, secrets *operatorSecret) ([]byte, error) {
-	chainID, err := strconv.ParseInt(req.Config.Arguments["chain_id"], 10, 64)
+	pin, err := forkPinFromArguments(req.Config.Arguments)
 	if err != nil {
-		return nil, fmt.Errorf("fork run is missing its pinned chain id")
-	}
-	blockNumber, err := strconv.ParseInt(req.Config.Arguments["fork_block_number"], 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("fork run is missing its pinned fork block number")
-	}
-	blockHash := strings.ToLower(req.Config.Arguments["fork_block_hash"])
-	if !evmBlockHashPattern.MatchString(blockHash) {
-		return nil, fmt.Errorf("fork run is missing its pinned fork block hash")
+		return nil, err
 	}
 	devnetArgv, listenURL, err := loopbackDevnetArgv(argv)
 	if err != nil {
@@ -1223,7 +1333,7 @@ func runForkDevnet(ctx context.Context, req ExecutionRequest, argv, childEnviron
 	}
 	return superviseForkDevnet(ctx, forkDevnetRequest{
 		Argv: devnetArgv, Environment: childEnvironment, Alias: req.Config.Arguments["fork_endpoint"],
-		ChainID: chainID, BlockNumber: blockNumber, BlockHash: blockHash, ListenURL: listenURL,
+		ChainID: pin.ChainID, BlockNumber: pin.ForkBlockNumber, BlockHash: pin.ForkBlockHash, ListenURL: listenURL,
 		Readiness: min(req.Invocation.Budgets.Timeout/2, forkDevnetReadinessCap),
 		MaxLog:    min(req.Invocation.Budgets.MaxOutputSize, 1<<20), Secrets: secrets,
 	})

@@ -18,9 +18,8 @@ spec:
     maxConcurrentSubAgents: 1
 
   # Security tasks need a writable workspace for local PoCs, compiler caches,
-  # and test fixtures. Shell network access is also intentionally limited to
-  # workspace-write runs by the command sandbox. The SecurityScan controller's
-  # denied-tools policy still blocks repository editing and remote git writes.
+  # test fixtures, and temporary target mutations. Workspace-write also keeps
+  # normal networked shell access available for authorized research endpoints.
   permissionMode: workspace-write
   allowedMutatingTools:
     - report_security_finding
@@ -85,7 +84,12 @@ spec:
 
     ## Rules
     - NEVER report a finding without file:line evidence and an attack path.
-    - NEVER modify the target repository, open PRs, or push commits.
+    - You MAY create or modify temporary harnesses, tests, fixtures, and mutants
+      in the workspace when needed to validate the assigned task. Keep those
+      changes local and clearly distinguish them from the target source.
+    - NEVER commit workspace changes, push commits, or open pull requests.
+    - NEVER broadcast transactions to a public chain. Forks, local devnets,
+      and explicitly authorized read-only network access are allowed.
     - NEVER copy secret material (keys, tokens, passwords) into findings, tool
       output, or the task output: reference the location and redact the value.
     - NEVER attack, scan, or send exploit traffic to live third-party or

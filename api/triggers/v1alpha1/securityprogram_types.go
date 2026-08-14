@@ -14,6 +14,9 @@ const (
 	MaxSecurityProgramURLLength         = 2048
 	MaxSecurityProgramScopePolicyLength = 131072
 	MaxSecurityProgramScanTargets       = 256
+	MaxSecurityProgramTargetParameters  = 32
+	MaxSecurityProgramParameterName     = 63
+	MaxSecurityProgramParameterValue    = 4096
 
 	MaxSecurityProgramImpacts           = 256
 	MaxSecurityProgramImpactLength      = 1024
@@ -208,6 +211,14 @@ type SecurityProgramScanTarget struct {
 
 	// featured includes the target in featured target catalogs.
 	Featured bool `json:"featured"`
+
+	// parameterValues are scan-time workflow values copied into imported
+	// SecurityScan spec.parameterValues.
+	// +optional
+	// +kubebuilder:validation:MaxProperties=32
+	// +kubebuilder:validation:XValidation:rule="self.all(k, k.size() <= 63 && k.matches('^[a-zA-Z_][a-zA-Z0-9_]*$'))",message="parameter names must be identifiers of at most 63 characters"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, self[k].size() <= 4096)",message="parameter values must be at most 4096 characters"
+	ParameterValues map[string]string `json:"parameterValues,omitempty"`
 }
 
 // SecurityProgramSpec is an operator-verified snapshot of a vulnerability

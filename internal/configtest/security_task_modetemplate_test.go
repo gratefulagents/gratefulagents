@@ -24,10 +24,8 @@ func TestSecurityScanTaskModeTemplateAsset(t *testing.T) {
 	if !mode.Spec.Autonomous {
 		t.Error("scan task mode must be autonomous")
 	}
-	// Task runs need local writes for PoCs, test fixtures, and compiler caches.
-	// Workspace-write also permits networked shell commands in the command
-	// sandbox; the SecurityScan controller separately denies repository editing
-	// and remote git-write tools.
+	// Task runs need local writes for PoCs, test fixtures, mutants, and compiler
+	// caches. Workspace-write also preserves normal networked shell access.
 	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeWorkspaceWrite {
 		t.Errorf("permissionMode = %q, want workspace-write", mode.Spec.PermissionMode)
 	}
@@ -61,6 +59,16 @@ func TestSecurityScanTaskModeTemplateAsset(t *testing.T) {
 	for _, marker := range []string{"report_security_finding", "submit_task_output", "file:line", "one"} {
 		if !strings.Contains(mode.Spec.Instructions, marker) {
 			t.Errorf("scan task mode instructions must mention %q", marker)
+		}
+	}
+	for _, marker := range []string{
+		"temporary harnesses, tests, fixtures, and mutants",
+		"NEVER commit workspace changes",
+		"push commits",
+		"NEVER broadcast transactions to a public chain",
+	} {
+		if !strings.Contains(mode.Spec.Instructions, marker) {
+			t.Errorf("scan task mode instructions must state workspace safety rule %q", marker)
 		}
 	}
 }

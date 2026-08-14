@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -109,14 +110,15 @@ func securityProgramScanTargetFromProto(target *platform.SecurityProgramScanTarg
 		baseBranch = "main"
 	}
 	return triggersv1alpha1.SecurityProgramScanTarget{
-		RepositoryURL: strings.TrimSpace(target.GetRepositoryUrl()),
-		BaseBranch:    baseBranch,
-		WorkflowRef:   strings.TrimSpace(target.GetWorkflowRef()),
-		PolicyPackRef: strings.TrimSpace(target.GetPolicyPackRef()),
-		ScanName:      strings.TrimSpace(target.GetScanName()),
-		DisplayName:   strings.TrimSpace(target.GetDisplayName()),
-		Priority:      target.GetPriority(),
-		Featured:      target.GetFeatured(),
+		RepositoryURL:   strings.TrimSpace(target.GetRepositoryUrl()),
+		BaseBranch:      baseBranch,
+		WorkflowRef:     strings.TrimSpace(target.GetWorkflowRef()),
+		PolicyPackRef:   strings.TrimSpace(target.GetPolicyPackRef()),
+		ScanName:        strings.TrimSpace(target.GetScanName()),
+		DisplayName:     strings.TrimSpace(target.GetDisplayName()),
+		Priority:        target.GetPriority(),
+		Featured:        target.GetFeatured(),
+		ParameterValues: maps.Clone(target.GetParameterValues()),
 	}
 }
 
@@ -125,14 +127,15 @@ func securityProgramScanTargetToProto(target *triggersv1alpha1.SecurityProgramSc
 		return nil
 	}
 	return &platform.SecurityProgramScanTarget{
-		RepositoryUrl: target.RepositoryURL,
-		BaseBranch:    target.BaseBranch,
-		WorkflowRef:   target.WorkflowRef,
-		PolicyPackRef: target.PolicyPackRef,
-		ScanName:      target.ScanName,
-		DisplayName:   target.DisplayName,
-		Priority:      target.Priority,
-		Featured:      target.Featured,
+		RepositoryUrl:   target.RepositoryURL,
+		BaseBranch:      target.BaseBranch,
+		WorkflowRef:     target.WorkflowRef,
+		PolicyPackRef:   target.PolicyPackRef,
+		ScanName:        target.ScanName,
+		DisplayName:     target.DisplayName,
+		Priority:        target.Priority,
+		Featured:        target.Featured,
+		ParameterValues: maps.Clone(target.ParameterValues),
 	}
 }
 

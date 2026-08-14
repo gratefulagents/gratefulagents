@@ -539,11 +539,9 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	}
 }
 
-// TestBountyHuntEVMBuildsItsOracleFirst pins the property that makes this
-// workflow different from every other one we ship: the oracle is built and
-// calibrated before hunting, and nothing becomes a finding without a failing
-// assertion on a pinned fork. A workflow that hunts first and validates second
-// is the configuration that produces plausible, non-reproducible reports.
+// TestBountyHuntEVMBuildsItsOracleFirst pins the four-task fork-harness lane.
+// Build, calibration, hunting, and reproduction deliberately share one
+// write-capable AgentRun so temporary harness files are not lost at handoffs.
 func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 	t.Parallel()
 
@@ -557,25 +555,22 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 		byName[task.Name] = task
 	}
 	for _, name := range []string{
-		"pin-target-and-deployment", "build-and-calibrate-invariants", "hunt-against-invariants",
-		"synthesize-failing-exploit", "quantify-impact-and-eligibility", "triage-and-report",
+		"pin-target-and-deployment", "fork-harness-hunt", "quantify-impact-and-eligibility", "triage-and-report",
 	} {
 		if _, ok := byName[name]; !ok {
 			t.Fatalf("workflow is missing task %q", name)
 		}
 	}
 
-	// The harness must exist before the hunt, and the hunt before exploitation:
-	// a green harness only means "not found under these bounds" if it was
-	// calibrated first.
+	if len(workflow.Spec.Tasks) != 4 {
+		t.Fatalf("workflow has %d tasks, want the four-task fork-harness DAG", len(workflow.Spec.Tasks))
+	}
 	dependsOn := func(task, dependency string) bool {
 		return slices.Contains(byName[task].DependsOn, dependency)
 	}
 	for _, edge := range [][2]string{
-		{"build-and-calibrate-invariants", "pin-target-and-deployment"},
-		{"hunt-against-invariants", "build-and-calibrate-invariants"},
-		{"synthesize-failing-exploit", "hunt-against-invariants"},
-		{"quantify-impact-and-eligibility", "synthesize-failing-exploit"},
+		{"fork-harness-hunt", "pin-target-and-deployment"},
+		{"quantify-impact-and-eligibility", "fork-harness-hunt"},
 		{"triage-and-report", "quantify-impact-and-eligibility"},
 	} {
 		if !dependsOn(edge[0], edge[1]) {
@@ -586,28 +581,38 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 		}
 	}
 
-	calibration := byName["build-and-calibrate-invariants"].Objective
-	for _, marker := range []string{"before hunting", "mutate", "cannot detect", "never means the target is safe"} {
-		if !strings.Contains(calibration, marker) {
-			t.Errorf("calibration objective is missing %q", marker)
+	huntTask := byName["fork-harness-hunt"]
+	if huntTask.Role != "exploit-validator" {
+		t.Errorf("fork-harness-hunt role = %q, want exploit-validator", huntTask.Role)
+	}
+	hunt := huntTask.Objective
+	for _, marker := range []string{
+		"one write-capable run", "local fork", "fork_status", "blocked",
+		"mutant", "cannot detect", "never means the target is safe",
+		"negative control", "reproducibility", "refuted or untested",
+	} {
+		if !strings.Contains(hunt, marker) {
+			t.Errorf("fork-harness-hunt objective is missing %q", marker)
 		}
 	}
-	exploit := byName["synthesize-failing-exploit"].Objective
-	// The substrate is named and ranked, and the two weaker substrates are
-	// explicitly bounded: a deployment with no authorized fork endpoint must
-	// degrade to a local devnet or the project's own suite instead of stalling,
-	// and a hypothesis that needs deployed state stays untested rather than
-	// being recorded as refuted by a substrate that could never settle it.
-	// Every marker below is checked against the folded objective, so none of
-	// them may depend on where the YAML happens to wrap.
-	for _, marker := range []string{
-		"into a test that FAILS", "the pinned fork when a fork endpoint is authorized",
-		"the project's own test suite", "forfeits eligibility on every program",
-		"recorded as untested and never as refuted",
-		"negative control", "reproducibility class", "refuted or untested",
-	} {
-		if !strings.Contains(exploit, marker) {
-			t.Errorf("exploit-synthesis objective is missing %q", marker)
+	for _, marker := range slices.Concat(payoutOrderMarkers, []string{"upstream-fork-diff", "bot-findable means unpayable"}) {
+		if !strings.Contains(hunt, marker) {
+			t.Errorf("fork-harness-hunt objective is missing %q", marker)
+		}
+	}
+	schema := huntTask.OutputSchema
+	for _, marker := range []string{"fork_status", "verified_pin", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "seed", "hypotheses", "reproduction"} {
+		if !strings.Contains(schema, marker) {
+			t.Errorf("fork-harness-hunt output schema is missing %q", marker)
+		}
+	}
+	params := map[string]bool{}
+	for _, param := range workflow.Spec.Parameters {
+		params[param.Name] = param.Required || param.Default != ""
+	}
+	for _, name := range []string{"fork_endpoint_alias", "chain_id", "fork_block_number", "fork_block_hash", "project_root", "deployment_manifest"} {
+		if !params[name] {
+			t.Errorf("workflow parameter %q is missing or unusable", name)
 		}
 	}
 	report := byName["triage-and-report"].Objective
@@ -621,21 +626,6 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 	for _, marker := range []string{"verbatim", "maximum achievable impact", "never translate"} {
 		if !strings.Contains(impact, marker) {
 			t.Errorf("impact objective is missing %q", marker)
-		}
-	}
-	// The hunt is aimed by disclosed payouts, in order, and every class names
-	// the invariant it breaks so it feeds the calibrated harness instead of
-	// producing prose.
-	hunt := byName["hunt-against-invariants"].Objective
-	for _, marker := range slices.Concat(payoutOrderMarkers, []string{
-		"upstream-fork-diff",
-		"chain-read and deployed-bytecode-diff packs can settle",
-		"operator-authorized fork endpoint alias",
-		"untested rather than refuted",
-		"bot-findable means unpayable",
-	}) {
-		if !strings.Contains(hunt, marker) {
-			t.Errorf("hunt objective is missing %q", marker)
 		}
 	}
 }

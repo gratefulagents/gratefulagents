@@ -9,6 +9,7 @@ export type ProgramScanTarget = {
   policyPackRef: string;
   securityProgramRef: string;
   priority: number;
+  parameterValues: Record<string, string>;
 };
 
 export function importableProgramTargets(
@@ -30,6 +31,7 @@ export function importableProgramTargets(
         policyPackRef: target.policyPackRef,
         securityProgramRef: program.name,
         priority: target.priority,
+        parameterValues: { ...target.parameterValues },
       }));
     })
     .sort(
