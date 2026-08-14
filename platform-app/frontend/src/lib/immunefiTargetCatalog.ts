@@ -11,11 +11,11 @@ export type ImmunefiTarget = {
   priority: number;
 };
 
-export function featuredImmunefiTargets(
+export function importableImmunefiTargets(
   programs: readonly SecurityProgramResource[],
 ): ImmunefiTarget[] {
   return programs
-    .filter((program) => program.scanTarget?.featured)
+    .filter((program) => program.scanTarget !== undefined)
     .map((program) => ({
       name: program.scanTarget!.scanName,
       displayName: program.scanTarget!.displayName,
