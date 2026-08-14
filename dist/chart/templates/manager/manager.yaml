@@ -70,6 +70,20 @@ spec:
                       value: {{ include "gratefulagents.securityToolsImage" . | quote }}
                     - name: SECURITY_TOOLS_JOB_TTL_SECONDS
                       value: {{ $securityTools.jobTTLSeconds | default 600 | quote }}
+                    {{- with $securityTools.evm }}
+                    {{- if .forkEndpointAliases }}
+                    - name: GA_SECURITY_EVM_FORK_ENDPOINTS
+                      value: {{ .forkEndpointAliases | quote }}
+                    {{- end }}
+                    {{- range $alias, $url := .forkEndpoints }}
+                    - name: GA_SECURITY_EVM_FORK_ENDPOINT_{{ $alias | upper | replace "-" "_" }}
+                      value: {{ $url | quote }}
+                    {{- end }}
+                    {{- range $project, $mirror := .upstreamMirrors }}
+                    - name: GA_SECURITY_EVM_UPSTREAM_MIRROR_{{ $project | upper | replace "-" "_" }}
+                      value: {{ $mirror | quote }}
+                    {{- end }}
+                    {{- end }}
                     {{- if or (not .Values.agentImages.securityTools) $securityTools.allowUnpinnedImage }}
                     - name: SECURITY_TOOLS_ALLOW_UNPINNED_IMAGE
                       value: "true"
@@ -167,6 +181,13 @@ spec:
                     {{- else }}
                     {}
                     {{- end }}
+                  {{- with $securityTools.evm }}
+                  {{- if .existingSecret }}
+                  envFrom:
+                    - secretRef:
+                        name: {{ .existingSecret | quote }}
+                  {{- end }}
+                  {{- end }}
                   volumeMounts:
                     - name: video-tmp
                       mountPath: /var/run/video-tmp

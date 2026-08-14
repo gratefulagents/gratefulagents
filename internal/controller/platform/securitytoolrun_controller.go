@@ -16,9 +16,11 @@ import (
 	"maps"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -60,6 +62,20 @@ const (
 	securityToolsRunAsID int64 = 65532
 	// The status payload the Job supplies is clamped to the CRD limits so an
 	// oversized manifest cannot make every status patch fail.
+	// The EVM packs resolve fork endpoints and upstream mirrors from operator
+	// process environment inside the Job, so the manager forwards exactly
+	// these names and nothing else.
+	securityToolEVMForkEndpointsEnv        = "GA_SECURITY_EVM_FORK_ENDPOINTS"
+	securityToolEVMForkEndpointEnvPrefix   = "GA_SECURITY_EVM_FORK_ENDPOINT_"
+	securityToolEVMUpstreamMirrorEnvPrefix = "GA_SECURITY_EVM_UPSTREAM_MIRROR_"
+
+	// Status-subresource field bounds. They mirror the CRD's own MaxLength
+	// markers: a value the API server rejects would discard the whole run.
+	securityToolMaxStatusShortField  = 512
+	securityToolMaxStatusDigestField = 256
+	securityToolMaxStatusCoverage    = 2048
+	securityToolMaxStatusSeeds       = 32
+
 	securityToolMaxStatusErrors     = 32
 	securityToolMaxStatusErrorBytes = 1 << 10
 	securityToolMaxStatusArtifacts  = 64
@@ -454,6 +470,7 @@ func securityToolRunJob(run *platformv1alpha1.SecurityToolRun, tool securitytool
 		workerInfraSecretEnv("AWS_ACCESS_KEY_ID", workerInfraKeyAWSAccessKeyID),
 		workerInfraSecretEnv("AWS_SECRET_ACCESS_KEY", workerInfraKeyAWSSecretAccessKey),
 	)
+	env = append(env, securityToolOperatorEVMEnv()...)
 
 	backoffLimit := int32(0)
 	ttl := securityToolsJobTTLSeconds()
@@ -568,13 +585,20 @@ func (r *SecurityToolRunReconciler) completeRun(ctx context.Context, run *platfo
 		ReproducibilityClass: manifest.ReproducibilityClass,
 	}
 	if scope := manifest.BoundedScope; scope != nil {
+		// The status subresource has hard field limits: an oversized coverage
+		// summary would make the API server reject the update and lose an
+		// otherwise successful run.
+		seeds := scope.Seeds
+		if len(seeds) > securityToolMaxStatusSeeds {
+			seeds = seeds[:securityToolMaxStatusSeeds]
+		}
 		result.BoundedScope = &platformv1alpha1.SecurityToolRunBoundedScope{
-			Harness:     scope.Harness,
-			Corpus:      scope.Corpus,
-			Seeds:       scope.Seeds,
-			Bounds:      scope.Bounds,
-			Environment: scope.Environment,
-			Coverage:    scope.Coverage,
+			Harness:     clampStatusField(scope.Harness, securityToolMaxStatusShortField),
+			Corpus:      clampStatusField(scope.Corpus, securityToolMaxStatusShortField),
+			Seeds:       seeds,
+			Bounds:      clampStatusField(scope.Bounds, securityToolMaxStatusShortField),
+			Environment: clampStatusField(scope.Environment, securityToolMaxStatusShortField),
+			Coverage:    clampStatusField(scope.Coverage, securityToolMaxStatusCoverage),
 		}
 	}
 	if health := manifest.HarnessHealth; health != nil {
@@ -586,18 +610,18 @@ func (r *SecurityToolRunReconciler) completeRun(ctx context.Context, run *platfo
 			OracleCanFail:         health.OracleCanFail,
 			MutationsKilled:       clampInt32(health.MutationsKilled),
 			MutationsTotal:        clampInt32(health.MutationsTotal),
-			Notes:                 health.Notes,
+			Notes:                 clampStatusField(health.Notes, securityToolMaxStatusShortField),
 		}
 	}
 	if trials := manifest.Trials; trials != nil {
 		result.Trials = &platformv1alpha1.SecurityToolRunTrials{
 			Attempts:            clampInt32(trials.Attempts),
 			Successes:           clampInt32(trials.Successes),
-			StoppingRule:        trials.StoppingRule,
-			EquivalenceCriteria: trials.EquivalenceCriteria,
-			TraceDigest:         trials.TraceDigest,
-			Topology:            trials.Topology,
-			ForkState:           trials.ForkState,
+			StoppingRule:        clampStatusField(trials.StoppingRule, securityToolMaxStatusShortField),
+			EquivalenceCriteria: clampStatusField(trials.EquivalenceCriteria, securityToolMaxStatusShortField),
+			TraceDigest:         clampStatusField(trials.TraceDigest, securityToolMaxStatusDigestField),
+			Topology:            clampStatusField(trials.Topology, securityToolMaxStatusShortField),
+			ForkState:           clampStatusField(trials.ForkState, securityToolMaxStatusShortField),
 		}
 	}
 	for _, artifact := range manifest.Artifacts {
@@ -784,6 +808,45 @@ func appendSecurityToolRunMessage(existing, addition string) string {
 
 // clampSecurityToolErrors keeps a Job-supplied error list inside the CRD
 // limits so an oversized manifest cannot wedge the status patch.
+// securityToolOperatorEVMEnv forwards the operator's EVM fork-endpoint and
+// upstream-mirror configuration to the worker Job. Without it a manager can
+// advertise an authorized alias that every worker then rejects as
+// unconfigured, because the resolution happens inside the Job.
+//
+// Only operator-set process environment is forwarded, never anything from the
+// run: the alias allowlist, the per-alias endpoint URL, and the per-project
+// mirror. Values are sorted so the Job spec stays deterministic.
+func securityToolOperatorEVMEnv() []corev1.EnvVar {
+	var names []string
+	for _, entry := range os.Environ() {
+		name, value, found := strings.Cut(entry, "=")
+		if !found || strings.TrimSpace(value) == "" {
+			continue
+		}
+		if name == securityToolEVMForkEndpointsEnv ||
+			strings.HasPrefix(name, securityToolEVMForkEndpointEnvPrefix) ||
+			strings.HasPrefix(name, securityToolEVMUpstreamMirrorEnvPrefix) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	env := make([]corev1.EnvVar, 0, len(names))
+	for _, name := range names {
+		env = append(env, corev1.EnvVar{Name: name, Value: strings.TrimSpace(os.Getenv(name))})
+	}
+	return env
+}
+
+// clampStatusField truncates a value to what the status subresource accepts,
+// counting runes so a multi-byte value cannot be cut mid-character.
+func clampStatusField(value string, limit int) string {
+	if utf8.RuneCountInString(value) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:limit])
+}
+
 func clampSecurityToolErrors(errs []string) []string {
 	if len(errs) > securityToolMaxStatusErrors {
 		errs = errs[:securityToolMaxStatusErrors]

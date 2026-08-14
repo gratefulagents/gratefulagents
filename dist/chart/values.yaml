@@ -110,6 +110,26 @@ securityTools:
   ## manager-derived release image is allowed automatically. Explicit images
   ## remain digest-only by default for reproducible scans.
   allowUnpinnedImage: false
+  ## EVM verification configuration. These are operator-only settings: the
+  ## fork endpoint usually carries an API key, so a scan authorizes an alias,
+  ## never a URL, and the manager forwards this configuration to the execution
+  ## Job that resolves it. Leave empty to keep the fork packs unusable.
+  evm:
+    ## Aliases a scan may name, comma-separated (e.g. "mainnet-archive").
+    ## An alias that is not listed here is rejected before anything runs.
+    forkEndpointAliases: ""
+    ## Endpoint URL per alias, keyed by the alias. Prefer existingSecret for
+    ## anything carrying a key.
+    forkEndpoints: {}
+    ##   mainnet-archive: https://archive.example/v2/KEY
+    ## Reviewed upstream mirrors for upstream-fork-diff, keyed by project
+    ## (go-ethereum, reth, openzeppelin-contracts, op-stack).
+    upstreamMirrors: {}
+    ## Secret holding the same values, so URLs with credentials never sit in
+    ## values.yaml. Keys must be the full environment-variable names:
+    ## GA_SECURITY_EVM_FORK_ENDPOINT_<ALIAS> and
+    ## GA_SECURITY_EVM_UPSTREAM_MIRROR_<PROJECT>.
+    existingSecret: ""
 
 ## PostgreSQL connection.
 ## Leave url empty to use the bundled Postgres (postgres.enabled below).

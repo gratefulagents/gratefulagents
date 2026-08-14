@@ -259,7 +259,7 @@ spec:
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "tool_run": {"type": "string"},
               "artifacts": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
@@ -298,7 +298,7 @@ spec:
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "tool_run": {"type": "string"},
               "artifacts": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
@@ -321,7 +321,7 @@ spec:
         - aderyn-static-analysis
         - slither-static-analysis
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: deterministic-forge-tests-and-invariants
       role: test-engineer
@@ -362,7 +362,7 @@ spec:
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "seed": {"type": "integer"},
               "harnesses": {"type": "array", "items": {"type": "string"}},
               "state_mode": {"type": "string", "enum": ["none", "local_allocs", "rpc_required", "raw_anvil_snapshot", "unknown"]},
@@ -414,7 +414,7 @@ spec:
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "seed": {"type": "integer"},
               "harnesses": {"type": "array", "items": {"type": "string"}},
               "properties_exercised": {"type": "array", "items": {"type": "string"}},
@@ -636,7 +636,7 @@ spec:
         - define-security-invariants
         - reproducible-build-artifact-deployment-review
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","execution_status","bounds","harnesses","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"execution_status":{"type":"string","enum":["pass","findings","error","timeout","partial","not_applicable","not_run"]},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"tool_run":{"type":"string"},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","execution_status","bounds","harnesses","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"execution_status":{"type":"string","enum":["not_found_under","pass","findings","error","timeout","partial","not_applicable","not_run"]},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"tool_run":{"type":"string"},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: merge-symbolic-tool-coverage
       role: finding-triager
@@ -653,7 +653,7 @@ spec:
         - echidna-stateful-property-fuzzing
         - bounded-halmos-symbolic-tests
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: symbolic-and-formal-applicability
       role: security-reviewer
@@ -692,7 +692,7 @@ spec:
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "method": {"type": "string"},
-              "execution_status": {"type": "string", "enum": ["not_run", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
               "properties": {"type": "array", "items": {"type": "string"}},
               "limitations": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
@@ -786,7 +786,7 @@ spec:
               "fingerprint": {"type": "string"},
               "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "inconclusive", "unsupported"]},
               "method": {"type": "string", "enum": ["forge_local", "project_native_poc", "local_trace", "manual_disproof", "none"]},
-              "execution_status": {"type": "string", "enum": ["pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "tool_run": {"type": "string"},
               "reproduction": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
@@ -813,7 +813,7 @@ spec:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-build-and-static-coverage
       role: security-reviewer
@@ -835,7 +835,7 @@ spec:
         - merge-solidity-static-analysis
         - deterministic-forge-tests-and-invariants
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-fuzz-and-formal-coverage
       role: security-reviewer
@@ -855,7 +855,7 @@ spec:
         - merge-symbolic-tool-coverage
         - symbolic-and-formal-applicability
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-calls-auth-accounting-coverage
       role: security-reviewer
@@ -876,7 +876,7 @@ spec:
         - authorization-signatures-and-account-abstraction
         - accounting-arithmetic-and-token-integrations
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-economics-oracle-liveness-coverage
       role: security-reviewer
@@ -897,7 +897,7 @@ spec:
         - oracles-randomness-time-and-ordering
         - gas-liveness-returndata-and-state-growth
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-low-level-and-configuration-coverage
       role: security-reviewer
@@ -916,7 +916,7 @@ spec:
         - low-level-factories-proxies-and-storage
         - deployment-and-privileged-configuration
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-scope-and-tool-coverage
       role: security-reviewer
@@ -949,7 +949,7 @@ spec:
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "basis": {"type": "array", "items": {"type": "string"}},
-              "execution_status": {"type": "string", "enum": ["not_run", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
               "tool_run": {"type": "string"},
               "seed": {"type": "integer"},
               "bounds": {"type": "array", "items": {"type": "string"}},
@@ -991,7 +991,7 @@ spec:
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "basis": {"type": "array", "items": {"type": "string"}},
-              "execution_status": {"type": "string", "enum": ["not_run", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
               "tool_run": {"type": "string"},
               "seed": {"type": "integer"},
               "bounds": {"type": "array", "items": {"type": "string"}},
@@ -1035,7 +1035,7 @@ spec:
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "basis": {"type": "array", "items": {"type": "string"}},
-              "execution_status": {"type": "string", "enum": ["not_run", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
               "tool_run": {"type": "string"},
               "seed": {"type": "integer"},
               "bounds": {"type": "array", "items": {"type": "string"}},

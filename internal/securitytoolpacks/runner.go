@@ -228,7 +228,7 @@ func finalizeStatus(res *Result, tool Tool, target Target, native NativeResult, 
 			res.Bounded = &BoundedScope{}
 		}
 		if res.Bounded.Coverage == "" {
-			res.Bounded.Coverage = strings.Join(res.Coverage.Examined, ", ")
+			res.Bounded.Coverage = summarizeCoverage(res.Coverage.Examined)
 		}
 		if res.Bounded.Environment == "" {
 			res.Bounded.Environment = tool.Name + " " + tool.Version
@@ -240,6 +240,36 @@ func finalizeStatus(res *Result, tool Tool, target Target, native NativeResult, 
 	}
 	res.Status = StatusError
 	res.Errors = append(res.Errors, "execution did not satisfy the bounded-negative criteria")
+}
+
+// summarizeCoverage renders what a bounded negative result covered without
+// growing with the target: a suite with hundreds of assets would otherwise
+// produce a coverage string the API server rejects, and a rejected status
+// update loses the whole run.
+func summarizeCoverage(examined []string) string {
+	if len(examined) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	shown := 0
+	for _, asset := range examined {
+		next := asset
+		if shown > 0 {
+			next = ", " + asset
+		}
+		if b.Len()+len(next) > maxCoverageSummaryBytes {
+			break
+		}
+		b.WriteString(next)
+		shown++
+	}
+	if shown == len(examined) {
+		return fmt.Sprintf("%d examined: %s", len(examined), b.String())
+	}
+	if shown == 0 {
+		return fmt.Sprintf("%d examined", len(examined))
+	}
+	return fmt.Sprintf("%d examined, first %d: %s", len(examined), shown, b.String())
 }
 
 // isCleanExit reports whether a mapped exit code means the tool ran to
