@@ -29,6 +29,13 @@ run_root halmos /usr/bin/env -i HOME=/tmp \
   PATH=/opt/halmos/bin:/usr/local/bin:/usr/bin:/bin \
   /opt/halmos/bin/halmos --version >/dev/null
 
+# cargo-fuzz runs the project's own fuzz targets, so packaging is proved by the
+# toolchain answering inside its own root rather than by compiling a fixture.
+run_root cargo-fuzz /usr/bin/env -i HOME=/work \
+  CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup \
+  PATH=/usr/local/cargo/bin:/usr/local/bin:/usr/bin:/bin \
+  /usr/local/cargo/bin/cargo fuzz --version >/dev/null
+
 run_ga_project() {
   tool=$1
   target_type=$2

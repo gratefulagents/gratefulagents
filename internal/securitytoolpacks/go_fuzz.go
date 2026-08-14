@@ -36,6 +36,10 @@ const (
 	// corpus we carry forward is deliberately a bounded sample.
 	maxPromotedCorpusFiles = 64
 	maxPromotedCorpusBytes = 1 << 20
+
+	// rustFuzzBuildAllowance covers compiling the instrumented target before
+	// the campaign starts; Rust builds are the slow part of a cargo-fuzz run.
+	rustFuzzBuildAllowance = 10 * time.Minute
 )
 
 // ParseFuzzCampaign validates the campaign length. An empty value is the

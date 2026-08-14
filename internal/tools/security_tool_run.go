@@ -71,6 +71,9 @@ var securityToolStagedMediaTypes = map[string]map[string]string{
 	"go-fuzz-tests": {
 		"go_fuzz_project": "application/vnd.gratefulagents.go-fuzz-project.v1+directory",
 	},
+	"cargo-fuzz": {
+		"rust_fuzz_project": "application/vnd.gratefulagents.rust-fuzz-project.v1+directory",
+	},
 }
 
 var securityToolRunLabelValuePattern = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`)

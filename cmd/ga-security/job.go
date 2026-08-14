@@ -68,6 +68,33 @@ var stagedTargetContracts = map[string]map[string]stagedTargetContract{
 	"go-fuzz-tests": {
 		"go_fuzz_project": {mediaType: "application/vnd.gratefulagents.go-fuzz-project.v1+directory"},
 	},
+	"cargo-fuzz": {
+		"rust_fuzz_project": {mediaType: "application/vnd.gratefulagents.rust-fuzz-project.v1+directory"},
+	},
+	// The chain-state packs read deployed state but still take the audited
+	// project as their target: without these the staged archive keeps its
+	// archive media type and the registry refuses the run inside the Job.
+	"chain-read": {
+		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
+	},
+	"deployed-bytecode-diff": {
+		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
+	},
+	"anvil-fork": {
+		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
+	},
+	"forge-fork-test": {
+		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
+	},
+	"forge-coverage-mutation": {
+		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
+	},
+	"upstream-fork-diff": {
+		"git_repository": {mediaType: "application/vnd.gratefulagents.git-repository.v1+directory"},
+	},
+	"medusa": {
+		"solidity_project": {mediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
+	},
 }
 
 // objectStore is the slice of blob storage the Job needs; the fake in the

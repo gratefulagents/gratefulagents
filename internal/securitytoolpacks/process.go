@@ -121,6 +121,18 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 	cmd.Stderr = stderr
 	goFuzzBaseline := map[string]bool{}
 	goFuzzPackage, goFuzzTarget, goFuzzSeeds := "", "", 0
+	rustCrashBaseline := map[string]bool{}
+	rustCorpusInputs := 0
+	if req.Tool.Name == "cargo-fuzz" {
+		existing, baselineErr := rustFuzzCrashPaths(executionTarget, req.Config.Arguments["fuzz_target"])
+		if baselineErr != nil {
+			return NativeResult{ExitCode: -1, Err: fmt.Errorf("inventory cargo-fuzz artifacts: %w", baselineErr)}
+		}
+		for _, path := range existing {
+			rustCrashBaseline[path] = true
+		}
+		rustCorpusInputs = rustFuzzCorpusSize(executionTarget, req.Config.Arguments["fuzz_target"])
+	}
 	if req.Tool.Name == "go-fuzz-tests" {
 		var baselineErr error
 		goFuzzBaseline, baselineErr = goFuzzCorpusPaths(executionTarget)
@@ -202,6 +214,28 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 		}
 		campaign, _ := ParseFuzzCampaign(req.Config.Arguments["fuzztime"])
 		result.Bounded = goFuzzBoundedScope(req.Config.Arguments["package"], goFuzzTarget, campaign, goFuzzSeeds, promoted)
+	}
+	if req.Tool.Name == "cargo-fuzz" {
+		// The verdict comes from what the campaign left on disk, not from
+		// libFuzzer's console text: a crash file is a reproducible input, a
+		// stderr banner is a string that changes between releases.
+		report, artifacts, collectErr := collectRustFuzzRun(executionTarget, rustCrashBaseline, req.Config, exitCode, append(stdout.Bytes(), stderr.Bytes()...))
+		if collectErr != nil && err == nil {
+			err = fmt.Errorf("collect cargo-fuzz crashes: %w", collectErr)
+		}
+		document, marshalErr := json.Marshal(report)
+		if marshalErr != nil && err == nil {
+			err = marshalErr
+		}
+		result.Output = document
+		result.Artifacts = artifacts
+		result.Bounded = rustFuzzBoundedScope(req.Config, rustCorpusInputs)
+		if len(report.Crashes) > 0 && exitCode == 0 {
+			// libFuzzer can report a crash and still exit zero under some
+			// runners; the artifact is the fact, so the status follows it.
+			exitCode = 1
+			result.ExitCode = 1
+		}
 	}
 	completeEvidence := ociOutputCollected || (req.Tool.Name == "zeek" && exitCode == 0)
 	if exitCode >= 0 && completeEvidence {
@@ -562,6 +596,16 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 	if tool.Name == "halmos" {
 		argv = append(argv, "--setenv", "FOUNDRY_FFI", "false")
 	}
+	if tool.Name == "cargo-fuzz" {
+		// The toolchain lives in the immutable root; the build output goes to
+		// the sandbox work directory so the staged target keeps only what
+		// cargo-fuzz writes under fuzz/.
+		argv = append(argv,
+			"--setenv", "CARGO_HOME", "/usr/local/cargo",
+			"--setenv", "RUSTUP_HOME", "/usr/local/rustup",
+			"--setenv", "CARGO_TARGET_DIR", "/work/target",
+		)
+	}
 	if tool.Requirements.Network {
 		for _, hostFile := range []string{"/etc/resolv.conf", "/etc/hosts"} {
 			if _, statErr := os.Stat(filepath.Join(toolRoot, hostFile)); statErr == nil {
@@ -579,8 +623,15 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 		}
 		argv = append(argv, bindMode, executionTarget, "/tmp/input")
 		for i := range toolArgv {
+			// A token may be the target itself or a path inside it (a tool
+			// that takes <target>/fuzz rather than <target>); both must follow
+			// the bind mount, and nothing else in argv may be rewritten.
 			if toolArgv[i] == executionTarget {
 				toolArgv[i] = "/tmp/input"
+				continue
+			}
+			if suffix, inside := strings.CutPrefix(toolArgv[i], executionTarget+"/"); inside {
+				toolArgv[i] = "/tmp/input/" + suffix
 			}
 		}
 	}

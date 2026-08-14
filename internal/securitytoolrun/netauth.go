@@ -38,7 +38,7 @@ func NeedsNetworkAuthorization(tool securitytoolpacks.Tool, req Request) bool {
 	// Local EVM build/test tools may resolve compiler and project dependencies.
 	// Their target remains staged content rather than a network probe, so there
 	// is no remote target to compare with the scan's authorization allowlist.
-	if strings.TrimSpace(req.StagedObjectKey) != "" && securitytoolpacks.IsEVMBuildTool(tool.Name) {
+	if strings.TrimSpace(req.StagedObjectKey) != "" && securitytoolpacks.IsStagedBuildTool(tool.Name) {
 		return false
 	}
 	if tool.Requirements.Network {
