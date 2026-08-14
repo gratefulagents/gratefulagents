@@ -551,3 +551,57 @@ func slicesEqual(got, want []string) bool {
 	}
 	return true
 }
+
+func TestJobManifestCarriesBoundedVerdictEvidence(t *testing.T) {
+	fixture := newJobFixture(t, securitytoolpacks.RunConfig{Tool: "authorization-matrix"})
+	fixture.result = securitytoolpacks.Result{
+		Status:          securitytoolpacks.StatusNotFoundUnder,
+		Reproducibility: securitytoolpacks.ReproducibilitySeeded,
+		Bounded: &securitytoolpacks.BoundedScope{
+			Harness:     "authorization-matrix",
+			Corpus:      "fixtures/authz",
+			Seeds:       []string{"42"},
+			Bounds:      "seed=42",
+			Environment: "authorization-matrix 2025.1",
+			Coverage:    "12 routes, 3 roles",
+		},
+		Harness: &securitytoolpacks.HarnessHealth{
+			EntryPointReached: true, TargetCodeExecuted: true,
+			NegativeControlRan: true, NegativeControlPassed: true,
+			OracleCanFail: true, MutationsKilled: 4, MutationsTotal: 5,
+		},
+		Trials: &securitytoolpacks.TrialSummary{
+			Attempts: 20, Successes: 0, StoppingRule: "stopped after 20 scheduling permutations",
+		},
+	}
+	if code := fixture.run(t); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, fixture.stderr.String())
+	}
+
+	var manifest securitytoolrun.Manifest
+	if err := json.Unmarshal(fixture.store.objects["runs/scan-1/manifest.json"], &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Status != "not_found_under" {
+		t.Fatalf("manifest status = %q", manifest.Status)
+	}
+	// A bounded verdict without its bounds is exactly the "clean run means
+	// safe" reading the verdict exists to prevent.
+	if manifest.BoundedScope == nil || manifest.BoundedScope.Coverage != "12 routes, 3 roles" ||
+		manifest.BoundedScope.Bounds != "seed=42" || len(manifest.BoundedScope.Seeds) != 1 {
+		t.Fatalf("manifest bounded_scope = %+v", manifest.BoundedScope)
+	}
+	if manifest.ReproducibilityClass != "seeded_replayable" {
+		t.Fatalf("manifest reproducibility_class = %q", manifest.ReproducibilityClass)
+	}
+	if manifest.HarnessHealth == nil || !manifest.HarnessHealth.OracleCanFail ||
+		!manifest.HarnessHealth.NegativeControlPassed || manifest.HarnessHealth.MutationsKilled != 4 {
+		t.Fatalf("manifest harness_health = %+v", manifest.HarnessHealth)
+	}
+	if manifest.Trials == nil || manifest.Trials.Attempts != 20 || manifest.Trials.StoppingRule == "" {
+		t.Fatalf("manifest trials = %+v", manifest.Trials)
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("published manifest does not validate: %v", err)
+	}
+}

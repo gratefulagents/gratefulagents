@@ -259,6 +259,43 @@ func publishResult(ctx context.Context, store objectStore, prefix, outputDir, to
 		ResultObjectKey: resultKey,
 		ResultDigest:    digestBytes(resultBytes),
 		Errors:          append([]string(nil), result.Errors...),
+		// Without these the control plane records a bounded verdict with no
+		// bounds, which is exactly the "clean run means safe" reading the
+		// verdict exists to prevent.
+		ReproducibilityClass: string(result.Reproducibility),
+	}
+	if scope := result.Bounded; scope != nil {
+		manifest.BoundedScope = &securitytoolrun.ManifestBoundedScope{
+			Harness:     scope.Harness,
+			Corpus:      scope.Corpus,
+			Seeds:       append([]string(nil), scope.Seeds...),
+			Bounds:      scope.Bounds,
+			Environment: scope.Environment,
+			Coverage:    scope.Coverage,
+		}
+	}
+	if health := result.Harness; health != nil {
+		manifest.HarnessHealth = &securitytoolrun.ManifestHarnessHealth{
+			EntryPointReached:     health.EntryPointReached,
+			TargetCodeExecuted:    health.TargetCodeExecuted,
+			NegativeControlRan:    health.NegativeControlRan,
+			NegativeControlPassed: health.NegativeControlPassed,
+			OracleCanFail:         health.OracleCanFail,
+			MutationsKilled:       health.MutationsKilled,
+			MutationsTotal:        health.MutationsTotal,
+			Notes:                 health.Notes,
+		}
+	}
+	if trials := result.Trials; trials != nil {
+		manifest.Trials = &securitytoolrun.ManifestTrials{
+			Attempts:            trials.Attempts,
+			Successes:           trials.Successes,
+			StoppingRule:        trials.StoppingRule,
+			EquivalenceCriteria: trials.EquivalenceCriteria,
+			TraceDigest:         trials.TraceDigest,
+			Topology:            trials.Topology,
+			ForkState:           trials.ForkState,
+		}
 	}
 	for _, artifact := range result.Artifacts {
 		key := prefix + "/" + artifact.Name

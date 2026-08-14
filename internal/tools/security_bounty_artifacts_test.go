@@ -332,16 +332,17 @@ func TestOutranksForSubmissionIsTotal(t *testing.T) {
 
 func confirmedPoCValidation() securityPoCValidation {
 	return securityPoCValidation{
-		Confirmed:            true,
-		CandidateSHA256:      "abc",
-		Command:              "forge test --match-test testExploit",
-		ObservedOutput:       "[FAIL] testExploit",
-		Reason:               "the escrow index clears before the transfer",
-		ReproducibilityClass: "deterministic",
-		TargetCodeExecuted:   true,
-		NegativeControlRan:   true,
-		OracleCanFail:        true,
-		OracleEvidence:       "mutation: removed the balance check, assertion failed as expected",
+		Confirmed:             true,
+		CandidateSHA256:       "abc",
+		Command:               "forge test --match-test testExploit",
+		ObservedOutput:        "[FAIL] testExploit",
+		Reason:                "the escrow index clears before the transfer",
+		ReproducibilityClass:  "deterministic",
+		TargetCodeExecuted:    true,
+		NegativeControlRan:    true,
+		NegativeControlPassed: true,
+		OracleCanFail:         true,
+		OracleEvidence:        "mutation: removed the balance check, assertion failed as expected",
 	}
 }
 
@@ -361,6 +362,19 @@ func TestValidateSecurityPoCEvidence(t *testing.T) {
 		{"missing class", "reproducibility_class is required", func(v *securityPoCValidation) { v.ReproducibilityClass = "" }},
 		{"mock instead of target", "never a target-code reproduction", func(v *securityPoCValidation) { v.TargetCodeExecuted = false }},
 		{"no control", "without a control", func(v *securityPoCValidation) { v.NegativeControlRan = false }},
+		{
+			"control triggered too",
+			"attributed nothing to the defect",
+			func(v *securityPoCValidation) { v.NegativeControlPassed = false },
+		},
+		{
+			"negative successes",
+			"successes cannot be negative",
+			func(v *securityPoCValidation) {
+				v.ReproducibilityClass = "statistical"
+				v.Attempts, v.Successes, v.StoppingRule = 10, -1, "1000 trials"
+			},
+		},
 		{"oracle never shown to fail", "oracle_can_fail requires oracle_evidence", func(v *securityPoCValidation) { v.OracleCanFail = false }},
 		{"oracle evidence missing", "oracle_can_fail requires oracle_evidence", func(v *securityPoCValidation) { v.OracleEvidence = " " }},
 		{

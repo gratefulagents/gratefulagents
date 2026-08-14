@@ -64,10 +64,14 @@ type securityPoCValidation struct {
 	// The harness-health fields below decide whether a confirmation means
 	// anything: a run that never reached the target, ran no control, or
 	// carried an assertion that cannot fail has proved nothing.
-	TargetCodeExecuted bool   `json:"target_code_executed"`
-	NegativeControlRan bool   `json:"negative_control_ran"`
-	OracleCanFail      bool   `json:"oracle_can_fail"`
-	OracleEvidence     string `json:"oracle_evidence"`
+	TargetCodeExecuted bool `json:"target_code_executed"`
+	NegativeControlRan bool `json:"negative_control_ran"`
+	// NegativeControlPassed reports that the control did NOT trigger. A
+	// harness that fires for the control as well as the exploit has not
+	// attributed anything to the defect.
+	NegativeControlPassed bool   `json:"negative_control_passed"`
+	OracleCanFail         bool   `json:"oracle_can_fail"`
+	OracleEvidence        string `json:"oracle_evidence"`
 	// Trials records attempts for a non-deterministic class.
 	Attempts     int    `json:"attempts,omitempty"`
 	Successes    int    `json:"successes,omitempty"`
@@ -97,6 +101,8 @@ func validateSecurityPoCEvidence(validation securityPoCValidation) []string {
 	}
 	if !validation.NegativeControlRan {
 		problems = append(problems, "negative_control_ran must be true: without a control the result is not attributable to the defect")
+	} else if !validation.NegativeControlPassed {
+		problems = append(problems, "negative_control_passed must be true: a harness that triggers for the control as well as the exploit has attributed nothing to the defect")
 	}
 	if !validation.OracleCanFail || strings.TrimSpace(validation.OracleEvidence) == "" {
 		problems = append(problems, "oracle_can_fail requires oracle_evidence: show the mutation or calibration that made the assertion fail on purpose")
@@ -105,6 +111,9 @@ func validateSecurityPoCEvidence(validation securityPoCValidation) []string {
 	case securitytoolpacks.ReproducibilityScheduleDependent, securitytoolpacks.ReproducibilityStatistical:
 		if validation.Attempts <= 0 {
 			problems = append(problems, "a schedule-dependent or statistical reproduction must report its attempts, including the ones that did not trigger")
+		}
+		if validation.Successes < 0 {
+			problems = append(problems, "successes cannot be negative")
 		}
 		if validation.Successes > validation.Attempts {
 			problems = append(problems, "successes cannot exceed attempts")
@@ -342,9 +351,10 @@ func (t *validateSecurityPoCTool) InputSchema() json.RawMessage {
 		`"reproducibility_class":{"type":"string","enum":["deterministic","seeded_replayable","schedule_or_environment_dependent","statistical","observational_only"],"description":"How this result reproduces. Ordering, reorg and race bugs do not replay byte-identically."},` +
 		`"target_code_executed":{"type":"boolean","description":"The real target code ran, not a mock or simplified model."},` +
 		`"negative_control_ran":{"type":"boolean","description":"The same harness was run against unmodified or non-attacker input."},` +
+		`"negative_control_passed":{"type":"boolean","description":"The control did not trigger. A harness that fires for the control too has attributed nothing to the defect."},` +
 		`"oracle_can_fail":{"type":"boolean","description":"A mutation or known calibration failure made the assertion fail on purpose."},` +
 		`"oracle_evidence":{"type":"string","description":"What made the assertion fail: the mutation applied, or the calibration case used."},` +
-		`"attempts":{"type":"integer"},"successes":{"type":"integer"},` +
+		`"attempts":{"type":"integer","minimum":0},"successes":{"type":"integer","minimum":0},` +
 		`"stopping_rule":{"type":"string","description":"Why the campaign stopped, so a low trigger rate is not read as exhaustive."}},` +
 		`"required":["confirmed","candidate_sha256","command","observed_output","reason","reproducibility_class"]}`)
 }
