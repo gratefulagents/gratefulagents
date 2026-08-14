@@ -44,6 +44,15 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-lido":   "https://github.com/lidofinance/core",
 		"immunefi-sei":    "https://github.com/sei-protocol/sei-chain",
 	}
+	expectedEVMBountyWorkflow := map[string]struct{}{
+		"immunefi-1inch":    {},
+		"immunefi-aave":     {},
+		"immunefi-arbitrum": {},
+		"immunefi-lido":     {},
+		"immunefi-olympus":  {},
+		"immunefi-sky":      {},
+		"immunefi-spark":    {},
+	}
 	// Only active programs with complete captured scopes belong in the shipped
 	// catalog. Dead or archived programs must be removed instead of retained.
 	const minimumProgramCount = 20
@@ -111,6 +120,16 @@ func TestSecurityProgramLibrary(t *testing.T) {
 				}
 				if got := targets[0].RepositoryURL; got != want {
 					t.Errorf("scan target repository = %q, want %q", got, want)
+				}
+			}
+			if _, ok := expectedEVMBountyWorkflow[program.Name]; ok {
+				if len(targets) == 0 {
+					t.Fatal("EVM bounty program has no scan target")
+				}
+				for index, target := range targets {
+					if target.WorkflowRef != "bounty-hunt-evm" {
+						t.Errorf("scanTargets[%d].workflowRef = %q, want bounty-hunt-evm", index, target.WorkflowRef)
+					}
 				}
 			}
 			isImmunefi := program.Spec.Provider == "Immunefi"

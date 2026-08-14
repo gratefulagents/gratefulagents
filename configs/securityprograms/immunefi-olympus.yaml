@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/OlympusDAO/olympus-v3
       baseBranch: develop
-      workflowRef: smart-contract-review
+      workflowRef: bounty-hunt-evm
       policyPackRef: bug-bounty
       scanName: immunefi-olympus-v3
       displayName: Olympus v3

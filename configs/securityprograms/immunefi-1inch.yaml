@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/1inch/limit-order-protocol
       baseBranch: master
-      workflowRef: smart-contract-review
+      workflowRef: bounty-hunt-evm
       policyPackRef: bug-bounty
       scanName: immunefi-1inch-limit-order-protocol
       displayName: 1inch Limit Order Protocol
