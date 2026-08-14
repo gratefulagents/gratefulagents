@@ -140,11 +140,27 @@ func validateSecurityProgramScope(spec SecurityProgramSpec) []SecurityWorkflowFi
 		add("pocEnvironment", "must be one of mainnet-fork, project-test-suite, either")
 	}
 
-	if len(spec.InScopeImpacts) > MaxSecurityProgramImpacts {
+	errs = append(errs, validateSecurityProgramImpacts(spec.InScopeImpacts, severitySystem)...)
+	errs = append(errs, validateSecurityProgramVerbatimLists(spec)...)
+	errs = append(errs, validateSecurityProgramAssets(spec.Assets)...)
+	errs = append(errs, validateSecurityProgramKnownIssues(spec.KnownIssues)...)
+	errs = append(errs, validateSecurityProgramSubmissionBudget(spec.SubmissionBudget)...)
+	return errs
+}
+
+// validateSecurityProgramImpacts checks the transcribed impact clauses. A
+// clause is only usable verbatim, so anything blank, over-long, or duplicated
+// within one asset category is rejected rather than normalized.
+func validateSecurityProgramImpacts(impacts []SecurityProgramImpact, severitySystem string) []SecurityWorkflowFieldError {
+	var errs []SecurityWorkflowFieldError
+	add := func(field, format string, args ...any) {
+		errs = append(errs, SecurityWorkflowFieldError{Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	if len(impacts) > MaxSecurityProgramImpacts {
 		add("inScopeImpacts", "must contain at most %d impacts", MaxSecurityProgramImpacts)
 	}
-	seenImpacts := make(map[string]int, len(spec.InScopeImpacts))
-	for index, entry := range spec.InScopeImpacts {
+	seen := make(map[string]int, len(impacts))
+	for index, entry := range impacts {
 		field := fmt.Sprintf("inScopeImpacts[%d]", index)
 		impact := strings.TrimSpace(entry.Impact)
 		switch {
@@ -157,10 +173,10 @@ func validateSecurityProgramScope(spec SecurityProgramSpec) []SecurityWorkflowFi
 			// (a smart-contract impact and a blockchain impact can share
 			// wording), so uniqueness is per category.
 			key := strings.TrimSpace(entry.AssetType) + "\x00" + impact
-			if previous, exists := seenImpacts[key]; exists {
+			if previous, exists := seen[key]; exists {
 				add(field+".impact", "must be unique per assetType; it duplicates inScopeImpacts[%d].impact", previous)
 			} else {
-				seenImpacts[key] = index
+				seen[key] = index
 			}
 		}
 		level := strings.TrimSpace(entry.Level)
@@ -168,14 +184,23 @@ func validateSecurityProgramScope(spec SecurityProgramSpec) []SecurityWorkflowFi
 			add(field+".level", "must be one of critical, high, medium, low")
 			continue
 		}
-		// Sherlock judges only High and Medium; a transcribed low impact
-		// under that system means the transcription is wrong, not that the
-		// program pays for lows.
+		// Sherlock judges only High and Medium; a transcribed low or critical
+		// impact under that system means the transcription is wrong, not that
+		// the program pays for one.
 		if severitySystem == string(SeveritySystemSherlock) && (level == "low" || level == "critical") {
 			add(field+".level", "sherlock judges only high and medium severities")
 		}
 	}
+	return errs
+}
 
+// validateSecurityProgramVerbatimLists checks the exclusion and prohibited
+// testing transcriptions.
+func validateSecurityProgramVerbatimLists(spec SecurityProgramSpec) []SecurityWorkflowFieldError {
+	var errs []SecurityWorkflowFieldError
+	add := func(field, format string, args ...any) {
+		errs = append(errs, SecurityWorkflowFieldError{Field: field, Message: fmt.Sprintf(format, args...)})
+	}
 	if len(spec.OutOfScope) > MaxSecurityProgramExclusions {
 		add("outOfScope", "must contain at most %d exclusions", MaxSecurityProgramExclusions)
 	}
@@ -192,11 +217,20 @@ func validateSecurityProgramScope(spec SecurityProgramSpec) []SecurityWorkflowFi
 			add(fmt.Sprintf("prohibitedTesting[%d]", index), "must not be blank")
 		}
 	}
+	return errs
+}
 
-	if len(spec.Assets) > MaxSecurityProgramAssets {
+// validateSecurityProgramAssets checks the deployed-asset bindings. An asset
+// that identifies nothing cannot be checked against deployed state.
+func validateSecurityProgramAssets(assets []SecurityProgramAsset) []SecurityWorkflowFieldError {
+	var errs []SecurityWorkflowFieldError
+	add := func(field, format string, args ...any) {
+		errs = append(errs, SecurityWorkflowFieldError{Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	if len(assets) > MaxSecurityProgramAssets {
 		add("assets", "must contain at most %d assets", MaxSecurityProgramAssets)
 	}
-	for index, asset := range spec.Assets {
+	for index, asset := range assets {
 		field := fmt.Sprintf("assets[%d]", index)
 		chainID := strings.TrimSpace(asset.ChainID)
 		address := strings.TrimSpace(asset.Address)
@@ -207,18 +241,22 @@ func validateSecurityProgramScope(spec SecurityProgramSpec) []SecurityWorkflowFi
 		if address != "" && chainID == "" {
 			add(field+".chainID", "is required when address is set")
 		}
-		if repositoryURL != "" {
-			parsed, err := url.ParseRequestURI(repositoryURL)
-			if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-				add(field+".repositoryURL", "must be an absolute HTTPS URL without user information")
-			}
+		if repositoryURL != "" && !isAbsoluteHTTPSURL(repositoryURL) {
+			add(field+".repositoryURL", "must be an absolute HTTPS URL without user information")
 		}
 	}
+	return errs
+}
 
-	if len(spec.KnownIssues) > MaxSecurityProgramKnownIssues {
+func validateSecurityProgramKnownIssues(issues []SecurityProgramKnownIssue) []SecurityWorkflowFieldError {
+	var errs []SecurityWorkflowFieldError
+	add := func(field, format string, args ...any) {
+		errs = append(errs, SecurityWorkflowFieldError{Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	if len(issues) > MaxSecurityProgramKnownIssues {
 		add("knownIssues", "must contain at most %d entries", MaxSecurityProgramKnownIssues)
 	}
-	for index, issue := range spec.KnownIssues {
+	for index, issue := range issues {
 		field := fmt.Sprintf("knownIssues[%d]", index)
 		if strings.TrimSpace(issue.Source) == "" {
 			add(field+".source", "is required")
@@ -226,26 +264,38 @@ func validateSecurityProgramScope(spec SecurityProgramSpec) []SecurityWorkflowFi
 		if strings.TrimSpace(issue.Summary) == "" {
 			add(field+".summary", "is required")
 		}
-		if reference := strings.TrimSpace(issue.Reference); reference != "" {
-			parsed, err := url.ParseRequestURI(reference)
-			if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-				add(field+".reference", "must be an absolute HTTPS URL without user information")
-			}
-		}
-	}
-
-	if budget := spec.SubmissionBudget; budget != nil {
-		if budget.MaxPerPeriod < 0 {
-			add("submissionBudget.maxPerPeriod", "must not be negative")
-		}
-		if budget.PeriodDays < 0 {
-			add("submissionBudget.periodDays", "must not be negative")
-		}
-		if budget.PeriodDays > 0 && budget.MaxPerPeriod == 0 {
-			add("submissionBudget.maxPerPeriod", "is required when periodDays is set")
+		if reference := strings.TrimSpace(issue.Reference); reference != "" && !isAbsoluteHTTPSURL(reference) {
+			add(field+".reference", "must be an absolute HTTPS URL without user information")
 		}
 	}
 	return errs
+}
+
+func validateSecurityProgramSubmissionBudget(budget *SecurityProgramSubmissionBudget) []SecurityWorkflowFieldError {
+	if budget == nil {
+		return nil
+	}
+	var errs []SecurityWorkflowFieldError
+	add := func(field, format string, args ...any) {
+		errs = append(errs, SecurityWorkflowFieldError{Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	if budget.MaxPerPeriod < 0 {
+		add("submissionBudget.maxPerPeriod", "must not be negative")
+	}
+	if budget.PeriodDays < 0 {
+		add("submissionBudget.periodDays", "must not be negative")
+	}
+	if budget.PeriodDays > 0 && budget.MaxPerPeriod == 0 {
+		add("submissionBudget.maxPerPeriod", "is required when periodDays is set")
+	}
+	return errs
+}
+
+// isAbsoluteHTTPSURL reports whether value is an absolute HTTPS URL with a
+// host and no user information.
+func isAbsoluteHTTPSURL(value string) bool {
+	parsed, err := url.ParseRequestURI(value)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil
 }
 
 var validSecurityProgramSeveritySystems = map[SecurityProgramSeveritySystem]bool{

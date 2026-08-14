@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -771,9 +772,7 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 	}
 	annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] = strings.Join(names, ",")
 	annotations[triggersv1alpha1.SecurityScanPostScriptFindingAnnotation] = rec.Fingerprint
-	for key, value := range securityProgramScopeAnnotations(resolved.program) {
-		annotations[key] = value
-	}
+	maps.Copy(annotations, securityProgramScopeAnnotations(resolved.program))
 
 	modeRef := base.modeRef
 	if scan.Spec.Defaults.ModeRef == nil {

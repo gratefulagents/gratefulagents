@@ -154,8 +154,9 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 // one clause per line as "level<TAB>impact". Malformed lines are dropped
 // rather than guessed at: an impact clause is only usable verbatim.
 func parseSecurityProgramImpacts(value string) []SecurityProgramImpactClause {
-	var out []SecurityProgramImpactClause
-	for line := range strings.SplitSeq(value, "\n") {
+	lines := strings.Split(value, "\n")
+	out := make([]SecurityProgramImpactClause, 0, len(lines))
+	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
