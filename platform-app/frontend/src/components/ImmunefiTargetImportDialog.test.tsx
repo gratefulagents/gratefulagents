@@ -66,18 +66,18 @@ function renderDialog(
 }
 
 describe("ImmunefiTargetImportDialog", () => {
-  it("previews only featured targets in metadata order without creating anything", () => {
+  it("previews all importable targets in metadata order without creating anything", () => {
     renderDialog();
     fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
 
     expect(screen.getByText(/workspace-write access and unrestricted network egress/)).toBeTruthy();
     expect(screen.getByText(/Nothing is created or run/)).toBeTruthy();
     const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(2);
-    expect(items[0].textContent).toContain("First target");
-    expect(items[0].textContent).toContain("https://example.com/first · main");
-    expect(items[1].textContent).toContain("Later target");
-    expect(screen.queryByText("Hidden target")).toBeNull();
+    expect(items).toHaveLength(3);
+    expect(items[0].textContent).toContain("Hidden target");
+    expect(items[1].textContent).toContain("First target");
+    expect(items[1].textContent).toContain("https://example.com/first · main");
+    expect(items[2].textContent).toContain("Later target");
   });
 
   it("selects one target for configuration and closes the chooser", () => {
@@ -102,15 +102,17 @@ describe("ImmunefiTargetImportDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
 
     expect(screen.getByText("Existing configuration")).toBeTruthy();
-    const buttons = screen.getAllByRole("button", { name: /Configure scan for/ }) as HTMLButtonElement[];
-    expect(buttons[0].disabled).toBe(true);
-    fireEvent.click(buttons[0]);
+    const button = screen.getByRole("button", {
+      name: "Configure scan for First target",
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
     expect(onTargetSelected).not.toHaveBeenCalled();
   });
 
-  it("communicates when no featured targets are available", () => {
+  it("communicates when no importable targets are available", () => {
     renderDialog(vi.fn(), new Set(), []);
     fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
-    expect(screen.getByText("No featured Immunefi targets are available.")).toBeTruthy();
+    expect(screen.getByText("No importable Immunefi targets are available.")).toBeTruthy();
   });
 });

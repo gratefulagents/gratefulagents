@@ -9,7 +9,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { featuredImmunefiTargets, type ImmunefiTarget } from "@/lib/immunefiTargetCatalog";
+import { importableImmunefiTargets, type ImmunefiTarget } from "@/lib/immunefiTargetCatalog";
 import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
 
 export function ImmunefiTargetImportDialog({
@@ -24,7 +24,7 @@ export function ImmunefiTargetImportDialog({
   onTargetSelected: (target: ImmunefiTarget) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const targets = featuredImmunefiTargets(programs);
+  const targets = importableImmunefiTargets(programs);
 
   function selectTarget(target: ImmunefiTarget) {
     setOpen(false);
@@ -49,10 +49,10 @@ export function ImmunefiTargetImportDialog({
           </p>
           {targets.length === 0 ? (
             <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              No featured Immunefi targets are available.
+              No importable Immunefi targets are available.
             </p>
           ) : (
-            <ul className="divide-y rounded-lg border" aria-label="Featured Immunefi targets">
+            <ul className="divide-y rounded-lg border" aria-label="Importable Immunefi targets">
               {targets.map((target) => {
                 const exists = existingNames.has(target.name);
                 return (

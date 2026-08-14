@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { featuredImmunefiTargets } from "@/lib/immunefiTargetCatalog";
+import { importableImmunefiTargets } from "@/lib/immunefiTargetCatalog";
 import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
 
 function program(
@@ -10,9 +10,9 @@ function program(
   return { name, scanTarget: scanTarget as SecurityProgramResource["scanTarget"] } as SecurityProgramResource;
 }
 
-describe("featuredImmunefiTargets", () => {
-  it("maps arbitrary featured program metadata and sorts by priority then display name", () => {
-    const targets = featuredImmunefiTargets([
+describe("importableImmunefiTargets", () => {
+  it("maps featured and non-featured scan targets and sorts by priority then display name", () => {
+    const targets = importableImmunefiTargets([
       program("program-zebra", {
         featured: true,
         priority: 20,
@@ -57,6 +57,16 @@ describe("featuredImmunefiTargets", () => {
 
     expect(targets).toEqual([
       {
+        name: "scan-hidden",
+        displayName: "Hidden",
+        repoUrl: "https://example.com/hidden",
+        baseBranch: "main",
+        workflowRef: "workflow-hidden",
+        policyPackRef: "policy-hidden",
+        securityProgramRef: "program-hidden",
+        priority: 0,
+      },
+      {
         name: "scan-first",
         displayName: "First",
         repoUrl: "https://example.com/first",
@@ -89,7 +99,9 @@ describe("featuredImmunefiTargets", () => {
     ]);
   });
 
-  it("returns no targets when no programs are featured", () => {
-    expect(featuredImmunefiTargets([])).toEqual([]);
+  it("excludes programs without scan-target metadata", () => {
+    const unavailable = { name: "program-unavailable" } as SecurityProgramResource;
+
+    expect(importableImmunefiTargets([unavailable])).toEqual([]);
   });
 });
