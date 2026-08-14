@@ -186,17 +186,7 @@
     {
       "name": "medusa",
       "status": "disabled",
-      "version": "1.5.1",
-      "binary": "medusa",
-      "release_url": "https://github.com/crytic/medusa/releases/tag/v1.5.1",
-      "reason": "Upstream publishes no linux/arm64 release asset (v1.5.1 ships medusa-linux-x64, medusa-mac-arm64, medusa-mac-x64, medusa-win-x64 only), so no verified arm64 digest exists; the verified linux/amd64 digests are recorded so enabling this entry only requires an upstream arm64 asset.",
-      "platforms": {
-        "linux/amd64": {
-          "asset": "https://github.com/crytic/medusa/releases/download/v1.5.1/medusa-linux-x64.tar.gz",
-          "sha256": "ddfe1517ae9028ef9fc331b00f5a6a9d5406f3fcd11a715d60c6b6fb3e4546d3",
-          "binary_sha256": "86e54c586e49e6bf9676f448218e10475afacb0a8bd5ca1aea234f66db7169d6"
-        }
-      }
+      "reason": "Upstream publishes no linux/arm64 release asset (v1.5.1 ships medusa-linux-x64, medusa-mac-arm64, medusa-mac-x64 and medusa-win-x64 only), so half of our platforms would have no verified digest. The lock installs the same tool set on every architecture, so this stays disabled until upstream ships linux/arm64 or we build it from a pinned source revision."
     },
     {
       "name": "slither",
