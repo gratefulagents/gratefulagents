@@ -36,6 +36,31 @@ const (
 
 var rustFuzzTargetPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
+// The cargo-fuzz root is derived rather than pulled: the base image supplies
+// the toolchain, and the build adds a dated nightly plus a pinned cargo-fuzz.
+// Recording only the base digest would let two materially different fuzz
+// executors claim the same identity in replay metadata, so the closure — base
+// image, nightly date, cargo-fuzz version — is what gets hashed, and the image
+// build writes the same value into the root's provenance marker.
+const (
+	rustFuzzBaseImageDigest = "sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33"
+	rustFuzzNightly         = "nightly-2026-06-01"
+	rustFuzzVersion         = "0.13.2"
+
+	rustFuzzToolVersion = rustFuzzVersion + "+" + rustFuzzNightly
+)
+
+// RustFuzzClosureIdentity is the exact string the image build hashes into the
+// cargo-fuzz root's provenance marker.
+func RustFuzzClosureIdentity() string {
+	return "docker.io/library/rust@" + rustFuzzBaseImageDigest + "+rustup:" + rustFuzzNightly + "+cargo-fuzz:" + rustFuzzVersion
+}
+
+// RustFuzzClosureDigest is the identity of the whole derived executor.
+func RustFuzzClosureDigest() string {
+	return sha256Digest([]byte(RustFuzzClosureIdentity()))
+}
+
 // rustFuzzCrash is one crashing input the campaign produced.
 type rustFuzzCrash struct {
 	// Name is the artifact file name cargo-fuzz assigned, e.g.

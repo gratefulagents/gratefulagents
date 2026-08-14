@@ -854,7 +854,7 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		// cargo-fuzz runs the maintainers' own fuzz/fuzz_targets. Nothing in
 		// argv can name a harness we wrote: the target is a validated upstream
 		// target name and the campaign length is bounded.
-		base("cargo-fuzz", DomainBlockchain, "0.13.2", "rust-fuzz-json", "application/json", []string{"rust_fuzz_project"}, []string{"cargo", "+nightly", "fuzz", "run", "--fuzz-dir", "{{target}}/fuzz", "{{fuzz_target}}", "--", "-max_total_time={{max_total_time_seconds}}", "-seed={{seed}}", "-rss_limit_mb=2048", "-print_final_stats=1"}),
+		base("cargo-fuzz", DomainBlockchain, rustFuzzToolVersion, "rust-fuzz-json", "application/json", []string{"rust_fuzz_project"}, []string{"cargo", "+nightly", "fuzz", "run", "--fuzz-dir", "{{target}}/fuzz", "{{fuzz_target}}", "--", "-max_total_time={{max_total_time_seconds}}", "-seed={{seed}}", "-rss_limit_mb=2048", "-print_final_stats=1"}),
 		base("go-fuzz-tests", DomainBlockchain, "go1.26", "go-test-json", "application/x-ndjson", []string{"go_fuzz_project"}, []string{"go", "-C", "{{target}}", "test", "-json", "{{package}}", "-run=^$", "-fuzz", "{{fuzz}}", "-fuzztime={{fuzztime}}", "-parallel=1"}),
 		// EVM verification packs. The fork endpoint is never a model-supplied
 		// string: argv carries an operator-authorized alias token that the
@@ -911,6 +911,13 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			tools[i].ToolArtifactDigest = oci.digest
 			if tools[i].Name == "halmos" {
 				tools[i].ToolArtifactDigest = "sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f"
+			}
+			if tools[i].Name == "cargo-fuzz" {
+				// The cargo-fuzz root is derived from its base image, so the
+				// base digest would claim the same identity for materially
+				// different fuzz executors. The recorded digest covers the
+				// whole closure: base image, dated nightly, cargo-fuzz version.
+				tools[i].ToolArtifactDigest = RustFuzzClosureDigest()
 			}
 			tools[i].PlatformDigests = map[string]string{"amd64": oci.amd64, "arm64": oci.arm64}
 			if tools[i].Name == "halmos" {

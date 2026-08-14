@@ -340,38 +340,12 @@ func bountyLaneBundleFiles(t *testing.T, bundle []byte) map[string][]byte {
 // run). Each rejected step in between is a gate that a real submission would
 // have failed on, driven through the shipped tool implementations rather than
 // through their helpers.
-func TestBountyLaneVulnerableFixtureProducesAPackagedSubmission(t *testing.T) {
-	result := runForgeForkLane(t, bountyLaneFixture(t, "forge-fork-test-vulnerable.json"), 1, nil)
-	if result.Status != securitytoolpacks.StatusFindings {
-		t.Fatalf("vulnerable fixture status = %q, want %q (errors: %v)", result.Status, securitytoolpacks.StatusFindings, result.Errors)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].RuleID != "forge-fork-assertion-failed" {
-		t.Fatalf("vulnerable fixture findings = %+v, want one forge-fork-assertion-failed record", result.Findings)
-	}
-
-	laneStore := newBountyLaneStore()
-	blobs := &bountyLaneBlobs{}
-	finding := ingestLaneFindings(t, laneStore, result.Findings)
-	if finding.Status != store.SecurityFindingStatusOpen {
-		t.Fatalf("ingested finding status = %q, want open before validation", finding.Status)
-	}
-
-	builder := bountyLaneRegistry(t, laneStore, blobs, bountyLaneContext(bountyLaneBuilderRun, finding.Fingerprint, bountyLaneProgram()))
-	validator := bountyLaneRegistry(t, laneStore, blobs, bountyLaneContext(bountyLaneValidatorRn, finding.Fingerprint, bountyLaneProgram()))
-	reporter := bountyLaneRegistry(t, laneStore, blobs, bountyLaneContext(bountyLaneReportRun, finding.Fingerprint, bountyLaneProgram()))
-
-	pocInput := bountyLanePoCInput(t)
-	if result := execTool(t, builder, "save_security_poc", pocInput); result.IsError {
-		t.Fatalf("save_security_poc rejected the candidate: %s", result.Content)
-	}
-	candidate, err := laneStore.GetSecurityFindingArtifact(context.Background(), bountyLaneNamespace, finding.ID, bountyLaneExecution, store.SecurityFindingArtifactPoCCandidate)
-	if err != nil || candidate == nil {
-		t.Fatalf("PoC candidate was not stored: %v", err)
-	}
-	if candidate.ActorRun != bountyLaneBuilderRun {
-		t.Fatalf("candidate builder provenance = %q, want %q", candidate.ActorRun, bountyLaneBuilderRun)
-	}
-
+// assertBountyLaneValidationGates drives the three ways a confirmation can be
+// worthless — the builder grading its own homework, a validation bound to a
+// candidate it never ran, and an oracle nobody showed could fail — and proves
+// each is refused before anything is persisted.
+func assertBountyLaneValidationGates(t *testing.T, laneStore *bountyLaneStore, blobs *bountyLaneBlobs, finding store.SecurityFindingRecord, candidate *store.SecurityFindingArtifact, validator *Registry) {
+	t.Helper()
 	// Gate: provenance. A builder that grades its own homework proves nothing,
 	// so validation from the builder's own AgentRun must be refused even when
 	// the evidence is otherwise complete.
@@ -405,17 +379,64 @@ func TestBountyLaneVulnerableFixtureProducesAPackagedSubmission(t *testing.T) {
 		t.Fatalf("a rejected validation was persisted anyway: %+v", artifact)
 	}
 
-	confirmed := execTool(t, validator, "validate_security_poc", bountyLaneValidationInput(t, func(v *securityPoCValidation) {
-		v.CandidateSHA256 = candidate.SHA256
-	}))
-	if confirmed.IsError {
-		t.Fatalf("validate_security_poc rejected a complete reproduction: %s", confirmed.Content)
-	}
-	validated, err := laneStore.GetSecurityFinding(context.Background(), bountyLaneNamespace, finding.ID)
-	if err != nil || validated == nil || validated.Status != store.SecurityFindingStatusConfirmed {
-		t.Fatalf("finding status after validation = %+v, %v; want confirmed", validated, err)
-	}
+}
 
+// assertBountyLaneBundleContents checks what actually leaves the platform: the
+// exact entry set, a manifest that carries the program's own vocabulary and the
+// provenance of the two runs that did the work, and hashes that cover every
+// packaged byte. A bundle a triager cannot re-verify is not evidence.
+func assertBountyLaneBundleContents(t *testing.T, bundle []byte, finding store.SecurityFindingRecord) {
+	t.Helper()
+	files := bountyLaneBundleFiles(t, bundle)
+	wantEntries := []string{"claim.json", "manifest.json", "poc/README.md", "poc/script/replay.sh", "poc/test/EscrowForkTest.t.sol", "submission.md", "validation.json"}
+	if got := slices.Sorted(maps.Keys(files)); !slices.Equal(got, wantEntries) {
+		t.Fatalf("bundle entries = %v, want %v", got, wantEntries)
+	}
+	var manifest securityBundleManifest
+	if err := json.Unmarshal(files["manifest.json"], &manifest); err != nil {
+		t.Fatalf("manifest.json is not readable: %v", err)
+	}
+	if manifest.ImpactClause != bountyLaneCriticalImp || manifest.ProgramLevel != "critical" {
+		t.Errorf("manifest impact clause/level = %q/%q, want %q/critical", manifest.ImpactClause, manifest.ProgramLevel, bountyLaneCriticalImp)
+	}
+	if manifest.SeveritySystem != bountyLaneSeveritySys {
+		t.Errorf("manifest severity system = %q, want %q", manifest.SeveritySystem, bountyLaneSeveritySys)
+	}
+	if manifest.BudgetState != "rank 1 of budget 2 (scan-wide)" {
+		t.Errorf("manifest budget state = %q", manifest.BudgetState)
+	}
+	// The manifest is what carries provenance off the platform, so the two
+	// runs it names must be the two runs that actually did the work.
+	if manifest.BuilderRun != bountyLaneBuilderRun || manifest.ValidatorRun != bountyLaneValidatorRn || manifest.ReportRun != bountyLaneReportRun {
+		t.Errorf("manifest provenance = builder %q, validator %q, report %q", manifest.BuilderRun, manifest.ValidatorRun, manifest.ReportRun)
+	}
+	if manifest.FindingStatus != store.SecurityFindingStatusConfirmed || manifest.Fingerprint != finding.Fingerprint {
+		t.Errorf("manifest finding = %q/%q, want confirmed/%s", manifest.FindingStatus, manifest.Fingerprint, finding.Fingerprint)
+	}
+	for name := range files {
+		if name == "manifest.json" {
+			continue
+		}
+		sum := sha256.Sum256(files[name])
+		if manifest.FilesSHA256[name] != hex.EncodeToString(sum[:]) {
+			t.Errorf("manifest hash for %q does not cover the packaged bytes", name)
+		}
+	}
+	if !bytes.Contains(files["poc/README.md"], []byte("forge test --match-test test_attackerDrainsEscrowAfterReentry")) {
+		t.Errorf("PoC transcript lost the reproduction command: %s", files["poc/README.md"])
+	}
+	if !bytes.Contains(files["validation.json"], []byte("negative_control_passed")) {
+		t.Errorf("validation.json lost the harness-health evidence: %s", files["validation.json"])
+	}
+}
+
+// assertBountyLanePackagingGates proves the packaging step fails closed on an
+// invented impact clause — a rules violation on every major platform — and
+// that a submission it did accept is byte-identical when rebuilt, because a
+// bundle whose digest drifts cannot be re-verified by the triager who received
+// it.
+func assertBountyLanePackagingGates(t *testing.T, laneStore *bountyLaneStore, blobs *bountyLaneBlobs, finding store.SecurityFindingRecord, reporter *Registry) {
+	t.Helper()
 	// Gate: the impact clause is the program's, not the reporter's. An invented
 	// clause is a rules violation on every major platform, so the lane must
 	// fail closed before anything is uploaded.
@@ -464,47 +485,54 @@ func TestBountyLaneVulnerableFixtureProducesAPackagedSubmission(t *testing.T) {
 		}
 	}
 
-	files := bountyLaneBundleFiles(t, blobs.puts[0].content)
-	wantEntries := []string{"claim.json", "manifest.json", "poc/README.md", "poc/script/replay.sh", "poc/test/EscrowForkTest.t.sol", "submission.md", "validation.json"}
-	if got := slices.Sorted(maps.Keys(files)); !slices.Equal(got, wantEntries) {
-		t.Fatalf("bundle entries = %v, want %v", got, wantEntries)
+}
+
+func TestBountyLaneVulnerableFixtureProducesAPackagedSubmission(t *testing.T) {
+	result := runForgeForkLane(t, bountyLaneFixture(t, "forge-fork-test-vulnerable.json"), 1, nil)
+	if result.Status != securitytoolpacks.StatusFindings {
+		t.Fatalf("vulnerable fixture status = %q, want %q (errors: %v)", result.Status, securitytoolpacks.StatusFindings, result.Errors)
 	}
-	var manifest securityBundleManifest
-	if err := json.Unmarshal(files["manifest.json"], &manifest); err != nil {
-		t.Fatalf("manifest.json is not readable: %v", err)
+	if len(result.Findings) != 1 || result.Findings[0].RuleID != "forge-fork-assertion-failed" {
+		t.Fatalf("vulnerable fixture findings = %+v, want one forge-fork-assertion-failed record", result.Findings)
 	}
-	if manifest.ImpactClause != bountyLaneCriticalImp || manifest.ProgramLevel != "critical" {
-		t.Errorf("manifest impact clause/level = %q/%q, want %q/critical", manifest.ImpactClause, manifest.ProgramLevel, bountyLaneCriticalImp)
+
+	laneStore := newBountyLaneStore()
+	blobs := &bountyLaneBlobs{}
+	finding := ingestLaneFindings(t, laneStore, result.Findings)
+	if finding.Status != store.SecurityFindingStatusOpen {
+		t.Fatalf("ingested finding status = %q, want open before validation", finding.Status)
 	}
-	if manifest.SeveritySystem != bountyLaneSeveritySys {
-		t.Errorf("manifest severity system = %q, want %q", manifest.SeveritySystem, bountyLaneSeveritySys)
+
+	builder := bountyLaneRegistry(t, laneStore, blobs, bountyLaneContext(bountyLaneBuilderRun, finding.Fingerprint, bountyLaneProgram()))
+	validator := bountyLaneRegistry(t, laneStore, blobs, bountyLaneContext(bountyLaneValidatorRn, finding.Fingerprint, bountyLaneProgram()))
+	reporter := bountyLaneRegistry(t, laneStore, blobs, bountyLaneContext(bountyLaneReportRun, finding.Fingerprint, bountyLaneProgram()))
+
+	pocInput := bountyLanePoCInput(t)
+	if result := execTool(t, builder, "save_security_poc", pocInput); result.IsError {
+		t.Fatalf("save_security_poc rejected the candidate: %s", result.Content)
 	}
-	if manifest.BudgetState != "rank 1 of budget 2 (scan-wide)" {
-		t.Errorf("manifest budget state = %q", manifest.BudgetState)
+	candidate, err := laneStore.GetSecurityFindingArtifact(context.Background(), bountyLaneNamespace, finding.ID, bountyLaneExecution, store.SecurityFindingArtifactPoCCandidate)
+	if err != nil || candidate == nil {
+		t.Fatalf("PoC candidate was not stored: %v", err)
 	}
-	// The manifest is what carries provenance off the platform, so the two
-	// runs it names must be the two runs that actually did the work.
-	if manifest.BuilderRun != bountyLaneBuilderRun || manifest.ValidatorRun != bountyLaneValidatorRn || manifest.ReportRun != bountyLaneReportRun {
-		t.Errorf("manifest provenance = builder %q, validator %q, report %q", manifest.BuilderRun, manifest.ValidatorRun, manifest.ReportRun)
+	if candidate.ActorRun != bountyLaneBuilderRun {
+		t.Fatalf("candidate builder provenance = %q, want %q", candidate.ActorRun, bountyLaneBuilderRun)
 	}
-	if manifest.FindingStatus != store.SecurityFindingStatusConfirmed || manifest.Fingerprint != finding.Fingerprint {
-		t.Errorf("manifest finding = %q/%q, want confirmed/%s", manifest.FindingStatus, manifest.Fingerprint, finding.Fingerprint)
+
+	assertBountyLaneValidationGates(t, laneStore, blobs, finding, candidate, validator)
+	confirmed := execTool(t, validator, "validate_security_poc", bountyLaneValidationInput(t, func(v *securityPoCValidation) {
+		v.CandidateSHA256 = candidate.SHA256
+	}))
+	if confirmed.IsError {
+		t.Fatalf("validate_security_poc rejected a complete reproduction: %s", confirmed.Content)
 	}
-	for name := range files {
-		if name == "manifest.json" {
-			continue
-		}
-		sum := sha256.Sum256(files[name])
-		if manifest.FilesSHA256[name] != hex.EncodeToString(sum[:]) {
-			t.Errorf("manifest hash for %q does not cover the packaged bytes", name)
-		}
+	validated, err := laneStore.GetSecurityFinding(context.Background(), bountyLaneNamespace, finding.ID)
+	if err != nil || validated == nil || validated.Status != store.SecurityFindingStatusConfirmed {
+		t.Fatalf("finding status after validation = %+v, %v; want confirmed", validated, err)
 	}
-	if !bytes.Contains(files["poc/README.md"], []byte("forge test --match-test test_attackerDrainsEscrowAfterReentry")) {
-		t.Errorf("PoC transcript lost the reproduction command: %s", files["poc/README.md"])
-	}
-	if !bytes.Contains(files["validation.json"], []byte("negative_control_passed")) {
-		t.Errorf("validation.json lost the harness-health evidence: %s", files["validation.json"])
-	}
+
+	assertBountyLanePackagingGates(t, laneStore, blobs, finding, reporter)
+	assertBountyLaneBundleContents(t, blobs.puts[0].content, finding)
 	stored, err := laneStore.GetSecurityFindingArtifact(context.Background(), bountyLaneNamespace, finding.ID, bountyLaneExecution, store.SecurityFindingArtifactSubmissionBundle)
 	if err != nil || stored == nil || stored.Status != "ready" || stored.S3Key != blobs.puts[1].key {
 		t.Fatalf("bundle metadata = %+v, %v; want a ready record pointing at the uploaded object", stored, err)
@@ -627,8 +655,10 @@ func TestBountyLaneFixedFixtureEndsInABoundedNegative(t *testing.T) {
 	if result.Status != securitytoolpacks.StatusNotFoundUnder {
 		t.Fatalf("fixed fixture status = %q, want %q (errors: %v)", result.Status, securitytoolpacks.StatusNotFoundUnder, result.Errors)
 	}
-	// The retired "pass" verdict claimed safety a bounded run cannot claim.
-	if result.Status == securitytoolpacks.StatusPass {
+	// The retired "pass" verdict claimed safety a bounded run cannot claim. It
+	// is spelled literally here so this assertion keeps working after the
+	// deprecated constant is finally removed.
+	if result.Status == securitytoolpacks.Status("pass") {
 		t.Fatal("a clean run must never be reported as a pass")
 	}
 	if len(result.Findings) != 0 {

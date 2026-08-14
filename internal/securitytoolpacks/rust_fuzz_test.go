@@ -2,6 +2,7 @@ package securitytoolpacks
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -192,5 +193,69 @@ func TestCargoFuzzCleanCampaignCarriesItsBounds(t *testing.T) {
 	}
 	if !strings.Contains(bounded.Corpus, "inputs=3") {
 		t.Fatalf("bounds do not state the corpus size: %+v", bounded)
+	}
+}
+
+// The derived cargo-fuzz root is not the base image, so recording only the base
+// digest would let two materially different fuzz executors — a different
+// nightly, a different cargo-fuzz — claim the same identity in replay metadata.
+// The registry's digest and the marker the image build writes must be the same
+// hash of the same closure identity, or the root is rejected at exec time.
+func TestCargoFuzzClosureDigestMatchesTheImageProvenanceMarker(t *testing.T) {
+	manifest := DefaultManifest("sha256:"+strings.Repeat("c", 64), nil)
+	index := slices.IndexFunc(manifest.Tools, func(tool Tool) bool { return tool.Name == "cargo-fuzz" })
+	if index < 0 {
+		t.Fatal("cargo-fuzz is missing from the registry")
+	}
+	tool := manifest.Tools[index]
+	if tool.ToolArtifactDigest == rustFuzzBaseImageDigest {
+		t.Fatal("cargo-fuzz records the base image digest for a derived root")
+	}
+	if tool.ToolArtifactDigest != RustFuzzClosureDigest() {
+		t.Fatalf("registry digest %q is not the closure digest %q", tool.ToolArtifactDigest, RustFuzzClosureDigest())
+	}
+	if !strings.Contains(tool.Version, rustFuzzNightly) {
+		t.Errorf("tool version %q does not name the pinned nightly", tool.Version)
+	}
+
+	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile.security-tools"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(dockerfile)
+	if !strings.Contains(text, RustFuzzClosureDigest()+"' > /usr/local/share/ga-security/toolroots/cargo-fuzz/.ga-oci-digest") {
+		t.Error("the image does not write the closure digest into the cargo-fuzz provenance marker")
+	}
+	if !strings.Contains(text, "rustup toolchain install "+rustFuzzNightly) {
+		t.Errorf("the image does not install the pinned nightly %s", rustFuzzNightly)
+	}
+	if strings.Contains(text, "rustup toolchain install nightly ") {
+		t.Error("the image installs a floating nightly: identical builds would ship different compilers")
+	}
+	if !strings.Contains(text, "cargo install cargo-fuzz --version "+rustFuzzVersion+" --locked") {
+		t.Errorf("the image does not install the pinned cargo-fuzz %s", rustFuzzVersion)
+	}
+	if !strings.Contains(text, rustFuzzBaseImageDigest) {
+		t.Error("the image base digest and the recorded closure identity disagree")
+	}
+}
+
+// Evidence that could not be collected is not a clean campaign: a collection
+// failure has to fail the run rather than ride out under the fuzzer's own exit
+// code.
+func TestCargoFuzzCollectionFailureIsNotACleanCampaign(t *testing.T) {
+	root := stageRustFuzzProject(t, "parse_block", nil, nil)
+	directory := filepath.Join(root, "fuzz", "artifacts", "parse_block")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := range maxRustCrashArtifacts + 1 {
+		if err := os.WriteFile(filepath.Join(directory, fmt.Sprintf("crash-%03d", i)), []byte("boom"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := rustFuzzConfig(root, map[string]string{"fuzz_target": "parse_block", "max_total_time": "2m"})
+	if _, _, err := collectRustFuzzRun(root, map[string]bool{}, cfg, 0, nil); err == nil {
+		t.Fatal("an over-budget crash set was collected silently")
 	}
 }

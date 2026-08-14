@@ -231,7 +231,7 @@ func (e *securityScanExecutionEngine) materializePostScripts(ctx context.Context
 			}
 			selected := make([]string, 0, len(scripts))
 			for _, script := range scripts {
-				if matched, _ := securityScanPostScriptMatches(script.EffectiveRunOn(), f); matched {
+				if matched, _ := securityScanPostScriptMatches(script.EffectiveRunOn(), f, e.payableSeverityFloor()); matched {
 					selected = append(selected, script.Name)
 				}
 			}
@@ -609,7 +609,7 @@ func (e *securityScanExecutionEngine) launchPostScript(ctx context.Context, job 
 		// Executions materialized by older controllers decided runOn at
 		// dispatch time. Preserve that contract while they drain during a
 		// rolling upgrade; new pipelines always carry a non-nil Scripts list.
-		if matched, reason := securityScanPostScriptMatches(scripts[0].EffectiveRunOn(), *rec); !matched {
+		if matched, reason := securityScanPostScriptMatches(scripts[0].EffectiveRunOn(), *rec, e.payableSeverityFloor()); !matched {
 			job.State = triggersv1alpha1.SecurityScanPostScriptStateSkipped
 			job.FinishedAt = &e.now
 			job.Result = truncateSecurityScanError(reason)
@@ -685,10 +685,38 @@ func (e *securityScanExecutionEngine) loadPostScriptFinding(ctx context.Context,
 	return e.r.Findings.GetSecurityFinding(ctx, e.scan.Namespace, id)
 }
 
+// securityProgramPayableFloor returns the lowest severity the governing program
+// itself publishes, which is the only severity floor that means anything: a
+// program that publishes medium impacts pays for mediums, one that publishes
+// only high and critical does not. Without a governing program there is no
+// table to read, so the conservative high floor stands. It mirrors the floor
+// the packaging tool enforces, so a stage is never dispatched for a finding
+// the bundle gate would refuse afterwards.
+func securityProgramPayableFloor(program *triggersv1alpha1.SecurityProgramSpec) string {
+	floor := security.SeverityHigh
+	if program == nil || len(program.InScopeImpacts) == 0 {
+		return floor
+	}
+	lowest := -1
+	for _, impact := range program.InScopeImpacts {
+		rank := security.SeverityRank(strings.TrimSpace(impact.Level))
+		if rank < 0 {
+			continue
+		}
+		if lowest < 0 || rank < lowest {
+			lowest, floor = rank, strings.TrimSpace(impact.Level)
+		}
+	}
+	return floor
+}
+
 // securityScanPostScriptMatches evaluates a post-script's runOn predicate
 // against a finding, returning the reason on a non-match so the skip states
-// which status or severity failed the selector.
-func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord) (bool, string) {
+// which status or severity failed the selector. payableFloor is the governing
+// program's own lowest published severity; the medium selector never dispatches
+// below it, because two expensive AgentRuns whose result the bundle gate will
+// refuse are worse than not running them.
+func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord, payableFloor string) (bool, string) {
 	switch runOn {
 	case "confirmed":
 		if rec.Status != store.SecurityFindingStatusConfirmed {
@@ -699,8 +727,12 @@ func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord
 			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q (status %q)", runOn, rec.Severity, rec.Status)
 		}
 	case "medium-and-above-actionable":
-		if !security.SeverityAtLeast(rec.Severity, security.SeverityMedium) {
-			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q (status %q)", runOn, rec.Severity, rec.Status)
+		floor := security.SeverityMedium
+		if payableFloor != "" && security.SeverityRank(payableFloor) > security.SeverityRank(floor) {
+			floor = payableFloor
+		}
+		if !security.SeverityAtLeast(rec.Severity, floor) {
+			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q at the governing program's lowest published severity %q (status %q)", runOn, rec.Severity, floor, rec.Status)
 		}
 	}
 	return true, ""
@@ -902,6 +934,15 @@ func (e *securityScanExecutionEngine) postScriptJobsInFlight() bool {
 		}
 	}
 	return false
+}
+
+// payableSeverityFloor is the governing program's lowest published severity for
+// this execution.
+func (e *securityScanExecutionEngine) payableSeverityFloor() string {
+	if e == nil || e.resolved == nil {
+		return security.SeverityHigh
+	}
+	return securityProgramPayableFloor(e.resolved.program)
 }
 
 // securityProgramScopeAnnotations copies the governing program's typed scope

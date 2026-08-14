@@ -15,7 +15,8 @@ FROM docker.io/library/golang:1.26@sha256:2005724102f45917a63e9d092fc0e4ea56ea57
 # pinned image digest plus a --locked install is what keeps the closure
 # reproducible across the two release architectures.
 FROM docker.io/library/rust:1.91-bookworm@sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33 AS cargo-fuzz-root
-RUN rustup toolchain install nightly --profile minimal --component llvm-tools-preview \
+RUN rustup toolchain install nightly-2026-06-01 --profile minimal --component llvm-tools-preview \
+    && rustup default nightly-2026-06-01 \
     && cargo install cargo-fuzz --version 0.13.2 --locked \
     && find "${CARGO_HOME}/registry" -mindepth 1 -delete
 
@@ -110,7 +111,7 @@ RUN cp -L /usr/local/share/ga-security/toolroots/slither/home/ethsec/.local/bin/
     && printf '%s\n' 'sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978' > /usr/local/share/ga-security/toolroots/slither/.ga-oci-digest \
     && printf '%s\n' 'sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f' > /usr/local/share/ga-security/toolroots/halmos/.ga-oci-digest \
     && printf '%s\n' 'sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365' > /usr/local/share/ga-security/toolroots/go-fuzz-tests/.ga-oci-digest \
-    && printf '%s\n' 'sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33' > /usr/local/share/ga-security/toolroots/cargo-fuzz/.ga-oci-digest \
+    && printf '%s\n' 'sha256:f393fca4c2be92f68d811beae8829cda9db8a88ed4164cbeb7a7e1bc1cbfe89b' > /usr/local/share/ga-security/toolroots/cargo-fuzz/.ga-oci-digest \
     && chown -R 0:0 /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap \
     && chmod -R go-w /usr/local/share/ga-security/toolroots /usr/local/bin/bwrap \
     && chmod 1777 /usr/local/share/ga-security/toolroots/*/dev/shm

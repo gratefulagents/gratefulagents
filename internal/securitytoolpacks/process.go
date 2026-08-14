@@ -220,12 +220,19 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 		// libFuzzer's console text: a crash file is a reproducible input, a
 		// stderr banner is a string that changes between releases.
 		report, artifacts, collectErr := collectRustFuzzRun(executionTarget, rustCrashBaseline, req.Config, exitCode, append(stdout.Bytes(), stderr.Bytes()...))
-		if collectErr != nil && err == nil {
-			err = fmt.Errorf("collect cargo-fuzz crashes: %w", collectErr)
-		}
 		document, marshalErr := json.Marshal(report)
-		if marshalErr != nil && err == nil {
-			err = marshalErr
+		if collectErr == nil {
+			collectErr = marshalErr
+		}
+		if collectErr != nil {
+			// Evidence that could not be collected is not a clean campaign and
+			// not a findings campaign: the exit code says what the fuzzer did,
+			// but we cannot show it, so the run fails outright rather than
+			// letting the generic handler suppress this under a pass verdict.
+			result.Output = nil
+			result.ExitCode = 2
+			result.Err = fmt.Errorf("collect cargo-fuzz crashes: %w", collectErr)
+			return result
 		}
 		result.Output = document
 		result.Artifacts = artifacts
