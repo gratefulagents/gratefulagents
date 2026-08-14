@@ -153,7 +153,7 @@ spec:
 
     repoURL: "https://github.com/gratefulagents/gratefulagents.git"
     baseBranch: "main"
-    timeout: 2h
+    timeout: 6h
 
     secrets:
       # Optional when spec.githubApp is set; App-mode runs receive a
