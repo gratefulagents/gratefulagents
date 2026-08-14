@@ -88,6 +88,11 @@ RUN GOBIN=/usr/local/bin go install github.com/bufbuild/buf/cmd/buf@v1.61.0 \
 RUN GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@latest \
     && /usr/local/bin/gopls version
 
+# ── Runtime user ─────────────────────────────────────────────────────────────
+RUN useradd -m -s /bin/bash -u 1100 worker \
+    && mkdir -p /workspace \
+    && chown worker:worker /workspace
+
 # ── Rust ─────────────────────────────────────────────────────────────────────
 ARG RUST_VERSION=1.97.1
 ARG RUSTUP_VERSION=1.28.2
@@ -108,7 +113,8 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && /tmp/rustup-init -y --profile default --default-toolchain "$RUST_VERSION" \
     && rm /tmp/rustup-init \
     && rustc --version \
-    && cargo --version
+    && cargo --version \
+    && chown -R worker:worker "$RUSTUP_HOME" "$CARGO_HOME"
 
 # ── Node.js + pnpm (for web/ frontend) ──────────────────────────────────────
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
@@ -152,11 +158,7 @@ ENV LC_ALL=en_US.UTF-8
 ENV ELIXIR_ERL_OPTIONS="+fnu"
 
 # ── Phoenix dependencies (as worker user) ─────────────────────────────────────
-RUN useradd -m -s /bin/bash -u 1100 worker \
-    && mkdir -p /workspace \
-    && chown worker:worker /workspace \
-    && chown -R worker:worker "$RUSTUP_HOME" "$CARGO_HOME" \
-    && su worker -c "git config --global user.name 'gratefulagents[bot]' && git config --global user.email '292420648+gratefulagents[bot]@users.noreply.github.com'" \
+RUN su worker -c "git config --global user.name 'gratefulagents[bot]' && git config --global user.email '292420648+gratefulagents[bot]@users.noreply.github.com'" \
     && su worker -c "mix local.hex --force && mix local.rebar --force && mix archive.install hex phx_new --force"
 
 USER worker
