@@ -13,6 +13,7 @@
 import * as http from "node:http";
 import { create } from "@bufbuild/protobuf";
 import type { DescMethod, DescService } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, type ConnectRouter, type HandlerContext } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import {
@@ -35,6 +36,7 @@ import {
   ListAgentRunsResponseSchema,
   ListAvailableModelsResponseSchema,
   ListAvailableModesResponseSchema,
+  ListBugReportsResponseSchema,
   ListCronsResponseSchema,
   ListGitHubRepositoriesResponseSchema,
   ListLinearProjectsResponseSchema,
@@ -55,6 +57,7 @@ import {
   ListSlackDraftsResponseSchema,
   ListSlackWorkspacesResponseSchema,
   ListWorkspaceFilesResponseSchema,
+  ModelDefaultsSchema,
   ObservabilityBreakdownSchema,
   ObservabilityBucketSchema,
   ObservabilityDataCompletenessSchema,
@@ -474,6 +477,38 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       });
     },
 
+    // ---- Bug reports --------------------------------------------------------
+    listBugReports: async (req: {
+      namespace: string;
+      status?: string;
+      category?: string;
+      limit?: number;
+    }) => {
+      const reports = s.bugReports.filter(
+        (r) =>
+          (!req.namespace || r.namespace === req.namespace) &&
+          (!req.status || r.status === req.status) &&
+          (!req.category || r.category === req.category),
+      );
+      const limit = req.limit && req.limit > 0 ? req.limit : reports.length;
+      return create(ListBugReportsResponseSchema, { reports: reports.slice(0, limit) });
+    },
+    updateBugReportStatus: async (req: {
+      namespace: string;
+      id: string;
+      status: string;
+      note?: string;
+    }) => {
+      const report = s.bugReports.find(
+        (r) => (!req.namespace || r.namespace === req.namespace) && r.id === req.id,
+      );
+      if (!report) throw notFound(`bug report ${req.namespace}/${req.id}`);
+      report.status = req.status;
+      report.statusNote = req.note ?? "";
+      report.statusActor = s.user.username;
+      return report;
+    },
+
     // ---- Slack ------------------------------------------------------------
     listSlackAgents: async () =>
       create(ListSlackAgentsResponseSchema, { namespace: s.namespace, agents: s.slackAgents }),
@@ -570,6 +605,25 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       s.gitIdentity.name = req.name;
       s.gitIdentity.email = req.email;
       return s.gitIdentity;
+    },
+    getMyModelDefaults: async () => s.modelDefaults,
+    updateMyModelDefaults: async (req: {
+      provider: string;
+      model: string;
+      reasoningLevel: string;
+      disabled: boolean;
+    }) => {
+      const cleared = !req.provider && !req.model && !req.reasoningLevel && !req.disabled;
+      s.modelDefaults = cleared
+        ? create(ModelDefaultsSchema, {})
+        : create(ModelDefaultsSchema, {
+            provider: req.provider,
+            model: req.model,
+            reasoningLevel: req.reasoningLevel,
+            disabled: req.disabled,
+            updatedAt: timestampFromDate(new Date()),
+          });
+      return s.modelDefaults;
     },
 
     // ---- Collaboration ------------------------------------------------------

@@ -1,3 +1,4 @@
+import { ModelDefaultsSection } from "@/components/ModelDefaultsSection";
 import { RoleModelsSection } from "@/components/RoleModelsSection";
 import { SettingsSubPage } from "@/components/settings/SettingsSubPage";
 
@@ -7,6 +8,7 @@ export default function RoleModelsPage() {
       title="Role models"
       description="Personal model overrides for platform roles."
     >
+      <ModelDefaultsSection />
       <RoleModelsSection />
     </SettingsSubPage>
   );

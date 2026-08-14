@@ -7,11 +7,13 @@
 import type {
   AgentRun,
   AgentRunUsageResponse,
+  BugReport,
   Cron,
   GetActivityLogResponse,
   GetAgentTraceResponse,
   GitHubRepository,
   GitIdentity,
+  ModelDefaults,
   LinearProject,
   MaintainerWorkItem,
   ModeTemplate,
@@ -105,6 +107,9 @@ export interface Scenario {
   /** Whether the current user has explicitly installed the curated security bundle. */
   securitySkillsInstalled: boolean;
 
+  /** Agent-filed platform bug reports (listBugReports / updateBugReportStatus). */
+  bugReports: BugReport[];
+
   skillPackages: SkillInfo[];
   runtimeImages: RuntimeImageOption[];
   modes: ModeTemplate[];
@@ -115,6 +120,8 @@ export interface Scenario {
   anthropicUsage: MyAnthropicUsage;
   soul: Soul;
   gitIdentity: GitIdentity;
+  /** Personal default provider/model/reasoning (getMyModelDefaults). */
+  modelDefaults: ModelDefaults;
 
   notifications: NotificationInfo[];
   sharedWithMe: SharedResource[];

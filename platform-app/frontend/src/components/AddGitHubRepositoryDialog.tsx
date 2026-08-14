@@ -1,4 +1,4 @@
-import { create } from "@bufbuild/protobuf";
+import { clone, create } from "@bufbuild/protobuf";
 import { useEffect, useMemo, useState } from "react";
 import { FolderCog, GitBranch as GithubIcon, Plus } from "lucide-react";
 import {
@@ -35,7 +35,10 @@ import {
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneText } from "@/lib/status";
+import { applyModelDefaults, hasActiveModelDefaults } from "@/lib/modelDefaults";
+import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import {
+  AgentRunDefaultsSchema,
   CreateGitHubRepositoryFromInstallationRequestSchema,
   CreateGitHubRepositoryFromTokenRequestSchema,
   ListGitHubAppInstallationRepositoriesRequestSchema,
@@ -110,6 +113,24 @@ export function AddGitHubRepositoryDialog({ onCreated }: { onCreated?: () => voi
   const [repoLoading, setRepoLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open);
+
+  // Seed the new repository's untouched run defaults from the user's saved
+  // model defaults (prefill only; the fields stay editable).
+  useEffect(() => {
+    if (!open || !modelDefaultsLoaded || !hasActiveModelDefaults(myModelDefaults)) return;
+    const seeded = applyModelDefaults(myModelDefaults);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
+    setDefaults((prev) => {
+      if (prev.provider || prev.model || prev.reasoningLevel) return prev;
+      const next = clone(AgentRunDefaultsSchema, prev);
+      next.provider = seeded.provider;
+      next.model = seeded.model;
+      next.reasoningLevel = seeded.reasoningLevel;
+      return next;
+    });
+  }, [open, modelDefaultsLoaded, myModelDefaults]);
 
   useEffect(() => {
     let cancelled = false;

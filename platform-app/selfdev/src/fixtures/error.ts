@@ -8,6 +8,7 @@ import {
   CronSchema,
   GitHubRepositorySchema,
   GitIdentitySchema,
+  ModelDefaultsSchema,
   LinearProjectSchema,
   MyAnthropicUsageSchema,
   MyCredentialsSchema,
@@ -252,6 +253,7 @@ export const errorScenario: Scenario = {
   securityScanConfigs: [],
   securityWorkflows: [],
   securitySkillsInstalled: false,
+  bugReports: [],
 
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),
@@ -263,6 +265,7 @@ export const errorScenario: Scenario = {
   anthropicUsage: create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
   soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
+  modelDefaults: create(ModelDefaultsSchema, {}),
 
   notifications: [],
   sharedWithMe: [],

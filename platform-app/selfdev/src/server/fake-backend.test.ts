@@ -119,6 +119,36 @@ describe("fake backend", () => {
     expect(defaultScenario.securitySkillsInstalled).toBe(false);
   });
 
+  it("lists bug report fixtures and applies status/category filters", async () => {
+    const all = await platform.listBugReports({ namespace: "" });
+    expect(all.reports.length).toBe(defaultScenario.bugReports.length);
+
+    const open = await platform.listBugReports({ namespace: "demo", status: "open" });
+    expect(open.reports.length).toBeGreaterThan(0);
+    expect(open.reports.every((r) => r.status === "open")).toBe(true);
+
+    const bugs = await platform.listBugReports({ namespace: "demo", category: "bug" });
+    expect(bugs.reports.every((r) => r.category === "bug")).toBe(true);
+  });
+
+  it("updates bug report status without leaking into the shared scenario object", async () => {
+    const target = defaultScenario.bugReports.find((r) => r.status === "open")!;
+    const updated = await platform.updateBugReportStatus({
+      namespace: "demo",
+      id: target.id,
+      status: "acknowledged",
+      note: "triaged in test",
+    });
+    expect(updated.status).toBe("acknowledged");
+    expect(updated.statusNote).toBe("triaged in test");
+    expect(updated.statusActor).toBe(defaultScenario.user.username);
+
+    const after = await platform.listBugReports({ namespace: "demo", status: "acknowledged" });
+    expect(after.reports.some((r) => r.id === target.id)).toBe(true);
+    // The imported fixture itself must stay pristine (structuredClone per server).
+    expect(target.status).toBe("open");
+  });
+
   it("creates, updates, and deletes inline skills", async () => {
     const name = "selfdev-inline-skill";
 

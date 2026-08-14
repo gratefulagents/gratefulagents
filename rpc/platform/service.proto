@@ -107,6 +107,11 @@ service PlatformService {
   // defaults for runs created by the calling user.
   rpc GetMyRoleModelPreferences(GetMyRoleModelPreferencesRequest) returns (RoleModelPreferences);
   rpc UpdateMyRoleModelPreferences(UpdateMyRoleModelPreferencesRequest) returns (RoleModelPreferences);
+  // Personal model defaults seed the provider/model/reasoning fields whenever
+  // the calling user creates a new project, trigger, or scan config. Runs are
+  // not seeded: they follow their project's settings.
+  rpc GetMyModelDefaults(GetMyModelDefaultsRequest) returns (ModelDefaults);
+  rpc UpdateMyModelDefaults(UpdateMyModelDefaultsRequest) returns (ModelDefaults);
   // GetMyGitIdentity returns the calling user's git commit identity (empty
   // when none is saved).
   rpc GetMyGitIdentity(GetMyGitIdentityRequest) returns (GitIdentity);
@@ -392,6 +397,15 @@ service PlatformService {
   // installation copies or refreshes only untouched curated bundle members.
   rpc GetSecuritySkillsStatus(google.protobuf.Empty) returns (SecuritySkillsStatus);
   rpc InstallSecuritySkills(google.protobuf.Empty) returns (SecuritySkillsStatus);
+
+  // Agent bug reports: durable platform/tooling bug reports, complaints, and
+  // feature requests filed by agents via the report_bug tool. Reports
+  // deduplicate per (namespace, fingerprint) across runs and are triaged by
+  // humans in the dashboard. Backed by the optional Postgres state store.
+  rpc ListBugReports(ListBugReportsRequest) returns (ListBugReportsResponse);
+  // UpdateBugReportStatus sets the triage status (open, acknowledged,
+  // resolved, dismissed) of one report, attributed to the caller.
+  rpc UpdateBugReportStatus(UpdateBugReportStatusRequest) returns (BugReport);
 }
 
 message ListAgentRunsRequest {
@@ -1964,6 +1978,35 @@ message GetMyRoleModelPreferencesRequest {}
 // the calling user. Sending an empty list clears every personal override.
 message UpdateMyRoleModelPreferencesRequest {
   repeated RoleModelPreference preferences = 1;
+}
+
+// ModelDefaults contains the calling user's personal default provider, model,
+// and reasoning level. Creation surfaces use it to prefill new projects,
+// triggers, and scan configs (not runs, which follow their project) so the
+// user does not have to pick a model every time; every field stays editable
+// per resource. `disabled` keeps the saved values but stops applying them
+// automatically.
+message ModelDefaults {
+  string provider = 1;
+  string model = 2;
+  // reasoning_level is one of "", "none", "low", "medium", "high", "xhigh",
+  // "max". Empty means the provider/model default.
+  string reasoning_level = 3;
+  // disabled turns off automatic application without clearing the values.
+  bool disabled = 4;
+  // updated_at is unset when the user has never saved model defaults.
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message GetMyModelDefaultsRequest {}
+
+// UpdateMyModelDefaultsRequest replaces the calling user's model defaults.
+// Sending every field empty (and disabled=false) clears them.
+message UpdateMyModelDefaultsRequest {
+  string provider = 1;
+  string model = 2;
+  string reasoning_level = 3;
+  bool disabled = 4;
 }
 
 // GitIdentity contains a user's git commit settings. When set, AgentRuns the
@@ -5355,4 +5398,45 @@ message SecurityProgramScanTarget {
   int32 priority = 6;
   bool featured = 7;
   string base_branch = 8;
+}
+
+// BugReport is one deduplicated agent-filed platform bug report, complaint,
+// or feature request, unique per (namespace, fingerprint). run_name is the
+// most recent run that observed the problem.
+message BugReport {
+  string id = 1;
+  string namespace = 2;
+  string run_name = 3;
+  // category is one of bug, complaint, or feature.
+  string category = 4;
+  // tool_name names the affected tool when the report targets one (may be empty).
+  string tool_name = 5;
+  string title = 6;
+  string body = 7;
+  // occurrences counts how many runs reported this same problem.
+  int32 occurrences = 8;
+  // status is one of open, acknowledged, resolved, or dismissed.
+  string status = 9;
+  string status_note = 10;
+  string status_actor = 11;
+  google.protobuf.Timestamp first_seen_at = 12;
+  google.protobuf.Timestamp last_seen_at = 13;
+}
+
+message ListBugReportsRequest {
+  string namespace = 1;
+  string status = 2;   // Optional: filter by triage status (empty = all)
+  string category = 3; // Optional: filter by category (empty = all)
+  int32 limit = 4;
+}
+
+message ListBugReportsResponse {
+  repeated BugReport reports = 1;
+}
+
+message UpdateBugReportStatusRequest {
+  string namespace = 1;
+  string id = 2;
+  string status = 3;
+  string note = 4;
 }

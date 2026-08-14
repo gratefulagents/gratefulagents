@@ -81,6 +81,27 @@ type UserRoleModelPreference struct {
 	UpdatedAt      time.Time
 }
 
+// UserModelDefaults is a user's personal default provider/model/reasoning
+// level. Disabled keeps the saved values but tells clients not to auto-apply
+// them.
+type UserModelDefaults struct {
+	UserID         string
+	Provider       string
+	Model          string
+	ReasoningLevel string
+	Disabled       bool
+	UpdatedAt      time.Time
+}
+
+// UserModelDefaultsStore is an optional extension implemented by auth stores
+// that persist personal model defaults. Keeping it separate from Store lets
+// lightweight auth fakes and alternate auth backends remain source-compatible.
+type UserModelDefaultsStore interface {
+	GetUserModelDefaults(ctx context.Context, userID string) (*UserModelDefaults, error)
+	UpsertUserModelDefaults(ctx context.Context, defaults *UserModelDefaults) (*UserModelDefaults, error)
+	DeleteUserModelDefaults(ctx context.Context, userID string) error
+}
+
 // UserRoleModelStore is an optional extension implemented by auth stores that
 // persist personal role-model preferences. Keeping it separate from Store lets
 // lightweight auth fakes and alternate auth backends remain source-compatible.
@@ -367,6 +388,50 @@ func (s *PGStore) UpsertUserGitIdentity(ctx context.Context, identity *UserGitId
 		return nil, fmt.Errorf("upserting user git identity: %w", err)
 	}
 	return &out, nil
+}
+
+// --- Model defaults (personal default provider/model/reasoning level) ---
+
+func (s *PGStore) GetUserModelDefaults(ctx context.Context, userID string) (*UserModelDefaults, error) {
+	var defaults UserModelDefaults
+	err := s.pool.QueryRow(ctx, `
+		SELECT user_id, provider, model, reasoning_level, disabled, updated_at
+		FROM auth_user_model_defaults WHERE user_id = $1`, userID).
+		Scan(&defaults.UserID, &defaults.Provider, &defaults.Model, &defaults.ReasoningLevel, &defaults.Disabled, &defaults.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getting user model defaults: %w", err)
+	}
+	return &defaults, nil
+}
+
+func (s *PGStore) UpsertUserModelDefaults(ctx context.Context, defaults *UserModelDefaults) (*UserModelDefaults, error) {
+	var out UserModelDefaults
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO auth_user_model_defaults (user_id, provider, model, reasoning_level, disabled)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id) DO UPDATE SET
+			provider = EXCLUDED.provider,
+			model = EXCLUDED.model,
+			reasoning_level = EXCLUDED.reasoning_level,
+			disabled = EXCLUDED.disabled,
+			updated_at = now()
+		RETURNING user_id, provider, model, reasoning_level, disabled, updated_at`,
+		defaults.UserID, defaults.Provider, defaults.Model, defaults.ReasoningLevel, defaults.Disabled).
+		Scan(&out.UserID, &out.Provider, &out.Model, &out.ReasoningLevel, &out.Disabled, &out.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("upserting user model defaults: %w", err)
+	}
+	return &out, nil
+}
+
+func (s *PGStore) DeleteUserModelDefaults(ctx context.Context, userID string) error {
+	if _, err := s.pool.Exec(ctx, `DELETE FROM auth_user_model_defaults WHERE user_id = $1`, userID); err != nil {
+		return fmt.Errorf("deleting user model defaults: %w", err)
+	}
+	return nil
 }
 
 // --- Personal role models ---

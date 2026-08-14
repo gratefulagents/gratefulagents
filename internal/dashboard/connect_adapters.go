@@ -556,6 +556,22 @@ func (h *PlatformServiceConnectHandler) UpdateMyGitIdentity(ctx context.Context,
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) GetMyModelDefaults(ctx context.Context, req *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	resp, err := h.srv.GetMyModelDefaults(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateMyModelDefaults(ctx context.Context, req *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	resp, err := h.srv.UpdateMyModelDefaults(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) DeleteAgentRun(ctx context.Context, req *connect.Request[platform.DeleteAgentRunRequest]) (*connect.Response[emptypb.Empty], error) {
 	resp, err := h.srv.DeleteAgentRun(ctx, req.Msg)
 	if err != nil {
@@ -1535,6 +1551,22 @@ func (h *PlatformServiceConnectHandler) ExportSecurityPack(ctx context.Context, 
 
 func (h *PlatformServiceConnectHandler) ImportSecurityPack(ctx context.Context, req *connect.Request[platform.ImportSecurityPackRequest]) (*connect.Response[platform.ImportSecurityPackResponse], error) {
 	resp, err := h.srv.ImportSecurityPack(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) ListBugReports(ctx context.Context, req *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error) {
+	resp, err := h.srv.ListBugReports(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateBugReportStatus(ctx context.Context, req *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error) {
+	resp, err := h.srv.UpdateBugReportStatus(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

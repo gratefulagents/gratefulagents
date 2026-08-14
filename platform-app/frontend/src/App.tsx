@@ -30,6 +30,7 @@ const SecurityLibraryPage = React.lazy(() => import("@/components/SecurityLibrar
 const SecurityScanDetail = React.lazy(() => import("@/components/SecurityScanDetail").then((m) => ({ default: m.SecurityScanDetail })));
 const SecurityConfigDetail = React.lazy(() => import("@/components/SecurityConfigDetail").then((m) => ({ default: m.SecurityConfigDetail })));
 const SecurityFindingDetail = React.lazy(() => import("@/components/SecurityFindingDetail").then((m) => ({ default: m.SecurityFindingDetail })));
+const BugReportList = React.lazy(() => import("@/components/BugReportList").then((m) => ({ default: m.BugReportList })));
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { OnboardingRedirect } from "@/components/onboarding/OnboardingRedirect";
@@ -84,6 +85,7 @@ import {
   Radio,
   Activity,
   Blocks,
+  Bug,
   Users,
   PanelLeft,
   Plus,
@@ -182,6 +184,17 @@ function AppSidebar({
                 >
                   <Activity className="size-[15px] text-muted-foreground" />
                   <span className="tracking-tight">Observability</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  render={<Link to="/bug-reports" />}
+                  isActive={location.pathname === "/bug-reports"}
+                  tooltip="Bug Reports"
+                  className="h-[30px] text-[12.5px] rounded-[6px] px-2 gap-2 data-[active=true]:bg-sidebar-accent hover:bg-sidebar-accent"
+                >
+                  <Bug className="size-[15px] text-muted-foreground" />
+                  <span className="tracking-tight">Bug Reports</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -525,6 +538,7 @@ function AuthenticatedShell() {
               <Route path="/shared" element={<Scroll><SharedWithMeList /></Scroll>} />
               <Route path="/runs" element={<Scroll><AgentOpsConsole /></Scroll>} />
               <Route path="/observability" element={<Scroll><ObservabilityPage /></Scroll>} />
+              <Route path="/bug-reports" element={<Scroll><BugReportList /></Scroll>} />
               <Route path="/runs/:namespace/:name" element={<AgentRunDetail />} />
               <Route path="/linear" element={<Navigate to="/projects" replace />} />
               <Route path="/linear/:namespace/:name" element={<Scroll><LinearProjectDetail /></Scroll>} />

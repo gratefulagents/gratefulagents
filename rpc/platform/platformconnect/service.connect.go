@@ -217,6 +217,12 @@ const (
 	// PlatformServiceUpdateMyRoleModelPreferencesProcedure is the fully-qualified name of the
 	// PlatformService's UpdateMyRoleModelPreferences RPC.
 	PlatformServiceUpdateMyRoleModelPreferencesProcedure = "/platform.v1.PlatformService/UpdateMyRoleModelPreferences"
+	// PlatformServiceGetMyModelDefaultsProcedure is the fully-qualified name of the PlatformService's
+	// GetMyModelDefaults RPC.
+	PlatformServiceGetMyModelDefaultsProcedure = "/platform.v1.PlatformService/GetMyModelDefaults"
+	// PlatformServiceUpdateMyModelDefaultsProcedure is the fully-qualified name of the
+	// PlatformService's UpdateMyModelDefaults RPC.
+	PlatformServiceUpdateMyModelDefaultsProcedure = "/platform.v1.PlatformService/UpdateMyModelDefaults"
 	// PlatformServiceGetMyGitIdentityProcedure is the fully-qualified name of the PlatformService's
 	// GetMyGitIdentity RPC.
 	PlatformServiceGetMyGitIdentityProcedure = "/platform.v1.PlatformService/GetMyGitIdentity"
@@ -683,6 +689,12 @@ const (
 	// PlatformServiceInstallSecuritySkillsProcedure is the fully-qualified name of the
 	// PlatformService's InstallSecuritySkills RPC.
 	PlatformServiceInstallSecuritySkillsProcedure = "/platform.v1.PlatformService/InstallSecuritySkills"
+	// PlatformServiceListBugReportsProcedure is the fully-qualified name of the PlatformService's
+	// ListBugReports RPC.
+	PlatformServiceListBugReportsProcedure = "/platform.v1.PlatformService/ListBugReports"
+	// PlatformServiceUpdateBugReportStatusProcedure is the fully-qualified name of the
+	// PlatformService's UpdateBugReportStatus RPC.
+	PlatformServiceUpdateBugReportStatusProcedure = "/platform.v1.PlatformService/UpdateBugReportStatus"
 )
 
 // PlatformServiceClient is a client for the platform.v1.PlatformService service.
@@ -787,6 +799,11 @@ type PlatformServiceClient interface {
 	// defaults for runs created by the calling user.
 	GetMyRoleModelPreferences(context.Context, *connect.Request[platform.GetMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
+	// Personal model defaults seed the provider/model/reasoning fields whenever
+	// the calling user creates a new project, trigger, or scan config. Runs are
+	// not seeded: they follow their project's settings.
+	GetMyModelDefaults(context.Context, *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
+	UpdateMyModelDefaults(context.Context, *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
 	// GetMyGitIdentity returns the calling user's git commit identity (empty
 	// when none is saved).
 	GetMyGitIdentity(context.Context, *connect.Request[platform.GetMyGitIdentityRequest]) (*connect.Response[platform.GitIdentity], error)
@@ -1057,6 +1074,14 @@ type PlatformServiceClient interface {
 	// installation copies or refreshes only untouched curated bundle members.
 	GetSecuritySkillsStatus(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
 	InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
+	// Agent bug reports: durable platform/tooling bug reports, complaints, and
+	// feature requests filed by agents via the report_bug tool. Reports
+	// deduplicate per (namespace, fingerprint) across runs and are triaged by
+	// humans in the dashboard. Backed by the optional Postgres state store.
+	ListBugReports(context.Context, *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error)
+	// UpdateBugReportStatus sets the triage status (open, acknowledged,
+	// resolved, dismissed) of one report, attributed to the caller.
+	UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error)
 }
 
 // NewPlatformServiceClient constructs a client for the platform.v1.PlatformService service. By
@@ -1434,6 +1459,18 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+PlatformServiceUpdateMyRoleModelPreferencesProcedure,
 			connect.WithSchema(platformServiceMethods.ByName("UpdateMyRoleModelPreferences")),
+			connect.WithClientOptions(opts...),
+		),
+		getMyModelDefaults: connect.NewClient[platform.GetMyModelDefaultsRequest, platform.ModelDefaults](
+			httpClient,
+			baseURL+PlatformServiceGetMyModelDefaultsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetMyModelDefaults")),
+			connect.WithClientOptions(opts...),
+		),
+		updateMyModelDefaults: connect.NewClient[platform.UpdateMyModelDefaultsRequest, platform.ModelDefaults](
+			httpClient,
+			baseURL+PlatformServiceUpdateMyModelDefaultsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateMyModelDefaults")),
 			connect.WithClientOptions(opts...),
 		),
 		getMyGitIdentity: connect.NewClient[platform.GetMyGitIdentityRequest, platform.GitIdentity](
@@ -2372,6 +2409,18 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("InstallSecuritySkills")),
 			connect.WithClientOptions(opts...),
 		),
+		listBugReports: connect.NewClient[platform.ListBugReportsRequest, platform.ListBugReportsResponse](
+			httpClient,
+			baseURL+PlatformServiceListBugReportsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListBugReports")),
+			connect.WithClientOptions(opts...),
+		),
+		updateBugReportStatus: connect.NewClient[platform.UpdateBugReportStatusRequest, platform.BugReport](
+			httpClient,
+			baseURL+PlatformServiceUpdateBugReportStatusProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("UpdateBugReportStatus")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -2438,6 +2487,8 @@ type platformServiceClient struct {
 	updateMySoul                           *connect.Client[platform.UpdateMySoulRequest, platform.Soul]
 	getMyRoleModelPreferences              *connect.Client[platform.GetMyRoleModelPreferencesRequest, platform.RoleModelPreferences]
 	updateMyRoleModelPreferences           *connect.Client[platform.UpdateMyRoleModelPreferencesRequest, platform.RoleModelPreferences]
+	getMyModelDefaults                     *connect.Client[platform.GetMyModelDefaultsRequest, platform.ModelDefaults]
+	updateMyModelDefaults                  *connect.Client[platform.UpdateMyModelDefaultsRequest, platform.ModelDefaults]
 	getMyGitIdentity                       *connect.Client[platform.GetMyGitIdentityRequest, platform.GitIdentity]
 	updateMyGitIdentity                    *connect.Client[platform.UpdateMyGitIdentityRequest, platform.GitIdentity]
 	deleteAgentRun                         *connect.Client[platform.DeleteAgentRunRequest, emptypb.Empty]
@@ -2594,6 +2645,8 @@ type platformServiceClient struct {
 	getSecurityScanReport                  *connect.Client[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse]
 	getSecuritySkillsStatus                *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
 	installSecuritySkills                  *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
+	listBugReports                         *connect.Client[platform.ListBugReportsRequest, platform.ListBugReportsResponse]
+	updateBugReportStatus                  *connect.Client[platform.UpdateBugReportStatusRequest, platform.BugReport]
 }
 
 // ListAgentRuns calls platform.v1.PlatformService.ListAgentRuns.
@@ -2899,6 +2952,16 @@ func (c *platformServiceClient) GetMyRoleModelPreferences(ctx context.Context, r
 // UpdateMyRoleModelPreferences calls platform.v1.PlatformService.UpdateMyRoleModelPreferences.
 func (c *platformServiceClient) UpdateMyRoleModelPreferences(ctx context.Context, req *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error) {
 	return c.updateMyRoleModelPreferences.CallUnary(ctx, req)
+}
+
+// GetMyModelDefaults calls platform.v1.PlatformService.GetMyModelDefaults.
+func (c *platformServiceClient) GetMyModelDefaults(ctx context.Context, req *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	return c.getMyModelDefaults.CallUnary(ctx, req)
+}
+
+// UpdateMyModelDefaults calls platform.v1.PlatformService.UpdateMyModelDefaults.
+func (c *platformServiceClient) UpdateMyModelDefaults(ctx context.Context, req *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	return c.updateMyModelDefaults.CallUnary(ctx, req)
 }
 
 // GetMyGitIdentity calls platform.v1.PlatformService.GetMyGitIdentity.
@@ -3687,6 +3750,16 @@ func (c *platformServiceClient) InstallSecuritySkills(ctx context.Context, req *
 	return c.installSecuritySkills.CallUnary(ctx, req)
 }
 
+// ListBugReports calls platform.v1.PlatformService.ListBugReports.
+func (c *platformServiceClient) ListBugReports(ctx context.Context, req *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error) {
+	return c.listBugReports.CallUnary(ctx, req)
+}
+
+// UpdateBugReportStatus calls platform.v1.PlatformService.UpdateBugReportStatus.
+func (c *platformServiceClient) UpdateBugReportStatus(ctx context.Context, req *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error) {
+	return c.updateBugReportStatus.CallUnary(ctx, req)
+}
+
 // PlatformServiceHandler is an implementation of the platform.v1.PlatformService service.
 type PlatformServiceHandler interface {
 	ListAgentRuns(context.Context, *connect.Request[platform.ListAgentRunsRequest]) (*connect.Response[platform.ListAgentRunsResponse], error)
@@ -3789,6 +3862,11 @@ type PlatformServiceHandler interface {
 	// defaults for runs created by the calling user.
 	GetMyRoleModelPreferences(context.Context, *connect.Request[platform.GetMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
+	// Personal model defaults seed the provider/model/reasoning fields whenever
+	// the calling user creates a new project, trigger, or scan config. Runs are
+	// not seeded: they follow their project's settings.
+	GetMyModelDefaults(context.Context, *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
+	UpdateMyModelDefaults(context.Context, *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
 	// GetMyGitIdentity returns the calling user's git commit identity (empty
 	// when none is saved).
 	GetMyGitIdentity(context.Context, *connect.Request[platform.GetMyGitIdentityRequest]) (*connect.Response[platform.GitIdentity], error)
@@ -4059,6 +4137,14 @@ type PlatformServiceHandler interface {
 	// installation copies or refreshes only untouched curated bundle members.
 	GetSecuritySkillsStatus(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
 	InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
+	// Agent bug reports: durable platform/tooling bug reports, complaints, and
+	// feature requests filed by agents via the report_bug tool. Reports
+	// deduplicate per (namespace, fingerprint) across runs and are triaged by
+	// humans in the dashboard. Backed by the optional Postgres state store.
+	ListBugReports(context.Context, *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error)
+	// UpdateBugReportStatus sets the triage status (open, acknowledged,
+	// resolved, dismissed) of one report, attributed to the caller.
+	UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error)
 }
 
 // NewPlatformServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -4432,6 +4518,18 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		PlatformServiceUpdateMyRoleModelPreferencesProcedure,
 		svc.UpdateMyRoleModelPreferences,
 		connect.WithSchema(platformServiceMethods.ByName("UpdateMyRoleModelPreferences")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetMyModelDefaultsHandler := connect.NewUnaryHandler(
+		PlatformServiceGetMyModelDefaultsProcedure,
+		svc.GetMyModelDefaults,
+		connect.WithSchema(platformServiceMethods.ByName("GetMyModelDefaults")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateMyModelDefaultsHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateMyModelDefaultsProcedure,
+		svc.UpdateMyModelDefaults,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateMyModelDefaults")),
 		connect.WithHandlerOptions(opts...),
 	)
 	platformServiceGetMyGitIdentityHandler := connect.NewUnaryHandler(
@@ -5370,6 +5468,18 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("InstallSecuritySkills")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListBugReportsHandler := connect.NewUnaryHandler(
+		PlatformServiceListBugReportsProcedure,
+		svc.ListBugReports,
+		connect.WithSchema(platformServiceMethods.ByName("ListBugReports")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceUpdateBugReportStatusHandler := connect.NewUnaryHandler(
+		PlatformServiceUpdateBugReportStatusProcedure,
+		svc.UpdateBugReportStatus,
+		connect.WithSchema(platformServiceMethods.ByName("UpdateBugReportStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/platform.v1.PlatformService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PlatformServiceListAgentRunsProcedure:
@@ -5494,6 +5604,10 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceGetMyRoleModelPreferencesHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateMyRoleModelPreferencesProcedure:
 			platformServiceUpdateMyRoleModelPreferencesHandler.ServeHTTP(w, r)
+		case PlatformServiceGetMyModelDefaultsProcedure:
+			platformServiceGetMyModelDefaultsHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateMyModelDefaultsProcedure:
+			platformServiceUpdateMyModelDefaultsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetMyGitIdentityProcedure:
 			platformServiceGetMyGitIdentityHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateMyGitIdentityProcedure:
@@ -5806,6 +5920,10 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceGetSecuritySkillsStatusHandler.ServeHTTP(w, r)
 		case PlatformServiceInstallSecuritySkillsProcedure:
 			platformServiceInstallSecuritySkillsHandler.ServeHTTP(w, r)
+		case PlatformServiceListBugReportsProcedure:
+			platformServiceListBugReportsHandler.ServeHTTP(w, r)
+		case PlatformServiceUpdateBugReportStatusProcedure:
+			platformServiceUpdateBugReportStatusHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -6057,6 +6175,14 @@ func (UnimplementedPlatformServiceHandler) GetMyRoleModelPreferences(context.Con
 
 func (UnimplementedPlatformServiceHandler) UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateMyRoleModelPreferences is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetMyModelDefaults(context.Context, *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetMyModelDefaults is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateMyModelDefaults(context.Context, *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateMyModelDefaults is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GetMyGitIdentity(context.Context, *connect.Request[platform.GetMyGitIdentityRequest]) (*connect.Response[platform.GitIdentity], error) {
@@ -6681,4 +6807,12 @@ func (UnimplementedPlatformServiceHandler) GetSecuritySkillsStatus(context.Conte
 
 func (UnimplementedPlatformServiceHandler) InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.InstallSecuritySkills is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListBugReports(context.Context, *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListBugReports is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateBugReportStatus is not implemented"))
 }
