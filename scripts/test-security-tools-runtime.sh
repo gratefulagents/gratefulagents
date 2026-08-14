@@ -30,12 +30,14 @@ run_root halmos /usr/bin/env -i HOME=/tmp \
   /opt/halmos/bin/halmos --version >/dev/null
 
 # cargo-fuzz runs the project's own fuzz targets, so packaging is proved by the
-# pinned toolchain answering inside its own root. rustup's `cargo` shim resolves
-# itself through /proc/self/exe, which this chroot deliberately does not mount —
-# the production sandbox does — so the probe runs the toolchain's real rustc and
-# checks the cargo-fuzz binary is present and executable.
+# pinned toolchain answering inside its own root. Two environment facts differ
+# from the production sandbox and are supplied explicitly here: rustup's `cargo`
+# shim resolves itself through /proc/self/exe, which this chroot does not mount
+# (bubblewrap does), so the probe execs the toolchain's real rustc; and that
+# rustc loads librustc_driver from its own toolchain lib directory, which is
+# named after the dated toolchain and is therefore resolved by glob.
 run_root cargo-fuzz /bin/sh -c \
-  'set -eu; test -x /usr/local/cargo/bin/cargo-fuzz; exec /usr/local/rustup/toolchains/nightly-2026-06-01-*/bin/rustc --version' >/dev/null
+  'set -eu; test -x /usr/local/cargo/bin/cargo-fuzz; tc=$(echo /usr/local/rustup/toolchains/nightly-2026-06-01-*); LD_LIBRARY_PATH="$tc/lib" exec "$tc/bin/rustc" --version' >/dev/null
 
 run_ga_project() {
   tool=$1
