@@ -2536,10 +2536,14 @@ func resolveSecurityScanParameters(resolved *resolvedSecurityScanSpec) (map[stri
 		}
 	}
 	maps.Copy(values, resolved.spec.ParameterValues)
+	hasValue := func(name string) bool {
+		value, ok := values[name]
+		return ok && strings.TrimSpace(value) != ""
+	}
 	var missing []string
 	seen := map[string]bool{}
 	for _, param := range resolved.workflowParams {
-		if _, ok := values[param.Name]; param.Required && !ok {
+		if param.Required && !hasValue(param.Name) {
 			missing = append(missing, param.Name)
 			seen[param.Name] = true
 		}
@@ -2551,7 +2555,7 @@ func resolveSecurityScanParameters(resolved *resolvedSecurityScanSpec) (map[stri
 				continue
 			}
 			name = strings.TrimSpace(name)
-			if _, has := values[name]; !has && !seen[name] {
+			if !hasValue(name) && !seen[name] {
 				missing = append(missing, name)
 				seen[name] = true
 			}

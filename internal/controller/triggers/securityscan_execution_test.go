@@ -885,6 +885,29 @@ func TestSecurityScanDeterministicExecutionRejectsMissingRequiredWorkflowParamet
 	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, securityScanReasonInvalidSpec)
 }
 
+func TestSecurityScanDeterministicExecutionRejectsBlankRequiredWorkflowParameter(t *testing.T) {
+	for _, value := range []string{"", " \t\n "} {
+		t.Run(fmt.Sprintf("value_%q", value), func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			scan := deterministicSecurityScan(nil, 1)
+			scan.Spec.WorkflowRef = &triggersv1alpha1.SecurityResourceRef{Name: "parameterized"}
+			scan.Spec.ParameterValues = map[string]string{"required": value}
+			workflow := parameterizedSecurityWorkflow(scan.Namespace)
+			reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan, workflow)
+
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			updated := getSecurityScan(t, k8sClient, scan)
+			if !strings.Contains(updated.Status.LastError, "missing required workflow parameter values: required") {
+				t.Fatalf("LastError = %q, want blank required parameter to be rejected", updated.Status.LastError)
+			}
+			if got := len(securityScanRuns(t, k8sClient, scan.Namespace)); got != 0 {
+				t.Fatalf("AgentRuns = %d, want none for blank required parameter", got)
+			}
+			assertSecurityScanCondition(t, updated, metav1.ConditionFalse, securityScanReasonInvalidSpec)
+		})
+	}
+}
+
 func TestSecurityScanWorkflowParametersRenderProvidedValuesAndDefaultsInBothModes(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	workflow := parameterizedSecurityWorkflow("default")
