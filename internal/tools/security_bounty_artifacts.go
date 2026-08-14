@@ -563,7 +563,11 @@ func validateBountySubmissionClaim(submission securityBountySubmission, scanCtx 
 	if declared := strings.TrimSpace(submission.SeveritySystem); declared != "" && scanCtx.SeveritySystem != "" && !strings.EqualFold(declared, scanCtx.SeveritySystem) {
 		problems = append(problems, fmt.Sprintf("severity_system %q does not match the governing program's %q; severity is never translated between systems", declared, scanCtx.SeveritySystem))
 	}
-	if level, published := securityProgramImpactLevel(scanCtx, submission.ImpactClause); published && level == "" && strings.TrimSpace(submission.ImpactClause) != "" {
+	// Only a complete impact list can prove a clause is not published. A
+	// truncated list would otherwise reject a genuinely in-scope clause that
+	// fell past the encoding bound.
+	if level, published := securityProgramImpactLevel(scanCtx, submission.ImpactClause); published && !scanCtx.ImpactsTruncated &&
+		level == "" && strings.TrimSpace(submission.ImpactClause) != "" {
 		problems = append(problems, "impact_clause is not one of the program's published in-scope impacts; copy one verbatim instead of writing a new one")
 	}
 	return problems
@@ -571,14 +575,28 @@ func validateBountySubmissionClaim(submission securityBountySubmission, scanCtx 
 
 // submissionBudgetState enforces the program's submission budget. Reporting is
 // rationed on every major platform, so when more eligible findings exist than
-// the budget allows only the highest-scoring ones are packaged; the rest stay
+// the budget allows only the highest-ranked ones are packaged; the rest stay
 // candidates with the reason recorded. An unset budget imposes no limit.
+//
+// Ranking is scan-wide rather than execution-wide, so re-running a scan
+// repackages the same top findings instead of granting a fresh allowance, and
+// ties are broken deterministically by fingerprint so a tie can never let more
+// findings through than the budget permits.
+//
+// The program's period (submissionBudget.periodDays) is recorded but not
+// enforced here: counting submissions across a rolling window needs durable
+// submission accounting, which is tracked as the follow-up on #253. The budget
+// state string says so, so a per-scan cap is never mistaken for a per-period one.
 func (t *saveSecurityBountySubmissionTool) submissionBudgetState(ctx context.Context, finding *store.SecurityFindingRecord) (string, error) {
 	budget := t.state.scanCtx.SubmissionBudget
 	if budget <= 0 || finding == nil {
 		return "", nil
 	}
 	filter := t.state.scopeFilter()
+	// Scan-wide: a new execution of the same scan must not mint a new
+	// allowance for the same program.
+	filter.ExecutionID = ""
+	filter.TaskName = ""
 	filter.Status = store.SecurityFindingStatusConfirmed
 	findings, err := t.state.listFindings(ctx, filter)
 	if err != nil {
@@ -588,18 +606,30 @@ func (t *saveSecurityBountySubmissionTool) submissionBudgetState(ctx context.Con
 	}
 	rank := 1
 	for _, candidate := range findings {
-		if candidate.ID == finding.ID {
+		if candidate.ID == finding.ID || candidate.DuplicateOf != nil || candidate.SuppressedBy != "" {
 			continue
 		}
-		if candidate.DuplicateOf != nil || candidate.SuppressedBy != "" {
-			continue
-		}
-		if candidate.Score > finding.Score {
+		if outranksForSubmission(candidate, *finding) {
 			rank++
 		}
 	}
-	if int32(rank) > budget {
-		return "", fmt.Errorf("the program's submission budget of %d is exhausted: this finding ranks %d by score, so it stays a candidate instead of a submission", budget, rank)
+	period := ""
+	if days := t.state.scanCtx.SubmissionBudgetPeriodDays; days > 0 {
+		period = fmt.Sprintf(", program period %d days not enforced per-window", days)
 	}
-	return fmt.Sprintf("rank %d of budget %d", rank, budget), nil
+	if int32(rank) > budget {
+		return "", fmt.Errorf("the program's submission budget of %d is exhausted for this scan: this finding ranks %d, so it stays a candidate instead of a submission%s", budget, rank, period)
+	}
+	return fmt.Sprintf("rank %d of budget %d (scan-wide%s)", rank, budget, period), nil
+}
+
+// outranksForSubmission reports whether other should consume a submission slot
+// ahead of finding. Score decides, and equal scores fall back to the
+// fingerprint so the ordering is total: without a tie-break every member of a
+// tie would claim the same rank and the cap could be exceeded.
+func outranksForSubmission(other, finding store.SecurityFindingRecord) bool {
+	if other.Score != finding.Score {
+		return other.Score > finding.Score
+	}
+	return other.Fingerprint < finding.Fingerprint
 }

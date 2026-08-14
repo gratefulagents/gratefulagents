@@ -290,3 +290,42 @@ func TestParseSecurityProgramImpactsAndBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestTruncatedImpactListIsNotAnAllowlist(t *testing.T) {
+	t.Parallel()
+	scanCtx := bountyScanContextWithProgram()
+	scanCtx.ImpactsTruncated = true
+	submission := completeBountySubmission()
+	submission.ImpactClause = "An impact that fell past the encoding bound"
+	// A partial list cannot prove a clause is absent, so it must not reject
+	// one; it may still resolve the level of a clause it does carry.
+	if problems := validateBountySubmissionClaim(submission, scanCtx); len(problems) != 0 {
+		t.Fatalf("truncated impact list rejected an unlisted clause: %v", problems)
+	}
+	scanCtx.ImpactsTruncated = false
+	if problems := validateBountySubmissionClaim(submission, scanCtx); len(problems) == 0 {
+		t.Fatal("a complete impact list must still reject an unpublished clause")
+	}
+}
+
+func TestOutranksForSubmissionIsTotal(t *testing.T) {
+	t.Parallel()
+	high := store.SecurityFindingRecord{Score: 9, Fingerprint: "bbbb"}
+	low := store.SecurityFindingRecord{Score: 4, Fingerprint: "aaaa"}
+	if !outranksForSubmission(high, low) || outranksForSubmission(low, high) {
+		t.Fatal("score must decide when it differs")
+	}
+	tieA := store.SecurityFindingRecord{Score: 7, Fingerprint: "aaaa"}
+	tieB := store.SecurityFindingRecord{Score: 7, Fingerprint: "bbbb"}
+	// Without a tie-break every member of a tie would claim the same rank and
+	// a budget of one would package all of them.
+	if !outranksForSubmission(tieA, tieB) {
+		t.Fatal("ties must be broken deterministically")
+	}
+	if outranksForSubmission(tieB, tieA) {
+		t.Fatal("the tie-break must be antisymmetric")
+	}
+	if outranksForSubmission(tieA, tieA) {
+		t.Fatal("a finding must not outrank itself")
+	}
+}

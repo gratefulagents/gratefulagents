@@ -16,6 +16,55 @@ spec:
   displayName: Agave
   programURL: https://github.com/anza-xyz/agave/security
   verifiedAt: 2026-08-13T00:00:00Z
+  severitySystem: custom
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  inScopeImpacts:
+    - impact: "Theft of funds without users signature from any account"
+      level: critical
+      assetType: "Loss of Funds"
+    - impact: "Theft of funds without users interaction in system, stake, vote programs"
+      level: critical
+      assetType: "Loss of Funds"
+    - impact: "Theft of funds that requires users signature - creating a vote program that drains the delegated stakes."
+      level: critical
+      assetType: "Loss of Funds"
+    - impact: "Consensus safety violation"
+      level: critical
+      assetType: "Consensus / Safety Violations"
+    - impact: "Tricking a validator to accept an optimistic confirmation or rooted slot without a double vote, etc."
+      level: critical
+      assetType: "Consensus / Safety Violations"
+    - impact: "Whereby consensus halts and requires human intervention"
+      level: critical
+      assetType: "Liveness / Loss of Availability"
+    - impact: "Eclipse attacks,"
+      level: critical
+      assetType: "Liveness / Loss of Availability"
+    - impact: "Remote attacks that partition the network,"
+      level: critical
+      assetType: "Liveness / Loss of Availability"
+    - impact: "Remote resource exhaustion via Non-RPC protocols"
+      level: critical
+      assetType: "DoS Attacks"
+  outOfScope:
+    - "Metrics: `/metrics` in the monorepo as well as https://metrics.solana.com"
+    - "Any encrypted credentials, auth tokens, etc. checked into the repo"
+    - "Bugs in dependencies. Please take them upstream!"
+    - "Attacks that require social engineering"
+    - "Any undeveloped automated tooling (ai, scanners, etc) results. (OK with developed PoC)"
+    - "Any asset whose source code does not exist in this repository. Including, but\nnot limited to;\n  * Any and all web properties (See domain ToC page for contact)\n  * [SPL member projects](https://github.com/solana-program) (See repo security tab)\n  * [Solana SDK crates](https://github.com/anza-xyz/solana-sdk) (See security tab)"
+    - "Findings that require a Geyser plugin or `scheduler-bindings` external\nprocess to violate interface requirements. These integrations are operator-trusted\ncomponents, and validator crashes or other instability caused by non-conforming\nimplementations are out of scope."
+    - "Issues that have been previously disclosed in a public venue"
+    - "Issues that affect node stability during the bootstrap phase and can be trivially\nmitigated by configuration adjustments. The bootstrap phase is defined as the time\nbetween process creation and completion of replay for the first block after the\nsnapshot slot or genesis."
+    - "Issues involving maliciously crafted snapshots. Snapshots have historically been\nconsidered trust on first use and have many shortcomings with respect to consistency\nand verifiability as a result. An effort to improve this situation is actively underway"
+    - "The in-built RPC service is not intended to be directly exposed to untrusted clients.\nAny environments which require features like authentication and rate-limiting _*MUST*_ be\ndeployed behind a reverse proxy or similar. For the RPC DoS category, the following\nclasses of issue are out of scope\n  * Those requiring a call rate greater than once per `CLUSTER_SLOT_TIME_TARGET / 2`\n  * Those requiring calls from multiple clients\n  * Those impacting getProgramAccounts, et al. without secondary indexes enabled and/or\n    unfiltered requests, which are known to be slow on clusters with large accounts sets"
+    - "Alpenglow crates (votor, votor-messages, etc) and plumbing. Migration of the\nAlpenglow logic from a feature fork to agave master is currently underway. As\nsuch there are many partially migrated changes isolated to a few areas. These\nare disqualified from reports and bounties. Bugs in integration logic that impact\nthe no-Alpenglow code path remain in scope"
+    - "Loader V4 (the `loader-v4` crate and associated code paths). Loader V4 is\nbeing removed from the codebase and its feature ID has been stubbed out. Bugs\nrelating to Loader V4 functionality are disqualified from reports and bounties."
+    - "Issues affecting the virtual machine interpreter. The interpreter performance is not\npresently suitable for production environments, so it is safe to address any security\nvulnerabilies or inconsistencies with jit behavior in public issues"
+  prohibitedTesting:
+    - "**DO NOT CREATE A GITHUB ISSUE** to report a security problem."
   scopePolicy: |
     Verbatim authoritative scope (retrieved 2026-08-13 from the repository SECURITY.md). Markdown is preserved verbatim below.
 

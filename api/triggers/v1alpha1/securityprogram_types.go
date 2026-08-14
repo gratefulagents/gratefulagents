@@ -56,7 +56,11 @@ type SecurityProgramPoCEnvironment string
 const (
 	PoCEnvironmentMainnetFork      SecurityProgramPoCEnvironment = "mainnet-fork"
 	PoCEnvironmentProjectTestSuite SecurityProgramPoCEnvironment = "project-test-suite"
-	PoCEnvironmentEither           SecurityProgramPoCEnvironment = "either"
+	// PoCEnvironmentLocalDevnet covers programs that require the proof to run
+	// against a locally started network - Ethereum Foundation demands local
+	// testnets, and several chain programs forbid touching a public cluster.
+	PoCEnvironmentLocalDevnet SecurityProgramPoCEnvironment = "local-devnet"
+	PoCEnvironmentEither      SecurityProgramPoCEnvironment = "either"
 )
 
 // SecurityProgramImpact is one impact clause transcribed verbatim from the
@@ -287,7 +291,7 @@ type SecurityProgramSpec struct {
 	// pocEnvironment records the proof-of-concept environment the program
 	// accepts.
 	// +optional
-	// +kubebuilder:validation:Enum=mainnet-fork;project-test-suite;either
+	// +kubebuilder:validation:Enum=mainnet-fork;project-test-suite;local-devnet;either
 	PoCEnvironment string `json:"pocEnvironment,omitempty"`
 
 	// assets bind in-scope assets to deployed state so findings can be checked

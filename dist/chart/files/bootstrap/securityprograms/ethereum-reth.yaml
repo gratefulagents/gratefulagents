@@ -16,6 +16,53 @@ spec:
   displayName: Reth
   programURL: https://ethereum.org/en/bug-bounty/
   verifiedAt: 2026-08-13T00:00:00Z
+  severitySystem: ethereum-foundation
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  inScopeImpacts:
+    - impact: "Slash > 0.01% of validators"
+      level: low
+    - impact: "Trivially cause network splits affecting > 0.01% of the network"
+      level: low
+    - impact: "Be able to bring down > 0.01% of the network by sending a single network packet or an onchain transaction"
+      level: low
+    - impact: "Slash > 1% of validators"
+      level: medium
+    - impact: "Trivially cause network splits affecting > 5% of the network"
+      level: medium
+    - impact: "Be able to bring down > 5% of the network by sending a single network packet or an onchain transaction"
+      level: medium
+    - impact: "Slash > 33% of validators"
+      level: high
+    - impact: "Trivially cause network splits affecting > 33% of the network"
+      level: high
+    - impact: "Be able to bring down > 33% of the network by sending a single onchain transaction"
+      level: high
+    - impact: "Slash > 50% of validators"
+      level: critical
+    - impact: "Exploit an EIP/specification or client bug to easily create an infinite amount of ETH which is finalized by the network"
+      level: critical
+    - impact: "Steal ETH from all EOAs"
+      level: critical
+    - impact: "Burn ETH from all EOAs"
+      level: critical
+    - impact: "Take down the entire network by sending a single malicious onchain transaction that ends up crashing all clients"
+      level: critical
+  outOfScope:
+    - "Infrastructure bugs—such as webpages, dns, email, etc. *"
+    - "ERC-20 contract bugs *"
+    - "Ethereum Naming Service (ENS) bugs (maintained by the ENS foundation)"
+    - "Vulnerabilities requiring the user to have publicly exposed an API, such as JSON-RPC or the Beacon API"
+    - "EngineAPI is considered trusted and not meant to be publicly exposed"
+    - "Typographical errors"
+    - "Tests"
+    - "High-effort (sustained, CPU or bandwidth intensive, and/or requires more than 1 packet or onchain transaction) single-peer DoS attacks"
+    - "Any publicly known issues (includes forum posts, PRs, github issues, commits, blog posts, public discord messages, etc.)"
+    - "Anything that does not currently have a direct impact on Ethereum mainnet."
+  prohibitedTesting:
+    - "your testing must not violate any law or compromise any data that is not yours and must take place on local running testnets."
+    - "Public disclosure of a vulnerability or reporting it to other parties without prior agreement makes it ineligible for a bounty."
   scopePolicy: |
     Verbatim authoritative scope (retrieved 2026-08-13 from the Ethereum Foundation Bug Bounty Program). Displayed wording is preserved; layout whitespace is normalized.
 

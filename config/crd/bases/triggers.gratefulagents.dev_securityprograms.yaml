@@ -196,6 +196,7 @@ spec:
                 enum:
                 - mainnet-fork
                 - project-test-suite
+                - local-devnet
                 - either
                 type: string
               pocRequired:

@@ -135,9 +135,10 @@ func validateSecurityProgramScope(spec SecurityProgramSpec) []SecurityWorkflowFi
 		add("primacy", "must be either impact or rules")
 	}
 	switch strings.TrimSpace(spec.PoCEnvironment) {
-	case "", string(PoCEnvironmentMainnetFork), string(PoCEnvironmentProjectTestSuite), string(PoCEnvironmentEither):
+	case "", string(PoCEnvironmentMainnetFork), string(PoCEnvironmentProjectTestSuite),
+		string(PoCEnvironmentLocalDevnet), string(PoCEnvironmentEither):
 	default:
-		add("pocEnvironment", "must be one of mainnet-fork, project-test-suite, either")
+		add("pocEnvironment", "must be one of mainnet-fork, project-test-suite, local-devnet, either")
 	}
 
 	errs = append(errs, validateSecurityProgramImpacts(spec.InScopeImpacts, severitySystem)...)

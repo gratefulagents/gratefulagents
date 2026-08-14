@@ -40,11 +40,19 @@ func securityProgramSpecFromProto(pb *platform.SecurityProgramResource) (trigger
 		verifiedAt = metav1.NewTime(timestamp.AsTime())
 	}
 	spec := triggersv1alpha1.SecurityProgramSpec{
-		Provider:    strings.TrimSpace(pb.GetProvider()),
-		DisplayName: strings.TrimSpace(pb.GetDisplayName()),
-		ProgramURL:  strings.TrimSpace(pb.GetProgramUrl()),
-		ScopePolicy: pb.GetScopePolicy(),
-		VerifiedAt:  verifiedAt,
+		Provider:          strings.TrimSpace(pb.GetProvider()),
+		DisplayName:       strings.TrimSpace(pb.GetDisplayName()),
+		ProgramURL:        strings.TrimSpace(pb.GetProgramUrl()),
+		ScopePolicy:       pb.GetScopePolicy(),
+		VerifiedAt:        verifiedAt,
+		SeveritySystem:    strings.TrimSpace(pb.GetSeveritySystem()),
+		Primacy:           strings.TrimSpace(pb.GetPrimacy()),
+		PoCRequired:       pb.GetPocRequired(),
+		PoCEnvironment:    strings.TrimSpace(pb.GetPocEnvironment()),
+		KYCRequired:       pb.GetKycRequired(),
+		OutOfScope:        trimmedNonEmpty(pb.GetOutOfScope()),
+		ProhibitedTesting: trimmedNonEmpty(pb.GetProhibitedTesting()),
+		SubmissionBudget:  securityProgramSubmissionBudgetFromProto(pb.GetSubmissionBudget()),
 	}
 	for _, target := range pb.GetScanTargets() {
 		spec.ScanTargets = append(spec.ScanTargets, securityProgramScanTargetFromProto(target))
@@ -53,56 +61,45 @@ func securityProgramSpecFromProto(pb *platform.SecurityProgramResource) (trigger
 		legacyTarget := securityProgramScanTargetFromProto(target)
 		spec.ScanTarget = &legacyTarget
 	}
+	for _, impact := range pb.GetInScopeImpacts() {
+		spec.InScopeImpacts = append(spec.InScopeImpacts, triggersv1alpha1.SecurityProgramImpact{
+			// Impact clauses are only usable verbatim, so only the surrounding
+			// whitespace of a pasted clause is removed.
+			Impact:    strings.TrimSpace(impact.GetImpact()),
+			Level:     strings.TrimSpace(impact.GetLevel()),
+			AssetType: strings.TrimSpace(impact.GetAssetType()),
+		})
+	}
+	for _, asset := range pb.GetAssets() {
+		spec.Assets = append(spec.Assets, triggersv1alpha1.SecurityProgramAsset{
+			ChainID:       strings.TrimSpace(asset.GetChainId()),
+			Address:       strings.TrimSpace(asset.GetAddress()),
+			RepositoryURL: strings.TrimSpace(asset.GetRepositoryUrl()),
+			DisplayName:   strings.TrimSpace(asset.GetDisplayName()),
+			AddedOn:       strings.TrimSpace(asset.GetAddedOn()),
+		})
+	}
+	for _, issue := range pb.GetKnownIssues() {
+		spec.KnownIssues = append(spec.KnownIssues, triggersv1alpha1.SecurityProgramKnownIssue{
+			Source:    strings.TrimSpace(issue.GetSource()),
+			Summary:   strings.TrimSpace(issue.GetSummary()),
+			Reference: strings.TrimSpace(issue.GetReference()),
+		})
+	}
 	if errs := triggersv1alpha1.ValidateSecurityProgramSpec(spec); len(errs) != 0 {
 		return triggersv1alpha1.SecurityProgramSpec{}, securityLibraryInvalidArgument(errs)
 	}
 	return spec, nil
 }
 
-// preserveSecurityProgramTypedScope carries the typed, machine-readable scope
-// facts (severity system, in-scope impacts, known issues, deployed assets, and
-// the submission budget) from the stored program onto an incoming update.
-//
-// The dashboard API does not expose those fields yet, so without this an editor
-// round-trip would silently erase operator-transcribed scope and leave the
-// program looking like it had never been transcribed. Whoever adds the RPC
-// fields should replace this with a real mapping.
-func preserveSecurityProgramTypedScope(incoming *triggersv1alpha1.SecurityProgramSpec, stored triggersv1alpha1.SecurityProgramSpec) {
-	if incoming == nil {
-		return
+func securityProgramSubmissionBudgetFromProto(budget *platform.SecurityProgramSubmissionBudget) *triggersv1alpha1.SecurityProgramSubmissionBudget {
+	if budget == nil {
+		return nil
 	}
-	if incoming.SeveritySystem == "" {
-		incoming.SeveritySystem = stored.SeveritySystem
-	}
-	if incoming.Primacy == "" {
-		incoming.Primacy = stored.Primacy
-	}
-	if incoming.PoCEnvironment == "" {
-		incoming.PoCEnvironment = stored.PoCEnvironment
-	}
-	if !incoming.PoCRequired {
-		incoming.PoCRequired = stored.PoCRequired
-	}
-	if !incoming.KYCRequired {
-		incoming.KYCRequired = stored.KYCRequired
-	}
-	if len(incoming.InScopeImpacts) == 0 {
-		incoming.InScopeImpacts = stored.InScopeImpacts
-	}
-	if len(incoming.OutOfScope) == 0 {
-		incoming.OutOfScope = stored.OutOfScope
-	}
-	if len(incoming.Assets) == 0 {
-		incoming.Assets = stored.Assets
-	}
-	if len(incoming.KnownIssues) == 0 {
-		incoming.KnownIssues = stored.KnownIssues
-	}
-	if len(incoming.ProhibitedTesting) == 0 {
-		incoming.ProhibitedTesting = stored.ProhibitedTesting
-	}
-	if incoming.SubmissionBudget == nil {
-		incoming.SubmissionBudget = stored.SubmissionBudget
+	return &triggersv1alpha1.SecurityProgramSubmissionBudget{
+		MaxPerPeriod:                   budget.GetMaxPerPeriod(),
+		PeriodDays:                     budget.GetPeriodDays(),
+		UnrestrictedRequiresReputation: budget.GetUnrestrictedRequiresReputation(),
 	}
 }
 
@@ -150,17 +147,54 @@ func securityProgramContentDigest(spec triggersv1alpha1.SecurityProgramSpec) str
 
 func securityProgramToProto(cr *triggersv1alpha1.SecurityProgram, referencing []string) *platform.SecurityProgramResource {
 	pb := &platform.SecurityProgramResource{
-		Namespace:        cr.Namespace,
-		Name:             cr.Name,
-		Provider:         cr.Spec.Provider,
-		DisplayName:      cr.Spec.DisplayName,
-		ProgramUrl:       cr.Spec.ProgramURL,
-		ScopePolicy:      cr.Spec.ScopePolicy,
-		VerifiedAt:       timestamppb.New(cr.Spec.VerifiedAt.Time),
-		UsageCount:       int32(len(referencing)), //nolint:gosec // scan counts stay far below int32 bounds
-		ReferencingScans: referencing,
-		Generation:       cr.Generation,
-		CreatedAtUnix:    cr.CreationTimestamp.Unix(),
+		Namespace:         cr.Namespace,
+		Name:              cr.Name,
+		Provider:          cr.Spec.Provider,
+		DisplayName:       cr.Spec.DisplayName,
+		ProgramUrl:        cr.Spec.ProgramURL,
+		ScopePolicy:       cr.Spec.ScopePolicy,
+		VerifiedAt:        timestamppb.New(cr.Spec.VerifiedAt.Time),
+		UsageCount:        int32(len(referencing)), //nolint:gosec // scan counts stay far below int32 bounds
+		ReferencingScans:  referencing,
+		Generation:        cr.Generation,
+		CreatedAtUnix:     cr.CreationTimestamp.Unix(),
+		SeveritySystem:    cr.Spec.SeveritySystem,
+		OutOfScope:        cr.Spec.OutOfScope,
+		Primacy:           cr.Spec.Primacy,
+		PocRequired:       cr.Spec.PoCRequired,
+		PocEnvironment:    cr.Spec.PoCEnvironment,
+		ProhibitedTesting: cr.Spec.ProhibitedTesting,
+		KycRequired:       cr.Spec.KYCRequired,
+	}
+	for _, impact := range cr.Spec.InScopeImpacts {
+		pb.InScopeImpacts = append(pb.InScopeImpacts, &platform.SecurityProgramImpact{
+			Impact:    impact.Impact,
+			Level:     impact.Level,
+			AssetType: impact.AssetType,
+		})
+	}
+	for _, asset := range cr.Spec.Assets {
+		pb.Assets = append(pb.Assets, &platform.SecurityProgramAsset{
+			ChainId:       asset.ChainID,
+			Address:       asset.Address,
+			RepositoryUrl: asset.RepositoryURL,
+			DisplayName:   asset.DisplayName,
+			AddedOn:       asset.AddedOn,
+		})
+	}
+	for _, issue := range cr.Spec.KnownIssues {
+		pb.KnownIssues = append(pb.KnownIssues, &platform.SecurityProgramKnownIssue{
+			Source:    issue.Source,
+			Summary:   issue.Summary,
+			Reference: issue.Reference,
+		})
+	}
+	if budget := cr.Spec.SubmissionBudget; budget != nil {
+		pb.SubmissionBudget = &platform.SecurityProgramSubmissionBudget{
+			MaxPerPeriod:                   budget.MaxPerPeriod,
+			PeriodDays:                     budget.PeriodDays,
+			UnrestrictedRequiresReputation: budget.UnrestrictedRequiresReputation,
+		}
 	}
 	for index := range cr.Spec.ScanTargets {
 		pb.ScanTargets = append(pb.ScanTargets, securityProgramScanTargetToProto(&cr.Spec.ScanTargets[index]))
@@ -291,7 +325,6 @@ func (s *Server) UpdateSecurityProgram(ctx context.Context, req *platform.Update
 	}
 	cr := &triggersv1alpha1.SecurityProgram{}
 	usage, err := s.updateSecurityLibraryResource(ctx, namespace, req.GetProgram().GetName(), "SecurityProgram", cr, func() {
-		preserveSecurityProgramTypedScope(&spec, cr.Spec)
 		cr.Spec = spec
 	})
 	if err != nil {

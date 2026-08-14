@@ -908,22 +908,36 @@ func securityProgramScopeAnnotations(program *triggersv1alpha1.SecurityProgramSp
 	}
 	if budget := program.SubmissionBudget; budget != nil && budget.MaxPerPeriod > 0 {
 		out[triggersv1alpha1.SecurityScanProgramSubmissionBudgetAnnotation] = strconv.FormatInt(int64(budget.MaxPerPeriod), 10)
+		if budget.PeriodDays > 0 {
+			out[triggersv1alpha1.SecurityScanProgramSubmissionPeriodAnnotation] = strconv.FormatInt(int64(budget.PeriodDays), 10)
+		}
 	}
 	var impacts strings.Builder
+	truncated := false
 	for _, impact := range program.InScopeImpacts {
 		clause := strings.TrimSpace(impact.Impact)
 		level := strings.TrimSpace(impact.Level)
 		if clause == "" || level == "" || strings.ContainsAny(clause, "\n\t") {
+			// A clause that cannot be encoded verbatim is dropped, and the
+			// list is no longer complete.
+			truncated = true
 			continue
 		}
 		line := level + "\t" + clause + "\n"
 		if impacts.Len()+len(line) > triggersv1alpha1.MaxSecurityScanProgramImpactsAnnotationBytes {
-			break
+			truncated = true
+			continue
 		}
 		impacts.WriteString(line)
 	}
 	if impacts.Len() != 0 {
 		out[triggersv1alpha1.SecurityScanProgramImpactsAnnotation] = impacts.String()
+	}
+	// A partial list must never become an authoritative allowlist: it can
+	// still tell a consumer the severity of a clause it contains, but it
+	// cannot prove that a clause the program published is absent.
+	if truncated && impacts.Len() != 0 {
+		out[triggersv1alpha1.SecurityScanProgramImpactsTruncatedAnnotation] = "true"
 	}
 	return out
 }

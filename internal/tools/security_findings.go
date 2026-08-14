@@ -42,6 +42,8 @@ const (
 	SecurityScanProgramSeveritySystemAnnotation   = triggersv1alpha1.SecurityScanProgramSeveritySystemAnnotation
 	SecurityScanProgramImpactsAnnotation          = triggersv1alpha1.SecurityScanProgramImpactsAnnotation
 	SecurityScanProgramSubmissionBudgetAnnotation = triggersv1alpha1.SecurityScanProgramSubmissionBudgetAnnotation
+	SecurityScanProgramSubmissionPeriodAnnotation = triggersv1alpha1.SecurityScanProgramSubmissionPeriodAnnotation
+	SecurityScanProgramImpactsTruncatedAnnotation = triggersv1alpha1.SecurityScanProgramImpactsTruncatedAnnotation
 )
 
 // Session artifact kinds written by submit_security_scan_report, aliased from
@@ -84,9 +86,14 @@ type SecurityScanContext struct {
 	// resolved SecurityProgram. They are operator-verified configuration:
 	// submission packaging refuses an impact clause outside InScopeImpacts,
 	// and SubmissionBudget rations how many reports a scan may package.
-	SeveritySystem   string
-	InScopeImpacts   []SecurityProgramImpactClause
-	SubmissionBudget int32
+	SeveritySystem string
+	InScopeImpacts []SecurityProgramImpactClause
+	// ImpactsTruncated marks an incomplete impact list. A truncated list can
+	// still name the severity of a clause it carries, but it cannot prove a
+	// clause is absent, so it must not reject an unlisted clause.
+	ImpactsTruncated           bool
+	SubmissionBudget           int32
+	SubmissionBudgetPeriodDays int32
 }
 
 // SecurityProgramImpactClause is one verbatim impact clause published by the
@@ -131,22 +138,24 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 		}
 	}
 	return SecurityScanContext{
-		ScanName:              scanName,
-		Namespace:             namespace,
-		RunName:               runName,
-		Repository:            strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
-		Revision:              strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
-		MinSeverity:           minSeverity,
-		DedupePermille:        dedupePermille,
-		ExecutionID:           strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),
-		RecordRunName:         strings.TrimSpace(run.Annotations[SecurityScanRecordNameAnnotation]),
-		TaskName:              strings.TrimSpace(run.Annotations[SecurityScanTaskNameAnnotation]),
-		PostScripts:           splitTrimmedNonEmpty(run.Annotations[SecurityScanPostScriptAnnotation]),
-		PostScriptFingerprint: strings.TrimSpace(run.Annotations[SecurityScanPostScriptFindingAnnotation]),
-		SessionID:             sessionID,
-		SeveritySystem:        strings.TrimSpace(run.Annotations[SecurityScanProgramSeveritySystemAnnotation]),
-		InScopeImpacts:        parseSecurityProgramImpacts(run.Annotations[SecurityScanProgramImpactsAnnotation]),
-		SubmissionBudget:      parseSecuritySubmissionBudget(run.Annotations[SecurityScanProgramSubmissionBudgetAnnotation]),
+		ScanName:                   scanName,
+		Namespace:                  namespace,
+		RunName:                    runName,
+		Repository:                 strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
+		Revision:                   strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
+		MinSeverity:                minSeverity,
+		DedupePermille:             dedupePermille,
+		ExecutionID:                strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),
+		RecordRunName:              strings.TrimSpace(run.Annotations[SecurityScanRecordNameAnnotation]),
+		TaskName:                   strings.TrimSpace(run.Annotations[SecurityScanTaskNameAnnotation]),
+		PostScripts:                splitTrimmedNonEmpty(run.Annotations[SecurityScanPostScriptAnnotation]),
+		PostScriptFingerprint:      strings.TrimSpace(run.Annotations[SecurityScanPostScriptFindingAnnotation]),
+		SessionID:                  sessionID,
+		SeveritySystem:             strings.TrimSpace(run.Annotations[SecurityScanProgramSeveritySystemAnnotation]),
+		InScopeImpacts:             parseSecurityProgramImpacts(run.Annotations[SecurityScanProgramImpactsAnnotation]),
+		ImpactsTruncated:           strings.EqualFold(strings.TrimSpace(run.Annotations[SecurityScanProgramImpactsTruncatedAnnotation]), "true"),
+		SubmissionBudget:           parseSecuritySubmissionBudget(run.Annotations[SecurityScanProgramSubmissionBudgetAnnotation]),
+		SubmissionBudgetPeriodDays: parseSecuritySubmissionBudget(run.Annotations[SecurityScanProgramSubmissionPeriodAnnotation]),
 	}, true
 }
 

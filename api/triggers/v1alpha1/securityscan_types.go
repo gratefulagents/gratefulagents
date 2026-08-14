@@ -77,6 +77,15 @@ const (
 	// number of submissions per period. Reporting is rationed on every major
 	// platform, so the packaging tool submits only the strongest findings.
 	SecurityScanProgramSubmissionBudgetAnnotation = "security.gratefulagents.dev/program-submission-budget"
+	// SecurityScanProgramSubmissionPeriodAnnotation is the budget period in
+	// days, recorded alongside the cap so consumers can say what they are and
+	// are not enforcing.
+	SecurityScanProgramSubmissionPeriodAnnotation = "security.gratefulagents.dev/program-submission-period-days"
+	// SecurityScanProgramImpactsTruncatedAnnotation marks an impact list that
+	// did not fit the annotation bound. A truncated list can still name a
+	// clause's severity, but it can never prove a clause is absent, so it must
+	// not be treated as an authoritative allowlist.
+	SecurityScanProgramImpactsTruncatedAnnotation = "security.gratefulagents.dev/program-impacts-truncated"
 	// MaxSecurityScanProgramImpactsAnnotationBytes bounds the transcribed
 	// impact list so a large program cannot push the run past the annotation
 	// size limit. A truncated list still validates the clauses it carries.
