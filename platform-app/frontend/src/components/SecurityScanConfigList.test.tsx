@@ -100,11 +100,11 @@ function renderList() {
 }
 
 describe("SecurityScanConfigList", () => {
-  it("offers the Immunefi import as a secondary action without creating by default", async () => {
+  it("offers the program-target import as a secondary action without creating by default", async () => {
     listSecurityScanConfigs.mockResolvedValue({ configs: [] });
     renderList();
 
-    const importButton = await screen.findByRole("button", { name: "Add Immunefi scan" });
+    const importButton = await screen.findByRole("button", { name: "Import scan target" });
     expect(importButton.className).toContain("border-border");
     expect(screen.getByRole("button", { name: "New scan" })).toBeTruthy();
     expect(createSecurityScan).not.toHaveBeenCalled();
@@ -131,7 +131,7 @@ describe("SecurityScanConfigList", () => {
     });
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add Immunefi scan" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Import scan target" }));
 
     expect(screen.getByText("Custom metadata target")).toBeTruthy();
     expect(screen.getByText("https://example.com/custom · main")).toBeTruthy();
@@ -159,7 +159,7 @@ describe("SecurityScanConfigList", () => {
     });
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add Immunefi scan" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Import scan target" }));
     expect(screen.queryByText("Existing configuration")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Configure scan for Custom target" }));
 

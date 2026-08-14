@@ -15,7 +15,7 @@ import { TableRowSkeleton } from "@/components/ui/list-state";
 import { filterByQuery } from "@/components/ui/list-search";
 import { ResourceListPage } from "@/components/list-page";
 import { SecurityNav } from "@/components/SecurityNav";
-import { ImmunefiTargetImportDialog } from "@/components/ImmunefiTargetImportDialog";
+import { ProgramTargetImportDialog } from "@/components/ProgramTargetImportDialog";
 import { SeverityCountBadges } from "@/components/SecurityScanList";
 import {
   scanConfigUsesSavedCredentials,
@@ -23,7 +23,7 @@ import {
 } from "@/components/SecurityScanFormDialog";
 import { client } from "@/lib/client";
 import { formatScheduleTime } from "@/lib/format";
-import type { ImmunefiTarget } from "@/lib/immunefiTargetCatalog";
+import type { ProgramScanTarget } from "@/lib/programTargetCatalog";
 import { useNow } from "@/hooks/useNow";
 import {
   SecurityScanConfigSchema,
@@ -140,13 +140,13 @@ export function SecurityScanConfigList() {
   const [programFilter, setProgramFilter] = useState("all");
   const [pendingDelete, setPendingDelete] = useState<SecurityScanConfig | null>(null);
   const [runNowPending, setRunNowPending] = useState<string | null>(null);
-  const [selectedImmunefiTarget, setSelectedImmunefiTarget] = useState<ImmunefiTarget | null>(null);
-  const immunefiTriggerRef = useRef<HTMLButtonElement>(null);
+  const [selectedProgramScanTarget, setSelectedProgramScanTarget] = useState<ProgramScanTarget | null>(null);
+  const importTriggerRef = useRef<HTMLButtonElement>(null);
   const now = useNow();
 
-  function closeImmunefiScanForm() {
-    setSelectedImmunefiTarget(null);
-    requestAnimationFrame(() => immunefiTriggerRef.current?.focus());
+  function closeImportedScanForm() {
+    setSelectedProgramScanTarget(null);
+    requestAnimationFrame(() => importTriggerRef.current?.focus());
   }
 
   const fetchConfigs = useCallback(async () => {
@@ -280,27 +280,27 @@ export function SecurityScanConfigList() {
       }
       actions={
         <div className="flex items-center gap-2">
-          <ImmunefiTargetImportDialog
+          <ProgramTargetImportDialog
             programs={programs}
             existingNames={new Set(
               configs
                 .filter((config) => config.namespace === personalNamespace)
                 .map((config) => config.name),
             )}
-            trigger={<Button ref={immunefiTriggerRef} variant="outline" size="sm">Add Immunefi scan</Button>}
-            onTargetSelected={setSelectedImmunefiTarget}
+            trigger={<Button ref={importTriggerRef} variant="outline" size="sm">Import scan target</Button>}
+            onTargetSelected={setSelectedProgramScanTarget}
           />
-          {selectedImmunefiTarget && (
+          {selectedProgramScanTarget && (
             <SecurityScanFormDialog
-              key={selectedImmunefiTarget.name}
+              key={selectedProgramScanTarget.name}
               initialConfig={create(SecurityScanConfigSchema, {
-                name: selectedImmunefiTarget.name,
+                name: selectedProgramScanTarget.name,
                 spec: {
-                  repoUrl: selectedImmunefiTarget.repoUrl,
-                  baseBranch: selectedImmunefiTarget.baseBranch,
-                  workflowRef: selectedImmunefiTarget.workflowRef,
-                  policyPackRef: selectedImmunefiTarget.policyPackRef,
-                  securityProgramRef: selectedImmunefiTarget.securityProgramRef,
+                  repoUrl: selectedProgramScanTarget.repoUrl,
+                  baseBranch: selectedProgramScanTarget.baseBranch,
+                  workflowRef: selectedProgramScanTarget.workflowRef,
+                  policyPackRef: selectedProgramScanTarget.policyPackRef,
+                  securityProgramRef: selectedProgramScanTarget.securityProgramRef,
                   manualOnly: true,
                   minSeverity: "high",
                   parallelism: 4,
@@ -309,7 +309,7 @@ export function SecurityScanConfigList() {
               })}
               defaultOpen
               onOpenChange={(open) => {
-                if (!open) closeImmunefiScanForm();
+                if (!open) closeImportedScanForm();
               }}
               onSaved={() => void fetchConfigs()}
             />

@@ -1,6 +1,6 @@
 import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
 
-export type ImmunefiTarget = {
+export type ProgramScanTarget = {
   name: string;
   displayName: string;
   repoUrl: string;
@@ -11,9 +11,9 @@ export type ImmunefiTarget = {
   priority: number;
 };
 
-export function importableImmunefiTargets(
+export function importableProgramTargets(
   programs: readonly SecurityProgramResource[],
-): ImmunefiTarget[] {
+): ProgramScanTarget[] {
   return programs
     .flatMap((program) => {
       const targets = program.scanTargets?.length

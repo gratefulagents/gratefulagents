@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { ImmunefiTargetImportDialog } from "@/components/ImmunefiTargetImportDialog";
+import { ProgramTargetImportDialog } from "@/components/ProgramTargetImportDialog";
 import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
 
 afterEach(() => {
@@ -63,20 +63,20 @@ function renderDialog(
   availablePrograms: readonly SecurityProgramResource[] = programs,
 ) {
   render(
-    <ImmunefiTargetImportDialog
+    <ProgramTargetImportDialog
       programs={availablePrograms}
       existingNames={existingNames}
-      trigger={<button>Add Immunefi scan</button>}
+      trigger={<button>Import scan target</button>}
       onTargetSelected={onTargetSelected}
     />,
   );
   return onTargetSelected;
 }
 
-describe("ImmunefiTargetImportDialog", () => {
+describe("ProgramTargetImportDialog", () => {
   it("previews all importable targets in metadata order without creating anything", () => {
     renderDialog();
-    fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import scan target" }));
 
     expect(screen.getByText(/workspace-write access and unrestricted network egress/)).toBeTruthy();
     expect(screen.getByText(/Nothing is created or run/)).toBeTruthy();
@@ -90,7 +90,7 @@ describe("ImmunefiTargetImportDialog", () => {
 
   it("selects one target for configuration and closes the chooser", () => {
     const onTargetSelected = renderDialog();
-    fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import scan target" }));
     fireEvent.click(screen.getByRole("button", { name: "Configure scan for First target" }));
 
     expect(onTargetSelected).toHaveBeenCalledTimes(1);
@@ -107,7 +107,7 @@ describe("ImmunefiTargetImportDialog", () => {
 
   it("does not allow selecting an existing configuration", () => {
     const onTargetSelected = renderDialog(vi.fn(), new Set(["scan-first"]));
-    fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import scan target" }));
 
     expect(screen.getByText("Existing configuration")).toBeTruthy();
     const button = screen.getByRole("button", {
@@ -120,7 +120,7 @@ describe("ImmunefiTargetImportDialog", () => {
 
   it("communicates when no importable targets are available", () => {
     renderDialog(vi.fn(), new Set(), []);
-    fireEvent.click(screen.getByRole("button", { name: "Add Immunefi scan" }));
-    expect(screen.getByText("No importable Immunefi targets are available.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Import scan target" }));
+    expect(screen.getByText("No importable scan targets are available.")).toBeTruthy();
   });
 });
