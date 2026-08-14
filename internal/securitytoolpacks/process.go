@@ -1061,8 +1061,44 @@ func executeEVMStage(ctx context.Context, req ExecutionRequest, argv []string, e
 			exitCode = 1
 		}
 		return evmStageResult(ctx, environment, output, exitCode, err), true
+	case "chain-read", "deployed-bytecode-diff":
+		output, err := runChainStatePack(ctx, req, argv, executionTarget)
+		return evmStageResult(ctx, environment, output, 0, err), true
 	}
 	return NativeResult{}, false
+}
+
+// runChainStatePack executes the chain-state packs in this process rather than
+// through an external binary: their whole contract is a closed allowlist of
+// read-only JSON-RPC methods, and that guarantee only holds if no argv can
+// carry a method at all. The endpoint has already been resolved from an
+// operator alias by the time this runs.
+func runChainStatePack(ctx context.Context, req ExecutionRequest, argv []string, executionTarget string) ([]byte, error) {
+	pin, err := chainPinFromRequest(req.Config.Arguments, argv)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
+	if req.Tool.Name == "deployed-bytecode-diff" {
+		address := strings.ToLower(req.Config.Arguments["address"])
+		if !evmAddressPattern.MatchString(address) {
+			return nil, fmt.Errorf("deployed-bytecode-diff is missing its pinned address")
+		}
+		return diffDeployedBytecode(ctx, client, pin, address, req.Config.Arguments["artifact"], executionTarget)
+	}
+	addresses := []string{}
+	for address := range strings.SplitSeq(strings.ToLower(req.Config.Arguments["addresses"]), ",") {
+		if !evmAddressPattern.MatchString(address) {
+			return nil, fmt.Errorf("chain-read received a malformed address")
+		}
+		if !slices.Contains(addresses, address) {
+			addresses = append(addresses, address)
+		}
+	}
+	if len(addresses) == 0 || len(addresses) > maxChainReadAddresses {
+		return nil, fmt.Errorf("chain-read requires between 1 and %d addresses", maxChainReadAddresses)
+	}
+	return readChainState(ctx, client, pin, addresses)
 }
 
 // evmStageResult reports the stage through the pack's own declared exit codes:
@@ -1258,6 +1294,29 @@ func devnetForkBlock(ctx context.Context, client *http.Client, endpoint string) 
 }
 
 func devnetCall(ctx context.Context, client *http.Client, endpoint, method string, params []any, out any) error {
+	return jsonRPCCall(ctx, client, endpoint, "fork devnet", method, params, out)
+}
+
+// nodeRejection is an answer from the node itself — a reverted call, an
+// unsupported parameter, a missing result — as opposed to a transport,
+// timeout, or protocol failure. A caller may treat a rejection as an
+// observation ("this contract has no decimals()"), but must never treat a
+// transport failure that way, because that turns a broken endpoint into a
+// clean-looking audit.
+type nodeRejection struct{ label, method, message string }
+
+func (e nodeRejection) Error() string {
+	if e.message == "returned no result" {
+		return fmt.Sprintf("%s %s returned no result", e.label, e.method)
+	}
+	return fmt.Sprintf("%s %s failed: %s", e.label, e.method, e.message)
+}
+
+// jsonRPCCall performs one bounded JSON-RPC request. label names the peer in
+// every error, so a caller's failures stay attributable to the endpoint it
+// chose; the response body is size-limited because a remote node's reply is
+// untrusted input.
+func jsonRPCCall(ctx context.Context, client *http.Client, endpoint, label, method string, params []any, out any) error {
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 	if err != nil {
 		return err
@@ -1283,13 +1342,13 @@ func devnetCall(ctx context.Context, client *http.Client, endpoint, method strin
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return fmt.Errorf("fork devnet %s response is not JSON-RPC: %w", method, err)
+		return fmt.Errorf("%s %s response is not JSON-RPC: %w", label, method, err)
 	}
 	if envelope.Error != nil {
-		return fmt.Errorf("fork devnet %s failed: %s", method, envelope.Error.Message)
+		return nodeRejection{label: label, method: method, message: envelope.Error.Message}
 	}
 	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
-		return fmt.Errorf("fork devnet %s returned no result", method)
+		return nodeRejection{label: label, method: method, message: "returned no result"}
 	}
 	return json.Unmarshal(envelope.Result, out)
 }

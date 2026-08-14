@@ -124,6 +124,12 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		"upstream-fork-diff": {
 			"git_repository": "application/vnd.gratefulagents.git-repository.v1+directory",
 		},
+		"chain-read": {
+			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+		},
+		"deployed-bytecode-diff": {
+			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
+		},
 	}
 	if media := expectedMedia[t.Name][cfg.Target.Type]; media != "" && cfg.Target.MediaType != media {
 		return Invocation{}, Tool{}, fmt.Errorf("tool %s requires target media type %s", t.Name, media)
@@ -681,6 +687,18 @@ func validateArg(a Argument, value string) error {
 		if !evmBlockHashPattern.MatchString(value) {
 			return fmt.Errorf("argument %q must be a 0x-prefixed lowercase 32-byte block hash", a.Name)
 		}
+	case "evm_address":
+		if !evmAddressPattern.MatchString(value) {
+			return fmt.Errorf("argument %q must be a 0x-prefixed lowercase 20-byte address", a.Name)
+		}
+	case "evm_address_list":
+		if err := validateEVMAddressList(value); err != nil {
+			return err
+		}
+	case "solidity_artifact":
+		if !forgeArtifactPattern.MatchString(value) {
+			return fmt.Errorf("argument %q must be a fully-qualified artifact name such as Vault.sol:Vault", a.Name)
+		}
 	case "git_revision":
 		if !gitRevisionPattern.MatchString(value) {
 			return fmt.Errorf("argument %q must be a full lowercase 40-character git commit id", a.Name)
@@ -789,13 +807,19 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		// the evidence that a harness assertion cannot fail.
 		base("forge-coverage-mutation", DomainBlockchain, "1.7.1", "forge-mutation-json", "application/json", []string{"foundry_project"}, []string{"forge", "coverage", "--root", "{{target}}", "--report", "lcov", "--report-file", "/dev/stdout", "--fuzz-seed", "{{seed}}", "--threads", "1"}),
 		base("upstream-fork-diff", DomainBlockchain, "1.0.0", "git-divergence", "text/plain", []string{"git_repository"}, []string{"git", "-C", "{{target}}", "diff", "--no-color", "--no-ext-diff", "--numstat", "--find-renames", "--exit-code", operatorUpstreamToken + "{{upstream}}@{{upstream_revision}}", "HEAD"}),
+		// The chain-state packs are executed in this process, not by an external
+		// binary: their contract is a closed allowlist of read-only JSON-RPC
+		// methods, which only holds if no argv token can name a method. argv
+		// therefore carries the endpoint alias and the pin, and nothing else.
+		base("chain-read", DomainBlockchain, "1.0.0", "chain-read-json", "application/json", []string{"foundry_project"}, []string{"ga-chain-read", chainReadEndpointFlag, operatorForkEndpointToken + "{{fork_endpoint}}", "--chain-id", "{{chain_id}}", "--block-number", "{{fork_block_number}}", "--block-hash", "{{fork_block_hash}}", "--addresses", "{{addresses}}"}),
+		base("deployed-bytecode-diff", DomainBlockchain, "1.0.0", "bytecode-diff-json", "application/json", []string{"foundry_project"}, []string{"ga-deployed-bytecode-diff", chainReadEndpointFlag, operatorForkEndpointToken + "{{fork_endpoint}}", "--chain-id", "{{chain_id}}", "--block-number", "{{fork_block_number}}", "--block-hash", "{{fork_block_hash}}", "--address", "{{address}}", "--artifact", "{{artifact}}", "--root", "{{target}}"}),
 	}
-	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu", "slither", "forge-security-tests", "echidna", "halmos", "anvil-fork", "forge-fork-test", "medusa", "forge-coverage-mutation", "upstream-fork-diff"}
+	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu", "slither", "forge-security-tests", "echidna", "halmos", "anvil-fork", "forge-fork-test", "medusa", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff"}
 	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz", "medusa"}
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna", "forge-fork-test", "forge-coverage-mutation"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation", "upstream-fork-diff"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff"}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
 	// A pack that cannot be packaged for every supported architecture stays
 	// catalog-only, and its reason names the exact missing capability so the
@@ -861,6 +885,10 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			tools[i].Arguments = []Argument{{Name: "target_contracts", Type: "string", Required: true}}
 		case "forge-coverage-mutation":
 			tools[i].Arguments = []Argument{{Name: "mutation_operator", Type: "enum", Required: true, Enum: []string{"assertion-negation", "require-removal", "boundary-shift", "return-value-swap"}}}
+		case "chain-read":
+			tools[i].Arguments = chainReadArguments()
+		case "deployed-bytecode-diff":
+			tools[i].Arguments = deployedBytecodeDiffArguments()
 		case "upstream-fork-diff":
 			tools[i].Arguments = []Argument{
 				{Name: "upstream", Type: "enum", Required: true, Enum: slices.Clone(evmUpstreams)},
@@ -901,6 +929,13 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 			case "medusa":
 				tools[i].Budgets.Timeout = 20 * time.Minute
 				tools[i].Budgets.Requests = 10000
+			case "chain-read", "deployed-bytecode-diff":
+				// Chain reads are bounded RPC round trips and report through their
+				// records, never through an exit code: any non-zero exit is an
+				// operational failure, so a broken read can never look clean.
+				tools[i].ExitCodes = map[int]Status{0: StatusPass, 2: StatusError, 124: StatusTimeout}
+				tools[i].Budgets.Timeout = 5 * time.Minute
+				tools[i].Budgets.Memory = 1 << 30
 			case "upstream-fork-diff":
 				// git diff --exit-code: 1 is divergence, 128 is a git failure.
 				tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusFindings, 128: StatusError, 129: StatusError, 124: StatusTimeout}
