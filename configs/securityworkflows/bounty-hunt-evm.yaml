@@ -3,26 +3,26 @@ kind: SecurityWorkflow
 metadata:
   name: bounty-hunt-evm
 spec:
-  description: Harness-first EVM bounty hunt. One write-capable task builds and calibrates the oracle while hunting, every candidate has to become a failing assertion on a verified pinned fork, impact is measured in the program's own vocabulary, and anything that never broke an invariant is recorded as untested or refuted rather than reported.
+  description: Harness-first EVM bounty hunt. Source review, builds, and local harnesses always run; an operator-authorized archive endpoint adds deployed-state and pinned-fork evidence when configured. One write-capable task builds and calibrates the oracle while hunting, impact is measured in the program's own vocabulary, and anything that never broke an invariant is recorded as untested or refuted rather than reported.
   parameters:
     - name: fork_endpoint_alias
       description: Operator-authorized endpoint alias used to read deployed state and start the local fork. Supply an alias, never a raw credential-bearing URL.
-      required: true
+      default: "unconfigured"
     - name: chain_id
       description: Expected chain ID for both deployed-state reads and the pinned local fork.
-      required: true
+      default: "unconfigured"
     - name: fork_block_number
       description: Immutable finalized block number selected by the operator or scan launcher.
-      required: true
+      default: "unconfigured"
     - name: fork_block_hash
       description: Block hash for fork_block_number; every fork-backed tool verifies it before execution.
-      required: true
+      default: "unconfigured"
     - name: project_root
       description: Repository-relative root of the EVM project under test.
       default: "."
     - name: deployment_manifest
       description: Path, relative to project_root, to the deployment manifest that identifies in-scope contracts and addresses.
-      required: true
+      default: "unconfigured"
   parallelism: 4
   tasks:
     - name: pin-target-and-deployment
@@ -32,9 +32,15 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-entry-point-analyzer
       objective: >-
-        Pin what is actually under test before anyone reasons about it. Work in project root
-        {{params.project_root}} and read deployment manifest {{params.deployment_manifest}}. Through the
-        operator-authorized fork endpoint alias {{params.fork_endpoint_alias}}, verify that the endpoint
+        Pin the source target before anyone reasons about it. Always record the immutable source revision,
+        project layout, build system, test entry points, and source-level scope from project root
+        {{params.project_root}}. Deployment and archive-chain evidence is an optional enrichment lane. If
+        any of {{params.deployment_manifest}}, {{params.fork_endpoint_alias}}, {{params.chain_id}},
+        {{params.fork_block_number}}, or {{params.fork_block_hash}} is unconfigured, set verification_status
+        to blocked, name each missing input in gaps, use unavailable for its output field, and still publish
+        the source dossier so later source review, builds, static tools, and local tests can run. Otherwise,
+        read deployment manifest {{params.deployment_manifest}} and through the operator-authorized fork
+        endpoint alias {{params.fork_endpoint_alias}}, verify that the endpoint
         reports required chain id {{params.chain_id}} and verifies configured block
         {{params.fork_block_number}} with hash {{params.fork_block_hash}}, and
         record the source revision that builds the deployed artifacts. Record every in-scope address with
@@ -45,7 +51,7 @@ spec:
         deployed-bytecode-diff proves the compiled artifact of the pinned revision is the code actually
         running at each address. Mark the pin verified only when the endpoint chain id and block hash match,
         the manifest addresses were read, and deployed bytecode matches the pinned source. A divergence or
-        unavailable fact blocks verification and is a stated gap, never an assumption. Publish one
+        unavailable fact blocks only deployed-state verification and is a stated gap, never an assumption. Publish one
         structured dossier for every later task and report no vulnerabilities here.
       outputSchema: |-
         {
@@ -90,16 +96,20 @@ spec:
         - name: exploit-poc-discipline
       objective: >-
         In one write-capable run, build the oracle, calibrate it, hunt against it, and reproduce or kill
-        each hypothesis. Work in {{params.project_root}} with deployment manifest
-        {{params.deployment_manifest}}, using the dossier in {{tasks.pin-target-and-deployment.output}}.
-        Start a local fork through operator-authorized endpoint alias {{params.fork_endpoint_alias}} and
-        require chain id {{params.chain_id}} at configured block {{params.fork_block_number}} and hash
-        {{params.fork_block_hash}}, matching the dossier exactly. Set fork_status
-        to executed only after those values and the verified pin agree; otherwise set it to blocked, record
-        the blocker, leave every hypothesis requiring deployed state untested rather than refuted, and
-        report no finding from it. Never substitute a public-chain transaction for the local fork.
+        each hypothesis. Always run source review, the repository build, applicable static tools, and local
+        project tests in {{params.project_root}}, using the dossier in
+        {{tasks.pin-target-and-deployment.output}}. When the dossier is verified, also start a local fork
+        through operator-authorized endpoint alias {{params.fork_endpoint_alias}} and require chain id
+        {{params.chain_id}} at configured block {{params.fork_block_number}} and hash
+        {{params.fork_block_hash}}, matching the dossier exactly. Set fork_status to executed only after
+        those values and the verified pin agree. Otherwise set it to blocked, record the blocker, and
+        continue source review and local harness work. Leave only hypotheses that actually require deployed
+        state untested rather than refuted; do not discard hypotheses reproducible in project tests or a
+        local devnet. Never substitute a public-chain transaction for the local fork.
 
-        Before hunting, write 5 to 15 executable invariants against the fork: conservation of value and
+        Before hunting, write 5 to 15 executable invariants against the strongest available local substrate:
+        a verified pinned fork when available, otherwise project tests or a local devnet. Cover
+        conservation of value and
         solvency; share price or exchange rate monotonicity where claimed; accounting identities across
         deposit, withdraw and settle; the access-control matrix; encode/decode round trips for identifiers;
         and cross-domain identity binding for relayed or proved messages. Calibrate each assertion by
@@ -130,9 +140,11 @@ spec:
 
         For every hypothesis name the invariant, payout priority, least-privileged attacker, controlled
         input, expected state transition, and falsifying observation. Turn each viable hypothesis into a
-        failing assertion on the verified pinned fork or kill it. A broken verdict requires the exact
-        command and seed, failing assertion, observed state or balance delta, a negative control that did
-        not trigger, and the calibration mutant proving the oracle can fail. State the reproducibility class
+        failing assertion on the strongest substrate that can settle it: pinned fork for deployed-state
+        claims, otherwise project tests or a local devnet. A broken verdict requires the exact command and
+        seed, failing assertion, observed state or balance delta, a negative control that did not trigger,
+        and the calibration mutant proving the oracle can fail. State the reproduction substrate, never
+        generalize a local-only result into a claim about deployed configuration, and record the reproducibility class
         as deterministic, seeded and replayable, schedule or environment dependent, statistical, or
         observational only; for the last three record every attempt and the stopping rule. A hypothesis
         without a failing assertion is refuted or untested and may not be reported. Only report findings for
@@ -211,12 +223,12 @@ spec:
                   "fingerprint": {"type": "string", "description": "Required when verdict is broken; fingerprint returned by report_security_finding"},
                   "reproduction": {
                     "type": "object",
-                    "description": "Required when verdict is broken and forbidden as proof when fork_status or verified_pin is blocked",
+                    "description": "Required when verdict is broken. pinned_fork requires fork_status executed and a verified pin; project_tests and local_devnet may prove only claims that do not depend on deployed configuration",
                     "required": ["command", "seed", "substrate", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class", "attempts", "successes"],
                     "properties": {
                       "command": {"type": "string"},
                       "seed": {"type": "string"},
-                      "substrate": {"type": "string", "enum": ["pinned_fork"]},
+                      "substrate": {"type": "string", "enum": ["pinned_fork", "project_tests", "local_devnet"]},
                       "failing_assertion": {"type": "string"},
                       "observed_delta": {"type": "string"},
                       "negative_control_passed": {"type": "boolean", "description": "Must be true for a broken verdict"},
@@ -242,16 +254,19 @@ spec:
         - name: evm-economic-and-mev-review
       objective: >-
         Price and qualify only hypotheses with verdict broken and a valid reproduction in
-        {{tasks.fork-harness-hunt.output}}. For each broken invariant, measure the value at risk at the
-        verified pinned block and say how it was measured, or state plainly that this impact class permits
-        no measurement; never estimate a number you did not derive. Record the capital the attacker must
+        {{tasks.fork-harness-hunt.output}}. For a pinned-fork reproduction, measure the value at risk at the
+        verified block and say how it was measured. For a project-test or local-devnet reproduction, qualify
+        only impacts that do not rely on an unverified deployment fact, label deployed exposure and value at
+        risk unknown, and confirm that the governing program permits that PoC environment; never estimate a
+        number you did not derive. Record the capital the attacker must
         front, the capital they risk, the privileges and timing they need, and the mempool assumptions.
         Then map the result onto the governing program's own published in-scope impact list, copying the
         clause verbatim, and give the maximum achievable impact reachable from the same root cause rather
         than the first one demonstrated. Judge severity under that program's own system and never translate
-        a label from another system into it. Anything that lacks an executed fork, verified pin, calibrated
-        oracle, passing negative control, reproducible failing assertion, or published impact clause is not
-        submittable.
+        a label from another system into it. Every candidate needs a calibrated oracle, passing negative
+        control, reproducible failing assertion, permitted PoC environment, and published impact clause.
+        Additionally, any claim about deployed addresses, roles, balances, oracle wiring, bytecode, or value
+        at risk needs an executed fork and verified pin; source-level claims do not.
       dependsOn:
         - fork-harness-hunt
       outputSchema: |-
@@ -283,8 +298,10 @@ spec:
       objective: >-
         Assemble the report from {{tasks.quantify-impact-and-eligibility.output}} under one admission rule:
         a finding survives only when a named calibrated invariant broke, a reproducible failing assertion
-        on the verified pinned fork proves it, the negative control did not trigger, the oracle was shown
-        capable of failing, and the impact maps to a clause the program published. Drop everything else,
+        on a permitted local substrate proves it, the negative control did not trigger, the oracle was shown
+        capable of failing, and the impact maps to a clause the program published. Require a verified pinned
+        fork only when the finding depends on deployed state, and label project-test or local-devnet evidence
+        without implying deployment exposure. Drop everything else,
         including analyses that read well but never broke anything. Prefer an empty report to a padded one:
         reporting is rationed, and a rejected submission costs more than a withheld one. State the bounded
         negative result explicitly — which invariants were tested, at which revision and block, under which

@@ -590,6 +590,7 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 		"one write-capable run", "local fork", "fork_status", "blocked",
 		"mutant", "cannot detect", "never means the target is safe",
 		"negative control", "reproducibility", "refuted or untested",
+		"Always run source review", "continue source review", "project tests or a local devnet",
 	} {
 		if !strings.Contains(hunt, marker) {
 			t.Errorf("fork-harness-hunt objective is missing %q", marker)
@@ -615,6 +616,13 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 			t.Errorf("workflow parameter %q is missing or unusable", name)
 		}
 	}
+	for _, param := range workflow.Spec.Parameters {
+		if slices.Contains([]string{"fork_endpoint_alias", "chain_id", "fork_block_number", "fork_block_hash", "deployment_manifest"}, param.Name) {
+			if param.Required || param.Default != "unconfigured" {
+				t.Errorf("optional archive-chain parameter %q = required:%t default:%q, want optional unconfigured default", param.Name, param.Required, param.Default)
+			}
+		}
+	}
 	report := byName["triage-and-report"].Objective
 	for _, marker := range []string{"failing assertion", "clause the program published", "not found under those bounds"} {
 		if !strings.Contains(report, marker) {
@@ -623,7 +631,7 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 	}
 	// Impact has to be priced in the program's own vocabulary, verbatim.
 	impact := byName["quantify-impact-and-eligibility"].Objective
-	for _, marker := range []string{"verbatim", "maximum achievable impact", "never translate"} {
+	for _, marker := range []string{"verbatim", "maximum achievable impact", "never translate", "source-level claims do not"} {
 		if !strings.Contains(impact, marker) {
 			t.Errorf("impact objective is missing %q", marker)
 		}
