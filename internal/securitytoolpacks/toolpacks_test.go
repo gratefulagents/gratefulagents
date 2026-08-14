@@ -133,7 +133,9 @@ func TestReviewedNucleiFixtureNormalizesAndRedacts(t *testing.T) {
 func TestCryptoKnownAnswerPassAndFailure(t *testing.T) {
 	target := fixtureTarget("crypto_vectors", "fixtures/crypto/rfc4231.json")
 	pass := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"rfc4231-1"}, Output: readFixture(t, "crypto", "pass.json")}).Run(context.Background(), RunConfig{Tool: "rfc-nist-vectors", Target: target})
-	if pass.Status != StatusPass || len(pass.Findings) != 0 {
+	// A clean bounded run is a negative result, not a pass, and it must carry
+	// the scope that bounds it.
+	if pass.Status != StatusNotFoundUnder || len(pass.Findings) != 0 {
 		t.Fatalf("pass result=%+v", pass)
 	}
 	fail := runnerFor(t, NativeResult{ExitCode: 1, Examined: []string{"rfc4231-1"}, Output: readFixture(t, "crypto", "fail.json")}).Run(context.Background(), RunConfig{Tool: "rfc-nist-vectors", Target: target})
@@ -215,7 +217,7 @@ func TestEchidnaTerminalAndIncompleteStatuses(t *testing.T) {
 		status string
 		want   Status
 	}{
-		{status: "passed", want: StatusPass},
+		{status: "passed", want: StatusNotFoundUnder},
 		{status: "fuzzing", want: StatusError},
 		{status: "unknown-new-status", want: StatusError},
 		{status: "shrinking", want: StatusPartial},

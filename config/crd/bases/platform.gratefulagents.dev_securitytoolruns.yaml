@@ -275,6 +275,36 @@ spec:
                     maxItems: 64
                     type: array
                     x-kubernetes-list-type: atomic
+                  boundedScope:
+                    description: |-
+                      boundedScope records what a negative result is bounded by. It is what
+                      makes not_found_under readable instead of being mistaken for safety.
+                    properties:
+                      bounds:
+                        maxLength: 512
+                        type: string
+                      corpus:
+                        maxLength: 512
+                        type: string
+                      coverage:
+                        description: |-
+                          coverage summarizes semantic coverage - states, transitions, branches
+                          or actors exercised - rather than lines.
+                        maxLength: 2048
+                        type: string
+                      environment:
+                        maxLength: 512
+                        type: string
+                      harness:
+                        maxLength: 512
+                        type: string
+                      seeds:
+                        items:
+                          type: string
+                        maxItems: 32
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
                   errors:
                     items:
                       type: string
@@ -284,6 +314,55 @@ spec:
                   findingCount:
                     format: int32
                     type: integer
+                  harnessHealth:
+                    description: harnessHealth records whether the run could have
+                      failed at all.
+                    properties:
+                      entryPointReached:
+                        description: entryPointReached reports that the intended entry
+                          point executed.
+                        type: boolean
+                      mutationsKilled:
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      mutationsTotal:
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      negativeControlPassed:
+                        type: boolean
+                      negativeControlRan:
+                        type: boolean
+                      notes:
+                        maxLength: 1024
+                        type: string
+                      oracleCanFail:
+                        description: |-
+                          oracleCanFail records that a mutation or known calibration failure made
+                          the assertion fail on purpose. An assertion that cannot fail proves
+                          nothing.
+                        type: boolean
+                      targetCodeExecuted:
+                        description: |-
+                          targetCodeExecuted reports that real target code ran rather than a mock
+                          or simplified model. A model must never be presented as a target-code
+                          reproduction.
+                        type: boolean
+                    type: object
+                  reproducibilityClass:
+                    description: |-
+                      reproducibilityClass states how this result can be reproduced.
+                      Ordering, reorg, retry and scheduler-race bugs do not replay
+                      byte-identically, so demanding one definition of determinism would
+                      reject a real race and accept a flake after one lucky rerun.
+                    enum:
+                    - deterministic
+                    - seeded_replayable
+                    - schedule_or_environment_dependent
+                    - statistical
+                    - observational_only
+                    type: string
                   resultDigest:
                     description: resultDigest is the sha256 digest of result.json.
                     type: string
@@ -292,10 +371,14 @@ spec:
                     type: string
                   status:
                     description: |-
-                      status is the deterministic verdict: pass, findings, error, timeout,
-                      partial, or not_applicable. A failed or timed-out Job never becomes a
-                      pass.
+                      status is the verdict: not_found_under, findings, error, timeout,
+                      partial, or not_applicable. A clean run reports not_found_under - this
+                      harness, over this coverage, found nothing - because a bounded run is
+                      never evidence that the target is safe. A failed or timed-out Job never
+                      becomes a clean result. The legacy value "pass" remains accepted so
+                      stored runs keep decoding.
                     enum:
+                    - not_found_under
                     - pass
                     - findings
                     - error
@@ -303,6 +386,41 @@ spec:
                     - partial
                     - not_applicable
                     type: string
+                  trials:
+                    description: |-
+                      trials preserves every attempt behind a non-deterministic result,
+                      successes and failures alike.
+                    properties:
+                      attempts:
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      equivalenceCriteria:
+                        description: |-
+                          equivalenceCriteria states what counted as the same outcome across
+                          attempts, since byte-identical output is the wrong test here.
+                        maxLength: 512
+                        type: string
+                      forkState:
+                        maxLength: 512
+                        type: string
+                      stoppingRule:
+                        description: |-
+                          stoppingRule states why the campaign stopped, so a null result is not
+                          read as exhaustive.
+                        maxLength: 512
+                        type: string
+                      successes:
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      topology:
+                        maxLength: 512
+                        type: string
+                      traceDigest:
+                        maxLength: 256
+                        type: string
+                    type: object
                 type: object
               startedAt:
                 format: date-time

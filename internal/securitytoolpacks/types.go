@@ -31,6 +31,17 @@ const (
 type Status string
 
 const (
+	// StatusNotFoundUnder is the bounded negative result: this harness, with
+	// this corpus, these seeds and these bounds, did not find the issue. It is
+	// never evidence of safety, which is why it replaced the old "pass"
+	// verdict; the accompanying BoundedScope records what was actually
+	// covered.
+	StatusNotFoundUnder Status = "not_found_under"
+	// StatusPass is the retired verdict. It is still accepted when decoding
+	// stored runs and manifests, and normalized to StatusNotFoundUnder,
+	// because a clean bounded run never proved anything was safe.
+	//
+	// Deprecated: emit StatusNotFoundUnder instead.
 	StatusPass          Status = "pass"
 	StatusFindings      Status = "findings"
 	StatusError         Status = "error"
@@ -155,6 +166,125 @@ type Result struct {
 	Errors    []string                 `json:"errors"`
 	Replay    Replay                   `json:"replay"`
 	Stages    []string                 `json:"stages"`
+	// Reproducibility records how this run can be reproduced. Real chain bugs
+	// involve ordering, reorgs, retries and scheduler races, so demanding
+	// byte-identical replay would reject a genuine race and accept a flake
+	// after one lucky rerun.
+	Reproducibility ReproducibilityClass `json:"reproducibility_class,omitempty"`
+	// Trials records every attempt for a non-deterministic class, successes
+	// included and excluded alike, so a trigger rate can be read rather than
+	// guessed.
+	Trials *TrialSummary `json:"trials,omitempty"`
+	// Harness records whether the run could have failed at all.
+	Harness *HarnessHealth `json:"harness_health,omitempty"`
+	// Bounded records the scope a negative result is bounded by. It is
+	// required to interpret StatusNotFoundUnder.
+	Bounded *BoundedScope `json:"bounded_scope,omitempty"`
+}
+
+// ReproducibilityClass states how a result can be reproduced. Confirmation
+// must be reproducible under the correct class, not under a single universal
+// definition of determinism.
+type ReproducibilityClass string
+
+const (
+	// ReproducibilityDeterministic replays byte-identically from the record.
+	ReproducibilityDeterministic ReproducibilityClass = "deterministic"
+	// ReproducibilitySeeded replays from a recorded seed.
+	ReproducibilitySeeded ReproducibilityClass = "seeded_replayable"
+	// ReproducibilityScheduleDependent depends on scheduling, timing,
+	// ordering, reorgs or environment; the causal trace is what reproduces.
+	ReproducibilityScheduleDependent ReproducibilityClass = "schedule_or_environment_dependent"
+	// ReproducibilityStatistical reproduces a distribution, not an outcome.
+	ReproducibilityStatistical ReproducibilityClass = "statistical"
+	// ReproducibilityObservational cannot be re-run; it was observed.
+	ReproducibilityObservational ReproducibilityClass = "observational_only"
+)
+
+// ValidReproducibilityClass reports whether class is a known class. An empty
+// class is allowed and means the run did not state one.
+func ValidReproducibilityClass(class ReproducibilityClass) bool {
+	switch class {
+	case "", ReproducibilityDeterministic, ReproducibilitySeeded,
+		ReproducibilityScheduleDependent, ReproducibilityStatistical, ReproducibilityObservational:
+		return true
+	}
+	return false
+}
+
+// TrialSummary preserves every attempt behind a non-deterministic result.
+type TrialSummary struct {
+	Attempts int `json:"attempts"`
+	// Successes is how many attempts reproduced the security-relevant
+	// outcome. Zero attempts or zero successes is a reportable fact, not a
+	// reason to omit the summary.
+	Successes int `json:"successes"`
+	// StoppingRule states why the campaign stopped, so a null result cannot
+	// be read as exhaustive.
+	StoppingRule string `json:"stopping_rule,omitempty"`
+	// EquivalenceCriteria states what counted as the same outcome across
+	// attempts, since byte-identical output is the wrong test here.
+	EquivalenceCriteria string `json:"equivalence_criteria,omitempty"`
+	// TraceDigest references the recorded scheduler, message or transaction
+	// trace that carries the causal ordering.
+	TraceDigest string `json:"trace_digest,omitempty"`
+	Topology    string `json:"topology,omitempty"`
+	ForkState   string `json:"fork_state,omitempty"`
+}
+
+// TriggerRate is the observed share of attempts that reproduced the outcome.
+// It returns 0 when nothing was attempted.
+func (t TrialSummary) TriggerRate() float64 {
+	if t.Attempts <= 0 {
+		return 0
+	}
+	return float64(t.Successes) / float64(t.Attempts)
+}
+
+// HarnessHealth answers the question a clean run cannot: could this run have
+// failed at all? A harness that never reaches the target, never runs the
+// control, or carries an assertion that cannot fail proves nothing.
+type HarnessHealth struct {
+	// EntryPointReached reports that the intended entry point executed.
+	EntryPointReached bool `json:"entry_point_reached"`
+	// TargetCodeExecuted reports that the real target code ran, as opposed to
+	// a mock or a simplified model. A model must never be presented as a
+	// target-code reproduction.
+	TargetCodeExecuted bool `json:"target_code_executed"`
+	// NegativeControlRan and NegativeControlPassed record the control: the
+	// same harness against unmodified or non-attacker input.
+	NegativeControlRan    bool `json:"negative_control_ran"`
+	NegativeControlPassed bool `json:"negative_control_passed"`
+	// OracleCanFail records that a mutation or a known calibration failure
+	// made the assertion fail on purpose.
+	OracleCanFail bool `json:"oracle_can_fail"`
+	// MutationsKilled and MutationsTotal quantify the calibration.
+	MutationsKilled int `json:"mutations_killed,omitempty"`
+	MutationsTotal  int `json:"mutations_total,omitempty"`
+	// CorpusRejectRate is the share of inputs the harness refused, which
+	// exposes a harness that rejects almost everything it is given.
+	CorpusRejectRate float64 `json:"corpus_reject_rate,omitempty"`
+	// Notes records anything that qualifies the above.
+	Notes string `json:"notes,omitempty"`
+}
+
+// ProvesTargetCodeExercised reports whether the health evidence supports a
+// claim of target-code reproduction with a working oracle.
+func (h HarnessHealth) ProvesTargetCodeExercised() bool {
+	return h.EntryPointReached && h.TargetCodeExecuted && h.OracleCanFail
+}
+
+// BoundedScope is what a negative result is bounded by. Reading a clean run
+// without it invites the "no findings means safe" mistake.
+type BoundedScope struct {
+	Harness     string   `json:"harness,omitempty"`
+	Corpus      string   `json:"corpus,omitempty"`
+	Seeds       []string `json:"seeds,omitempty"`
+	Bounds      string   `json:"bounds,omitempty"`
+	Environment string   `json:"environment,omitempty"`
+	// Coverage summarizes semantic coverage - states, transitions, branches
+	// or actors exercised - rather than lines.
+	Coverage string `json:"coverage,omitempty"`
 }
 
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -233,7 +363,7 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("tool %s: exit-code mapping is required", t.Name)
 		}
 		for code, status := range t.ExitCodes {
-			if !slices.Contains([]Status{StatusPass, StatusFindings, StatusError, StatusTimeout}, status) {
+			if !slices.Contains([]Status{StatusPass, StatusNotFoundUnder, StatusFindings, StatusError, StatusTimeout}, status) {
 				return fmt.Errorf("tool %s: exit code %d has invalid execution status %q", t.Name, code, status)
 			}
 		}

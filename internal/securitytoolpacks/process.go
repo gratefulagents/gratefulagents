@@ -874,7 +874,9 @@ func processExitCode(err error) int {
 // ResultExitCode maps the six-state result model onto stable CLI exit codes.
 func ResultExitCode(status Status) int {
 	switch status {
-	case StatusPass:
+	case StatusNotFoundUnder, StatusPass:
+		// A bounded clean run is a successful execution: the tool ran and
+		// found nothing under its bounds. Only a broken run exits non-zero.
 		return 0
 	case StatusFindings:
 		return 10

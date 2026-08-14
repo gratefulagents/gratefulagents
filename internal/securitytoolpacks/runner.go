@@ -198,7 +198,7 @@ func finalizeStatus(res *Result, tool Tool, target Target, native NativeResult, 
 	if inconsistent {
 		res.Errors = append(res.Errors, "exit code indicated findings but normalization produced none")
 	}
-	if known && mapped == StatusPass && len(res.Coverage.Examined) == 0 && len(res.Coverage.Skipped) == 0 && len(res.Coverage.Uncovered) == 0 {
+	if known && isCleanExit(mapped) && len(res.Coverage.Examined) == 0 && len(res.Coverage.Skipped) == 0 && len(res.Coverage.Uncovered) == 0 {
 		res.Coverage.Uncovered = []string{target.Locator}
 	}
 	hasFindings := len(res.Findings) > 0
@@ -219,12 +219,34 @@ func finalizeStatus(res *Result, tool Tool, target Target, native NativeResult, 
 		res.Status = StatusFindings
 		return
 	}
-	if mapped == StatusPass && len(res.Coverage.Examined) > 0 {
-		res.Status = StatusPass
+	if isCleanExit(mapped) && len(res.Coverage.Examined) > 0 {
+		// A clean run is a bounded negative result, never a statement that
+		// the target is safe: it says only that this harness, over this
+		// coverage, found nothing.
+		res.Status = StatusNotFoundUnder
+		if res.Bounded == nil {
+			res.Bounded = &BoundedScope{}
+		}
+		if res.Bounded.Coverage == "" {
+			res.Bounded.Coverage = strings.Join(res.Coverage.Examined, ", ")
+		}
+		if res.Bounded.Environment == "" {
+			res.Bounded.Environment = tool.Name + " " + tool.Version
+		}
+		if res.Bounded.Bounds == "" && res.Replay.Seed != nil {
+			res.Bounded.Bounds = fmt.Sprintf("seed=%d", *res.Replay.Seed)
+		}
 		return
 	}
 	res.Status = StatusError
-	res.Errors = append(res.Errors, "execution did not satisfy pass criteria")
+	res.Errors = append(res.Errors, "execution did not satisfy the bounded-negative criteria")
+}
+
+// isCleanExit reports whether a mapped exit code means the tool ran to
+// completion without reporting findings. The retired "pass" verdict is still
+// honoured here because registered packs map exit code 0 to it.
+func isCleanExit(status Status) bool {
+	return status == StatusPass || status == StatusNotFoundUnder
 }
 
 func statusForFailedRun(hasFindings bool) Status {

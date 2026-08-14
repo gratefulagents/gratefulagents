@@ -264,3 +264,21 @@ func TestResultExitCodesAreDistinct(t *testing.T) {
 		seen[code] = status
 	}
 }
+
+func TestBoundedNegativeResultExitsSuccessfully(t *testing.T) {
+	t.Parallel()
+	// A bounded clean run is a successful execution: the tool ran and found
+	// nothing under its bounds. Exiting non-zero would make every clean scan
+	// look like a broken one to the scripts and agents that read the code.
+	if code := ResultExitCode(StatusNotFoundUnder); code != 0 {
+		t.Fatalf("ResultExitCode(not_found_under) = %d, want 0", code)
+	}
+	if code := ResultExitCode(StatusPass); code != 0 {
+		t.Fatalf("ResultExitCode(pass) = %d, want 0 for the retired spelling", code)
+	}
+	for _, status := range []Status{StatusFindings, StatusPartial, StatusNotApplicable, StatusTimeout, StatusError} {
+		if ResultExitCode(status) == 0 {
+			t.Errorf("ResultExitCode(%s) = 0, want a non-zero code", status)
+		}
+	}
+}

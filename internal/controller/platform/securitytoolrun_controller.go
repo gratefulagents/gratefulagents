@@ -557,11 +557,48 @@ func (r *SecurityToolRunReconciler) completeRun(ctx context.Context, run *platfo
 	}
 
 	result := &platformv1alpha1.SecurityToolRunResult{
-		Status:          manifest.Status,
-		FindingCount:    clampInt32(manifest.FindingCount),
-		ResultObjectKey: manifest.ResultObjectKey,
-		ResultDigest:    manifest.ResultDigest,
-		Errors:          clampSecurityToolErrors(manifest.Errors),
+		// A Job that still reports the retired "pass" verdict is recorded as
+		// what it actually established: nothing was found under this run's
+		// bounds. It never meant the target was safe.
+		Status:               normalizeSecurityToolVerdict(manifest.Status),
+		FindingCount:         clampInt32(manifest.FindingCount),
+		ResultObjectKey:      manifest.ResultObjectKey,
+		ResultDigest:         manifest.ResultDigest,
+		Errors:               clampSecurityToolErrors(manifest.Errors),
+		ReproducibilityClass: manifest.ReproducibilityClass,
+	}
+	if scope := manifest.BoundedScope; scope != nil {
+		result.BoundedScope = &platformv1alpha1.SecurityToolRunBoundedScope{
+			Harness:     scope.Harness,
+			Corpus:      scope.Corpus,
+			Seeds:       scope.Seeds,
+			Bounds:      scope.Bounds,
+			Environment: scope.Environment,
+			Coverage:    scope.Coverage,
+		}
+	}
+	if health := manifest.HarnessHealth; health != nil {
+		result.HarnessHealth = &platformv1alpha1.SecurityToolRunHarnessHealth{
+			EntryPointReached:     health.EntryPointReached,
+			TargetCodeExecuted:    health.TargetCodeExecuted,
+			NegativeControlRan:    health.NegativeControlRan,
+			NegativeControlPassed: health.NegativeControlPassed,
+			OracleCanFail:         health.OracleCanFail,
+			MutationsKilled:       clampInt32(health.MutationsKilled),
+			MutationsTotal:        clampInt32(health.MutationsTotal),
+			Notes:                 health.Notes,
+		}
+	}
+	if trials := manifest.Trials; trials != nil {
+		result.Trials = &platformv1alpha1.SecurityToolRunTrials{
+			Attempts:            clampInt32(trials.Attempts),
+			Successes:           clampInt32(trials.Successes),
+			StoppingRule:        trials.StoppingRule,
+			EquivalenceCriteria: trials.EquivalenceCriteria,
+			TraceDigest:         trials.TraceDigest,
+			Topology:            trials.Topology,
+			ForkState:           trials.ForkState,
+		}
 	}
 	for _, artifact := range manifest.Artifacts {
 		if len(result.Artifacts) == securityToolMaxStatusArtifacts {
@@ -594,6 +631,17 @@ func (r *SecurityToolRunReconciler) completeRun(ctx context.Context, run *platfo
 		return ctrl.Result{RequeueAfter: securityToolsStagedCleanupBackoff}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// normalizeSecurityToolVerdict maps the retired "pass" verdict onto the
+// bounded negative result it always was. Keeping the old spelling readable
+// costs one line; letting it survive would keep telling operators that a
+// bounded clean run means safe.
+func normalizeSecurityToolVerdict(status string) string {
+	if status == "pass" {
+		return string(securitytoolpacks.StatusNotFoundUnder)
+	}
+	return status
 }
 
 // manifestReadWindowClosed bounds manifest read retries by the Job's own

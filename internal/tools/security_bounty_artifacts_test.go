@@ -329,3 +329,103 @@ func TestOutranksForSubmissionIsTotal(t *testing.T) {
 		t.Fatal("a finding must not outrank itself")
 	}
 }
+
+func confirmedPoCValidation() securityPoCValidation {
+	return securityPoCValidation{
+		Confirmed:             true,
+		CandidateSHA256:       "abc",
+		Command:               "forge test --match-test testExploit",
+		ObservedOutput:        "[FAIL] testExploit",
+		Reason:                "the escrow index clears before the transfer",
+		ReproducibilityClass:  "deterministic",
+		TargetCodeExecuted:    true,
+		NegativeControlRan:    true,
+		NegativeControlPassed: true,
+		OracleCanFail:         true,
+		OracleEvidence:        "mutation: removed the balance check, assertion failed as expected",
+	}
+}
+
+func TestValidateSecurityPoCEvidence(t *testing.T) {
+	t.Parallel()
+
+	if problems := validateSecurityPoCEvidence(confirmedPoCValidation()); len(problems) != 0 {
+		t.Fatalf("expected complete evidence to pass, got %v", problems)
+	}
+
+	cases := []struct {
+		name   string
+		want   string
+		mutate func(*securityPoCValidation)
+	}{
+		{"unknown class", "reproducibility_class must be one of", func(v *securityPoCValidation) { v.ReproducibilityClass = "vibes" }},
+		{"missing class", "reproducibility_class is required", func(v *securityPoCValidation) { v.ReproducibilityClass = "" }},
+		{"mock instead of target", "never a target-code reproduction", func(v *securityPoCValidation) { v.TargetCodeExecuted = false }},
+		{"no control", "without a control", func(v *securityPoCValidation) { v.NegativeControlRan = false }},
+		{
+			"control triggered too",
+			"attributed nothing to the defect",
+			func(v *securityPoCValidation) { v.NegativeControlPassed = false },
+		},
+		{
+			"negative successes",
+			"successes cannot be negative",
+			func(v *securityPoCValidation) {
+				v.ReproducibilityClass = "statistical"
+				v.Attempts, v.Successes, v.StoppingRule = 10, -1, "1000 trials"
+			},
+		},
+		{"oracle never shown to fail", "oracle_can_fail requires oracle_evidence", func(v *securityPoCValidation) { v.OracleCanFail = false }},
+		{"oracle evidence missing", "oracle_can_fail requires oracle_evidence", func(v *securityPoCValidation) { v.OracleEvidence = " " }},
+		{
+			"race without trials",
+			"must report its attempts",
+			func(v *securityPoCValidation) { v.ReproducibilityClass = "schedule_or_environment_dependent" },
+		},
+		{
+			"more successes than attempts",
+			"successes cannot exceed attempts",
+			func(v *securityPoCValidation) {
+				v.ReproducibilityClass = "statistical"
+				v.Attempts, v.Successes, v.StoppingRule = 10, 11, "1000 trials"
+			},
+		},
+		{
+			"race without a stopping rule",
+			"stopping_rule is required",
+			func(v *securityPoCValidation) {
+				v.ReproducibilityClass = "schedule_or_environment_dependent"
+				v.Attempts, v.Successes = 100, 3
+			},
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			validation := confirmedPoCValidation()
+			testCase.mutate(&validation)
+			problems := validateSecurityPoCEvidence(validation)
+			if !strings.Contains(strings.Join(problems, "; "), testCase.want) {
+				t.Fatalf("problems = %v, want it to mention %q", problems, testCase.want)
+			}
+		})
+	}
+
+	// A schedule-dependent confirmation with honest trials is acceptable: a
+	// race that fires 3 times in 100 is still a race.
+	race := confirmedPoCValidation()
+	race.ReproducibilityClass = "schedule_or_environment_dependent"
+	race.Attempts, race.Successes, race.StoppingRule = 100, 3, "stopped after 100 trials with a stable trigger rate"
+	if problems := validateSecurityPoCEvidence(race); len(problems) != 0 {
+		t.Fatalf("a documented race reproduction was rejected: %v", problems)
+	}
+
+	// A disproof does not have to prove its own oracle; it has to name the
+	// check that stops the attack, which `reason` carries.
+	disproof := securityPoCValidation{
+		Confirmed: false, CandidateSHA256: "abc", Command: "forge test", ObservedOutput: "[PASS]",
+		Reason: "the guard at line 44 rejects the call", ReproducibilityClass: "deterministic",
+	}
+	if problems := validateSecurityPoCEvidence(disproof); len(problems) != 0 {
+		t.Fatalf("a disproof was rejected: %v", problems)
+	}
+}

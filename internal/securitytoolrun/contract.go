@@ -95,10 +95,61 @@ type Manifest struct {
 	ResultDigest    string             `json:"result_digest"`
 	Artifacts       []ManifestArtifact `json:"artifacts,omitempty"`
 	Errors          []string           `json:"errors,omitempty"`
+	// ReproducibilityClass states how the result can be reproduced. It is
+	// optional so older Jobs keep validating, but a Job that reports a
+	// non-deterministic class must also report its trials.
+	ReproducibilityClass string `json:"reproducibility_class,omitempty"`
+	// BoundedScope is what a not_found_under result is bounded by.
+	BoundedScope *ManifestBoundedScope `json:"bounded_scope,omitempty"`
+	// HarnessHealth records whether the run could have failed at all.
+	HarnessHealth *ManifestHarnessHealth `json:"harness_health,omitempty"`
+	// Trials preserves the attempts behind a non-deterministic result.
+	Trials *ManifestTrials `json:"trials,omitempty"`
 }
 
-// ManifestStatuses are the deterministic verdicts a Job may report.
-var ManifestStatuses = []string{"pass", "findings", "error", "timeout", "partial", "not_applicable"}
+// ManifestBoundedScope is the scope a bounded negative result is limited to.
+type ManifestBoundedScope struct {
+	Harness     string   `json:"harness,omitempty"`
+	Corpus      string   `json:"corpus,omitempty"`
+	Seeds       []string `json:"seeds,omitempty"`
+	Bounds      string   `json:"bounds,omitempty"`
+	Environment string   `json:"environment,omitempty"`
+	Coverage    string   `json:"coverage,omitempty"`
+}
+
+// ManifestHarnessHealth is the Job's evidence that its assertions could fail.
+type ManifestHarnessHealth struct {
+	EntryPointReached     bool   `json:"entry_point_reached,omitempty"`
+	TargetCodeExecuted    bool   `json:"target_code_executed,omitempty"`
+	NegativeControlRan    bool   `json:"negative_control_ran,omitempty"`
+	NegativeControlPassed bool   `json:"negative_control_passed,omitempty"`
+	OracleCanFail         bool   `json:"oracle_can_fail,omitempty"`
+	MutationsKilled       int    `json:"mutations_killed,omitempty"`
+	MutationsTotal        int    `json:"mutations_total,omitempty"`
+	Notes                 string `json:"notes,omitempty"`
+}
+
+// ManifestTrials preserves every attempt behind a non-deterministic result.
+type ManifestTrials struct {
+	Attempts            int    `json:"attempts,omitempty"`
+	Successes           int    `json:"successes,omitempty"`
+	StoppingRule        string `json:"stopping_rule,omitempty"`
+	EquivalenceCriteria string `json:"equivalence_criteria,omitempty"`
+	TraceDigest         string `json:"trace_digest,omitempty"`
+	Topology            string `json:"topology,omitempty"`
+	ForkState           string `json:"fork_state,omitempty"`
+}
+
+// ManifestStatuses are the verdicts a Job may report. "not_found_under" is the
+// bounded negative result; "pass" is its retired spelling, still accepted so
+// stored manifests keep validating.
+var ManifestStatuses = []string{"not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable"}
+
+// ManifestReproducibilityClasses are the classes a Job may report.
+var ManifestReproducibilityClasses = []string{
+	"deterministic", "seeded_replayable", "schedule_or_environment_dependent",
+	"statistical", "observational_only",
+}
 
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
@@ -115,6 +166,34 @@ func (m Manifest) Validate() error {
 	}
 	if m.FindingCount < 0 {
 		return fmt.Errorf("manifest finding_count must not be negative")
+	}
+	if m.ReproducibilityClass != "" && !slices.Contains(ManifestReproducibilityClasses, m.ReproducibilityClass) {
+		return fmt.Errorf("manifest reproducibility_class %q is not a known class", m.ReproducibilityClass)
+	}
+	// A non-deterministic result that reports no trials cannot be
+	// interpreted: a single lucky reproduction and a reliable one look the
+	// same.
+	switch m.ReproducibilityClass {
+	case "schedule_or_environment_dependent", "statistical":
+		if m.Trials == nil || m.Trials.Attempts <= 0 {
+			return fmt.Errorf("manifest reproducibility_class %q requires trials with a positive attempt count", m.ReproducibilityClass)
+		}
+		if m.Trials.Successes > m.Trials.Attempts {
+			return fmt.Errorf("manifest trials report more successes than attempts")
+		}
+	}
+	if health := m.HarnessHealth; health != nil {
+		if health.MutationsKilled < 0 || health.MutationsTotal < 0 {
+			return fmt.Errorf("manifest harness_health mutation counts must not be negative")
+		}
+		if health.MutationsKilled > health.MutationsTotal {
+			return fmt.Errorf("manifest harness_health killed more mutants than it ran")
+		}
+		// Claiming the oracle can fail is only meaningful when something
+		// actually made it fail.
+		if health.OracleCanFail && health.MutationsTotal == 0 && strings.TrimSpace(health.Notes) == "" {
+			return fmt.Errorf("manifest harness_health claims oracle_can_fail without a mutation result or an explanation")
+		}
 	}
 	if m.ResultObjectKey != "" && !digestPattern.MatchString(m.ResultDigest) {
 		return fmt.Errorf("manifest result_digest must be an immutable sha256 digest")

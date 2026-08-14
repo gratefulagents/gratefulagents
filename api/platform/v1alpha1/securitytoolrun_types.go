@@ -124,12 +124,33 @@ type SecurityToolRunArtifact struct {
 // SecurityToolRunResult is the typed outcome summary. The full normalized
 // document (findings, coverage, replay) stays in object storage.
 type SecurityToolRunResult struct {
-	// status is the deterministic verdict: pass, findings, error, timeout,
-	// partial, or not_applicable. A failed or timed-out Job never becomes a
-	// pass.
-	// +kubebuilder:validation:Enum=pass;findings;error;timeout;partial;not_applicable
+	// status is the verdict: not_found_under, findings, error, timeout,
+	// partial, or not_applicable. A clean run reports not_found_under - this
+	// harness, over this coverage, found nothing - because a bounded run is
+	// never evidence that the target is safe. A failed or timed-out Job never
+	// becomes a clean result. The legacy value "pass" remains accepted so
+	// stored runs keep decoding.
+	// +kubebuilder:validation:Enum=not_found_under;pass;findings;error;timeout;partial;not_applicable
 	// +optional
 	Status string `json:"status,omitempty"`
+	// reproducibilityClass states how this result can be reproduced.
+	// Ordering, reorg, retry and scheduler-race bugs do not replay
+	// byte-identically, so demanding one definition of determinism would
+	// reject a real race and accept a flake after one lucky rerun.
+	// +kubebuilder:validation:Enum=deterministic;seeded_replayable;schedule_or_environment_dependent;statistical;observational_only
+	// +optional
+	ReproducibilityClass string `json:"reproducibilityClass,omitempty"`
+	// boundedScope records what a negative result is bounded by. It is what
+	// makes not_found_under readable instead of being mistaken for safety.
+	// +optional
+	BoundedScope *SecurityToolRunBoundedScope `json:"boundedScope,omitempty"`
+	// harnessHealth records whether the run could have failed at all.
+	// +optional
+	HarnessHealth *SecurityToolRunHarnessHealth `json:"harnessHealth,omitempty"`
+	// trials preserves every attempt behind a non-deterministic result,
+	// successes and failures alike.
+	// +optional
+	Trials *SecurityToolRunTrials `json:"trials,omitempty"`
 	// +optional
 	FindingCount int32 `json:"findingCount,omitempty"`
 	// resultObjectKey is the object-storage key of result.json.
@@ -146,6 +167,92 @@ type SecurityToolRunResult struct {
 	// +listType=atomic
 	// +optional
 	Errors []string `json:"errors,omitempty"`
+}
+
+// SecurityToolRunBoundedScope is the scope a negative result is bounded by.
+type SecurityToolRunBoundedScope struct {
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Harness string `json:"harness,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Corpus string `json:"corpus,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	// +listType=atomic
+	Seeds []string `json:"seeds,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Bounds string `json:"bounds,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Environment string `json:"environment,omitempty"`
+	// coverage summarizes semantic coverage - states, transitions, branches
+	// or actors exercised - rather than lines.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2048
+	Coverage string `json:"coverage,omitempty"`
+}
+
+// SecurityToolRunHarnessHealth answers the question a clean run cannot: could
+// this run have failed at all?
+type SecurityToolRunHarnessHealth struct {
+	// entryPointReached reports that the intended entry point executed.
+	// +optional
+	EntryPointReached bool `json:"entryPointReached,omitempty"`
+	// targetCodeExecuted reports that real target code ran rather than a mock
+	// or simplified model. A model must never be presented as a target-code
+	// reproduction.
+	// +optional
+	TargetCodeExecuted bool `json:"targetCodeExecuted,omitempty"`
+	// +optional
+	NegativeControlRan bool `json:"negativeControlRan,omitempty"`
+	// +optional
+	NegativeControlPassed bool `json:"negativeControlPassed,omitempty"`
+	// oracleCanFail records that a mutation or known calibration failure made
+	// the assertion fail on purpose. An assertion that cannot fail proves
+	// nothing.
+	// +optional
+	OracleCanFail bool `json:"oracleCanFail,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MutationsKilled int32 `json:"mutationsKilled,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MutationsTotal int32 `json:"mutationsTotal,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Notes string `json:"notes,omitempty"`
+}
+
+// SecurityToolRunTrials preserves the attempts behind a non-deterministic
+// result so a trigger rate can be read rather than guessed.
+type SecurityToolRunTrials struct {
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Attempts int32 `json:"attempts,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Successes int32 `json:"successes,omitempty"`
+	// stoppingRule states why the campaign stopped, so a null result is not
+	// read as exhaustive.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	StoppingRule string `json:"stoppingRule,omitempty"`
+	// equivalenceCriteria states what counted as the same outcome across
+	// attempts, since byte-identical output is the wrong test here.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	EquivalenceCriteria string `json:"equivalenceCriteria,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	TraceDigest string `json:"traceDigest,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Topology string `json:"topology,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	ForkState string `json:"forkState,omitempty"`
 }
 
 // SecurityToolRunStatus is the observed state of a SecurityToolRun.
