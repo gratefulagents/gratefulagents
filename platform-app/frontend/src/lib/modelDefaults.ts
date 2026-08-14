@@ -15,7 +15,8 @@ export const FALLBACK_MODEL_DEFAULTS: AppliedModelDefaults = {
 
 /**
  * hasActiveModelDefaults reports whether the user's saved model defaults
- * should be auto-applied to new resources: they exist, are not disabled, and
+ * should be auto-applied to new projects, triggers, and scan configs (never
+ * runs, which follow their project): they exist, are not disabled, and
  * carry at least one non-empty value.
  */
 export function hasActiveModelDefaults(defaults: ModelDefaults | null | undefined): boolean {

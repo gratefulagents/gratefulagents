@@ -12158,10 +12158,11 @@ func (x *UpdateMyRoleModelPreferencesRequest) GetPreferences() []*RoleModelPrefe
 }
 
 // ModelDefaults contains the calling user's personal default provider, model,
-// and reasoning level. Creation surfaces use it to prefill new resources so
-// the user does not have to pick a model every time; every field stays
-// editable per resource. `disabled` keeps the saved values but stops applying
-// them automatically.
+// and reasoning level. Creation surfaces use it to prefill new projects,
+// triggers, and scan configs (not runs, which follow their project) so the
+// user does not have to pick a model every time; every field stays editable
+// per resource. `disabled` keeps the saved values but stops applying them
+// automatically.
 type ModelDefaults struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Provider string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`

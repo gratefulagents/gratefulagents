@@ -800,7 +800,8 @@ type PlatformServiceClient interface {
 	GetMyRoleModelPreferences(context.Context, *connect.Request[platform.GetMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	// Personal model defaults seed the provider/model/reasoning fields whenever
-	// the calling user creates a new resource (project, run, trigger, scan, …).
+	// the calling user creates a new project, trigger, or scan config. Runs are
+	// not seeded: they follow their project's settings.
 	GetMyModelDefaults(context.Context, *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
 	UpdateMyModelDefaults(context.Context, *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
 	// GetMyGitIdentity returns the calling user's git commit identity (empty
@@ -3862,7 +3863,8 @@ type PlatformServiceHandler interface {
 	GetMyRoleModelPreferences(context.Context, *connect.Request[platform.GetMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	// Personal model defaults seed the provider/model/reasoning fields whenever
-	// the calling user creates a new resource (project, run, trigger, scan, …).
+	// the calling user creates a new project, trigger, or scan config. Runs are
+	// not seeded: they follow their project's settings.
 	GetMyModelDefaults(context.Context, *connect.Request[platform.GetMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
 	UpdateMyModelDefaults(context.Context, *connect.Request[platform.UpdateMyModelDefaultsRequest]) (*connect.Response[platform.ModelDefaults], error)
 	// GetMyGitIdentity returns the calling user's git commit identity (empty

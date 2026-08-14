@@ -6477,10 +6477,11 @@ export const UpdateMyRoleModelPreferencesRequestSchema: GenMessage<UpdateMyRoleM
 
 /**
  * ModelDefaults contains the calling user's personal default provider, model,
- * and reasoning level. Creation surfaces use it to prefill new resources so
- * the user does not have to pick a model every time; every field stays
- * editable per resource. `disabled` keeps the saved values but stops applying
- * them automatically.
+ * and reasoning level. Creation surfaces use it to prefill new projects,
+ * triggers, and scan configs (not runs, which follow their project) so the
+ * user does not have to pick a model every time; every field stays editable
+ * per resource. `disabled` keeps the saved values but stops applying them
+ * automatically.
  *
  * @generated from message platform.v1.ModelDefaults
  */
@@ -21227,7 +21228,8 @@ export const PlatformService: GenService<{
   },
   /**
    * Personal model defaults seed the provider/model/reasoning fields whenever
-   * the calling user creates a new resource (project, run, trigger, scan, …).
+   * the calling user creates a new project, trigger, or scan config. Runs are
+   * not seeded: they follow their project's settings.
    *
    * @generated from rpc platform.v1.PlatformService.GetMyModelDefaults
    */

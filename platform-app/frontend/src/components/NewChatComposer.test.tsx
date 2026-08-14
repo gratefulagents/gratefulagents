@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Code, ConnectError } from "@connectrpc/connect";
 
@@ -40,7 +40,6 @@ vi.mock("@/lib/client", () => ({
     listProjects: vi.fn(),
     createProject: vi.fn(),
     createAgentRun: vi.fn(),
-    getMyModelDefaults: vi.fn(),
   },
 }));
 
@@ -53,12 +52,6 @@ afterEach(() => {
   watched.error = null;
   credentialHook.namespace = "alice-123";
   credentialHook.loading = false;
-});
-
-// clearAllMocks keeps implementations, so pin the default per test: no saved
-// model defaults unless a test overrides it.
-beforeEach(() => {
-  vi.mocked(client.getMyModelDefaults).mockRejectedValue(new Error("no defaults"));
 });
 
 describe("NewChatComposer", () => {
@@ -76,66 +69,12 @@ describe("NewChatComposer", () => {
       namespace: "team",
       userRequest: "Summarize our launch notes",
       model: "",
-      reasoningLevel: "",
       source: { kind: "Project", name: "briefs" },
       imageDataUrls: [],
       videoDataUrls: [],
     }));
     expect(client.createProject).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith("/runs/team/run-1");
-  });
-
-  it("submits saved model-default reasoning and provider-prefixes slash model IDs", async () => {
-    watched.projects = [{ namespace: "team", name: "briefs", displayName: "Briefs" }];
-    vi.mocked(client.getMyModelDefaults).mockResolvedValue({
-      provider: "openrouter",
-      model: "z-ai/glm-4.7",
-      reasoningLevel: "high",
-      disabled: false,
-    } as never);
-    vi.mocked(client.createAgentRun).mockResolvedValue({ namespace: "team", name: "run-2" } as never);
-
-    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
-    await waitFor(() => expect(client.getMyModelDefaults).toHaveBeenCalled());
-    await act(async () => {}); // flush the resolved defaults into state
-    fireEvent.change(screen.getByPlaceholderText("Describe a task, or ask anything…"), {
-      target: { value: "Use my defaults" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
-
-    await waitFor(() => expect(client.createAgentRun).toHaveBeenCalledWith({
-      namespace: "team",
-      userRequest: "Use my defaults",
-      model: "openrouter/z-ai/glm-4.7",
-      reasoningLevel: "high",
-      source: { kind: "Project", name: "briefs" },
-      imageDataUrls: [],
-      videoDataUrls: [],
-    }));
-  });
-
-  it("submits a reasoning-only model default without a model override", async () => {
-    watched.projects = [{ namespace: "team", name: "briefs", displayName: "Briefs" }];
-    vi.mocked(client.getMyModelDefaults).mockResolvedValue({
-      provider: "",
-      model: "",
-      reasoningLevel: "medium",
-      disabled: false,
-    } as never);
-    vi.mocked(client.createAgentRun).mockResolvedValue({ namespace: "team", name: "run-3" } as never);
-
-    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
-    await waitFor(() => expect(client.getMyModelDefaults).toHaveBeenCalled());
-    await act(async () => {}); // flush the resolved defaults into state
-    fireEvent.change(screen.getByPlaceholderText("Describe a task, or ask anything…"), {
-      target: { value: "Reasoning only" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
-
-    await waitFor(() => expect(client.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({
-      model: "",
-      reasoningLevel: "medium",
-    })));
   });
 
   it("starts an image-only chat from an attached file", async () => {
@@ -153,7 +92,6 @@ describe("NewChatComposer", () => {
       namespace: "team",
       userRequest: "",
       model: "",
-      reasoningLevel: "",
       source: { kind: "Project", name: "briefs" },
       imageDataUrls: ["data:image/png;base64,AQID"],
       videoDataUrls: [],
@@ -176,7 +114,6 @@ describe("NewChatComposer", () => {
       namespace: "team",
       userRequest: "",
       model: "",
-      reasoningLevel: "",
       source: { kind: "Project", name: "briefs" },
       imageDataUrls: [],
       videoDataUrls: ["data:video/mp4;base64,AQID"],
@@ -244,7 +181,6 @@ describe("NewChatComposer", () => {
       namespace: "alice-123",
       userRequest: "Draft a client update",
       model: "",
-      reasoningLevel: "",
       source: { kind: "Project", name: "personal-workspace" },
       imageDataUrls: [],
       videoDataUrls: [],

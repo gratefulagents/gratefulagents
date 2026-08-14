@@ -77,7 +77,7 @@ export function ModelDefaultsSection() {
     <SettingsSection
       icon={<SlidersHorizontal />}
       title="Default model"
-      description="Your personal default provider, model, and reasoning level. New projects, runs, chats, and scans start from these values; every form stays editable, so you can skip or override them anywhere."
+      description="Your personal default provider, model, and reasoning level. New projects, triggers, and scan configs start from these values; every form stays editable, so you can skip or override them anywhere. Runs are not affected: they keep following their project's settings."
     >
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
@@ -126,7 +126,7 @@ export function ModelDefaultsSection() {
 
       <Label className="flex w-fit cursor-pointer items-center gap-2 text-[12px] font-normal">
         <Switch checked={enabled} onCheckedChange={setEnabled} disabled={loading} />
-        Apply to new projects, runs, and scans
+        Apply to new projects, triggers, and scan configs
       </Label>
 
       <p className="text-[11px] text-muted-foreground" aria-live="polite">
@@ -163,7 +163,7 @@ export function ModelDefaultsSection() {
 }
 
 function savedLabel(updatedAt: Timestamp | undefined) {
-  if (!updatedAt) return "No default model saved; new resources start from the platform default.";
+  if (!updatedAt) return "No default model saved; new projects, triggers, and scan configs start from the platform default.";
   const millis = Number(updatedAt.seconds) * 1000;
   if (!Number.isFinite(millis) || millis <= 0) return "Saved.";
   return `Last saved ${new Date(millis).toLocaleString()}`;
