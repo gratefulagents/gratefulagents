@@ -1540,3 +1540,19 @@ func (h *PlatformServiceConnectHandler) ImportSecurityPack(ctx context.Context, 
 	}
 	return connect.NewResponse(resp), nil
 }
+
+func (h *PlatformServiceConnectHandler) ListBugReports(ctx context.Context, req *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error) {
+	resp, err := h.srv.ListBugReports(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) UpdateBugReportStatus(ctx context.Context, req *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error) {
+	resp, err := h.srv.UpdateBugReportStatus(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
