@@ -88,6 +88,28 @@ RUN GOBIN=/usr/local/bin go install github.com/bufbuild/buf/cmd/buf@v1.61.0 \
 RUN GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@latest \
     && /usr/local/bin/gopls version
 
+# ── Rust ─────────────────────────────────────────────────────────────────────
+ARG RUST_VERSION=1.97.1
+ARG RUSTUP_VERSION=1.28.2
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:${PATH}
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in \
+        amd64) RUSTUP_TARGET="x86_64-unknown-linux-gnu"; RUSTUP_SHA256="20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c" ;; \
+        arm64) RUSTUP_TARGET="aarch64-unknown-linux-gnu"; RUSTUP_SHA256="e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c" ;; \
+        *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
+    esac \
+    && curl --proto '=https' --tlsv1.2 -fsSL \
+        "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${RUSTUP_TARGET}/rustup-init" \
+        -o /tmp/rustup-init \
+    && echo "${RUSTUP_SHA256}  /tmp/rustup-init" | sha256sum -c - \
+    && chmod +x /tmp/rustup-init \
+    && /tmp/rustup-init -y --profile default --default-toolchain "$RUST_VERSION" \
+    && rm /tmp/rustup-init \
+    && rustc --version \
+    && cargo --version
+
 # ── Node.js + pnpm (for web/ frontend) ──────────────────────────────────────
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
@@ -133,6 +155,7 @@ ENV ELIXIR_ERL_OPTIONS="+fnu"
 RUN useradd -m -s /bin/bash -u 1100 worker \
     && mkdir -p /workspace \
     && chown worker:worker /workspace \
+    && chown -R worker:worker "$RUSTUP_HOME" "$CARGO_HOME" \
     && su worker -c "git config --global user.name 'gratefulagents[bot]' && git config --global user.email '292420648+gratefulagents[bot]@users.noreply.github.com'" \
     && su worker -c "mix local.hex --force && mix local.rebar --force && mix archive.install hex phx_new --force"
 
