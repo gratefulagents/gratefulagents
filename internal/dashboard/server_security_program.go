@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
@@ -51,15 +52,35 @@ func securityProgramSpecFromProto(pb *platform.SecurityProgramResource) (trigger
 		if baseBranch == "" {
 			baseBranch = "main"
 		}
+		provider := strings.ToLower(strings.TrimSpace(target.GetProvider()))
+		if provider == "" {
+			provider = triggersv1alpha1.ProviderOpenAI
+		}
+		authMode := strings.TrimSpace(target.GetAuthMode())
+		if authMode == "" {
+			authMode = string(platformv1alpha1.AgentRunAuthModeOAuth)
+		}
+		model := strings.TrimSpace(target.GetModel())
+		if model == "" {
+			model = "gpt-5.6-sol"
+		}
+		reasoningLevel := strings.TrimSpace(target.GetReasoningLevel())
+		if reasoningLevel == "" {
+			reasoningLevel = string(platformv1alpha1.ReasoningMax)
+		}
 		spec.ScanTarget = &triggersv1alpha1.SecurityProgramScanTarget{
-			RepositoryURL: strings.TrimSpace(target.GetRepositoryUrl()),
-			BaseBranch:    baseBranch,
-			WorkflowRef:   strings.TrimSpace(target.GetWorkflowRef()),
-			PolicyPackRef: strings.TrimSpace(target.GetPolicyPackRef()),
-			ScanName:      strings.TrimSpace(target.GetScanName()),
-			DisplayName:   strings.TrimSpace(target.GetDisplayName()),
-			Priority:      target.GetPriority(),
-			Featured:      target.GetFeatured(),
+			RepositoryURL:  strings.TrimSpace(target.GetRepositoryUrl()),
+			BaseBranch:     baseBranch,
+			WorkflowRef:    strings.TrimSpace(target.GetWorkflowRef()),
+			PolicyPackRef:  strings.TrimSpace(target.GetPolicyPackRef()),
+			ScanName:       strings.TrimSpace(target.GetScanName()),
+			DisplayName:    strings.TrimSpace(target.GetDisplayName()),
+			Priority:       target.GetPriority(),
+			Featured:       target.GetFeatured(),
+			Provider:       provider,
+			AuthMode:       platformv1alpha1.AgentRunAuthMode(authMode),
+			Model:          model,
+			ReasoningLevel: platformv1alpha1.ModeReasoningLevel(reasoningLevel),
 		}
 	}
 	if errs := triggersv1alpha1.ValidateSecurityProgramSpec(spec); len(errs) != 0 {
@@ -93,14 +114,18 @@ func securityProgramToProto(cr *triggersv1alpha1.SecurityProgram, referencing []
 	}
 	if target := cr.Spec.ScanTarget; target != nil {
 		pb.ScanTarget = &platform.SecurityProgramScanTarget{
-			RepositoryUrl: target.RepositoryURL,
-			BaseBranch:    target.BaseBranch,
-			WorkflowRef:   target.WorkflowRef,
-			PolicyPackRef: target.PolicyPackRef,
-			ScanName:      target.ScanName,
-			DisplayName:   target.DisplayName,
-			Priority:      target.Priority,
-			Featured:      target.Featured,
+			RepositoryUrl:  target.RepositoryURL,
+			BaseBranch:     target.BaseBranch,
+			WorkflowRef:    target.WorkflowRef,
+			PolicyPackRef:  target.PolicyPackRef,
+			ScanName:       target.ScanName,
+			DisplayName:    target.DisplayName,
+			Priority:       target.Priority,
+			Featured:       target.Featured,
+			Provider:       target.Provider,
+			AuthMode:       string(target.AuthMode),
+			Model:          target.Model,
+			ReasoningLevel: string(target.ReasoningLevel),
 		}
 	}
 	if ready := meta.FindStatusCondition(cr.Status.Conditions, triggersv1alpha1.ConditionSecurityLibraryReady); ready != nil {

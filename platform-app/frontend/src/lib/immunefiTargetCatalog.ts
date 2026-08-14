@@ -8,6 +8,10 @@ export type ImmunefiTarget = {
   workflowRef: string;
   policyPackRef: string;
   securityProgramRef: string;
+  provider: string;
+  authMode: string;
+  model: string;
+  reasoningLevel: string;
   priority: number;
 };
 
@@ -24,6 +28,10 @@ export function featuredImmunefiTargets(
       workflowRef: program.scanTarget!.workflowRef,
       policyPackRef: program.scanTarget!.policyPackRef,
       securityProgramRef: program.name,
+      provider: program.scanTarget!.provider || "openai",
+      authMode: program.scanTarget!.authMode || "oauth",
+      model: program.scanTarget!.model || "gpt-5.6-sol",
+      reasoningLevel: program.scanTarget!.reasoningLevel || "max",
       priority: program.scanTarget!.priority,
     }))
     .sort(

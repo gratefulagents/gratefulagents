@@ -12,6 +12,10 @@ spec:
     displayName: zkSync Era
     priority: 7
     featured: true
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: ZKsync
   programURL: https://immunefi.com/bug-bounty/zksyncera/scope/

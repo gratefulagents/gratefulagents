@@ -12,6 +12,10 @@ spec:
     displayName: Arbitrum token-bridge-contracts
     priority: 8
     featured: true
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: Arbitrum
   programURL: https://immunefi.com/bug-bounty/arbitrum/scope/

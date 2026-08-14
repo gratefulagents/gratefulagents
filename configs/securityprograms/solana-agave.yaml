@@ -12,6 +12,10 @@ spec:
     displayName: Agave validator
     priority: 21
     featured: false
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Solana Foundation
   displayName: Agave
   programURL: https://github.com/anza-xyz/agave/security

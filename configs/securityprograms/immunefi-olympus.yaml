@@ -12,6 +12,10 @@ spec:
     displayName: Olympus v3
     priority: 11
     featured: true
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: Olympus
   programURL: https://immunefi.com/bug-bounty/olympus/scope/

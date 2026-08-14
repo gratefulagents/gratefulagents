@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -86,6 +87,32 @@ func ValidateSecurityProgramSpec(spec SecurityProgramSpec) []SecurityWorkflowFie
 		}
 		if target.Priority < 0 {
 			add("scanTarget.priority", "must not be negative")
+		}
+		provider := strings.TrimSpace(target.Provider)
+		if provider != "" && !IsSupportedProvider(provider) {
+			add("scanTarget.provider", "must be a supported provider")
+		}
+		if target.AuthMode != "" {
+			effectiveProvider := provider
+			if effectiveProvider == "" {
+				effectiveProvider = ProviderOpenAI
+			}
+			if target.AuthMode != platformv1alpha1.AgentRunAuthModeAPIKey &&
+				target.AuthMode != platformv1alpha1.AgentRunAuthModeOAuth {
+				add("scanTarget.authMode", "must be api-key or oauth")
+			} else if err := ValidateProviderAuthMode(effectiveProvider, target.AuthMode); err != nil {
+				add("scanTarget.authMode", "%v", err)
+			}
+		}
+		if target.Model != "" && strings.TrimSpace(target.Model) == "" {
+			add("scanTarget.model", "must not be blank")
+		}
+		switch target.ReasoningLevel {
+		case "", platformv1alpha1.ReasoningNone, platformv1alpha1.ReasoningLow,
+			platformv1alpha1.ReasoningMedium, platformv1alpha1.ReasoningHigh,
+			platformv1alpha1.ReasoningXHigh, platformv1alpha1.ReasoningMax:
+		default:
+			add("scanTarget.reasoningLevel", "must be one of none, low, medium, high, xhigh, or max")
 		}
 	}
 	return errs

@@ -305,6 +305,12 @@ export function SecurityScanConfigList() {
                   minSeverity: "high",
                   parallelism: 4,
                   dedupe: { enabled: true },
+                  defaults: {
+                    provider: selectedImmunefiTarget.provider,
+                    authMode: selectedImmunefiTarget.authMode,
+                    model: selectedImmunefiTarget.model,
+                    reasoningLevel: selectedImmunefiTarget.reasoningLevel,
+                  },
                 },
               })}
               defaultOpen

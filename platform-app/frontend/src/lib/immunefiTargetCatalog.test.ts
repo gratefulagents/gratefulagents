@@ -5,7 +5,7 @@ import type { SecurityProgramResource } from "@/rpc/platform/service_pb";
 
 function program(
   name: string,
-  scanTarget: Omit<NonNullable<SecurityProgramResource["scanTarget"]>, "$typeName">,
+  scanTarget: Partial<Omit<NonNullable<SecurityProgramResource["scanTarget"]>, "$typeName">>,
 ): SecurityProgramResource {
   return { name, scanTarget: scanTarget as SecurityProgramResource["scanTarget"] } as SecurityProgramResource;
 }
@@ -52,6 +52,10 @@ describe("featuredImmunefiTargets", () => {
         baseBranch: "master",
         workflowRef: "workflow-first",
         policyPackRef: "policy-first",
+        provider: "anthropic",
+        authMode: "api-key",
+        model: "claude-opus-4-6",
+        reasoningLevel: "high",
       }),
     ]);
 
@@ -64,6 +68,10 @@ describe("featuredImmunefiTargets", () => {
         workflowRef: "workflow-first",
         policyPackRef: "policy-first",
         securityProgramRef: "program-first",
+        provider: "anthropic",
+        authMode: "api-key",
+        model: "claude-opus-4-6",
+        reasoningLevel: "high",
         priority: 5,
       },
       {
@@ -74,6 +82,10 @@ describe("featuredImmunefiTargets", () => {
         workflowRef: "workflow-alpha",
         policyPackRef: "policy-alpha",
         securityProgramRef: "program-alpha",
+        provider: "openai",
+        authMode: "oauth",
+        model: "gpt-5.6-sol",
+        reasoningLevel: "max",
         priority: 20,
       },
       {
@@ -84,6 +96,10 @@ describe("featuredImmunefiTargets", () => {
         workflowRef: "workflow-zebra",
         policyPackRef: "policy-zebra",
         securityProgramRef: "program-zebra",
+        provider: "openai",
+        authMode: "oauth",
+        model: "gpt-5.6-sol",
+        reasoningLevel: "max",
         priority: 20,
       },
     ]);

@@ -11,20 +11,25 @@ import (
 	"testing"
 	"time"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func validSecurityProgramSpec() SecurityProgramSpec {
 	return SecurityProgramSpec{
 		ScanTarget: &SecurityProgramScanTarget{
-			RepositoryURL: "https://github.com/acme/widget",
-			BaseBranch:    "main",
-			WorkflowRef:   "blockchain-protocol-audit",
-			PolicyPackRef: "bug-bounty",
-			ScanName:      "acme-bounty",
-			DisplayName:   "Acme",
-			Priority:      1,
-			Featured:      true,
+			RepositoryURL:  "https://github.com/acme/widget",
+			BaseBranch:     "main",
+			WorkflowRef:    "blockchain-protocol-audit",
+			PolicyPackRef:  "bug-bounty",
+			ScanName:       "acme-bounty",
+			DisplayName:    "Acme",
+			Priority:       1,
+			Featured:       true,
+			Provider:       ProviderOpenAI,
+			AuthMode:       platformv1alpha1.AgentRunAuthModeOAuth,
+			Model:          "gpt-5.6-sol",
+			ReasoningLevel: platformv1alpha1.ReasoningMax,
 		},
 		Provider:    "HackerOne",
 		DisplayName: "Acme Bug Bounty",
@@ -72,7 +77,11 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 		"target display name required": func(s *SecurityProgramSpec) {
 			s.ScanTarget.DisplayName = " "
 		},
-		"priority nonnegative": func(s *SecurityProgramSpec) { s.ScanTarget.Priority = -1 },
+		"priority nonnegative":         func(s *SecurityProgramSpec) { s.ScanTarget.Priority = -1 },
+		"unsupported target provider":  func(s *SecurityProgramSpec) { s.ScanTarget.Provider = "unknown" },
+		"unsupported target auth mode": func(s *SecurityProgramSpec) { s.ScanTarget.AuthMode = "password" },
+		"blank target model":           func(s *SecurityProgramSpec) { s.ScanTarget.Model = " " },
+		"unsupported target reasoning": func(s *SecurityProgramSpec) { s.ScanTarget.ReasoningLevel = "extreme" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := validSecurityProgramSpec()

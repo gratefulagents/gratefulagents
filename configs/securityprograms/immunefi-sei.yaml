@@ -12,6 +12,10 @@ spec:
     displayName: Sei Chain
     priority: 25
     featured: false
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: Sei
   programURL: https://immunefi.com/bug-bounty/sei/scope/

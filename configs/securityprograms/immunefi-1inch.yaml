@@ -12,6 +12,10 @@ spec:
     displayName: 1inch Limit Order Protocol
     priority: 21
     featured: false
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: 1inch Smart Contracts
   programURL: https://immunefi.com/bug-bounty/1inch-SmartContracts/scope/

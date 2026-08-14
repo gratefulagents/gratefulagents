@@ -12,6 +12,10 @@ spec:
     displayName: Prysm
     priority: 29
     featured: false
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Ethereum Foundation
   displayName: Prysm
   programURL: https://ethereum.org/en/bug-bounty/

@@ -12,6 +12,10 @@ spec:
     displayName: Chainlink CCIP
     priority: 5
     featured: true
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: Chainlink
   programURL: https://immunefi.com/bug-bounty/chainlink/scope/

@@ -12,6 +12,10 @@ spec:
     displayName: SSV
     priority: 19
     featured: true
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: SSV Network
   programURL: https://immunefi.com/bug-bounty/ssvnetwork/scope/

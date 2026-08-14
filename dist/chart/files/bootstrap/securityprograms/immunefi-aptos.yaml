@@ -12,6 +12,10 @@ spec:
     displayName: Aptos
     priority: 14
     featured: false
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: Aptos
   programURL: https://immunefi.com/bug-bounty/aptos/scope/

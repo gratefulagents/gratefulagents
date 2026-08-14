@@ -76,6 +76,13 @@ spec:
                 description: scanTarget optionally describes a suggested SecurityScan
                   configuration.
                 properties:
+                  authMode:
+                    default: oauth
+                    description: authMode is the suggested provider credential mode.
+                    enum:
+                    - api-key
+                    - oauth
+                    type: string
                   baseBranch:
                     description: |-
                       baseBranch is the repository's verified default branch used by imported
@@ -91,6 +98,11 @@ spec:
                   featured:
                     description: featured includes the target in featured target catalogs.
                     type: boolean
+                  model:
+                    default: gpt-5.6-sol
+                    description: model is the suggested main-agent model.
+                    minLength: 1
+                    type: string
                   policyPackRef:
                     description: policyPackRef names the SecurityPolicyPack to use.
                     maxLength: 253
@@ -103,6 +115,31 @@ spec:
                     format: int32
                     minimum: 0
                     type: integer
+                  provider:
+                    default: openai
+                    description: provider is the model provider suggested for imported
+                      SecurityScans.
+                    enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - openrouter
+                    - groq
+                    - xai
+                    - copilot
+                    type: string
+                  reasoningLevel:
+                    default: max
+                    description: reasoningLevel is the suggested main-agent reasoning
+                      effort.
+                    enum:
+                    - none
+                    - low
+                    - medium
+                    - high
+                    - xhigh
+                    - max
+                    type: string
                   repositoryURL:
                     description: repositoryURL is the HTTPS URL of the repository
                       to scan.

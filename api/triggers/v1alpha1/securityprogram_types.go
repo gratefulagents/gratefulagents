@@ -6,7 +6,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 const (
 	MaxSecurityProgramProviderLength    = 100
@@ -60,6 +63,28 @@ type SecurityProgramScanTarget struct {
 
 	// featured includes the target in featured target catalogs.
 	Featured bool `json:"featured"`
+
+	// provider is the model provider suggested for imported SecurityScans.
+	// +kubebuilder:default=openai
+	// +kubebuilder:validation:Enum=anthropic;openai;gemini;openrouter;groq;xai;copilot
+	// +optional
+	Provider string `json:"provider,omitempty"`
+
+	// authMode is the suggested provider credential mode.
+	// +kubebuilder:default=oauth
+	// +optional
+	AuthMode platformv1alpha1.AgentRunAuthMode `json:"authMode,omitempty"`
+
+	// model is the suggested main-agent model.
+	// +kubebuilder:default="gpt-5.6-sol"
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Model string `json:"model,omitempty"`
+
+	// reasoningLevel is the suggested main-agent reasoning effort.
+	// +kubebuilder:default=max
+	// +optional
+	ReasoningLevel platformv1alpha1.ModeReasoningLevel `json:"reasoningLevel,omitempty"`
 }
 
 // SecurityProgramSpec is an operator-verified snapshot of a vulnerability

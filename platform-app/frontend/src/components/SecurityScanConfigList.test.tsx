@@ -54,6 +54,10 @@ vi.mock("@/components/SecurityScanFormDialog", () => ({
       data-policy-pack-ref={initialConfig?.spec?.policyPackRef}
       data-program-ref={initialConfig?.spec?.securityProgramRef}
       data-base-branch={initialConfig?.spec?.baseBranch}
+      data-provider={initialConfig?.spec?.defaults?.provider}
+      data-auth-mode={initialConfig?.spec?.defaults?.authMode}
+      data-model={initialConfig?.spec?.defaults?.model}
+      data-reasoning-level={initialConfig?.spec?.defaults?.reasoningLevel}
     >
       {trigger}
     </div>
@@ -169,6 +173,10 @@ describe("SecurityScanConfigList", () => {
     expect(seed.getAttribute("data-workflow-ref")).toBe("custom-workflow");
     expect(seed.getAttribute("data-policy-pack-ref")).toBe("bug-bounty");
     expect(seed.getAttribute("data-program-ref")).toBe("custom-program");
+    expect(seed.getAttribute("data-provider")).toBe("openai");
+    expect(seed.getAttribute("data-auth-mode")).toBe("oauth");
+    expect(seed.getAttribute("data-model")).toBe("gpt-5.6-sol");
+    expect(seed.getAttribute("data-reasoning-level")).toBe("max");
     expect(createSecurityScan).not.toHaveBeenCalled();
   });
 

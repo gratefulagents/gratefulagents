@@ -27,14 +27,18 @@ func testSecurityProgramResource(namespace string) *platform.SecurityProgramReso
 		ScopePolicy: "Only acme/widget production code is in scope.",
 		VerifiedAt:  timestamppb.New(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)),
 		ScanTarget: &platform.SecurityProgramScanTarget{
-			RepositoryUrl: "https://github.com/acme/widget",
-			BaseBranch:    "main",
-			WorkflowRef:   "blockchain-protocol-audit",
-			PolicyPackRef: "bug-bounty",
-			ScanName:      "acme-bounty",
-			DisplayName:   "Acme",
-			Priority:      3,
-			Featured:      true,
+			RepositoryUrl:  "https://github.com/acme/widget",
+			BaseBranch:     "main",
+			WorkflowRef:    "blockchain-protocol-audit",
+			PolicyPackRef:  "bug-bounty",
+			ScanName:       "acme-bounty",
+			DisplayName:    "Acme",
+			Priority:       3,
+			Featured:       true,
+			Provider:       "anthropic",
+			AuthMode:       "oauth",
+			Model:          "claude-opus-4-6",
+			ReasoningLevel: "high",
 		},
 	}
 }
@@ -56,7 +60,9 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	if created.ScanTarget == nil || created.ScanTarget.RepositoryUrl != "https://github.com/acme/widget" || created.ScanTarget.BaseBranch != "main" ||
 		created.ScanTarget.WorkflowRef != "blockchain-protocol-audit" || created.ScanTarget.PolicyPackRef != "bug-bounty" ||
 		created.ScanTarget.ScanName != "acme-bounty" || created.ScanTarget.DisplayName != "Acme" ||
-		created.ScanTarget.Priority != 3 || !created.ScanTarget.Featured {
+		created.ScanTarget.Priority != 3 || !created.ScanTarget.Featured || created.ScanTarget.Provider != "anthropic" ||
+		created.ScanTarget.AuthMode != "oauth" || created.ScanTarget.Model != "claude-opus-4-6" ||
+		created.ScanTarget.ReasoningLevel != "high" {
 		t.Fatalf("created scan target = %+v", created.ScanTarget)
 	}
 	owner, err := ms.GetResourceOwner(context.Background(), securityProgramResourceType, created.Name, created.Namespace)
@@ -71,7 +77,9 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 		t.Fatalf("spec = %+v", cr.Spec)
 	}
 	if cr.Spec.ScanTarget == nil || cr.Spec.ScanTarget.RepositoryURL != "https://github.com/acme/widget" || cr.Spec.ScanTarget.BaseBranch != "main" ||
-		cr.Spec.ScanTarget.Priority != 3 || !cr.Spec.ScanTarget.Featured {
+		cr.Spec.ScanTarget.Priority != 3 || !cr.Spec.ScanTarget.Featured || cr.Spec.ScanTarget.Provider != "anthropic" ||
+		cr.Spec.ScanTarget.AuthMode != "oauth" || cr.Spec.ScanTarget.Model != "claude-opus-4-6" ||
+		cr.Spec.ScanTarget.ReasoningLevel != "high" {
 		t.Fatalf("stored scan target = %+v", cr.Spec.ScanTarget)
 	}
 
@@ -121,13 +129,34 @@ func TestSecurityProgramLegacyScanTargetDefaultsToMain(t *testing.T) {
 	srv, _ := newCronTestServer(t)
 	resource := testSecurityProgramResource("")
 	resource.ScanTarget.BaseBranch = ""
+	resource.ScanTarget.Provider = ""
+	resource.ScanTarget.AuthMode = ""
+	resource.ScanTarget.Model = ""
+	resource.ScanTarget.ReasoningLevel = ""
 
 	created, err := srv.CreateSecurityProgram(projectActorCtx(), &platform.CreateSecurityProgramRequest{Program: resource})
 	if err != nil {
 		t.Fatalf("CreateSecurityProgram() error = %v", err)
 	}
-	if created.ScanTarget == nil || created.ScanTarget.BaseBranch != "main" {
-		t.Fatalf("scan target = %+v, want base branch main", created.ScanTarget)
+	if created.ScanTarget == nil || created.ScanTarget.BaseBranch != "main" || created.ScanTarget.Provider != "openai" ||
+		created.ScanTarget.AuthMode != "oauth" || created.ScanTarget.Model != "gpt-5.6-sol" ||
+		created.ScanTarget.ReasoningLevel != "max" {
+		t.Fatalf("scan target = %+v, want legacy defaults", created.ScanTarget)
+	}
+}
+
+func TestSecurityProgramScanTargetDefaultsAreProviderIndependent(t *testing.T) {
+	srv, _ := newCronTestServer(t)
+	resource := testSecurityProgramResource("")
+	resource.ScanTarget.Provider = "Anthropic"
+	resource.ScanTarget.Model = ""
+
+	created, err := srv.CreateSecurityProgram(projectActorCtx(), &platform.CreateSecurityProgramRequest{Program: resource})
+	if err != nil {
+		t.Fatalf("CreateSecurityProgram() error = %v", err)
+	}
+	if created.ScanTarget == nil || created.ScanTarget.Provider != "anthropic" || created.ScanTarget.Model != "gpt-5.6-sol" {
+		t.Fatalf("scan target = %+v, want canonical provider and fixed catalog model default", created.ScanTarget)
 	}
 }
 

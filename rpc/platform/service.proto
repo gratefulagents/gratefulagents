@@ -5351,4 +5351,8 @@ message SecurityProgramScanTarget {
   int32 priority = 6;
   bool featured = 7;
   string base_branch = 8;
+  string provider = 9;
+  string auth_mode = 10;
+  string model = 11;
+  string reasoning_level = 12;
 }

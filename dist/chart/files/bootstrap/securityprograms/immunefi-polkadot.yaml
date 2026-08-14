@@ -12,6 +12,10 @@ spec:
     displayName: Polkadot SDK
     priority: 15
     featured: false
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: Polkadot
   programURL: https://immunefi.com/bug-bounty/polkadot/scope/

@@ -12,6 +12,10 @@ spec:
     displayName: Reth
     priority: 27
     featured: false
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Ethereum Foundation
   displayName: Reth
   programURL: https://ethereum.org/en/bug-bounty/

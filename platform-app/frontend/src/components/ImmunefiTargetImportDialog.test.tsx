@@ -11,7 +11,7 @@ afterEach(() => {
 
 function program(
   name: string,
-  scanTarget: Omit<NonNullable<SecurityProgramResource["scanTarget"]>, "$typeName">,
+  scanTarget: Partial<Omit<NonNullable<SecurityProgramResource["scanTarget"]>, "$typeName">>,
 ): SecurityProgramResource {
   return { name, scanTarget: scanTarget as SecurityProgramResource["scanTarget"] } as SecurityProgramResource;
 }

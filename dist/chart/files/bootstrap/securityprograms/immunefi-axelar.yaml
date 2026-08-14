@@ -12,6 +12,10 @@ spec:
     displayName: Axelar GMP SDK Solidity
     priority: 12
     featured: true
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: Axelar
   programURL: https://immunefi.com/bug-bounty/axelarnetwork/scope/

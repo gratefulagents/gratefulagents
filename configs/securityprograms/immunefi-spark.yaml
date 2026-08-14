@@ -12,6 +12,10 @@ spec:
     displayName: Spark ALM controller
     priority: 4
     featured: true
+    provider: openai
+    authMode: oauth
+    model: gpt-5.6-sol
+    reasoningLevel: max
   provider: Immunefi
   displayName: Spark
   programURL: https://immunefi.com/bug-bounty/sparklend/scope/
