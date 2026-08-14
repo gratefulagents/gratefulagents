@@ -436,7 +436,15 @@ spec:
       objective: >-
         Audit the full call graph from {{tasks.map-architecture-assets-roles-entrypoints.output}} against
         {{tasks.define-security-invariants.output}} and the reviewed build context in
-        {{tasks.reproducible-build-artifact-deployment-review.output}}. Enumerate call, delegatecall,
+        {{tasks.reproducible-build-artifact-deployment-review.output}}. The invariant is that state effects
+        are committed before control leaves the contract and that accounting is conserved across every
+        callback. Templated reentrancy and flash-loan oracle patterns stay AVAILABLE here but sit off the
+        default bounty path: reentrancy plus flash-loan oracle manipulation is now under one percent of
+        disclosed DeFi losses and is already swept by bots, and bot-findable means unpayable — Code4rena
+        rules Zellic V12 bot findings and their duplicates ineligible and Cantina does the same with
+        LightChaser. Spend the budget first on the payout-ordered classes owned by the deployment,
+        authorization and accounting hunters, then return here for the bespoke sequences no bot templates.
+        Enumerate call, delegatecall,
         staticcall, ETH sends, token/NFT transfers, hooks, flash-loan callbacks, routers, settlement callbacks,
         multicalls, fallback/receive, and user-selected callees. Hunt single-function, cross-function,
         cross-contract, callback, initialization, and read-only reentrancy; stale-state observations;
@@ -460,6 +468,16 @@ spec:
         - name: trail-of-bits-secure-workflow-guide
         - name: evm-low-level-and-deployment-review
       objective: >-
+        Payout-ordered priorities 2, 4 and 7 are owned here. Priority 2, cross-chain proof and identity
+        binding: the invariant is that a proof is accepted only from the producer allowed to have produced
+        it and that a relayed call arrives with the caller identity the guard believes it has — check
+        emitter, chain id and nonce binding, relayer and forwarder identity, and what msg.sender becomes
+        after relaying through a forwarder, multicall, router or paymaster (Aurora, $1M). Priority 4,
+        encoding and decoding round trips and replay: the invariant is that decode after encode is the
+        identity and that one identifier has exactly one encoding — hunt two encodings colliding on one
+        identifier, signature malleability, and missing nonce or domain separation (Polygon Plasma, $2M).
+        Priority 7, access control: the invariant is the role and permission matrix stating who may call
+        what, published as an inventory with every cell either proven or recorded as a gap.
         Audit every caller/guard and role in {{tasks.map-architecture-assets-roles-entrypoints.output}} against
         {{tasks.define-security-invariants.output}} and deployment context in
         {{tasks.inventory-scope-repositories-deployments.output}}. Cover missing/misapplied access checks;
@@ -487,6 +505,17 @@ spec:
         - name: trail-of-bits-property-based-testing
         - name: evm-economic-and-mev-review
       objective: >-
+        Payout-ordered priorities 5 and 6 are owned here. Priority 5, missing balance and state validation,
+        the most frequently confirmed root cause in Immunefi's disclosed set: the invariant is that every
+        state-changing path checks the balance, allowance, bound or existence it depends on before it acts.
+        Priority 6, accounting, rounding, precision and decimals: the invariant is that share-to-asset
+        conversion round-trips within a stated bound and that every amount is scaled by the decimals the
+        token actually reports rather than an assumed 18, so build the decimals matrix explicitly over
+        non-18-decimal tokens and hunt division before multiplication (DFX; Moonbeam, Astar and Acala,
+        $1M). Real decimals, share prices and balances are deployed state that only the chain-read pack can
+        settle, and it needs an operator-authorized fork endpoint alias: with no alias authorized, record
+        the missing authorization as an explicit gap with status inconclusive, and never assume a decimals
+        value you could not read.
         Test the accounting properties in {{tasks.define-security-invariants.output}} over every value-moving
         entry point and dependency in {{tasks.map-architecture-assets-roles-entrypoints.output}}. Hunt
         overflow/underflow in unchecked or assembly code; narrowing and signed casts; decimal/unit mismatch;
@@ -502,7 +531,7 @@ spec:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"unavailable_dependency":{"type":"string","description":"Tool or authorization missing for a deployed-state check, such as an unauthorized fork endpoint alias for chain-read"},"summary":{"type":"string"}}}}
 
     - name: governance-liquidations-auctions-and-mev
       role: vulnerability-hunter
@@ -541,7 +570,12 @@ spec:
       objective: >-
         Audit external values and temporal/order assumptions from
         {{tasks.map-architecture-assets-roles-entrypoints.output}} against
-        {{tasks.define-security-invariants.output}}. Cover AMM spot/reserve/balance/share prices, TWAP and
+        {{tasks.define-security-invariants.output}}. The invariant is that a consumed price or random value
+        cannot be moved within the window the consumer trusts it. Templated flash-loan oracle manipulation
+        stays AVAILABLE but is off the default bounty path: bots sweep the templated spot-price and
+        single-source patterns, and bot-findable means unpayable on the contest platforms, so favour the
+        composition, freshness, decimals and fallback cases no bot templates. Cover AMM
+        spot/reserve/balance/share prices, TWAP and
         multi-source composition, Chainlink-like freshness/round/deviation/sequencer checks, decimals and
         inverse pairs, manipulation cost, flash loans, donations, oracle latency and fallback behavior.
         Review timestamp and block-number dependence, L2 time semantics, prevrandao/blockhash use,
@@ -589,6 +623,20 @@ spec:
         - name: trail-of-bits-guidelines-advisor
         - name: trail-of-bits-secure-workflow-guide
       objective: >-
+        Payout-ordered priority 1 is owned here: initialization and upgrade state on the DEPLOYED
+        implementation. The invariant is that every implementation behind a proxy is already initialized,
+        owns nothing, and is reachable only through its proxy — hunt uninitialized implementations,
+        initializer re-entry across upgrades, ownership held on the implementation itself, and
+        implementation/admin slot confusion (Wormhole, $10M). These are properties of deployed state, not
+        of source: the chain-read pack reads the EIP-1967 implementation, admin and beacon slots and the
+        owner and role holders, and deployed-bytecode-diff proves the compiled artifact is the code running
+        at the address; both need an operator-authorized fork endpoint alias, so with no alias authorized
+        return unsupported for the deployed-state checks, name the missing authorization in the evidence,
+        and never assume a slot value you could not read. Payout-ordered priority 3 also lands here when
+        this codebase is a fork of an upstream protocol, client or L2: name upstream-fork-diff, enumerate
+        every divergence against the upstream revision, and check each one against the invariant the
+        upstream code used to satisfy — it is the cheapest enumerable high-payout sweep we have (Optimism
+        l2geth, $2,000,042).
         Apply the low-level/deployment specialist skill to the build evidence in
         {{tasks.reproducible-build-artifact-deployment-review.output}}, deployments in
         {{tasks.inventory-scope-repositories-deployments.output}}, architecture in
@@ -608,7 +656,7 @@ spec:
         - define-security-invariants
         - reproducible-build-artifact-deployment-review
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"unavailable_dependency":{"type":"string","description":"Tool or authorization missing for a deployed-state check, such as an unauthorized fork endpoint alias for chain-read or deployed-bytecode-diff"},"summary":{"type":"string"}}}}
 
     - name: bounded-halmos-symbolic-tests
       role: test-engineer

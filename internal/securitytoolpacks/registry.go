@@ -94,6 +94,9 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		"go-fuzz-tests": {
 			"go_fuzz_project": "application/vnd.gratefulagents.go-fuzz-project.v1+directory",
 		},
+		"cargo-fuzz": {
+			"rust_fuzz_project": "application/vnd.gratefulagents.rust-fuzz-project.v1+directory",
+		},
 		"aderyn": {
 			"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
 		},
@@ -137,7 +140,7 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 	if cfg.Target.Revision == "" || !digestPattern.MatchString(cfg.Target.Digest) {
 		return Invocation{}, Tool{}, fmt.Errorf("target revision and immutable sha256 digest are required")
 	}
-	unscopedBuildEgress := IsEVMBuildTool(t.Name)
+	unscopedBuildEgress := IsStagedBuildTool(t.Name)
 	if t.Requirements.Network && !unscopedBuildEgress && len(cfg.Scope) == 0 {
 		return Invocation{}, Tool{}, fmt.Errorf("tool %s requires explicit target scope", t.Name)
 	}
@@ -167,6 +170,18 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 	for _, a := range t.Arguments {
 		known[a.Name] = a
 	}
+	// A declared default is registry data, so an omitted optional argument
+	// still resolves to a reviewed value and the recorded configuration
+	// states what actually ran instead of leaving it implicit in argv.
+	for _, a := range t.Arguments {
+		if a.Default == "" || cfg.Arguments[a.Name] != "" {
+			continue
+		}
+		if cfg.Arguments == nil {
+			cfg.Arguments = map[string]string{}
+		}
+		cfg.Arguments[a.Name] = a.Default
+	}
 	for k, v := range cfg.Arguments {
 		a, ok := known[k]
 		if !ok {
@@ -186,6 +201,14 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		}
 		if !regexp.MustCompile(`^\^Fuzz[A-Za-z0-9_]+\$$`).MatchString(fuzz) {
 			return Invocation{}, Tool{}, fmt.Errorf("argument %q must select exactly one named Go fuzz target", "fuzz")
+		}
+		if _, err := ParseFuzzCampaign(cfg.Arguments["fuzztime"]); err != nil {
+			return Invocation{}, Tool{}, err
+		}
+	}
+	if t.Name == "cargo-fuzz" {
+		if err := validateRustFuzzArguments(cfg); err != nil {
+			return Invocation{}, Tool{}, err
 		}
 	}
 	if rateValue := cfg.Arguments["rate"]; rateValue != "" {
@@ -235,6 +258,16 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 			values[a.Name] = v
 		}
 	}
+	if t.Name == "cargo-fuzz" {
+		// libFuzzer takes seconds; the typed argument stays a duration so it
+		// reads and validates like every other campaign length.
+		campaign, err := ParseFuzzCampaign(cfg.Arguments["max_total_time"])
+		if err != nil {
+			return Invocation{}, Tool{}, err
+		}
+		keys = append(keys, "max_total_time_seconds")
+		values["max_total_time_seconds"] = strconv.Itoa(int(campaign.Seconds()))
+	}
 	if cfg.Seed != nil {
 		keys = append(keys, "seed")
 		values["seed"] = strconv.FormatInt(*cfg.Seed, 10)
@@ -251,15 +284,35 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 			return Invocation{}, Tool{}, fmt.Errorf("unresolved invocation token %q", argv[i])
 		}
 	}
-	return Invocation{Image: t.Image, Digest: t.ImageDigest, Argv: argv, Budgets: t.Budgets, Network: t.Requirements.Network, Privilege: t.Requirements.Privilege}, t, nil
+	budgets := t.Budgets
+	if t.Name == "cargo-fuzz" {
+		campaign, err := ParseFuzzCampaign(cfg.Arguments["max_total_time"])
+		if err != nil {
+			return Invocation{}, Tool{}, err
+		}
+		// Rust fuzz targets are compiled before they run, so the campaign
+		// budget carries a build allowance on top of the fuzzing itself.
+		budgets = fuzzCampaignBudget(budgets, campaign+rustFuzzBuildAllowance)
+	}
+	if t.Name == "go-fuzz-tests" {
+		// The deadline follows the campaign the run asked for; a fixed budget
+		// would truncate a long campaign and misreport it as a timeout.
+		campaign, err := ParseFuzzCampaign(cfg.Arguments["fuzztime"])
+		if err != nil {
+			return Invocation{}, Tool{}, err
+		}
+		budgets = fuzzCampaignBudget(budgets, campaign)
+	}
+	return Invocation{Image: t.Image, Digest: t.ImageDigest, Argv: argv, Budgets: budgets, Network: t.Requirements.Network, Privilege: t.Requirements.Privilege}, t, nil
 }
 
-// IsEVMBuildTool reports whether a tool operates only on staged EVM project
-// content but may use outbound access to resolve compilers and dependencies,
-// or — for the fork packs — the operator-authorized fork endpoint. In neither
-// case is there a model-chosen remote target to compare with a scope list.
-func IsEVMBuildTool(name string) bool {
-	return slices.Contains([]string{"slither", "forge-security-tests", "echidna", "halmos"}, name) ||
+// IsStagedBuildTool reports whether a tool operates only on staged project
+// content but may use outbound access to resolve compilers, toolchains and
+// dependencies, or — for the fork and chain-state packs — the
+// operator-authorized endpoint. In neither case is there a model-chosen remote
+// target to compare with a scope list: the target is content this run staged.
+func IsStagedBuildTool(name string) bool {
+	return slices.Contains([]string{"slither", "forge-security-tests", "echidna", "halmos", "cargo-fuzz"}, name) ||
 		slices.Contains(evmVerificationPacks, name)
 }
 
@@ -687,6 +740,11 @@ func validateArg(a Argument, value string) error {
 		if !evmBlockHashPattern.MatchString(value) {
 			return fmt.Errorf("argument %q must be a 0x-prefixed lowercase 32-byte block hash", a.Name)
 		}
+	case "duration":
+		parsed, err := time.ParseDuration(value)
+		if err != nil || parsed <= 0 {
+			return fmt.Errorf("argument %q must be a positive Go duration such as 2m", a.Name)
+		}
 	case "evm_address":
 		if !evmAddressPattern.MatchString(value) {
 			return fmt.Errorf("argument %q must be a 0x-prefixed lowercase 20-byte address", a.Name)
@@ -793,7 +851,11 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("slither", DomainBlockchain, "0.11.3", "slither-json", "application/json", []string{"solidity_project"}, []string{"slither", "{{target}}", "--solc", "/home/ethsec/.local/bin/solc", "--json", "/work/slither.json"}),
 		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
 		base("halmos", DomainBlockchain, "0.3.3", "halmos-json", "application/json", []string{"foundry_project"}, []string{"halmos", "--root", "{{target}}", "--solver", "z3", "--loop", "2", "--width", "64", "--depth", "128", "--json-output", "/work/halmos.json"}),
-		base("go-fuzz-tests", DomainBlockchain, "go1.26", "go-test-json", "application/x-ndjson", []string{"go_fuzz_project"}, []string{"go", "-C", "{{target}}", "test", "-json", "{{package}}", "-run=^$", "-fuzz", "{{fuzz}}", "-fuzztime=30s", "-parallel=1"}),
+		// cargo-fuzz runs the maintainers' own fuzz/fuzz_targets. Nothing in
+		// argv can name a harness we wrote: the target is a validated upstream
+		// target name and the campaign length is bounded.
+		base("cargo-fuzz", DomainBlockchain, rustFuzzToolVersion, "rust-fuzz-json", "application/json", []string{"rust_fuzz_project"}, []string{"cargo", "+" + rustFuzzNightly, "fuzz", "run", "--fuzz-dir", "{{target}}/fuzz", "{{fuzz_target}}", "--", "-max_total_time={{max_total_time_seconds}}", "-seed={{seed}}", "-rss_limit_mb=2048", "-error_exitcode=" + rustFuzzCrashExitCode + "", "-print_final_stats=1"}),
+		base("go-fuzz-tests", DomainBlockchain, "go1.26", "go-test-json", "application/x-ndjson", []string{"go_fuzz_project"}, []string{"go", "-C", "{{target}}", "test", "-json", "{{package}}", "-run=^$", "-fuzz", "{{fuzz}}", "-fuzztime={{fuzztime}}", "-parallel=1"}),
 		// EVM verification packs. The fork endpoint is never a model-supplied
 		// string: argv carries an operator-authorized alias token that the
 		// execution layer resolves, and the forked chain state is pinned by
@@ -814,12 +876,12 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("chain-read", DomainBlockchain, "1.0.0", "chain-read-json", "application/json", []string{"foundry_project"}, []string{"ga-chain-read", chainReadEndpointFlag, operatorForkEndpointToken + "{{fork_endpoint}}", "--chain-id", "{{chain_id}}", "--block-number", "{{fork_block_number}}", "--block-hash", "{{fork_block_hash}}", "--addresses", "{{addresses}}"}),
 		base("deployed-bytecode-diff", DomainBlockchain, "1.0.0", "bytecode-diff-json", "application/json", []string{"foundry_project"}, []string{"ga-deployed-bytecode-diff", chainReadEndpointFlag, operatorForkEndpointToken + "{{fork_endpoint}}", "--chain-id", "{{chain_id}}", "--block-number", "{{fork_block_number}}", "--block-hash", "{{fork_block_hash}}", "--address", "{{address}}", "--artifact", "{{artifact}}", "--root", "{{target}}"}),
 	}
-	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu", "slither", "forge-security-tests", "echidna", "halmos", "anvil-fork", "forge-fork-test", "medusa", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff"}
+	liveNetwork := []string{"playwright", "owasp-zap", "schemathesis", "restler", "mitmproxy", "nuclei", "tlsfuzzer", "sslyze", "testssl", "nmap", "boofuzz", "naabu", "slither", "forge-security-tests", "echidna", "halmos", "anvil-fork", "forge-fork-test", "medusa", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff", "cargo-fuzz"}
 	stateful := []string{"playwright", "owasp-zap", "restler", "mitmproxy", "authorization-matrix", "boofuzz", "medusa"}
-	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna", "forge-fork-test", "forge-coverage-mutation"}
+	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna", "forge-fork-test", "forge-coverage-mutation", "cargo-fuzz"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff", "cargo-fuzz"}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
 	// A pack that cannot be packaged for every supported architecture stays
 	// catalog-only, and its reason names the exact missing capability so the
@@ -836,65 +898,15 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		"suricata":      {"docker.io/jasonish/suricata", "sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a", "sha256:559a07fcccae439ffdabd05a4969e1feb74cc43f88ea456cc544a20b9b148123", "sha256:6a0b4d02f9174a74e52c904bbd10d344d024bbebc86283866f92096c09be31b0", "suricata", "/usr/bin/suricata", "/work/eve.json"},
 		"slither":       {"ghcr.io/trailofbits/eth-security-toolbox", "sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978", "sha256:28ce0f9b27312f6ed1137495aef70744dc2d6ff8e6d5c9147ec9e31a63ff86a8", "sha256:98b90a826a996507e6b1015a7850b2e8de30a3d80f4ec7deaddbf00e050d5152", "slither", "/home/ethsec/.local/bin/slither", "/work/slither.json"},
 		"halmos":        {"docker.io/library/python:3.11-slim-bookworm", "sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3", "sha256:77923445c077d8eb971b14b2b114a1d9cd4a87edb4c75654820ca4832ee8cb15", "sha256:ecb0ac954790dd64a0d518d699b9c61a91780c42b0d877c802dbaffd04db66f9", "halmos", "/opt/halmos/bin/halmos", "/work/halmos.json"},
+		"cargo-fuzz":    {"docker.io/library/rust:1.91-bookworm", "sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33", "sha256:8322627e69ba7780b54f39e9f4d3758c006a3ae0123ea01d63b91f0626169891", "sha256:20262682d0201e219012287e8c1e6a7a14b6ebd46bb2b280714f23c06678c285", "cargo-fuzz", "/usr/local/cargo/bin/cargo", ""},
 		"go-fuzz-tests": {"docker.io/library/golang:1.26", "sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365", "sha256:c05f28d5148bc5c4b60ab5c002291e830b7e835922d23875152b3af5951cecea", "sha256:b11b8c1efa832e8b83ecba5bab41b496edd3fdf6ecdae89dada36831cb51a5b7", "go-fuzz-tests", "/usr/local/go/bin/go", ""},
 	}
 	for i := range tools {
 		if digest := lockedToolArtifactDigest(tools[i].Name, runtime.GOARCH); digest != "" {
 			tools[i].ToolArtifactDigest = digest
 		}
-		if oci, ok := ociTools[tools[i].Name]; ok {
-			tools[i].Image = oci.image + "@" + oci.digest
-			tools[i].ImageDigest = oci.digest
-			tools[i].ToolArtifactDigest = oci.digest
-			if tools[i].Name == "halmos" {
-				tools[i].ToolArtifactDigest = "sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f"
-			}
-			tools[i].PlatformDigests = map[string]string{"amd64": oci.amd64, "arm64": oci.arm64}
-			if tools[i].Name == "halmos" {
-				tools[i].PlatformDigests = map[string]string{
-					"amd64": "sha256:a80b8016e9a409a38d54ff300af5aa37cbb0ae281faaa37afab7fa6a63c87340",
-					"arm64": "sha256:32bb55c125446b2aa95ac8bb3968701ee05b740ea0c06ccdd5b73e081d5bce98",
-				}
-			}
-			tools[i].OCIRoot = oci.root
-			tools[i].OCIExecutable = oci.executable
-			tools[i].OCIOutputPath = oci.output
-			tools[i].ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
-			if tools[i].Name == "schemathesis" || tools[i].Name == "halmos" || tools[i].Name == "go-fuzz-tests" {
-				tools[i].ExitCodes[1] = StatusFindings
-			}
-			if tools[i].Name == "slither" {
-				tools[i].ExitCodes[255] = StatusFindings
-			}
-			if tools[i].Name == "zeek" || tools[i].Name == "suricata" {
-				tools[i].KnowledgeDigests = map[string]string{"embedded": oci.digest}
-			}
-		}
-		switch tools[i].Name {
-		case "nuclei":
-			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}}
-		case "owasp-zap", "schemathesis":
-			tools[i].Arguments = []Argument{{Name: "base_url", Type: "url", Required: true}}
-		case "go-fuzz-tests":
-			tools[i].Arguments = []Argument{{Name: "package", Type: "string", Required: true}, {Name: "fuzz", Type: "string", Required: true}}
-		case "naabu", "nmap":
-			tools[i].Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}, {Name: "ports", Type: "ports", Required: true}}
-		case "anvil-fork", "forge-fork-test":
-			tools[i].Arguments = evmForkPinningArguments()
-		case "medusa":
-			tools[i].Arguments = []Argument{{Name: "target_contracts", Type: "string", Required: true}}
-		case "forge-coverage-mutation":
-			tools[i].Arguments = []Argument{{Name: "mutation_operator", Type: "enum", Required: true, Enum: []string{"assertion-negation", "require-removal", "boundary-shift", "return-value-swap"}}}
-		case "chain-read":
-			tools[i].Arguments = chainReadArguments()
-		case "deployed-bytecode-diff":
-			tools[i].Arguments = deployedBytecodeDiffArguments()
-		case "upstream-fork-diff":
-			tools[i].Arguments = []Argument{
-				{Name: "upstream", Type: "enum", Required: true, Enum: slices.Clone(evmUpstreams)},
-				{Name: "upstream_revision", Type: "git_revision", Required: true},
-			}
-		}
+		applyOCIRootSettings(&tools[i], ociTools[tools[i].Name].image, ociTools[tools[i].Name].digest, ociTools[tools[i].Name].amd64, ociTools[tools[i].Name].arm64, ociTools[tools[i].Name].root, ociTools[tools[i].Name].executable, ociTools[tools[i].Name].output)
+		applyToolArguments(&tools[i])
 		if digest, ok := knowledgeDigests[tools[i].Name]; ok {
 			tools[i].KnowledgeDigests = map[string]string{"bundle": digest}
 		} else if slices.Contains(knowledgeRequired, tools[i].Name) && len(tools[i].KnowledgeDigests) == 0 {
@@ -942,24 +954,7 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 				tools[i].Budgets.Timeout = 10 * time.Minute
 			}
 		}
-		if tools[i].Name == "slither" {
-			tools[i].OCIPath = "/home/ethsec/.local/bin:/home/ethsec/.foundry/bin:/usr/local/bin:/usr/bin:/bin"
-			tools[i].OCIWritableTarget = true
-			tools[i].Budgets.Concurrency = 1
-		}
-		if tools[i].Name == "halmos" {
-			tools[i].OCIPath = "/opt/halmos/bin:/usr/local/bin:/usr/bin:/bin"
-			tools[i].OCIWritableTarget = true
-			tools[i].Budgets.Concurrency = 1
-		}
-		if tools[i].Name == "go-fuzz-tests" {
-			tools[i].OCIPath = "/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
-			tools[i].OCIWritableTarget = true
-			tools[i].Budgets.Timeout = time.Minute
-			tools[i].Budgets.CPU = 2000
-			tools[i].Budgets.Memory = 2 << 30
-			tools[i].Budgets.Concurrency = 1
-		}
+		applySandboxRuntimeSettings(&tools[i])
 		if !slices.Contains(executable, tools[i].Name) {
 			tools[i].Enabled = false
 			tools[i].DisabledReason = packagingBlockers[tools[i].Name]
@@ -969,6 +964,124 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		}
 	}
 	return Manifest{SchemaVersion: "security-tool-registry/v1", Tools: tools}
+}
+
+// applySandboxRuntimeSettings carries the per-tool sandbox facts that the
+// generic catalog cannot express: where the toolchain lives inside its
+// immutable root, whether the staged target has to be writable, and the
+// budgets and exit-code contract the tool actually honours.
+func applySandboxRuntimeSettings(tool *Tool) {
+	if tool.Name == "slither" {
+		tool.OCIPath = "/home/ethsec/.local/bin:/home/ethsec/.foundry/bin:/usr/local/bin:/usr/bin:/bin"
+		tool.OCIWritableTarget = true
+		tool.Budgets.Concurrency = 1
+	}
+	if tool.Name == "halmos" {
+		tool.OCIPath = "/opt/halmos/bin:/usr/local/bin:/usr/bin:/bin"
+		tool.OCIWritableTarget = true
+		tool.Budgets.Concurrency = 1
+	}
+	if tool.Name == "cargo-fuzz" {
+		tool.OCIPath = "/usr/local/cargo/bin:/usr/local/bin:/usr/bin:/bin"
+		tool.OCIWritableTarget = true
+		tool.Budgets.Timeout = defaultFuzzCampaign + rustFuzzBuildAllowance
+		tool.Budgets.CPU = 2000
+		tool.Budgets.Memory = 4 << 30
+		tool.Budgets.Concurrency = 1
+		// A crash is reported through the record the executor builds, so a
+		// non-zero exit is findings and only a broken run is an error.
+		tool.ExitCodes = map[int]Status{0: StatusPass, 1: StatusFindings, 77: StatusFindings, 2: StatusError, 124: StatusTimeout}
+	}
+	if tool.Name == "go-fuzz-tests" {
+		tool.OCIPath = "/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
+		tool.OCIWritableTarget = true
+		tool.Budgets.Timeout = time.Minute
+		tool.Budgets.CPU = 2000
+		tool.Budgets.Memory = 2 << 30
+		tool.Budgets.Concurrency = 1
+	}
+}
+
+// applyOCIRootSettings records how a tool that runs inside a pinned image root
+// is executed and identified. An empty image means the tool is not an OCI tool
+// and nothing is applied.
+func applyOCIRootSettings(tool *Tool, image, digest, amd64Digest, arm64Digest, root, executable, output string) {
+	if image == "" {
+		return
+	}
+	tool.Image = image + "@" + digest
+	tool.ImageDigest = digest
+	tool.ToolArtifactDigest = digest
+	tool.PlatformDigests = map[string]string{"amd64": amd64Digest, "arm64": arm64Digest}
+	switch tool.Name {
+	case "halmos":
+		// The Halmos root is a reviewed closure built here rather than the
+		// upstream image, so it carries its own identity.
+		tool.ToolArtifactDigest = "sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f"
+		tool.PlatformDigests = map[string]string{
+			"amd64": "sha256:a80b8016e9a409a38d54ff300af5aa37cbb0ae281faaa37afab7fa6a63c87340",
+			"arm64": "sha256:32bb55c125446b2aa95ac8bb3968701ee05b740ea0c06ccdd5b73e081d5bce98",
+		}
+	case "cargo-fuzz":
+		// Same reason: the root is derived from its base image, so the base
+		// digest would claim one identity for materially different fuzz
+		// executors. The recorded digest covers the whole closure.
+		tool.ToolArtifactDigest = RustFuzzClosureDigest()
+	}
+	tool.OCIRoot = root
+	tool.OCIExecutable = executable
+	tool.OCIOutputPath = output
+	tool.ExitCodes = map[int]Status{0: StatusPass, 1: StatusError, 2: StatusError, 124: StatusTimeout}
+	switch tool.Name {
+	case "schemathesis", "halmos", "go-fuzz-tests":
+		tool.ExitCodes[1] = StatusFindings
+	case "slither":
+		tool.ExitCodes[255] = StatusFindings
+	case "zeek", "suricata":
+		tool.KnowledgeDigests = map[string]string{"embedded": digest}
+	}
+}
+
+// applyToolArguments declares the typed arguments each tool accepts. Anything
+// not declared here cannot be passed at all.
+func applyToolArguments(tool *Tool) {
+	switch tool.Name {
+	case "nuclei":
+		tool.Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}}
+	case "owasp-zap", "schemathesis":
+		tool.Arguments = []Argument{{Name: "base_url", Type: "url", Required: true}}
+	case "cargo-fuzz":
+		tool.Arguments = []Argument{
+			{Name: "fuzz_target", Type: "string", Required: true},
+			{Name: "max_total_time", Type: "duration", Default: defaultFuzzCampaign.String()},
+		}
+	case "go-fuzz-tests":
+		tool.Arguments = []Argument{
+			{Name: "package", Type: "string", Required: true},
+			{Name: "fuzz", Type: "string", Required: true},
+			// The campaign length is the difference between fuzzing and a
+			// smoke test, so it is a reviewed, bounded argument rather than
+			// a constant buried in argv.
+			{Name: "fuzztime", Type: "duration", Default: defaultFuzzCampaign.String()},
+		}
+	case "naabu", "nmap":
+		tool.Arguments = []Argument{{Name: "rate", Type: "integer", Required: true}, {Name: "ports", Type: "ports", Required: true}}
+	case "anvil-fork", "forge-fork-test":
+		tool.Arguments = evmForkPinningArguments()
+	case "medusa":
+		tool.Arguments = []Argument{{Name: "target_contracts", Type: "string", Required: true}}
+	case "forge-coverage-mutation":
+		tool.Arguments = []Argument{{Name: "mutation_operator", Type: "enum", Required: true, Enum: []string{"assertion-negation", "require-removal", "boundary-shift", "return-value-swap"}}}
+	case "chain-read":
+		tool.Arguments = chainReadArguments()
+	case "deployed-bytecode-diff":
+		tool.Arguments = deployedBytecodeDiffArguments()
+	case "upstream-fork-diff":
+		tool.Arguments = []Argument{
+			{Name: "upstream", Type: "enum", Required: true, Enum: slices.Clone(evmUpstreams)},
+			{Name: "upstream_revision", Type: "git_revision", Required: true},
+		}
+	}
 }
 
 // lockedToolArtifactDigest mirrors the extracted-binary checksums in the

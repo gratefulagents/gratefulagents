@@ -496,7 +496,8 @@ func TestRunSecurityToolUnreadableResultIsNeverAPass(t *testing.T) {
 
 func TestRunSecurityToolTerminalStatusMapping(t *testing.T) {
 	pass := sampleSecurityToolResult()
-	pass.Status = securitytoolpacks.StatusPass
+	// The retired verdict, spelled literally so the test outlives the constant.
+	pass.Status = securitytoolpacks.Status("pass")
 	pass.Findings = nil
 
 	tests := []struct {
@@ -972,4 +973,61 @@ func contains(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// A campaign the control plane will not wait out is worse than a shorter one:
+// the call returns "unfinished", so the findings are never ingested and the
+// corpus is never persisted even when the Job goes on to succeed.
+func TestFuzzCampaignsDriveTheControlPlaneWait(t *testing.T) {
+	goCampaign := runSecurityToolInput{Tool: "go-fuzz-tests", Arguments: map[string]string{"fuzztime": "15m"}}
+	if got := goCampaign.timeout(); got <= securityToolRunDefaultTimeout {
+		t.Fatalf("15m Go campaign waits %ds, want more than the %ds default", got, securityToolRunDefaultTimeout)
+	}
+	if goCampaign.campaignExceedsWaitBudget() {
+		t.Fatal("a 15m Go campaign fits the maximum wait and must not be rejected")
+	}
+
+	// A caller who set an explicit wait keeps it: the platform does not
+	// silently spend more of their budget than they asked for.
+	explicit := runSecurityToolInput{Tool: "go-fuzz-tests", TimeoutSeconds: 120, Arguments: map[string]string{"fuzztime": "15m"}}
+	if got := explicit.timeout(); got != 120 {
+		t.Fatalf("explicit timeout = %ds, want 120", got)
+	}
+
+	// Rust campaigns carry a build allowance on top of the campaign, and the
+	// longest one the registry accepts must still fit the platform's maximum
+	// wait — otherwise the pack would advertise a campaign whose result could
+	// never be ingested. This pins that relationship rather than assuming it.
+	rustCampaign := runSecurityToolInput{Tool: "cargo-fuzz", Arguments: map[string]string{"max_total_time": "15m"}}
+	if rustCampaign.campaignExceedsWaitBudget() {
+		t.Fatalf("the longest Rust campaign needs %ds, past the %ds maximum wait: it could never be ingested", rustCampaign.campaignWait(), securityToolRunMaxTimeout)
+	}
+	if got := rustCampaign.timeout(); got != securityToolRunMaxTimeout && got < rustCampaign.campaignWait() {
+		t.Fatalf("15m Rust campaign waits %ds, want at least its %ds campaign budget", got, rustCampaign.campaignWait())
+	}
+	// The guard itself still bites when a campaign genuinely cannot be waited
+	// out, which is what protects a future budget change from orphaning runs.
+	overBudget := runSecurityToolInput{Tool: "cargo-fuzz", Arguments: map[string]string{"max_total_time": "15m"}}
+	if !overBudget.exceedsWait(overBudget.campaignWait() - 1) {
+		t.Fatalf("a campaign needing %ds was accepted against a shorter wait", overBudget.campaignWait())
+	}
+	if overBudget.exceedsWait(overBudget.campaignWait()) {
+		t.Fatal("a campaign that exactly fits its wait was rejected")
+	}
+	short := runSecurityToolInput{Tool: "cargo-fuzz", Arguments: map[string]string{"max_total_time": "2m"}}
+	if short.campaignExceedsWaitBudget() {
+		t.Fatal("a 2m Rust campaign fits the maximum wait and must not be rejected")
+	}
+	// A short campaign keeps the platform default, which already exceeds what
+	// it needs; the invariant that matters is that the wait is never shorter
+	// than the campaign plus its allowances.
+	if got := short.timeout(); got < short.campaignWait() {
+		t.Fatalf("2m Rust campaign waits %ds, less than its %ds campaign budget", got, short.campaignWait())
+	}
+
+	// A tool without a campaign keeps the platform default.
+	plain := runSecurityToolInput{Tool: "aderyn"}
+	if got := plain.timeout(); got != securityToolRunDefaultTimeout {
+		t.Fatalf("non-campaign tool waits %ds, want the %ds default", got, securityToolRunDefaultTimeout)
+	}
 }

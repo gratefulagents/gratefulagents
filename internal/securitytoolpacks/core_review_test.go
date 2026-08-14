@@ -366,7 +366,7 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 		{
 			name:   "go-fuzz-tests",
 			config: RunConfig{Tool: "go-fuzz-tests", Target: Target{Type: "go_fuzz_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("go-fuzz")), MediaType: "application/vnd.gratefulagents.go-fuzz-project.v1+directory"}, Arguments: map[string]string{"package": "./parser", "fuzz": "^FuzzDecode$"}},
-			want:   []string{"go", "-C", "/workspace/project", "test", "-json", "./parser", "-run=^$", "-fuzz", "^FuzzDecode$", "-fuzztime=30s", "-parallel=1"},
+			want:   []string{"go", "-C", "/workspace/project", "test", "-json", "./parser", "-run=^$", "-fuzz", "^FuzzDecode$", "-fuzztime=2m0s", "-parallel=1"},
 		},
 	}
 	for _, test := range cases {

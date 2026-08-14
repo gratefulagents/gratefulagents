@@ -71,6 +71,11 @@ type Argument struct {
 	Required bool     `json:"required,omitempty"`
 	Enum     []string `json:"enum,omitempty"`
 	Flag     string   `json:"flag,omitempty"`
+	// Default is the reviewed value used when a run omits an optional
+	// argument. It is part of the registry, not of the request, so an
+	// omitted argument still resolves to a value the catalog declares and
+	// the recorded configuration always states what actually ran.
+	Default string `json:"default,omitempty"`
 }
 
 type Tool struct {

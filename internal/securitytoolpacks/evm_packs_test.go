@@ -275,7 +275,7 @@ func TestEVMPacksDeclareNetworkRequirementsWithoutModelScope(t *testing.T) {
 		if !tool.Requirements.Network {
 			t.Errorf("%s must declare its outbound requirement", name)
 		}
-		if !IsEVMBuildTool(name) {
+		if !IsStagedBuildTool(name) {
 			t.Errorf("%s must be treated as a staged-content EVM tool so no model-supplied scope authorizes it", name)
 		}
 	}

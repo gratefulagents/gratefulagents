@@ -1,0 +1,24 @@
+{
+  "test/EscrowForkTest.t.sol:EscrowForkTest": {
+    "test_results": {
+      "test_depositAccountingHolds": {
+        "status": "Success",
+        "reason": null,
+        "counterexample": null,
+        "decoded_logs": []
+      },
+      "test_attackerDrainsEscrowAfterReentry": {
+        "status": "Failure",
+        "reason": "assertion failed: escrow balance 0 != 4102000000000000000000",
+        "counterexample": {
+          "calldata": "0x2e1a7d4d0000000000000000000000000000000000000000000000000000000000000001",
+          "sender": "0x00000000000000000000000000000000000000a1"
+        },
+        "decoded_logs": [
+          "attacker balance before: 0",
+          "attacker balance after: 4102000000000000000000"
+        ]
+      }
+    }
+  }
+}

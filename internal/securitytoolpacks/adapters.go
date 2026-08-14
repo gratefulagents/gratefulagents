@@ -52,7 +52,7 @@ func DefaultAdapters() map[string]Adapter {
 		"har": harAdapter{}, "junit": junitAdapter{}, "sarif": sarifAdapter{},
 		"slither-json": slitherAdapter{}, "echidna-json": echidnaAdapter{}, "halmos-json": halmosAdapter{}, "go-test-json": goTestJSONAdapter{},
 		"evm-fork-record": evmForkRecordAdapter{}, "forge-json": forgeJSONAdapter{}, "forge-mutation-json": forgeCoverageMutationAdapter{}, "git-divergence": gitDivergenceAdapter{}, "medusa-console": medusaConsoleAdapter{},
-		"chain-read-json": chainReadAdapter{}, "bytecode-diff-json": bytecodeDiffAdapter{},
+		"chain-read-json": chainReadAdapter{}, "bytecode-diff-json": bytecodeDiffAdapter{}, "rust-fuzz-json": rustFuzzAdapter{},
 	}
 }
 

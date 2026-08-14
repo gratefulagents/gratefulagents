@@ -1933,9 +1933,11 @@ export function SecurityScanFormDialog({
                           <option value="confirmed">confirmed findings</option>
                           <option value="high-and-above">high and above</option>
                           <option value="high-and-above-actionable">high and above, while actionable</option>
+                          <option value="medium-and-above-actionable">medium and above, while actionable</option>
                         </select>
                       </FlowField>
-                      {script.runOn === "high-and-above-actionable" && (
+                      {(script.runOn === "high-and-above-actionable" ||
+                        script.runOn === "medium-and-above-actionable") && (
                         <p className="text-xs text-muted-foreground md:col-span-2">
                           Skips this stage before its first attempt when a successful earlier stage has already marked
                           the finding false positive, accepted risk, or fixed. Use “all findings” for final reporting,

@@ -71,6 +71,9 @@ var securityToolStagedMediaTypes = map[string]map[string]string{
 	"go-fuzz-tests": {
 		"go_fuzz_project": "application/vnd.gratefulagents.go-fuzz-project.v1+directory",
 	},
+	"cargo-fuzz": {
+		"rust_fuzz_project": "application/vnd.gratefulagents.rust-fuzz-project.v1+directory",
+	},
 }
 
 var securityToolRunLabelValuePattern = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`)
@@ -117,11 +120,15 @@ func RegisterSecurityToolRunTool(registry *Registry, state *securityScanState, d
 }
 
 type runSecurityToolTool struct {
-	state        *securityScanState
-	deps         SecurityToolRunDeps
-	packs        *securitytoolpacks.Registry
-	packsErr     error
-	pollInterval time.Duration
+	// restoredFuzzInputs records how many persisted corpus inputs were
+	// restored into the staged target, so the summary can say whether a clean
+	// campaign started cold or warm.
+	restoredFuzzInputs int
+	state              *securityScanState
+	deps               SecurityToolRunDeps
+	packs              *securitytoolpacks.Registry
+	packsErr           error
+	pollInterval       time.Duration
 }
 
 type runSecurityToolTarget struct {
@@ -231,6 +238,10 @@ func (t *runSecurityToolTool) Execute(ctx context.Context, input json.RawMessage
 			tool.Name, in.Target.Type, strings.Join(tool.TargetTypes, ", ")), nil
 	}
 
+	if in.campaignExceedsWaitBudget() {
+		return errorResultf("the requested campaign needs about %ds but the platform waits at most %ds for a tool run: shorten the campaign (fuzztime / max_total_time) so its result can be ingested",
+			in.campaignWait(), securityToolRunMaxTimeout), nil
+	}
 	name, err := securityToolRunName(t.deps.RunName, tool.Name)
 	if err != nil {
 		return errorResultf("naming the security tool run: %v", err), nil
@@ -268,7 +279,7 @@ func (t *runSecurityToolTool) Execute(ctx context.Context, input json.RawMessage
 		return errorResultf("SecurityToolRun %s did not finish before the wait ended (budget %ds, last phase %s); it keeps running — inspect it for the verdict rather than assuming a pass",
 			name, in.timeout(), securityToolRunPhase(final)), nil
 	}
-	return t.summarize(ctx, final, staging), nil
+	return t.summarize(ctx, final, staging, in), nil
 }
 
 func decodeRunSecurityToolInput(input json.RawMessage) (runSecurityToolInput, *Result) {
@@ -298,8 +309,47 @@ func (in runSecurityToolInput) timeout() int {
 	seconds := in.TimeoutSeconds
 	if seconds <= 0 {
 		seconds = securityToolRunDefaultTimeout
+		// A fuzz campaign decides how long the Job runs, so the default wait
+		// has to follow it. Waiting less than the campaign returns
+		// "unfinished": the findings are never ingested and the corpus is
+		// never persisted, even though the Job went on to succeed.
+		if campaign := in.campaignWait(); campaign > seconds {
+			seconds = campaign
+		}
 	}
 	return min(max(seconds, securityToolRunMinTimeout), securityToolRunMaxTimeout)
+}
+
+// campaignWait is the control-plane wait a fuzz campaign needs: the campaign
+// itself plus the executor's own allowance for scheduling and, for Rust, for
+// building the instrumented target.
+func (in runSecurityToolInput) campaignWait() int {
+	var campaign time.Duration
+	var err error
+	switch in.Tool {
+	case "go-fuzz-tests":
+		campaign, err = securitytoolpacks.ParseFuzzCampaign(in.Arguments["fuzztime"])
+	case "cargo-fuzz":
+		campaign, err = securitytoolpacks.ParseFuzzCampaign(in.Arguments["max_total_time"])
+		campaign += securitytoolpacks.RustFuzzBuildAllowance
+	default:
+		return 0
+	}
+	if err != nil {
+		return 0
+	}
+	return int((campaign + securitytoolpacks.FuzzCampaignOverhead).Seconds())
+}
+
+// campaignExceedsWaitBudget reports a campaign the control plane could not wait
+// out even at its maximum. Rejecting it up front is honest: dispatching it
+// would return "unfinished" with the work orphaned rather than ingested.
+func (in runSecurityToolInput) campaignExceedsWaitBudget() bool {
+	return in.exceedsWait(securityToolRunMaxTimeout)
+}
+
+func (in runSecurityToolInput) exceedsWait(maximum int) bool {
+	return in.TimeoutSeconds <= 0 && in.campaignWait() > maximum
 }
 
 // stagedTarget records what a request staged into object storage, for the
@@ -359,7 +409,13 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 		result := errorResultf("cannot stage workspace path %s: object storage is unavailable (%v)", relative, t.deps.BlobsErr)
 		return spec, stagedTarget{}, &result
 	}
-	archive, entries, skipped, err := archiveWorkspaceTarget(local)
+	// A fuzz campaign only compounds if it starts from what earlier campaigns
+	// found, so the persisted corpus is restored into the package's seed
+	// corpus before the target is archived. It has to happen here: the staged
+	// archive is the only channel into the execution Job.
+	injected := t.goFuzzCorpusForArchive(ctx, in, local)
+	t.restoredFuzzInputs = len(injected)
+	archive, entries, skipped, err := archiveWorkspaceTargetWithInjected(local, injected)
 	if err != nil {
 		result := errorResultf("staging %s: %v", relative, err)
 		return spec, stagedTarget{}, &result
@@ -584,6 +640,15 @@ func looksLikeFilesystemLocator(locator string) bool {
 // stable ordering, zeroed timestamps and ownership, sockets/devices and
 // escaping symlinks skipped, and a hard total-size cap.
 func archiveWorkspaceTarget(root string) (archive []byte, entries, skipped int, err error) {
+	return archiveWorkspaceTargetWithInjected(root, nil)
+}
+
+// archiveWorkspaceTargetWithInjected archives the workspace target plus content
+// that exists only inside the archive. Restoring a persisted fuzz corpus by
+// writing it into the user's checkout would leave untracked inputs behind for
+// later agent work to trip over; injecting it here keeps the workspace exactly
+// as the user left it, and makes cleanup a thing that cannot be forgotten.
+func archiveWorkspaceTargetWithInjected(root string, injected map[string][]byte) (archive []byte, entries, skipped int, err error) {
 	var buf bytes.Buffer
 	gz, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
 	if err != nil {
@@ -591,6 +656,7 @@ func archiveWorkspaceTarget(root string) (archive []byte, entries, skipped int, 
 	}
 	writer := tar.NewWriter(gz)
 	var total int64
+	written := map[string]bool{}
 
 	add := func(path string, info fs.FileInfo, name string) error {
 		link := ""
@@ -611,6 +677,7 @@ func archiveWorkspaceTarget(root string) (archive []byte, entries, skipped int, 
 			return headerErr
 		}
 		header.Name = name
+		written[name] = true
 		header.Uid, header.Gid = 0, 0
 		header.Uname, header.Gname = "", ""
 		header.ModTime = time.Unix(0, 0).UTC()
@@ -671,6 +738,28 @@ func archiveWorkspaceTarget(root string) (archive []byte, entries, skipped int, 
 	}
 	if err != nil {
 		return nil, 0, 0, err
+	}
+	for _, name := range slices.Sorted(maps.Keys(injected)) {
+		// A corpus input persisted by an earlier campaign can later be
+		// committed to the repository at the same content-derived path. The
+		// extractor creates files with O_EXCL, so a duplicate header would
+		// abort extraction and break every later campaign; the workspace copy
+		// wins, since it is what the repository actually contains.
+		if written[name] {
+			continue
+		}
+		content := injected[name]
+		header := &tar.Header{
+			Typeflag: tar.TypeReg, Name: name, Mode: 0o600, Size: int64(len(content)),
+			ModTime: time.Unix(0, 0).UTC(),
+		}
+		if err := writer.WriteHeader(header); err != nil {
+			return nil, 0, 0, err
+		}
+		if _, err := writer.Write(content); err != nil {
+			return nil, 0, 0, err
+		}
+		entries++
 	}
 	if err := writer.Close(); err != nil {
 		return nil, 0, 0, err
@@ -859,7 +948,7 @@ type runSecurityToolReplay struct {
 // summarize turns a terminal SecurityToolRun into the agent-facing verdict. A
 // failed run, an unreadable result, and a digest mismatch all stay errors: none
 // of them may look like a clean scan.
-func (t *runSecurityToolTool) summarize(ctx context.Context, run *platformv1alpha1.SecurityToolRun, staging stagedTarget) Result {
+func (t *runSecurityToolTool) summarize(ctx context.Context, run *platformv1alpha1.SecurityToolRun, staging stagedTarget, in runSecurityToolInput) Result {
 	summary := runSecurityToolSummary{
 		Tool:            run.Spec.Tool,
 		SecurityToolRun: run.Name,
@@ -877,7 +966,10 @@ func (t *runSecurityToolTool) summarize(ctx context.Context, run *platformv1alph
 		summary.Findings.Reported = int(result.FindingCount)
 	}
 	if run.Status.Phase == platformv1alpha1.SecurityToolRunPhaseFailed {
-		if summary.Status == "" || summary.Status == string(securitytoolpacks.StatusPass) {
+		// A failed run may still carry the retired "pass" verdict from an older
+		// executor; it is spelled literally so this keeps working once the
+		// deprecated constant is removed.
+		if summary.Status == "" || summary.Status == "pass" {
 			summary.Status = string(securitytoolpacks.StatusError)
 		}
 		return securityToolRunResult(summary, true)
@@ -895,6 +987,12 @@ func (t *runSecurityToolTool) summarize(ctx context.Context, run *platformv1alph
 			ObjectKey: artifact.ObjectKey,
 			Digest:    artifact.Digest,
 		})
+	}
+	// The campaign's new inputs become the next campaign's seed corpus, and
+	// the note says whether this run started cold or warm — a clean result
+	// from a cold first campaign means much less than one from a warm tenth.
+	if note := t.persistGoFuzzCorpus(ctx, in, summary.Artifacts); note != "" {
+		summary.Notes = append(summary.Notes, note)
 	}
 
 	document, err := t.fetchResult(ctx, result)

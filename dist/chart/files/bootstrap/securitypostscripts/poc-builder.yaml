@@ -3,8 +3,8 @@ kind: SecurityPostScript
 metadata:
   name: poc-builder
 spec:
-  description: Builds and runs a minimal local proof of concept for a high or critical finding and records the artifact, the exact command, and the observed output.
-  runOn: high-and-above-actionable
+  description: Builds and runs a minimal local proof of concept for a payable-severity finding and records the artifact, the exact command, and the observed output.
+  runOn: medium-and-above-actionable
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
 
