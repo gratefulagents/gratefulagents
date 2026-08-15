@@ -34,6 +34,7 @@ import {
   type WorkflowTaskDraft,
 } from "@/components/SecurityWorkflowBuilder";
 import {
+  SecurityScanTaskConditionSchema,
   SecurityScanTaskConfigSchema,
   SecurityWorkflowParameterSchema,
   type SecurityScanTaskConfig,
@@ -107,6 +108,22 @@ describe("workflow round-trip", () => {
     });
     const [roundTripped] = workflowTasksToProto(workflowTasksFromProto([original]));
     expect(roundTripped.targetRuns).toBe(12);
+  });
+
+  it("round-trips controller-side launch conditions", () => {
+    const original = create(SecurityScanTaskConfigSchema, {
+      name: "specialist",
+      objective: "inspect",
+      dependsOn: ["detect"],
+      when: create(SecurityScanTaskConditionSchema, {
+        task: "detect",
+        path: "specialists.evm",
+        equals: "true",
+        otherwiseOutput: '{"status":"skipped"}',
+      }),
+    });
+    const [roundTripped] = workflowTasksToProto(workflowTasksFromProto([original]));
+    expect(equals(SecurityScanTaskConfigSchema, roundTripped, original)).toBe(true);
   });
 
   it("survives a second round-trip (stable fixed point)", () => {

@@ -385,6 +385,27 @@ func TestSecurityToolRunJobEphemeralStorageCoversScratchVolumes(t *testing.T) {
 	}
 }
 
+func TestSecurityToolRunJobPinsMedusaToAMD64(t *testing.T) {
+	medusa := securitytoolpacks.Tool{
+		Name: "medusa",
+		Budgets: securitytoolpacks.Budgets{
+			Timeout:       time.Minute,
+			MaxOutputSize: 16 << 20,
+		},
+	}
+	job := securityToolRunJob(newSecurityToolRun(nil), medusa, securityToolTestImage, metav1.OwnerReference{})
+	if got := job.Spec.Template.Spec.NodeSelector[corev1.LabelArchStable]; got != "amd64" {
+		t.Fatalf("medusa node architecture = %q, want amd64", got)
+	}
+
+	generic := medusa
+	generic.Name = "echidna"
+	job = securityToolRunJob(newSecurityToolRun(nil), generic, securityToolTestImage, metav1.OwnerReference{})
+	if job.Spec.Template.Spec.NodeSelector != nil {
+		t.Fatalf("multi-architecture tool received node selector: %v", job.Spec.Template.Spec.NodeSelector)
+	}
+}
+
 func TestSecurityToolRunSucceedsFromManifest(t *testing.T) {
 	t.Setenv(securityToolsImageEnv, securityToolTestImage)
 	c := newSecurityToolRunClient(t, newSecurityToolRun(nil))

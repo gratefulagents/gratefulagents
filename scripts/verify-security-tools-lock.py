@@ -46,7 +46,7 @@ def verify_lock(path: Path) -> None:
         status = tool.get("status")
         if status == "disabled":
             require_string(tool.get("reason"), "reason", name)
-            if any(field in tool for field in ("version", "binary", "release_url", "platforms")):
+            if any(field in tool for field in ("version", "binary", "release_url", "platforms", "unsupported_platforms")):
                 raise LockError(f"{name}: disabled tools may not define install fields")
             continue
         if status != "enabled":
@@ -61,8 +61,19 @@ def verify_lock(path: Path) -> None:
         if tool["version"] not in tool["release_url"]:
             raise LockError(f"{name}: release_url must identify the pinned version")
         platforms = tool.get("platforms")
-        if not isinstance(platforms, dict) or set(platforms) != PLATFORMS:
-            raise LockError(f"{name}: platforms must contain exactly {sorted(PLATFORMS)}")
+        unsupported = tool.get("unsupported_platforms", {})
+        if not isinstance(platforms, dict) or not platforms:
+            raise LockError(f"{name}: platforms must be a non-empty object")
+        if not isinstance(unsupported, dict):
+            raise LockError(f"{name}: unsupported_platforms must be an object")
+        if set(platforms) & set(unsupported):
+            raise LockError(f"{name}: a platform cannot be both supported and unsupported")
+        if set(platforms) | set(unsupported) != PLATFORMS:
+            raise LockError(f"{name}: supported and unsupported platforms must cover exactly {sorted(PLATFORMS)}")
+        for platform, reason in unsupported.items():
+            if platform not in PLATFORMS:
+                raise LockError(f"{name}: unknown unsupported platform {platform!r}")
+            require_string(reason, f"{platform} unsupported reason", name)
         for platform, artifact in platforms.items():
             if not isinstance(artifact, dict):
                 raise LockError(f"{name}: {platform} artifact must be an object")

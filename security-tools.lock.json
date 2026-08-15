@@ -2,74 +2,6 @@
   "schema_version": "security-tools-lock/v1",
   "tools": [
     {
-      "name": "gitleaks",
-      "status": "enabled",
-      "version": "8.30.1",
-      "binary": "gitleaks",
-      "release_url": "https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1",
-      "platforms": {
-        "linux/amd64": {
-          "asset": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
-          "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
-        },
-        "linux/arm64": {
-          "asset": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_arm64.tar.gz",
-          "sha256": "e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080"
-        }
-      }
-    },
-    {
-      "name": "trivy",
-      "status": "enabled",
-      "version": "0.73.0",
-      "binary": "trivy",
-      "release_url": "https://github.com/aquasecurity/trivy/releases/tag/v0.73.0",
-      "platforms": {
-        "linux/amd64": {
-          "asset": "https://github.com/aquasecurity/trivy/releases/download/v0.73.0/trivy_0.73.0_Linux-64bit.tar.gz",
-          "sha256": "2edd39da482bb4e9831962487b68f68e3928ec3137794757f54d00383d79547b"
-        },
-        "linux/arm64": {
-          "asset": "https://github.com/aquasecurity/trivy/releases/download/v0.73.0/trivy_0.73.0_Linux-ARM64.tar.gz",
-          "sha256": "13833d97e8a1a5367471c372a173180157f593bece570e20d5d925fef552f5dd"
-        }
-      }
-    },
-    {
-      "name": "syft",
-      "status": "enabled",
-      "version": "1.50.0",
-      "binary": "syft",
-      "release_url": "https://github.com/anchore/syft/releases/tag/v1.50.0",
-      "platforms": {
-        "linux/amd64": {
-          "asset": "https://github.com/anchore/syft/releases/download/v1.50.0/syft_1.50.0_linux_amd64.tar.gz",
-          "sha256": "bf7b29ff57f06da30918266a0e1c2885a8f99784798d1bdb1628886aa015d788"
-        },
-        "linux/arm64": {
-          "asset": "https://github.com/anchore/syft/releases/download/v1.50.0/syft_1.50.0_linux_arm64.tar.gz",
-          "sha256": "887c57cbcc2d0e8c5c110a4571a3fc7150058b24d74f993ee4663516e5c8ce86"
-        }
-      }
-    },
-    {
-      "name": "grype",
-      "status": "enabled",
-      "version": "0.116.1",
-      "binary": "grype",
-      "release_url": "https://github.com/anchore/grype/releases/tag/v0.116.1",
-      "platforms": {
-        "linux/amd64": {
-          "asset": "https://github.com/anchore/grype/releases/download/v0.116.1/grype_0.116.1_linux_amd64.tar.gz",
-          "sha256": "0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458"
-        },
-        "linux/arm64": {
-          "asset": "https://github.com/anchore/grype/releases/download/v0.116.1/grype_0.116.1_linux_arm64.tar.gz",
-          "sha256": "a8d7504a149629324eb5f4ce3dc25dfd211bbfe047e64ee2bf7844b466c3d84d"
-        }
-      }
-    },
-    {
       "name": "nuclei",
       "status": "enabled",
       "version": "3.11.1",
@@ -127,25 +59,6 @@
       }
     },
     {
-      "name": "aderyn",
-      "status": "enabled",
-      "version": "0.6.8",
-      "binary": "aderyn",
-      "release_url": "https://github.com/Cyfrin/aderyn/releases/tag/aderyn-v0.6.8",
-      "platforms": {
-        "linux/amd64": {
-          "asset": "https://github.com/Cyfrin/aderyn/releases/download/aderyn-v0.6.8/aderyn-x86_64-unknown-linux-gnu.tar.xz",
-          "sha256": "ffd6ca658962e211a3ac821c646f69c8e14bf1b1001cbfe091bcd4535a691e46",
-          "binary_sha256": "a268d616826901e17717b1bc6368d8b2c063045a46fb99a0c0f657f102d977ca"
-        },
-        "linux/arm64": {
-          "asset": "https://github.com/Cyfrin/aderyn/releases/download/aderyn-v0.6.8/aderyn-aarch64-unknown-linux-gnu.tar.xz",
-          "sha256": "961070bf5ee4ed0f82f67a261c616e1525ec1b036bae60cdaec94d087eb5e405",
-          "binary_sha256": "773033830116d7628c01f105a4bd0691d1034fc285f37652e8868c8dc14d97e0"
-        }
-      }
-    },
-    {
       "name": "echidna",
       "status": "enabled",
       "version": "2.3.0",
@@ -185,8 +98,20 @@
     },
     {
       "name": "medusa",
-      "status": "disabled",
-      "reason": "Upstream publishes no linux/arm64 release asset (v1.5.1 ships medusa-linux-x64, medusa-mac-arm64, medusa-mac-x64 and medusa-win-x64 only), so half of our platforms would have no verified digest. The lock installs the same tool set on every architecture, so this stays disabled until upstream ships linux/arm64 or we build it from a pinned source revision."
+      "status": "enabled",
+      "version": "1.5.1",
+      "binary": "medusa",
+      "release_url": "https://github.com/crytic/medusa/releases/tag/v1.5.1",
+      "platforms": {
+        "linux/amd64": {
+          "asset": "https://github.com/crytic/medusa/releases/download/v1.5.1/medusa-linux-x64.tar.gz",
+          "sha256": "ddfe1517ae9028ef9fc331b00f5a6a9d5406f3fcd11a715d60c6b6fb3e4546d3",
+          "binary_sha256": "86e54c586e49e6bf9676f448218e10475afacb0a8bd5ca1aea234f66db7169d6"
+        }
+      },
+      "unsupported_platforms": {
+        "linux/arm64": "Upstream Medusa v1.5.1 does not publish a Linux arm64 release asset."
+      }
     },
     {
       "name": "slither",

@@ -599,6 +599,14 @@ type SecurityScanTask struct {
 	// +optional
 	OutputSchema string `json:"outputSchema,omitempty"`
 
+	// when conditionally omits this task before an AgentRun is created. The
+	// condition reads a scalar value from a dependency's structured output.
+	// A false condition completes the task with otherwiseOutput, allowing
+	// downstream coverage accounting to consume an explicit skipped record
+	// without paying for a model invocation.
+	// +optional
+	When *SecurityScanTaskCondition `json:"when,omitempty"`
+
 	// forEach names a dependency task; this task fans out with one instance
 	// per record of that task's JSON-array structured output. Records are
 	// exposed through double-brace item or item.<field> references. The
@@ -629,6 +637,31 @@ type SecurityScanTask struct {
 	// +kubebuilder:validation:Maximum=5
 	// +optional
 	Repeats int32 `json:"repeats,omitempty"`
+}
+
+// SecurityScanTaskCondition gates a task on structured output produced by a
+// dependency. Path is a dot-separated object path; equals is a JSON boolean
+// or string spelling to compare against (for example "true" or `"detected"`).
+type SecurityScanTaskCondition struct {
+	// task names the dependency whose structured output is inspected.
+	// +kubebuilder:validation:MaxLength=63
+	Task string `json:"task"`
+
+	// path is a dot-separated path through JSON objects in the dependency
+	// output. Array traversal is intentionally unsupported so conditions stay
+	// deterministic and easy to validate.
+	// +kubebuilder:validation:MaxLength=256
+	Path string `json:"path"`
+
+	// equals is the JSON boolean or string spelling that enables the task.
+	// +kubebuilder:validation:MaxLength=256
+	Equals string `json:"equals"`
+
+	// otherwiseOutput is the structured output published when the condition
+	// is false. It must be valid JSON when set and should satisfy the task's
+	// outputSchema.
+	// +kubebuilder:validation:MaxLength=16384
+	OtherwiseOutput string `json:"otherwiseOutput,omitempty"`
 }
 
 // SecurityScanTaskTools narrows which tools a task's run may use in
@@ -889,6 +922,11 @@ type SecurityScanTaskExecutionStatus struct {
 	// +optional
 	RunName string `json:"runName,omitempty"`
 
+	// structuredOutput stores controller-published output for a conditionally
+	// omitted task. Regular task output remains on the AgentRun status.
+	// +optional
+	StructuredOutput string `json:"structuredOutput,omitempty"`
+
 	// recordStart and recordEnd identify the half-open source-record range
 	// assigned to this task instance when targetRuns partitions a fan-out.
 	// +optional
@@ -1052,6 +1090,11 @@ type SecurityScanExecutionPlanNode struct {
 	// one-record-per-run path even if the referenced workflow later changes.
 	// +optional
 	TargetRuns int32 `json:"targetRuns,omitempty"`
+
+	// when snapshots the controller-side launch condition so an in-flight
+	// execution is unaffected by edits to its referenced workflow.
+	// +optional
+	When *SecurityScanTaskCondition `json:"when,omitempty"`
 }
 
 // SecurityScanFanOutExecutionStatus records the durable materialization of a

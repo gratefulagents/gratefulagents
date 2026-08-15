@@ -8,7 +8,7 @@ metadata:
     # advance even though its pre-removal recorded hash no longer matches.
     platform.gratefulagents.dev/bootstrap-replaces-spec-hashes: 5a9a7929c802fd7f10d418c1f3b08341df62ce7e3fb4f7e073391a2ddfa97386
 spec:
-  description: Complete EVM smart-contract review lifecycle covering structured scope and deployment mapping, architecture and entry points, explicit invariants, reproducible builds and source-to-deployment comparison, executable Aderyn and seeded Forge checks, specialist manual review, formal-method applicability, local exploit validation, privileged configuration, coverage accounting, remediation, retesting, and one final triage report.
+  description: Complete EVM smart-contract review lifecycle covering structured scope and deployment mapping, architecture and entry points, explicit invariants, reproducible builds and source-to-deployment comparison, executable Slither and seeded Forge checks, specialist manual review, formal-method applicability, local exploit validation, privileged configuration, coverage accounting, remediation, retesting, and one final triage report.
   parallelism: 6
   tasks:
     - name: inventory-scope-repositories-deployments
@@ -226,47 +226,6 @@ spec:
           }
         }
 
-    - name: aderyn-static-analysis
-      role: vulnerability-hunter
-      category: other
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: security-scan
-        - name: trail-of-bits-fp-check
-      objective: >-
-        Use {{tasks.inventory-scope-repositories-deployments.output}} and
-        {{tasks.reproducible-build-artifact-deployment-review.output}} to identify each applicable Solidity
-        project root. For each applicable root, actually call run_security_tool exactly once with tool
-        `aderyn`, target type `solidity_project`, locator equal to that workspace project root, and target
-        revision equal to the scan's immutable revision. Supply no invented arguments or seed. Correlate
-        normalized Aderyn findings with reachable production code and the entry-point map in
-        {{tasks.map-architecture-assets-roles-entrypoints.output}}; do not re-submit tool findings. If no
-        Solidity project exists, publish skipped/not_applicable. If run_security_tool is absent, rejects the
-        target, errors, or times out, publish unsupported or inconclusive with the exact returned status and
-        limitation; never say Aderyn ran, passed, or found nothing. A completed pass means only that this
-        pinned Aderyn run emitted no findings, not that the contracts are safe. Submit one coverage record per
-        project including execution status and artifact/replay references when returned.
-      dependsOn:
-        - inventory-scope-repositories-deployments
-        - map-architecture-assets-roles-entrypoints
-        - reproducible-build-artifact-deployment-review
-      outputSchema: |-
-        {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["area", "status", "execution_status", "summary"],
-            "properties": {
-              "area": {"type": "string"},
-              "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
-              "tool_run": {"type": "string"},
-              "artifacts": {"type": "array", "items": {"type": "string"}},
-              "summary": {"type": "string"}
-            }
-          }
-        }
-
     - name: slither-static-analysis
       role: vulnerability-hunter
       category: other
@@ -312,13 +271,11 @@ spec:
       skillRefs:
         - name: blockchain-security-research-method
       objective: >-
-        Compact {{tasks.aderyn-static-analysis.output}} and {{tasks.slither-static-analysis.output}} into one
-        lossless static-analysis coverage array.
+        Normalize {{tasks.slither-static-analysis.output}} into one lossless static-analysis coverage array.
         Preserve every project, exact execution_status, tool_run, artifacts, limitations, and finding status.
-        Emit seed 0 and empty bounds and harnesses because these static analyzers expose none. Never turn a
+        Emit seed 0 and empty bounds and harnesses because this static analyzer exposes none. Never turn a
         skipped, unsupported, error, timeout, or partial run into examined coverage.
       dependsOn:
-        - aderyn-static-analysis
         - slither-static-analysis
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
@@ -1108,7 +1065,7 @@ spec:
         {{tasks.account-lifecycle-coverage.output}}. For every surviving finding fingerprint, state the root
         cause and smallest safe fix, affected contracts/deployments/storage or governance migration, invariant
         restored, compatibility and rollout risks, and a regression test or existing reproducer to rerun.
-        Specify that follow-up deterministic Aderyn uses the revised immutable revision and applicable
+        Specify that follow-up deterministic Slither uses the revised immutable revision and applicable
         Solidity root; Forge and Echidna use the revised project roots with seed `2062026`. Do not claim those future runs occurred. Define expected pass/failure evidence and require source-artifact-deployment comparison,
         privileged configuration and unresolved coverage gaps to be rechecked. Keep false positives out of
         remediation but preserve inconclusive/unsupported candidates as explicit investigation items. Submit
@@ -1161,7 +1118,7 @@ spec:
         state, deliberate trust assumptions and paths stopped by another guard. Merge duplicates by root cause
         and rank direct fund loss/insolvency, unauthorized control/upgrades, permanent freeze, economic/MEV
         extraction and sustained liveness failure by realistic prerequisites. The report must include the
-        structured scope and deployment basis, executed Aderyn, Forge, Echidna and Halmos run statuses with
+        structured scope and deployment basis, executed Slither, Forge, Echidna and Halmos run statuses with
         seed, bounds and artifact references, formal-method limitations, local-validation evidence,
         remediation/retest plan, and every examined,
         skipped, unsupported and inconclusive coverage record. Never describe unavailable or failed tooling

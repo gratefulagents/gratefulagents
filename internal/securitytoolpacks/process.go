@@ -549,8 +549,12 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 		filepath.Join(root, "share", "ga-security", "toolroots", tool.OCIRoot),
 	}
 	var toolRoot string
+	markerName := ".ga-oci-digest"
+	if tool.Name == "medusa" {
+		markerName = ".ga-medusa-closure-digest"
+	}
 	for _, candidate := range rootCandidates {
-		marker, readErr := os.ReadFile(filepath.Join(candidate, ".ga-oci-digest")) // #nosec G304 -- operator-relative static root.
+		marker, readErr := os.ReadFile(filepath.Join(candidate, markerName)) // #nosec G304 -- operator-relative static root.
 		if readErr == nil && strings.TrimSpace(string(marker)) == tool.ToolArtifactDigest {
 			toolRoot = candidate
 			break
@@ -586,7 +590,7 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 		path = "/usr/local/zeek/bin:/opt/venv/bin:/usr/local/bin:/usr/bin:/bin"
 	}
 	argv := []string{bwrap, "--die-with-parent", "--new-session", "--unshare-pid", "--ro-bind", toolRoot, "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/dev/shm", "--tmpfs", "/tmp", "--bind", work, "/work", "--chdir", "/work", "--clearenv", "--setenv", "HOME", "/work", "--setenv", "LANG", "C.UTF-8", "--setenv", "PATH", path}
-	if tool.Name == "slither" {
+	if tool.Name == "slither" || tool.Name == "medusa" {
 		// The immutable toolbox installs Slither into ethsec's user base. The
 		// sandbox intentionally changes HOME to its writable work directory, so
 		// preserve the pinned user base and let Python select its own versioned
@@ -654,7 +658,7 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 // toolkit and verified against the locked artifact digest before exec, so a
 // PATH entry can never stand in for the reviewed binary.
 func isLockedExternalTool(name string) bool {
-	return slices.Contains([]string{"nuclei", "naabu", "aderyn", "forge-security-tests", "echidna", "anvil-fork", "forge-fork-test", "forge-coverage-mutation"}, name)
+	return slices.Contains([]string{"nuclei", "naabu", "forge-security-tests", "echidna", "anvil-fork", "forge-fork-test", "forge-coverage-mutation"}, name)
 }
 
 func trustedToolBinary(binaryName, expectedDigest string) (string, error) {

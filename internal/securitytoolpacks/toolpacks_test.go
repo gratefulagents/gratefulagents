@@ -169,14 +169,6 @@ func TestNetworkNaabuAndBlockchainForgeFixtures(t *testing.T) {
 		t.Fatalf("naabu result=%+v", naabu)
 	}
 
-	aderynTarget := fixtureTarget("solidity_project", "fixtures/blockchain/vault")
-	aderynTarget.MediaType = "application/vnd.gratefulagents.solidity-project.v1+directory"
-	aderynOutput := readFixture(t, "blockchain", "aderyn.sarif")
-	aderyn := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"src/Vault.sol"}, Output: aderynOutput}).Run(context.Background(), RunConfig{Tool: "aderyn", Target: aderynTarget})
-	if aderyn.Status != StatusFindings || len(aderyn.Findings) != 1 || aderyn.Findings[0].RuleID != "reentrancy-state-change" {
-		t.Fatalf("aderyn result=%+v", aderyn)
-	}
-
 	seed := int64(42)
 	forgeOutput := readFixture(t, "blockchain", "forge-junit.xml")
 	forgeTarget := fixtureTarget("foundry_project", "fixtures/blockchain/vault")

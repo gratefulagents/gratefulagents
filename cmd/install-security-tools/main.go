@@ -25,17 +25,20 @@ const maxArchiveSize = 512 << 20
 
 const downloadAttempts = 5
 
+var supportedPlatforms = map[string]struct{}{"linux/amd64": {}, "linux/arm64": {}}
+
 type artifact struct {
 	Asset        string `json:"asset"`
 	SHA256       string `json:"sha256"`
 	BinarySHA256 string `json:"binary_sha256,omitempty"`
 }
 type lockedTool struct {
-	Name      string              `json:"name"`
-	Status    string              `json:"status"`
-	Binary    string              `json:"binary"`
-	Reason    string              `json:"reason"`
-	Platforms map[string]artifact `json:"platforms"`
+	Name                 string              `json:"name"`
+	Status               string              `json:"status"`
+	Binary               string              `json:"binary"`
+	Reason               string              `json:"reason"`
+	Platforms            map[string]artifact `json:"platforms"`
+	UnsupportedPlatforms map[string]string   `json:"unsupported_platforms"`
 }
 type lockFile struct {
 	SchemaVersion string       `json:"schema_version"`
@@ -63,6 +66,12 @@ func install(lockPath, outputDir, platform string) error {
 	if lock.SchemaVersion != "security-tools-lock/v1" {
 		return fmt.Errorf("unsupported schema %q", lock.SchemaVersion)
 	}
+	if _, ok := supportedPlatforms[platform]; !ok {
+		return fmt.Errorf("unsupported target platform %q", platform)
+	}
+	if err := validateLock(lock); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return err
 	}
@@ -76,6 +85,9 @@ func install(lockPath, outputDir, platform string) error {
 		}
 		asset, ok := tool.Platforms[platform]
 		if !ok {
+			if tool.UnsupportedPlatforms[platform] != "" {
+				continue
+			}
 			return fmt.Errorf("%s: no artifact for %s", tool.Name, platform)
 		}
 		archivePath, err := download(client, asset, tool.Name)
@@ -96,6 +108,41 @@ func install(lockPath, outputDir, platform string) error {
 			sum := sha256.Sum256(data)
 			if actual := hex.EncodeToString(sum[:]); actual != asset.BinarySHA256 {
 				return fmt.Errorf("%s: extracted binary SHA-256 mismatch: got %s, want %s", tool.Name, actual, asset.BinarySHA256)
+			}
+		}
+	}
+	return nil
+}
+
+func validateLock(lock lockFile) error {
+	for _, tool := range lock.Tools {
+		if tool.Status != "enabled" {
+			continue
+		}
+		if len(tool.Platforms) == 0 {
+			return fmt.Errorf("%s: enabled tool has no supported platforms", tool.Name)
+		}
+		for platform := range supportedPlatforms {
+			_, supported := tool.Platforms[platform]
+			reason, unsupported := tool.UnsupportedPlatforms[platform]
+			if supported && unsupported {
+				return fmt.Errorf("%s: %s cannot be both supported and unsupported", tool.Name, platform)
+			}
+			if !supported && (!unsupported || strings.TrimSpace(reason) == "") {
+				return fmt.Errorf("%s: no artifact or unsupported reason for %s", tool.Name, platform)
+			}
+		}
+		for platform := range tool.Platforms {
+			if _, ok := supportedPlatforms[platform]; !ok {
+				return fmt.Errorf("%s: unknown platform %s", tool.Name, platform)
+			}
+		}
+		for platform, reason := range tool.UnsupportedPlatforms {
+			if _, ok := supportedPlatforms[platform]; !ok {
+				return fmt.Errorf("%s: unknown unsupported platform %s", tool.Name, platform)
+			}
+			if strings.TrimSpace(reason) == "" {
+				return fmt.Errorf("%s: unsupported reason for %s is blank", tool.Name, platform)
 			}
 		}
 	}

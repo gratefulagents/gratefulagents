@@ -50,9 +50,6 @@ type stagedTargetContract struct {
 }
 
 var stagedTargetContracts = map[string]map[string]stagedTargetContract{
-	"aderyn": {
-		"solidity_project": {mediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
-	},
 	"forge-security-tests": {
 		"foundry_project": {mediaType: "application/vnd.gratefulagents.foundry-security-project.v1+directory"},
 	},
