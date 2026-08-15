@@ -3,7 +3,7 @@ kind: SecurityWorkflow
 metadata:
   name: web-recon-passive
 spec:
-  description: URL-first web application reconnaissance with the full agent tool surface available for browser, HTTP, CLI, TLS, and registered scanner investigation.
+  description: Quick URL-first web application reconnaissance with the full agent tool surface; use web-app-full-assessment for professional multi-track coverage.
   parallelism: 2
   tasks:
     - name: application-recon
@@ -67,4 +67,4 @@ spec:
         URL, request method and path, relevant redacted response evidence, assumptions, and the least
         invasive reproduction. Do not broaden testing beyond the website target and separately declared
         network scope, and do not perform destructive or state-changing verification. Submit the final
-        scan report, or an explicit bounded negative result if nothing reproducible remains.
+        scan report, or an explicit negative result with scope and limitations if nothing reproducible remains.
