@@ -53,9 +53,6 @@ var securityToolRunLocatorDigestPattern = regexp.MustCompile(`@(sha256:[0-9a-f]{
 // staged archive can produce them — the Job sets them when it extracts the
 // archive — so these tools cannot run against an unstaged target.
 var securityToolStagedMediaTypes = map[string]map[string]string{
-	"aderyn": {
-		"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
-	},
 	"forge-security-tests": {
 		"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
 	},
@@ -186,7 +183,7 @@ func (t *runSecurityToolTool) InputSchema() json.RawMessage {
 		"type": "object",
 		"additionalProperties": false,
 		"properties": {
-			"tool": {"type": "string", "description": "Registered tool name, e.g. nuclei or aderyn"},
+			"tool": {"type": "string", "description": "Registered tool name, e.g. nuclei or slither"},
 			"target": {
 				"type": "object",
 				"additionalProperties": false,

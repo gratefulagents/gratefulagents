@@ -19,7 +19,6 @@ run_root() {
 }
 
 # Execute every packaged EVM runtime, not only the registry/parser fixtures.
-run_native aderyn --version
 run_native forge --version
 run_native echidna --version
 if [ "$(uname -m)" = "x86_64" ]; then

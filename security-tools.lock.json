@@ -59,25 +59,6 @@
       }
     },
     {
-      "name": "aderyn",
-      "status": "enabled",
-      "version": "0.6.8",
-      "binary": "aderyn",
-      "release_url": "https://github.com/Cyfrin/aderyn/releases/tag/aderyn-v0.6.8",
-      "platforms": {
-        "linux/amd64": {
-          "asset": "https://github.com/Cyfrin/aderyn/releases/download/aderyn-v0.6.8/aderyn-x86_64-unknown-linux-gnu.tar.xz",
-          "sha256": "ffd6ca658962e211a3ac821c646f69c8e14bf1b1001cbfe091bcd4535a691e46",
-          "binary_sha256": "a268d616826901e17717b1bc6368d8b2c063045a46fb99a0c0f657f102d977ca"
-        },
-        "linux/arm64": {
-          "asset": "https://github.com/Cyfrin/aderyn/releases/download/aderyn-v0.6.8/aderyn-aarch64-unknown-linux-gnu.tar.xz",
-          "sha256": "961070bf5ee4ed0f82f67a261c616e1525ec1b036bae60cdaec94d087eb5e405",
-          "binary_sha256": "773033830116d7628c01f105a4bd0691d1034fc285f37652e8868c8dc14d97e0"
-        }
-      }
-    },
-    {
       "name": "echidna",
       "status": "enabled",
       "version": "2.3.0",

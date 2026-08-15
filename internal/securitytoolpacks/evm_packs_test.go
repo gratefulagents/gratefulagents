@@ -122,7 +122,7 @@ func TestEVMPacksDeclareExecutableOrCatalogOnlyContracts(t *testing.T) {
 }
 
 // The packs whose executable comes from the checksum-verified runtime lock are
-// digest-verified at exec time exactly like nuclei, echidna, and aderyn.
+// digest-verified at exec time exactly like nuclei and echidna.
 func TestEVMPackBinariesAreDigestVerifiedAtExec(t *testing.T) {
 	lockedPacks := []string{"anvil-fork", "forge-fork-test", "forge-coverage-mutation"}
 	for _, name := range lockedPacks {

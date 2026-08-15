@@ -97,9 +97,6 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		"cargo-fuzz": {
 			"rust_fuzz_project": "application/vnd.gratefulagents.rust-fuzz-project.v1+directory",
 		},
-		"aderyn": {
-			"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
-		},
 		"forge-security-tests": {
 			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
 		},
@@ -850,7 +847,6 @@ func defaultManifestForArch(imageDigest string, knowledgeDigests map[string]stri
 		base("scapy", DomainNetwork, "2.6.1", "junit", "application/junit+xml", []string{"packet_assertions"}, []string{"scapy-runner", "--input", "{{target}}", "--junit"}),
 		base("boofuzz", DomainNetwork, "0.4.2", "junit", "application/junit+xml", []string{"protocol_fixture"}, []string{"boofuzz-runner", "--fixture", "{{target}}", "--junit"}),
 		base("naabu", DomainNetwork, "2.6.1", "naabu-jsonl", "application/x-ndjson", []string{"address_scope"}, []string{"naabu", "-host", "{{target}}", "-p", "{{ports}}", "-rate", "{{rate}}", "-c", "4", "-scan-type", "c", "-retries", "1", "-json", "-silent", "-disable-update-check"}),
-		base("aderyn", DomainBlockchain, "0.6.8", "sarif", "application/sarif+json", []string{"solidity_project"}, []string{"aderyn", "{{target}}", "--output", "report.sarif", "--stdout", "--skip-update-check"}),
 		base("forge-security-tests", DomainBlockchain, "1.7.1", "junit", "application/junit+xml", []string{"foundry_project"}, []string{"forge", "test", "--root", "{{target}}", "--junit", "--fuzz-seed", "{{seed}}", "--threads", "1"}),
 		base("slither", DomainBlockchain, "0.11.3", "slither-json", "application/json", []string{"solidity_project"}, []string{"slither", "{{target}}", "--solc", "/home/ethsec/.local/bin/solc", "--json", "/work/slither.json"}),
 		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
@@ -885,7 +881,7 @@ func defaultManifestForArch(imageDigest string, knowledgeDigests map[string]stri
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna", "forge-fork-test", "forge-coverage-mutation", "cargo-fuzz"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff", "cargo-fuzz"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff", "cargo-fuzz"}
 	if arch == "amd64" {
 		executable = append(executable, "medusa")
 	}
@@ -1112,7 +1108,6 @@ func lockedToolArtifactDigest(name, arch string) string {
 	pins := map[string]map[string]string{
 		"nuclei":                  {"amd64": "sha256:c49588140f357cbdddd5436dec11201953a4c5390faeec90777f9ee2cfd70251", "arm64": "sha256:f27098e0be0cc370af52274611608ad61896d7f0a024e35b136327d39e725477"},
 		"naabu":                   {"amd64": "sha256:6c0aac4253aebe95bbc13d4712a5f8caf7db9c9b62d6bc1fb4c56594cfa45165", "arm64": "sha256:635d93e16b2e6423434b361c017d8fd12f354eaebbf04bcf062c97a9d4e2addc"},
-		"aderyn":                  {"amd64": "sha256:a268d616826901e17717b1bc6368d8b2c063045a46fb99a0c0f657f102d977ca", "arm64": "sha256:773033830116d7628c01f105a4bd0691d1034fc285f37652e8868c8dc14d97e0"},
 		"forge-security-tests":    {"amd64": "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "arm64": "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988"},
 		"echidna":                 {"amd64": "sha256:b5db2b36cd95c70b84fde5cde73b004485decc7a07b6bfd65d7d6a6695294cc3", "arm64": "sha256:ede4024e5cdc8112716b726c9951a69c709d428a649d994fa952fc7e38f6f662"},
 		"medusa":                  {"amd64": "sha256:86e54c586e49e6bf9676f448218e10475afacb0a8bd5ca1aea234f66db7169d6"},

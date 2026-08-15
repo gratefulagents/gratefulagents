@@ -658,7 +658,7 @@ func prepareOCIInvocation(tool Tool, toolArgv []string, executionTarget string) 
 // toolkit and verified against the locked artifact digest before exec, so a
 // PATH entry can never stand in for the reviewed binary.
 func isLockedExternalTool(name string) bool {
-	return slices.Contains([]string{"nuclei", "naabu", "aderyn", "forge-security-tests", "echidna", "anvil-fork", "forge-fork-test", "forge-coverage-mutation"}, name)
+	return slices.Contains([]string{"nuclei", "naabu", "forge-security-tests", "echidna", "anvil-fork", "forge-fork-test", "forge-coverage-mutation"}, name)
 }
 
 func trustedToolBinary(binaryName, expectedDigest string) (string, error) {
