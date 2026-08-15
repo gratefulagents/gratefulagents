@@ -169,6 +169,15 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 			t.Fatalf("%s exit 1 must be operational error", name)
 		}
 	}
+	if runtime.GOARCH == "amd64" {
+		medusa, ok := registry.Tool("medusa")
+		if !ok || !medusa.Enabled || medusa.OCIRoot != "slither" || medusa.OCIExecutable != "/usr/local/bin/medusa" || !medusa.OCIWritableTarget {
+			t.Fatalf("medusa has incomplete compiler closure: %+v", medusa)
+		}
+		if !strings.Contains(dockerfiles, medusa.ToolArtifactDigest+"' > /usr/local/share/ga-security/toolroots/slither/.ga-medusa-closure-digest") {
+			t.Fatalf("medusa closure marker %s is missing from Dockerfile", medusa.ToolArtifactDigest)
+		}
+	}
 }
 
 func TestHalmosClosureDigestMatchesReviewedInputs(t *testing.T) {
@@ -233,7 +242,17 @@ func TestExecutableToolArtifactPinsMatchRuntimeLock(t *testing.T) {
 	}
 	manifest := DefaultManifest(sha256Digest([]byte("image")), map[string]string{"nuclei": sha256Digest([]byte("templates"))})
 	aliases := map[string]string{"forge-security-tests": "forge"}
-	for _, name := range []string{"nuclei", "naabu", "aderyn", "forge-security-tests", "echidna"} {
+	executableTools := []string{"nuclei", "naabu", "aderyn", "forge-security-tests", "echidna"}
+	// Medusa records a closure digest that combines its locked binary with the
+	// pinned Crytic Compile/Solidity compiler root, so it is checked separately.
+	if runtime.GOARCH == "amd64" {
+		for _, tool := range manifest.Tools {
+			if tool.Name == "medusa" && tool.ToolArtifactDigest != "sha256:501378783e7caab89e2567fd10fb6aec1193e5afed89fca17aba900fdd520df0" {
+				t.Fatalf("medusa closure digest = %q", tool.ToolArtifactDigest)
+			}
+		}
+	}
+	for _, name := range executableTools {
 		lockName := name
 		if aliases[name] != "" {
 			lockName = aliases[name]

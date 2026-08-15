@@ -36,7 +36,7 @@ func TestInstallVerifiedZipAndSkipDisabled(t *testing.T) {
 		BinarySHA256: hex.EncodeToString(binarySum[:]),
 	}}
 	lock := lockFile{SchemaVersion: "security-tools-lock/v1", Tools: []lockedTool{
-		{Name: "scanner", Status: "enabled", Binary: "scanner", Platforms: platforms},
+		{Name: "scanner", Status: "enabled", Binary: "scanner", Platforms: platforms, UnsupportedPlatforms: map[string]string{"linux/arm64": "fixture unsupported"}},
 		{Name: "disabled", Status: "disabled", Reason: "fixture"},
 	}}
 	output := t.TempDir()
@@ -64,6 +64,45 @@ func TestInstallRejectsChecksumAndMissingPlatform(t *testing.T) {
 	}
 	if err := install(writeLock(t, lock), t.TempDir(), "linux/arm64"); err == nil {
 		t.Fatal("expected missing-platform rejection")
+	}
+}
+
+func TestInstallSkipsExplicitlyUnsupportedPlatform(t *testing.T) {
+	lock := lockFile{SchemaVersion: "security-tools-lock/v1", Tools: []lockedTool{{
+		Name: "scanner", Status: "enabled", Binary: "scanner",
+		Platforms:            map[string]artifact{"linux/amd64": {Asset: "https://example.test/scanner-1.0.0.tar.gz", SHA256: string(bytes.Repeat([]byte{'0'}, 64))}},
+		UnsupportedPlatforms: map[string]string{"linux/arm64": "upstream does not publish this platform"},
+	}}}
+	output := t.TempDir()
+	if err := install(writeLock(t, lock), output, "linux/arm64"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "scanner")); !os.IsNotExist(err) {
+		t.Fatalf("unsupported scanner should not be installed, stat error = %v", err)
+	}
+}
+
+func TestValidateLockRejectsMalformedPlatformDeclarations(t *testing.T) {
+	fixtureArtifact := artifact{Asset: "https://example.test/scanner-1.0.0.tar.gz", SHA256: string(bytes.Repeat([]byte{'0'}, 64))}
+	for name, tool := range map[string]lockedTool{
+		"overlap": {
+			Name: "scanner", Status: "enabled", Platforms: map[string]artifact{"linux/amd64": fixtureArtifact, "linux/arm64": fixtureArtifact},
+			UnsupportedPlatforms: map[string]string{"linux/arm64": "contradiction"},
+		},
+		"unknown": {
+			Name: "scanner", Status: "enabled", Platforms: map[string]artifact{"linux/amd64": fixtureArtifact},
+			UnsupportedPlatforms: map[string]string{"linux/arm64": "unsupported", "linux/riscv64": "unknown"},
+		},
+		"blank reason": {
+			Name: "scanner", Status: "enabled", Platforms: map[string]artifact{"linux/amd64": fixtureArtifact},
+			UnsupportedPlatforms: map[string]string{"linux/arm64": "  "},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateLock(lockFile{Tools: []lockedTool{tool}}); err == nil {
+				t.Fatal("expected malformed lock rejection")
+			}
+		})
 	}
 }
 

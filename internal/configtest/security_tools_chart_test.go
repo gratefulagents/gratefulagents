@@ -83,6 +83,7 @@ func TestSecurityToolsLockPinsEveryPlatformDigest(t *testing.T) {
 				SHA256       string `json:"sha256"`
 				BinarySHA256 string `json:"binary_sha256"`
 			} `json:"platforms"`
+			UnsupportedPlatforms map[string]string `json:"unsupported_platforms"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(data, &lock); err != nil {
@@ -110,8 +111,14 @@ func TestSecurityToolsLockPinsEveryPlatformDigest(t *testing.T) {
 				t.Errorf("%s: enabled entry must not carry a disabled reason", tool.Name)
 			}
 			for _, platform := range []string{"linux/amd64", "linux/arm64"} {
-				if _, ok := tool.Platforms[platform]; !ok {
-					t.Errorf("%s: enabled entry is missing %s; disable it with a reason instead of shipping one architecture", tool.Name, platform)
+				if _, ok := tool.Platforms[platform]; ok {
+					if tool.UnsupportedPlatforms[platform] != "" {
+						t.Errorf("%s: %s cannot be both supported and unsupported", tool.Name, platform)
+					}
+					continue
+				}
+				if strings.TrimSpace(tool.UnsupportedPlatforms[platform]) == "" {
+					t.Errorf("%s: enabled entry must provide an artifact or unsupported reason for %s", tool.Name, platform)
 				}
 			}
 		}

@@ -62,6 +62,29 @@ class VerifySecurityToolsLockTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.LockError, "disabled tools may not define install fields"):
             self.verify(lock)
 
+    def test_accepts_explicitly_unsupported_platform(self):
+        lock = self.load_lock()
+        tool = lock["tools"][0]
+        tool["unsupported_platforms"] = {
+            "linux/arm64": "upstream does not publish this platform"
+        }
+        del tool["platforms"]["linux/arm64"]
+        self.verify(lock)
+
+    def test_rejects_platform_omitted_without_reason(self):
+        lock = self.load_lock()
+        del lock["tools"][0]["platforms"]["linux/arm64"]
+        with self.assertRaisesRegex(MODULE.LockError, "must cover exactly"):
+            self.verify(lock)
+
+    def test_rejects_platform_marked_supported_and_unsupported(self):
+        lock = self.load_lock()
+        lock["tools"][0]["unsupported_platforms"] = {
+            "linux/arm64": "contradictory fixture"
+        }
+        with self.assertRaisesRegex(MODULE.LockError, "both supported and unsupported"):
+            self.verify(lock)
+
 
 if __name__ == "__main__":
     unittest.main()

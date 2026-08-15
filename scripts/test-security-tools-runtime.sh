@@ -22,6 +22,12 @@ run_root() {
 run_native aderyn --version
 run_native forge --version
 run_native echidna --version
+if [ "$(uname -m)" = "x86_64" ]; then
+  run_native medusa --version
+elif docker run --rm --network none --entrypoint /bin/sh "$image" -c 'command -v medusa' >/dev/null 2>&1; then
+  echo "medusa must not be packaged on arm64" >&2
+  exit 1
+fi
 run_root slither /usr/bin/env -i HOME=/home/ethsec \
   PATH=/home/ethsec/.local/bin:/home/ethsec/.foundry/bin:/usr/local/bin:/usr/bin:/bin \
   /home/ethsec/.local/bin/slither --version >/dev/null
@@ -44,6 +50,8 @@ run_ga_project() {
   target_type=$2
   media_type=$3
   project=$4
+  arguments=${5-}
+  if [ -z "$arguments" ]; then arguments='{}'; fi
   output="$case_dir/output-$tool"
   config="$case_dir/config-$tool.json"
   mkdir -p "$output"
@@ -51,7 +59,7 @@ run_ga_project() {
   digest=$(docker run --rm --network none --mount "type=bind,src=$project,dst=/case,readonly" \
     --entrypoint /usr/local/bin/ga-security "$image" --digest-target /case)
   cat >"$config" <<EOF
-{"tool":"$tool","target":{"type":"$target_type","locator":"/case","revision":"runtime-smoke","digest":"$digest","media_type":"$media_type"}}
+{"tool":"$tool","target":{"type":"$target_type","locator":"/case","revision":"runtime-smoke","digest":"$digest","media_type":"$media_type"},"arguments":$arguments}
 EOF
   status=0
   # Docker's outer namespace blocks nested unprivileged mount namespace setup.
@@ -94,6 +102,16 @@ contract Vault {
 }
 EOF
   run_ga_project slither solidity_project application/vnd.gratefulagents.solidity-project.v1+directory "$case_dir/slither"
+
+  mkdir -p "$case_dir/medusa"
+  cat >"$case_dir/medusa/Invariant.sol" <<'EOF'
+pragma solidity >=0.8.0;
+contract InvariantHarness {
+    function property_always_true() public pure returns (bool) { return true; }
+}
+EOF
+  run_ga_project medusa solidity_project application/vnd.gratefulagents.solidity-project.v1+directory \
+    "$case_dir/medusa" '{"target_contracts":"InvariantHarness"}'
 fi
 
 # The root/version probe above verifies the architecture-specific Halmos closure.
