@@ -177,23 +177,48 @@ describe("ModelDefaultsSection", () => {
       openrouterApiKeyPresent: true,
       xaiApiKeyPresent: false,
     } as never);
+    updateDefaults.mockResolvedValue({
+      provider: "anthropic",
+      authMode: "api-key",
+      model: "claude-sonnet-4-6",
+      reasoningLevel: "",
+      disabled: true,
+    } as never);
 
     render(<ModelDefaultsSection />);
 
     const providerSelect = (await screen.findByLabelText("Provider")) as HTMLSelectElement;
-    await waitFor(() => expect(providerSelect.value).toBe("openai"));
-    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("");
+    await waitFor(() => expect(providerSelect.value).toBe("anthropic"));
+    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe(
+      "claude-sonnet-4-6",
+    );
     expect(Array.from(providerSelect.options).map((option) => option.text)).toEqual([
+      "Anthropic (credential unavailable)",
       "OpenAI",
       "OpenRouter",
     ]);
     const authSelect = screen.getByLabelText("Authentication mode") as HTMLSelectElement;
-    expect(Array.from(authSelect.options).map((option) => option.text)).toEqual(["OAuth"]);
-    expect(authSelect.value).toBe("oauth");
+    expect(Array.from(authSelect.options).map((option) => option.text)).toEqual([
+      "API key (credential unavailable)",
+    ]);
+    expect(authSelect.value).toBe("api-key");
 
-    fireEvent.change(providerSelect, { target: { value: "openrouter" } });
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByRole("button", { name: "Save default model" }));
+    await waitFor(() => {
+      expect(updateDefaults).toHaveBeenCalledWith({
+        provider: "anthropic",
+        authMode: "api-key",
+        model: "claude-sonnet-4-6",
+        reasoningLevel: "",
+        disabled: true,
+      });
+    });
+
+    fireEvent.change(providerSelect, { target: { value: "openai" } });
+    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText("Authentication mode") as HTMLSelectElement).value).toBe(
-      "api-key",
+      "oauth",
     );
   });
 

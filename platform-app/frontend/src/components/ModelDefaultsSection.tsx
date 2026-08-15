@@ -69,14 +69,19 @@ export function ModelDefaultsSection() {
     const availableProviders = savedCredentials
       ? PROVIDERS.filter((candidate) => authModesFor(savedCredentials, candidate.id).length > 0)
       : [];
-    const nextProvider = availableProviders.some((candidate) => candidate.id === defaults.provider)
-      ? defaults.provider
-      : availableProviders[0]?.id ?? "";
+    // Keep a saved selection intact even when its credential was removed. This
+    // lets users disable or edit the default without silently replacing it.
+    const nextProvider = defaults.provider || availableProviders[0]?.id || "";
+    const savedAuthMode =
+      defaults.authMode === "api-key" || defaults.authMode === "oauth"
+        ? defaults.authMode
+        : "";
     setProvider(nextProvider);
     setAuthMode(
-      savedCredentials ? reconciledAuthMode(savedCredentials, nextProvider, defaults.authMode) : "",
+      savedAuthMode ||
+        (savedCredentials ? reconciledAuthMode(savedCredentials, nextProvider, "") : ""),
     );
-    setModel(nextProvider === defaults.provider ? (defaults.model ?? "") : "");
+    setModel(defaults.model ?? "");
     setReasoningLevel(defaults.reasoningLevel ?? "");
     setEnabled(!defaults.disabled);
     setUpdatedAt(defaults.updatedAt);
@@ -154,7 +159,23 @@ export function ModelDefaultsSection() {
   const availableProviders = credentials
     ? PROVIDERS.filter((candidate) => authModesFor(credentials, candidate.id).length > 0)
     : [];
-  const availableAuthModes = credentials ? authModesFor(credentials, provider) : [];
+  const pickerProviders =
+    provider && !availableProviders.some((candidate) => candidate.id === provider)
+      ? [
+          PROVIDERS.find((candidate) => candidate.id === provider) ?? {
+            id: provider,
+            name: provider,
+            hint: "",
+          },
+          ...availableProviders,
+        ]
+      : availableProviders;
+  const credentialAuthModes = credentials ? authModesFor(credentials, provider) : [];
+  const availableAuthModes =
+    authMode && !credentialAuthModes.includes(authMode)
+      ? [authMode, ...credentialAuthModes]
+      : credentialAuthModes;
+  const providerCredentialAvailable = credentialAuthModes.length > 0;
 
   function selectProvider(nextProvider: string) {
     if (nextProvider !== provider) setModel("");
@@ -197,12 +218,15 @@ export function ModelDefaultsSection() {
             className={selectClassName}
             value={provider}
             onChange={(event) => selectProvider(event.target.value)}
-            disabled={loading || availableProviders.length === 0}
+            disabled={loading || pickerProviders.length === 0}
           >
-            {availableProviders.length === 0 && <option value="">No saved credentials</option>}
-            {availableProviders.map((candidate) => (
+            {pickerProviders.length === 0 && <option value="">No saved credentials</option>}
+            {pickerProviders.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
                 {candidate.name}
+                {!credentials || authModesFor(credentials, candidate.id).length === 0
+                  ? " (credential unavailable)"
+                  : ""}
               </option>
             ))}
           </select>
@@ -220,6 +244,7 @@ export function ModelDefaultsSection() {
             {availableAuthModes.map((mode) => (
               <option key={mode} value={mode}>
                 {mode === "api-key" ? "API key" : "OAuth"}
+                {!credentialAuthModes.includes(mode) ? " (credential unavailable)" : ""}
               </option>
             ))}
           </select>
@@ -254,7 +279,9 @@ export function ModelDefaultsSection() {
               ? `Loading ${providerName(provider)} models…`
               : modelsError
                 ? modelsError
-                : provider
+                : provider && !providerCredentialAvailable
+                  ? `Connect ${providerName(provider)} credentials to load models.`
+                  : provider
                   ? `${availableModels.length} ${providerName(provider)} models available`
                   : "Save a provider credential to load models."}
           </p>
@@ -289,7 +316,7 @@ export function ModelDefaultsSection() {
       <div className="flex items-center gap-3">
         <Button
           size="sm"
-          disabled={saving || loading || !provider || !authMode}
+          disabled={saving || loading || !provider}
           onClick={() =>
             void save({
               provider,

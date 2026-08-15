@@ -45,8 +45,6 @@ func modelDefaultsActorContext(subject string) context.Context {
 	return context.WithValue(context.Background(), requestActorContextKey{}, requestActor{Subject: subject})
 }
 
-func modelDefaultsString(value string) *string { return &value }
-
 func TestGetMyModelDefaultsRequiresAuth(t *testing.T) {
 	srv := &Server{authStore: &modelDefaultsFakeStore{}}
 	_, err := srv.GetMyModelDefaults(context.Background(), &platform.GetMyModelDefaultsRequest{})
@@ -102,7 +100,7 @@ func TestUpdateMyModelDefaultsRoundTrip(t *testing.T) {
 
 	resp, err := srv.UpdateMyModelDefaults(ctx, &platform.UpdateMyModelDefaultsRequest{
 		Provider:       " Anthropic ",
-		AuthMode:       modelDefaultsString(" OAUTH "),
+		AuthMode:       new(" OAUTH "),
 		Model:          "  claude-sonnet-4-6  ",
 		ReasoningLevel: " HIGH ",
 	})
@@ -161,10 +159,10 @@ func TestUpdateMyModelDefaultsValidation(t *testing.T) {
 		req  *platform.UpdateMyModelDefaultsRequest
 	}{
 		{"invalid provider", &platform.UpdateMyModelDefaultsRequest{Provider: "totallyfake", Model: "m"}},
-		{"invalid auth mode", &platform.UpdateMyModelDefaultsRequest{Provider: "openai", AuthMode: modelDefaultsString("password")}},
-		{"auth mode without provider", &platform.UpdateMyModelDefaultsRequest{AuthMode: modelDefaultsString("oauth")}},
-		{"copilot api key", &platform.UpdateMyModelDefaultsRequest{Provider: "copilot", AuthMode: modelDefaultsString("api-key")}},
-		{"openrouter oauth", &platform.UpdateMyModelDefaultsRequest{Provider: "openrouter", AuthMode: modelDefaultsString("oauth")}},
+		{"invalid auth mode", &platform.UpdateMyModelDefaultsRequest{Provider: "openai", AuthMode: new("password")}},
+		{"auth mode without provider", &platform.UpdateMyModelDefaultsRequest{AuthMode: new("oauth")}},
+		{"copilot api key", &platform.UpdateMyModelDefaultsRequest{Provider: "copilot", AuthMode: new("api-key")}},
+		{"openrouter oauth", &platform.UpdateMyModelDefaultsRequest{Provider: "openrouter", AuthMode: new("oauth")}},
 		{"invalid reasoning level", &platform.UpdateMyModelDefaultsRequest{Provider: "openai", ReasoningLevel: "ultra"}},
 		{"model without provider", &platform.UpdateMyModelDefaultsRequest{Model: "gpt-5.2"}},
 	}
