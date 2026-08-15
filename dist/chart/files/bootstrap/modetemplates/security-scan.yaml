@@ -18,11 +18,9 @@ spec:
     maxRetries: 1
     maxConcurrentSubAgents: 5
 
-  # Do not clamp the RuntimeProfile or remove tools from security researchers.
-  # The effective run therefore receives every capability granted by its
-  # selected profile, including browser, shell, network, workspace, and remote
-  # tooling. Scan instructions govern how those capabilities are used.
-  permissionMode: danger-full-access
+  # Repository scans retain the established workspace-only clamp. URL-driven
+  # live web scans use the separate web-security-scan template.
+  permissionMode: workspace-write
   allowedMutatingTools:
     - report_security_finding
     - update_security_finding

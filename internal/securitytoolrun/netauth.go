@@ -148,8 +148,7 @@ func parseNetworkLocator(raw string) (networkLocator, error) {
 	if value == "" {
 		return networkLocator{}, fmt.Errorf("network target is empty")
 	}
-	if strings.HasPrefix(value, "*.") {
-		host := strings.TrimPrefix(value, "*.")
+	if host, ok := strings.CutPrefix(value, "*."); ok {
 		if !hostnamePattern.MatchString(host) {
 			return networkLocator{}, fmt.Errorf("network target %q has an invalid wildcard domain", value)
 		}

@@ -17,10 +17,9 @@ spec:
     maxRetries: 1
     maxConcurrentSubAgents: 1
 
-  # Do not clamp the RuntimeProfile or remove tools from task researchers. Each
-  # task receives every capability granted by its selected profile; its prompt
-  # and assigned scope govern how those capabilities are used.
-  permissionMode: danger-full-access
+  # Repository tasks retain the established workspace-only clamp. URL-driven
+  # live web tasks use the separate web-security-scan-task template.
+  permissionMode: workspace-write
   allowedMutatingTools:
     - report_security_finding
     - update_security_finding

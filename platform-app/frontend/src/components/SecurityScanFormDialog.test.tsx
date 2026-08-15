@@ -166,9 +166,13 @@ describe("SecurityScanFormDialog", () => {
   it("creates a repoless website scan and normalizes a bare domain to HTTPS", async () => {
     renderDialog();
 
+    expect(screen.getByText("Scan target")).toBeTruthy();
+    expect(screen.getByText("Repository events")).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Target type/), {
       target: { value: "website" },
     });
+    expect(screen.queryByText("Scan target")).toBeNull();
+    expect(screen.queryByText("Repository events")).toBeNull();
     fireEvent.change(screen.getByLabelText(/Website URL or domain/), {
       target: { value: "staging.example.com" },
     });

@@ -909,9 +909,10 @@ export function SecurityScanFormDialog({
                 />
               </OptionRow>
 
-              <OptionRow
-                icon={GitBranch}
-                title="Scan target"
+              {spec.targetType === "repository" && (
+                <OptionRow
+                  icon={GitBranch}
+                  title="Scan target"
                 summary={[spec.baseBranch.trim() || "main", spec.revision.trim() || "branch head"].join(" · ")}
                 modified={Boolean(spec.baseBranch.trim() || spec.revision.trim() || spec.additionalRepos.trim())}
               >
@@ -947,7 +948,8 @@ export function SecurityScanFormDialog({
                     placeholder="https://github.com/acme/shared-lib.git"
                   />
                 </FlowField>
-              </OptionRow>
+                </OptionRow>
+              )}
 
               <OptionRow
                 icon={Crosshair}
@@ -1283,9 +1285,10 @@ export function SecurityScanFormDialog({
                 )}
               </OptionRow>
 
-              <OptionRow
-                icon={GitPullRequest}
-                title="Repository events"
+              {spec.targetType === "repository" && (
+                <OptionRow
+                  icon={GitPullRequest}
+                  title="Repository events"
                 summary={repositoryEventsSummary(spec)}
                 modified={spec.onPullRequest || spec.onPush || spec.checksEnabled}
               >
@@ -1404,7 +1407,8 @@ export function SecurityScanFormDialog({
                     />
                   </>
                 )}
-              </OptionRow>
+                </OptionRow>
+              )}
 
               <OptionRow
                 icon={Bell}

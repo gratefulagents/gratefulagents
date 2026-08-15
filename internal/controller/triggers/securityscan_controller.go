@@ -34,6 +34,9 @@ const (
 	// securityScanModeTemplate is the ModeTemplate applied to scan runs when
 	// spec.defaults.modeRef is not set.
 	securityScanModeTemplate = "security-scan"
+	// webSecurityScanModeTemplate is the unclamped coordinator mode used only
+	// for URL/domain targets, keeping repository scans on their existing mode.
+	webSecurityScanModeTemplate = "web-security-scan"
 
 	// securityScanLabel marks AgentRuns created by a SecurityScan for listing.
 	securityScanLabel = "security.gratefulagents.dev/scan"
@@ -683,7 +686,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 // note.
 func (r *SecurityScanReconciler) coordinatorParallelismBound(ctx context.Context, scan *triggersv1alpha1.SecurityScan, spec triggersv1alpha1.SecurityScanSpec) (int32, string) {
 	bound := spec.EffectiveParallelism()
-	modeName := securityScanModeTemplate
+	modeName := securityScanDefaultModeTemplate(spec, false)
 	if ref := scan.Spec.Defaults.ModeRef; ref != nil && strings.TrimSpace(ref.Name) != "" {
 		modeName = strings.TrimSpace(ref.Name)
 	}
@@ -779,7 +782,7 @@ func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *tri
 	}
 	var modeRef *platformv1alpha1.ModeRef
 	if d.ModeRef == nil {
-		modeRef = &platformv1alpha1.ModeRef{Name: securityScanModeTemplate}
+		modeRef = &platformv1alpha1.ModeRef{Name: securityScanDefaultModeTemplate(scan.Spec, false)}
 	}
 
 	if err := validateTriggerRunDefaults(TriggerRunSpec{
@@ -869,6 +872,19 @@ func securityScanTargetIdentity(spec triggersv1alpha1.SecurityScanSpec) string {
 		}
 	}
 	return spec.RepoURL
+}
+
+func securityScanDefaultModeTemplate(spec triggersv1alpha1.SecurityScanSpec, task bool) string {
+	if strings.TrimSpace(spec.TargetURL) != "" {
+		if task {
+			return webSecurityScanTaskModeTemplate
+		}
+		return webSecurityScanModeTemplate
+	}
+	if task {
+		return securityScanTaskModeTemplate
+	}
+	return securityScanModeTemplate
 }
 
 // securityScanAuthorizedNetworkTargets renders the operator-declared network
