@@ -169,6 +169,15 @@ func TestExecutableOCIToolsUseImmutableRuntimeClosures(t *testing.T) {
 			t.Fatalf("%s exit 1 must be operational error", name)
 		}
 	}
+	if runtime.GOARCH == "amd64" {
+		medusa, ok := registry.Tool("medusa")
+		if !ok || !medusa.Enabled || medusa.OCIRoot != "slither" || medusa.OCIExecutable != "/usr/local/bin/medusa" || !medusa.OCIWritableTarget {
+			t.Fatalf("medusa has incomplete compiler closure: %+v", medusa)
+		}
+		if !strings.Contains(dockerfiles, medusa.ToolArtifactDigest+"' > /usr/local/share/ga-security/toolroots/slither/.ga-medusa-closure-digest") {
+			t.Fatalf("medusa closure marker %s is missing from Dockerfile", medusa.ToolArtifactDigest)
+		}
+	}
 }
 
 func TestHalmosClosureDigestMatchesReviewedInputs(t *testing.T) {
@@ -233,7 +242,17 @@ func TestExecutableToolArtifactPinsMatchRuntimeLock(t *testing.T) {
 	}
 	manifest := DefaultManifest(sha256Digest([]byte("image")), map[string]string{"nuclei": sha256Digest([]byte("templates"))})
 	aliases := map[string]string{"forge-security-tests": "forge"}
-	for _, name := range []string{"nuclei", "naabu", "aderyn", "forge-security-tests", "echidna"} {
+	executableTools := []string{"nuclei", "naabu", "forge-security-tests", "echidna"}
+	// Medusa records a closure digest that combines its locked binary with the
+	// pinned Crytic Compile/Solidity compiler root, so it is checked separately.
+	if runtime.GOARCH == "amd64" {
+		for _, tool := range manifest.Tools {
+			if tool.Name == "medusa" && tool.ToolArtifactDigest != "sha256:501378783e7caab89e2567fd10fb6aec1193e5afed89fca17aba900fdd520df0" {
+				t.Fatalf("medusa closure digest = %q", tool.ToolArtifactDigest)
+			}
+		}
+	}
+	for _, name := range executableTools {
 		lockName := name
 		if aliases[name] != "" {
 			lockName = aliases[name]
@@ -337,11 +356,6 @@ func TestEnabledExternalToolsHaveExactArgv(t *testing.T) {
 			name:   "naabu",
 			config: RunConfig{Tool: "naabu", Target: Target{Type: "address_scope", Locator: "192.0.2.10", Revision: "fixture-v1", Digest: sha256Digest([]byte("naabu"))}, Arguments: map[string]string{"ports": "80,443", "rate": "25"}, Scope: []string{"192.0.2.10"}},
 			want:   []string{"naabu", "-host", "192.0.2.10", "-p", "80,443", "-rate", "25", "-c", "4", "-scan-type", "c", "-retries", "1", "-json", "-silent", "-disable-update-check"},
-		},
-		{
-			name:   "aderyn",
-			config: RunConfig{Tool: "aderyn", Target: Target{Type: "solidity_project", Locator: "/workspace/project", Revision: "fixture-v1", Digest: sha256Digest([]byte("aderyn")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"}},
-			want:   []string{"aderyn", "/workspace/project", "--output", "report.sarif", "--stdout", "--skip-update-check"},
 		},
 		{
 			name:   "forge-security-tests",

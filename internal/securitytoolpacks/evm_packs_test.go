@@ -2,6 +2,7 @@ package securitytoolpacks
 
 import (
 	"maps"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -45,11 +46,39 @@ func evmPack(t *testing.T, name string) Tool {
 // when its executor stage exists; anything still unrunnable stays catalog-only
 // with a reason that names the missing capability, so no caller can be told a
 // run would work.
+func TestMedusaAvailabilityMatchesArchitecture(t *testing.T) {
+	for _, test := range []struct {
+		arch    string
+		enabled bool
+	}{{"amd64", true}, {"arm64", false}} {
+		manifest := defaultManifestForArch(sha256Digest([]byte("image")), nil, test.arch)
+		var medusa Tool
+		for _, tool := range manifest.Tools {
+			if tool.Name == "medusa" {
+				medusa = tool
+				break
+			}
+		}
+		if medusa.Enabled != test.enabled {
+			t.Errorf("medusa enabled on %s = %v, want %v (reason %q)", test.arch, medusa.Enabled, test.enabled, medusa.DisabledReason)
+		}
+		if test.enabled && (medusa.OCIRoot != "slither" || medusa.OCIExecutable != "/usr/local/bin/medusa") {
+			t.Errorf("amd64 medusa compiler closure is incomplete: %+v", medusa)
+		}
+		if !test.enabled && !strings.Contains(medusa.DisabledReason, "linux/arm64") {
+			t.Errorf("arm64 medusa reason = %q", medusa.DisabledReason)
+		}
+	}
+}
+
 func TestEVMPacksDeclareExecutableOrCatalogOnlyContracts(t *testing.T) {
 	adapters := DefaultAdapters()
-	// medusa has no linux/arm64 release asset, so the runtime lock cannot pin
-	// it on every supported architecture and it stays catalog-only.
-	catalogOnly := map[string]string{"medusa": "linux/arm64"}
+	// Medusa is executable on amd64 and remains catalog-only on arm64, where
+	// upstream publishes no Linux release asset.
+	catalogOnly := map[string]string{}
+	if runtime.GOARCH == "arm64" {
+		catalogOnly["medusa"] = "linux/arm64"
+	}
 	for _, name := range evmPackNames {
 		tool := evmPack(t, name)
 		if tool.Domain != DomainBlockchain {
@@ -78,22 +107,25 @@ func TestEVMPacksDeclareExecutableOrCatalogOnlyContracts(t *testing.T) {
 			t.Errorf("%s budgets are not bounded to a single deterministic run: %+v", name, tool.Budgets)
 		}
 	}
-	// A disabled pack must not be reachable even with a fully valid request.
-	registry := evmTestRegistry(t)
-	_, _, err := registry.BuildInvocation(RunConfig{
-		Tool:      "medusa",
-		Target:    Target{Type: "solidity_project", Locator: "project", Revision: "v1", Digest: sha256Digest([]byte("target")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
-		Arguments: map[string]string{"target_contracts": "VaultHarness"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "disabled") {
-		t.Fatalf("disabled pack built an invocation: %v", err)
+	// On arm64 the disabled pack must not be reachable even with a fully valid request.
+	if runtime.GOARCH == "arm64" {
+		registry := evmTestRegistry(t)
+		_, _, err := registry.BuildInvocation(RunConfig{
+			Tool:      "medusa",
+			Target:    Target{Type: "solidity_project", Locator: "project", Revision: "v1", Digest: sha256Digest([]byte("target")), MediaType: "application/vnd.gratefulagents.solidity-project.v1+directory"},
+			Arguments: map[string]string{"target_contracts": "VaultHarness"},
+		})
+		if err == nil || !strings.Contains(err.Error(), "disabled") {
+			t.Fatalf("disabled pack built an invocation: %v", err)
+		}
 	}
 }
 
 // The packs whose executable comes from the checksum-verified runtime lock are
-// digest-verified at exec time exactly like nuclei, echidna, and aderyn.
+// digest-verified at exec time exactly like nuclei and echidna.
 func TestEVMPackBinariesAreDigestVerifiedAtExec(t *testing.T) {
-	for _, name := range []string{"anvil-fork", "forge-fork-test", "forge-coverage-mutation"} {
+	lockedPacks := []string{"anvil-fork", "forge-fork-test", "forge-coverage-mutation"}
+	for _, name := range lockedPacks {
 		if !isLockedExternalTool(name) {
 			t.Errorf("%s must be verified against its locked artifact digest before exec", name)
 		}

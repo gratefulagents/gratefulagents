@@ -282,7 +282,7 @@ func TestPriorArtCheckExcludesKnownAndBotFindableWork(t *testing.T) {
 
 	for _, marker := range []string{
 		"would a standard detector",
-		"slither, aderyn",
+		"slither or a",
 		"semgrep-style rule",
 		"platform's own bot pass",
 		"`knownissues` entries",

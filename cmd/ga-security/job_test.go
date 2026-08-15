@@ -451,12 +451,6 @@ func TestJobSetsTheMediaTypeTheRegistryExpectsForExtractedTargets(t *testing.T) 
 		media      string
 		want       string
 	}{
-		"solidity project": {
-			tool:       "aderyn",
-			targetType: "solidity_project",
-			media:      "application/gzip",
-			want:       "application/vnd.gratefulagents.solidity-project.v1+directory",
-		},
 		"foundry project": {
 			tool:       "forge-security-tests",
 			targetType: "foundry_project",

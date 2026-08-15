@@ -97,9 +97,6 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		"cargo-fuzz": {
 			"rust_fuzz_project": "application/vnd.gratefulagents.rust-fuzz-project.v1+directory",
 		},
-		"aderyn": {
-			"solidity_project": "application/vnd.gratefulagents.solidity-project.v1+directory",
-		},
 		"forge-security-tests": {
 			"foundry_project": "application/vnd.gratefulagents.foundry-security-project.v1+directory",
 		},
@@ -809,6 +806,17 @@ func validatePortList(value string) (int, error) {
 // The reviewed Nuclei knowledge pin is compiled in; other optional knowledge
 // sources must be provided by trusted controller configuration.
 func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Manifest {
+	return DefaultManifestForArchitecture(imageDigest, knowledgeDigests, runtime.GOARCH)
+}
+
+// DefaultManifestForArchitecture builds the registry for a known execution
+// architecture. Control-plane validation uses the architecture selected on the
+// Job, while ga-security uses DefaultManifest for its actual runtime.
+func DefaultManifestForArchitecture(imageDigest string, knowledgeDigests map[string]string, arch string) Manifest {
+	return defaultManifestForArch(imageDigest, knowledgeDigests, arch)
+}
+
+func defaultManifestForArch(imageDigest string, knowledgeDigests map[string]string, arch string) Manifest {
 	configuredKnowledge := maps.Clone(knowledgeDigests)
 	if configuredKnowledge == nil {
 		configuredKnowledge = map[string]string{}
@@ -846,7 +854,6 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		base("scapy", DomainNetwork, "2.6.1", "junit", "application/junit+xml", []string{"packet_assertions"}, []string{"scapy-runner", "--input", "{{target}}", "--junit"}),
 		base("boofuzz", DomainNetwork, "0.4.2", "junit", "application/junit+xml", []string{"protocol_fixture"}, []string{"boofuzz-runner", "--fixture", "{{target}}", "--junit"}),
 		base("naabu", DomainNetwork, "2.6.1", "naabu-jsonl", "application/x-ndjson", []string{"address_scope"}, []string{"naabu", "-host", "{{target}}", "-p", "{{ports}}", "-rate", "{{rate}}", "-c", "4", "-scan-type", "c", "-retries", "1", "-json", "-silent", "-disable-update-check"}),
-		base("aderyn", DomainBlockchain, "0.6.8", "sarif", "application/sarif+json", []string{"solidity_project"}, []string{"aderyn", "{{target}}", "--output", "report.sarif", "--stdout", "--skip-update-check"}),
 		base("forge-security-tests", DomainBlockchain, "1.7.1", "junit", "application/junit+xml", []string{"foundry_project"}, []string{"forge", "test", "--root", "{{target}}", "--junit", "--fuzz-seed", "{{seed}}", "--threads", "1"}),
 		base("slither", DomainBlockchain, "0.11.3", "slither-json", "application/json", []string{"solidity_project"}, []string{"slither", "{{target}}", "--solc", "/home/ethsec/.local/bin/solc", "--json", "/work/slither.json"}),
 		base("echidna", DomainBlockchain, "2.3.0", "echidna-json", "application/json", []string{"solidity_project"}, []string{"echidna", "{{target}}", "--format", "json", "--seed", "{{seed}}", "--workers", "1", "--test-limit", "10000", "--seq-len", "32", "--shrink-limit", "5000", "--disable-slither"}),
@@ -881,13 +888,15 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 	seeded := []string{"schemathesis", "restler", "crypto-differential", "scapy", "boofuzz", "forge-security-tests", "echidna", "forge-fork-test", "forge-coverage-mutation", "cargo-fuzz"}
 	// Executable entries are either built into ga-security or installed from the
 	// checksum-verified runtime lock. Everything else remains catalog-only.
-	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "aderyn", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff", "cargo-fuzz"}
+	executable := []string{"authorization-matrix", "wycheproof", "rfc-nist-vectors", "owasp-zap", "schemathesis", "sslyze", "nuclei", "nmap", "zeek", "suricata", "naabu", "forge-security-tests", "echidna", "slither", "halmos", "go-fuzz-tests", "anvil-fork", "forge-fork-test", "forge-coverage-mutation", "upstream-fork-diff", "chain-read", "deployed-bytecode-diff", "cargo-fuzz"}
+	if arch == "amd64" {
+		executable = append(executable, "medusa")
+	}
 	knowledgeRequired := []string{"nuclei", "wycheproof", "rfc-nist-vectors", "suricata", "zeek"}
-	// A pack that cannot be packaged for every supported architecture stays
-	// catalog-only, and its reason names the exact missing capability so the
-	// catalog never implies a run would work.
+	// Architecture-specific tools remain catalog-only where upstream publishes
+	// no verified binary, so the catalog never implies a run would work.
 	packagingBlockers := map[string]string{
-		"medusa": "catalog-only: upstream publishes no linux/arm64 release asset for medusa v1.5.1, so the runtime lock cannot pin a multi-architecture binary",
+		"medusa": "catalog-only: upstream publishes no linux/arm64 release asset for medusa v1.5.1",
 	}
 	ociTools := map[string]struct{ image, digest, amd64, arm64, root, executable, output string }{
 		"owasp-zap":     {"docker.io/zaproxy/zap-stable", "sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab", "sha256:65f8bee15a648ca4a0b6a25e1096fc76af6eea42ab2d75f2a9649981225f30b8", "sha256:7d6bc478bd0750a094349b2e9710a4e33b84e003ae4341f2f2ae7245ec1c5065", "owasp-zap", "/zap/zap.sh", "/work/zap-report.json"},
@@ -897,12 +906,13 @@ func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Man
 		"zeek":          {"docker.io/zeek/zeek", "sha256:5a4712846e75fab70dbf3c329dbc7191f7057fb7351de157ee18344cf1bad85a", "sha256:c01e13d3bb837fdbccb26cddfab73c0cf8a9f3dba1eb9d181b00f412530bb4f6", "sha256:e53b6b22aaa753010ea356c5a691435a80a9aa0935721dcfd582dc76dd38572b", "zeek", "/usr/local/zeek/bin/zeek", "/work/notice.log"},
 		"suricata":      {"docker.io/jasonish/suricata", "sha256:a1b835b83c62c8c5130dcfe4072244ab7fc1bf37ebf472bfb6b2519d98a2e36a", "sha256:559a07fcccae439ffdabd05a4969e1feb74cc43f88ea456cc544a20b9b148123", "sha256:6a0b4d02f9174a74e52c904bbd10d344d024bbebc86283866f92096c09be31b0", "suricata", "/usr/bin/suricata", "/work/eve.json"},
 		"slither":       {"ghcr.io/trailofbits/eth-security-toolbox", "sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978", "sha256:28ce0f9b27312f6ed1137495aef70744dc2d6ff8e6d5c9147ec9e31a63ff86a8", "sha256:98b90a826a996507e6b1015a7850b2e8de30a3d80f4ec7deaddbf00e050d5152", "slither", "/home/ethsec/.local/bin/slither", "/work/slither.json"},
+		"medusa":        {"ghcr.io/trailofbits/eth-security-toolbox", "sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978", "sha256:28ce0f9b27312f6ed1137495aef70744dc2d6ff8e6d5c9147ec9e31a63ff86a8", "", "slither", "/usr/local/bin/medusa", ""},
 		"halmos":        {"docker.io/library/python:3.11-slim-bookworm", "sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3", "sha256:77923445c077d8eb971b14b2b114a1d9cd4a87edb4c75654820ca4832ee8cb15", "sha256:ecb0ac954790dd64a0d518d699b9c61a91780c42b0d877c802dbaffd04db66f9", "halmos", "/opt/halmos/bin/halmos", "/work/halmos.json"},
 		"cargo-fuzz":    {"docker.io/library/rust:1.91-bookworm", "sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33", "sha256:8322627e69ba7780b54f39e9f4d3758c006a3ae0123ea01d63b91f0626169891", "sha256:20262682d0201e219012287e8c1e6a7a14b6ebd46bb2b280714f23c06678c285", "cargo-fuzz", "/usr/local/cargo/bin/cargo", ""},
 		"go-fuzz-tests": {"docker.io/library/golang:1.26", "sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365", "sha256:c05f28d5148bc5c4b60ab5c002291e830b7e835922d23875152b3af5951cecea", "sha256:b11b8c1efa832e8b83ecba5bab41b496edd3fdf6ecdae89dada36831cb51a5b7", "go-fuzz-tests", "/usr/local/go/bin/go", ""},
 	}
 	for i := range tools {
-		if digest := lockedToolArtifactDigest(tools[i].Name, runtime.GOARCH); digest != "" {
+		if digest := lockedToolArtifactDigest(tools[i].Name, arch); digest != "" {
 			tools[i].ToolArtifactDigest = digest
 		}
 		applyOCIRootSettings(&tools[i], ociTools[tools[i].Name].image, ociTools[tools[i].Name].digest, ociTools[tools[i].Name].amd64, ociTools[tools[i].Name].arm64, ociTools[tools[i].Name].root, ociTools[tools[i].Name].executable, ociTools[tools[i].Name].output)
@@ -976,6 +986,11 @@ func applySandboxRuntimeSettings(tool *Tool) {
 		tool.OCIWritableTarget = true
 		tool.Budgets.Concurrency = 1
 	}
+	if tool.Name == "medusa" {
+		tool.OCIPath = "/home/ethsec/.local/bin:/home/ethsec/.foundry/bin:/usr/local/bin:/usr/bin:/bin"
+		tool.OCIWritableTarget = true
+		tool.Budgets.Concurrency = 1
+	}
 	if tool.Name == "halmos" {
 		tool.OCIPath = "/opt/halmos/bin:/usr/local/bin:/usr/bin:/bin"
 		tool.OCIWritableTarget = true
@@ -1014,6 +1029,16 @@ func applyOCIRootSettings(tool *Tool, image, digest, amd64Digest, arm64Digest, r
 	tool.ToolArtifactDigest = digest
 	tool.PlatformDigests = map[string]string{"amd64": amd64Digest, "arm64": arm64Digest}
 	switch tool.Name {
+	case "medusa":
+		// Medusa runs inside the pinned Slither/Crytic Compile root. This
+		// closure digest binds that compiler root to the verified Medusa binary.
+		tool.ToolArtifactDigest = "sha256:501378783e7caab89e2567fd10fb6aec1193e5afed89fca17aba900fdd520df0"
+		tool.PlatformDigests = map[string]string{
+			"amd64": tool.ToolArtifactDigest,
+			// The arm64 compiler root remains pinned for catalog provenance, but
+			// no Medusa executable is present and the pack is disabled there.
+			"arm64": "sha256:98b90a826a996507e6b1015a7850b2e8de30a3d80f4ec7deaddbf00e050d5152",
+		}
 	case "halmos":
 		// The Halmos root is a reviewed closure built here rather than the
 		// upstream image, so it carries its own identity.
@@ -1090,9 +1115,9 @@ func lockedToolArtifactDigest(name, arch string) string {
 	pins := map[string]map[string]string{
 		"nuclei":                  {"amd64": "sha256:c49588140f357cbdddd5436dec11201953a4c5390faeec90777f9ee2cfd70251", "arm64": "sha256:f27098e0be0cc370af52274611608ad61896d7f0a024e35b136327d39e725477"},
 		"naabu":                   {"amd64": "sha256:6c0aac4253aebe95bbc13d4712a5f8caf7db9c9b62d6bc1fb4c56594cfa45165", "arm64": "sha256:635d93e16b2e6423434b361c017d8fd12f354eaebbf04bcf062c97a9d4e2addc"},
-		"aderyn":                  {"amd64": "sha256:a268d616826901e17717b1bc6368d8b2c063045a46fb99a0c0f657f102d977ca", "arm64": "sha256:773033830116d7628c01f105a4bd0691d1034fc285f37652e8868c8dc14d97e0"},
 		"forge-security-tests":    {"amd64": "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "arm64": "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988"},
 		"echidna":                 {"amd64": "sha256:b5db2b36cd95c70b84fde5cde73b004485decc7a07b6bfd65d7d6a6695294cc3", "arm64": "sha256:ede4024e5cdc8112716b726c9951a69c709d428a649d994fa952fc7e38f6f662"},
+		"medusa":                  {"amd64": "sha256:86e54c586e49e6bf9676f448218e10475afacb0a8bd5ca1aea234f66db7169d6"},
 		"anvil-fork":              {"amd64": "sha256:10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b", "arm64": "sha256:bebaff5c1b6ff6f55b6f2f5f415bb5543f19b948197b5e909195e81ef1727be1"},
 		"forge-fork-test":         {"amd64": "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "arm64": "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988"},
 		"forge-coverage-mutation": {"amd64": "sha256:4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c", "arm64": "sha256:a93076d85e013a45b7050c21b26cf05627f1d64f40b99cf0524fa5facf4d3988"},

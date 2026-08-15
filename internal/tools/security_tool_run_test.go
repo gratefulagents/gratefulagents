@@ -200,7 +200,7 @@ func securityToolRunStatusForResult(t *testing.T, blobs *fakeSecurityToolBlobSto
 			ResultObjectKey: key,
 			ResultDigest:    digest,
 			Artifacts: []platformv1alpha1.SecurityToolRunArtifact{
-				{Name: "raw-00", MediaType: "application/sarif+json", ObjectKey: key + "-raw", Digest: digest},
+				{Name: "raw-00", MediaType: "application/json", ObjectKey: key + "-raw", Digest: digest},
 			},
 		},
 	}
@@ -210,8 +210,8 @@ func sampleSecurityToolResult() securitytoolpacks.Result {
 	return securitytoolpacks.Result{
 		Status: securitytoolpacks.StatusFindings,
 		Findings: []security.ScannerRecord{{
-			Tool:        "aderyn",
-			ToolVersion: "0.6.8",
+			Tool:        "slither",
+			ToolVersion: "0.11.3",
 			RuleID:      "reentrancy",
 			Message:     "state change after external call",
 			Severity:    "HIGH",
@@ -220,14 +220,14 @@ func sampleSecurityToolResult() securitytoolpacks.Result {
 		}},
 		Coverage: securitytoolpacks.Coverage{Examined: []string{"contracts/Token.sol"}, Skipped: []string{"test/"}},
 		Replay: securitytoolpacks.Replay{
-			ToolVersion:     "0.6.8",
+			ToolVersion:     "0.11.3",
 			ImageDigest:     "sha256:" + strings.Repeat("a", 64),
 			ConfigurationID: "sha256:" + strings.Repeat("b", 64),
 		},
 	}
 }
 
-const aderynRequest = `{"tool":"aderyn","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"},"timeout_seconds":60}`
+const slitherRequest = `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"},"timeout_seconds":60}`
 
 // The staged-target key embeds the SecurityToolRun name, so the result key can
 // only be predicted once the object exists. Tests that need a result document
@@ -239,7 +239,7 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 	fixture.writeProject(t)
 	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
 
-	result, summary := fixture.exec(t, aderynRequest)
+	result, summary := fixture.exec(t, slitherRequest)
 	if result.IsError {
 		t.Fatalf("unexpected error result: %s", result.Content)
 	}
@@ -247,9 +247,9 @@ func TestRunSecurityToolStagesTargetAndRecordsTypedRequest(t *testing.T) {
 	if created == nil {
 		t.Fatal("no SecurityToolRun was created")
 	}
-	assertStagedAderynSpec(t, fixture, created)
+	assertStagedSlitherSpec(t, fixture, created)
 	assertSpecCarriesTypedFieldsOnly(t, created)
-	assertAderynSummary(t, fixture, summary)
+	assertSlitherSummary(t, fixture, summary)
 }
 
 func TestRunSecurityToolStagesDirectoryTools(t *testing.T) {
@@ -274,9 +274,9 @@ func TestRunSecurityToolStagesDirectoryTools(t *testing.T) {
 	}
 }
 
-func assertStagedAderynSpec(t *testing.T, fixture *securityToolRunFixture, created *platformv1alpha1.SecurityToolRun) {
+func assertStagedSlitherSpec(t *testing.T, fixture *securityToolRunFixture, created *platformv1alpha1.SecurityToolRun) {
 	t.Helper()
-	if created.Namespace != "default" || created.Spec.Tool != "aderyn" ||
+	if created.Namespace != "default" || created.Spec.Tool != "slither" ||
 		created.Spec.RequestedBy != "nightly-scan-run-1" {
 		t.Fatalf("unexpected spec: %+v", created.Spec)
 	}
@@ -321,7 +321,7 @@ func assertSpecCarriesTypedFieldsOnly(t *testing.T, created *platformv1alpha1.Se
 	}
 }
 
-func assertAderynSummary(t *testing.T, fixture *securityToolRunFixture, summary runSecurityToolSummary) {
+func assertSlitherSummary(t *testing.T, fixture *securityToolRunFixture, summary runSecurityToolSummary) {
 	t.Helper()
 	if summary.Status != "findings" || summary.Findings.Reported != 1 || summary.Findings.IngestedNew != 1 {
 		t.Fatalf("unexpected summary: %+v", summary)
@@ -339,7 +339,7 @@ func assertAderynSummary(t *testing.T, fixture *securityToolRunFixture, summary 
 		t.Fatalf("finding store holds %d findings, want 1", len(fixture.findingStore.findings))
 	}
 	stored := fixture.findingStore.findings[0]
-	if stored.Tool != "aderyn" || stored.Repository != "github.com/acme/widget" || stored.Revision != "abc1234" {
+	if stored.Tool != "slither" || stored.Repository != "github.com/acme/widget" || stored.Revision != "abc1234" {
 		t.Fatalf("finding did not go through the scan pipeline: %+v", stored)
 	}
 }
@@ -396,7 +396,7 @@ func TestRunSecurityToolStagedTargetRevision(t *testing.T) {
 			}
 
 			in := runSecurityToolInput{
-				Tool: "aderyn",
+				Tool: "slither",
 				Target: runSecurityToolTarget{
 					Type:     "solidity_project",
 					Locator:  "repo/contracts",
@@ -443,7 +443,7 @@ func TestRunSecurityToolCallerCannotAssertFilesystemDigest(t *testing.T) {
 	asserted := "sha256:" + strings.Repeat("d", 64)
 
 	in := runSecurityToolInput{
-		Tool:   "aderyn",
+		Tool:   "slither",
 		Target: runSecurityToolTarget{Type: "solidity_project", Locator: "repo/contracts", Revision: asserted},
 	}
 	spec, staged, failure := fixture.tool.buildSpec(context.Background(), in, "fixture-run")
@@ -464,7 +464,7 @@ func TestRunSecurityToolRejectsResultDigestMismatch(t *testing.T) {
 	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs,
 		sampleSecurityToolResult(), "sha256:"+strings.Repeat("c", 64))
 
-	result, summary := fixture.exec(t, aderynRequest)
+	result, summary := fixture.exec(t, slitherRequest)
 	if !result.IsError {
 		t.Fatalf("digest mismatch must never pass: %s", result.Content)
 	}
@@ -485,7 +485,7 @@ func TestRunSecurityToolUnreadableResultIsNeverAPass(t *testing.T) {
 	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
 	fixture.blobs.failGet = errors.New("bucket unavailable")
 
-	result, summary := fixture.exec(t, aderynRequest)
+	result, summary := fixture.exec(t, slitherRequest)
 	if !result.IsError || summary.Status != string(securitytoolpacks.StatusError) {
 		t.Fatalf("unreadable result must be an error: %+v", result)
 	}
@@ -569,7 +569,7 @@ func TestRunSecurityToolTerminalStatusMapping(t *testing.T) {
 			fixture.writeProject(t)
 			fixture.client.status = tc.status(t, fixture.blobs)
 
-			result, summary := fixture.exec(t, aderynRequest)
+			result, summary := fixture.exec(t, slitherRequest)
 			if summary.Status != tc.wantStatus {
 				t.Fatalf("status = %q, want %q (%s)", summary.Status, tc.wantStatus, result.Content)
 			}
@@ -589,7 +589,7 @@ func TestRunSecurityToolWaitTimeoutNamesTheRun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	result, err := fixture.tool.Execute(ctx,
-		json.RawMessage(`{"tool":"aderyn","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"},"timeout_seconds":5}`), "")
+		json.RawMessage(`{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"},"timeout_seconds":5}`), "")
 	if err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
@@ -622,12 +622,12 @@ func TestRunSecurityToolRejectsInvalidRequestsLocally(t *testing.T) {
 		},
 		{
 			name:    "wrong target type",
-			input:   `{"tool":"aderyn","target":{"type":"base_url","locator":"https://example.com","revision":"abc1234"}}`,
+			input:   `{"tool":"slither","target":{"type":"base_url","locator":"https://example.com","revision":"abc1234"}}`,
 			wantErr: "does not accept target type",
 		},
 		{
 			name:    "unknown argument",
-			input:   `{"tool":"aderyn","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"},"arguments":{"depth":"9"}}`,
+			input:   `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":"abc1234"},"arguments":{"depth":"9"}}`,
 			wantErr: `has no argument "depth"`,
 		},
 		{
@@ -642,7 +642,7 @@ func TestRunSecurityToolRejectsInvalidRequestsLocally(t *testing.T) {
 		},
 		{
 			name:    "unknown input field",
-			input:   `{"tool":"aderyn","target":{"type":"solidity_project","locator":"repo/contracts"},"image":"evil:latest"}`,
+			input:   `{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts"},"image":"evil:latest"}`,
 			wantErr: "invalid input",
 		},
 	}
@@ -705,7 +705,7 @@ func TestRunSecurityToolRejectsLocatorsOutsideTheWorkspace(t *testing.T) {
 			if err := os.Symlink("/etc", filepath.Join(fixture.workspace, "escape")); err != nil {
 				t.Fatalf("symlink: %v", err)
 			}
-			input := fmt.Sprintf(`{"tool":"aderyn","target":{"type":"solidity_project","locator":%q,"revision":"sha256:%s"}}`,
+			input := fmt.Sprintf(`{"tool":"slither","target":{"type":"solidity_project","locator":%q,"revision":"sha256:%s"}}`,
 				tc.locator, strings.Repeat("f", 64))
 
 			result, err := fixture.tool.Execute(context.Background(), json.RawMessage(input), "")
@@ -732,7 +732,7 @@ func TestRunSecurityToolDigestIsNeverTakenFromTheCallerForStagedContent(t *testi
 	fabricated := "sha256:" + strings.Repeat("9", 64)
 
 	result, _ := fixture.exec(t, fmt.Sprintf(
-		`{"tool":"aderyn","target":{"type":"solidity_project","locator":"repo/contracts","revision":%q},"timeout_seconds":60}`, fabricated))
+		`{"tool":"slither","target":{"type":"solidity_project","locator":"repo/contracts","revision":%q},"timeout_seconds":60}`, fabricated))
 	if result.IsError {
 		t.Fatalf("unexpected error: %s", result.Content)
 	}
@@ -792,7 +792,7 @@ func TestRunSecurityToolRejectsDirectoryToolsWithoutStagedContent(t *testing.T) 
 	fixture := newSecurityToolRunFixture(t, platformv1alpha1.SecurityToolRunStatus{})
 
 	result, err := fixture.tool.Execute(context.Background(), json.RawMessage(
-		`{"tool":"aderyn","target":{"type":"solidity_project","locator":"https://example.com/acme/widget.git","revision":"abc1234"}}`), "")
+		`{"tool":"slither","target":{"type":"solidity_project","locator":"https://example.com/acme/widget.git","revision":"abc1234"}}`), "")
 	if err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
@@ -811,7 +811,7 @@ func TestRunSecurityToolReportsADisappearedRunDistinctly(t *testing.T) {
 	fixture.writeProject(t)
 	fixture.tool.deps.Client = &vanishingSecurityToolRunClient{reconcilingSecurityToolRunClient: fixture.client}
 
-	result, err := fixture.tool.Execute(context.Background(), json.RawMessage(aderynRequest), "")
+	result, err := fixture.tool.Execute(context.Background(), json.RawMessage(slitherRequest), "")
 	if err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
@@ -832,7 +832,7 @@ func TestRunSecurityToolReportsTheResultSizeCap(t *testing.T) {
 	fixture.client.status = securityToolRunStatusForResult(t, fixture.blobs, sampleSecurityToolResult(), "")
 	fixture.blobs.failGet = fmt.Errorf("project asset object %q exceeds the %d-byte limit", testResultObjectKey, 25<<20)
 
-	result, summary := fixture.exec(t, aderynRequest)
+	result, summary := fixture.exec(t, slitherRequest)
 	if !result.IsError || summary.Status != string(securitytoolpacks.StatusError) {
 		t.Fatalf("an unreadable result must be an error: %+v", result)
 	}
@@ -847,7 +847,7 @@ func TestRunSecurityToolReportsTheResultSizeCap(t *testing.T) {
 func TestSecurityToolRunNameSuffixIsCollisionResistant(t *testing.T) {
 	seen := map[string]bool{}
 	for range 64 {
-		name, err := securityToolRunName("nightly-scan-run-1", "aderyn")
+		name, err := securityToolRunName("nightly-scan-run-1", "slither")
 		if err != nil {
 			t.Fatalf("securityToolRunName: %v", err)
 		}
@@ -1026,7 +1026,7 @@ func TestFuzzCampaignsDriveTheControlPlaneWait(t *testing.T) {
 	}
 
 	// A tool without a campaign keeps the platform default.
-	plain := runSecurityToolInput{Tool: "aderyn"}
+	plain := runSecurityToolInput{Tool: "slither"}
 	if got := plain.timeout(); got != securityToolRunDefaultTimeout {
 		t.Fatalf("non-campaign tool waits %ds, want the %ds default", got, securityToolRunDefaultTimeout)
 	}
