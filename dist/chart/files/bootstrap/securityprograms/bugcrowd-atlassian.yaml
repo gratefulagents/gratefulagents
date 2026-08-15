@@ -9,16 +9,53 @@ spec:
   verifiedAt: 2026-08-15T00:00:00Z
   severitySystem: custom
   primacy: rules
+  pocRequired: true
   scopePolicy: |-
-    Verification boundary (2026-08-15)
+    Browser-verified public scope snapshot (2026-08-15)
 
-    The current Bugcrowd target table requires an authenticated view. Atlassian separately operates programs for Trello, Opsgenie, Statuspage, and Atlassian-built Marketplace apps, so those products are not inferred into this scope. Official policy: https://www.atlassian.com/trust/security/report-a-vulnerability. No scan target is shipped until an operator verifies a current scope row.
+    Authoritative engagement: https://bugcrowd.com/engagements/atlassian
+    Official testing policy: https://www.atlassian.com/trust/security/penetration-testing
+    Official reporting guidance: https://www.atlassian.com/trust/security/report-a-vulnerability
+    Browser-readable asset-table source: https://bbscope.com/program/bc/%2Fengagements%2Fatlassian (48 in-scope and 13 out-of-scope rows; source crawl was two months old at verification).
+
+    In-scope asset rows captured: 48
+    Cloud and platform: any associated *.atlassian.com or *.atl-paas.net domain exploitable DIRECTLY from the researcher's own *.atlassian.net instance; other *.atlassian.com or *.atl-paas.net domains; Forge Platform; GraphQL API at bugbounty-test-<bugcrowd-name>.atlassian.net/gateway/api/graphql; Other (all other Atlassian targets); *.atlastunnel.com; admin.atlassian.com; admin.atlassian.com/atlassian-guard; bitbucket.org; id.atlassian.com/login; marketplace.atlassian.com; mcp.atlassian.com; start.atlassian.com.
+    iOS: Confluence Cloud 1006971684; Confluence Server 1288365159; Jira Cloud 1006972087; Jira Server 1405353949; Loom 1474480829.
+    Android: com.atlassian.android.confluence.core; com.atlassian.android.jira.core; com.atlassian.confluence.server; com.atlassian.jira.server; com.loom.android.
+    Other clients and tooling: Loom Chrome extension liecbddmkiiihnedobmlmillhodjkdmb; Atlassian Companion; Rovo Dev CLI; @forge/cli; Sourcetree.
+    Data Center: Bitbucket, Confluence, Crowd, Jira, and Jira Service Management.
+    Product rows: Atlas, Bamboo, Compass, Confluence, Confluence Premium, Crucible, Fisheye, Jira, Jira Product Discovery, Jira Service Management, Jira Work Management, Rovo, Rovo Dev, loom.com, and loom.com/download.
+
+    Out-of-scope asset rows captured: 13
+    The exact asset exclusions are transcribed into outOfScope below.
+
+    Scope boundaries
+    Atlassian runs separate Bugcrowd engagements for Atlassian-built Marketplace apps and separate programs for Trello, Opsgenie, and Statuspage. Those are not silently inherited by this record. Customer cloud sites are eligible only when they are the researcher's own test instance. Product-page rows identify the covered product, not permission to scan unrelated customer deployments.
+
+    No scan target is shipped. Testing needs a researcher-owned test tenant and program-specific identity, and the current workflow cannot prove either prerequisite.
 
     Operator gate
-    This catalog record is provenance and policy context only. It grants no network authorization. Re-check the authoritative program immediately before testing because bounty scope changes without notice.
+    This is a dated scope snapshot, not standing network authorization. Re-open the authoritative engagement immediately before testing and stop if any row, account requirement, or rule differs.
   outOfScope:
-    - Any asset not explicitly listed in the current authoritative program scope
-    - Any customer-owned or third-party asset not expressly included by the program
+    - bytebucket.org
+    - "*.bitbucket.io"
+    - "Any customer instance, including <customer>.atlassian.net or <customer>.jira.com; test only instances you own"
+    - Any internal or development service
+    - Any repository the researcher does not own
+    - HipChat, including Data Center, desktop, and mobile
+    - Stride, including Video, desktop, and mobile
+    - blog.bitbucket.org
+    - Atlassian-built Marketplace apps covered by the separate Atlassian Apps engagement
+    - info.loom.com
+    - shop.atlassian.com
+    - support.atlassian.com
+    - support.loom.com
+    - Bulk automated output, missing HTTP headers, cookie flags without impact, stack traces alone, admin-only content spoofing, and autocomplete findings
   prohibitedTesting:
-    - Do not test any network target from this catalog record until an operator verifies and configures a current in-scope asset
-    - No denial of service, social engineering, spam, physical intrusion, or access to another user's data
+    - Do not test customer instances, customer data, or repositories you do not own
+    - Do not run a network scan until the current Bugcrowd row and required test identity have been re-verified
+    - No denial of service, distributed denial of service, request flooding, port flooding, or protocol flooding
+    - No social engineering or physical testing
+    - Do not submit untriaged scanner output; every result must be manually reproduced and demonstrate impact
+    - Stop immediately if testing exposes another user's data and report only the minimum evidence
+    - Do not publicly disclose without coordinated approval

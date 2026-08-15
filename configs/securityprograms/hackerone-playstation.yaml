@@ -9,16 +9,37 @@ spec:
   verifiedAt: 2026-08-15T00:00:00Z
   severitySystem: custom
   primacy: rules
+  pocRequired: true
   scopePolicy: |-
-    Verification boundary (2026-08-15)
+    Browser-verified public scope snapshot (2026-08-15)
 
-    The public HackerOne program URL is confirmed, with an additional official policy at https://www.playstation.com/en-us/legal/bug-bounty/. The live HackerOne console, application, and domain scope rows were not renderable during verification. No scan target is shipped until an operator verifies a current scope row.
+    Authoritative engagement: https://hackerone.com/playstation
+    Official Sony reporting boundary: https://www.playstation.com/en-gb/legal/compliance/ukpstiregulations/
+    Browser-readable asset-table source: https://bbscope.com/program/h1/playstation (crawled one day before verification).
+
+    In-scope asset rows captured: 24
+    Wildcards: *.api.playstation.com; *.playstation.com (the table marks this broad row no bounty); *.playstation.net; *.sonyentertainmentnetwork.com.
+    Hardware and apps: PlayStation 4; PlayStation 5; Android PlayStation App; iOS PlayStation App.
+    Named web/API rows: api.direct.playstation.com; ca.account.sony.com; checkout.playstation.com; compete.playstation.com; direct.playstation.com; my.account.sony.com; my.playstation.com; profile.playstation.com; ps5.np.playstation.net; session-share.playstation.com; social.playstation.com; store.playstation.com; transact.playstation.com; wallets.api.playstation.com; web.np.playstation.com; www.playstation.com.
+
+    Out-of-scope asset rows captured: 0
+    Zero explicit asset rows does not mean all Sony assets are in scope. Sony directs vulnerabilities in other Sony products to Secure@Sony, and vulnerabilities in third-party games or software are handled by their publishers.
+
+    No scan target is shipped. Console, account, store, and wildcard production surfaces require a current logged-in policy review and researcher-controlled accounts; the broad no-bounty wildcard must not become an importable target.
 
     Operator gate
-    This catalog record is provenance and policy context only. It grants no network authorization. Re-check the authoritative program immediately before testing because bounty scope changes without notice.
+    Re-open HackerOne before testing, confirm that the exact product/host row is still listed and bounty eligible, and use only researcher-controlled consoles, accounts, purchases, wallets, sessions, and data.
   outOfScope:
-    - Any asset not explicitly listed in the current authoritative program scope
-    - Any customer-owned or third-party asset not expressly included by the program
+    - Any Sony asset not listed in the current PlayStation HackerOne table
+    - "The broad *.playstation.com row is marked no bounty in the captured table"
+    - Sony products outside the PlayStation program, which must be reported through Secure@Sony
+    - Third-party games, applications, publishers, payment providers, and services not operated by PlayStation
+    - Any account, console, wallet, transaction, session, purchase, or data not controlled by the researcher
   prohibitedTesting:
-    - Do not test any network target from this catalog record until an operator verifies and configures a current in-scope asset
-    - No denial of service, social engineering, spam, physical intrusion, or access to another user's data
+    - Do not run a wildcard or production network scan from this catalog record
+    - Use only researcher-owned consoles, devices, accounts, payment methods, sessions, and data
+    - Do not access another player's account, messages, wallet, purchases, trophies, sessions, or personal data
+    - No denial of service, distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing of facilities
+    - Do not test third-party games or services without separate authorization
+    - Manually validate automated or AI-assisted findings and provide a reproducible proof of impact
+    - Do not publicly disclose without coordinated approval

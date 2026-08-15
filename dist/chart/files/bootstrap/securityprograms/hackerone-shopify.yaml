@@ -9,16 +9,51 @@ spec:
   verifiedAt: 2026-08-15T00:00:00Z
   severitySystem: custom
   primacy: rules
+  pocRequired: true
   scopePolicy: |-
-    Verification boundary (2026-08-15)
+    Browser-verified public scope snapshot (2026-08-15)
 
-    The public HackerOne program URL is confirmed. The live policy, asset rows, exclusions, and testing restrictions were not renderable during verification. Merchant stores and third-party applications must not be inferred to be in scope. No scan target is shipped until an operator verifies a current scope row.
+    Authoritative engagement: https://hackerone.com/shopify
+    Official complete criteria: https://www.shopify.com/bugbounty/criteria
+    Official onboarding: https://www.shopify.com/bugbounty/resources/getting-started-in-our-bug-bounty-program
+
+    In-scope asset rows captured: 20
+    Core: *.pci.shopifyinc.com; admin.shopify.com; arrive-server.shopifycloud.com; shopify.plus; shop.app; accounts.shopify.com; partners.shopify.com; the researcher's own your-store.myshopify.com test store.
+    Non-core: *.shopifycs.com; github.com/Shopify/*; shopifyinbox.com; linkpop.com; *.shopifycloud.com; *.shopifykloud.com; Shopify mobile applications; Shopify-developed apps; *.shopify.com; *.shopify.io.
+    Informative/no bounty: Shopify third-party stores and third-party apps. Only researcher-created test stores may be touched. For a third-party app, notify the developer first and wait one week before escalating to Shopify.
+
+    Out-of-scope asset rows captured: 9
+    community.shopify.dev; academy.shopify.com; supplier-portal.shopifycloud.com; community.shopify.com; livechat.shopify.com; cdn.shopify.com; *.email.shopify.com; investors.shopify.com; Other.
+
+    Account and testing boundary
+    Create test stores only through the HackerOne signup path and register them with YOURHANDLE@wearehackerone.com. Never interact with a live merchant store or a store you did not create. Shopify judges many common platform behaviors as intended or ineligible; examples are transcribed below so they are not promoted as findings.
+
+    No scan target is shipped because the only safe storefront target is researcher-specific and cannot be represented by a shared catalog URL.
 
     Operator gate
-    This catalog record is provenance and policy context only. It grants no network authorization. Re-check the authoritative program immediately before testing because bounty scope changes without notice.
+    Re-open the official criteria and HackerOne engagement before every test, use only the assigned research identity and researcher-created stores, and verify any current rate limits or special campaign rules.
   outOfScope:
-    - Any asset not explicitly listed in the current authoritative program scope
-    - Any customer-owned or third-party asset not expressly included by the program
+    - community.shopify.dev
+    - academy.shopify.com
+    - supplier-portal.shopifycloud.com
+    - community.shopify.com
+    - livechat.shopify.com
+    - cdn.shopify.com
+    - "*.email.shopify.com"
+    - investors.shopify.com
+    - Other assets not expressly listed by Shopify
+    - Header-controlled XSS, developer-tools-only XSS, self-XSS without a reasonable victim path, and expected theme-editor or storefront HTML behavior
+    - CSRF limited to cart changes, login, or logout unless chained to a meaningful impact
+    - Arbitrary upload, stored content, or public-file behavior that is an intended CDN or store feature
+    - Rooted or jailbroken device findings, emulator-only findings, certificate pinning, binary protection, local encryption, and other mobile hardening observations without exploit impact
+    - Open redirects or HTML injection without a meaningful chain; SSRF callback alone; races without sensitive impact
+    - GraphQL introspection, password-complexity observations, and staff-permission reports without sensitive privilege, financial, or buyer-PII impact
   prohibitedTesting:
-    - Do not test any network target from this catalog record until an operator verifies and configures a current in-scope asset
-    - No denial of service, social engineering, spam, physical intrusion, or access to another user's data
+    - "Do not test without a HackerOne Shopify account and a test store created with YOURHANDLE@wearehackerone.com"
+    - Never interact with a live merchant, a store you did not create, real buyers, real orders, or third-party data
+    - Do not scan a shared Shopify hostname from this catalog record
+    - No denial of service, distributed denial of service, brute force, traffic flooding, spam, social engineering, support contact, or physical testing
+    - Do not test third-party apps before notifying the developer and waiting the required one week
+    - Human-review automated and AI-assisted findings and provide a reproducible meaningful impact
+    - Stop on unintended access to merchant or buyer data and retain only minimum evidence
+    - Do not publicly disclose without coordinated approval

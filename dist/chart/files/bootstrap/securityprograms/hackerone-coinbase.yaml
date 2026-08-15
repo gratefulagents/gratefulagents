@@ -4,21 +4,47 @@ metadata:
   name: hackerone-coinbase
 spec:
   provider: HackerOne
-  displayName: Coinbase
+  displayName: Coinbase Web2
   programURL: https://hackerone.com/coinbase
   verifiedAt: 2026-08-15T00:00:00Z
   severitySystem: custom
   primacy: rules
+  pocRequired: true
   scopePolicy: |-
-    Verification boundary (2026-08-15)
+    Browser-verified public scope snapshot (2026-08-15)
 
-    The public HackerOne program URL, scope page, and safe-harbor page are confirmed. The live asset rows, exclusions, and reward rules were not renderable during verification. No Coinbase, Wallet, Base, or smart-contract asset is inferred to be authorized. No scan target is shipped until an operator verifies a current scope row.
+    Authoritative Web2 engagement: https://hackerone.com/coinbase
+    Official 2026 policy update: https://www.coinbase.com/blog/focusing-our-bug-bounty-program-on-what-matters-most-in-the-age-of-ai
+    Browser-readable asset-table source: https://bbscope.com/program/h1/coinbase (crawled on the verification date).
+
+    In-scope asset rows captured: 16
+    Web and network: *.base.app; *.base.org; *.cbhq.net; *.coinbase-corp.com; *.coinbase.com; 54.175.255.192/27; Other (listed as no bounty).
+    Mobile and extension: Android com.coinbase.android; iOS com.vilcsak.bitcoin2; Coinbase Wallet Chrome extension; Android org.toshi; iOS org.toshi.distribution.
+    Code: github.com/base/*; github.com/coinbase/*; github.com/coinbase/cb-mpc; github.com/coinbase/cb-mpc-go (the current table marks cb-mpc-go no bounty).
+
+    Out-of-scope asset rows captured: 3
+    N/A or anything not owned and operated by Coinbase; status.*.coinbase.com; status.coinbase.com.
+
+    Current eligibility boundary
+    The HackerOne program is Web2 only. As of the 2026-07-29 update, Low and Medium findings are out of scope. High findings are eligible up to $6,000, Critical up to $15,000, and Extreme impact up to $1,000,000. Web3 and smart-contract work remains a separate Cantina program and must not be inferred into this record.
+
+    No scan target is shipped because this is production financial infrastructure with wildcard scope, researcher-account prerequisites, and no catalog-level enforcement of live traffic rules.
 
     Operator gate
-    This catalog record is provenance and policy context only. It grants no network authorization. Re-check the authoritative program immediately before testing because bounty scope changes without notice.
+    Re-open HackerOne immediately before testing and verify ownership, severity eligibility, identity requirements, and rate limits. Never infer a Base or Coinbase-branded third-party asset into scope.
   outOfScope:
-    - Any asset not explicitly listed in the current authoritative program scope
-    - Any customer-owned or third-party asset not expressly included by the program
+    - Any asset not owned and operated by Coinbase
+    - status.*.coinbase.com
+    - status.coinbase.com
+    - Low-severity findings
+    - Medium-severity findings
+    - Web3, onchain, smart-contract, and protocol findings handled by the separate Cantina program
+    - Any unlisted third-party Base or Coinbase ecosystem project
   prohibitedTesting:
-    - Do not test any network target from this catalog record until an operator verifies and configures a current in-scope asset
-    - No denial of service, social engineering, spam, physical intrusion, or access to another user's data
+    - Do not run a network scan from this catalog record
+    - Use only researcher-controlled accounts, wallets, API keys, devices, funds, and data
+    - Do not access another user's assets or data, move real third-party funds, manipulate markets, or disrupt trading
+    - No denial of service, distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing
+    - Manually validate automated or AI-assisted findings and demonstrate High, Critical, or Extreme impact
+    - Stop immediately on exposure of secrets, funds, or another user's data and retain only minimum proof
+    - Do not publicly disclose without coordinated approval

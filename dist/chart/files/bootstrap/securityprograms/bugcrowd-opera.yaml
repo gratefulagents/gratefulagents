@@ -9,16 +9,66 @@ spec:
   verifiedAt: 2026-08-15T00:00:00Z
   severitySystem: custom
   primacy: rules
+  pocRequired: true
   scopePolicy: |-
-    Verification boundary (2026-08-15)
+    Browser-verified public scope snapshot (2026-08-15)
 
-    Opera confirms that its current public bounty runs on Bugcrowd. The current asset table requires an authenticated view. Chromium-inherited bugs and unsupported Opera versions are not bounty-eligible under Opera policy: https://security.opera.com/en/bug-bounty/. No scan target is shipped until an operator verifies a current scope row.
+    Authoritative engagement: https://bugcrowd.com/engagements/opera
+    Official Opera policy: https://security.opera.com/en/bug-bounty/
+    Browser-readable asset-table source: https://bbscope.com/program/bc/%2Fengagements%2Fopera (source crawl was two months old at verification).
+
+    In-scope asset rows captured: 89
+    Wildcards: *.adx.opera.com; *.apex-football.com; *.apexnews.com; *.apexscores.io; *.dailyadvent.com; *.feednews.com; *.opera-mini.net; *.opera.com; *.opera.news; *.opera.software; *.opera.technology; *.operafootball.com; *.operanewsapp.com; *.opr.news; *.osite99.com; *.osp.opera.software; *.rtbscale.com; *.savi.xyz; *.sec-tunnel.com; *.yoyogames.com.
+    Network ranges: 102.23.96.0/22; 103.83.120.0/22; 107.167.96.0/19; 141.0.8.0/21; 185.26.180.0/22; 195.189.143.0/24; 203.89.100.0/22; 37.228.104.0/21; 77.111.244.0/22; 82.145.208.0/20; 91.203.96.0/22.
+    GameMaker: GameMaker Studio 2; marketplace.gamemaker.io; www.gamemaker.io.
+    GX and Neon APIs: api.gx.games/dc; api.gx.games/dev; api.gx.games/gms; api.gx.games/gx; api.gx.games/gxc; api.gx.games/profile; api.gx.games/pub; api.gx.games/session; api.gx.me/me; api.neon.opera.com/neon/pub; api.neon.opera.com/neon/store; api.neon.opera.com/pub; create.gx.games; gx.games; gx.me; gx.opera-api.com; neon.opera.com/cards; operaneon.com; www.operaneon.com.
+    Opera services: blocklist.opera-api.com; exchange.opera.com; accounts.opera.com; auth-adx.op-mobile.opera.com; auth.opera.com; autoupdate.geo.opera.com; browser-notifications.opera.com; bugs.opera.com; cashback.opera.com; cdn-store.opera-api.com; cms.adx.opera.com; cryptowallet.opera-api.com; download.opera.com; features.opera-api.com; flow.opera.com; get.geo.opera.com; net.geo.opera.com; ofa.adx.opera.com; ofp.adx.opera.com; speeddials.opera.com; suggestions.opera-api.com; www.opera.com; merchandise.opera-api.com; push.opera.com; weather.opera-api.com.
+    Mobile: Opera GX iOS 1559740799; Opera AI Browser with VPN iOS 1411869974; Android com.opera.app.news; com.opera.app.sports; com.opera.browser; com.opera.gx; com.opera.mini.native; com.opera.minipay.
+    Desktop download rows: www.opera.com/computer/thanks?ni=eapgx&os=windows; www.opera.com/computer/thanks?ni=opera_air&os=windows; www.opera.com/computer/thanks?ni=stable&os=windows.
+
+    Out-of-scope asset rows captured: 22
+    The exact asset exclusions are transcribed into outOfScope below.
+
+    Eligibility boundaries
+    Chromium-inherited vulnerabilities must be reported to Chromium and are not eligible for an Opera bounty. Unsupported Opera versions are not eligible. Android vulnerabilities may also qualify under Google's Play Security Reward Program, but Opera asks researchers to report to Opera first. Reports need a clear proof of concept and reproduction steps, and publication must wait for coordinated disclosure.
+
+    No scan target is shipped. The table mixes production wildcard domains, CIDRs, clients, mobile apps, and exact endpoints, and the browser-readable table was two months old; those rows cannot safely become one-click network targets.
 
     Operator gate
-    This catalog record is provenance and policy context only. It grants no network authorization. Re-check the authoritative program immediately before testing because bounty scope changes without notice.
+    Re-open the authenticated Bugcrowd engagement immediately before testing and confirm the exact row, bounty flag, supported version, identity requirements, and rate limits.
   outOfScope:
-    - Any asset not explicitly listed in the current authoritative program scope
-    - Any customer-owned or third-party asset not expressly included by the program
+    - 107.167.127.4{0,1}
+    - 32s.opera.com
+    - accountsstage.yoyogames.com
+    - admanager.opera.com
+    - bugs.yoyogames.com
+    - catch.opera.com
+    - certs.opera.com
+    - checkout.opera.com
+    - concurso.opera.com
+    - contest.opera.com
+    - control.gx-servers.opera.com
+    - help.gx-servers.opera.com
+    - help.yoyogames.com
+    - interstitial.opera-mini.net
+    - investor.opera.com
+    - jobs.opera.com
+    - s2{1,2}-05-08-v09.opera-mini.net
+    - tabfulness.opera.com
+    - verizon-us-lvs-ashburn.opera-mini.net
+    - verizon-us-lvs-seattle.opera-mini.net
+    - verizon-us-seattle.opera-mini.net
+    - wallpaper.opera.com
+    - Vulnerabilities inherited from Chromium
+    - Unsupported Opera versions
+    - Any asset not present in the current authenticated Bugcrowd table
   prohibitedTesting:
-    - Do not test any network target from this catalog record until an operator verifies and configures a current in-scope asset
-    - No denial of service, social engineering, spam, physical intrusion, or access to another user's data
+    - Do not run wildcard, CIDR, or production network scans from this catalog record
+    - Verify the live Bugcrowd asset row, bounty flag, supported product version, identity requirements, and rate limit before testing
+    - Use only researcher-controlled accounts, devices, content, and data
+    - No denial of service, distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing
+    - Report Chromium-inherited vulnerabilities to Chromium instead of testing them as Opera-specific issues
+    - Report Android issues to Opera first before seeking any Google Play reward
+    - Human-review automated and AI-assisted findings and provide clear reproduction steps and proof of impact
+    - Stop on unintended access to another user's data and retain only minimum evidence
+    - Do not publicly disclose until Opera coordinates publication

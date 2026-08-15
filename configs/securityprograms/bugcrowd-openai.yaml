@@ -4,21 +4,44 @@ metadata:
   name: bugcrowd-openai
 spec:
   provider: Bugcrowd
-  displayName: OpenAI
+  displayName: OpenAI Security Bug Bounty
   programURL: https://bugcrowd.com/engagements/openai
   verifiedAt: 2026-08-15T00:00:00Z
   severitySystem: custom
   primacy: rules
+  pocRequired: true
   scopePolicy: |-
-    Verification boundary (2026-08-15)
+    Browser-verified program boundary (2026-08-15)
 
-    Bugcrowd identifies this engagement as Bug Bounty: OpenAI, but the current asset and reward tables require an authenticated Bugcrowd view. Do not infer that every openai.com or chatgpt.com host is eligible. No scan target is shipped until an operator verifies a current scope row.
+    Authoritative Security Bug Bounty: https://bugcrowd.com/engagements/openai
+    OpenAI coordinated disclosure policy: https://openai.com/policies/coordinated-vulnerability-disclosure-policy/
+    OpenAI program announcement: https://openai.com/index/bug-bounty-program/
+    Separate Safety Bug Bounty: https://bugcrowd.com/engagements/openai-safety
+    Safety boundary explanation: https://openai.com/index/safety-bug-bounty/
+
+    Security Bug Bounty boundary
+    This record covers conventional security vulnerabilities in OpenAI systems, including flaws that expose data or let a user access features, data, or functionality beyond authorized permissions. The current asset and reward tables are authoritative only in the authenticated Bugcrowd engagement.
+
+    Safety Bug Bounty is separate
+    The Safety program covers reliable third-party prompt injection and agentic data exfiltration, disallowed agent actions at scale, other agent actions with plausible material harm, exposure of proprietary reasoning or other proprietary information, and account/platform-integrity abuse such as bypassing anti-automation or trust signals. Agentic prompt-injection behavior must reproduce at least 50 percent of the time. Permission and data-access vulnerabilities belong in the Security program instead.
+
+    Verification caveat
+    The current Bugcrowd asset table is authenticated and did not render in the public browser view. A browser-readable third-party scope index still showed a historical 25-row table but marked that table removed on 2026-06-26, so stale hostnames were deliberately not copied as current authorization. No network scan target is shipped.
 
     Operator gate
-    This catalog record is provenance and policy context only. It grants no network authorization. Re-check the authoritative program immediately before testing because bounty scope changes without notice.
+    Before any testing, sign in to Bugcrowd, confirm the exact current asset row and rules, choose the correct Security or Safety engagement, and record all required identity headers and rate limits. This catalog entry alone grants no authorization.
   outOfScope:
-    - Any asset not explicitly listed in the current authoritative program scope
-    - Any customer-owned or third-party asset not expressly included by the program
+    - Any host, application, API, repository, key, extension, or mobile app not currently listed in the authenticated Security engagement
+    - General model jailbreaks or content-policy bypasses without demonstrable security, safety, or abuse impact
+    - Rude output or information readily available through ordinary search
+    - Safety-only reports submitted to the Security engagement
+    - Conventional permission or data-access vulnerabilities submitted to the Safety engagement
+    - Third-party systems and MCP servers unless their owners' terms expressly authorize the testing
+    - Any historical asset row that is no longer present in the live Bugcrowd engagement
   prohibitedTesting:
-    - Do not test any network target from this catalog record until an operator verifies and configures a current in-scope asset
-    - No denial of service, social engineering, spam, physical intrusion, or access to another user's data
+    - Do not run a network scan from this record; first verify an exact live Bugcrowd asset row and all traffic-identification requirements
+    - Do not access, retain, alter, or destroy another user's data; use only researcher-controlled accounts and minimum evidence
+    - No denial of service, distributed denial of service, brute force, spam, social engineering, or physical intrusion
+    - Do not test third-party MCP services or integrations in violation of their terms
+    - Manually validate automated or AI-assisted findings and submit a reproducible proof of impact
+    - Follow Bugcrowd disclosure rules and do not publish before coordinated approval

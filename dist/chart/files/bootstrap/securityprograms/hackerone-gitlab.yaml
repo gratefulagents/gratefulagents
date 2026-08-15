@@ -9,16 +9,63 @@ spec:
   verifiedAt: 2026-08-15T00:00:00Z
   severitySystem: custom
   primacy: rules
+  pocRequired: true
   scopePolicy: |-
-    Verification boundary (2026-08-15)
+    Browser-verified public scope snapshot (2026-08-15)
 
-    GitLab confirms that vulnerabilities in GitLab itself or GitLab.com are reported through this HackerOne program. The live HackerOne asset table and program-specific exclusions were not renderable during verification. No scan target is shipped until an operator verifies a current scope row. Source: https://about.gitlab.com/security/disclosure/
+    Authoritative engagement: https://hackerone.com/gitlab
+    Official disclosure route: https://about.gitlab.com/security/disclosure/
+    Official 2026 policy update: https://about.gitlab.com/blog/gitlab-bug-bounty-program-policy-updates/
+    Browser-readable asset-table source: https://bbscope.com/program/h1/gitlab (crawled one day before verification).
+
+    In-scope asset rows captured: 19
+    Domains and environments: *.gitlab.net; *.gitlab.org; *.gitlap.com; GitLab for Jira Cloud; Other non-production infrastructure; Your Own GitLab Instance; about.gitlab.com; advisories.gitlab.com; customers.gitlab.com; design.gitlab.com; docs.gitlab.com; gitlab.com; registry.gitlab.com.
+    Code: gitlab.com/gitlab-org/gitaly; gitlab.com/gitlab-org/gitlab; gitlab.com/gitlab-org/gitlab-pages; gitlab.com/gitlab-org/gitlab-runner; gitlab.com/gitlab-org/gitlab-shell; gitlab.com/gitlab-org/gitlab-vscode-extension.
+
+    Out-of-scope asset rows captured: 25
+    The exact asset exclusions are transcribed into outOfScope below.
+
+    Current testing boundary
+    GitLab strongly prefers reproduction in a local GitLab Development Kit or researcher-owned instance. Production GitLab.com testing must use an account registered as yourhandle@wearehackerone.com. General metadata or enumeration findings and standalone prompt injection are out of scope; prompt injection is eligible only when it crosses a security boundary and demonstrates harm. Denial-of-service is out of scope except an unauthenticated application-layer issue that persistently and totally disrupts service, and that proof must be performed on the researcher's own instance sized to GitLab's published requirements.
+
+    No scan target is shipped. The source repositories are cataloged as scope, but importing production web targets would bypass the required account and safe-environment controls.
 
     Operator gate
-    This catalog record is provenance and policy context only. It grants no network authorization. Re-check the authoritative program immediately before testing because bounty scope changes without notice.
+    Re-open HackerOne before testing. Prefer a local current build, verify the exact repository or host row, and never use GitLab.com without the required HackerOne research identity.
   outOfScope:
-    - Any asset not explicitly listed in the current authoritative program scope
-    - Any customer-owned or third-party asset not expressly included by the program
+    - "*.gitlab-private.org"
+    - "*.gitlab.cn"
+    - "*.runway.gitlab.net"
+    - "*.service-now.com"
+    - alerts.gitlab.com
+    - aptly.gitlab.com
+    - dashboards.gitlab.com
+    - federal-support.gitlab.com
+    - forum.gitlab.com
+    - gitlab.biterg.io
+    - gitlabdemo.cloud
+    - gitlabsandbox.net
+    - gitlabtraining.cloud
+    - gitlab.com/gitlab-org/cli
+    - gitlab.com/gitlab-org/opstrace/opstrace
+    - gitlab.com/gitlab-org/opstrace/opstrace-ui
+    - ir.gitlab.com
+    - levelup.gitlab.com
+    - packages.gitlab.com
+    - partners.gitlab.com
+    - shop.gitlab.com
+    - status.gitlab.com
+    - support.gitlab.com
+    - translate.gitlab.com
+    - us-federal-gitlab.com
+    - Standalone prompt injection that does not cross a security boundary and demonstrate harm
+    - General metadata disclosure or enumeration without confidential privacy impact
+    - Denial of service outside GitLab's narrow unauthenticated persistent total-disruption exception
   prohibitedTesting:
-    - Do not test any network target from this catalog record until an operator verifies and configures a current in-scope asset
-    - No denial of service, social engineering, spam, physical intrusion, or access to another user's data
+    - Do not test GitLab.com without an account registered as yourhandle@wearehackerone.com
+    - Prefer a local GDK or researcher-owned instance and never affect another GitLab customer, project, runner, registry, or data
+    - Do not perform denial-of-service testing on shared or production infrastructure
+    - No distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing
+    - Manually validate automated or AI-assisted findings and provide a reproducible security-boundary impact
+    - Stop on unintended data access and retain only the minimum evidence
+    - Do not publicly disclose without coordinated approval

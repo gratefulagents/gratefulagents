@@ -47,17 +47,30 @@ func TestSecurityProgramLibrary(t *testing.T) {
 	expectedVerbatimMarkers := map[string][]string{
 		"solana-agave":          {"## Reporting security problems in the Agave Validator", "### Out of Scope:", "### Payment of Bug Bounties:"},
 		"firedancer":            {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
-		"hackerone-gitlab":      {"Verification boundary (2026-08-15)", "No scan target is shipped"},
-		"hackerone-shopify":     {"Verification boundary (2026-08-15)", "No scan target is shipped"},
-		"hackerone-uber":        {"Verification boundary (2026-08-15)", "no scan target is shipped"},
-		"hackerone-coinbase":    {"Verification boundary (2026-08-15)", "No scan target is shipped"},
-		"hackerone-cloudflare":  {"Verification boundary (2026-08-15)", "No scan target is shipped"},
-		"hackerone-playstation": {"Verification boundary (2026-08-15)", "No scan target is shipped"},
-		"hackerone-security":    {"Verification boundary (2026-08-15)", "No scan target is shipped"},
-		"bugcrowd-openai":       {"Verification boundary (2026-08-15)", "No scan target is shipped"},
-		"bugcrowd-atlassian":    {"Verification boundary (2026-08-15)", "No scan target is shipped"},
-		"bugcrowd-opera":        {"Verification boundary (2026-08-15)", "No scan target is shipped"},
-		"intigriti-dropbox":     {"Public Intigriti scope snapshot verified 2026-08-15", "Tier 1 web assets", "Explicit out-of-scope web asset"},
+		"hackerone-gitlab":      {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 19", "Out-of-scope asset rows captured: 25", "yourhandle@wearehackerone.com"},
+		"hackerone-shopify":     {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 20", "Out-of-scope asset rows captured: 9", "YOURHANDLE@wearehackerone.com"},
+		"hackerone-uber":        {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 4", "Out-of-scope asset rows captured: 19", "*.uberinternal.com"},
+		"hackerone-coinbase":    {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 16", "Out-of-scope asset rows captured: 3", "Low and Medium findings are out of scope"},
+		"hackerone-cloudflare":  {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 51", "Out-of-scope asset rows captured: 20", "Customer zones and properties"},
+		"hackerone-playstation": {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 24", "Out-of-scope asset rows captured: 0", "*.api.playstation.com"},
+		"hackerone-security":    {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 25", "Out-of-scope asset rows captured: 8", "X-Bug-Bounty: HackerOne-<username>"},
+		"bugcrowd-openai":       {"Browser-verified program boundary (2026-08-15)", "Security Bug Bounty boundary", "Safety Bug Bounty is separate", "historical 25-row table"},
+		"bugcrowd-atlassian":    {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 48", "Out-of-scope asset rows captured: 13", "bugbounty-test-<bugcrowd-name>"},
+		"bugcrowd-opera":        {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 89", "Out-of-scope asset rows captured: 22", "com.opera.minipay"},
+		"intigriti-dropbox":     {"Public Intigriti scope snapshot verified 2026-08-15", "Tier 1 assets", "Explicit out-of-scope asset rows", "X-Intigriti-Username: <username>"},
+	}
+	catalogProgramsWithoutImportTargets := map[string]string{
+		"hackerone-gitlab":      "account registered as yourhandle@wearehackerone.com",
+		"hackerone-shopify":     "researcher-specific",
+		"hackerone-uber":        "wildcard/impact based",
+		"hackerone-coinbase":    "production financial infrastructure",
+		"hackerone-cloudflare":  "Cloudflare customer traffic",
+		"hackerone-playstation": "researcher-controlled accounts",
+		"hackerone-security":    "mandatory X-Bug-Bounty header",
+		"bugcrowd-openai":       "authenticated Bugcrowd",
+		"bugcrowd-atlassian":    "researcher-owned test tenant",
+		"bugcrowd-opera":        "production wildcard domains, CIDRs",
+		"intigriti-dropbox":     "mandatory identity headers",
 	}
 	expectedImmunefiTargets := map[string]string{
 		"immunefi-1inch":  "https://github.com/1inch/limit-order-protocol",
@@ -123,6 +136,23 @@ func TestSecurityProgramLibrary(t *testing.T) {
 				t.Error("shipped programs must use scanTargets instead of deprecated scanTarget")
 			}
 			targets := program.Spec.EffectiveScanTargets()
+			if reason, ok := catalogProgramsWithoutImportTargets[program.Name]; ok {
+				if len(targets) != 0 {
+					t.Errorf("program with unenforced testing prerequisite has %d importable scan targets", len(targets))
+				}
+				if !strings.Contains(program.Spec.ScopePolicy, reason) {
+					t.Errorf("scopePolicy does not explain non-importable target boundary %q", reason)
+				}
+				if len(program.Spec.OutOfScope) == 0 {
+					t.Error("browser-researched catalog program has no typed out-of-scope boundary")
+				}
+				if len(program.Spec.ProhibitedTesting) == 0 {
+					t.Error("browser-researched catalog program has no typed testing restrictions")
+				}
+				if strings.Contains(program.Spec.ScopePolicy, "Verification boundary") {
+					t.Error("catalog program still contains the pre-research placeholder scope")
+				}
+			}
 			if program.Name == "firedancer" && len(targets) != 0 {
 				t.Error("Firedancer must not suggest a scan target without a selected in-scope release")
 			}
