@@ -29,6 +29,11 @@ import type {
   ResourceShareInfo,
   RuntimeImageOption,
   SecurityFinding,
+  SecurityPolicyPackResource,
+  SecurityPostScriptResource,
+  SecurityProgramResource,
+  SecurityRankerResource,
+  SecuritySavedFilter,
   SecurityScan,
   SecurityScanConfig,
   SecurityWorkflowResource,
@@ -104,6 +109,16 @@ export interface Scenario {
   securityScanConfigs: SecurityScanConfig[];
   /** Reusable SecurityWorkflow library resources (workflowRef targets). */
   securityWorkflows: SecurityWorkflowResource[];
+  /** Reusable SecurityRanker library resources (rankerRefs targets). */
+  securityRankers: SecurityRankerResource[];
+  /** Reusable SecurityPostScript library resources (postScriptRefs targets). */
+  securityPostScripts: SecurityPostScriptResource[];
+  /** Reusable SecurityPolicyPack library resources (policyPackRef targets). */
+  securityPolicyPacks: SecurityPolicyPackResource[];
+  /** Operator-verified SecurityProgram resources (securityProgramRef targets). */
+  securityPrograms: SecurityProgramResource[];
+  /** Saved findings-filter queries (listSecuritySavedFilters). */
+  securitySavedFilters: SecuritySavedFilter[];
   /** Whether the current user has explicitly installed the curated security bundle. */
   securitySkillsInstalled: boolean;
 

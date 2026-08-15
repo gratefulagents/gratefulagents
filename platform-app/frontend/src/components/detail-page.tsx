@@ -35,7 +35,7 @@ export function DetailHeader({
           to={parentTo}
           className="group inline-flex items-center gap-0.5 rounded-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
-          <ChevronLeft className="size-3 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-foreground" />
+          <ChevronLeft className="size-3 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
           {parentLabel}
         </Link>
       </div>
@@ -76,7 +76,7 @@ export function Stat({
 }) {
   return (
     <div className="flex min-w-[90px] flex-col gap-1.5 border-r border-border/50 px-4 first:pl-0 last:border-r-0 last:pr-0 sm:min-w-[110px] sm:px-7">
-      <dt className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70">
+      <dt className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-muted-foreground">
         {label}
       </dt>
       <dd

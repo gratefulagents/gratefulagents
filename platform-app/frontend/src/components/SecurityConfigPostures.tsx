@@ -7,12 +7,12 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListRowSkeleton } from "@/components/ui/list-state";
 import { DetailSection } from "@/components/detail-page";
-import { SEVERITIES, severityTone } from "@/components/SecurityScanList";
+import { EmptyCell, SEVERITIES, severityTone, STATUS_PILL } from "@/components/SecurityScanList";
 import { BaselineBadge } from "@/components/security-baseline";
+import { repoLabel } from "@/lib/securityFilters";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { toneColor, toneSoft, type StatusTone } from "@/lib/status";
@@ -23,6 +23,26 @@ import type {
   SecurityConfigPosture,
   SecurityRunActivityPoint,
 } from "@/rpc/platform/service_pb";
+
+/**
+ * Deep link into one configuration's findings view.
+ *
+ * The posture aggregate carries no namespace, so every metric used to point at
+ * the bare `/security/configs` list — a dead end that dropped both the
+ * configuration and the metric the user clicked. With the namespace resolved
+ * we land on that configuration's detail page with the canonical finding
+ * filters applied; without it we still narrow the configurations list by name
+ * instead of dumping the user on an unfiltered page.
+ */
+function configHref(
+  scanName: string,
+  namespace: string,
+  filters: Record<string, string> = {},
+): string {
+  if (!namespace) return `/security/configs?q=${encodeURIComponent(scanName)}`;
+  const query = new URLSearchParams(filters).toString();
+  return `/security/configs/${namespace}/${scanName}${query ? `?${query}` : ""}`;
+}
 
 function statusTone(status: string): StatusTone {
   switch (status.toLowerCase()) {
@@ -76,7 +96,7 @@ function ActionableSeverityBar({ scanName, counts }: { scanName: string; counts:
 /** Hand-rolled SVG sparkline of total findings across recent runs, oldest first. */
 function TrendSparkline({ scanName, activity }: { scanName: string; activity: SecurityRunActivityPoint[] }) {
   if (activity.length < 2) {
-    return <span className="text-muted-foreground/60">—</span>;
+    return <EmptyCell meaning="Not enough runs for a trend" />;
   }
   const width = 100;
   const height = 28;
@@ -184,55 +204,98 @@ function SortableHead({
 
 const BASELINE_CHANGE_STATES = ["new", "regressed", "resolved"] as const;
 
-function PostureRow({ posture, now }: { posture: SecurityConfigPosture; now: number }) {
+function PostureRow({
+  posture,
+  namespace,
+  now,
+}: {
+  posture: SecurityConfigPosture;
+  namespace: string;
+  now: number;
+}) {
   const counts = posture.findingCounts;
+  const actionable = counts["actionable"] ?? counts["open"] ?? 0;
   const changes = BASELINE_CHANGE_STATES
     .map((state) => ({ state, count: counts[`baseline_${state}`] ?? 0 }))
     .filter((c) => c.count > 0);
+  const repository = repoLabel(posture.repository) || posture.repository;
+  const lastRun = lastRunUnix(posture);
   return (
     <TableRow>
-      <TableCell>
-        <Link to="/security/configs" className="font-medium text-primary hover:underline">
+      <TableCell className="max-w-[24ch]">
+        <Link
+          to={configHref(posture.scanName, namespace)}
+          title={posture.scanName}
+          className="block truncate font-medium text-primary hover:underline"
+        >
           {posture.scanName}
         </Link>
       </TableCell>
-      <TableCell className="font-mono text-sm text-muted-foreground">
-        {posture.repository || "—"}
+      <TableCell className="max-w-[24ch] font-mono text-sm text-muted-foreground">
+        <span className="block truncate" title={posture.repository || undefined}>
+          {repository || <EmptyCell meaning="No repository" />}
+        </span>
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
-          <span className="w-6 text-right font-medium tabular-nums">{counts["actionable"] ?? counts["open"] ?? 0}</span>
+          <Link
+            to={configHref(posture.scanName, namespace, { status: "actionable" })}
+            aria-label={`${actionable} actionable findings in ${posture.scanName}`}
+            className="w-6 text-right font-medium tabular-nums text-primary hover:underline"
+          >
+            {actionable}
+          </Link>
           <ActionableSeverityBar scanName={posture.scanName} counts={counts} />
         </div>
       </TableCell>
       <TableCell>
         {changes.length === 0 ? (
-          <span className="text-sm text-muted-foreground">—</span>
+          <EmptyCell meaning="No baseline changes" />
         ) : (
           <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
             {changes.map((c) => (
-              <span key={c.state} className="inline-flex items-center gap-1">
+              <Link
+                key={c.state}
+                // Baseline states outlive the actionable window (a resolved
+                // finding is not actionable), so these links widen status.
+                to={configHref(posture.scanName, namespace, {
+                  baseline: c.state,
+                  status: "all",
+                })}
+                aria-label={`${c.count} ${c.state} findings in ${posture.scanName}`}
+                className="inline-flex items-center gap-1 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              >
                 <BaselineBadge state={c.state} />
                 <span className="text-[12px] font-medium tabular-nums">{c.count}</span>
-              </span>
+              </Link>
             ))}
           </span>
         )}
       </TableCell>
       <TableCell>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <Badge
-            variant="outline"
-            className={cn("capitalize border-transparent", toneSoft[statusTone(posture.lastRunStatus)])}
+          <span
+            className={cn(
+              STATUS_PILL,
+              "capitalize tracking-tight",
+              toneSoft[statusTone(posture.lastRunStatus)],
+            )}
           >
             {posture.lastRunStatus || "unknown"}
-          </Badge>
+          </span>
           {posture.lastRunName && (
             <span className="text-[12px] text-muted-foreground">{posture.lastRunName}</span>
           )}
-          <span className="text-[12px] tabular-nums text-muted-foreground">
-            {formatAge(lastRunUnix(posture), now)}
-          </span>
+          {lastRun === 0n ? (
+            <EmptyCell meaning="Never run" className="text-[12px]" />
+          ) : (
+            <span
+              className="text-[12px] tabular-nums text-muted-foreground"
+              title={new Date(Number(lastRun) * 1000).toLocaleString()}
+            >
+              {formatAge(lastRun, now)}
+            </span>
+          )}
         </div>
       </TableCell>
       <TableCell>
@@ -248,6 +311,7 @@ function PostureRow({ posture, now }: { posture: SecurityConfigPosture; now: num
  */
 export function SecurityConfigPostures() {
   const [resp, setResp] = useState<GetSecurityConfigPosturesResponse | null>(null);
+  const [namespaces, setNamespaces] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "open", dir: "desc" });
@@ -265,9 +329,24 @@ export function SecurityConfigPostures() {
     }
   }, []);
 
+  // Postures are aggregated per scan name, but a configuration's detail page is
+  // keyed by (namespace, name). Resolve the namespaces separately and treat a
+  // failure as cosmetic: links then fall back to the configurations list.
+  const fetchNamespaces = useCallback(async () => {
+    try {
+      const configs = await client.listSecurityScanConfigs({ namespace: "" });
+      const byName: Record<string, string> = {};
+      for (const config of configs.configs) byName[config.name] = config.namespace;
+      setNamespaces(byName);
+    } catch {
+      setNamespaces({});
+    }
+  }, []);
+
   useEffect(() => {
     void fetchPostures();
-  }, [fetchPostures]);
+    void fetchNamespaces();
+  }, [fetchPostures, fetchNamespaces]);
 
   const onSort = useCallback((key: SortKey) => {
     setSort((prev) =>
@@ -347,7 +426,12 @@ export function SecurityConfigPostures() {
               </TableHeader>
               <TableBody>
                 {sorted.map((posture) => (
-                  <PostureRow key={posture.scanName} posture={posture} now={now} />
+                  <PostureRow
+                    key={posture.scanName}
+                    posture={posture}
+                    namespace={namespaces[posture.scanName] ?? ""}
+                    now={now}
+                  />
                 ))}
               </TableBody>
             </Table>

@@ -252,6 +252,11 @@ export const errorScenario: Scenario = {
   securityFindings: [],
   securityScanConfigs: [],
   securityWorkflows: [],
+  securityRankers: [],
+  securityPostScripts: [],
+  securityPolicyPacks: [],
+  securityPrograms: [],
+  securitySavedFilters: [],
   securitySkillsInstalled: false,
   bugReports: [],
 

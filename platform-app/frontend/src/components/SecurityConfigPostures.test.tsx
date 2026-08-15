@@ -1,23 +1,33 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { SecurityConfigPostures } from "@/components/SecurityConfigPostures";
 import {
   GetSecurityConfigPosturesResponseSchema,
   SecurityConfigPostureSchema,
+  SecurityScanConfigSchema,
   type SecurityConfigPosture,
 } from "@/rpc/platform/service_pb";
 
-const { getSecurityConfigPostures } = vi.hoisted(() => ({
+const { getSecurityConfigPostures, listSecurityScanConfigs } = vi.hoisted(() => ({
   getSecurityConfigPostures: vi.fn(),
+  listSecurityScanConfigs: vi.fn(),
 }));
 
 vi.mock("@/lib/client", () => ({
-  client: { getSecurityConfigPostures },
+  client: { getSecurityConfigPostures, listSecurityScanConfigs },
 }));
+
+beforeEach(() => {
+  listSecurityScanConfigs.mockResolvedValue({
+    configs: ["api-scan", "web-scan"].map((name) =>
+      create(SecurityScanConfigSchema, { namespace: "user-alice", name }),
+    ),
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -105,18 +115,69 @@ describe("SecurityConfigPostures", () => {
     ).toBe("/security/configs");
     // api-scan has open criticals, so it sorts first by default.
     expect(rowNames()).toEqual(["api-scan", "web-scan"]);
-    // Configuration names link to the configurations page.
-    expect(
-      screen.getByRole("link", { name: "api-scan" }).getAttribute("href"),
-    ).toBe("/security/configs");
+    // Configuration names deep-link into that configuration's detail page.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("link", { name: "api-scan" }).getAttribute("href"),
+      ).toBe("/security/configs/user-alice/api-scan"),
+    );
     // Baseline changes show only non-zero states.
     expect(screen.getByText("new")).toBeTruthy();
     expect(screen.getByText("regressed")).toBeTruthy();
     expect(screen.queryByText("resolved")).toBeNull();
+    // A missing value is one treatment everywhere, and it says what it means.
+    expect(screen.getByText("No baseline changes")).toBeTruthy();
     expect(getSecurityConfigPostures).toHaveBeenCalledWith({
       namespace: "",
       activityLimit: 0,
     });
+  });
+
+  it("deep-links every posture metric into that configuration's findings view", async () => {
+    getSecurityConfigPostures.mockResolvedValue(fixture());
+
+    renderPostures();
+
+    // The actionable count opens the configuration's actionable findings.
+    const actionable = await screen.findByRole("link", {
+      name: "5 actionable findings in api-scan",
+    });
+    await waitFor(() =>
+      expect(actionable.getAttribute("href")).toBe(
+        "/security/configs/user-alice/api-scan?status=actionable",
+      ),
+    );
+    // Baseline changes widen the status filter: a resolved finding is not
+    // actionable, so the default view would hide what the badge counted.
+    expect(
+      screen
+        .getByRole("link", { name: "2 new findings in api-scan" })
+        .getAttribute("href"),
+    ).toBe("/security/configs/user-alice/api-scan?baseline=new&status=all");
+    expect(
+      screen
+        .getByRole("link", { name: "1 regressed findings in api-scan" })
+        .getAttribute("href"),
+    ).toBe("/security/configs/user-alice/api-scan?baseline=regressed&status=all");
+    expect(listSecurityScanConfigs).toHaveBeenCalledWith({ namespace: "" });
+  });
+
+  it("falls back to the filtered configurations list when the namespace is unknown", async () => {
+    getSecurityConfigPostures.mockResolvedValue(fixture());
+    listSecurityScanConfigs.mockRejectedValue(new Error("configs offline"));
+
+    renderPostures();
+
+    // A cosmetic lookup failure must not break the section or strand a link.
+    expect(
+      (await screen.findByRole("link", { name: "api-scan" })).getAttribute("href"),
+    ).toBe("/security/configs?q=api-scan");
+    expect(
+      screen
+        .getByRole("link", { name: "5 actionable findings in api-scan" })
+        .getAttribute("href"),
+    ).toBe("/security/configs?q=api-scan");
+    expect(screen.getByText("Configurations")).toBeTruthy();
   });
 
   it("renders the stacked severity bar and the trend sparkline", async () => {
@@ -138,6 +199,7 @@ describe("SecurityConfigPostures", () => {
     expect(
       screen.queryByRole("img", { name: /Finding trend for web-scan/ }),
     ).toBeNull();
+    expect(screen.getByText("Not enough runs for a trend")).toBeTruthy();
   });
 
   it("toggles the sort direction when a column header is clicked", async () => {

@@ -1,30 +1,64 @@
-/* eslint-disable react-hooks/set-state-in-effect */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+/* eslint-disable react-refresh/only-export-components, react-hooks/set-state-in-effect */
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { clone, create } from "@bufbuild/protobuf";
-import { Copy, Filter, Pencil, Play, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Copy,
+  History,
+  MoreHorizontal,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { FilterBar, FilterSelect, type FilterOption } from "@/components/ui/filter-bar";
 import { ReadyBadge } from "@/components/ReadyBadge";
 import { TableRowSkeleton } from "@/components/ui/list-state";
 import { filterByQuery } from "@/components/ui/list-search";
 import { ResourceListPage } from "@/components/list-page";
 import { SecurityNav } from "@/components/SecurityNav";
 import { ProgramTargetImportDialog } from "@/components/ProgramTargetImportDialog";
-import { SeverityCountBadges } from "@/components/SecurityScanList";
+import { EmptyCell, SeverityCountBadges, STATUS_PILL } from "@/components/SecurityScanList";
 import {
   scanConfigUsesSavedCredentials,
   SecurityScanFormDialog,
 } from "@/components/SecurityScanFormDialog";
 import { client } from "@/lib/client";
 import { formatScheduleTime } from "@/lib/format";
+import { toneSoft } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import type { ProgramScanTarget } from "@/lib/programTargetCatalog";
+import {
+  hasSeverityAtLeast,
+  optionsFrom,
+  repoLabel,
+  severityCountTotal,
+  SEVERITY_FILTER_OPTIONS,
+  SEVERITY_ORDER,
+  TIME_RANGE_OPTIONS,
+  topSeverity,
+  withinTimeRange,
+} from "@/lib/securityFilters";
 import { useNow } from "@/hooks/useNow";
+import { useUrlFilters } from "@/hooks/useUrlFilters";
 import {
   SecurityScanConfigSchema,
   SecurityScanConfigSpecSchema,
@@ -33,95 +67,212 @@ import {
   type SecurityScanConfig,
 } from "@/rpc/platform/service_pb";
 
-type StatusFilter = "all" | "ready" | "suspended" | "attention";
-type FindingsFilter = "all" | "any" | "critical" | "high" | "none";
-type ScanAgeFilter = "all" | "24h" | "7d" | "30d" | "never";
-type ScheduleFilter = "all" | "once" | "recurring";
+/** Every filter and the sort live in the URL, so a view is shareable. */
+const FILTER_SPEC = {
+  q: "",
+  status: "all",
+  findings: "all",
+  scanned: "all",
+  schedule: "all",
+  program: "all",
+  repo: "all",
+  sort: "scanned",
+} as const;
 
-function hasFindings(config: SecurityScanConfig, severity?: string): boolean {
-  if (severity) return (config.findingCounts[severity] ?? 0) > 0;
-  return Object.entries(config.findingCounts).some(
-    ([key, count]) => key !== "total" && key !== "open" && count > 0,
-  );
+const STATUS_OPTIONS: FilterOption[] = [
+  { value: "all", label: "Any status" },
+  { value: "ready", label: "Ready" },
+  { value: "suspended", label: "Suspended" },
+  { value: "attention", label: "Needs attention" },
+];
+
+const FINDINGS_OPTIONS: FilterOption[] = [
+  { value: "all", label: "Any findings" },
+  { value: "any", label: "Has findings" },
+  { value: "none", label: "No findings" },
+  // Severity labels come from the shared vocabulary and mean "or worse", the
+  // same way the runs list reads them.
+  ...SEVERITY_FILTER_OPTIONS.filter((option) => option.value !== "all"),
+];
+
+const SCANNED_OPTIONS: FilterOption[] = [
+  ...TIME_RANGE_OPTIONS.map((option) =>
+    option.value === "all" ? { value: "all", label: "Scanned any time" } : option,
+  ),
+  { value: "never", label: "Never scanned" },
+];
+
+const SCHEDULE_OPTIONS: FilterOption[] = [
+  { value: "all", label: "Any schedule" },
+  { value: "recurring", label: "Recurring" },
+  { value: "once", label: "One-time" },
+  { value: "manual", label: "Manual only" },
+];
+
+const SORT_OPTIONS = [
+  { value: "name", label: "Name", direction: "ascending" as const },
+  { value: "scanned", label: "Last Scan", direction: "descending" as const },
+  { value: "findings", label: "Findings", direction: "descending" as const },
+];
+
+export type ScanConfigFilters = {
+  status: string;
+  findings: string;
+  scanned: string;
+  schedule: string;
+  program: string;
+  repo: string;
+};
+
+function configRepoUrl(config: SecurityScanConfig): string {
+  return config.spec?.repoUrl || config.spec?.targetUrl || "";
 }
 
-function matchesScanAge(config: SecurityScanConfig, age: ScanAgeFilter, nowMs: number): boolean {
-  if (age === "all") return true;
-  if (age === "never") return config.lastScanTimeUnix === 0n;
-  if (config.lastScanTimeUnix === 0n) return false;
-  const windows: Record<Exclude<ScanAgeFilter, "all" | "never">, number> = {
-    "24h": 24 * 60 * 60 * 1000,
-    "7d": 7 * 24 * 60 * 60 * 1000,
-    "30d": 30 * 24 * 60 * 60 * 1000,
-  };
-  return Number(config.lastScanTimeUnix) * 1000 >= nowMs - windows[age];
+/**
+ * How the configuration is triggered: "manual" (never runs on its own),
+ * "recurring" (has a cron schedule), or "once" (a single unscheduled run).
+ * The schedule filter and the row label read from this same function so they
+ * can never disagree.
+ */
+export function scheduleKind(config: SecurityScanConfig): "manual" | "recurring" | "once" {
+  if (config.spec?.manualOnly) return "manual";
+  return config.spec?.schedule.trim() ? "recurring" : "once";
 }
 
-function filterScanConfigs(
+/** "@daily UTC", "One-time", or "Manual only" — the schedule in one phrase. */
+function scheduleSummary(config: SecurityScanConfig): string {
+  const spec = config.spec;
+  if (spec?.manualOnly) return "Manual only";
+  const schedule = spec?.schedule.trim() ?? "";
+  if (!schedule) return "One-time";
+  const zone = spec?.timeZone.trim();
+  return zone ? `${schedule} ${zone}` : schedule;
+}
+
+function isSuspended(config: SecurityScanConfig): boolean {
+  return config.spec?.suspend ?? false;
+}
+
+function isReady(config: SecurityScanConfig): boolean {
+  return !isSuspended(config) && config.conditionReady.toLowerCase() === "true";
+}
+
+function lastScanMs(config: SecurityScanConfig): number {
+  return Number(config.lastScanTimeUnix) * 1000;
+}
+
+export function filterScanConfigs(
   configs: SecurityScanConfig[],
-  filters: {
-    status: StatusFilter;
-    findings: FindingsFilter;
-    scanAge: ScanAgeFilter;
-    schedule: ScheduleFilter;
-    program: string;
-  },
+  filters: ScanConfigFilters,
   nowMs: number,
 ): SecurityScanConfig[] {
   return configs.filter((config) => {
-    const suspended = config.spec?.suspend ?? false;
-    const ready = !suspended && config.conditionReady.toLowerCase() === "true";
-    if (filters.status === "ready" && !ready) return false;
-    if (filters.status === "suspended" && !suspended) return false;
-    if (filters.status === "attention" && (ready || suspended)) return false;
+    if (filters.status === "ready" && !isReady(config)) return false;
+    if (filters.status === "suspended" && !isSuspended(config)) return false;
+    if (filters.status === "attention" && (isReady(config) || isSuspended(config))) return false;
 
-    if (filters.findings === "any" && !hasFindings(config)) return false;
-    if (filters.findings === "none" && hasFindings(config)) return false;
+    const findingTotal = severityCountTotal(config.findingCounts);
+    if (filters.findings === "any" && findingTotal === 0) return false;
+    if (filters.findings === "none" && findingTotal > 0) return false;
     if (
-      (filters.findings === "critical" || filters.findings === "high")
-      && !hasFindings(config, filters.findings)
+      !["all", "any", "none"].includes(filters.findings)
+      && !hasSeverityAtLeast(config.findingCounts, filters.findings)
     ) return false;
 
-    if (!matchesScanAge(config, filters.scanAge, nowMs)) return false;
+    if (filters.scanned === "never") {
+      if (lastScanMs(config) !== 0) return false;
+    } else if (!withinTimeRange(lastScanMs(config), filters.scanned, nowMs)) {
+      return false;
+    }
 
-    const recurring = Boolean(config.spec?.schedule.trim());
-    if (filters.schedule === "once" && recurring) return false;
-    if (filters.schedule === "recurring" && !recurring) return false;
+    // Three distinct kinds, matching what the row actually says: a cron
+    // schedule, a single unscheduled run, and manual-only (program-imported
+    // targets that never run on their own). Treating manual-only as "one-time"
+    // just because its schedule is empty made the filter contradict the
+    // "Manual only" label rendered next to it.
+    if (filters.schedule !== "all" && scheduleKind(config) !== filters.schedule) return false;
 
     const programRef = config.spec?.securityProgramRef ?? "";
     if (filters.program === "none" && programRef) return false;
-    if (filters.program !== "all" && filters.program !== "none" && programRef !== filters.program) return false;
+    if (filters.program !== "all" && filters.program !== "none" && programRef !== filters.program) {
+      return false;
+    }
+
+    if (filters.repo !== "all" && repoLabel(configRepoUrl(config)) !== filters.repo) return false;
     return true;
   });
 }
 
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  children,
+function severityRank(config: SecurityScanConfig): number {
+  const worst = topSeverity(config.findingCounts);
+  const index = SEVERITY_ORDER.findIndex((severity) => severity === worst);
+  return index === -1 ? SEVERITY_ORDER.length : index;
+}
+
+function byName(a: SecurityScanConfig, b: SecurityScanConfig): number {
+  return a.name.localeCompare(b.name) || a.namespace.localeCompare(b.namespace);
+}
+
+/**
+ * Each sortable column has exactly one useful order — names A→Z, freshest
+ * scans first, worst findings first — so the URL carries the column alone and
+ * headers never toggle into an order nobody asks for.
+ */
+export function sortScanConfigs(
+  configs: SecurityScanConfig[],
+  sort: string,
+): SecurityScanConfig[] {
+  const sorted = [...configs];
+  if (sort === "name") return sorted.sort(byName);
+  if (sort === "findings") {
+    return sorted.sort(
+      (a, b) =>
+        severityRank(a) - severityRank(b)
+        || severityCountTotal(b.findingCounts) - severityCountTotal(a.findingCounts)
+        || byName(a, b),
+    );
+  }
+  return sorted.sort((a, b) => {
+    if (a.lastScanTimeUnix === b.lastScanTimeUnix) return byName(a, b);
+    return b.lastScanTimeUnix > a.lastScanTimeUnix ? 1 : -1;
+  });
+}
+
+/**
+ * Sortable headers must be indistinguishable from static ones apart from the
+ * caret, so the button repeats `TableHead`'s typography instead of inheriting
+ * a browser-default button font in title case.
+ */
+function SortableHead({
+  sortKey,
+  active,
+  onSort,
+  className,
 }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  children: ReactNode;
+  sortKey: string;
+  active: string;
+  onSort: (key: string) => void;
+  className?: string;
 }) {
+  const option = SORT_OPTIONS.find((candidate) => candidate.value === sortKey);
+  if (!option) return null;
+  const on = active === sortKey;
+  const Icon = on ? (option.direction === "ascending" ? ArrowUp : ArrowDown) : ArrowUpDown;
   return (
-    <label className="flex min-w-[130px] flex-1 items-center gap-1.5 text-xs text-muted-foreground sm:min-w-0 sm:flex-none">
-      <span className="sr-only">{label}</span>
-      <select
-        aria-label={label}
-        value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
-        className={`h-7 w-full rounded-lg border px-2 text-[12px] text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 sm:w-auto ${
-          value === "all"
-            ? "border-input bg-background dark:bg-input/30"
-            : "border-primary/40 bg-primary/5"
-        }`}
+    <TableHead aria-sort={on ? option.direction : "none"} className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-sm text-[11px] font-medium uppercase",
+          "tracking-[0.04em] text-muted-foreground/70 transition-colors hover:text-foreground",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+        )}
       >
-        {children}
-      </select>
-    </label>
+        {option.label}
+        <Icon className={cn("size-3", on ? "opacity-100" : "opacity-40")} aria-hidden />
+      </button>
+    </TableHead>
   );
 }
 
@@ -132,17 +283,13 @@ export function SecurityScanConfigList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [findingsFilter, setFindingsFilter] = useState<FindingsFilter>("all");
-  const [scanAgeFilter, setScanAgeFilter] = useState<ScanAgeFilter>("all");
-  const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>("all");
-  const [programFilter, setProgramFilter] = useState("all");
   const [pendingDelete, setPendingDelete] = useState<SecurityScanConfig | null>(null);
+  const [pendingDuplicate, setPendingDuplicate] = useState<SecurityScanConfig | null>(null);
   const [runNowPending, setRunNowPending] = useState<string | null>(null);
   const [selectedProgramScanTarget, setSelectedProgramScanTarget] = useState<ProgramScanTarget | null>(null);
   const importTriggerRef = useRef<HTMLButtonElement>(null);
   const now = useNow();
+  const { values, set, reset, activeCount } = useUrlFilters(FILTER_SPEC);
 
   function closeImportedScanForm() {
     setSelectedProgramScanTarget(null);
@@ -221,62 +368,82 @@ export function SecurityScanConfigList() {
   }
 
   const programUrls = new Map(programs.map((program) => [program.name, program.programUrl]));
-  const programOptions = Array.from(new Set([
-    ...programs.map((program) => program.name),
-    ...configs.map((config) => config.spec?.securityProgramRef ?? "").filter(Boolean),
-  ])).sort((a, b) => a.localeCompare(b));
-  const searched = filterByQuery(configs, query, (config) => [
+  const programBase = optionsFrom(
+    [
+      ...programs.map((program) => program.name),
+      ...configs.map((config) => config.spec?.securityProgramRef ?? ""),
+    ],
+    "All programs",
+  );
+  const programOptions: FilterOption[] = [
+    programBase[0],
+    { value: "none", label: "No program" },
+    ...programBase.slice(1),
+  ];
+  const repoOptions = optionsFrom(
+    configs.map((config) => repoLabel(configRepoUrl(config))),
+    "All repositories",
+  );
+
+  const searched = filterByQuery(configs, values.q, (config) => [
     config.name,
     config.namespace,
-    config.spec?.targetUrl ?? config.spec?.repoUrl ?? "",
+    configRepoUrl(config),
     config.spec?.schedule ?? "",
     config.spec?.securityProgramRef ?? "",
     programUrls.get(config.spec?.securityProgramRef ?? "") ?? "",
     config.phase,
   ]);
-  const filtered = filterScanConfigs(searched, {
-    status: statusFilter,
-    findings: findingsFilter,
-    scanAge: scanAgeFilter,
-    schedule: scheduleFilter,
-    program: programFilter,
-  }, now);
-  const activeFilterCount = [
-    statusFilter !== "all",
-    findingsFilter !== "all",
-    scanAgeFilter !== "all",
-    scheduleFilter !== "all",
-    programFilter !== "all",
-  ].filter(Boolean).length;
-  const hasActiveView = Boolean(query.trim()) || activeFilterCount > 0;
-
-  function clearFilters() {
-    setQuery("");
-    setStatusFilter("all");
-    setFindingsFilter("all");
-    setScanAgeFilter("all");
-    setScheduleFilter("all");
-    setProgramFilter("all");
-  }
+  const visible = sortScanConfigs(
+    filterScanConfigs(searched, values, now),
+    values.sort,
+  );
+  const filterCount = activeCount(["q", "sort"]);
+  const narrowedView = Boolean(values.q.trim()) || filterCount > 0;
+  // Nothing configured and nothing asked for: a search box and a filter strip
+  // over an empty page imply the list is narrowed when it is simply empty.
+  const nothingToSearch = !configs.length && !narrowedView;
 
   return (
     <ResourceListPage
       title="Scan Configurations"
       description="Configured security scans that analyze repositories, once or on a schedule."
-      query={query}
-      onQuery={setQuery}
-      searchPlaceholder="Search scan configurations…"
+      query={values.q}
+      onQuery={(value) => set("q", value)}
+      searchPlaceholder="Search configurations…"
+      hideSearch={nothingToSearch}
       loading={loading}
       error={error}
       onRetry={fetchConfigs}
-      empty={!filtered.length}
+      empty={!visible.length}
       skeleton={<TableRowSkeleton rows={5} />}
       emptyIcon={<ShieldCheck className="size-6" />}
-      emptyTitle={hasActiveView ? "No configurations match these filters" : "No scan configurations found"}
+      emptyTitle={
+        narrowedView && configs.length
+          ? "No configurations match these filters"
+          : "No scan configurations yet"
+      }
       emptyDescription={
-        hasActiveView
-          ? "Clear filters or broaden the date range to see more configurations."
-          : "Create a security scan to analyze a repository for vulnerabilities."
+        narrowedView && configs.length
+          ? "No configuration matches the current search and filters. Clear them to see all configurations."
+          : "Create a security scan to analyze a repository for vulnerabilities, once or on a schedule."
+      }
+      emptyAction={
+        narrowedView && configs.length ? (
+          <Button variant="outline" size="sm" onClick={() => reset()}>
+            Clear filters
+          </Button>
+        ) : (
+          <SecurityScanFormDialog
+            trigger={
+              <Button size="sm">
+                <Plus />
+                Create your first scan
+              </Button>
+            }
+            onSaved={() => void fetchConfigs()}
+          />
+        )
       }
       actions={
         <div className="flex items-center gap-2">
@@ -329,64 +496,51 @@ export function SecurityScanConfigList() {
       }
       nav={<SecurityNav />}
       toolbar={
-        <div
-          className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2"
-          aria-label="Configuration filters"
-          role="group"
-        >
-          <span className="inline-flex basis-full items-center gap-1.5 text-xs font-medium text-muted-foreground sm:basis-auto">
-            <Filter className="size-3.5" aria-hidden />
-            Filters
-            {activeFilterCount > 0 && (
-              <span
-                className="rounded-full bg-primary/10 px-1.5 text-[11px] text-primary"
-                aria-label={`${activeFilterCount} active filters`}
-              >
-                {activeFilterCount}
-              </span>
-            )}
-          </span>
-          <FilterSelect label="Status" value={statusFilter} onChange={(value) => setStatusFilter(value as StatusFilter)}>
-            <option value="all">All statuses</option>
-            <option value="ready">Ready</option>
-            <option value="suspended">Suspended</option>
-            <option value="attention">Needs attention</option>
-          </FilterSelect>
-          <FilterSelect label="Findings" value={findingsFilter} onChange={(value) => setFindingsFilter(value as FindingsFilter)}>
-            <option value="all">All findings</option>
-            <option value="any">Has findings</option>
-            <option value="critical">Has critical</option>
-            <option value="high">Has high</option>
-            <option value="none">No findings</option>
-          </FilterSelect>
-          <FilterSelect label="Last scan" value={scanAgeFilter} onChange={(value) => setScanAgeFilter(value as ScanAgeFilter)}>
-            <option value="all">Scanned any time</option>
-            <option value="24h">Last 24 hours</option>
-            <option value="7d">Last 7 days</option>
-            <option value="30d">Last 30 days</option>
-            <option value="never">Never scanned</option>
-          </FilterSelect>
-          <FilterSelect label="Schedule" value={scheduleFilter} onChange={(value) => setScheduleFilter(value as ScheduleFilter)}>
-            <option value="all">All schedules</option>
-            <option value="once">One-time</option>
-            <option value="recurring">Recurring</option>
-          </FilterSelect>
-          <FilterSelect label="Program" value={programFilter} onChange={setProgramFilter}>
-            <option value="all">All programs</option>
-            <option value="none">No program</option>
-            {programOptions.map((program) => (
-              <option key={program} value={program}>{program}</option>
-            ))}
-          </FilterSelect>
-          <span className="basis-full text-[11px] text-muted-foreground sm:ml-auto sm:basis-auto" aria-live="polite">
-            Showing {filtered.length} of {configs.length} configurations
-          </span>
-          {hasActiveView && (
-            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={clearFilters}>
-              Clear filters
-            </Button>
-          )}
-        </div>
+        !nothingToSearch && (
+          <FilterBar
+            label="Configuration filters"
+            activeCount={filterCount}
+            onClear={() => reset()}
+            resultLabel={`Showing ${visible.length} of ${configs.length} configurations`}
+          >
+            <FilterSelect
+              label="Status"
+              value={values.status}
+              onChange={(value) => set("status", value)}
+              options={STATUS_OPTIONS}
+            />
+            <FilterSelect
+              label="Findings"
+              value={values.findings}
+              onChange={(value) => set("findings", value)}
+              options={FINDINGS_OPTIONS}
+            />
+            <FilterSelect
+              label="Last scan"
+              value={values.scanned}
+              onChange={(value) => set("scanned", value)}
+              options={SCANNED_OPTIONS}
+            />
+            <FilterSelect
+              label="Schedule"
+              value={values.schedule}
+              onChange={(value) => set("schedule", value)}
+              options={SCHEDULE_OPTIONS}
+            />
+            <FilterSelect
+              label="Program"
+              value={values.program}
+              onChange={(value) => set("program", value)}
+              options={programOptions}
+            />
+            <FilterSelect
+              label="Repository"
+              value={values.repo}
+              onChange={(value) => set("repo", value)}
+              options={repoOptions}
+            />
+          </FilterBar>
+        )
       }
     >
       {actionError && (
@@ -398,118 +552,195 @@ export function SecurityScanConfigList() {
         <TableCaption className="sr-only">Security scan configurations</TableCaption>
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Repository</TableHead>
-            <TableHead>Program</TableHead>
-            <TableHead>Schedule</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Findings</TableHead>
-            <TableHead>Last Scan</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            {/* The name cell holds the repository, schedule and (on narrow
+                viewports) the last scan, so it keeps the widest share; the
+                icon-only action column only needs its buttons. */}
+            <SortableHead
+              sortKey="name"
+              active={values.sort}
+              onSort={(key) => set("sort", key)}
+              className="sm:w-[36%]"
+            />
+            <TableHead className="hidden lg:table-cell lg:w-[20%]">Program</TableHead>
+            <TableHead className="hidden sm:table-cell sm:w-[7.5rem]">Status</TableHead>
+            <SortableHead
+              sortKey="findings"
+              active={values.sort}
+              onSort={(key) => set("sort", key)}
+              className="hidden sm:table-cell sm:w-[22%]"
+            />
+            <SortableHead
+              sortKey="scanned"
+              active={values.sort}
+              onSort={(key) => set("sort", key)}
+              className="hidden sm:table-cell sm:w-[8rem]"
+            />
+            <TableHead className="w-px text-right whitespace-nowrap">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {filtered.map((config) => (
-            <TableRow key={`${config.namespace}/${config.name}`}>
-              <TableCell>
-                <Link
-                  to={`/security/configs/${config.namespace}/${config.name}`}
-                  className="font-medium text-primary hover:underline"
-                >
-                  {config.name}
-                </Link>
-              </TableCell>
-              <TableCell className="font-mono text-sm text-muted-foreground">
-                {config.spec?.targetUrl || config.spec?.repoUrl || "-"}
-              </TableCell>
-              <TableCell className="max-w-64 text-sm text-muted-foreground">
-                {config.spec?.securityProgramRef ? (
-                  <div className="space-y-0.5">
-                    <div className="font-mono text-[12px]">{config.spec.securityProgramRef}</div>
-                    {programUrls.has(config.spec.securityProgramRef) && (
-                      <a
-                        href={programUrls.get(config.spec.securityProgramRef)}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={programUrls.get(config.spec.securityProgramRef)}
-                        className="block truncate font-mono text-[11px] underline underline-offset-2"
-                      >
-                        {programUrls.get(config.spec.securityProgramRef)}
-                      </a>
+          {visible.map((config) => {
+            const key = `${config.namespace}/${config.name}`;
+            const suspended = isSuspended(config);
+            const programRef = config.spec?.securityProgramRef ?? "";
+            const programUrl = programUrls.get(programRef);
+            const repository = configRepoUrl(config);
+            const statusPill = suspended ? (
+              <span className={cn(STATUS_PILL, toneSoft.warning)}>Suspended</span>
+            ) : (
+              <ReadyBadge status={config.conditionReady} />
+            );
+            return (
+              <TableRow key={key}>
+                <TableCell className="max-w-[26rem] align-top whitespace-normal">
+                  <Link
+                    to={`/security/configs/${config.namespace}/${config.name}`}
+                    className="block truncate font-medium text-primary hover:underline"
+                  >
+                    {config.name}
+                  </Link>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-muted-foreground">
+                    <span className="truncate font-mono" title={repository || undefined}>
+                      {repoLabel(repository) || "No repository"}
+                    </span>
+                    <span aria-hidden>·</span>
+                    <span className="truncate">{scheduleSummary(config)}</span>
+                    {programRef && (
+                      <span className="truncate font-mono lg:hidden">· {programRef}</span>
                     )}
                   </div>
-                ) : "-"}
-              </TableCell>
-              <TableCell className="font-mono text-sm text-muted-foreground">
-                {config.spec?.schedule || "once"}
-              </TableCell>
-              <TableCell>
-                {config.spec?.suspend ? (
-                  <Badge variant="secondary">Suspended</Badge>
-                ) : (
-                  <ReadyBadge status={config.conditionReady} />
-                )}
-              </TableCell>
-              <TableCell>
-                <SeverityCountBadges counts={config.findingCounts} />
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {formatScheduleTime(config.lastScanTimeUnix, now)}
-              </TableCell>
-              <TableCell className="text-right">
-                <div className="inline-flex items-center gap-1">
-                  {!config.spec?.suspend && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={runNowPending !== null}
-                      onClick={() => void handleRunNow(config)}
-                    >
-                      <Play />
-                      {runNowPending === `${config.namespace}/${config.name}`
-                        ? "Starting…"
-                        : "Run now"}
-                    </Button>
+                  {/* Below `sm` the status, findings and last-scan columns are
+                      hidden, so a phone reads the whole row here instead of
+                      scrolling the table sideways past a badge clipped at the
+                      card edge. */}
+                  <div className="mt-1 flex flex-wrap items-center gap-1 sm:hidden" data-testid="config-summary">
+                    {statusPill}
+                    <SeverityCountBadges counts={config.findingCounts} />
+                    <span className="text-[11.5px] text-muted-foreground">
+                      {config.lastScanTimeUnix === 0n
+                        ? "Never scanned"
+                        : `Scanned ${formatScheduleTime(config.lastScanTimeUnix, now)}`}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="hidden max-w-56 align-top text-sm text-muted-foreground lg:table-cell">
+                  {programRef ? (
+                    <div className="space-y-0.5">
+                      <div className="truncate font-mono text-[12px]">{programRef}</div>
+                      {programUrl && (
+                        <a
+                          href={programUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={programUrl}
+                          className="block truncate font-mono text-[11px] underline underline-offset-2"
+                        >
+                          {programUrl}
+                        </a>
+                      )}
+                    </div>
+                  ) : <EmptyCell meaning="No security program linked" />}
+                </TableCell>
+                <TableCell className="hidden align-top sm:table-cell">{statusPill}</TableCell>
+                <TableCell className="hidden align-top sm:table-cell">
+                  <SeverityCountBadges counts={config.findingCounts} />
+                </TableCell>
+                <TableCell className="hidden align-top text-muted-foreground sm:table-cell">
+                  {config.lastScanTimeUnix === 0n ? (
+                    <EmptyCell meaning="Never scanned" />
+                  ) : (
+                    formatScheduleTime(config.lastScanTimeUnix, now)
                   )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void toggleSuspend(config)}
-                  >
-                    {config.spec?.suspend ? "Resume" : "Suspend"}
-                  </Button>
-                  <SecurityScanFormDialog
-                    config={config}
-                    trigger={
-                      <Button variant="ghost" size="sm" aria-label={`Edit ${config.name}`}>
-                        <Pencil />
+                </TableCell>
+                <TableCell className="align-top text-right">
+                  <div className="inline-flex items-center justify-end gap-1">
+                    {suspended ? (
+                      <Button variant="ghost" size="sm" onClick={() => void toggleSuspend(config)}>
+                        <Play />
+                        Resume
                       </Button>
-                    }
-                    onSaved={() => void fetchConfigs()}
-                  />
-                  <SecurityScanFormDialog
-                    duplicateFrom={config}
-                    trigger={
-                      <Button variant="ghost" size="sm" aria-label={`Duplicate ${config.name}`}>
-                        <Copy />
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={runNowPending !== null}
+                        onClick={() => void handleRunNow(config)}
+                      >
+                        <Play />
+                        {runNowPending === key ? "Starting…" : "Run now"}
                       </Button>
-                    }
-                    onSaved={() => void fetchConfigs()}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Delete ${config.name}`}
-                    onClick={() => setPendingDelete(config)}
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+                    )}
+                    <SecurityScanFormDialog
+                      config={config}
+                      trigger={
+                        <Button variant="ghost" size="icon-sm" aria-label={`Edit ${config.name}`}>
+                          <Pencil />
+                        </Button>
+                      }
+                      onSaved={() => void fetchConfigs()}
+                    />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`More actions for ${config.name}`}
+                          />
+                        }
+                      >
+                        <MoreHorizontal />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-[180px]">
+                        <DropdownMenuItem onClick={() => setPendingDuplicate(config)}>
+                          <Copy />
+                          Duplicate
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          render={
+                            <Link
+                              to={`/security/runs?q=${encodeURIComponent(config.name)}`}
+                              aria-label={`View runs for ${config.name}`}
+                            />
+                          }
+                        >
+                          <History />
+                          View runs
+                        </DropdownMenuItem>
+                        {!suspended && (
+                          <DropdownMenuItem onClick={() => void toggleSuspend(config)}>
+                            <Pause />
+                            Suspend
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => setPendingDelete(config)}
+                        >
+                          <Trash2 />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
+      {pendingDuplicate && (
+        <SecurityScanFormDialog
+          key={`duplicate-${pendingDuplicate.namespace}/${pendingDuplicate.name}`}
+          duplicateFrom={pendingDuplicate}
+          defaultOpen
+          onOpenChange={(open) => {
+            if (!open) setPendingDuplicate(null);
+          }}
+          onSaved={() => void fetchConfigs()}
+        />
+      )}
       <ConfirmDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {

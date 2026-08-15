@@ -62,6 +62,7 @@ afterEach(() => {
 const FINDING_ID = "22222222-2222-2222-2222-222222222222";
 const PREV_ID = "11111111-1111-1111-1111-111111111111";
 const NEXT_ID = "33333333-3333-3333-3333-333333333333";
+const LAST_ID = "55555555-5555-5555-5555-555555555555";
 
 function scanFixture() {
   return create(SecurityScanSchema, {
@@ -182,6 +183,18 @@ function renderDetail(search = "") {
   );
 }
 
+/** Every dead end offers the filtered scan view plus the two security hubs. */
+function expectRecoveryLinks(scanHref: string) {
+  expect(screen.getByRole("link", { name: "Back to scan" }).getAttribute("href")).toBe(scanHref);
+  expect(screen.getByRole("link", { name: "Scan runs" }).getAttribute("href")).toBe(
+    "/security/runs",
+  );
+  expect(screen.getByRole("link", { name: "Security overview" }).getAttribute("href")).toBe(
+    "/security",
+  );
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+}
+
 describe("SecurityFindingDetail", () => {
   it("renders a full finding with facts, sections, and history", async () => {
     mockHappyPath();
@@ -227,13 +240,23 @@ describe("SecurityFindingDetail", () => {
 
     // History entries with from→to provenance.
     expect(screen.getByText("confirmed exploitable")).toBeTruthy();
-    expect(screen.getByText("open → confirmed")).toBeTruthy();
+    expect(screen.getByText("Open → Confirmed")).toBeTruthy();
     expect(screen.getByText("needs a second look")).toBeTruthy();
 
     // Source agent run link.
     expect(screen.getByRole("button", { name: /Agent run/ }).getAttribute("href")).toBe(
       "/runs/user-alice/nightly-1",
     );
+
+    // Header identity: severity, score, short repo label, and a copy action
+    // for the file:line the reviewer needs in their editor.
+    expect(screen.getByText("critical")).toBeTruthy();
+    expect(screen.getByText("9.5")).toBeTruthy();
+    expect(screen.getByText("acme/payments")).toBeTruthy();
+    const clipboard = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: clipboard } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy file and line" }));
+    expect(clipboard).toHaveBeenCalledWith("internal/db/query.go:42");
   });
 
   it("renders untrusted references and evidence safely", async () => {
@@ -268,18 +291,21 @@ describe("SecurityFindingDetail", () => {
     expect(screen.queryByRole("link", { name: /CWE-/ })).toBeNull();
   });
 
-  it("shows a clear not-found state", async () => {
+  it("shows a clear not-found state with a way back", async () => {
     getSecurityScan.mockResolvedValue(scanFixture());
     getSecurityFinding.mockRejectedValue(
       new ConnectError("security finding not found", Code.NotFound),
     );
     listSecurityFindings.mockResolvedValue({ findings: [] });
-    renderDetail();
+    renderDetail("?severity=high");
 
     expect(await screen.findByText("Finding not found")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Back to scan/ }).getAttribute("href")).toBe(
-      "/security/user-alice/nightly-1",
-    );
+    expectRecoveryLinks(`/security/user-alice/nightly-1?severity=high&selected=${FINDING_ID}`);
+
+    // Retry re-runs the whole load instead of stranding the user.
+    getSecurityFinding.mockResolvedValue({ finding: findingFixture(), events: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "SQL injection in payment lookup" })).toBeTruthy();
   });
 
   it("shows a forbidden state when the namespace is not accessible", async () => {
@@ -289,6 +315,7 @@ describe("SecurityFindingDetail", () => {
     renderDetail();
 
     expect(await screen.findByText("You don't have access to this finding")).toBeTruthy();
+    expectRecoveryLinks(`/security/user-alice/nightly-1?selected=${FINDING_ID}`);
   });
 
   it("shows an unsupported-store state", async () => {
@@ -298,6 +325,24 @@ describe("SecurityFindingDetail", () => {
     renderDetail();
 
     expect(await screen.findByText("Security findings are unavailable")).toBeTruthy();
+    expectRecoveryLinks(`/security/user-alice/nightly-1?selected=${FINDING_ID}`);
+  });
+
+  it("shows a generic error state with the server detail and a retry", async () => {
+    getSecurityScan.mockRejectedValue(new ConnectError("boom", Code.Internal));
+    renderDetail();
+
+    expect(await screen.findByText("Failed to load finding")).toBeTruthy();
+    expect(screen.getByText(/boom/)).toBeTruthy();
+    expectRecoveryLinks(`/security/user-alice/nightly-1?selected=${FINDING_ID}`);
+
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFinding.mockResolvedValue({ finding: findingFixture(), events: [] });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(
+      await screen.findByRole("heading", { name: "SQL injection in payment lookup" }),
+    ).toBeTruthy();
   });
 
   it("submits a comment and refreshes history", async () => {
@@ -380,18 +425,119 @@ describe("SecurityFindingDetail", () => {
       status: "actionable",
       category: "",
       search: "sql",
+      baselineState: "",
+      assignee: "",
+      suppressed: "exclude",
+      includeDuplicates: false,
     });
-    expect(screen.getByText("2 of 3")).toBeTruthy();
+    expect(screen.getByTestId("finding-position").textContent).toBe("2 of 3");
     expect(screen.getByRole("button", { name: "Previous finding" }).getAttribute("href")).toBe(
-      `/security/user-alice/nightly-1/findings/${PREV_ID}?severity=critical&q=sql`,
+      `/security/user-alice/nightly-1/findings/${PREV_ID}?q=sql&severity=critical&selected=${PREV_ID}`,
     );
     expect(screen.getByRole("button", { name: "Next finding" }).getAttribute("href")).toBe(
-      `/security/user-alice/nightly-1/findings/${NEXT_ID}?severity=critical&q=sql`,
+      `/security/user-alice/nightly-1/findings/${NEXT_ID}?q=sql&severity=critical&selected=${NEXT_ID}`,
     );
-    // The back link restores the filtered scan view.
+  });
+
+  it("sends the whole canonical filter set to the sibling query", async () => {
+    mockHappyPath();
+    renderDetail(
+      "?q=sql&severity=high&status=confirmed&category=injection&baseline=new"
+        + "&assignee=alice&suppressed=only&dupes=include",
+    );
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    expect(listSecurityFindings).toHaveBeenCalledWith({
+      namespace: "user-alice",
+      runName: "nightly-1",
+      severity: "high",
+      status: "confirmed",
+      category: "injection",
+      search: "sql",
+      baselineState: "new",
+      assignee: "alice",
+      suppressed: "only",
+      includeDuplicates: true,
+    });
+  });
+
+  it("narrows the sibling walk by the client-side tool and file filters", async () => {
+    mockHappyPath({
+      siblings: [
+        findingFixture({ id: PREV_ID, sourceAgent: "other-agent" }),
+        findingFixture(),
+        findingFixture({ id: NEXT_ID, filePath: "internal/http/handler.go" }),
+        findingFixture({ id: LAST_ID }),
+      ],
+    });
+    renderDetail("?tool=scanner-agent&file=query.go");
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    // `tool` and `file` have no server-side equivalent, so they are applied to
+    // the returned page — the walk matches the table the user filtered.
+    expect(listSecurityFindings).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: "", status: "actionable", category: "" }),
+    );
+    expect(screen.getByTestId("finding-position").textContent).toBe("1 of 2");
+    expect(screen.getByRole("button", { name: "Previous finding" }).hasAttribute("href")).toBe(
+      false,
+    );
+    expect(screen.getByRole("button", { name: "Next finding" }).getAttribute("href")).toBe(
+      `/security/user-alice/nightly-1/findings/${LAST_ID}?tool=scanner-agent&file=query.go&selected=${LAST_ID}`,
+    );
+  });
+
+  it("says so when the finding is outside the filtered list", async () => {
+    mockHappyPath({ siblings: [findingFixture({ id: PREV_ID })] });
+    renderDetail("?severity=low");
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    expect(screen.getByTestId("finding-position").textContent).toBe("Not in the filtered list");
+    expect(screen.getByRole("button", { name: "Previous finding" }).hasAttribute("href")).toBe(
+      false,
+    );
+    expect(screen.getByRole("button", { name: "Next finding" }).hasAttribute("href")).toBe(false);
+  });
+
+  it("carries the filters and the selection back to the scan list", async () => {
+    mockHappyPath();
+    renderDetail("?severity=critical&q=sql&suppressed=only&selected=other-id");
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    // `selected` is rewritten to this finding so the list restores the row.
     expect(screen.getByRole("link", { name: /Scan nightly-1/ }).getAttribute("href")).toBe(
-      "/security/user-alice/nightly-1?severity=critical&q=sql",
+      `/security/user-alice/nightly-1?q=sql&severity=critical&suppressed=only&selected=${FINDING_ID}`,
     );
+  });
+
+  it("walks prev/next from the keyboard with a visible hint", async () => {
+    mockHappyPath({
+      siblings: [findingFixture({ id: PREV_ID }), findingFixture(), findingFixture({ id: NEXT_ID })],
+    });
+    renderDetail();
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+    expect(screen.getByText(/to move\s+between findings/)).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "j" });
+    await waitFor(() => {
+      expect(getSecurityFinding).toHaveBeenCalledWith(expect.objectContaining({ id: NEXT_ID }));
+    });
+
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    await waitFor(() => {
+      expect(getSecurityFinding).toHaveBeenCalledWith(expect.objectContaining({ id: PREV_ID }));
+    });
+  });
+
+  it("ignores navigation keys typed into a field", async () => {
+    mockHappyPath({
+      siblings: [findingFixture(), findingFixture({ id: NEXT_ID })],
+    });
+    renderDetail();
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    fireEvent.keyDown(screen.getByLabelText("Add a comment"), { key: "j" });
+    expect(getSecurityFinding).not.toHaveBeenCalledWith(expect.objectContaining({ id: NEXT_ID }));
   });
 
   it("translates the all-statuses view into an unfiltered sibling query", async () => {
@@ -543,5 +689,76 @@ describe("SecurityFindingDetail provenance and suppression", () => {
     await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
     expect(screen.queryByTestId("suppression-details")).toBeNull();
     expect(screen.queryByText("suppressed")).toBeNull();
+  });
+});
+
+describe("SecurityFindingDetail presentation", () => {
+  it("groups prev/next into one control that names its order and explains disabled ends", async () => {
+    // A single sibling: both ends of the pager are dead, and must say why.
+    mockHappyPath();
+    renderDetail();
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    const position = screen.getByTestId("finding-position");
+    const prev = screen.getByRole("button", { name: "Previous finding" });
+    const next = screen.getByRole("button", { name: "Next finding" });
+    const group = position.parentElement!;
+    expect(group.contains(prev)).toBe(true);
+    expect(group.contains(next)).toBe(true);
+
+    expect(screen.getByText("Ordered by score, as filtered")).toBeTruthy();
+    expect(prev.closest("span[title]")?.getAttribute("title")).toMatch(/first finding/);
+    expect(next.closest("span[title]")?.getAttribute("title")).toMatch(/last finding/);
+    // Disabled reads as "nothing to page to", not as a broken control.
+    expect(prev.className).toContain("disabled:opacity-100");
+  });
+
+  it("normalises status casing, empty values, and timestamps", async () => {
+    mockHappyPath({ finding: findingFixture({ confidence: "", category: "" }) });
+    renderDetail();
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    // "Open" in the header and in the overview, never "open".
+    expect(screen.getAllByText("Open").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("open")).toBeNull();
+
+    // One wording for an unset value, in facts and in the assignee field.
+    expect(screen.getAllByText("Not set").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Unassigned")).toBeNull();
+    expect((screen.getByLabelText("Assignee") as HTMLInputElement).placeholder).toBe("Not set");
+
+    // Compact absolute stamp plus relative age, never "2/1/2026, 12:00:00 AM".
+    const timeline = screen.getByRole("region", { name: "Timeline" });
+    expect(timeline.textContent).toMatch(/Feb 1/);
+    expect(timeline.textContent).toMatch(/(ago|in \d)/);
+    expect(screen.queryByText(/\d{1,2}\/\d{1,2}\/\d{4}/)).toBeNull();
+
+    // The header copy action carries a visible label, not just an icon.
+    expect(screen.getByRole("button", { name: "Copy file and line" }).textContent).toContain(
+      "Copy",
+    );
+  });
+
+  it("keeps 'Update status' disabled until the status changes, then confirms the save", async () => {
+    mockHappyPath();
+    updateSecurityFindingStatus.mockResolvedValue(findingFixture({ status: "confirmed" }));
+    renderDetail();
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    const submit = () => screen.getByRole("button", { name: "Update status" }) as HTMLButtonElement;
+    expect(submit().disabled).toBe(true);
+    expect(submit().closest("span[title]")?.getAttribute("title")).toMatch(/different status/);
+
+    // A note alone is not a change; the status itself has to move.
+    fireEvent.change(screen.getByLabelText("Note (optional)"), { target: { value: "checked" } });
+    expect(submit().disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "confirmed" } });
+    expect(submit().disabled).toBe(false);
+    fireEvent.click(submit());
+
+    // Saved in place, and the button falls back to disabled once applied.
+    expect(await screen.findByText("Saved")).toBeTruthy();
+    expect(submit().disabled).toBe(true);
   });
 });
