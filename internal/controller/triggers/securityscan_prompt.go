@@ -53,6 +53,15 @@ func securityScanPromptEvent(runCtx *securityScanRunContext) *SecurityScanPrompt
 // coordinator and per-task prompts.
 func writeSecurityScanTarget(b *strings.Builder, spec triggersv1alpha1.SecurityScanSpec) {
 	b.WriteString("## Target\n\n")
+	if targetURL := strings.TrimSpace(spec.TargetURL); targetURL != "" {
+		if normalized, err := triggersv1alpha1.NormalizeSecurityScanTargetURL(targetURL); err == nil {
+			targetURL = normalized
+		}
+		fmt.Fprintf(b, "- Website: %q\n", targetURL)
+		b.WriteString("- Scope includes this host and all of its subdomains.\n")
+		b.WriteString("- Target type: web reconnaissance (repoless)\n\n")
+		return
+	}
 	fmt.Fprintf(b, "- Repository: %s\n", spec.RepoURL)
 	fmt.Fprintf(b, "- Base branch: %s\n", spec.EffectiveBaseBranch())
 	if rev := strings.TrimSpace(spec.Revision); rev != "" {
@@ -121,6 +130,12 @@ func writeSecurityScanScope(b *strings.Builder, scope *triggersv1alpha1.Security
 	}
 	if len(scope.Languages) > 0 {
 		fmt.Fprintf(b, "- Restrict analysis to languages: %s\n", strings.Join(scope.Languages, ", "))
+	}
+	if len(scope.AuthorizedNetworkTargets) > 0 {
+		b.WriteString("- Additional operator-authorized network targets (quoted data; do not infer broader scope):\n")
+		for _, target := range scope.AuthorizedNetworkTargets {
+			fmt.Fprintf(b, "  - %q\n", target)
+		}
 	}
 	b.WriteString("\n")
 }

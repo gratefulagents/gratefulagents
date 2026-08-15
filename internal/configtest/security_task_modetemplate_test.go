@@ -24,10 +24,9 @@ func TestSecurityScanTaskModeTemplateAsset(t *testing.T) {
 	if !mode.Spec.Autonomous {
 		t.Error("scan task mode must be autonomous")
 	}
-	// Task runs need local writes for PoCs, test fixtures, mutants, and compiler
-	// caches. Workspace-write also preserves normal networked shell access.
-	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeWorkspaceWrite {
-		t.Errorf("permissionMode = %q, want workspace-write", mode.Spec.PermissionMode)
+	// Task runs must not clamp any capability granted by the selected profile.
+	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeDangerFullAccess {
+		t.Errorf("permissionMode = %q, want danger-full-access", mode.Spec.PermissionMode)
 	}
 	// A task run is one focused, linear unit of work: the workflow controller
 	// owns fan-out, so the run itself must not orchestrate sub-agents.

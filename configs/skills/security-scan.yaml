@@ -15,8 +15,9 @@ spec:
     inline:
       instructions: |
 
-        Use this skill when scanning a repository for vulnerabilities. It is the
-        technical handbook; the scan lifecycle lives in the security-scan mode.
+        Use this skill when scanning a repository or an operator-authorized website
+        for vulnerabilities. It is the technical handbook; the scan lifecycle
+        lives in the security-scan mode.
 
         ## Method
 
@@ -49,8 +50,9 @@ spec:
 
         Local command execution is available for repository inspection and safe
         project-native builds, tests, simulators, and harnesses. Inspect invoked
-        scripts before running them, never contact a live network or third party,
-        and preserve the exact command, versions, exit status, and output. When a
+        scripts before running them. Live requests are allowed when the operator has
+        explicitly named a website target; keep them reconnaissance-only and
+        preserve the exact command, versions, exit status, and output. When a
         concrete finding needs validation and no suitable harness exists, create
         the smallest candidate-specific PoC in a disposable workspace, execute it,
         debug it, and minimize it. Exploratory command output without a bounded
@@ -227,6 +229,7 @@ spec:
 
         ## Non-goals
 
-        Never edit the scanned repository, never exploit live or third-party
-        systems, never print secret material, and never report a finding you
-        cannot point at with file:line evidence.
+        Never edit the scanned repository or send destructive, persistent, disruptive,
+        credential-attack, or bulk-extraction traffic to live systems. Never
+        print secret material. Repository findings need file:line evidence;
+        website findings need exact URLs and redacted request/response evidence.

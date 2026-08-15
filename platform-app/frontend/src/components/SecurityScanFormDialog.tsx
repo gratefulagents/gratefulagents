@@ -100,7 +100,9 @@ type NotificationRuleState = {
 
 type SpecState = {
   name: string;
+  targetType: "repository" | "website";
   repoUrl: string;
+  targetUrl: string;
   baseBranch: string;
   revision: string;
   additionalRepos: string;
@@ -149,11 +151,19 @@ function splitList(value: string, separator: RegExp): string[] {
     .filter(Boolean);
 }
 
+function normalizeWebsiteTarget(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 function initialSpec(config?: SecurityScanConfig): SpecState {
   const spec = config?.spec;
   return {
     name: config?.name ?? "",
+    targetType: spec?.targetUrl ? "website" : "repository",
     repoUrl: spec?.repoUrl ?? "",
+    targetUrl: spec?.targetUrl ?? "",
     baseBranch: spec?.baseBranch ?? "",
     revision: spec?.revision ?? "",
     additionalRepos: spec?.additionalRepos.join("\n") ?? "",
@@ -490,10 +500,12 @@ export function SecurityScanFormDialog({
       authorizedNetworkTargets: splitList(spec.authorizedNetworkTargets, /[,\n]/),
     });
     return create(SecurityScanConfigSpecSchema, {
-      repoUrl: spec.repoUrl.trim(),
-      baseBranch: spec.baseBranch.trim(),
-      revision: spec.revision.trim(),
-      additionalRepos: splitList(spec.additionalRepos, /\n/),
+      repoUrl: spec.targetType === "repository" ? spec.repoUrl.trim() : "",
+      targetUrl: spec.targetType === "website" ? normalizeWebsiteTarget(spec.targetUrl) : "",
+      baseBranch: spec.targetType === "repository" ? spec.baseBranch.trim() : "",
+      revision: spec.targetType === "repository" ? spec.revision.trim() : "",
+      additionalRepos:
+        spec.targetType === "repository" ? splitList(spec.additionalRepos, /\n/) : [],
       scope,
       // workflowRef and an inline workflow are mutually exclusive; picking a
       // library workflow drops any inline tasks from the request.
@@ -571,7 +583,8 @@ export function SecurityScanFormDialog({
           .map((entry) => [entry.key.trim(), entry.value]),
       ),
       triggers:
-        spec.onPullRequest || spec.onPush || spec.triggersRepositoryRef.trim()
+        spec.targetType === "repository" &&
+        (spec.onPullRequest || spec.onPush || spec.triggersRepositoryRef.trim())
           ? create(SecurityScanTriggersConfigSchema, {
               repositoryRef: spec.triggersRepositoryRef.trim(),
               onPullRequest: spec.onPullRequest,
@@ -581,7 +594,7 @@ export function SecurityScanFormDialog({
               allowForks: spec.allowForks,
             })
           : undefined,
-      checks: spec.checksEnabled
+      checks: spec.targetType === "repository" && spec.checksEnabled
         ? create(SecurityScanChecksConfigSchema, {
             enabled: true,
             includeFindingSummaries: spec.includeFindingSummaries,
@@ -627,8 +640,12 @@ export function SecurityScanFormDialog({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    if (!spec.repoUrl.trim()) {
+    if (spec.targetType === "repository" && !spec.repoUrl.trim()) {
       setError("Give the scan a repository URL to analyze.");
+      return;
+    }
+    if (spec.targetType === "website" && !spec.targetUrl.trim()) {
+      setError("Give the scan a website URL or domain to analyze.");
       return;
     }
     if (isDuplicate && !spec.name.trim()) {
@@ -720,22 +737,55 @@ export function SecurityScanFormDialog({
                 ? "Saving replaces the scan's spec with the values below."
                 : isDuplicate
                   ? "Review the copied settings and pick a new name. A new scan is created; the source scan and its findings are untouched."
-                  : "Scan a repository for vulnerabilities, once or on a schedule."}
+                  : "Scan a repository or website for vulnerabilities, once or on a schedule."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
-            <FlowField id="scan-repo-url" label="Repository URL" required>
-              <Input
-                id="scan-repo-url"
-                value={spec.repoUrl}
-                onChange={(event) => update("repoUrl", event.target.value)}
-                placeholder="https://github.com/acme/payments.git"
-                className="font-mono"
-                autoFocus
-                required
-              />
+            <FlowField id="scan-target-type" label="Target type" required>
+              <select
+                id="scan-target-type"
+                className={selectClass}
+                value={spec.targetType}
+                onChange={(event) =>
+                  update("targetType", event.target.value as SpecState["targetType"])
+                }
+              >
+                <option value="repository">Repository</option>
+                <option value="website">Website or domain</option>
+              </select>
             </FlowField>
+
+            {spec.targetType === "repository" ? (
+              <FlowField id="scan-repo-url" label="Repository URL" required>
+                <Input
+                  id="scan-repo-url"
+                  value={spec.repoUrl}
+                  onChange={(event) => update("repoUrl", event.target.value)}
+                  placeholder="https://github.com/acme/payments.git"
+                  className="font-mono"
+                  autoFocus
+                  required
+                />
+              </FlowField>
+            ) : (
+              <FlowField
+                id="scan-target-url"
+                label="Website URL or domain"
+                hint="Bare domains use HTTPS and include all subdomains. Browser, WebFetch, shell, and registered security tools remain available."
+                required
+              >
+                <Input
+                  id="scan-target-url"
+                  value={spec.targetUrl}
+                  onChange={(event) => update("targetUrl", event.target.value)}
+                  placeholder="https://staging.example.com"
+                  className="font-mono"
+                  autoFocus
+                  required
+                />
+              </FlowField>
+            )}
 
             <FlowSwitchRow
               id="scan-manual-only"
@@ -1007,7 +1057,7 @@ export function SecurityScanFormDialog({
                 <FlowField
                   id="scan-authorized-network-targets"
                   label="Authorized network targets"
-                  hint="Comma or newline separated hosts, host:port pairs, CIDRs, or http(s) URLs. Deterministic network scanners (nuclei, ZAP, nmap, …) may only probe these; empty disables network scanning for this scan."
+                  hint="Additional comma or newline separated hosts, wildcard domains, host:port pairs, CIDRs, or http(s) URLs. The primary website and its subdomains are authorized automatically."
                 >
                   <Textarea
                     id="scan-authorized-network-targets"

@@ -67,6 +67,7 @@ var securityWorkflowLibrary = []string{
 	"validated-critical-hunt",
 	"wallet-security-review",
 	"web-app-owasp",
+	"web-recon-passive",
 }
 
 // TestSecurityWorkflowLibraryInventory prevents new bootstrap workflows from

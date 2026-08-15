@@ -820,9 +820,9 @@ spec:
                 type: array
                 x-kubernetes-list-type: atomic
               repoURL:
-                description: repoURL is the git repository URL that is the target
-                  of the scan.
-                minLength: 1
+                description: |-
+                  repoURL is the git repository URL that is the target of the scan.
+                  It is mutually exclusive with targetURL.
                 type: string
               revision:
                 description: |-
@@ -846,8 +846,9 @@ spec:
                       platform stamps the resolved list onto every scan run and refuses any
                       deterministic security tool that needs network access unless both its
                       target and every scope entry are covered by an entry here. Matching is
-                      exact (host, or an address inside a declared prefix); there are no
-                      wildcards. An empty list means no network scanning is authorized.
+                      exact (host, wildcard domain such as *.example.com, or an address inside
+                      a declared prefix). An empty list means no additional network targets are
+                      authorized; targetURL still authorizes its own host and subdomains.
                     items:
                       maxLength: 2048
                       type: string
@@ -922,6 +923,16 @@ spec:
                 description: suspend pauses new AgentRun creation while keeping status
                   readable.
                 type: boolean
+              targetURL:
+                description: |-
+                  targetURL is an HTTP(S) URL or bare domain to examine in a repoless
+                  web-security scan. A bare domain defaults to HTTPS. The target authorizes
+                  that host and all of its subdomains; unrelated network targets still have
+                  to be listed in scope.authorizedNetworkTargets. Actual reachability follows
+                  the selected RuntimeProfile egress mode. Mutually exclusive with repoURL.
+                maxLength: 2048
+                pattern: ^([A-Za-z0-9.-]+(:[0-9]+)?|https?://[^/@#,[:space:]][^@#,[:space:]]*)$
+                type: string
               timeZone:
                 default: UTC
                 description: |-
@@ -1164,8 +1175,10 @@ spec:
                 type: object
             required:
             - defaults
-            - repoURL
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of repoURL or targetURL must be set
+              rule: (has(self.repoURL) && self.repoURL.size() > 0) != (has(self.targetURL) && self.targetURL.size() > 0)
           status:
             description: SecurityScanStatus defines the observed state of SecurityScan.
             properties:

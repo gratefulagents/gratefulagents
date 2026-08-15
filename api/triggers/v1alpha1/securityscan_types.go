@@ -7,6 +7,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 package v1alpha1
 
 import (
+	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -53,9 +56,9 @@ const (
 	// resolved for a deterministic task run (SecurityScanTask.EffectiveRole).
 	SecurityScanTaskRoleAnnotation = "security.gratefulagents.dev/task-role"
 	// SecurityScanAuthorizedNetworkTargetsAnnotation is the comma-separated
-	// list of network targets the scan is authorized to probe, taken from the
-	// resolved spec.scope.authorizedNetworkTargets. It is operator
-	// configuration, never model output: the SecurityToolRun reconciler
+	// list of network targets the scan is authorized to probe, derived from the
+	// primary website host/subdomains plus resolved additional targets. It is
+	// operator configuration, never model output: the SecurityToolRun reconciler
 	// refuses to start a network-enabled tool whose target or scope is not
 	// covered by this list, and an absent annotation authorizes nothing.
 	SecurityScanAuthorizedNetworkTargetsAnnotation = "security.gratefulagents.dev/authorized-network-targets"
@@ -126,10 +129,22 @@ const SecurityScanEventAnnotation = "security.gratefulagents.dev/scan-event"
 const SecurityScanStatusRefreshAnnotation = "security.gratefulagents.dev/status-refresh"
 
 // SecurityScanSpec defines the desired state of SecurityScan.
+// +kubebuilder:validation:XValidation:rule="(has(self.repoURL) && self.repoURL.size() > 0) != (has(self.targetURL) && self.targetURL.size() > 0)",message="exactly one of repoURL or targetURL must be set"
 type SecurityScanSpec struct {
 	// repoURL is the git repository URL that is the target of the scan.
-	// +kubebuilder:validation:MinLength=1
-	RepoURL string `json:"repoURL"`
+	// It is mutually exclusive with targetURL.
+	// +optional
+	RepoURL string `json:"repoURL,omitempty"`
+
+	// targetURL is an HTTP(S) URL or bare domain to examine in a repoless
+	// web-security scan. A bare domain defaults to HTTPS. The target authorizes
+	// that host and all of its subdomains; unrelated network targets still have
+	// to be listed in scope.authorizedNetworkTargets. Actual reachability follows
+	// the selected RuntimeProfile egress mode. Mutually exclusive with repoURL.
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^([A-Za-z0-9.-]+(:[0-9]+)?|https?://[^/@#,[:space:]][^@#,[:space:]]*)$`
+	// +optional
+	TargetURL string `json:"targetURL,omitempty"`
 
 	// baseBranch is the branch of repoURL that is scanned.
 	// +kubebuilder:default="main"
@@ -496,8 +511,9 @@ type SecurityScanScope struct {
 	// platform stamps the resolved list onto every scan run and refuses any
 	// deterministic security tool that needs network access unless both its
 	// target and every scope entry are covered by an entry here. Matching is
-	// exact (host, or an address inside a declared prefix); there are no
-	// wildcards. An empty list means no network scanning is authorized.
+	// exact (host, wildcard domain such as *.example.com, or an address inside
+	// a declared prefix). An empty list means no additional network targets are
+	// authorized; targetURL still authorizes its own host and subdomains.
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=64
 	// +kubebuilder:validation:items:MaxLength=2048
@@ -1612,6 +1628,35 @@ func (d AgentRunDefaults) EffectiveProvider() string {
 		return prefix
 	}
 	return NormalizeProvider(d.Provider)
+}
+
+// NormalizeSecurityScanTargetURL accepts an absolute HTTP(S) URL or a bare
+// domain/host and returns the canonical URL tasks should use. Commas are
+// forbidden because the legacy AgentRun authorization annotation is delimited
+// by commas.
+func NormalizeSecurityScanTargetURL(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" || strings.Contains(value, ",") {
+		return "", fmt.Errorf("must be a non-empty URL or domain without commas")
+	}
+	if !strings.Contains(value, "://") {
+		if strings.ContainsAny(value, "/?#@") {
+			return "", fmt.Errorf("bare targets must be a domain or host, optionally with a port")
+		}
+		value = "https://" + value
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
+		return "", fmt.Errorf("must be an absolute http(s) URL or bare domain without credentials or a fragment")
+	}
+	return parsed.String(), nil
+}
+
+// ValidateSecurityScanTargetURL applies the target checks without normalizing
+// the value. It is used while reconciling direct CRD submissions.
+func ValidateSecurityScanTargetURL(raw string) error {
+	_, err := NormalizeSecurityScanTargetURL(raw)
+	return err
 }
 
 func init() {

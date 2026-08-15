@@ -2042,7 +2042,14 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	if task.Tools != nil {
 		toolPolicy = securityScanTaskToolPolicy(task, inst)
 	}
-	toolPolicy = securityScanApplyRoleToolAccess(toolPolicy, role)
+	// URL-driven web research intentionally retains the complete tool surface.
+	// Source-review roles normally suppress repository mutation tools, but that
+	// role-level narrowing must not cripple browser/CLI web tasks that have been
+	// explicitly configured for a live target. The task's own tools block can
+	// still express an operator-requested narrowing when one is present.
+	if strings.TrimSpace(scan.Spec.TargetURL) == "" {
+		toolPolicy = securityScanApplyRoleToolAccess(toolPolicy, role)
+	}
 
 	annotations := base.annotations
 	annotations[securityScanTaskLabel] = task.Name

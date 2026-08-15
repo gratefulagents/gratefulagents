@@ -4373,10 +4373,10 @@ message SecurityScanScopeConfig {
   repeated string include_paths = 2;
   repeated string exclude_paths = 3;
   repeated string languages = 4;
-  // authorized_network_targets is the operator's allowlist of hosts,
-  // host:port pairs, CIDR prefixes, or absolute http(s) URLs that the scan's
-  // deterministic network tools may probe. Empty means no network scanning is
-  // authorized. At most 64 entries.
+  // authorized_network_targets is the operator's allowlist of hosts, wildcard
+  // domains, host:port pairs, CIDR prefixes, or absolute http(s) URLs that the
+  // scan's deterministic network tools may probe. target_url automatically
+  // authorizes its host and subdomains. At most 64 additional entries.
   repeated string authorized_network_targets = 5;
 }
 
@@ -4645,7 +4645,7 @@ message SecurityScanPostScriptJobState {
 // SecurityScanConfigSpec mirrors the operator-configurable SecurityScan CRD
 // spec (api/triggers/v1alpha1 SecurityScanSpec).
 message SecurityScanConfigSpec {
-  string repo_url = 1; // required scan target
+  string repo_url = 1; // repository target; mutually exclusive with target_url
   string base_branch = 2; // empty = main
   string revision = 3; // optional commit pin
   repeated string additional_repos = 4;
@@ -4700,6 +4700,10 @@ message SecurityScanConfigSpec {
   // manual_only disables creation/spec-generation, scheduled, and
   // repository-event runs. Explicit RunSecurityScanNow requests still run.
   bool manual_only = 30;
+  // target_url is an HTTP(S) URL or bare domain for a repoless web scan.
+  // Bare domains default to HTTPS and authorize their subdomains. It is
+  // mutually exclusive with repo_url.
+  string target_url = 31;
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.

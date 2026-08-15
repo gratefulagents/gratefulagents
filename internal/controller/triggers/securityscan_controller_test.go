@@ -22,6 +22,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+func TestWebsiteTargetIsAutomaticallyNetworkAuthorized(t *testing.T) {
+	t.Parallel()
+	spec := triggersv1alpha1.SecurityScanSpec{
+		TargetURL: "https://app.example.test/login",
+		Scope:     &triggersv1alpha1.SecurityScanScope{AuthorizedNetworkTargets: []string{"api.example.test"}},
+	}
+	if got, want := securityScanAuthorizedNetworkTargetsForSpec(spec), "https://app.example.test/login,*.app.example.test,api.example.test"; got != want {
+		t.Fatalf("securityScanAuthorizedNetworkTargetsForSpec() = %q, want %q", got, want)
+	}
+	if got, want := securityScanAuthorizedNetworkTargetsForSpec(triggersv1alpha1.SecurityScanSpec{TargetURL: "example.com"}), "https://example.com,*.example.com"; got != want {
+		t.Fatalf("bare-domain authorization = %q, want %q", got, want)
+	}
+	if got, want := securityScanTargetIdentity(triggersv1alpha1.SecurityScanSpec{TargetURL: "example.com"}), "https://example.com"; got != want {
+		t.Fatalf("website finding/report identity = %q, want %q", got, want)
+	}
+}
+
 func TestSecurityScanReconcileSuspendedScanCreatesNoRuns(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanTestScan()

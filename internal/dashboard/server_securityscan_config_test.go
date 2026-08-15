@@ -21,6 +21,34 @@ import (
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
 
+func TestSecurityScanSpecAcceptsExactlyOneWebsiteTarget(t *testing.T) {
+	t.Parallel()
+
+	spec, _, _, err := securityScanSpecFromRequest(&platform.SecurityScanConfigSpec{TargetUrl: "https://app.example.test"})
+	if err != nil {
+		t.Fatalf("securityScanSpecFromRequest() error = %v", err)
+	}
+	if spec.TargetURL != "https://app.example.test" || spec.RepoURL != "" {
+		t.Fatalf("website target = %+v", spec)
+	}
+	bare, _, _, err := securityScanSpecFromRequest(&platform.SecurityScanConfigSpec{TargetUrl: "example.com"})
+	if err != nil || bare.TargetURL != "https://example.com" {
+		t.Fatalf("bare-domain target = %+v, error = %v", bare, err)
+	}
+
+	for _, input := range []*platform.SecurityScanConfigSpec{
+		{},
+		{RepoUrl: "https://github.com/acme/app", TargetUrl: "https://app.example.test"},
+		{TargetUrl: "file:///etc/passwd"},
+		{TargetUrl: "https://user:secret@example.com"},
+		{TargetUrl: "https://example.com/,https://other.example"},
+	} {
+		if _, _, _, err := securityScanSpecFromRequest(input); err == nil {
+			t.Fatalf("securityScanSpecFromRequest(%+v) succeeded, want error", input)
+		}
+	}
+}
+
 func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 	taskRetries := int32(2)
 	execRetries := int32(3)

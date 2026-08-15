@@ -228,7 +228,7 @@ export function SecurityScanConfigList() {
   const searched = filterByQuery(configs, query, (config) => [
     config.name,
     config.namespace,
-    config.spec?.repoUrl ?? "",
+    config.spec?.targetUrl ?? config.spec?.repoUrl ?? "",
     config.spec?.schedule ?? "",
     config.spec?.securityProgramRef ?? "",
     programUrls.get(config.spec?.securityProgramRef ?? "") ?? "",
@@ -419,7 +419,7 @@ export function SecurityScanConfigList() {
                 </Link>
               </TableCell>
               <TableCell className="font-mono text-sm text-muted-foreground">
-                {config.spec?.repoUrl || "-"}
+                {config.spec?.targetUrl || config.spec?.repoUrl || "-"}
               </TableCell>
               <TableCell className="max-w-64 text-sm text-muted-foreground">
                 {config.spec?.securityProgramRef ? (

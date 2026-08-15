@@ -62,16 +62,16 @@ func TestSecurityScanModeTemplateAsset(t *testing.T) {
 	if !mode.Spec.Autonomous {
 		t.Error("scan mode must be autonomous")
 	}
-	// Scanned repositories are untrusted input: scan runs must never be able
-	// to modify the workspace or push code.
-	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeReadOnly {
-		t.Errorf("permissionMode = %q, want read-only", mode.Spec.PermissionMode)
+	// Security scans must not clamp any capability granted by the selected
+	// RuntimeProfile; behavioral limits live in the scan instructions.
+	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeDangerFullAccess {
+		t.Errorf("permissionMode = %q, want danger-full-access", mode.Spec.PermissionMode)
 	}
 	if mode.Spec.Constraints == nil || mode.Spec.Constraints.MaxConcurrentSubAgents < 1 {
 		t.Fatal("scan mode must bound maxConcurrentSubAgents")
 	}
-	// The finding tools write platform scan state only, so they must survive
-	// the read-only clamp or no finding can ever be recorded.
+	// Keep platform result tools explicit for compatibility with profiles that
+	// independently select read-only access.
 	wantTools := []string{"report_security_finding", "update_security_finding", "submit_security_scan_report"}
 	for _, tool := range wantTools {
 		if !slices.Contains(mode.Spec.AllowedMutatingTools, tool) {

@@ -86,9 +86,20 @@ func TestAuthorizeNetworkTargets(t *testing.T) {
 			wantErr:    "not covered by the authorized network targets",
 		},
 		{
-			name:       "subdomain is not a wildcard match",
+			name:       "plain host does not imply subdomains",
 			authorized: []string{"example.test"},
 			request:    networkRequest("https://admin.example.test"),
+			wantErr:    "not covered",
+		},
+		{
+			name:       "wildcard domain covers root and nested subdomains",
+			authorized: []string{"*.example.test"},
+			request:    networkRequest("https://api.example.test", "deep.api.example.test", "example.test"),
+		},
+		{
+			name:       "wildcard domain respects label boundary",
+			authorized: []string{"*.example.test"},
+			request:    networkRequest("https://notexample.test"),
 			wantErr:    "not covered",
 		},
 		{
@@ -134,7 +145,7 @@ func TestAuthorizeNetworkTargets(t *testing.T) {
 		},
 		{
 			name:       "unparseable authorization entry authorizes nothing",
-			authorized: []string{"*.example.test"},
+			authorized: []string{"*."},
 			request:    networkRequest("https://api.example.test"),
 			wantErr:    "not covered",
 		},

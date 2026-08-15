@@ -100,6 +100,20 @@ func securityScanRunFailureReason(err error) string {
 // exclusive, event triggers and checks require a repository reference, and
 // notification rules need a unique name plus at least one channel.
 func securityScanInvalidSpecMessage(spec triggersv1alpha1.SecurityScanSpec) string {
+	if (strings.TrimSpace(spec.RepoURL) == "") == (strings.TrimSpace(spec.TargetURL) == "") {
+		return "exactly one of spec.repoURL or spec.targetURL must be set"
+	}
+	if strings.TrimSpace(spec.TargetURL) != "" {
+		if err := triggersv1alpha1.ValidateSecurityScanTargetURL(spec.TargetURL); err != nil {
+			return "spec.targetURL " + err.Error()
+		}
+		if t := spec.Triggers; t != nil && (t.OnPullRequest || t.OnPush || t.RepositoryRef != nil) {
+			return "spec.triggers is only valid for repository scans"
+		}
+		if c := spec.Checks; c != nil && c.Enabled {
+			return "spec.checks is only valid for repository scans"
+		}
+	}
 	if spec.WorkflowRef != nil && len(spec.Workflow) > 0 {
 		return "spec.workflowRef and spec.workflow are mutually exclusive: reference a SecurityWorkflow or define the workflow inline, not both"
 	}
@@ -349,6 +363,9 @@ func appendProgramSeverityRanker(
 
 //nolint:gocyclo // Routing intentionally keeps the complete precedence table together for auditability.
 func automaticSecurityScanWorkflowName(spec triggersv1alpha1.SecurityScanSpec) string {
+	if strings.TrimSpace(spec.TargetURL) != "" {
+		return "web-recon-passive"
+	}
 	parts := []string{spec.RepoURL}
 	parts = append(parts, spec.AdditionalRepos...)
 	var focus string
