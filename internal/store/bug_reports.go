@@ -118,4 +118,8 @@ type AgentBugReportStore interface {
 	// SetAgentBugReportFix records automated-fix progress (fix run name, fix
 	// PR URL, and optionally a status transition) on one report.
 	SetAgentBugReportFix(ctx context.Context, namespace string, id uuid.UUID, fix AgentBugReportFixUpdate) error
+	// GetAgentBugReportByFixRun returns the report whose current fix run is
+	// fixRunName, or (nil, nil) when none exists. Used to reopen a report
+	// whose in-flight fix run was deleted before finishing.
+	GetAgentBugReportByFixRun(ctx context.Context, namespace, fixRunName string) (*AgentBugReportRecord, error)
 }

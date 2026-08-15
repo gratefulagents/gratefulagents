@@ -98,6 +98,16 @@ func (f *fakeBugReportStore) SetAgentBugReportFix(_ context.Context, namespace s
 	return store.ErrAgentBugReportNotFound
 }
 
+func (f *fakeBugReportStore) GetAgentBugReportByFixRun(_ context.Context, namespace, fixRunName string) (*store.AgentBugReportRecord, error) {
+	for _, rec := range f.reports {
+		if rec.Namespace == namespace && rec.FixRunName == fixRunName {
+			out := *rec
+			return &out, nil
+		}
+	}
+	return nil, nil
+}
+
 func executeReportBug(t *testing.T, tool Tool, input string) map[string]any {
 	t.Helper()
 	result, err := tool.Execute(context.Background(), json.RawMessage(input), "")

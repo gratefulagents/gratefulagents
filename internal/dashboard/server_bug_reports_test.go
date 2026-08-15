@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -25,6 +26,9 @@ type mockBugReportStore struct {
 	*mockStateStore
 	mu      sync.Mutex
 	reports map[uuid.UUID]*store.AgentBugReportRecord
+	// fixErr, when set, is returned by SetAgentBugReportFix to simulate a
+	// store outage after a fix run launched.
+	fixErr error
 }
 
 func newMockBugReportStore() *mockBugReportStore {
@@ -94,6 +98,9 @@ func (m *mockBugReportStore) SetAgentBugReportStatus(_ context.Context, namespac
 func (m *mockBugReportStore) SetAgentBugReportFix(_ context.Context, namespace string, id uuid.UUID, fix store.AgentBugReportFixUpdate) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.fixErr != nil {
+		return m.fixErr
+	}
 	rec, ok := m.reports[id]
 	if !ok || rec.Namespace != namespace {
 		return store.ErrAgentBugReportNotFound
@@ -108,6 +115,18 @@ func (m *mockBugReportStore) SetAgentBugReportFix(_ context.Context, namespace s
 		rec.Status, rec.StatusActor, rec.StatusNote = fix.Status, fix.StatusActor, fix.StatusNote
 	}
 	return nil
+}
+
+func (m *mockBugReportStore) GetAgentBugReportByFixRun(_ context.Context, namespace, fixRunName string) (*store.AgentBugReportRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, rec := range m.reports {
+		if rec.Namespace == namespace && rec.FixRunName == fixRunName {
+			out := *rec
+			return &out, nil
+		}
+	}
+	return nil, nil
 }
 
 var _ store.AgentBugReportStore = (*mockBugReportStore)(nil)
@@ -258,9 +277,9 @@ func TestBugReportVisibilityFollowsRunOwnership(t *testing.T) {
 
 // newBugSquasherProject returns a Project with valid run defaults and the
 // bug-squasher flag set.
-func newBugSquasherProject(namespace, name string, squasher bool) *triggersv1alpha1.Project {
+func newBugSquasherProject(name string, squasher bool) *triggersv1alpha1.Project {
 	return &triggersv1alpha1.Project{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Spec: triggersv1alpha1.ProjectSpec{
 			DisplayName: name,
 			BugSquasher: squasher,
@@ -309,8 +328,8 @@ func newBugSquasherTestServer(t *testing.T, mock *mockBugReportStore, objs ...cl
 func TestUpdateBugReportStatusInProgressLaunchesFixRun(t *testing.T) {
 	mock := newMockBugReportStore()
 	srv := newBugSquasherTestServer(t, mock,
-		newBugSquasherProject("default", "gf-all", true),
-		newBugSquasherProject("default", "other", false),
+		newBugSquasherProject("gf-all", true),
+		newBugSquasherProject("other", false),
 	)
 	ctx := actorContext("alice", "admin", "", "")
 	rec := seedBugReport(t, mock, "default", "run-1", "ApplyPatch fails on rename hunks")
@@ -345,7 +364,7 @@ func TestUpdateBugReportStatusInProgressLaunchesFixRun(t *testing.T) {
 // report stays untouched.
 func TestUpdateBugReportStatusInProgressRequiresSquasherProject(t *testing.T) {
 	mock := newMockBugReportStore()
-	srv := newBugSquasherTestServer(t, mock, newBugSquasherProject("default", "gf-all", false))
+	srv := newBugSquasherTestServer(t, mock, newBugSquasherProject("gf-all", false))
 	ctx := actorContext("alice", "admin", "", "")
 	rec := seedBugReport(t, mock, "default", "run-1", "ApplyPatch fails on rename hunks")
 
@@ -357,5 +376,34 @@ func TestUpdateBugReportStatusInProgressRequiresSquasherProject(t *testing.T) {
 	got, _ := mock.GetAgentBugReport(context.Background(), "default", rec.ID)
 	if got.Status != "open" || got.FixRunName != "" {
 		t.Fatalf("report mutated on failed launch: %+v", got)
+	}
+}
+
+// TestUpdateBugReportStatusInProgressRollsBackRunOnLinkFailure: when the fix
+// linkage cannot be persisted after the run launched, the run is rolled back
+// so it does not keep executing unlinked and untracked.
+func TestUpdateBugReportStatusInProgressRollsBackRunOnLinkFailure(t *testing.T) {
+	mock := newMockBugReportStore()
+	mock.fixErr = errors.New("postgres unavailable")
+	srv := newBugSquasherTestServer(t, mock, newBugSquasherProject("gf-all", true))
+	ctx := actorContext("alice", "admin", "", "")
+	rec := seedBugReport(t, mock, "default", "run-1", "ApplyPatch fails on rename hunks")
+
+	if _, err := srv.UpdateBugReportStatus(ctx, &platform.UpdateBugReportStatusRequest{
+		Namespace: "default", Id: rec.ID.String(), Status: "in_progress",
+	}); connect.CodeOf(err) != connect.CodeInternal {
+		t.Fatalf("error = %v, want Internal", err)
+	}
+
+	runs := &platformv1alpha1.AgentRunList{}
+	if err := srv.k8sClient.List(context.Background(), runs, client.InNamespace("default")); err != nil {
+		t.Fatalf("List(AgentRun) error = %v", err)
+	}
+	if len(runs.Items) != 0 {
+		t.Fatalf("AgentRuns after failed linkage = %d, want 0 (rolled back)", len(runs.Items))
+	}
+	got, _ := mock.GetAgentBugReport(context.Background(), "default", rec.ID)
+	if got.Status != "open" || got.FixRunName != "" {
+		t.Fatalf("report mutated despite rollback: %+v", got)
 	}
 }

@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"strings"
 
@@ -321,9 +322,7 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 		if run.Labels == nil {
 			run.Labels = make(map[string]string, len(opts.labels))
 		}
-		for k, v := range opts.labels {
-			run.Labels[k] = v
-		}
+		maps.Copy(run.Labels, opts.labels)
 	}
 	if triggersv1alpha1.IsOpenAICompatibleProvider(provider) {
 		run.Annotations[openAIApiModeAnnotation] = triggersv1alpha1.NormalizeOpenAIAPIForProvider(provider, defaults.OpenAIAPI)

@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -134,6 +135,13 @@ func (s *Server) UpdateBugReportStatus(ctx context.Context, req *platform.Update
 			StatusActor: actor.Subject,
 			StatusNote:  note,
 		}); err != nil {
+			// Roll back the freshly launched run: leaving it running while
+			// the report stays unlinked would burn compute unsupervised, and
+			// a retry of this RPC would launch a second run the controller
+			// ignores because its name was never recorded.
+			s.rollbackCreatedAgentRun(ctx, &platformv1alpha1.AgentRun{
+				ObjectMeta: metav1.ObjectMeta{Name: fixRunName, Namespace: namespace},
+			})
 			if errors.Is(err, store.ErrAgentBugReportNotFound) {
 				return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("bug report %s not found", id))
 			}

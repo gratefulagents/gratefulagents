@@ -216,3 +216,36 @@ func TestSetAgentBugReportFix(t *testing.T) {
 		t.Fatal("SetAgentBugReportFix() accepted invalid status")
 	}
 }
+
+func TestGetAgentBugReportByFixRun(t *testing.T) {
+	s := setupBugReportStore(t)
+	ctx := context.Background()
+	created, _, err := s.UpsertAgentBugReport(ctx, &store.AgentBugReportRecord{
+		Namespace:   "test-ns",
+		RunName:     "run-1",
+		Title:       "ApplyPatch fails on rename hunks",
+		Body:        "expected X, got Y",
+		Fingerprint: "byfixrun-" + uuid.NewString(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertAgentBugReport() error = %v", err)
+	}
+	fixRun := "auto-bugfix-x7k2mq"
+	if err := s.SetAgentBugReportFix(ctx, "test-ns", created.ID, store.AgentBugReportFixUpdate{FixRunName: &fixRun}); err != nil {
+		t.Fatalf("SetAgentBugReportFix() error = %v", err)
+	}
+
+	got, err := s.GetAgentBugReportByFixRun(ctx, "test-ns", fixRun)
+	if err != nil {
+		t.Fatalf("GetAgentBugReportByFixRun() error = %v", err)
+	}
+	if got == nil || got.ID != created.ID {
+		t.Fatalf("GetAgentBugReportByFixRun() = %+v, want report %s", got, created.ID)
+	}
+	if got, err := s.GetAgentBugReportByFixRun(ctx, "test-ns", "no-such-run"); err != nil || got != nil {
+		t.Fatalf("GetAgentBugReportByFixRun(missing) = %+v, %v; want nil, nil", got, err)
+	}
+	if got, err := s.GetAgentBugReportByFixRun(ctx, "other-ns", fixRun); err != nil || got != nil {
+		t.Fatalf("GetAgentBugReportByFixRun(cross-ns) = %+v, %v; want nil, nil", got, err)
+	}
+}

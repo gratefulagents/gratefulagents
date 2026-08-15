@@ -195,3 +195,25 @@ func (s *Store) SetAgentBugReportFix(ctx context.Context, namespace string, id u
 	}
 	return nil
 }
+
+// GetAgentBugReportByFixRun returns the report whose current fix run is
+// fixRunName, or (nil, nil) when none exists.
+func (s *Store) GetAgentBugReportByFixRun(ctx context.Context, namespace, fixRunName string) (*store.AgentBugReportRecord, error) {
+	if namespace == "" || fixRunName == "" {
+		return nil, errors.New("namespace and fixRunName are required")
+	}
+	row := s.pool.QueryRow(ctx, `
+		SELECT `+agentBugReportColumns+`, false
+		FROM agent_bug_reports
+		WHERE namespace = $1 AND fix_run_name = $2
+		ORDER BY updated_at DESC
+		LIMIT 1`, namespace, fixRunName)
+	rec, _, err := scanAgentBugReportRow(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting agent bug report by fix run: %w", err)
+	}
+	return rec, nil
+}
