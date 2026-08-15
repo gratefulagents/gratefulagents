@@ -134,7 +134,15 @@ func (s *Server) applyConfiguredRuntimeProfile(
 				Kind:       "RuntimeProfile",
 			},
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-			Spec:       platformv1alpha1.RuntimeProfileSpec{Security: security},
+			Spec: platformv1alpha1.RuntimeProfileSpec{
+				Sandbox: &platformv1alpha1.RuntimeProfileSandbox{
+					// The default worker image enables Browser tools. Chromium needs a
+					// real /proc/cpuinfo inside the command sandbox; without a private
+					// procfs it incorrectly reports that the CPU lacks SSE3.
+					EnablePrivateProcfs: true,
+				},
+				Security: security,
+			},
 		}
 		if err := s.k8sClient.Create(ctx, profile); err != nil {
 			return nil, false, mapK8sError("create RuntimeProfile", err)
@@ -146,6 +154,12 @@ func (s *Server) applyConfiguredRuntimeProfile(
 	// security field. Preserve the independently managed remote-write policy.
 	if profile.Spec.Security != nil {
 		security.GitRemoteWrites = profile.Spec.Security.GitRemoteWrites
+	}
+	// Migrate profiles created before managed profiles enabled private procfs.
+	// A non-nil Sandbox is left untouched so an explicitly configured opt-out
+	// remains effective on clusters that do not support pod user namespaces.
+	if profile.Spec.Sandbox == nil {
+		profile.Spec.Sandbox = &platformv1alpha1.RuntimeProfileSandbox{EnablePrivateProcfs: true}
 	}
 	profile.Spec.Security = security
 	if err := s.k8sClient.Update(ctx, profile); err != nil {
