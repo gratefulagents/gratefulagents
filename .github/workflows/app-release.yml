@@ -634,7 +634,15 @@ jobs:
       - desktop
       - android
       - ios
-    if: ${{ needs.release.outputs.release_created == 'true' }}
+    # security-image aggregates mutually exclusive build/reuse jobs. One of
+    # those ancestors is always skipped, so bypass GitHub's implicit success()
+    # check without publishing after cancellation, and validate each direct
+    # dependency explicitly.
+    if: >-
+      ${{ !cancelled() && needs.release.outputs.release_created == 'true' &&
+      needs.release.result == 'success' && needs.images.result == 'success' &&
+      needs.security-image.result == 'success' && needs.desktop.result == 'success' &&
+      needs.android.result == 'success' && needs.ios.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -784,7 +792,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Delete draft release and tag
+      - name: Delete draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ needs.release.outputs.tag_name }}
@@ -797,4 +805,6 @@ jobs:
             echo "::warning::Release ${TAG_NAME} is already published; refusing to delete it."
             exit 0
           fi
-          gh release delete "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
+          # Draft releases do not create their tag until publication. Asking
+          # gh to clean up that nonexistent tag makes successful cleanup fail.
+          gh release delete "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --yes
