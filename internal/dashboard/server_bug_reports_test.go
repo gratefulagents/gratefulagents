@@ -2,13 +2,20 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
@@ -19,6 +26,9 @@ type mockBugReportStore struct {
 	*mockStateStore
 	mu      sync.Mutex
 	reports map[uuid.UUID]*store.AgentBugReportRecord
+	// fixErr, when set, is returned by SetAgentBugReportFix to simulate a
+	// store outage after a fix run launched.
+	fixErr error
 }
 
 func newMockBugReportStore() *mockBugReportStore {
@@ -83,6 +93,40 @@ func (m *mockBugReportStore) SetAgentBugReportStatus(_ context.Context, namespac
 	}
 	rec.Status, rec.StatusActor, rec.StatusNote = status, actor, note
 	return nil
+}
+
+func (m *mockBugReportStore) SetAgentBugReportFix(_ context.Context, namespace string, id uuid.UUID, fix store.AgentBugReportFixUpdate) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fixErr != nil {
+		return m.fixErr
+	}
+	rec, ok := m.reports[id]
+	if !ok || rec.Namespace != namespace {
+		return store.ErrAgentBugReportNotFound
+	}
+	if fix.FixRunName != nil {
+		rec.FixRunName = *fix.FixRunName
+	}
+	if fix.FixPRURL != nil {
+		rec.FixPRURL = *fix.FixPRURL
+	}
+	if fix.Status != "" {
+		rec.Status, rec.StatusActor, rec.StatusNote = fix.Status, fix.StatusActor, fix.StatusNote
+	}
+	return nil
+}
+
+func (m *mockBugReportStore) GetAgentBugReportByFixRun(_ context.Context, namespace, fixRunName string) (*store.AgentBugReportRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, rec := range m.reports {
+		if rec.Namespace == namespace && rec.FixRunName == fixRunName {
+			out := *rec
+			return &out, nil
+		}
+	}
+	return nil, nil
 }
 
 var _ store.AgentBugReportStore = (*mockBugReportStore)(nil)
@@ -228,5 +272,138 @@ func TestBugReportVisibilityFollowsRunOwnership(t *testing.T) {
 	}
 	if _, err := srv.UpdateBugReportStatus(adminCtx, &platform.UpdateBugReportStatusRequest{Namespace: "team-shared", Id: foreign.ID.String(), Status: "resolved"}); err != nil {
 		t.Fatalf("admin UpdateBugReportStatus() error = %v", err)
+	}
+}
+
+// newBugSquasherProject returns a Project with valid run defaults and the
+// bug-squasher flag set.
+func newBugSquasherProject(name string, squasher bool) *triggersv1alpha1.Project {
+	return &triggersv1alpha1.Project{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: triggersv1alpha1.ProjectSpec{
+			DisplayName: name,
+			BugSquasher: squasher,
+			Defaults: triggersv1alpha1.AgentRunDefaults{
+				RepoURL:    "https://github.com/example/platform.git",
+				BaseBranch: "main",
+				Image:      "ghcr.io/example/worker:latest",
+				Model:      "claude-sonnet-4-6",
+				Provider:   "anthropic",
+				Secrets: triggersv1alpha1.AgentRunSecrets{
+					ClaudeApiKey: "claude-key",
+					GithubToken:  "github-token",
+				},
+			},
+		},
+	}
+}
+
+func newBugSquasherTestServer(t *testing.T, mock *mockBugReportStore, objs ...client.Object) *Server {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(platform): %v", err)
+	}
+	if err := triggersv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(triggers): %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(core): %v", err)
+	}
+	return &Server{
+		k8sClient: fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+			WithObjects(objs...).
+			Build(),
+		scheme:     scheme,
+		stateStore: mock,
+	}
+}
+
+// TestUpdateBugReportStatusInProgressLaunchesFixRun covers the auto-fix
+// launch: moving a report to in_progress creates an AgentRun from the
+// namespace's bug-squasher project, labels it with the report ID, and records
+// the fix run on the report.
+func TestUpdateBugReportStatusInProgressLaunchesFixRun(t *testing.T) {
+	mock := newMockBugReportStore()
+	srv := newBugSquasherTestServer(t, mock,
+		newBugSquasherProject("gf-all", true),
+		newBugSquasherProject("other", false),
+	)
+	ctx := actorContext("alice", "admin", "", "")
+	rec := seedBugReport(t, mock, "default", "run-1", "ApplyPatch fails on rename hunks")
+
+	updated, err := srv.UpdateBugReportStatus(ctx, &platform.UpdateBugReportStatusRequest{
+		Namespace: "default", Id: rec.ID.String(), Status: "in_progress",
+	})
+	if err != nil {
+		t.Fatalf("UpdateBugReportStatus(in_progress) error = %v", err)
+	}
+	if updated.GetStatus() != "in_progress" || updated.GetFixRunName() == "" {
+		t.Fatalf("unexpected updated report: status=%q fixRunName=%q", updated.GetStatus(), updated.GetFixRunName())
+	}
+
+	run := &platformv1alpha1.AgentRun{}
+	if err := srv.k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: updated.GetFixRunName()}, run); err != nil {
+		t.Fatalf("fix AgentRun not created: %v", err)
+	}
+	if run.Labels[platformv1alpha1.BugReportIDLabel] != rec.ID.String() {
+		t.Fatalf("fix run bug-report-id label = %q, want %q", run.Labels[platformv1alpha1.BugReportIDLabel], rec.ID.String())
+	}
+	if run.Spec.Repository.URL != "https://github.com/example/platform.git" {
+		t.Fatalf("fix run repo = %q, want bug-squasher project repo", run.Spec.Repository.URL)
+	}
+	if run.Spec.Context == nil || run.Spec.Context.ProjectRef == nil || run.Spec.Context.ProjectRef.Name != "gf-all" {
+		t.Fatalf("fix run project ref = %+v, want gf-all", run.Spec.Context)
+	}
+}
+
+// TestUpdateBugReportStatusInProgressRequiresSquasherProject: without a
+// bug-squasher project the transition fails with FailedPrecondition and the
+// report stays untouched.
+func TestUpdateBugReportStatusInProgressRequiresSquasherProject(t *testing.T) {
+	mock := newMockBugReportStore()
+	srv := newBugSquasherTestServer(t, mock, newBugSquasherProject("gf-all", false))
+	ctx := actorContext("alice", "admin", "", "")
+	rec := seedBugReport(t, mock, "default", "run-1", "ApplyPatch fails on rename hunks")
+
+	if _, err := srv.UpdateBugReportStatus(ctx, &platform.UpdateBugReportStatusRequest{
+		Namespace: "default", Id: rec.ID.String(), Status: "in_progress",
+	}); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("error = %v, want FailedPrecondition", err)
+	}
+	got, _ := mock.GetAgentBugReport(context.Background(), "default", rec.ID)
+	if got.Status != "open" || got.FixRunName != "" {
+		t.Fatalf("report mutated on failed launch: %+v", got)
+	}
+}
+
+// TestUpdateBugReportStatusInProgressRollsBackRunOnLinkFailure: when the fix
+// linkage cannot be persisted after the run launched, the run is rolled back
+// so it does not keep executing unlinked and untracked.
+func TestUpdateBugReportStatusInProgressRollsBackRunOnLinkFailure(t *testing.T) {
+	mock := newMockBugReportStore()
+	mock.fixErr = errors.New("postgres unavailable")
+	srv := newBugSquasherTestServer(t, mock, newBugSquasherProject("gf-all", true))
+	ctx := actorContext("alice", "admin", "", "")
+	rec := seedBugReport(t, mock, "default", "run-1", "ApplyPatch fails on rename hunks")
+
+	if _, err := srv.UpdateBugReportStatus(ctx, &platform.UpdateBugReportStatusRequest{
+		Namespace: "default", Id: rec.ID.String(), Status: "in_progress",
+	}); connect.CodeOf(err) != connect.CodeInternal {
+		t.Fatalf("error = %v, want Internal", err)
+	}
+
+	runs := &platformv1alpha1.AgentRunList{}
+	if err := srv.k8sClient.List(context.Background(), runs, client.InNamespace("default")); err != nil {
+		t.Fatalf("List(AgentRun) error = %v", err)
+	}
+	if len(runs.Items) != 0 {
+		t.Fatalf("AgentRuns after failed linkage = %d, want 0 (rolled back)", len(runs.Items))
+	}
+	got, _ := mock.GetAgentBugReport(context.Background(), "default", rec.ID)
+	if got.Status != "open" || got.FixRunName != "" {
+		t.Fatalf("report mutated despite rollback: %+v", got)
 	}
 }

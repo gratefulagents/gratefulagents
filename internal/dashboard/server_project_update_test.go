@@ -386,3 +386,67 @@ func TestUpdateProjectRoundtripsMCPServerAndSkillRefs(t *testing.T) {
 		t.Fatalf("stored skill refs = %+v", refs)
 	}
 }
+
+// TestUpdateProjectBugSquasherExclusivity: enabling the bug-squasher flag on
+// one project clears it on every other project in the namespace; omitting the
+// field preserves the current value.
+func TestUpdateProjectBugSquasherExclusivity(t *testing.T) {
+	scheme := testProjectScheme(t)
+	ns := testUserNS()
+	defaults := triggersv1alpha1.AgentRunDefaults{
+		Provider: triggersv1alpha1.ProviderOpenAI,
+		AuthMode: platformv1alpha1.AgentRunAuthModeAPIKey,
+		Secrets:  triggersv1alpha1.AgentRunSecrets{ProviderKeys: []platformv1alpha1.ProviderKeyRef{{Provider: triggersv1alpha1.ProviderOpenAI, SecretName: "openai-secret"}}},
+	}
+	current := &triggersv1alpha1.Project{
+		ObjectMeta: metav1.ObjectMeta{Name: "gf-all", Namespace: ns},
+		Spec:       triggersv1alpha1.ProjectSpec{DisplayName: "GF All", BugSquasher: true, Defaults: defaults},
+	}
+	other := &triggersv1alpha1.Project{
+		ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: ns},
+		Spec:       triggersv1alpha1.ProjectSpec{DisplayName: "Payments", Defaults: defaults},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(current, other).Build()
+	srv := &Server{k8sClient: c, scheme: scheme}
+
+	// Omitting bug_squasher preserves the current value.
+	resp, err := srv.UpdateProject(projectActorCtx(), &platform.UpdateProjectRequest{
+		Namespace:    ns,
+		Name:         "gf-all",
+		DisplayName:  "GF All",
+		Provider:     "openai",
+		AuthMode:     "api-key",
+		ProviderKeys: []*platform.ProviderKeyRef{{Provider: "openai", SecretName: "openai-secret"}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProject() preserve error = %v", err)
+	}
+	if !resp.BugSquasher {
+		t.Fatalf("BugSquasher after omitted update = false, want preserved true")
+	}
+
+	// Enabling the flag on another project clears it on the previous holder.
+	enable := true
+	resp, err = srv.UpdateProject(projectActorCtx(), &platform.UpdateProjectRequest{
+		Namespace:    ns,
+		Name:         "payments",
+		DisplayName:  "Payments",
+		Provider:     "openai",
+		AuthMode:     "api-key",
+		ProviderKeys: []*platform.ProviderKeyRef{{Provider: "openai", SecretName: "openai-secret"}},
+		BugSquasher:  &enable,
+	})
+	if err != nil {
+		t.Fatalf("UpdateProject() enable error = %v", err)
+	}
+	if !resp.BugSquasher {
+		t.Fatalf("BugSquasher on payments = false, want true")
+	}
+	previous := &triggersv1alpha1.Project{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "gf-all"}, previous); err != nil {
+		t.Fatalf("Get(gf-all) error = %v", err)
+	}
+	if previous.Spec.BugSquasher {
+		t.Fatalf("gf-all BugSquasher = true after payments took the flag, want false")
+	}
+}
