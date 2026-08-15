@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -13,7 +14,7 @@ import (
 
 const agentBugReportColumns = `id, namespace, run_name, session_id, category, tool_name,
 	title, body, fingerprint, occurrences, status, status_note, status_actor,
-	first_seen_at, last_seen_at, created_at, updated_at`
+	fix_run_name, fix_pr_url, first_seen_at, last_seen_at, created_at, updated_at`
 
 func scanAgentBugReportRow(row pgx.Row) (*store.AgentBugReportRecord, bool, error) {
 	var rec store.AgentBugReportRecord
@@ -21,6 +22,7 @@ func scanAgentBugReportRow(row pgx.Row) (*store.AgentBugReportRecord, bool, erro
 	if err := row.Scan(&rec.ID, &rec.Namespace, &rec.RunName, &rec.SessionID,
 		&rec.Category, &rec.ToolName, &rec.Title, &rec.Body, &rec.Fingerprint,
 		&rec.Occurrences, &rec.Status, &rec.StatusNote, &rec.StatusActor,
+		&rec.FixRunName, &rec.FixPRURL,
 		&rec.FirstSeenAt, &rec.LastSeenAt, &rec.CreatedAt, &rec.UpdatedAt, &created); err != nil {
 		return nil, false, err
 	}
@@ -151,4 +153,67 @@ func (s *Store) SetAgentBugReportStatus(ctx context.Context, namespace string, i
 		return store.ErrAgentBugReportNotFound
 	}
 	return nil
+}
+
+// SetAgentBugReportFix records automated-fix progress on one report. Nil
+// pointer fields keep their current value; an empty Status leaves the triage
+// status (and its actor/note) unchanged.
+func (s *Store) SetAgentBugReportFix(ctx context.Context, namespace string, id uuid.UUID, fix store.AgentBugReportFixUpdate) error {
+	if namespace == "" {
+		return errors.New("namespace is required")
+	}
+	if fix.Status != "" && !store.ValidAgentBugReportStatus(fix.Status) {
+		return fmt.Errorf("invalid bug report status %q", fix.Status)
+	}
+	sets := []string{"updated_at = now()"}
+	args := []any{namespace, id}
+	arg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+	if fix.FixRunName != nil {
+		sets = append(sets, "fix_run_name = "+arg(*fix.FixRunName))
+	}
+	if fix.FixPRURL != nil {
+		sets = append(sets, "fix_pr_url = "+arg(*fix.FixPRURL))
+	}
+	if fix.Status != "" {
+		sets = append(sets,
+			"status = "+arg(fix.Status),
+			"status_actor = "+arg(fix.StatusActor),
+			"status_note = "+arg(fix.StatusNote))
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE agent_bug_reports
+		SET `+strings.Join(sets, ", ")+`
+		WHERE namespace = $1 AND id = $2`, args...)
+	if err != nil {
+		return fmt.Errorf("updating agent bug report fix: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return store.ErrAgentBugReportNotFound
+	}
+	return nil
+}
+
+// GetAgentBugReportByFixRun returns the report whose current fix run is
+// fixRunName, or (nil, nil) when none exists.
+func (s *Store) GetAgentBugReportByFixRun(ctx context.Context, namespace, fixRunName string) (*store.AgentBugReportRecord, error) {
+	if namespace == "" || fixRunName == "" {
+		return nil, errors.New("namespace and fixRunName are required")
+	}
+	row := s.pool.QueryRow(ctx, `
+		SELECT `+agentBugReportColumns+`, false
+		FROM agent_bug_reports
+		WHERE namespace = $1 AND fix_run_name = $2
+		ORDER BY updated_at DESC
+		LIMIT 1`, namespace, fixRunName)
+	rec, _, err := scanAgentBugReportRow(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting agent bug report by fix run: %w", err)
+	}
+	return rec, nil
 }

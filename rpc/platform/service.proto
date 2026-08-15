@@ -404,7 +404,11 @@ service PlatformService {
   // humans in the dashboard. Backed by the optional Postgres state store.
   rpc ListBugReports(ListBugReportsRequest) returns (ListBugReportsResponse);
   // UpdateBugReportStatus sets the triage status (open, acknowledged,
-  // resolved, dismissed) of one report, attributed to the caller.
+  // in_progress, resolved, dismissed) of one report, attributed to the
+  // caller. Moving a report to in_progress launches an autonomous fix
+  // AgentRun from the namespace's bug-squasher project (FailedPrecondition
+  // when no project has bug_squasher enabled); the report auto-resolves when
+  // the fix pull request merges.
   rpc UpdateBugReportStatus(UpdateBugReportStatusRequest) returns (BugReport);
 }
 
@@ -2568,6 +2572,10 @@ message UpdateProjectRequest {
   // mode_ref replaces the project's default ModeTemplate. Empty clears the
   // project override so new runs use the platform's interactive default.
   optional string mode_ref = 33;
+  // bug_squasher changes whether this project is the namespace's default
+  // bug-squasher. Enabling it clears the flag on every other project in the
+  // namespace. Omitted means preserve the current value.
+  optional bool bug_squasher = 34;
 }
 
 message ProjectTriggerCondition {
@@ -2808,6 +2816,10 @@ message Project {
   // mode_ref is the ModeTemplate used by default for this project's runs.
   // Empty means the platform's interactive default.
   string mode_ref = 50;
+  // bug_squasher marks this project as the namespace's default bug-squasher:
+  // moving an agent-filed bug report to in_progress launches an autonomous fix
+  // AgentRun from this project. At most one project per namespace has it set.
+  bool bug_squasher = 51;
 }
 
 message ProjectMetrics {
@@ -5496,12 +5508,18 @@ message BugReport {
   string body = 7;
   // occurrences counts how many runs reported this same problem.
   int32 occurrences = 8;
-  // status is one of open, acknowledged, resolved, or dismissed.
+  // status is one of open, acknowledged, in_progress, resolved, or dismissed.
   string status = 9;
   string status_note = 10;
   string status_actor = 11;
   google.protobuf.Timestamp first_seen_at = 12;
   google.protobuf.Timestamp last_seen_at = 13;
+  // fix_run_name is the auto-fix AgentRun launched when the report was moved
+  // to in_progress (empty when no fix run was launched).
+  string fix_run_name = 14;
+  // fix_pr_url is the pull request opened by the auto-fix run. The report
+  // auto-resolves when this PR merges.
+  string fix_pr_url = 15;
 }
 
 message ListBugReportsRequest {

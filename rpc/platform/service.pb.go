@@ -16529,7 +16529,11 @@ type UpdateProjectRequest struct {
 	ReviewLoopDisabled *bool `protobuf:"varint,32,opt,name=review_loop_disabled,json=reviewLoopDisabled,proto3,oneof" json:"review_loop_disabled,omitempty"`
 	// mode_ref replaces the project's default ModeTemplate. Empty clears the
 	// project override so new runs use the platform's interactive default.
-	ModeRef       *string `protobuf:"bytes,33,opt,name=mode_ref,json=modeRef,proto3,oneof" json:"mode_ref,omitempty"`
+	ModeRef *string `protobuf:"bytes,33,opt,name=mode_ref,json=modeRef,proto3,oneof" json:"mode_ref,omitempty"`
+	// bug_squasher changes whether this project is the namespace's default
+	// bug-squasher. Enabling it clears the flag on every other project in the
+	// namespace. Omitted means preserve the current value.
+	BugSquasher   *bool `protobuf:"varint,34,opt,name=bug_squasher,json=bugSquasher,proto3,oneof" json:"bug_squasher,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -16786,6 +16790,13 @@ func (x *UpdateProjectRequest) GetModeRef() string {
 		return *x.ModeRef
 	}
 	return ""
+}
+
+func (x *UpdateProjectRequest) GetBugSquasher() bool {
+	if x != nil && x.BugSquasher != nil {
+		return *x.BugSquasher
+	}
+	return false
 }
 
 type ProjectTriggerCondition struct {
@@ -18405,7 +18416,11 @@ type Project struct {
 	Triggers           []*ProjectTrigger `protobuf:"bytes,49,rep,name=triggers,proto3" json:"triggers,omitempty"`
 	// mode_ref is the ModeTemplate used by default for this project's runs.
 	// Empty means the platform's interactive default.
-	ModeRef       string `protobuf:"bytes,50,opt,name=mode_ref,json=modeRef,proto3" json:"mode_ref,omitempty"`
+	ModeRef string `protobuf:"bytes,50,opt,name=mode_ref,json=modeRef,proto3" json:"mode_ref,omitempty"`
+	// bug_squasher marks this project as the namespace's default bug-squasher:
+	// moving an agent-filed bug report to in_progress launches an autonomous fix
+	// AgentRun from this project. At most one project per namespace has it set.
+	BugSquasher   bool `protobuf:"varint,51,opt,name=bug_squasher,json=bugSquasher,proto3" json:"bug_squasher,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -18683,6 +18698,13 @@ func (x *Project) GetModeRef() string {
 		return x.ModeRef
 	}
 	return ""
+}
+
+func (x *Project) GetBugSquasher() bool {
+	if x != nil {
+		return x.BugSquasher
+	}
+	return false
 }
 
 type ProjectMetrics struct {
@@ -38698,12 +38720,18 @@ type BugReport struct {
 	Body     string `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`
 	// occurrences counts how many runs reported this same problem.
 	Occurrences int32 `protobuf:"varint,8,opt,name=occurrences,proto3" json:"occurrences,omitempty"`
-	// status is one of open, acknowledged, resolved, or dismissed.
-	Status        string                 `protobuf:"bytes,9,opt,name=status,proto3" json:"status,omitempty"`
-	StatusNote    string                 `protobuf:"bytes,10,opt,name=status_note,json=statusNote,proto3" json:"status_note,omitempty"`
-	StatusActor   string                 `protobuf:"bytes,11,opt,name=status_actor,json=statusActor,proto3" json:"status_actor,omitempty"`
-	FirstSeenAt   *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=first_seen_at,json=firstSeenAt,proto3" json:"first_seen_at,omitempty"`
-	LastSeenAt    *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=last_seen_at,json=lastSeenAt,proto3" json:"last_seen_at,omitempty"`
+	// status is one of open, acknowledged, in_progress, resolved, or dismissed.
+	Status      string                 `protobuf:"bytes,9,opt,name=status,proto3" json:"status,omitempty"`
+	StatusNote  string                 `protobuf:"bytes,10,opt,name=status_note,json=statusNote,proto3" json:"status_note,omitempty"`
+	StatusActor string                 `protobuf:"bytes,11,opt,name=status_actor,json=statusActor,proto3" json:"status_actor,omitempty"`
+	FirstSeenAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=first_seen_at,json=firstSeenAt,proto3" json:"first_seen_at,omitempty"`
+	LastSeenAt  *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=last_seen_at,json=lastSeenAt,proto3" json:"last_seen_at,omitempty"`
+	// fix_run_name is the auto-fix AgentRun launched when the report was moved
+	// to in_progress (empty when no fix run was launched).
+	FixRunName string `protobuf:"bytes,14,opt,name=fix_run_name,json=fixRunName,proto3" json:"fix_run_name,omitempty"`
+	// fix_pr_url is the pull request opened by the auto-fix run. The report
+	// auto-resolves when this PR merges.
+	FixPrUrl      string `protobuf:"bytes,15,opt,name=fix_pr_url,json=fixPrUrl,proto3" json:"fix_pr_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -38827,6 +38855,20 @@ func (x *BugReport) GetLastSeenAt() *timestamppb.Timestamp {
 		return x.LastSeenAt
 	}
 	return nil
+}
+
+func (x *BugReport) GetFixRunName() string {
+	if x != nil {
+		return x.FixRunName
+	}
+	return ""
+}
+
+func (x *BugReport) GetFixPrUrl() string {
+	if x != nil {
+		return x.FixPrUrl
+	}
+	return ""
 }
 
 type ListBugReportsRequest struct {
@@ -40459,7 +40501,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x14review_loop_disabled\x18\" \x01(\bH\x00R\x12reviewLoopDisabled\x88\x01\x01\x12\x1e\n" +
 	"\bmode_ref\x18# \x01(\tH\x01R\amodeRef\x88\x01\x01B\x17\n" +
 	"\x15_review_loop_disabledB\v\n" +
-	"\t_mode_refJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x1c\x10\x1dR\x12skill_package_refs\"\x8b\v\n" +
+	"\t_mode_refJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x1c\x10\x1dR\x12skill_package_refs\"\xc4\v\n" +
 	"\x14UpdateProjectRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -40496,10 +40538,12 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x14additional_repo_urls\x18\x1c \x03(\tR\x12additionalRepoUrls\x12.\n" +
 	"\x10kubernetes_admin\x18\x1f \x01(\bH\x00R\x0fkubernetesAdmin\x88\x01\x01\x125\n" +
 	"\x14review_loop_disabled\x18  \x01(\bH\x01R\x12reviewLoopDisabled\x88\x01\x01\x12\x1e\n" +
-	"\bmode_ref\x18! \x01(\tH\x02R\amodeRef\x88\x01\x01B\x13\n" +
+	"\bmode_ref\x18! \x01(\tH\x02R\amodeRef\x88\x01\x01\x12&\n" +
+	"\fbug_squasher\x18\" \x01(\bH\x03R\vbugSquasher\x88\x01\x01B\x13\n" +
 	"\x11_kubernetes_adminB\x17\n" +
 	"\x15_review_loop_disabledB\v\n" +
-	"\t_mode_refJ\x04\b\x1a\x10\x1bR\x12skill_package_refs\"\xc5\x01\n" +
+	"\t_mode_refB\x0f\n" +
+	"\r_bug_squasherJ\x04\b\x1a\x10\x1bR\x12skill_package_refs\"\xc5\x01\n" +
 	"\x17ProjectTriggerCondition\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
@@ -40643,7 +40687,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"connection\"K\n" +
 	"\x17DeleteConnectionRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"\xf2\v\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\x95\f\n" +
 	"\aProject\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -40682,7 +40726,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x10kubernetes_admin\x18/ \x01(\bR\x0fkubernetesAdmin\x120\n" +
 	"\x14review_loop_disabled\x180 \x01(\bR\x12reviewLoopDisabled\x127\n" +
 	"\btriggers\x181 \x03(\v2\x1b.platform.v1.ProjectTriggerR\btriggers\x12\x19\n" +
-	"\bmode_ref\x182 \x01(\tR\amodeRefJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\n" +
+	"\bmode_ref\x182 \x01(\tR\amodeRef\x12!\n" +
+	"\fbug_squasher\x183 \x01(\bR\vbugSquasherJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\n" +
 	"\x10\vJ\x04\b\v\x10\fJ\x04\b\f\x10\rJ\x04\b'\x10(R\x12skill_package_refs\"\xa4\x03\n" +
 	"\x0eProjectMetrics\x12\x1d\n" +
 	"\n" +
@@ -42492,7 +42537,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x10parameter_values\x18\t \x03(\v2;.platform.v1.SecurityProgramScanTarget.ParameterValuesEntryR\x0fparameterValues\x1aB\n" +
 	"\x14ParameterValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb3\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf3\x03\n" +
 	"\tBugReport\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x19\n" +
@@ -42509,7 +42554,11 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\fstatus_actor\x18\v \x01(\tR\vstatusActor\x12>\n" +
 	"\rfirst_seen_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\vfirstSeenAt\x12<\n" +
 	"\flast_seen_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"lastSeenAt\"\x7f\n" +
+	"lastSeenAt\x12 \n" +
+	"\ffix_run_name\x18\x0e \x01(\tR\n" +
+	"fixRunName\x12\x1c\n" +
+	"\n" +
+	"fix_pr_url\x18\x0f \x01(\tR\bfixPrUrl\"\x7f\n" +
 	"\x15ListBugReportsRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1a\n" +

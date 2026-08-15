@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from "reac
 import { Link } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { Code } from "@connectrpc/connect";
-import { Bug, ChevronDown, ChevronRight, Filter, SquareArrowOutUpRight } from "lucide-react";
+import { Bug, ChevronDown, ChevronRight, Filter, GitPullRequestArrow, SquareArrowOutUpRight } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -21,7 +21,12 @@ import { formatAge } from "@/lib/format";
 import { useNow } from "@/hooks/useNow";
 import type { BugReport } from "@/rpc/platform/service_pb";
 
-const BUG_REPORT_STATUSES = ["open", "acknowledged", "resolved", "dismissed"] as const;
+const BUG_REPORT_STATUSES = ["open", "acknowledged", "in_progress", "resolved", "dismissed"] as const;
+
+// statusLabel renders snake_case statuses as human labels ("in progress").
+function statusLabel(status: string): string {
+  return status.replaceAll("_", " ");
+}
 const BUG_REPORT_CATEGORIES = ["bug", "complaint", "feature"] as const;
 
 const POSTGRES_REQUIRED_MESSAGE =
@@ -36,6 +41,7 @@ const CATEGORY_TONES: Record<string, StatusTone> = {
 const STATUS_TONES: Record<string, StatusTone> = {
   open: "warning",
   acknowledged: "info",
+  in_progress: "info",
   resolved: "success",
   dismissed: "neutral",
 };
@@ -171,7 +177,7 @@ export function BugReportList() {
           <FilterSelect label="Status" value={statusFilter} onChange={setStatusFilter}>
             <option value="all">All statuses</option>
             {BUG_REPORT_STATUSES.map((s) => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s} value={s}>{statusLabel(s)}</option>
             ))}
           </FilterSelect>
           <FilterSelect label="Category" value={categoryFilter} onChange={setCategoryFilter}>
@@ -258,8 +264,20 @@ export function BugReportList() {
                           toneSoft[STATUS_TONES[report.status] ?? "neutral"],
                         )}
                       >
-                        {report.status || "unknown"}
+                        {statusLabel(report.status) || "unknown"}
                       </Badge>
+                      {report.fixPrUrl && (
+                        <a
+                          href={report.fixPrUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          aria-label={`View fix pull request for ${report.title}`}
+                        >
+                          <GitPullRequestArrow className="size-3" aria-hidden />
+                          Fix PR
+                        </a>
+                      )}
                       <select
                         aria-label={`Set status for ${report.title}`}
                         value={report.status}
@@ -267,7 +285,7 @@ export function BugReportList() {
                         className="h-7 rounded-lg border border-input bg-background px-2 text-[12px] text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30"
                       >
                         {BUG_REPORT_STATUSES.map((s) => (
-                          <option key={s} value={s}>{s}</option>
+                          <option key={s} value={s}>{statusLabel(s)}</option>
                         ))}
                       </select>
                     </span>
@@ -284,6 +302,35 @@ export function BugReportList() {
                         <p className="text-xs text-muted-foreground">
                           {report.statusNote && <>Note: {report.statusNote} </>}
                           {report.statusActor && <>— {report.statusActor}</>}
+                        </p>
+                      )}
+                      {(report.fixRunName || report.fixPrUrl) && (
+                        <p className="text-xs text-muted-foreground">
+                          {report.fixRunName && (
+                            <>
+                              Fix run:{" "}
+                              <Link
+                                to={`/runs/${report.namespace}/${report.fixRunName}`}
+                                className="text-primary hover:underline"
+                              >
+                                {report.fixRunName}
+                              </Link>
+                            </>
+                          )}
+                          {report.fixRunName && report.fixPrUrl && " · "}
+                          {report.fixPrUrl && (
+                            <>
+                              Fix PR:{" "}
+                              <a
+                                href={report.fixPrUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-primary hover:underline"
+                              >
+                                {report.fixPrUrl}
+                              </a>
+                            </>
+                          )}
                         </p>
                       )}
                       {report.firstSeenAt && (

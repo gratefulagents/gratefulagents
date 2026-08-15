@@ -152,3 +152,44 @@ describe("BugReportList", () => {
     expect(await screen.findByText("store offline")).toBeTruthy();
   });
 });
+
+describe("BugReportList auto-fix", () => {
+  it("offers the in_progress status and shows fix run and PR links", async () => {
+    const report = reportFixture();
+    report.status = "in_progress";
+    report.fixRunName = "auto-bugfix-x7k2mq";
+    report.fixPrUrl = "https://github.com/acme/platform/pull/12";
+    listBugReports.mockResolvedValue({ reports: [report] });
+
+    render(
+      <MemoryRouter>
+        <BugReportList />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("task_create times out on large descriptions");
+    // Per-row status select includes the in_progress option (human label).
+    const select = screen.getByLabelText(
+      "Set status for task_create times out on large descriptions",
+    ) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toContain("in_progress");
+    // Compact fix-PR link on the row.
+    expect(
+      screen
+        .getByRole("link", {
+          name: "View fix pull request for task_create times out on large descriptions",
+        })
+        .getAttribute("href"),
+    ).toBe("https://github.com/acme/platform/pull/12");
+
+    // Expanded details link the fix run and PR.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Toggle details for task_create times out on large descriptions",
+      }),
+    );
+    expect(
+      screen.getByRole("link", { name: "auto-bugfix-x7k2mq" }).getAttribute("href"),
+    ).toBe("/runs/user-alice/auto-bugfix-x7k2mq");
+  });
+});

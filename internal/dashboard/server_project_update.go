@@ -136,6 +136,9 @@ func (s *Server) UpdateProject(ctx context.Context, req *platform.UpdateProjectR
 		if req.KubernetesAdmin != nil {
 			fresh.Spec.KubernetesAdmin = req.GetKubernetesAdmin()
 		}
+		if req.BugSquasher != nil {
+			fresh.Spec.BugSquasher = req.GetBugSquasher()
+		}
 		fresh.Spec.Defaults.RepoURL = strings.TrimSpace(req.GetRepoUrl())
 		fresh.Spec.Defaults.AdditionalRepos = additionalRepos
 		fresh.Spec.Defaults.BaseBranch = strings.TrimSpace(req.GetBaseBranch())
@@ -173,7 +176,38 @@ func (s *Server) UpdateProject(ctx context.Context, req *platform.UpdateProjectR
 		return nil, mapK8sError("update Project", err)
 	}
 
+	// The bug-squasher flag is exclusive per namespace: enabling it on this
+	// project clears it on every other project so the auto-fix launcher always
+	// resolves exactly one default.
+	if req.BugSquasher != nil && req.GetBugSquasher() {
+		if err := s.clearOtherBugSquashers(ctx, namespace, name); err != nil {
+			return nil, err
+		}
+	}
+
 	return s.enrichProjectProto(ctx, k8sProjectToProto(updated)), nil
+}
+
+// clearOtherBugSquashers disables spec.bugSquasher on every project in the
+// namespace except keep.
+func (s *Server) clearOtherBugSquashers(ctx context.Context, namespace, keep string) error {
+	list := &triggersv1alpha1.ProjectList{}
+	if err := s.k8sClient.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		return mapK8sError("list Projects", err)
+	}
+	for i := range list.Items {
+		p := &list.Items[i]
+		if p.Name == keep || !p.Spec.BugSquasher {
+			continue
+		}
+		if _, err := s.patchProjectWithRetry(ctx, namespace, p.Name, func(fresh *triggersv1alpha1.Project) error {
+			fresh.Spec.BugSquasher = false
+			return nil
+		}); err != nil {
+			return mapK8sError(fmt.Sprintf("clear bug-squasher flag on Project %s/%s", namespace, p.Name), err)
+		}
+	}
+	return nil
 }
 
 func (s *Server) patchProjectWithRetry(ctx context.Context, namespace, name string, mutate func(*triggersv1alpha1.Project) error) (*triggersv1alpha1.Project, error) {

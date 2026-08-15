@@ -22,6 +22,7 @@ const (
 const (
 	AgentBugReportStatusOpen         = "open"
 	AgentBugReportStatusAcknowledged = "acknowledged"
+	AgentBugReportStatusInProgress   = "in_progress"
 	AgentBugReportStatusResolved     = "resolved"
 	AgentBugReportStatusDismissed    = "dismissed"
 )
@@ -43,7 +44,8 @@ func ValidAgentBugReportCategory(c string) bool {
 func ValidAgentBugReportStatus(s string) bool {
 	switch s {
 	case AgentBugReportStatusOpen, AgentBugReportStatusAcknowledged,
-		AgentBugReportStatusResolved, AgentBugReportStatusDismissed:
+		AgentBugReportStatusInProgress, AgentBugReportStatusResolved,
+		AgentBugReportStatusDismissed:
 		return true
 	}
 	return false
@@ -66,10 +68,24 @@ type AgentBugReportRecord struct {
 	Status      string
 	StatusNote  string
 	StatusActor string
+	FixRunName  string
+	FixPRURL    string
 	FirstSeenAt time.Time
 	LastSeenAt  time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+// AgentBugReportFixUpdate records automated-fix progress on one report. Nil
+// pointer fields keep their current value; an empty Status leaves the triage
+// status unchanged (StatusActor/StatusNote are only written together with a
+// non-empty Status).
+type AgentBugReportFixUpdate struct {
+	FixRunName  *string
+	FixPRURL    *string
+	Status      string
+	StatusActor string
+	StatusNote  string
 }
 
 // AgentBugReportFilter narrows ListAgentBugReports. Zero values mean "no
@@ -99,4 +115,11 @@ type AgentBugReportStore interface {
 	ListAgentBugReports(ctx context.Context, f AgentBugReportFilter) ([]AgentBugReportRecord, error)
 	// SetAgentBugReportStatus updates the triage status of one report.
 	SetAgentBugReportStatus(ctx context.Context, namespace string, id uuid.UUID, status, actor, note string) error
+	// SetAgentBugReportFix records automated-fix progress (fix run name, fix
+	// PR URL, and optionally a status transition) on one report.
+	SetAgentBugReportFix(ctx context.Context, namespace string, id uuid.UUID, fix AgentBugReportFixUpdate) error
+	// GetAgentBugReportByFixRun returns the report whose current fix run is
+	// fixRunName, or (nil, nil) when none exists. Used to reopen a report
+	// whose in-flight fix run was deleted before finishing.
+	GetAgentBugReportByFixRun(ctx context.Context, namespace, fixRunName string) (*AgentBugReportRecord, error)
 }

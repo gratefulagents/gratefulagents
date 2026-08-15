@@ -2,6 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   Blocks,
   Bot,
+  Bug,
   Cpu,
   FolderGit2,
   KeyRound,
@@ -95,6 +96,7 @@ type FormState = {
   mcpPolicyAllowedServers: string;
   mcpServerRefs: string[];
   kubernetesAdmin: boolean;
+  bugSquasher: boolean;
 };
 
 function splitCommaList(value: string): string[] {
@@ -145,6 +147,7 @@ function formFromProject(project: Project): FormState {
     mcpPolicyAllowedServers: (project.mcpPolicyAllowedServers ?? []).join(", "),
     mcpServerRefs: [...(project.mcpServerRefs ?? [])],
     kubernetesAdmin: project.kubernetesAdmin,
+    bugSquasher: project.bugSquasher,
   };
 }
 
@@ -391,6 +394,9 @@ export function ProjectSettingsDialog({
         mcpServerRefs: form.mcpServerRefs,
         skillRefs: [],
         ...(isAdmin ? { kubernetesAdmin: form.kubernetesAdmin } : {}),
+        // Only send the flag when it changed: enabling it clears the flag on
+        // every other project in the namespace.
+        ...(form.bugSquasher !== initial.bugSquasher ? { bugSquasher: form.bugSquasher } : {}),
       }));
       onUpdated?.(updated);
       setOpen(false);
@@ -751,6 +757,26 @@ export function ProjectSettingsDialog({
                 modified={form.reviewLoopDisabled !== initial.reviewLoopDisabled}
                 onDisabledChange={(checked) => update("reviewLoopDisabled", checked)}
               />
+
+              <OptionRow
+                icon={Bug}
+                title="Bug squasher"
+                summary={form.bugSquasher ? "Default bug squasher" : "Off"}
+                modified={form.bugSquasher !== initial.bugSquasher}
+              >
+                <FlowSwitchRow
+                  id="project-settings-bug-squasher"
+                  label="Default bug squasher"
+                  hint="Make this the namespace's default project for automated bug fixes: moving an agent-filed bug report to in progress launches an autonomous fix run from this project, and the report resolves when the fix PR merges. Enabling this clears the flag on every other project in the namespace."
+                  control={
+                    <Switch
+                      id="project-settings-bug-squasher"
+                      checked={form.bugSquasher}
+                      onCheckedChange={(checked) => update("bugSquasher", checked)}
+                    />
+                  }
+                />
+              </OptionRow>
 
               <OptionRow
                 icon={Cpu}
