@@ -1669,7 +1669,7 @@ func (e *securityScanExecutionEngine) taskConditionMatches(ctx context.Context, 
 	if err := decoder.Decode(&value); err != nil {
 		return false, fmt.Errorf("decode %q output: %w", condition.Task, err)
 	}
-	for _, segment := range strings.Split(condition.Path, ".") {
+	for segment := range strings.SplitSeq(condition.Path, ".") {
 		object, ok := value.(map[string]any)
 		if !ok {
 			return false, fmt.Errorf("path %q traverses a non-object at %q", condition.Path, segment)

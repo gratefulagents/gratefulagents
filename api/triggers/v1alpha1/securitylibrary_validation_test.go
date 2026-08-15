@@ -85,10 +85,29 @@ func TestValidateSecurityWorkflowTaskCondition(t *testing.T) {
 	tasks[1].When.OtherwiseOutput = `{}`
 	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].when.otherwiseOutput", "does not satisfy outputSchema")
 	tasks[1].When.OtherwiseOutput = `{"status":"skipped"}`
+	tasks[0].Repeats = 2
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].when.task", "multi-instance")
+	tasks[0].Repeats = 0
 	tasks[0].OutputSchema = `{"type":"array"}`
 	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].when.task", "must allow an object")
 	tasks[0].OutputSchema = `{"type":"object","properties":{"specialists":{"type":"object","properties":{"solana":{"type":"boolean"}}}}}`
 	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].when.path", "incompatible")
+}
+
+func TestValidateSecurityWorkflowOutputUsesAgentRunSchemaSubset(t *testing.T) {
+	schema := `{"type":"object","required":["status","count"],"properties":{"status":{"type":"string","enum":["skipped"]},"count":{"type":"integer"}},"additionalProperties":false}`
+	if err := ValidateSecurityWorkflowOutput(schema, `{"status":"skipped","count":1}`); err != nil {
+		t.Fatalf("expected valid output: %v", err)
+	}
+	for _, output := range []string{
+		`{"status":"examined","count":1}`,
+		`{"status":"skipped","count":1.5}`,
+		`{"status":"skipped","count":1,"extra":true}`,
+	} {
+		if err := ValidateSecurityWorkflowOutput(schema, output); err == nil {
+			t.Fatalf("expected schema error for %s", output)
+		}
+	}
 }
 
 func TestValidateSecurityWorkflowTasksExecutionFieldFailures(t *testing.T) {

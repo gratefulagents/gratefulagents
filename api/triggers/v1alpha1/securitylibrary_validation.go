@@ -9,6 +9,8 @@ package v1alpha1
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -207,6 +209,8 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 				add(field+".when.task", "task %q condition references unknown task %q", task.Name, task.When.Task)
 			case !depSet[task.When.Task] || task.When.Task == task.Name:
 				add(field+".when.task", "task %q condition task %q must also be listed in dependsOn", task.Name, task.When.Task)
+			case ref.ForEach != "" || ref.Repeats > 1:
+				add(field+".when.task", "task %q condition task %q is multi-instance (forEach or repeats); condition sources must be single-instance tasks", task.Name, task.When.Task)
 			case strings.TrimSpace(ref.OutputSchema) == "":
 				add(field+".when.task", "task %q condition task %q must declare outputSchema", task.Name, task.When.Task)
 			case !securityWorkflowSchemaAllowsObject(ref.OutputSchema):
@@ -359,8 +363,9 @@ func securityWorkflowSchemaAllowsPath(schema, path string) bool {
 	if err := json.Unmarshal([]byte(schema), &current); err != nil {
 		return true
 	}
-	segments := strings.Split(path, ".")
-	for i, segment := range segments {
+	remaining := path
+	for remaining != "" {
+		segment, rest, hasMore := strings.Cut(remaining, ".")
 		properties, known := current["properties"].(map[string]any)
 		if !known {
 			return true
@@ -369,7 +374,7 @@ func securityWorkflowSchemaAllowsPath(schema, path string) bool {
 		if !exists {
 			return false
 		}
-		if i == len(segments)-1 {
+		if !hasMore {
 			if typ, known := next["type"].(string); known && (typ == "object" || typ == "array") {
 				return false
 			}
@@ -379,12 +384,14 @@ func securityWorkflowSchemaAllowsPath(schema, path string) bool {
 			return false
 		}
 		current = next
+		remaining = rest
 	}
 	return false
 }
 
-// ValidateSecurityWorkflowOutput checks the dependency-free JSON Schema subset
-// used by workflow task outputs: type, required, properties, and array items.
+// ValidateSecurityWorkflowOutput checks the same dependency-free JSON Schema
+// subset used for AgentRun task output: type, required, properties, array
+// items, enum, and boolean additionalProperties.
 func ValidateSecurityWorkflowOutput(schemaJSON, valueJSON string) error {
 	var schema map[string]any
 	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
@@ -409,8 +416,12 @@ func validateSecurityWorkflowValue(schema map[string]any, value any, path string
 			_, valid = value.(string)
 		case "boolean":
 			_, valid = value.(bool)
-		case "number", "integer":
+		case "number":
 			_, valid = value.(float64)
+		case "integer":
+			if number, isNumber := value.(float64); isNumber {
+				valid = number == math.Trunc(number)
+			}
 		case "null":
 			valid = value == nil
 		default:
@@ -418,6 +429,18 @@ func validateSecurityWorkflowValue(schema map[string]any, value any, path string
 		}
 		if !valid {
 			return fmt.Errorf("%s must be %s", path, typ)
+		}
+	}
+	if enum, ok := schema["enum"].([]any); ok {
+		matched := false
+		for _, candidate := range enum {
+			if reflect.DeepEqual(candidate, value) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf("%s is not one of the enum values", path)
 		}
 	}
 	if object, ok := value.(map[string]any); ok {
@@ -431,15 +454,17 @@ func validateSecurityWorkflowValue(schema map[string]any, value any, path string
 				}
 			}
 		}
-		if properties, ok := schema["properties"].(map[string]any); ok {
-			for name, childValue := range object {
-				child, ok := properties[name].(map[string]any)
-				if !ok {
-					continue
-				}
+		properties, _ := schema["properties"].(map[string]any)
+		for name, childValue := range object {
+			child, hasSchema := properties[name].(map[string]any)
+			if hasSchema {
 				if err := validateSecurityWorkflowValue(child, childValue, path+"."+name); err != nil {
 					return err
 				}
+				continue
+			}
+			if additional, closed := schema["additionalProperties"].(bool); closed && !additional {
+				return fmt.Errorf("%s has disallowed additional property %q", path, name)
 			}
 		}
 	}
