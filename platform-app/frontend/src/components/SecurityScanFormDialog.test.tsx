@@ -119,10 +119,11 @@ describe("SecurityScanFormDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /Rankers & post-scripts/ }));
     fireEvent.click(screen.getByRole("button", { name: "Add post-script" }));
     fireEvent.change(screen.getByLabelText("Run against"), {
-      target: { value: "high-and-above-actionable" },
+      target: { value: "low-and-above-actionable" },
     });
 
-    expect(screen.getByRole("option", { name: "high and above, while actionable" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "low and above, while actionable" })).toBeTruthy();
+    expect((screen.getByLabelText("Run against") as HTMLSelectElement).value).toBe("low-and-above-actionable");
     expect(screen.getByText(/successful earlier stage has already marked/i).textContent).toContain("fixed");
   });
 
