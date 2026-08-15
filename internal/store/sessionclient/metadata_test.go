@@ -222,6 +222,86 @@ func (s *metadataTestStore) GetUnreadNotificationCount(context.Context, string) 
 }
 func (s *metadataTestStore) Close() error { return nil }
 
+func TestSanitizeCheckpointJSONForPostgres(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input json.RawMessage
+		want  string
+	}{
+		{
+			name:  "NUL and Unicode",
+			input: json.RawMessage(`{"nul":"before\u0000after","unicode":"雪 😀"}`),
+			want:  `{"nul":"before\ufffdafter","unicode":"雪 😀"}`,
+		},
+		{
+			name:  "literal escape",
+			input: json.RawMessage(`{"value":"before\\u0000after"}`),
+			want:  `{"value":"before\\u0000after"}`,
+		},
+		{
+			name:  "escaped quote before NUL",
+			input: json.RawMessage(`{"value":"before\"\u0000after"}`),
+			want:  `{"value":"before\"\ufffdafter"}`,
+		},
+		{
+			name:  "literal backslash before NUL",
+			input: json.RawMessage(`{"value":"before\\\u0000after"}`),
+			want:  `{"value":"before\\\ufffdafter"}`,
+		},
+		{
+			name:  "two literal backslashes",
+			input: json.RawMessage(`{"value":"before\\\\u0000after"}`),
+			want:  `{"value":"before\\\\u0000after"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeCheckpointJSONForPostgres(tt.input)
+			if string(got) != tt.want {
+				t.Fatalf("sanitizeCheckpointJSONForPostgres() = %s, want %s", got, tt.want)
+			}
+			if !json.Valid(got) {
+				t.Fatalf("sanitizeCheckpointJSONForPostgres() returned invalid JSON: %s", got)
+			}
+		})
+	}
+}
+
+func TestWriteSubAgentCheckpointSanitizesNUL(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	testStore := &metadataTestStore{session: &store.Session{ID: sessionID}}
+	client := &Client{store: testStore, sessionID: sessionID}
+	checkpoint, err := json.Marshal(map[string]string{
+		"tool_output": "before\x00after",
+		"literal":     `before\u0000after`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.WriteSubAgentCheckpoint(context.Background(), checkpoint); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := client.ReadSubAgentCheckpoint(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(stored, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["tool_output"] != "before\ufffdafter" {
+		t.Fatalf("sanitized tool output = %q", got["tool_output"])
+	}
+	if got["literal"] != `before\u0000after` {
+		t.Fatalf("literal escape was changed: %q", got["literal"])
+	}
+}
+
 func TestClearIdleUserInputRequestClearsKickoffIdleBoundary(t *testing.T) {
 	t.Parallel()
 
