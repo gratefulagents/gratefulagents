@@ -40,10 +40,17 @@ jobs:
       - name: Keep installer release manifest below the Secret limit
         run: |
           rendered="$(mktemp)"
+          release_chart="$(mktemp -d)"
+          cp -a ./dist/chart/. "$release_chart/"
+          rm -rf "$release_chart/files/bootstrap"
           helm template test ./dist/chart --namespace gratefulagents-system \
             --set bootstrapDefaults.enabled=false > "$rendered"
           test "$(gzip -9 -c "$rendered" | wc -c)" -lt 262144 \
             || { echo "::error::installer release manifest compressed size exceeds 256 KiB"; exit 1; }
+          archive="$(helm package "$release_chart" --destination "$(dirname "$release_chart")" \
+            | sed -n 's/^Successfully packaged chart and saved it to: //p')"
+          test -n "$archive" && test "$(stat -c %s "$archive")" -lt 262144 \
+            || { echo "::error::installer release chart archive exceeds 256 KiB"; exit 1; }
           helm template test ./dist/chart --namespace gratefulagents-system \
             --show-only templates/bootstrap/defaults.yaml \
             | grep -q 'platform.gratefulagents.dev/bootstrap-ready: "true"'

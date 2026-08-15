@@ -241,6 +241,17 @@ else
 fi
 [[ -f "$CHART_DIR/Chart.yaml" ]] || die "Helm chart not found at $CHART_DIR"
 
+# Helm stores the complete chart archive in every release Secret, even when a
+# template that reads chart files is disabled. The bundled bootstrap defaults
+# are large enough to push that Secret past Kubernetes' 1 MiB object limit.
+# Install from a temporary copy without those files; the full chart remains
+# available below to render and apply the defaults outside Helm's release
+# record.
+RELEASE_CHART_DIR="$TMP_DIR/release-chart"
+mkdir -p "$RELEASE_CHART_DIR"
+cp -a "$CHART_DIR/." "$RELEASE_CHART_DIR/"
+rm -rf "$RELEASE_CHART_DIR/files/bootstrap"
+
 manager_image_repository="$IMAGE_REGISTRY/controller"
 manager_image="$manager_image_repository:$IMAGE_TAG"
 worker_image="$IMAGE_REGISTRY/worker:$IMAGE_TAG"
@@ -284,7 +295,7 @@ else
 fi
 
 log "Installing gratefulagents"
-helm lint "$CHART_DIR" --values "$VALUES_FILE" \
+helm lint "$RELEASE_CHART_DIR" --values "$VALUES_FILE" \
   --set bootstrapDefaults.enabled=false \
   --set "dashboard.service.type=$DASHBOARD_SERVICE_TYPE" \
   --set-string "manager.image.repository=$manager_image_repository" \
@@ -292,7 +303,7 @@ helm lint "$CHART_DIR" --values "$VALUES_FILE" \
   --set manager.image.pullPolicy=IfNotPresent \
   --set-string "agentImages.worker=$worker_image" \
   --set-string "agentImages.injector=$injector_image"
-helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
+helm upgrade --install "$RELEASE_NAME" "$RELEASE_CHART_DIR" \
   --namespace "$NAMESPACE" --create-namespace \
   --values "$VALUES_FILE" \
   --set bootstrapDefaults.enabled=false \

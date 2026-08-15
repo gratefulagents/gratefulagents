@@ -61,6 +61,10 @@ assert_contains 'if [[ -z "$SOURCE_DIR" && -n "$CHART_DIR" ]]; then'
 assert_contains '--set bootstrapDefaults.enabled=false'
 assert_contains '--set bootstrapDefaults.enabled=true'
 assert_contains '--show-only templates/bootstrap/defaults.yaml | kubectl apply -f -'
+assert_contains 'RELEASE_CHART_DIR="$TMP_DIR/release-chart"'
+assert_contains 'cp -a "$CHART_DIR/." "$RELEASE_CHART_DIR/"'
+assert_contains 'rm -rf "$RELEASE_CHART_DIR/files/bootstrap"'
+assert_contains 'helm upgrade --install "$RELEASE_NAME" "$RELEASE_CHART_DIR"'
 if grep -Fq -- '"$script_dir/../dist/chart/Chart.yaml"' "$installer"; then
   fail 'installer still auto-selects the chart from its current checkout'
 fi
