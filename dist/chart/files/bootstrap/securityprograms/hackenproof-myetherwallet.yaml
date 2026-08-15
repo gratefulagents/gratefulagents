@@ -1,0 +1,55 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-myetherwallet
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/MyEtherWallet/MyEtherWallet
+      baseBranch: feat/v7
+      workflowRef: wallet-security-review
+      policyPackRef: bug-bounty
+      scanName: myetherwallet-web
+      displayName: MyEtherWallet web client
+      priority: 5001
+      featured: true
+  provider: HackenProof
+  displayName: MyEtherWallet
+  programURL: https://hackenproof.com/programs/myetherwallet
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-15.
+
+    Live Program is active now.
+    Range of bounty: $350 - $3,000.
+
+    In scope targets
+    - app.myetherwallet.com (Web, Critical)
+    - MEW Wallet iOS app id1464614025 (Critical)
+    - MEW Wallet Android app com.myetherwallet.mewwallet (Critical)
+    - https://github.com/MyEtherWallet/MyEtherWallet/tree/feat/v7 (Web source, Critical)
+    - www.myetherwallet.com/wallet/access (Web, Critical)
+
+    The program's Test Plan states that the listed repository is the codebase for the current live MEW web version. The exact scoped source ref is feat/v7, not the repository's main default branch.
+
+    In-scope vulnerabilities
+    Business logic and payment manipulation; remote code execution; injection; file inclusion; access-control issues; sensitive-information leakage; SSRF; CSRF; XSS; directory traversal; and other vulnerabilities with a clear potential for loss.
+
+    Test Plan
+    Create wallets using each product's native creation flow. Do not recover a mobile wallet from another wallet's mnemonic.
+
+    Importable target boundary
+    Only the exact source repository and feat/v7 ref listed by the program are imported. Mobile binaries and production web URLs remain policy-only and are not converted into active network targets.
+  outOfScope:
+    - www.mewwallet.com
+    - Attacks requiring MITM, physical access, a jailbroken environment, or developer-level device debugging
+    - Known vulnerable libraries without a working proof of concept
+    - Denial of service, crashes without security impact, best-practice-only findings, and outdated browsers
+    - Public blockchain data stored unencrypted and third-party sites unless they lead to an application vulnerability
+  prohibitedTesting:
+    - Interact only with accounts, wallets, data, devices, and funds you own or have explicit permission to use
+    - Do not socially engineer, phish, violate privacy, destroy data, interrupt service, or perform denial of service
+    - Use newly created unfunded wallets; do not import another wallet's mnemonic for mobile testing
+    - Keep the program and all vulnerabilities private unless MyEtherWallet expressly consents to disclosure

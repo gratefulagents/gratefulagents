@@ -30,62 +30,112 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-wormhole":  {"Blockchain/DLT", "Smart Contract"},
 	}
 	expectedProgramURLs := map[string]string{
-		"solana-agave":          "https://github.com/anza-xyz/agave/security",
-		"firedancer":            "https://bounty.firedancer.io/",
-		"hackerone-gitlab":      "https://hackerone.com/gitlab",
-		"hackerone-shopify":     "https://hackerone.com/shopify",
-		"hackerone-uber":        "https://hackerone.com/uber",
-		"hackerone-coinbase":    "https://hackerone.com/coinbase",
-		"hackerone-cloudflare":  "https://hackerone.com/cloudflare",
-		"hackerone-playstation": "https://hackerone.com/playstation",
-		"hackerone-security":    "https://hackerone.com/security",
-		"bugcrowd-openai":       "https://bugcrowd.com/engagements/openai",
-		"bugcrowd-atlassian":    "https://bugcrowd.com/engagements/atlassian",
-		"bugcrowd-opera":        "https://bugcrowd.com/engagements/opera",
-		"intigriti-dropbox":     "https://app.intigriti.com/programs/dropbox/dropbox/detail",
+		"coinkite-coldcard":          "https://coinkite.com/responsible-disclosure",
+		"hackenproof-1inch-wallet":   "https://hackenproof.com/programs/1inch-wallet",
+		"hackenproof-enkrypt-wallet": "https://hackenproof.com/programs/enkrypt-wallet",
+		"hackenproof-myetherwallet":  "https://hackenproof.com/programs/myetherwallet",
+		"hackenproof-slush-wallet":   "https://hackenproof.com/programs/slush-wallet",
+		"shiftcrypto-bitbox":         "https://bitbox.swiss/policies/bug-bounty-policy/",
+		"solana-agave":               "https://github.com/anza-xyz/agave/security",
+		"firedancer":                 "https://bounty.firedancer.io/",
+		"hackerone-gitlab":           "https://hackerone.com/gitlab",
+		"hackerone-shopify":          "https://hackerone.com/shopify",
+		"hackerone-uber":             "https://hackerone.com/uber",
+		"hackerone-coinbase":         "https://hackerone.com/coinbase",
+		"hackerone-cloudflare":       "https://hackerone.com/cloudflare",
+		"hackerone-playstation":      "https://hackerone.com/playstation",
+		"hackerone-security":         "https://hackerone.com/security",
+		"bugcrowd-openai":            "https://bugcrowd.com/engagements/openai",
+		"bugcrowd-atlassian":         "https://bugcrowd.com/engagements/atlassian",
+		"bugcrowd-opera":             "https://bugcrowd.com/engagements/opera",
+		"intigriti-dropbox":          "https://app.intigriti.com/programs/dropbox/dropbox/detail",
 	}
 	expectedVerbatimMarkers := map[string][]string{
-		"solana-agave":          {"## Reporting security problems in the Agave Validator", "### Out of Scope:", "### Payment of Bug Bounties:"},
-		"firedancer":            {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
-		"hackerone-gitlab":      {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 19", "Out-of-scope asset rows captured: 25", "yourhandle@wearehackerone.com"},
-		"hackerone-shopify":     {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 20", "Out-of-scope asset rows captured: 9", "YOURHANDLE@wearehackerone.com"},
-		"hackerone-uber":        {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 4", "Out-of-scope asset rows captured: 19", "*.uberinternal.com"},
-		"hackerone-coinbase":    {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 16", "Out-of-scope asset rows captured: 3", "Low and Medium findings are out of scope"},
-		"hackerone-cloudflare":  {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 51", "Out-of-scope asset rows captured: 20", "Customer zones and properties"},
-		"hackerone-playstation": {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 24", "Out-of-scope asset rows captured: 0", "*.api.playstation.com"},
-		"hackerone-security":    {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 25", "Out-of-scope asset rows captured: 8", "X-Bug-Bounty: HackerOne-<username>"},
-		"bugcrowd-openai":       {"Browser-verified program boundary (2026-08-15)", "Security Bug Bounty boundary", "Safety Bug Bounty is separate", "historical 25-row table"},
-		"bugcrowd-atlassian":    {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 48", "Out-of-scope asset rows captured: 13", "bugbounty-test-<bugcrowd-name>"},
-		"bugcrowd-opera":        {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 89", "Out-of-scope asset rows captured: 22", "com.opera.minipay"},
-		"intigriti-dropbox":     {"Public Intigriti scope snapshot verified 2026-08-15", "Tier 1 assets", "Explicit out-of-scope asset rows", "X-Intigriti-Username: <username>"},
+		"coinkite-coldcard":          {"Official Coinkite responsible-disclosure policy snapshot", "Security vulnerabilities in Coinkite hardware, firmware, and bootloaders", "Coinkite evaluates rewards case by case"},
+		"hackenproof-1inch-wallet":   {"Public HackenProof scope snapshot", "Live Program is active now", "Range of bounty: $100 - $100,000"},
+		"hackenproof-enkrypt-wallet": {"Public HackenProof scope snapshot", "https://github.com/enkryptcom/enKrypt", "Range of bounty: $350 - $3,000"},
+		"hackenproof-myetherwallet":  {"Public HackenProof scope snapshot", "https://github.com/MyEtherWallet/MyEtherWallet/tree/feat/v7", "Range of bounty: $350 - $3,000"},
+		"hackenproof-slush-wallet":   {"Public HackenProof scope snapshot", "Impact in Scope for Wallet", "Range of bounty: $1,000 - $30,000"},
+		"shiftcrypto-bitbox":         {"Official Shift Crypto bug bounty policy snapshot", "Official code implementations in production", "All Shift Crypto hardware"},
+		"solana-agave":               {"## Reporting security problems in the Agave Validator", "### Out of Scope:", "### Payment of Bug Bounties:"},
+		"firedancer":                 {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
+		"hackerone-gitlab":           {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 19", "Out-of-scope asset rows captured: 25", "yourhandle@wearehackerone.com"},
+		"hackerone-shopify":          {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 20", "Out-of-scope asset rows captured: 9", "YOURHANDLE@wearehackerone.com"},
+		"hackerone-uber":             {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 4", "Out-of-scope asset rows captured: 19", "*.uberinternal.com"},
+		"hackerone-coinbase":         {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 16", "Out-of-scope asset rows captured: 3", "Low and Medium findings are out of scope"},
+		"hackerone-cloudflare":       {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 51", "Out-of-scope asset rows captured: 20", "Customer zones and properties"},
+		"hackerone-playstation":      {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 24", "Out-of-scope asset rows captured: 0", "*.api.playstation.com"},
+		"hackerone-security":         {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 25", "Out-of-scope asset rows captured: 8", "X-Bug-Bounty: HackerOne-<username>"},
+		"bugcrowd-openai":            {"Browser-verified program boundary (2026-08-15)", "Security Bug Bounty boundary", "Safety Bug Bounty is separate", "historical 25-row table"},
+		"bugcrowd-atlassian":         {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 48", "Out-of-scope asset rows captured: 13", "bugbounty-test-<bugcrowd-name>"},
+		"bugcrowd-opera":             {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 89", "Out-of-scope asset rows captured: 22", "com.opera.minipay"},
+		"intigriti-dropbox":          {"Public Intigriti scope snapshot verified 2026-08-15", "Tier 1 assets", "Explicit out-of-scope asset rows", "X-Intigriti-Username: <username>"},
 	}
 	browserResearchedCatalogPrograms := map[string]struct{}{
-		"hackerone-gitlab":      {},
-		"hackerone-shopify":     {},
-		"hackerone-uber":        {},
-		"hackerone-coinbase":    {},
-		"hackerone-cloudflare":  {},
-		"hackerone-playstation": {},
-		"hackerone-security":    {},
-		"bugcrowd-openai":       {},
-		"bugcrowd-atlassian":    {},
-		"bugcrowd-opera":        {},
-		"intigriti-dropbox":     {},
+		"coinkite-coldcard":          {},
+		"hackenproof-1inch-wallet":   {},
+		"hackenproof-enkrypt-wallet": {},
+		"hackenproof-myetherwallet":  {},
+		"hackenproof-slush-wallet":   {},
+		"shiftcrypto-bitbox":         {},
+		"hackerone-gitlab":           {},
+		"hackerone-shopify":          {},
+		"hackerone-uber":             {},
+		"hackerone-coinbase":         {},
+		"hackerone-cloudflare":       {},
+		"hackerone-playstation":      {},
+		"hackerone-security":         {},
+		"bugcrowd-openai":            {},
+		"bugcrowd-atlassian":         {},
+		"bugcrowd-opera":             {},
+		"intigriti-dropbox":          {},
 	}
 	catalogProgramsWithoutImportTargets := map[string]string{
-		"bugcrowd-openai": "authenticated Bugcrowd",
+		"bugcrowd-openai":          "authenticated Bugcrowd",
+		"hackenproof-1inch-wallet": "no source repository",
+		"hackenproof-slush-wallet": "does not identify an exact source repository",
 	}
 	expectedCatalogTargetCounts := map[string]int{
-		"bugcrowd-atlassian":    8,
-		"bugcrowd-opera":        37,
-		"hackerone-cloudflare":  6,
-		"hackerone-coinbase":    2,
-		"hackerone-gitlab":      9,
-		"hackerone-playstation": 12,
-		"hackerone-security":    7,
-		"hackerone-shopify":     6,
-		"hackerone-uber":        1,
-		"intigriti-dropbox":     6,
+		"coinkite-coldcard":          1,
+		"hackenproof-enkrypt-wallet": 1,
+		"hackenproof-myetherwallet":  1,
+		"shiftcrypto-bitbox":         2,
+		"bugcrowd-atlassian":         8,
+		"bugcrowd-opera":             37,
+		"hackerone-cloudflare":       6,
+		"hackerone-coinbase":         2,
+		"hackerone-gitlab":           9,
+		"hackerone-playstation":      12,
+		"hackerone-security":         7,
+		"hackerone-shopify":          6,
+		"hackerone-uber":             1,
+		"intigriti-dropbox":          6,
+	}
+	expectedCatalogTargetWorkflows := map[string]string{
+		"coinkite-coldcard":          "wallet-security-review",
+		"hackenproof-enkrypt-wallet": "wallet-security-review",
+		"hackenproof-myetherwallet":  "wallet-security-review",
+		"shiftcrypto-bitbox":         "wallet-security-review",
+	}
+	type expectedRepositoryTarget struct {
+		repositoryURL string
+		baseBranch    string
+		scanName      string
+	}
+	expectedWalletRepositoryTargets := map[string][]expectedRepositoryTarget{
+		"coinkite-coldcard": {
+			{repositoryURL: "https://github.com/Coldcard/firmware", baseBranch: "master", scanName: "coldcard-firmware"},
+		},
+		"hackenproof-enkrypt-wallet": {
+			{repositoryURL: "https://github.com/enkryptcom/enKrypt", baseBranch: "main", scanName: "enkrypt-wallet"},
+		},
+		"hackenproof-myetherwallet": {
+			{repositoryURL: "https://github.com/MyEtherWallet/MyEtherWallet", baseBranch: "feat/v7", scanName: "myetherwallet-web"},
+		},
+		"shiftcrypto-bitbox": {
+			{repositoryURL: "https://github.com/BitBoxSwiss/bitbox02-firmware", baseBranch: "master", scanName: "bitbox02-firmware"},
+			{repositoryURL: "https://github.com/BitBoxSwiss/bitbox-wallet-app", baseBranch: "master", scanName: "bitbox-wallet-app"},
+		},
 	}
 	expectedImmunefiTargets := map[string]string{
 		"immunefi-1inch":  "https://github.com/1inch/limit-order-protocol",
@@ -174,6 +224,14 @@ func TestSecurityProgramLibrary(t *testing.T) {
 				if got := len(targets); got != want {
 					t.Fatalf("importable scan target count = %d, want %d", got, want)
 				}
+				if expected, ok := expectedWalletRepositoryTargets[program.Name]; ok {
+					for index, wantTarget := range expected {
+						gotTarget := targets[index]
+						if gotTarget.RepositoryURL != wantTarget.repositoryURL || gotTarget.TargetURL != "" || gotTarget.BaseBranch != wantTarget.baseBranch || gotTarget.ScanName != wantTarget.scanName {
+							t.Errorf("scanTargets[%d] source boundary = repository %q, target %q, branch %q, scan %q; want repository %q, no target URL, branch %q, scan %q", index, gotTarget.RepositoryURL, gotTarget.TargetURL, gotTarget.BaseBranch, gotTarget.ScanName, wantTarget.repositoryURL, wantTarget.baseBranch, wantTarget.scanName)
+						}
+					}
+				}
 				for index, target := range targets {
 					candidate := target.TargetURL
 					if target.RepositoryURL != "" {
@@ -189,8 +247,12 @@ func TestSecurityProgramLibrary(t *testing.T) {
 						if target.BaseBranch == "" {
 							t.Errorf("scanTargets[%d] repository has no verified default branch", index)
 						}
-						if target.WorkflowRef != "default-deep-scan" || target.PolicyPackRef != "bug-bounty" {
-							t.Errorf("scanTargets[%d] repository uses workflow/policy %q/%q", index, target.WorkflowRef, target.PolicyPackRef)
+						wantWorkflow := expectedCatalogTargetWorkflows[program.Name]
+						if wantWorkflow == "" {
+							wantWorkflow = "default-deep-scan"
+						}
+						if target.WorkflowRef != wantWorkflow || target.PolicyPackRef != "bug-bounty" {
+							t.Errorf("scanTargets[%d] repository uses workflow/policy %q/%q, want %q/bug-bounty", index, target.WorkflowRef, target.PolicyPackRef, wantWorkflow)
 						}
 						continue
 					}

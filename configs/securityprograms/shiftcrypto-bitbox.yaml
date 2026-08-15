@@ -1,0 +1,59 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: shiftcrypto-bitbox
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/BitBoxSwiss/bitbox02-firmware
+      baseBranch: master
+      workflowRef: wallet-security-review
+      policyPackRef: bug-bounty
+      scanName: bitbox02-firmware
+      displayName: BitBox02 firmware
+      priority: 5002
+      featured: true
+    - repositoryURL: https://github.com/BitBoxSwiss/bitbox-wallet-app
+      baseBranch: master
+      workflowRef: wallet-security-review
+      policyPackRef: bug-bounty
+      scanName: bitbox-wallet-app
+      displayName: BitBoxApp desktop and mobile
+      priority: 5003
+      featured: true
+  provider: Shift Crypto
+  displayName: BitBox Bug Bounty
+  programURL: https://bitbox.swiss/policies/bug-bounty-policy/
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Official Shift Crypto bug bounty policy snapshot verified 2026-08-15; policy updated 16 July 2026.
+
+    Main areas eligible for rewards
+    - Official code implementations in production that Shift Crypto maintains and makes available in the BitBox GitHub organization
+    - All Shift Crypto hardware
+    - Information that significantly improves product security or customer privacy
+
+    The production source repositories imported by this record are:
+    - https://github.com/BitBoxSwiss/bitbox02-firmware (master), firmware for the currently sold BitBox02 hardware wallet
+    - https://github.com/BitBoxSwiss/bitbox-wallet-app (master), BitBoxApp for desktop and mobile
+
+    Reports must include code or a proof of concept sufficient to reproduce the vulnerability, a description, and optional attribution details. Sensitive reports are submitted to the Shift Crypto security team using the published PGP key.
+
+    Rewards are based on severity at a level Shift Crypto considers reasonable; no fixed public reward table is promised. A reward is normally granted after incident response is completed and relevant fixes are released.
+
+    Importable target boundary
+    Only the two exact maintained production repositories above are imported. Findings must be matched to a currently sold product and released production artifact before reporting; default-branch, beta, or unreleased code alone does not establish eligibility.
+  outOfScope:
+    - Websites and third-party services
+    - Products or services not yet sold or offered, including beta devices, unless Shift Crypto decides otherwise
+    - Products and services no longer offered after end of sale, unless Shift Crypto decides otherwise
+    - Publicly reported issues and issues already known to Shift Crypto
+    - Denial of service and issues that only crash a device or application
+  prohibitedTesting:
+    - Do not exploit vulnerabilities against Shift Crypto or another user's wallet or node
+    - Do not perform denial of service, social engineering, or physical or electronic attacks against company property
+    - Do not release user data or private Shift Crypto data
+    - Use researcher-owned devices, wallets, accounts, funds, and data for every proof
+    - Submit sensitive details through the published encrypted disclosure channel and coordinate remediation before disclosure

@@ -1,0 +1,53 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-enkrypt-wallet
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/enkryptcom/enKrypt
+      baseBranch: main
+      workflowRef: wallet-security-review
+      policyPackRef: bug-bounty
+      scanName: enkrypt-wallet
+      displayName: Enkrypt browser wallet
+      priority: 5000
+      featured: true
+  provider: HackenProof
+  displayName: Enkrypt Wallet
+  programURL: https://hackenproof.com/programs/enkrypt-wallet
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-15.
+
+    Live Program is active now.
+    Range of bounty: $350 - $3,000.
+
+    In scope targets
+    - Enkrypt Chrome extension (Critical)
+    - https://github.com/enkryptcom/enKrypt (Code, Critical)
+
+    The repository is the open-source non-custodial Enkrypt browser wallet for Ethereum, Bitcoin, Polkadot, and other Web3 networks. GitHub reported main as its default branch on the verification date.
+
+    In-scope vulnerabilities
+    Business logic and payment manipulation; remote code execution; injection; file inclusion; access-control issues; sensitive-information leakage; SSRF; CSRF; XSS; directory traversal; and other vulnerabilities with a clear potential for loss.
+
+    Test Plan
+    Create a new wallet using Enkrypt's native flow. Do not recover a wallet using a mnemonic phrase created by another wallet.
+
+    Importable target boundary
+    Only the exact repository named by the bounty is imported. www.enkrypt.com is explicitly out of scope and is not a scan target.
+  outOfScope:
+    - www.enkrypt.com
+    - Attacks requiring MITM, physical access, a jailbroken environment, or developer-level device debugging
+    - Known vulnerable libraries without a working proof of concept
+    - Denial of service, crashes without security impact, best-practice-only findings, and outdated browsers
+    - Public blockchain data stored unencrypted and third-party sites unless they lead to an application vulnerability
+    - Known bugs listed by the program
+  prohibitedTesting:
+    - Interact only with accounts, wallets, data, devices, and funds you own or have explicit permission to use
+    - Do not socially engineer, phish, violate privacy, destroy data, interrupt service, or perform denial of service
+    - Use a newly created unfunded wallet; do not import an existing wallet mnemonic for testing
+    - Keep the program and all vulnerabilities private unless MyEtherWallet expressly consents to disclosure
