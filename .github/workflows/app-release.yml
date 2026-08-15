@@ -164,18 +164,22 @@ jobs:
           if [ "${rebuild}" = "false" ]; then
             source_image="${IMAGE}:${BEFORE_SHA}"
             manifest="${RUNNER_TEMP}/security-tools-manifest.json"
-            if ! docker buildx imagetools inspect --format '{{json .Manifest}}' "${source_image}" > "${manifest}"; then
+            if ! source_digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${source_image}")"; then
               echo "${source_image} does not exist; rebuilding"
               rebuild=true
+            elif [[ ! "${source_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "${source_image} returned an invalid descriptor digest; rebuilding"
+              rebuild=true
+            elif ! docker buildx imagetools inspect --raw "${source_image}" > "${manifest}"; then
+              echo "${source_image} manifest could not be read; rebuilding"
+              rebuild=true
             elif ! jq -e '
-              (.digest | test("^sha256:[0-9a-f]{64}$")) and
               (.manifests | any(.platform.os == "linux" and .platform.architecture == "amd64")) and
               (.manifests | any(.platform.os == "linux" and .platform.architecture == "arm64"))
             ' "${manifest}" > /dev/null; then
               echo "${source_image} is not a valid linux/amd64 and linux/arm64 image; rebuilding"
               rebuild=true
             else
-              source_digest="$(jq -r '.digest' "${manifest}")"
               echo "source-digest=${source_digest}" | tee -a "${GITHUB_OUTPUT}"
             fi
           fi
@@ -262,7 +266,7 @@ jobs:
           # SHA and version tags are immutable release records. A rerun may
           # reuse an identical tag, but must not silently replace another image.
           for tag in "${immutable_tags[@]}"; do
-            if actual="$(docker buildx imagetools inspect --format '{{json .Manifest}}' "${image}:${tag}" 2> /dev/null | jq -r '.digest')" &&
+            if actual="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${image}:${tag}" 2> /dev/null)" &&
                [ -n "${actual}" ] && [ "${actual}" != "${SOURCE_DIGEST}" ]; then
               echo "::error::Refusing to replace ${image}:${tag} (${actual}) with ${SOURCE_DIGEST}"
               exit 1
@@ -273,7 +277,7 @@ jobs:
 
           expected="${SOURCE_DIGEST}"
           for tag in "${verify_tags[@]}"; do
-            actual="$(docker buildx imagetools inspect --format '{{json .Manifest}}' "${image}:${tag}" | jq -r '.digest')"
+            actual="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${image}:${tag}")"
             if [ "${actual}" != "${expected}" ]; then
               echo "::error::${image}:${tag} resolved to ${actual}, expected ${expected}"
               exit 1
