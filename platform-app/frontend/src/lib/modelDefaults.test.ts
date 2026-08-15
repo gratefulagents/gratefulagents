@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { applyModelDefaults, hasActiveModelDefaults } from "@/lib/modelDefaults";
 import { ModelDefaultsSchema } from "@/rpc/platform/service_pb";
 
-const fallback = { provider: "anthropic", model: "", reasoningLevel: "" };
+const fallback = { provider: "anthropic", authMode: "", model: "", reasoningLevel: "" };
 
 describe("applyModelDefaults", () => {
   it("returns the fallback for null defaults", () => {
@@ -39,16 +39,18 @@ describe("applyModelDefaults", () => {
       applyModelDefaults(
         create(ModelDefaultsSchema, {
           provider: " openai ",
+          authMode: " oauth ",
           model: " gpt-5 ",
           reasoningLevel: "high",
         }),
       ),
-    ).toEqual({ provider: "openai", model: "gpt-5", reasoningLevel: "high" });
+    ).toEqual({ provider: "openai", authMode: "oauth", model: "gpt-5", reasoningLevel: "high" });
   });
 
   it("falls back to anthropic when only a model is saved", () => {
     expect(applyModelDefaults(create(ModelDefaultsSchema, { model: "claude-opus-4-6" }))).toEqual({
       provider: "anthropic",
+      authMode: "",
       model: "claude-opus-4-6",
       reasoningLevel: "",
     });

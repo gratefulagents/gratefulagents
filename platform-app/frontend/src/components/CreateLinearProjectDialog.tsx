@@ -41,10 +41,13 @@ export function CreateLinearProjectDialog({
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [authModeTouched, setAuthModeTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const set = <K extends keyof LinearCreateValues>(key: K, value: LinearCreateValues[K]) =>
+  const set = <K extends keyof LinearCreateValues>(key: K, value: LinearCreateValues[K]) => {
+    if (key === "authMode") setAuthModeTouched(true);
     setForm((current) => ({ ...current, [key]: value }));
+  };
   const effectiveAuthMode = form.provider === "copilot" ? "oauth" : form.authMode;
 
   const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(open);
@@ -56,16 +59,17 @@ export function CreateLinearProjectDialog({
     const seeded = applyModelDefaults(myModelDefaults);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
     setForm((current) =>
-      current.provider === "anthropic" && !current.model
+      current.provider === "anthropic" && !current.model && !authModeTouched
         ? {
             ...current,
             provider: seeded.provider,
             model: seeded.model,
-            authMode: seeded.provider === "copilot" ? "oauth" : current.authMode,
+            authMode:
+              seeded.provider === "copilot" ? "oauth" : seeded.authMode || current.authMode,
           }
         : current,
     );
-  }, [open, modelDefaultsLoaded, myModelDefaults]);
+  }, [open, modelDefaultsLoaded, myModelDefaults, authModeTouched]);
 
   useEffect(() => {
     if (!open) return;
@@ -127,6 +131,7 @@ export function CreateLinearProjectDialog({
       const project = await client.createLinearProject(buildLinearCreateRequest(form));
       setOpen(false);
       setForm(initialLinearCreateValues);
+      setAuthModeTouched(false);
       onCreated?.();
       navigate(`/linear/${project.namespace}/${project.name}`);
     } catch (cause) {

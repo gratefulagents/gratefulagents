@@ -100,20 +100,21 @@ func TestUpdateMyModelDefaultsRoundTrip(t *testing.T) {
 
 	resp, err := srv.UpdateMyModelDefaults(ctx, &platform.UpdateMyModelDefaultsRequest{
 		Provider:       " Anthropic ",
+		AuthMode:       new(" OAUTH "),
 		Model:          "  claude-sonnet-4-6  ",
 		ReasoningLevel: " HIGH ",
 	})
 	if err != nil {
 		t.Fatalf("UpdateMyModelDefaults() error = %v", err)
 	}
-	if resp.GetProvider() != "anthropic" || resp.GetModel() != "claude-sonnet-4-6" || resp.GetReasoningLevel() != "high" {
+	if resp.GetProvider() != "anthropic" || resp.GetAuthMode() != "oauth" || resp.GetModel() != "claude-sonnet-4-6" || resp.GetReasoningLevel() != "high" {
 		t.Fatalf("defaults = %+v, want trimmed/normalized values", resp)
 	}
 	got, err := srv.GetMyModelDefaults(ctx, &platform.GetMyModelDefaultsRequest{})
 	if err != nil {
 		t.Fatalf("GetMyModelDefaults() error = %v", err)
 	}
-	if got.GetProvider() != "anthropic" || got.GetModel() != "claude-sonnet-4-6" || got.GetReasoningLevel() != "high" || got.GetDisabled() {
+	if got.GetProvider() != "anthropic" || got.GetAuthMode() != "oauth" || got.GetModel() != "claude-sonnet-4-6" || got.GetReasoningLevel() != "high" || got.GetDisabled() {
 		t.Fatalf("round-trip defaults = %+v", got)
 	}
 }
@@ -130,6 +131,25 @@ func TestUpdateMyModelDefaultsProviderOnlyAndReasoningOnly(t *testing.T) {
 	}
 }
 
+func TestUpdateMyModelDefaultsLegacyClientPreservesAuthMode(t *testing.T) {
+	store := &modelDefaultsFakeStore{defaults: &auth.UserModelDefaults{
+		UserID: "user-1", Provider: "openai", AuthMode: "oauth", Model: "gpt-5",
+	}}
+	srv := &Server{authStore: store}
+
+	// AuthMode is deliberately absent, as it is for clients generated before
+	// the field was added.
+	got, err := srv.UpdateMyModelDefaults(modelDefaultsActorContext("user-1"), &platform.UpdateMyModelDefaultsRequest{
+		Provider: "openai", Model: "gpt-5-mini", ReasoningLevel: "low",
+	})
+	if err != nil {
+		t.Fatalf("UpdateMyModelDefaults() error = %v", err)
+	}
+	if got.GetAuthMode() != "oauth" {
+		t.Fatalf("auth mode = %q, want preserved oauth", got.GetAuthMode())
+	}
+}
+
 func TestUpdateMyModelDefaultsValidation(t *testing.T) {
 	srv := &Server{authStore: &modelDefaultsFakeStore{}}
 	ctx := modelDefaultsActorContext("user-1")
@@ -139,6 +159,10 @@ func TestUpdateMyModelDefaultsValidation(t *testing.T) {
 		req  *platform.UpdateMyModelDefaultsRequest
 	}{
 		{"invalid provider", &platform.UpdateMyModelDefaultsRequest{Provider: "totallyfake", Model: "m"}},
+		{"invalid auth mode", &platform.UpdateMyModelDefaultsRequest{Provider: "openai", AuthMode: new("password")}},
+		{"auth mode without provider", &platform.UpdateMyModelDefaultsRequest{AuthMode: new("oauth")}},
+		{"copilot api key", &platform.UpdateMyModelDefaultsRequest{Provider: "copilot", AuthMode: new("api-key")}},
+		{"openrouter oauth", &platform.UpdateMyModelDefaultsRequest{Provider: "openrouter", AuthMode: new("oauth")}},
 		{"invalid reasoning level", &platform.UpdateMyModelDefaultsRequest{Provider: "openai", ReasoningLevel: "ultra"}},
 		{"model without provider", &platform.UpdateMyModelDefaultsRequest{Model: "gpt-5.2"}},
 	}

@@ -81,12 +81,13 @@ type UserRoleModelPreference struct {
 	UpdatedAt      time.Time
 }
 
-// UserModelDefaults is a user's personal default provider/model/reasoning
-// level. Disabled keeps the saved values but tells clients not to auto-apply
-// them.
+// UserModelDefaults is a user's personal default provider/auth mode/model/
+// reasoning level. Disabled keeps the saved values but tells clients not to
+// auto-apply them.
 type UserModelDefaults struct {
 	UserID         string
 	Provider       string
+	AuthMode       string
 	Model          string
 	ReasoningLevel string
 	Disabled       bool
@@ -395,9 +396,9 @@ func (s *PGStore) UpsertUserGitIdentity(ctx context.Context, identity *UserGitId
 func (s *PGStore) GetUserModelDefaults(ctx context.Context, userID string) (*UserModelDefaults, error) {
 	var defaults UserModelDefaults
 	err := s.pool.QueryRow(ctx, `
-		SELECT user_id, provider, model, reasoning_level, disabled, updated_at
+		SELECT user_id, provider, auth_mode, model, reasoning_level, disabled, updated_at
 		FROM auth_user_model_defaults WHERE user_id = $1`, userID).
-		Scan(&defaults.UserID, &defaults.Provider, &defaults.Model, &defaults.ReasoningLevel, &defaults.Disabled, &defaults.UpdatedAt)
+		Scan(&defaults.UserID, &defaults.Provider, &defaults.AuthMode, &defaults.Model, &defaults.ReasoningLevel, &defaults.Disabled, &defaults.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -410,17 +411,18 @@ func (s *PGStore) GetUserModelDefaults(ctx context.Context, userID string) (*Use
 func (s *PGStore) UpsertUserModelDefaults(ctx context.Context, defaults *UserModelDefaults) (*UserModelDefaults, error) {
 	var out UserModelDefaults
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO auth_user_model_defaults (user_id, provider, model, reasoning_level, disabled)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO auth_user_model_defaults (user_id, provider, auth_mode, model, reasoning_level, disabled)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (user_id) DO UPDATE SET
 			provider = EXCLUDED.provider,
+			auth_mode = EXCLUDED.auth_mode,
 			model = EXCLUDED.model,
 			reasoning_level = EXCLUDED.reasoning_level,
 			disabled = EXCLUDED.disabled,
 			updated_at = now()
-		RETURNING user_id, provider, model, reasoning_level, disabled, updated_at`,
-		defaults.UserID, defaults.Provider, defaults.Model, defaults.ReasoningLevel, defaults.Disabled).
-		Scan(&out.UserID, &out.Provider, &out.Model, &out.ReasoningLevel, &out.Disabled, &out.UpdatedAt)
+		RETURNING user_id, provider, auth_mode, model, reasoning_level, disabled, updated_at`,
+		defaults.UserID, defaults.Provider, defaults.AuthMode, defaults.Model, defaults.ReasoningLevel, defaults.Disabled).
+		Scan(&out.UserID, &out.Provider, &out.AuthMode, &out.Model, &out.ReasoningLevel, &out.Disabled, &out.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("upserting user model defaults: %w", err)
 	}

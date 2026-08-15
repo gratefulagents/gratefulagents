@@ -85,6 +85,17 @@ function pickAuthMode(p: CredentialPresence, provider: string): "api-key" | "oau
   return "api-key";
 }
 
+function authModeAvailable(
+  p: CredentialPresence,
+  provider: string,
+  mode: "api-key" | "oauth",
+): boolean {
+  if (provider === "copilot") return mode === "oauth" && p.copilotOauth;
+  if (provider === "anthropic") return mode === "oauth" ? p.anthropicOauth : p.anthropicApiKey;
+  if (provider === "openai") return mode === "oauth" ? p.openaiOauth : p.openaiApiKey;
+  return mode === "api-key" && provider === "openrouter" && p.openrouterApiKey;
+}
+
 export function OnboardingWizard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -282,6 +293,7 @@ export function OnboardingWizard() {
             <ModelDefaultsStep
               key={modelDefaultsLoaded ? "loaded" : "loading"}
               defaults={myModelDefaults}
+              presence={presence}
               saved={modelDefaultsDone}
               onSaved={applyModelDefaultsResponse}
             />
@@ -799,19 +811,43 @@ function GitIdentityStep({
 
 function ModelDefaultsStep({
   defaults,
+  presence,
   saved,
   onSaved,
 }: {
   defaults: ModelDefaults | null;
+  presence: CredentialPresence;
   saved: boolean;
   onSaved: (defaults: ModelDefaults) => void;
 }) {
   const [provider, setProvider] = useState(defaults?.provider || "anthropic");
+  const [authMode, setAuthMode] = useState<"api-key" | "oauth">(
+    defaults?.authMode === "oauth"
+      ? "oauth"
+      : pickAuthMode(presence, defaults?.provider || "anthropic"),
+  );
   const [model, setModel] = useState(defaults?.model ?? "");
   const [reasoningLevel, setReasoningLevel] = useState(defaults?.reasoningLevel ?? "");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const credentialReady = authModeAvailable(
+    presence,
+    provider,
+    provider === "copilot" ? "oauth" : authMode,
+  );
+
+  useEffect(() => {
+    const availableProviders = PROVIDERS.filter((candidate) => savedAvailable(presence, candidate.id));
+    const nextProvider = savedAvailable(presence, provider)
+      ? provider
+      : availableProviders[0]?.id ?? "";
+    if (nextProvider === provider && authModeAvailable(presence, provider, authMode)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reconcile defaults after credential presence loads or changes
+    setProvider(nextProvider);
+    setAuthMode(pickAuthMode(presence, nextProvider));
+    if (nextProvider !== provider) setModel("");
+  }, [presence, provider, authMode]);
 
   async function save() {
     setSaving(true);
@@ -821,6 +857,7 @@ function ModelDefaultsStep({
       onSaved(
         await client.updateMyModelDefaults({
           provider,
+          authMode: provider === "copilot" ? "oauth" : authMode,
           model: model.trim(),
           reasoningLevel,
           disabled: false,
@@ -850,15 +887,42 @@ function ModelDefaultsStep({
       <div>
         <Label className="mb-1.5 block text-[12.5px]">Provider</Label>
         <div className="flex flex-wrap gap-1.5">
-          {PROVIDERS.map((p) => (
-            <Chip key={p.id} selected={provider === p.id} onSelect={() => setProvider(p.id)}>
+          {PROVIDERS.filter((p) => savedAvailable(presence, p.id)).map((p) => (
+            <Chip
+              key={p.id}
+              selected={provider === p.id}
+              onSelect={() => {
+                if (p.id !== provider) setModel("");
+                setProvider(p.id);
+                setAuthMode(pickAuthMode(presence, p.id));
+              }}
+            >
               {p.name}
             </Chip>
           ))}
         </div>
       </div>
 
-      <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
+      <div className="grid gap-x-4 gap-y-4 sm:grid-cols-3">
+        <div>
+          <Label htmlFor="onboarding-default-auth-mode" className="mb-1.5 block text-[12.5px]">
+            Authentication mode
+          </Label>
+          <select
+            id="onboarding-default-auth-mode"
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            value={provider === "copilot" ? "oauth" : authMode}
+            onChange={(e) => setAuthMode(e.target.value as "api-key" | "oauth")}
+            disabled={provider === "copilot"}
+          >
+            {(provider === "anthropic" ? presence.anthropicApiKey : provider === "openai" ? presence.openaiApiKey : provider !== "copilot") && (
+              <option value="api-key">API key</option>
+            )}
+            {(provider === "anthropic" ? presence.anthropicOauth : provider === "openai" ? presence.openaiOauth : provider === "copilot") && (
+              <option value="oauth">OAuth</option>
+            )}
+          </select>
+        </div>
         <div>
           <Label htmlFor="onboarding-default-model" className="mb-1.5 block text-[12.5px]">
             Model
@@ -890,7 +954,7 @@ function ModelDefaultsStep({
       </div>
 
       <div className="flex items-center gap-3">
-        <Button size="sm" onClick={() => void save()} disabled={saving}>
+        <Button size="sm" onClick={() => void save()} disabled={saving || !credentialReady}>
           {saving && <Loader2 className="animate-spin" data-icon="inline-start" />}
           {saving ? "Saving…" : "Save default model"}
         </Button>

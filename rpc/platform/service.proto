@@ -1984,9 +1984,9 @@ message UpdateMyRoleModelPreferencesRequest {
   repeated RoleModelPreference preferences = 1;
 }
 
-// ModelDefaults contains the calling user's personal default provider, model,
-// and reasoning level. Creation surfaces use it to prefill new projects,
-// triggers, and scan configs (not runs, which follow their project) so the
+// ModelDefaults contains the calling user's personal default provider, auth
+// mode, model, and reasoning level. Creation surfaces use it to prefill new
+// projects, triggers, and scan configs (not runs, which follow their project) so the
 // user does not have to pick a model every time; every field stays editable
 // per resource. `disabled` keeps the saved values but stops applying them
 // automatically.
@@ -2000,6 +2000,8 @@ message ModelDefaults {
   bool disabled = 4;
   // updated_at is unset when the user has never saved model defaults.
   google.protobuf.Timestamp updated_at = 5;
+  // auth_mode selects which saved provider credential to use (api-key | oauth).
+  string auth_mode = 6;
 }
 
 message GetMyModelDefaultsRequest {}
@@ -2011,6 +2013,9 @@ message UpdateMyModelDefaultsRequest {
   string model = 2;
   string reasoning_level = 3;
   bool disabled = 4;
+  // Optional for rolling compatibility: omitted by older clients preserves an
+  // existing auth mode; an explicitly empty value clears it.
+  optional string auth_mode = 5; // api-key | oauth
 }
 
 // GitIdentity contains a user's git commit settings. When set, AgentRuns the

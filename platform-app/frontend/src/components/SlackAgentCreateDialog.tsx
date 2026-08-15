@@ -69,6 +69,7 @@ export function SlackAgentCreateDialog({
   const [model, setModel] = useState("");
   const [reasoningLevel, setReasoningLevel] = useState("");
   const [authMode, setAuthMode] = useState("api-key");
+  const [authModeTouched, setAuthModeTouched] = useState(false);
   const [useSaved, setUseSaved] = useState(true);
   const [apiKey, setApiKey] = useState("");
   const [githubToken, setGithubToken] = useState("");
@@ -84,15 +85,16 @@ export function SlackAgentCreateDialog({
   // Seed the untouched model fields once from the user's saved model defaults.
   useEffect(() => {
     if (!open || !modelDefaultsLoaded) return;
-    if (provider !== "anthropic" || model.trim() || reasoningLevel) return;
+    if (provider !== "anthropic" || model.trim() || reasoningLevel || authModeTouched) return;
     const seeded = applyModelDefaults(myModelDefaults);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
     setProvider(seeded.provider);
+    setAuthMode(seeded.provider === "copilot" ? "oauth" : seeded.authMode || authMode);
     setModel(seeded.model);
     setReasoningLevel(seeded.reasoningLevel);
     // Only run while the fields still hold their initial values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, modelDefaultsLoaded, myModelDefaults]);
+  }, [open, modelDefaultsLoaded, myModelDefaults, authModeTouched]);
 
   useEffect(() => {
     if (!open || !namespace) return;
@@ -130,6 +132,7 @@ export function SlackAgentCreateDialog({
     setProvider("anthropic");
     setModel("");
     setAuthMode("api-key");
+    setAuthModeTouched(false);
     setUseSaved(true);
     setApiKey("");
     setGithubToken("");
@@ -418,7 +421,10 @@ export function SlackAgentCreateDialog({
                   <Segmented
                     aria-label="Auth mode"
                     value={authMode === "oauth" ? "oauth" : "api-key"}
-                    onChange={setAuthMode}
+                    onChange={(value) => {
+                      setAuthModeTouched(true);
+                      setAuthMode(value);
+                    }}
                     options={[
                       { value: "api-key", label: "api-key" },
                       { value: "oauth", label: "oauth" },

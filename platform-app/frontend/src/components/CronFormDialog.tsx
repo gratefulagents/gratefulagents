@@ -112,9 +112,10 @@ export function CronFormDialog({
     const seeded = applyModelDefaults(myModelDefaults);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
     setDefaults((prev) => {
-      if (prev.provider || prev.model || prev.reasoningLevel) return prev;
+      if (prev.provider || prev.authMode || prev.model || prev.reasoningLevel) return prev;
       const next = clone(AgentRunDefaultsSchema, prev);
       next.provider = seeded.provider;
+      next.authMode = seeded.provider === "copilot" ? "oauth" : seeded.authMode;
       next.model = seeded.model;
       next.reasoningLevel = seeded.reasoningLevel;
       return next;
