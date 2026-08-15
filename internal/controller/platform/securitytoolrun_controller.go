@@ -475,6 +475,10 @@ func securityToolRunJob(run *platformv1alpha1.SecurityToolRun, tool securitytool
 	backoffLimit := int32(0)
 	ttl := securityToolsJobTTLSeconds()
 	deadline := int64((tool.Budgets.Timeout + securityToolsDeadlineSlack).Seconds())
+	var nodeSelector map[string]string
+	if tool.Name == "medusa" {
+		nodeSelector = map[string]string{corev1.LabelArchStable: "amd64"}
+	}
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            securityToolRunJobName(run.Name),
@@ -491,6 +495,7 @@ func securityToolRunJob(run *platformv1alpha1.SecurityToolRun, tool securitytool
 			ActiveDeadlineSeconds:   &deadline,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
+					NodeSelector:                 nodeSelector,
 					RestartPolicy:                corev1.RestartPolicyNever,
 					AutomountServiceAccountToken: new(false),
 					Containers: []corev1.Container{{

@@ -88,6 +88,9 @@ func TestValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultRegistry() error = %v", err)
 	}
+	if medusa, ok := registry.Tool("medusa"); !ok || !medusa.Enabled {
+		t.Fatalf("control-plane registry must admit amd64-scheduled Medusa: %+v", medusa)
+	}
 	config, err := RunConfigFor(baseSpec())
 	if err != nil {
 		t.Fatalf("RunConfigFor() error = %v", err)

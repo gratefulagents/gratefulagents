@@ -806,7 +806,14 @@ func validatePortList(value string) (int, error) {
 // The reviewed Nuclei knowledge pin is compiled in; other optional knowledge
 // sources must be provided by trusted controller configuration.
 func DefaultManifest(imageDigest string, knowledgeDigests map[string]string) Manifest {
-	return defaultManifestForArch(imageDigest, knowledgeDigests, runtime.GOARCH)
+	return DefaultManifestForArchitecture(imageDigest, knowledgeDigests, runtime.GOARCH)
+}
+
+// DefaultManifestForArchitecture builds the registry for a known execution
+// architecture. Control-plane validation uses the architecture selected on the
+// Job, while ga-security uses DefaultManifest for its actual runtime.
+func DefaultManifestForArchitecture(imageDigest string, knowledgeDigests map[string]string, arch string) Manifest {
+	return defaultManifestForArch(imageDigest, knowledgeDigests, arch)
 }
 
 func defaultManifestForArch(imageDigest string, knowledgeDigests map[string]string, arch string) Manifest {

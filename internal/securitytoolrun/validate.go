@@ -32,7 +32,12 @@ const validationImageDigest = "sha256:000000000000000000000000000000000000000000
 // DefaultRegistry builds the compiled tool registry used for control-plane
 // validation of SecurityToolRun requests.
 func DefaultRegistry() (*securitytoolpacks.Registry, error) {
-	return securitytoolpacks.NewRegistry(securitytoolpacks.DefaultManifest(validationImageDigest, nil))
+	// Medusa is an amd64-only execution pack. The controller pins its Job to an
+	// amd64 node; validation must therefore describe that worker architecture,
+	// not the architecture running the controller process.
+	return securitytoolpacks.NewRegistry(
+		securitytoolpacks.DefaultManifestForArchitecture(validationImageDigest, nil, "amd64"),
+	)
 }
 
 // RunConfigFor converts an immutable SecurityToolRun spec into the typed
