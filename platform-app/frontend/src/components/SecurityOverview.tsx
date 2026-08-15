@@ -458,7 +458,16 @@ export function SecurityOverview() {
     reopened: overview?.reopenedFindings ?? 0,
     resolved: overview?.resolvedFindings ?? 0,
   };
-  const lens = { repo: values.repo, range: values.range };
+  // Two link contexts, deliberately different:
+  //  * `lens` is what the user is looking at (search + repository + range) and
+  //    is forwarded by navigational links, so "View all runs" opens the list
+  //    that explains the rows above it.
+  //  * posture counts come from the server and cover every repository and time
+  //    range, so their links stay unfiltered. Carrying the lens there produced
+  //    the worst outcome: a server-wide "Critical 2" opening an empty filtered
+  //    list. The counts say what they cover instead.
+  const lens = { q: values.q, repo: values.repo, range: values.range };
+  const postureHref = (params: Record<string, string> = {}) => runsHref(params);
   const latestRun = recentScans[0];
   // Without baseline data the "new" view has nothing to show, so the tile
   // falls back to the run it would have compared against.
@@ -467,6 +476,9 @@ export function SecurityOverview() {
     : runsHref(lens);
 
   const filtersActive = activeCount() > 0;
+  // The repository/range lens narrows the scan tables but not the server-side
+  // finding counters, so the difference has to be stated when one is on.
+  const postureIsBroaderThanView = values.repo !== "all" || values.range !== "all" || values.q !== "";
   const hasScans = activeScans.length > 0 || recentScans.length > 0;
   const skillsTone: StatusTone = skillsError
     ? "warning"
@@ -602,6 +614,14 @@ export function SecurityOverview() {
               <h2 id="security-posture-heading" className="sr-only">
                 Security posture
               </h2>
+              {/* Say it out loud when the page is filtered: the scan tables
+                  below honour the lens, these aggregate counts do not. */}
+              {postureIsBroaderThanView && (
+                <p className="text-[11.5px] text-muted-foreground" data-testid="posture-scope-note">
+                  Finding counts cover every repository and time range. The scan
+                  lists below follow the filters above.
+                </p>
+              )}
               {/* Row one is what someone has to act on today. */}
               <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                 {RISK_SEVERITIES.map((severity) => (
@@ -611,7 +631,7 @@ export function SecurityOverview() {
                     value={severityValue(counts, severity)}
                     tone={SEVERITY_TONE[severity]}
                     hint={`${severity} findings`}
-                    to={runsHref({ ...lens, severity })}
+                    to={postureHref({ severity })}
                   />
                 ))}
                 <RiskTile
@@ -637,7 +657,7 @@ export function SecurityOverview() {
                   <MetricLink
                     label="Actionable findings"
                     value={actionableTotal(counts)}
-                    to={runsHref(lens)}
+                    to={postureHref()}
                   />
                   <span aria-hidden className="px-1 text-muted-foreground/60">
                     =
@@ -652,7 +672,7 @@ export function SecurityOverview() {
                       <SeverityTerm
                         severity={severity}
                         value={severityValue(counts, severity)}
-                        to={runsHref({ ...lens, severity })}
+                        to={postureHref({ severity })}
                       />
                     </Fragment>
                   ))}
@@ -662,7 +682,7 @@ export function SecurityOverview() {
                     label="Total findings"
                     value={counts["total"] ?? 0}
                     hint="including triaged and resolved"
-                    to={runsHref(lens)}
+                    to={postureHref()}
                   />
                   <span aria-hidden className="text-muted-foreground/40">
                     ·

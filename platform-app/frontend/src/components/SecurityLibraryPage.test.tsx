@@ -183,9 +183,14 @@ function LocationProbe() {
 
 /** Destructive row actions live behind the row's overflow menu. */
 async function deleteFromRowMenu(name: string) {
-  fireEvent.click(screen.getByRole("button", { name: `More actions for ${name}` }));
+  // Base UI menus open on pointer events; clicking alone can land before the
+  // trigger is wired up, so drive the full sequence and wait for the item.
+  const trigger = screen.getByRole("button", { name: `More actions for ${name}` });
+  fireEvent.pointerDown(trigger, { pointerType: "mouse", button: 0 });
+  fireEvent.pointerUp(trigger, { pointerType: "mouse", button: 0 });
+  fireEvent.click(trigger);
   await screen.findByRole("menu");
-  fireEvent.click(screen.getByRole("menuitem", { name: /Delete/ }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: /Delete/ }));
 }
 
 function renderPage(path = "/security/library") {

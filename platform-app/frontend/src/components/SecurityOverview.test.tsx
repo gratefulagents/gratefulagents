@@ -197,15 +197,14 @@ describe("SecurityOverview", () => {
     expect(href("Info findings: 0")).toBe("/security/runs?severity=info");
   });
 
-  it("carries the active range and repository filters into tile links", async () => {
+  it("carries the active lens into the links whose counts it explains", async () => {
     getSecurityOverview.mockResolvedValue(overviewFixture());
 
     renderOverview("/security?range=7d&repo=acme%2Fpayments");
 
     expect(await screen.findByRole("link", { name: "Critical: 2" })).toBeTruthy();
-    expect(href("Critical: 2")).toBe(
-      "/security/runs?repo=acme%2Fpayments&range=7d&severity=critical",
-    );
+    // The active-scan tile counts the rows the lens leaves visible, so its link
+    // has to reproduce exactly that view.
     expect(href("Active scans: 1")).toBe(
       "/security/runs?repo=acme%2Fpayments&range=7d&status=running",
     );
@@ -214,6 +213,42 @@ describe("SecurityOverview", () => {
     // The filters are applied to the rendered rows, not just the links.
     expect(screen.getByRole("link", { name: "nightly-1" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "weekly-9" })).toBeNull();
+  });
+
+  it("keeps server-wide posture counts on unfiltered links and says so", async () => {
+    getSecurityOverview.mockResolvedValue(overviewFixture());
+
+    renderOverview("/security?range=7d&repo=acme%2Fpayments");
+
+    // findingCounts is a server-wide aggregate: sending the lens along produced
+    // a "Critical: 2" tile that opened an empty filtered list.
+    expect(await screen.findByRole("link", { name: "Critical: 2" })).toBeTruthy();
+    expect(href("Critical: 2")).toBe("/security/runs?severity=critical");
+    expect(href("Critical findings: 2")).toBe("/security/runs?severity=critical");
+    expect(href("Actionable findings: 3")).toBe("/security/runs");
+    expect(href("Total findings: 9")).toBe("/security/runs");
+    expect(screen.getByTestId("posture-scope-note")).toBeTruthy();
+  });
+
+  it("does not explain the posture scope when nothing is filtered", async () => {
+    getSecurityOverview.mockResolvedValue(overviewFixture());
+
+    renderOverview();
+
+    expect(await screen.findByRole("link", { name: "Critical: 2" })).toBeTruthy();
+    expect(screen.queryByTestId("posture-scope-note")).toBeNull();
+  });
+
+  it("forwards the search term into the run-list links", async () => {
+    getSecurityOverview.mockResolvedValue(overviewFixture());
+
+    renderOverview("/security?q=nightly");
+
+    expect(await screen.findByRole("link", { name: /View all runs/ })).toBeTruthy();
+    // The search narrows the rows above, so the link that offers "all runs"
+    // must open the same narrowed list rather than a broader one.
+    expect(href(/View all runs/)).toBe("/security/runs?q=nightly");
+    expect(href("Active scans: 1")).toBe("/security/runs?q=nightly&status=running");
   });
 
   it("round-trips the time range through the URL", async () => {

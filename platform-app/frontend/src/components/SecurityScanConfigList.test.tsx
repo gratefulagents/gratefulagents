@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 
 import {
   filterScanConfigs,
+  scheduleKind,
   SecurityScanConfigList,
   sortScanConfigs,
 } from "@/components/SecurityScanConfigList";
@@ -128,7 +129,13 @@ async function chooseFilter(label: string, option: RegExp) {
 }
 
 async function openRowMenu(name: string) {
-  fireEvent.click(screen.getByRole("button", { name: `More actions for ${name}` }));
+  // Base UI menus open on pointer events; a bare click sometimes lands before
+  // the trigger is wired up, which made this helper flake. Drive the full
+  // pointer sequence and assert the menu really opened.
+  const trigger = screen.getByRole("button", { name: `More actions for ${name}` });
+  fireEvent.pointerDown(trigger, { pointerType: "mouse", button: 0 });
+  fireEvent.pointerUp(trigger, { pointerType: "mouse", button: 0 });
+  fireEvent.click(trigger);
   await screen.findByRole("menu");
 }
 
@@ -151,6 +158,25 @@ describe("filterScanConfigs", () => {
       lastScanTimeUnix: 0n,
     }),
   ];
+
+  it("separates manual-only targets from one-time runs", () => {
+    // A program-imported target has manualOnly=true and no schedule; bucketing
+    // it under "One-time" made the filter contradict the "Manual only" label
+    // the same row renders.
+    const scheduled = configs;
+    const manual = configFixture({ name: "imported", manualOnly: true, schedule: "" });
+    const all = [...scheduled, manual];
+
+    expect(filterScanConfigs(all, filters({ schedule: "manual" }), now).map((c) => c.name))
+      .toEqual(["imported"]);
+    expect(filterScanConfigs(all, filters({ schedule: "once" }), now).map((c) => c.name))
+      .toEqual(["broken"]);
+    expect(filterScanConfigs(all, filters({ schedule: "recurring" }), now).map((c) => c.name))
+      .toEqual(["ready-critical", "paused"]);
+    expect(scheduleKind(manual)).toBe("manual");
+    expect(scheduleKind(scheduled[2])).toBe("once");
+    expect(scheduleKind(scheduled[0])).toBe("recurring");
+  });
 
   it("filters by status", () => {
     expect(filterScanConfigs(configs, filters({ status: "ready" }), now).map((c) => c.name))
@@ -361,7 +387,7 @@ describe("SecurityScanConfigList", () => {
     // The per-row "View runs" text link was noise on every row; it now lives in
     // the row's overflow menu, still reachable by keyboard and named per row.
     await openRowMenu("nightly scan");
-    const link = screen.getByRole("menuitem", { name: "View runs for nightly scan" });
+    const link = await screen.findByRole("menuitem", { name: "View runs for nightly scan" });
     expect(link.getAttribute("href")).toBe("/security/runs?q=nightly%20scan");
   });
 
@@ -414,16 +440,16 @@ describe("SecurityScanConfigList", () => {
     expect(screen.queryByTestId("duplicate-dialog-nightly")).toBeNull();
 
     await openRowMenu("nightly");
-    fireEvent.click(screen.getByRole("menuitem", { name: /Duplicate/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Duplicate/ }));
     await waitFor(() => expect(screen.getByTestId("duplicate-dialog-nightly")).toBeTruthy());
 
     await openRowMenu("nightly");
-    fireEvent.click(screen.getByRole("menuitem", { name: /Suspend/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Suspend/ }));
     await waitFor(() => expect(updateSecurityScan).toHaveBeenCalledTimes(1));
     expect(updateSecurityScan.mock.calls[0][0].spec.suspend).toBe(true);
 
     await openRowMenu("nightly");
-    fireEvent.click(screen.getByRole("menuitem", { name: /Delete/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Delete/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(deleteSecurityScan).toHaveBeenCalledWith({ namespace: "user-alice", name: "nightly" }),

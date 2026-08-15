@@ -104,8 +104,9 @@ const SCANNED_OPTIONS: FilterOption[] = [
 
 const SCHEDULE_OPTIONS: FilterOption[] = [
   { value: "all", label: "Any schedule" },
-  { value: "once", label: "One-time" },
   { value: "recurring", label: "Recurring" },
+  { value: "once", label: "One-time" },
+  { value: "manual", label: "Manual only" },
 ];
 
 const SORT_OPTIONS = [
@@ -125,6 +126,17 @@ export type ScanConfigFilters = {
 
 function configRepoUrl(config: SecurityScanConfig): string {
   return config.spec?.repoUrl || config.spec?.targetUrl || "";
+}
+
+/**
+ * How the configuration is triggered: "manual" (never runs on its own),
+ * "recurring" (has a cron schedule), or "once" (a single unscheduled run).
+ * The schedule filter and the row label read from this same function so they
+ * can never disagree.
+ */
+export function scheduleKind(config: SecurityScanConfig): "manual" | "recurring" | "once" {
+  if (config.spec?.manualOnly) return "manual";
+  return config.spec?.schedule.trim() ? "recurring" : "once";
 }
 
 /** "@daily UTC", "One-time", or "Manual only" — the schedule in one phrase. */
@@ -173,9 +185,12 @@ export function filterScanConfigs(
       return false;
     }
 
-    const recurring = Boolean(config.spec?.schedule.trim());
-    if (filters.schedule === "once" && recurring) return false;
-    if (filters.schedule === "recurring" && !recurring) return false;
+    // Three distinct kinds, matching what the row actually says: a cron
+    // schedule, a single unscheduled run, and manual-only (program-imported
+    // targets that never run on their own). Treating manual-only as "one-time"
+    // just because its schedule is empty made the filter contradict the
+    // "Manual only" label rendered next to it.
+    if (filters.schedule !== "all" && scheduleKind(config) !== filters.schedule) return false;
 
     const programRef = config.spec?.securityProgramRef ?? "";
     if (filters.program === "none" && programRef) return false;
