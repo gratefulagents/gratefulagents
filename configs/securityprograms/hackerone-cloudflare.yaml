@@ -3,6 +3,51 @@ kind: SecurityProgram
 metadata:
   name: hackerone-cloudflare
 spec:
+  scanTargets:
+    - targetURL: "https://api.cloudflare.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: cloudflare-api
+      displayName: "Cloudflare — API"
+      priority: 3000
+      featured: true
+    - targetURL: "https://cloudflareworkers.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: cloudflare-workers
+      displayName: "Cloudflare — Workers"
+      priority: 3001
+      featured: false
+    - targetURL: "https://dash.cloudflare.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: cloudflare-dashboard
+      displayName: "Cloudflare — Dashboard"
+      priority: 3002
+      featured: true
+    - targetURL: "https://one.dash.cloudflare.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: cloudflare-one-dashboard
+      displayName: "Cloudflare — One dashboard"
+      priority: 3003
+      featured: false
+    - repositoryURL: "https://github.com/cloudflare/vinext"
+      baseBranch: main
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: cloudflare-vinext
+      displayName: "Cloudflare — vinext"
+      priority: 3004
+      featured: false
+    - repositoryURL: "https://github.com/cloudflare/workerd"
+      baseBranch: main
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: cloudflare-workerd
+      displayName: "Cloudflare — workerd"
+      priority: 3005
+      featured: true
   provider: HackerOne
   displayName: Cloudflare
   programURL: https://hackerone.com/cloudflare
@@ -26,7 +71,8 @@ spec:
     Out-of-scope asset rows captured: 20
     The exact exclusions are transcribed into outOfScope below. Customer zones and properties merely proxied by Cloudflare are not Cloudflare assets and are never authorized by this program.
 
-    No scan target is shipped. The broad wildcard and product rows cannot be converted safely into a single endpoint without risking Cloudflare customer traffic.
+    Importable target boundary
+    Four exact Cloudflare-operated web/API hosts and the two explicitly listed repositories are exposed as individual import targets. Wildcards, product labels, the GitHub organization row, and Cloudflare customer properties remain policy-only scope; an imported target never authorizes scanning adjacent hosts, customer zones, or customer traffic.
 
     Operator gate
     Re-open the HackerOne engagement before every test. Confirm the specific product or Cloudflare-operated host, current exclusions, identity requirements, and rate limits. Customer authorization is separate from Cloudflare authorization.

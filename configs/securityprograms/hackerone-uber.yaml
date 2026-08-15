@@ -3,6 +3,14 @@ kind: SecurityProgram
 metadata:
   name: hackerone-uber
 spec:
+  scanTargets:
+    - targetURL: "https://uber.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: uber-web
+      displayName: "Uber — Web"
+      priority: 9000
+      featured: true
   provider: HackerOne
   displayName: Uber
   programURL: https://hackerone.com/uber
@@ -26,7 +34,8 @@ spec:
     Out-of-scope asset rows captured: 19
     The exact exclusions are transcribed into outOfScope below. The two broad in-scope domain rows do not authorize affecting drivers, riders, merchants, restaurants, employees, or other third parties. The program is impact-focused; a hostname alone is not a valid report.
 
-    No scan target is shipped because the scope is wildcard/impact based and safe testing requires researcher-controlled accounts, current program rules, and human review.
+    Importable target boundary
+    The exact https://uber.com row is exposed as an individual import target. The two wildcard domain rows and descriptive Recon Data row remain policy-only scope and must not be expanded into discovered hosts. Importing the apex URL still requires researcher-controlled accounts, current program rules, and human review.
 
     Operator gate
     Re-open the HackerOne engagement immediately before testing. Verify the affected service remains Uber-operated, use only your own accounts and data, and comply with any current identity header or rate limit.

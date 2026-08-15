@@ -3,6 +3,77 @@ kind: SecurityProgram
 metadata:
   name: intigriti-dropbox
 spec:
+  scanTargets:
+    - targetURL: "https://www.dropbox.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-web
+      displayName: "Dropbox — Web"
+      priority: 10000
+      featured: true
+    - targetURL: "https://sign.dropbox.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-sign
+      displayName: "Dropbox — Sign"
+      priority: 10001
+      featured: false
+    - targetURL: "https://www.hellosign.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-hellosign
+      displayName: "Dropbox — HelloSign"
+      priority: 10002
+      featured: false
+    - targetURL: "https://dash.ai"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-dash-ai
+      displayName: "Dropbox — Dash.ai"
+      priority: 10003
+      featured: false
+    - targetURL: "https://dash.dropbox.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-dash
+      displayName: "Dropbox — Dash"
+      priority: 10004
+      featured: false
+    - targetURL: "https://api.dropbox.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: dropbox-api
+      displayName: "Dropbox — API"
+      priority: 10005
+      featured: true
+    - targetURL: "https://www.hellofax.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-hellofax
+      displayName: "Dropbox — HelloFax"
+      priority: 10006
+      featured: false
+    - targetURL: "https://www.docsend.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-docsend
+      displayName: "Dropbox — DocSend"
+      priority: 10007
+      featured: false
+    - targetURL: "https://app.reclaim.ai"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-reclaim
+      displayName: "Dropbox — Reclaim"
+      priority: 10008
+      featured: false
+    - targetURL: "https://www.dropbox.com/paper"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-paper
+      displayName: "Dropbox — Paper"
+      priority: 10009
+      featured: false
   provider: Intigriti
   displayName: Dropbox
   programURL: https://app.intigriti.com/programs/dropbox/dropbox/detail
@@ -38,7 +109,8 @@ spec:
     Tier 2: Low $100-$250; Medium $250-$750; High $750-$2,500; Critical $2,500-$7,500; Exceptional $7,500-$10,000.
     Tier 3: Low $100; Medium $100-$500; High $500-$2,000; Critical $2,000-$5,000; Exceptional $5,000-$7,500.
 
-    No scan target is shipped. The current workflow cannot inject both mandatory identity headers or enforce the program-wide 5 requests/second ceiling; the previous ten suggested targets could therefore launch non-compliant traffic.
+    Importable target boundary
+    The ten exact first-party Tier 1 and Tier 2 web/API URLs are exposed as individual import targets. Wildcard Tier 3 rows, mobile apps, the desktop application, and product-only rows remain policy-only scope. The catalog does not inject the two mandatory identity headers or enforce the aggregate request ceiling; operators remain responsible for those live-program requirements.
 
     Operator gate
     Re-open Intigriti immediately before testing, verify the asset tier and all current rules, configure the required identity and headers, and enforce the global request ceiling across every tool and worker.
@@ -95,7 +167,7 @@ spec:
     - "Every request must send User-Agent: Intigriti - <username> - <user agent>"
     - "Every request must send X-Intigriti-Username: <username>"
     - Do not exceed 5 requests per second in aggregate across all tools and workers
-    - Do not import a web scan until the workflow can enforce both mandatory headers and the aggregate rate limit
+    - Configure both mandatory headers and the aggregate rate limit before sending testing traffic to an imported target
     - Use only researcher-controlled test accounts, devices, files, integrations, and data
     - No denial of service, distributed denial of service, brute force, spam, email bombing, social engineering, or physical intrusion
     - Do not access another user's private information; stop immediately on accidental access and retain only minimum evidence

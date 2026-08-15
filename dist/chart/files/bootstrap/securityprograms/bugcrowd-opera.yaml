@@ -3,6 +3,350 @@ kind: SecurityProgram
 metadata:
   name: bugcrowd-opera
 spec:
+  scanTargets:
+    - targetURL: "https://api.gx.games/dc"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-dc
+      displayName: "Opera — GX API /dc"
+      priority: 2000
+      featured: false
+    - targetURL: "https://api.gx.games/dev"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-dev
+      displayName: "Opera — GX API /dev"
+      priority: 2001
+      featured: false
+    - targetURL: "https://api.gx.games/gms"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-gms
+      displayName: "Opera — GX API /gms"
+      priority: 2002
+      featured: false
+    - targetURL: "https://api.gx.games/gx"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-gx
+      displayName: "Opera — GX API /gx"
+      priority: 2003
+      featured: false
+    - targetURL: "https://api.gx.games/gxc"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-gxc
+      displayName: "Opera — GX API /gxc"
+      priority: 2004
+      featured: false
+    - targetURL: "https://api.gx.games/profile"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-profile
+      displayName: "Opera — GX API /profile"
+      priority: 2005
+      featured: false
+    - targetURL: "https://api.gx.games/pub"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-pub
+      displayName: "Opera — GX API /pub"
+      priority: 2006
+      featured: false
+    - targetURL: "https://api.gx.games/session"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-session
+      displayName: "Opera — GX API /session"
+      priority: 2007
+      featured: false
+    - targetURL: "https://api.gx.me/me"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-me-api
+      displayName: "Opera — GX.me API"
+      priority: 2008
+      featured: false
+    - targetURL: "https://api.neon.opera.com/neon/pub"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-neon-api-neon-pub
+      displayName: "Opera — Neon API /neon/pub"
+      priority: 2009
+      featured: false
+    - targetURL: "https://api.neon.opera.com/neon/store"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-neon-api-neon-store
+      displayName: "Opera — Neon API /neon/store"
+      priority: 2010
+      featured: false
+    - targetURL: "https://api.neon.opera.com/pub"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-neon-api-pub
+      displayName: "Opera — Neon API /pub"
+      priority: 2011
+      featured: false
+    - targetURL: "https://blocklist.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-blocklist
+      displayName: "Opera — Blocklist API"
+      priority: 2012
+      featured: false
+    - targetURL: "https://exchange.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-exchange
+      displayName: "Opera — Exchange"
+      priority: 2013
+      featured: false
+    - targetURL: "https://accounts.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-accounts
+      displayName: "Opera — Accounts"
+      priority: 2014
+      featured: false
+    - targetURL: "https://auth-adx.op-mobile.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-auth-adx
+      displayName: "Opera — ADX authentication"
+      priority: 2015
+      featured: false
+    - targetURL: "https://auth.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-auth
+      displayName: "Opera — Authentication"
+      priority: 2016
+      featured: false
+    - targetURL: "https://autoupdate.geo.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-autoupdate
+      displayName: "Opera — Autoupdate"
+      priority: 2017
+      featured: false
+    - targetURL: "https://browser-notifications.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-browser-notifications
+      displayName: "Opera — Browser notifications"
+      priority: 2018
+      featured: false
+    - targetURL: "https://bugs.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-bugs
+      displayName: "Opera — Bug tracker"
+      priority: 2019
+      featured: false
+    - targetURL: "https://cashback.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-cashback
+      displayName: "Opera — Cashback"
+      priority: 2020
+      featured: false
+    - targetURL: "https://cdn-store.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-cdn-store
+      displayName: "Opera — CDN store API"
+      priority: 2021
+      featured: false
+    - targetURL: "https://cms.adx.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-cms-adx
+      displayName: "Opera — ADX CMS"
+      priority: 2022
+      featured: false
+    - targetURL: "https://create.gx.games"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-create-gx
+      displayName: "Opera — Create GX"
+      priority: 2023
+      featured: false
+    - targetURL: "https://cryptowallet.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-crypto-wallet
+      displayName: "Opera — Crypto wallet API"
+      priority: 2024
+      featured: false
+    - targetURL: "https://download.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-download
+      displayName: "Opera — Downloads"
+      priority: 2025
+      featured: false
+    - targetURL: "https://features.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-features
+      displayName: "Opera — Features API"
+      priority: 2026
+      featured: false
+    - targetURL: "https://flow.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-flow
+      displayName: "Opera — Flow API"
+      priority: 2027
+      featured: false
+    - targetURL: "https://get.geo.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-get-geo
+      displayName: "Opera — Geo download service"
+      priority: 2028
+      featured: false
+    - targetURL: "https://gx.games"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-games
+      displayName: "Opera — GX Games"
+      priority: 2029
+      featured: true
+    - targetURL: "https://gx.me"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-me
+      displayName: "Opera — GX.me"
+      priority: 2030
+      featured: false
+    - targetURL: "https://gx.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-service
+      displayName: "Opera — GX service API"
+      priority: 2031
+      featured: false
+    - targetURL: "https://neon.opera.com/cards/"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-neon-cards
+      displayName: "Opera — Neon cards"
+      priority: 2032
+      featured: false
+    - targetURL: "https://net.geo.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-net-geo
+      displayName: "Opera — Geo network service"
+      priority: 2033
+      featured: false
+    - targetURL: "https://ofa.adx.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-ofa-adx
+      displayName: "Opera — ADX OFA"
+      priority: 2034
+      featured: false
+    - targetURL: "https://ofp.adx.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-ofp-adx
+      displayName: "Opera — ADX OFP"
+      priority: 2035
+      featured: false
+    - targetURL: "https://operaneon.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-neon
+      displayName: "Opera — Opera Neon"
+      priority: 2036
+      featured: false
+    - targetURL: "https://speeddials.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-speeddials
+      displayName: "Opera — Speed dials API"
+      priority: 2037
+      featured: false
+    - targetURL: "https://suggestions.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-suggestions
+      displayName: "Opera — Suggestions API"
+      priority: 2038
+      featured: false
+    - targetURL: "https://www.gamemaker.io"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-gamemaker
+      displayName: "Opera — GameMaker"
+      priority: 2039
+      featured: false
+    - targetURL: "https://www.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-web
+      displayName: "Opera — Opera web"
+      priority: 2040
+      featured: true
+    - targetURL: "https://www.opera.com/computer/thanks?ni=eapgx&os=windows"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-windows-download
+      displayName: "Opera — Opera GX Windows download"
+      priority: 2041
+      featured: false
+    - targetURL: "https://www.opera.com/computer/thanks?ni=opera_air&os=windows"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-air-windows-download
+      displayName: "Opera — Opera Air Windows download"
+      priority: 2042
+      featured: false
+    - targetURL: "https://www.opera.com/computer/thanks?ni=stable&os=windows"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-stable-windows-download
+      displayName: "Opera — Opera Windows download"
+      priority: 2043
+      featured: false
+    - targetURL: "https://www.operaneon.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-neon-www
+      displayName: "Opera — Opera Neon (www)"
+      priority: 2044
+      featured: false
+    - targetURL: "https://marketplace.gamemaker.io"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-gamemaker-marketplace
+      displayName: "Opera — GameMaker Marketplace"
+      priority: 2045
+      featured: false
+    - targetURL: "https://merchandise.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-merchandise
+      displayName: "Opera — Merchandise API"
+      priority: 2046
+      featured: false
+    - targetURL: "https://push.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-push
+      displayName: "Opera — Push API"
+      priority: 2047
+      featured: false
+    - targetURL: "https://weather.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-weather
+      displayName: "Opera — Weather API"
+      priority: 2048
+      featured: false
   provider: Bugcrowd
   displayName: Opera
   programURL: https://bugcrowd.com/engagements/opera
@@ -32,7 +376,8 @@ spec:
     Eligibility boundaries
     Chromium-inherited vulnerabilities must be reported to Chromium and are not eligible for an Opera bounty. Unsupported Opera versions are not eligible. Android vulnerabilities may also qualify under Google's Play Security Reward Program, but Opera asks researchers to report to Opera first. Reports need a clear proof of concept and reproduction steps, and publication must wait for coordinated disclosure.
 
-    No scan target is shipped. The table mixes production wildcard domains, CIDRs, clients, mobile apps, and exact endpoints, and the browser-readable table was two months old; those rows cannot safely become one-click network targets.
+    Importable target boundary
+    The 49 exact first-party web and API URLs are exposed as individual import targets. Wildcard domains, CIDRs, mobile and desktop clients, and the GameMaker Studio product row remain policy-only scope. Imported URLs must not be expanded into adjacent hosts or network ranges, and the two-month-old browser-readable table still requires live re-verification.
 
     Operator gate
     Re-open the authenticated Bugcrowd engagement immediately before testing and confirm the exact row, bounty flag, supported version, identity requirements, and rate limits.
@@ -63,7 +408,7 @@ spec:
     - Unsupported Opera versions
     - Any asset not present in the current authenticated Bugcrowd table
   prohibitedTesting:
-    - Do not run wildcard, CIDR, or production network scans from this catalog record
+    - Do not expand an imported exact URL into wildcard, CIDR, adjacent-host, or IP-range scanning
     - Verify the live Bugcrowd asset row, bounty flag, supported product version, identity requirements, and rate limit before testing
     - Use only researcher-controlled accounts, devices, content, and data
     - No denial of service, distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing

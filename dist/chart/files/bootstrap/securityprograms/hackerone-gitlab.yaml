@@ -3,6 +3,104 @@ kind: SecurityProgram
 metadata:
   name: hackerone-gitlab
 spec:
+  scanTargets:
+    - targetURL: "https://about.gitlab.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: gitlab-about
+      displayName: "GitLab — About"
+      priority: 5000
+      featured: false
+    - targetURL: "https://advisories.gitlab.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: gitlab-advisories
+      displayName: "GitLab — Advisories"
+      priority: 5001
+      featured: false
+    - targetURL: "https://customers.gitlab.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: gitlab-customers
+      displayName: "GitLab — Customers"
+      priority: 5002
+      featured: false
+    - targetURL: "https://design.gitlab.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: gitlab-design
+      displayName: "GitLab — Design system"
+      priority: 5003
+      featured: false
+    - targetURL: "https://docs.gitlab.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: gitlab-docs
+      displayName: "GitLab — Documentation"
+      priority: 5004
+      featured: false
+    - targetURL: "https://gitlab.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: gitlab-web
+      displayName: "GitLab — GitLab.com"
+      priority: 5005
+      featured: true
+    - targetURL: "https://registry.gitlab.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: gitlab-registry
+      displayName: "GitLab — Container registry"
+      priority: 5006
+      featured: false
+    - repositoryURL: "https://gitlab.com/gitlab-org/gitaly"
+      baseBranch: master
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: gitlab-gitaly
+      displayName: "GitLab — Gitaly"
+      priority: 5007
+      featured: false
+    - repositoryURL: "https://gitlab.com/gitlab-org/gitlab"
+      baseBranch: master
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: gitlab-source
+      displayName: "GitLab — GitLab source"
+      priority: 5008
+      featured: true
+    - repositoryURL: "https://gitlab.com/gitlab-org/gitlab-pages"
+      baseBranch: master
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: gitlab-pages
+      displayName: "GitLab — Pages"
+      priority: 5009
+      featured: false
+    - repositoryURL: "https://gitlab.com/gitlab-org/gitlab-runner"
+      baseBranch: main
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: gitlab-runner
+      displayName: "GitLab — Runner"
+      priority: 5010
+      featured: false
+    - repositoryURL: "https://gitlab.com/gitlab-org/gitlab-shell"
+      baseBranch: main
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: gitlab-shell
+      displayName: "GitLab — Shell"
+      priority: 5011
+      featured: false
+    - repositoryURL: "https://gitlab.com/gitlab-org/gitlab-vscode-extension"
+      baseBranch: main
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: gitlab-vscode-extension
+      displayName: "GitLab — VS Code extension"
+      priority: 5012
+      featured: false
   provider: HackerOne
   displayName: GitLab
   programURL: https://hackerone.com/gitlab
@@ -28,7 +126,8 @@ spec:
     Current testing boundary
     GitLab strongly prefers reproduction in a local GitLab Development Kit or researcher-owned instance. Production GitLab.com testing must use an account registered as yourhandle@wearehackerone.com. General metadata or enumeration findings and standalone prompt injection are out of scope; prompt injection is eligible only when it crosses a security boundary and demonstrates harm. Denial-of-service is out of scope except an unauthenticated application-layer issue that persistently and totally disrupts service, and that proof must be performed on the researcher's own instance sized to GitLab's published requirements.
 
-    No scan target is shipped. The source repositories are cataloged as scope, but importing production web targets would bypass the required account and safe-environment controls.
+    Importable target boundary
+    The seven exact first-party web/API URLs and six explicitly listed repositories are exposed as individual import targets. Wildcard rows, client applications, and descriptive product rows remain policy-only scope. Importing a GitLab.com URL does not bypass the required HackerOne research account, and repository scans should still prefer a local safe environment.
 
     Operator gate
     Re-open HackerOne before testing. Prefer a local current build, verify the exact repository or host row, and never use GitLab.com without the required HackerOne research identity.

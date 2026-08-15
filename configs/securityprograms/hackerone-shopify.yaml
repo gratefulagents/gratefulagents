@@ -3,6 +3,63 @@ kind: SecurityProgram
 metadata:
   name: hackerone-shopify
 spec:
+  scanTargets:
+    - targetURL: "https://admin.shopify.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: shopify-admin
+      displayName: "Shopify — Admin"
+      priority: 8000
+      featured: true
+    - targetURL: "https://arrive-server.shopifycloud.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: shopify-arrive-server
+      displayName: "Shopify — Arrive server"
+      priority: 8001
+      featured: false
+    - targetURL: "https://shopify.plus"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: shopify-plus
+      displayName: "Shopify — Plus"
+      priority: 8002
+      featured: false
+    - targetURL: "https://shop.app"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: shopify-shop-app
+      displayName: "Shopify — Shop app web"
+      priority: 8003
+      featured: false
+    - targetURL: "https://shopifyinbox.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: shopify-inbox
+      displayName: "Shopify — Inbox"
+      priority: 8004
+      featured: false
+    - targetURL: "https://linkpop.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: shopify-linkpop
+      displayName: "Shopify — Linkpop"
+      priority: 8005
+      featured: false
+    - targetURL: "https://accounts.shopify.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: shopify-accounts
+      displayName: "Shopify — Accounts"
+      priority: 8006
+      featured: false
+    - targetURL: "https://partners.shopify.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: shopify-partners
+      displayName: "Shopify — Partners"
+      priority: 8007
+      featured: false
   provider: HackerOne
   displayName: Shopify
   programURL: https://hackerone.com/shopify
@@ -28,7 +85,8 @@ spec:
     Account and testing boundary
     Create test stores only through the HackerOne signup path and register them with YOURHANDLE@wearehackerone.com. Never interact with a live merchant store or a store you did not create. Shopify judges many common platform behaviors as intended or ineligible; examples are transcribed below so they are not promoted as findings.
 
-    No scan target is shipped because the only safe storefront target is researcher-specific and cannot be represented by a shared catalog URL.
+    Importable target boundary
+    The eight exact shared first-party web/API URLs are exposed as individual import targets. Wildcards, mobile and developed-app rows, the GitHub organization wildcard, third-party stores and apps, and the researcher-specific your-store.myshopify.com placeholder remain policy-only scope. Imported shared hosts never authorize touching a live merchant storefront or merchant data.
 
     Operator gate
     Re-open the official criteria and HackerOne engagement before every test, use only the assigned research identity and researcher-created stores, and verify any current rate limits or special campaign rules.
@@ -51,7 +109,7 @@ spec:
   prohibitedTesting:
     - "Do not test without a HackerOne Shopify account and a test store created with YOURHANDLE@wearehackerone.com"
     - Never interact with a live merchant, a store you did not create, real buyers, real orders, or third-party data
-    - Do not scan a shared Shopify hostname from this catalog record
+    - Do not use an imported shared hostname to interact with live merchant storefronts, buyers, orders, or merchant data
     - No denial of service, distributed denial of service, brute force, traffic flooding, spam, social engineering, support contact, or physical testing
     - Do not test third-party apps before notifying the developer and waiting the required one week
     - Human-review automated and AI-assisted findings and provide a reproducible meaningful impact

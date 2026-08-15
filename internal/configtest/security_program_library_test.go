@@ -59,18 +59,33 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"bugcrowd-opera":        {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 89", "Out-of-scope asset rows captured: 22", "com.opera.minipay"},
 		"intigriti-dropbox":     {"Public Intigriti scope snapshot verified 2026-08-15", "Tier 1 assets", "Explicit out-of-scope asset rows", "X-Intigriti-Username: <username>"},
 	}
+	browserResearchedCatalogPrograms := map[string]struct{}{
+		"hackerone-gitlab":      {},
+		"hackerone-shopify":     {},
+		"hackerone-uber":        {},
+		"hackerone-coinbase":    {},
+		"hackerone-cloudflare":  {},
+		"hackerone-playstation": {},
+		"hackerone-security":    {},
+		"bugcrowd-openai":       {},
+		"bugcrowd-atlassian":    {},
+		"bugcrowd-opera":        {},
+		"intigriti-dropbox":     {},
+	}
 	catalogProgramsWithoutImportTargets := map[string]string{
-		"hackerone-gitlab":      "account registered as yourhandle@wearehackerone.com",
-		"hackerone-shopify":     "researcher-specific",
-		"hackerone-uber":        "wildcard/impact based",
-		"hackerone-coinbase":    "production financial infrastructure",
-		"hackerone-cloudflare":  "Cloudflare customer traffic",
-		"hackerone-playstation": "researcher-controlled accounts",
-		"hackerone-security":    "mandatory X-Bug-Bounty header",
-		"bugcrowd-openai":       "authenticated Bugcrowd",
-		"bugcrowd-atlassian":    "researcher-owned test tenant",
-		"bugcrowd-opera":        "production wildcard domains, CIDRs",
-		"intigriti-dropbox":     "mandatory identity headers",
+		"bugcrowd-openai": "authenticated Bugcrowd",
+	}
+	expectedCatalogTargetCounts := map[string]int{
+		"bugcrowd-atlassian":    30,
+		"bugcrowd-opera":        49,
+		"hackerone-cloudflare":  6,
+		"hackerone-coinbase":    2,
+		"hackerone-gitlab":      13,
+		"hackerone-playstation": 16,
+		"hackerone-security":    22,
+		"hackerone-shopify":     8,
+		"hackerone-uber":        1,
+		"intigriti-dropbox":     10,
 	}
 	expectedImmunefiTargets := map[string]string{
 		"immunefi-1inch":  "https://github.com/1inch/limit-order-protocol",
@@ -143,6 +158,8 @@ func TestSecurityProgramLibrary(t *testing.T) {
 				if !strings.Contains(program.Spec.ScopePolicy, reason) {
 					t.Errorf("scopePolicy does not explain non-importable target boundary %q", reason)
 				}
+			}
+			if _, ok := browserResearchedCatalogPrograms[program.Name]; ok {
 				if len(program.Spec.OutOfScope) == 0 {
 					t.Error("browser-researched catalog program has no typed out-of-scope boundary")
 				}
@@ -151,6 +168,41 @@ func TestSecurityProgramLibrary(t *testing.T) {
 				}
 				if strings.Contains(program.Spec.ScopePolicy, "Verification boundary") {
 					t.Error("catalog program still contains the pre-research placeholder scope")
+				}
+			}
+			if want, ok := expectedCatalogTargetCounts[program.Name]; ok {
+				if got := len(targets); got != want {
+					t.Fatalf("importable scan target count = %d, want %d", got, want)
+				}
+				for index, target := range targets {
+					candidate := target.TargetURL
+					if target.RepositoryURL != "" {
+						candidate = target.RepositoryURL
+					}
+					if !strings.HasPrefix(candidate, "https://") {
+						t.Errorf("scanTargets[%d] is not an explicit HTTPS target: %q", index, candidate)
+					}
+					if strings.ContainsAny(candidate, "*<>{}") {
+						t.Errorf("scanTargets[%d] promotes a wildcard or placeholder: %q", index, candidate)
+					}
+					if target.RepositoryURL != "" {
+						if target.BaseBranch == "" {
+							t.Errorf("scanTargets[%d] repository has no verified default branch", index)
+						}
+						if target.WorkflowRef != "default-deep-scan" || target.PolicyPackRef != "bug-bounty" {
+							t.Errorf("scanTargets[%d] repository uses workflow/policy %q/%q", index, target.WorkflowRef, target.PolicyPackRef)
+						}
+						continue
+					}
+					if target.BaseBranch != "" {
+						t.Errorf("scanTargets[%d] web target unexpectedly declares baseBranch %q", index, target.BaseBranch)
+					}
+					if target.WorkflowRef != "web-app-full-assessment" && target.WorkflowRef != "web-api-assessment" {
+						t.Errorf("scanTargets[%d] web target uses workflow %q", index, target.WorkflowRef)
+					}
+					if target.PolicyPackRef != "web-application" {
+						t.Errorf("scanTargets[%d] web target uses policy %q", index, target.PolicyPackRef)
+					}
 				}
 			}
 			if program.Name == "firedancer" && len(targets) != 0 {
