@@ -68,8 +68,6 @@ jobs:
             dockerfile: ./Dockerfile.worker
           - image: injector
             dockerfile: ./Dockerfile.injector
-          - image: security-tools
-            dockerfile: ./Dockerfile.security-tools
     uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read
@@ -99,6 +97,207 @@ jobs:
         - registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+  security-image-plan:
+    name: Plan security-tools image
+    needs: release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      rebuild: ${{ steps.plan.outputs.rebuild }}
+      source-digest: ${{ steps.plan.outputs.source-digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Check security-tools inputs and existing image
+        id: plan
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
+          IMAGE: ghcr.io/gratefulagents/security-tools
+        run: |
+          rebuild=true
+
+          # A manual run has no reliable previous revision. A new branch can
+          # also report an all-zero `before` SHA, so build in either case.
+          if [ "${EVENT_NAME}" = "push" ] &&
+             [ -n "${BEFORE_SHA}" ] &&
+             [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]; then
+            if git diff --quiet "${BEFORE_SHA}" "${HEAD_SHA}" -- \
+              .dockerignore \
+              .github/workflows/app-release.yml \
+              Dockerfile.security-tools \
+              go.mod \
+              go.sum \
+              security-tools.lock.json \
+              security-tool-requirements \
+              security-knowledge/nuclei-reviewed.yaml \
+              cmd/install-security-tools \
+              cmd/ga-security \
+              api/platform/v1alpha1 \
+              internal/security \
+              internal/securitytoolpacks \
+              internal/securitytoolrun \
+              ':(glob)internal/store/*.go' \
+              internal/store/contentblob; then
+              rebuild=false
+            fi
+          fi
+
+          # Reuse the exact predecessor artifact, never the mutable main tag.
+          # A prior failed/cancelled build can leave main older than BEFORE_SHA.
+          if [ "${rebuild}" = "false" ]; then
+            source_image="${IMAGE}:${BEFORE_SHA}"
+            manifest="${RUNNER_TEMP}/security-tools-manifest.json"
+            if ! docker buildx imagetools inspect --format '{{json .Manifest}}' "${source_image}" > "${manifest}"; then
+              echo "${source_image} does not exist; rebuilding"
+              rebuild=true
+            elif ! jq -e '
+              (.digest | test("^sha256:[0-9a-f]{64}$")) and
+              (.manifests | any(.platform.os == "linux" and .platform.architecture == "amd64")) and
+              (.manifests | any(.platform.os == "linux" and .platform.architecture == "arm64"))
+            ' "${manifest}" > /dev/null; then
+              echo "${source_image} is not a valid linux/amd64 and linux/arm64 image; rebuilding"
+              rebuild=true
+            else
+              source_digest="$(jq -r '.digest' "${manifest}")"
+              echo "source-digest=${source_digest}" | tee -a "${GITHUB_OUTPUT}"
+            fi
+          fi
+
+          echo "rebuild=${rebuild}" | tee -a "${GITHUB_OUTPUT}"
+
+  security-image-build:
+    name: security-tools image (build)
+    needs:
+      - release
+      - security-image-plan
+    if: ${{ needs.security-image-plan.outputs.rebuild == 'true' }}
+    uses: docker/github-builder/.github/workflows/build.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    with:
+      output: image
+      push: true
+      context: .
+      file: ./Dockerfile.security-tools
+      build-args: |
+        VITE_BUILD_COMMIT=${{ github.sha }}
+        APP_VERSION=${{ needs.release.outputs.version || 'dev' }}
+      platforms: linux/amd64,linux/arm64
+      cache: true
+      cache-scope: gratefulagents-security-tools
+      cache-mode: max
+      meta-images: ghcr.io/gratefulagents/security-tools
+      meta-tags: |
+        type=raw,value=main
+        type=raw,value=${{ github.sha }}
+        type=raw,value=latest,enable=${{ needs.release.outputs.release_created == 'true' }}
+        type=raw,value=${{ needs.release.outputs.tag_name || 'not-a-release' }},enable=${{ needs.release.outputs.release_created == 'true' }}
+      set-meta-labels: true
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+  security-image-reuse:
+    name: security-tools image (reuse)
+    needs:
+      - release
+      - security-image-plan
+    if: ${{ needs.security-image-plan.outputs.rebuild == 'false' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Copy existing image to this release's tags
+        env:
+          RELEASE_CREATED: ${{ needs.release.outputs.release_created }}
+          SHA_TAG: ${{ github.sha }}
+          SOURCE_DIGEST: ${{ needs.security-image-plan.outputs.source-digest }}
+          VERSION_TAG: ${{ needs.release.outputs.tag_name }}
+        run: |
+          image=ghcr.io/gratefulagents/security-tools
+          source="${image}@${SOURCE_DIGEST}"
+
+          # `imagetools create` copies the multi-platform manifest in the
+          # registry. Its layers are not downloaded and no build is executed.
+          tags=(--tag "${image}:${SHA_TAG}" --tag "${image}:main")
+          immutable_tags=("${SHA_TAG}")
+          verify_tags=("${SHA_TAG}" main)
+          if [ "${RELEASE_CREATED}" = "true" ]; then
+            tags+=(--tag "${image}:latest" --tag "${image}:${VERSION_TAG}")
+            immutable_tags+=("${VERSION_TAG}")
+            verify_tags+=(latest "${VERSION_TAG}")
+          fi
+
+          # SHA and version tags are immutable release records. A rerun may
+          # reuse an identical tag, but must not silently replace another image.
+          for tag in "${immutable_tags[@]}"; do
+            if actual="$(docker buildx imagetools inspect --format '{{json .Manifest}}' "${image}:${tag}" 2> /dev/null | jq -r '.digest')" &&
+               [ -n "${actual}" ] && [ "${actual}" != "${SOURCE_DIGEST}" ]; then
+              echo "::error::Refusing to replace ${image}:${tag} (${actual}) with ${SOURCE_DIGEST}"
+              exit 1
+            fi
+          done
+
+          docker buildx imagetools create "${tags[@]}" "${source}"
+
+          expected="${SOURCE_DIGEST}"
+          for tag in "${verify_tags[@]}"; do
+            actual="$(docker buildx imagetools inspect --format '{{json .Manifest}}' "${image}:${tag}" | jq -r '.digest')"
+            if [ "${actual}" != "${expected}" ]; then
+              echo "::error::${image}:${tag} resolved to ${actual}, expected ${expected}"
+              exit 1
+            fi
+          done
+
+  security-image:
+    name: security-tools image
+    needs:
+      - security-image-plan
+      - security-image-build
+      - security-image-reuse
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify build or reuse succeeded
+        env:
+          BUILD_RESULT: ${{ needs.security-image-build.result }}
+          REUSE_RESULT: ${{ needs.security-image-reuse.result }}
+        run: |
+          if [ "${BUILD_RESULT}" != "success" ] && [ "${REUSE_RESULT}" != "success" ]; then
+            echo "::error::Neither the security-tools build nor reuse job succeeded"
+            exit 1
+          fi
 
   website:
     name: GitHub Pages website
@@ -427,6 +626,7 @@ jobs:
     needs:
       - release
       - images
+      - security-image
       - desktop
       - android
       - ios
@@ -569,6 +769,7 @@ jobs:
     needs:
       - release
       - images
+      - security-image
       - website
       - desktop
       - android
