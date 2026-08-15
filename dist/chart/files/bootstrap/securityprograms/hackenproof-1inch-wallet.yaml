@@ -1,0 +1,43 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-1inch-wallet
+spec:
+  provider: HackenProof
+  displayName: 1inch Wallet
+  programURL: https://hackenproof.com/programs/1inch-wallet
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-15.
+
+    Live Program is active now.
+    Range of bounty: $100 - $100,000.
+
+    In scope targets
+    - apps.apple.com/us/app/1inch-crypto-defi-wallet/id1546049391 (iOS, Critical)
+    - play.google.com/store/apps/details?id=io.oneinch.android (Android, Critical)
+
+    In-scope vulnerabilities
+    Business logic issues; payments manipulation; access control issues (including IDOR); remote code execution; injection vulnerabilities; supply-chain attacks; cryptographic vulnerabilities; and other vulnerabilities with a clear potential for loss at program discretion.
+
+    All reports must include a proof of concept demonstrating real-world impact. Submissions without a PoC are not considered.
+
+    Importable target boundary
+    The program lists production mobile binaries but no source repository. No importable scan target is published because this catalog does not convert App Store or Play Store pages into network targets and must not infer unrelated 1inch repositories.
+  outOfScope:
+    - Recently disclosed zero-day vulnerabilities less than 30 days old
+    - Attacks requiring physical access to a user's device
+    - Vulnerabilities requiring root or jailbreak
+    - Vulnerabilities requiring extensive user interaction or social engineering
+    - Static analysis of a binary without a proof of concept affecting business logic
+    - Denial of service, speculative findings, and findings without demonstrated security impact
+    - Any repository or service not explicitly listed by the wallet program
+  prohibitedTesting:
+    - Test only the two mobile applications explicitly listed in the current program scope
+    - Do not access or modify another user's data, wallet, seed, keys, or funds
+    - Do not disrupt availability, perform denial of service, spam, or use social engineering
+    - Automated scanning results and AI-generated reports are not accepted
+    - Report privately through HackenProof within 24 hours of discovery and do not disclose without written permission

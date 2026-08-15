@@ -1,0 +1,48 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: coinkite-coldcard
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/Coldcard/firmware
+      baseBranch: master
+      workflowRef: wallet-security-review
+      policyPackRef: bug-bounty
+      scanName: coldcard-firmware
+      displayName: COLDCARD firmware and simulator
+      priority: 5004
+      featured: true
+  provider: Coinkite
+  displayName: COLDCARD Responsible Disclosure
+  programURL: https://coinkite.com/responsible-disclosure
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Official Coinkite responsible-disclosure policy snapshot verified 2026-08-15; canonical page updated August 2026.
+
+    Scope
+    - Security vulnerabilities in Coinkite hardware, firmware, and bootloaders
+    - Vulnerabilities in first-party production applications, protocol libraries, and source code maintained by Coinkite that directly affect a Coinkite product, user funds, private keys, or other secrets
+    - Vulnerabilities in Coinkite-operated production websites and services that demonstrate unauthorized access, code execution, exposure of customer or order data, or compromise of an official software release or update process
+
+    COLDCARD's reporting page specifically requests affected product, hardware revision, firmware version, release channel, preconditions, reproduction, and a minimal safe proof of concept. It names private-key leakage, unauthorized signing, misleading transaction approval, PIN bypass, and remote code execution as wanted report classes.
+
+    Rewards
+    Coinkite evaluates rewards case by case and at its sole discretion. It may offer a Bitcoin bounty, personalized Bugmug, public credit, or replacement hardware, but no report creates an entitlement to payment or another benefit.
+
+    Importable target boundary
+    https://github.com/Coldcard/firmware on master is imported because it is the official production firmware and simulator repository for current COLDCARD Mk and Q devices. Experimental edge code is not imported. A source finding must be tied to an affected production model, firmware release, and released artifact before reporting.
+  outOfScope:
+    - Third-party applications, websites, and services not controlled by Coinkite
+    - Missing headers, clickjacking, email-authentication configuration, and automated scanner output without reproducible direct security impact
+    - Duplicate, previously known, theoretical, and unproven weaknesses
+    - Findings confined to experimental edge code or a non-production artifact
+  prohibitedTesting:
+    - Test only devices, accounts, funds, data, and systems you own or have explicit permission to test
+    - Do not access, retain, alter, destroy, disclose, or use customer data, private keys, seeds, credentials, or third-party funds
+    - Do not initiate unauthorized transactions, socially engineer, phish, commit fraud, cause denial of service, or disrupt Coinkite or its users
+    - Do not exploit beyond the minimum necessary to demonstrate existence and impact
+    - Never send funded seed phrases, private keys, PINs, passphrases, wallet backups, or production secrets as proof
+    - Begin sensitive reports by email, request the Coinkite PGP key, and keep findings private while disclosure would create avoidable user risk

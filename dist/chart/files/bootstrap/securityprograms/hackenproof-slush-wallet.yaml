@@ -1,0 +1,46 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-slush-wallet
+spec:
+  provider: HackenProof
+  displayName: Slush Wallet
+  programURL: https://hackenproof.com/programs/slush-wallet
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-15.
+
+    Live Program is active now.
+    Range of bounty: $1,000 - $30,000. KYC, PoC, 100 reputation points, and a $5 submission fee are required by the displayed program.
+
+    In scope targets
+    - Slush Chrome extension
+    - Android app com.mystenlabs.suiwallet
+    - iOS app id6476572140
+    - slush.app
+    - Infrastructure built around the wallet (GitHub, etc.) may be considered by the program on a severity basis.
+
+    Impact in Scope for Wallet
+    - Funds frozen or locked within the wallet and otherwise irrecoverable
+    - Funds stolen through leakage of the Secret Recovery Phrase or transactions specifically when visiting a webpage
+    - Entire set of accounts irrecoverable using existing flows in the app
+
+    Reports require a valid proof of concept and detailed reproduction. The program directs researchers to use Sui Testnet when evaluating attacks that can change object state.
+
+    Importable target boundary
+    The scope does not identify an exact source repository. No importable scan target is published because the broad MystenLabs GitHub organization and Sui monorepo cannot be inferred to be the production Slush source without written confirmation.
+  outOfScope:
+    - Sui Explorer, SuiFrens, SuiNS, Sui Kiosk, Kiosk Extensions, and zkLogin features
+    - Third-party integrations and components not directly controlled by Mysten Labs
+    - Physical security, attacks requiring MITM or physical device access, and outdated versions
+    - Denial of service, clickjacking, tabnabbing, self-XSS, missing headers, best-practice-only findings, and unlikely user interaction
+    - Known issues from previous reports or audits
+  prohibitedTesting:
+    - Use researcher-owned accounts, wallets, data, and funds only
+    - Use Sui Testnet for any proof that can change object state; do not test state-changing exploits on mainnet
+    - Do not harm or leak data, compromise privacy, disrupt services, phish, socially engineer, or perform denial of service
+    - Submit privately and exclusively through HackenProof within 24 hours of discovery
+    - Do not publish or discuss any vulnerability without express consent
